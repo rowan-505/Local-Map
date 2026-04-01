@@ -1,8 +1,0 @@
-com.rowan.townmap.feature.search-pngs-0 /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/search/build/generated/res/pngs/debug
-com.rowan.townmap.feature.search-updated_navigation_xml-1 /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/search/build/generated/updated_navigation_xml/debug
-com.rowan.townmap.feature.search-mergeDebugResources-2 /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/search/build/intermediates/incremental/debug/mergeDebugResources/merged.dir
-com.rowan.townmap.feature.search-mergeDebugResources-3 /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/search/build/intermediates/incremental/debug/mergeDebugResources/stripped.dir
-com.rowan.townmap.feature.search-debug-4 /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/search/build/intermediates/merged_res/debug/mergeDebugResources
-com.rowan.townmap.feature.search-debug-5 /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/search/build/intermediates/packaged_res/debug/packageDebugResources
-com.rowan.townmap.feature.search-debug-6 /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/search/src/debug/res
-com.rowan.townmap.feature.search-main-7 /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/search/src/main/res

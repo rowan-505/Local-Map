@@ -1,0 +1,8 @@
+com.rowan.townmap.feature.settings-pngs-0 /Users/nyihtet/Documents/Projects/Local-Map/town-map-andriod-kotlin/feature/settings/build/generated/res/pngs/debug
+com.rowan.townmap.feature.settings-updated_navigation_xml-1 /Users/nyihtet/Documents/Projects/Local-Map/town-map-andriod-kotlin/feature/settings/build/generated/updated_navigation_xml/debug
+com.rowan.townmap.feature.settings-mergeDebugResources-2 /Users/nyihtet/Documents/Projects/Local-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/incremental/debug/mergeDebugResources/merged.dir
+com.rowan.townmap.feature.settings-mergeDebugResources-3 /Users/nyihtet/Documents/Projects/Local-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/incremental/debug/mergeDebugResources/stripped.dir
+com.rowan.townmap.feature.settings-debug-4 /Users/nyihtet/Documents/Projects/Local-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/merged_res/debug/mergeDebugResources
+com.rowan.townmap.feature.settings-debug-5 /Users/nyihtet/Documents/Projects/Local-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/packaged_res/debug/packageDebugResources
+com.rowan.townmap.feature.settings-debug-6 /Users/nyihtet/Documents/Projects/Local-Map/town-map-andriod-kotlin/feature/settings/src/debug/res
+com.rowan.townmap.feature.settings-main-7 /Users/nyihtet/Documents/Projects/Local-Map/town-map-andriod-kotlin/feature/settings/src/main/res
