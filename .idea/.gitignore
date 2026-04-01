@@ -1,0 +1,23 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+
+# env
+.env
+.env.*
+!.env.example
+
+# env / secrets
+.env
+.env.*
+local.properties
+*.keystore
+*.jks
+
+# keys
+*.pem
+*.key
+
+# local configs
+secrets.json
+service-account.json

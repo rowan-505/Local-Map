@@ -1,0 +1,16 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest8894320075151312964.xml:2:13-83
+INJECTED from /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest8894320075151312964.xml:2:13-83
+	package
+		INJECTED from /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest8894320075151312964.xml
+	xmlns:android
+		ADDED from /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest8894320075151312964.xml:2:23-81
+uses-sdk
+INJECTED from /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest8894320075151312964.xml reason: use-sdk injection requested
+INJECTED from /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest8894320075151312964.xml
+INJECTED from /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest8894320075151312964.xml
+	android:targetSdkVersion
+		INJECTED from /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest8894320075151312964.xml
+	android:minSdkVersion
+		INJECTED from /Users/nyihtet/Documents/Projects/Town-Map/town-map-andriod-kotlin/feature/settings/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest8894320075151312964.xml

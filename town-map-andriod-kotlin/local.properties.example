@@ -1,0 +1,4 @@
+# Copy to `local.properties` (gitignored) at the project root. Never commit real secrets.
+
+# Mapbox — public access token (rotate in Mapbox account if leaked)
+MAPBOX_ACCESS_TOKEN= OUR_MAPBOX_TOKEN_HERE
