@@ -5,12 +5,12 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 export type { MapEngine, MapMouseEvent } from './mapEngineTypes';
-export { createMapboxMap as createMapEngine, addNavigationControl } from './mapbox/mapInstance';
+export { createMaplibreMap as createMapEngine, addNavigationControl } from './maplibre/mapInstance';
 export {
   ensurePlacesLayer,
   setPlacesGeoJSON,
   setSelectedPoiHighlight,
-} from './mapbox/placesOnMap';
-export { bindPoiLayerInteractions } from './mapbox/poiMapInteractions';
-export { applyMapOverlayStackOrder } from './mapbox/mapStackOrder';
-export { syncCountryMinZoom } from './mapbox/mapCountryMinZoom';
+} from './maplibre/placesOnMap';
+export { bindPoiLayerInteractions } from './maplibre/poiMapInteractions';
+export { applyMapOverlayStackOrder } from './maplibre/mapStackOrder';
+export { syncCountryMinZoom } from './maplibre/mapCountryMinZoom';

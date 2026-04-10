@@ -1,6 +1,6 @@
 /**
  * App POI layers (GeoJSON + circle) — product data only, separate from:
- * - raster basemap (`public/basemap-township-mvp.json`)
+ * - vector basemap (`public/styles/base-light.json`)
  * - Kyauktan township overlay (`kyauktanTownshipOverlay`)
  */
 import type { ExpressionSpecification, GeoJSONSource } from 'maplibre-gl';

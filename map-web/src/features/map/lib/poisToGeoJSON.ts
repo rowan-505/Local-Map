@@ -1,5 +1,5 @@
 /**
- * Map layer serialization: POI domain → GeoJSON for Mapbox/MapLibre sources.
+ * Map layer serialization: POI domain → GeoJSON for MapLibre GL sources.
  */
 import type { Poi } from '@/types';
 

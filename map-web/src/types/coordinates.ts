@@ -1,6 +1,6 @@
 /**
  * Geographic primitives shared across map code.
- * LngLat tuple order matches GeoJSON and MapLibre/Mapbox `LngLatLike` ([lng, lat]).
+ * LngLat tuple order matches GeoJSON and MapLibre GL `LngLatLike` ([lng, lat]).
  */
 
 /** WGS84 degrees — object form for app/domain code and forms. */

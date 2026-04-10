@@ -3,7 +3,7 @@
  * Map UI and data loading both read from here; no duplicate bbox literals elsewhere.
  */
 
-/** Mapbox-compatible `maxBounds`: [southwest, northeast] as [lng, lat] pairs. */
+/** MapLibre GL–compatible `maxBounds`: [southwest, northeast] as [lng, lat] pairs. */
 export type LngLatBounds = readonly [readonly [number, number], readonly [number, number]];
 
 export const REGION_SCOPE = {
@@ -11,18 +11,17 @@ export const REGION_SCOPE = {
     code: 'MM' as const,
     name: 'Myanmar',
     /**
-     * Approximate national extent (SW then NE, [lng, lat]) — used for initial map fit so the first
-     * view is Myanmar-framed regardless of viewport aspect ratio.
+     * National extent (SW then NE, [lng, lat]) — map `minZoom` + initial fit use this via `mapDefaults`.
      */
     boundsLngLat: [
-      [92.2, 9.5],
-      [101.2, 28.55],
+      [92.0, 9.0],
+      [101.5, 29.5],
     ] as const satisfies LngLatBounds,
   },
   /**
    * Active operational footprint — bbox for Kyauktan MVP.
    * Use for: API `bbox` / spatial queries, client “in scope” checks, map logic that needs the official area.
-   * Map `maxBounds` / `minZoom` use `country.boundsLngLat` via `mapDefaults` (Myanmar pan + zoom floor).
+   * Map country fit / `minZoom` use `country.boundsLngLat` via `mapDefaults`; pan limits use a wider box there.
    */
   operationalArea: {
     id: 'kyauktan' as const,

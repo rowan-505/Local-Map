@@ -1,11 +1,9 @@
 /**
- * Basemap overlays after style load (raster in `public/basemap-township-mvp.json`).
+ * Basemap overlays after vector style load (style path: `config/basemapStyle.ts` → `BASEMAP_STYLE_PUBLIC_FILENAME`).
  */
 import type { MapEngine } from '../mapEngineTypes';
 import { ensureKyauktanTownshipOverlay } from './kyauktanTownshipOverlay';
-import { KYAUKTAN_TOWNSHIP_SOURCE_ID } from './mapLayerIds';
 
 export function applyMvpBasemapStyle(map: MapEngine): void {
-  if (map.getSource(KYAUKTAN_TOWNSHIP_SOURCE_ID)) return;
   ensureKyauktanTownshipOverlay(map);
 }

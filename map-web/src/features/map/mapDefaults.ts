@@ -1,36 +1,39 @@
 /**
- * Map viewport — Kyauktan polygon fit on load; Myanmar bbox for `maxBounds` + `minZoom` floor.
+ * Map viewport — Myanmar country fit + zoom floor, wide pan limits (`maxBounds`).
  */
-import { REGION_SCOPE, type LngLatBounds } from '@/config/regionScope';
+import { REGION_SCOPE } from '@/config/regionScope';
 
-/** Reference bbox for `cameraForBounds` → `setMinZoom` (same as `REGION_SCOPE.country.boundsLngLat`). */
+/** Reference bbox for initial fit, `cameraForBounds`, and `setMinZoom` (same as `REGION_SCOPE.country.boundsLngLat`). */
 export const MAP_COUNTRY_BOUNDS = REGION_SCOPE.country.boundsLngLat;
 
-export const MAP_COUNTRY_OVERVIEW_PADDING = 64;
+/**
+ * Pixel padding when fitting Myanmar (initial `bounds` + `syncCountryMinZoom` / `cameraForBounds`).
+ * Single source so opening view and min zoom-out limit match.
+ */
+export const MAP_COUNTRY_VIEW_PADDING = {
+  top: 40,
+  right: 40,
+  bottom: 40,
+  left: 40,
+} as const;
 
 export const MAP_CAMERA_BOUNDS_RIGHT_INSET_PX = 0;
 
-/** Places panel (`PoiPanel` `w-80`) — extra right padding when fitting Kyauktan on load. */
+/** Places panel — kept for optional township / sidebar fits elsewhere; not used for country opening view. */
 export const MAP_SIDEBAR_WIDTH_PX = 320;
 
-const MAX_BOUNDS_PAD_RATIO = 0.03;
-
-function padLngLatBounds(bounds: LngLatBounds): [[number, number], [number, number]] {
-  const [sw, ne] = bounds;
-  const dLng = (ne[0] - sw[0]) * MAX_BOUNDS_PAD_RATIO;
-  const dLat = (ne[1] - sw[1]) * MAX_BOUNDS_PAD_RATIO;
-  return [
-    [sw[0] - dLng, sw[1] - dLat],
-    [ne[0] + dLng, ne[1] + dLat],
-  ];
-}
-
-/** Pan / clamp limit — padded Myanmar extent (stricter fit uses `MAP_COUNTRY_BOUNDS` in `cameraForBounds`). */
-export const MAP_MAX_BOUNDS = padLngLatBounds(REGION_SCOPE.country.boundsLngLat);
+/**
+ * Pan limits only — wider than Myanmar so users can pan in all directions into nearby regions.
+ * (Suggested regional box; not used for initial camera or min zoom.)
+ */
+export const MAP_MAX_BOUNDS: readonly [[number, number], [number, number]] = [
+  [80.0, -2.0],
+  [115.0, 36.0],
+];
 
 const TOWNSHIP_PAD = 48;
 
-/** Asymmetric padding: extra on the right so the township sits comfortably beside the Places column. */
+/** Asymmetric padding for optional animated township `fitBounds` (e.g. future UX). */
 export const MAP_TOWNSHIP_FIT_PADDING = {
   top: TOWNSHIP_PAD,
   bottom: TOWNSHIP_PAD,
@@ -40,19 +43,19 @@ export const MAP_TOWNSHIP_FIT_PADDING = {
 
 export const MAP_TOWNSHIP_FIT_OPTIONS = {
   padding: MAP_TOWNSHIP_FIT_PADDING,
-  /** Avoid an overly tight first frame on a small administrative polygon. */
   maxZoom: 14,
   duration: 1200,
   essential: true,
 } as const;
 
-export const MAP_INITIAL_CENTER = REGION_SCOPE.operationalArea.centerLngLat;
-export const MAP_INITIAL_ZOOM = 11;
-
 export const MAP_DEFAULT_CENTER = REGION_SCOPE.operationalArea.centerLngLat;
 export const MAP_DEFAULT_ZOOM = 14;
 
-export const MAP_MIN_ZOOM = 0;
-export const MAP_MAX_ZOOM = 22;
+/**
+ * Passed to `new Map({ minZoom })` only until `syncCountryMinZoom` runs — must stay low so we never
+ * cap zoom-out above the true country-fit zoom from `cameraForBounds`.
+ */
+export const MAP_MIN_ZOOM = 1;
+export const MAP_MAX_ZOOM = 18;
 
 export const MAP_OPERATIONAL_BOUNDS = REGION_SCOPE.operationalArea.boundsLngLat;
