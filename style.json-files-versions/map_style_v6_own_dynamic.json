@@ -20,10 +20,10 @@
     }
   },
 
-  "layers": [
-
-
+"layers": [
     {
+
+ 
       "id": "admin-fill",
       "type": "fill",
       "source": "admin",
@@ -62,7 +62,7 @@
       }
     },
 
-  
+
     {
       "id": "streets-line",
       "type": "line",
@@ -93,8 +93,7 @@
       }
     },
 
-
-    {
+ {
       "id": "places-circle",
       "type": "circle",
       "source": "places",
