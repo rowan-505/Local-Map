@@ -1,1 +1,4 @@
 geo-database/
+geo-database/
+*.osm.pbf
+*.pbf
