@@ -1,0 +1,52 @@
+---
+alwaysApply: false
+---
+# API Rules (Fastify Backend)
+
+## Purpose
+This is the backend API layer for the Local Map project.
+
+## Responsibilities
+- Handle business logic
+- Validate requests and responses
+- Interact with PostgreSQL/PostGIS
+- Provide REST API endpoints
+
+## Architecture
+Use strict modular pattern:
+
+route → service → repository → database
+
+## Database Rules
+- PostgreSQL + PostGIS is the source of truth
+- Use Prisma ONLY for simple CRUD
+- Use raw SQL (pg) for:
+  - ST_DWithin
+  - ST_Intersects
+  - geospatial queries
+  - performance-critical queries
+
+## Structure Rules
+- Each feature must be in modules/
+- Each module must include:
+  - *.routes.ts
+  - *.service.ts
+  - *.repo.ts
+  - *.schema.ts (Zod)
+
+## API Design
+- Use RESTful endpoints
+- Return JSON only
+- Keep responses consistent
+
+## Forbidden
+- Do NOT generate tiles here
+- Do NOT access frontend code
+- Do NOT mix UI logic
+
+## Performance
+- Use indexes (GIST for geometry)
+- Avoid heavy queries without filtering
+
+## Future
+- Prepare for API versioning (/v1, /v2)

@@ -1,0 +1,45 @@
+---
+alwaysApply: false
+---
+# Dashboard Rules (Next.js Admin)
+
+## Purpose
+Admin dashboard for managing map data.
+
+## Responsibilities
+- CRUD operations (places, categories, etc.)
+- Form handling
+- Data visualization for admin use
+
+## Data Access (STRICT)
+- MUST call backend API
+- MUST NOT connect to PostgreSQL directly
+- MUST NOT use Prisma
+
+## API Usage
+- Use fetch or axios
+- Centralize API calls in src/lib/api.ts
+
+## UI Rules
+- Use simple UI (shadcn/ui or minimal components)
+- Focus on functionality over design
+
+## Structure
+- Use feature-based structure:
+  features/places/
+  features/categories/
+
+## Forms
+- Use React Hook Form + Zod
+
+## Forbidden
+- Direct SQL queries
+- Business logic duplication
+- Heavy computation
+
+## Performance
+- Avoid unnecessary re-renders
+- Use simple state management
+
+## Goal
+- Fast internal tool, not polished UI

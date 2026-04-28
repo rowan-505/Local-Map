@@ -1,0 +1,40 @@
+---
+alwaysApply: false
+---
+# Web Rules (Map Frontend)
+
+## Purpose
+Public map website using MapLibre.
+
+## Responsibilities
+- Render map using tiles
+- Display POIs and search results
+- Handle user interactions
+
+## Data Sources
+- Tiles (PMTiles / Martin) → map rendering
+- API → search and place details
+
+## Rules
+- Do NOT connect to database
+- Do NOT implement business logic
+- Keep UI lightweight
+
+## Map Rules
+- Use MapLibre GL JS
+- Load style.json from tiles/styles
+- Keep layers minimal for performance
+
+## API Usage
+- Fetch search results from API
+- Fetch place details from API
+
+## Performance
+- Optimize rendering
+- Avoid unnecessary layers
+- Keep bundle small
+
+## Forbidden
+- Heavy logic
+- Direct DB access
+- Tile generation
