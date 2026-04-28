@@ -29,8 +29,7 @@ env
 .env.localgeo-database/
 *.osm.pbf
 
-database/
-tiles/
+geo-database/
 *.pbf
 *.osm.pbf
 *.mbtiles

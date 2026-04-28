@@ -1,0 +1,33 @@
+---
+alwaysApply: false
+---
+# Mobile Rules (Android/iOS)
+
+## Purpose
+Mobile app for map usage.
+
+## Responsibilities
+- Display map (MapLibre Native)
+- Call backend API
+- Handle mobile UX
+
+## Data Access
+- MUST call API
+- MUST NOT connect to database
+
+## Architecture
+- Use clean architecture:
+  UI → ViewModel → API Client
+
+## Performance
+- Optimize for low bandwidth
+- Support offline tiles (PMTiles later)
+
+## Rules
+- Keep logic thin
+- Reuse API endpoints
+- Do not duplicate backend logic
+
+## Future
+- Add offline support
+- Add routing
