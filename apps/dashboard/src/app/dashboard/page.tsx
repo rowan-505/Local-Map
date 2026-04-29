@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 const modules = [
     {
@@ -24,6 +28,30 @@ const modules = [
 ] as const;
 
 export default function DashboardPage() {
+    const router = useRouter();
+    const [isReady, setIsReady] = useState(false);
+
+    useEffect(() => {
+        const accessToken = window.localStorage.getItem("accessToken");
+
+        if (!accessToken) {
+            router.replace("/login");
+            return;
+        }
+
+        setIsReady(true);
+    }, [router]);
+
+    if (!isReady) {
+        return (
+            <main className="min-h-screen bg-gray-100 p-6">
+                <div className="mx-auto max-w-6xl rounded-lg bg-white p-6 text-gray-700 shadow">
+                    Loading dashboard...
+                </div>
+            </main>
+        );
+    }
+
     return (
         <main className="min-h-screen bg-gray-100 p-6">
             <div className="mx-auto max-w-6xl">

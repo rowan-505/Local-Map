@@ -180,6 +180,25 @@ function getAccessToken(): string | null {
     return window.localStorage.getItem("accessToken");
 }
 
+function clearAuthTokens() {
+    if (typeof window === "undefined") {
+        return;
+    }
+
+    window.localStorage.removeItem("accessToken");
+    window.localStorage.removeItem("token");
+    window.localStorage.removeItem("authToken");
+    window.localStorage.removeItem("jwt");
+}
+
+function redirectToLogin() {
+    if (typeof window === "undefined" || window.location.pathname === "/login") {
+        return;
+    }
+
+    window.location.replace("/login");
+}
+
 async function getErrorMessage(response: Response): Promise<string> {
     const contentType = response.headers.get("content-type") ?? "";
 
@@ -217,14 +236,23 @@ export async function apiFetch<T>(
     headers.set("Accept", "application/json");
 
     const accessToken = getAccessToken();
-    if (accessToken) {
-        headers.set("Authorization", `Bearer ${accessToken}`);
+    if (!accessToken) {
+        redirectToLogin();
+        throw new Error("Authentication required");
     }
+
+    headers.set("Authorization", `Bearer ${accessToken}`);
 
     const response = await fetch(buildUrl(path, params), {
         ...init,
         headers,
     });
+
+    if (response.status === 401) {
+        clearAuthTokens();
+        redirectToLogin();
+        throw new Error("Session expired. Please log in again.");
+    }
 
     if (!response.ok) {
         const message = await getErrorMessage(response);
