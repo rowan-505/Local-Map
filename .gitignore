@@ -1,4 +1,6 @@
+# ========================
 # Logs
+# ========================
 logs
 *.log
 npm-debug.log*
@@ -7,12 +9,27 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# ========================
+# Node / Build
+# ========================
 node_modules
 dist
 dist-ssr
-*.local
+.next
+out
+build
 
-# Editor directories and files
+# ========================
+# Env files (IMPORTANT)
+# ========================
+.env
+.env.*
+.env.local
+.env.example
+
+# ========================
+# OS / Editor
+# ========================
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -23,16 +40,22 @@ dist-ssr
 *.sln
 *.sw?
 
-env
-.env
-.env.*.local
-.env.localgeo-database/
+# ========================
+# Large geospatial data (DO NOT PUSH)
+# ========================
 *.osm.pbf
-
-database/
-tiles/
 *.pbf
-*.osm.pbf
 *.mbtiles
 *.pmtiles
+
+# ========================
+# Database dumps / temp files
+# ========================
 *.sql
+*.dump
+
+# ========================
+# Ignore ONLY generated data folders (NOT structure)
+# ========================
+database/data/
+tiles/output/

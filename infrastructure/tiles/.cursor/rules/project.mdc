@@ -1,0 +1,33 @@
+---
+alwaysApply: false
+---
+# Tiles Rules (Rendering Layer)
+
+## Purpose
+Provide map rendering data.
+
+## Components
+- PMTiles → static tiles
+- Martin → dynamic tiles
+- style.json → map style
+
+## Rules
+- Tiles are for rendering only
+- Do NOT store business data here
+- Do NOT connect API to tile generation
+
+## PMTiles
+- Prebuilt using Planetiler/Tippecanoe
+- Stored in R2/CDN
+
+## Martin
+- Reads from PostGIS
+- Generates tiles dynamically
+
+## Style
+- Use MapLibre style spec
+- Keep layers minimal
+
+## Forbidden
+- No API logic
+- No database writes
