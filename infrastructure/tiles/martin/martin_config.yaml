@@ -1,0 +1,61 @@
+listen_addresses: "0.0.0.0:3002"
+
+postgres:
+  connection_string: postgres://postgres:postgres@localhost:5433/geo_core
+
+tables:
+  tiles_roads_v:
+    schema: tiles
+    table: tiles_roads_v
+    srid: 4326
+    geometry_column: geom
+    id_column: id
+
+  tiles_buildings_v:
+    schema: tiles
+    table: tiles_buildings_v
+    srid: 4326
+    geometry_column: geom
+    id_column: id
+
+  tiles_landuse_v:
+    schema: tiles
+    table: tiles_landuse_v
+    srid: 4326
+    geometry_column: geom
+    id_column: id
+
+  tiles_water_polygons_v:
+    schema: tiles
+    table: tiles_water_polygons_v
+    srid: 4326
+    geometry_column: geom
+    id_column: id
+
+  tiles_water_lines_v:
+    schema: tiles
+    table: tiles_water_lines_v
+    srid: 4326
+    geometry_column: geom
+    id_column: id
+
+  tiles_places_v:
+    schema: tiles
+    table: tiles_places_v
+    srid: 4326
+    geometry_column: geom
+    id_column: id
+
+  tiles_road_labels_v:
+    schema: tiles
+    table: tiles_road_labels_v
+    srid: 4326
+    geometry_column: geom
+    id_column: id
+
+  tiles_admin_boundaries_v:
+    schema: tiles
+    table: tiles_admin_boundaries_v
+    srid: 4326
+    geometry_column: geom
+    id_column: id

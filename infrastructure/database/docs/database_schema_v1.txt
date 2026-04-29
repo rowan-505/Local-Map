@@ -1,0 +1,92 @@
+Database
+├── ref
+│   ├── admin levels
+│   ├── poi categories
+│   ├── source types
+│   ├── publish statuses
+│   ├── validation statuses
+│   ├── report types/statuses
+│   ├── address component types
+│   ├── place classes
+│   └── road classes
+│
+├── auth
+│   ├── users
+│   ├── roles
+│   ├── user roles
+│   └── user devices
+│
+├── app
+│   ├── user profiles
+│   ├── user preferences
+│   └── user saved places
+│
+├── social
+│   ├── family groups
+│   ├── group members
+│   ├── location share rules
+│   ├── safety places
+│   └── location events
+│
+├── realtime
+│   ├── latest user location
+│   ├── location sessions
+│   └── location history
+│
+├── raw
+│   ├── osm points
+│   ├── osm lines
+│   └── osm polygons
+│
+├── staging
+│   ├── place candidates
+│   ├── place name candidates
+│   ├── admin area candidates
+│   ├── road candidates
+│   ├── bus stop candidates
+│   └── bus route candidates
+│
+├── system
+│   ├── source registry
+│   ├── import batches
+│   ├── source snapshots
+│   ├── diff runs
+│   ├── diff items
+│   ├── conflict queue
+│   ├── review tasks
+│   ├── review logs
+│   ├── publish batches
+│   └── publish items
+│
+├── core
+│   ├── admin areas
+│   ├── places
+│   ├── addresses
+│   ├── streets
+│   ├── transit
+│   └── place versions/media/sources
+│
+├── routing
+│   ├── road nodes
+│   ├── road edges
+│   ├── turn restrictions
+│   └── edge names
+│
+├── search
+│   ├── place search
+│   └── address search
+│
+├── tiles
+│   ├── poi public view
+│   ├── bus stops public view
+│   └── bus routes public view
+│
+├── offline
+│   ├── offline regions
+│   ├── offline packages
+│   └── offline package items
+│
+└── feedback
+    ├── user reports
+    ├── report comments
+    └── report media

@@ -1,0 +1,38 @@
+---
+alwaysApply: false
+---
+# Database Rules (PostgreSQL + PostGIS)
+
+## Purpose
+Source of truth for all data.
+
+## Structure
+- schema/ → table definitions
+- migrations/ → versioned changes
+- seeds/ → initial data
+- functions/ → DB logic
+- views/ → reusable queries
+- indexes/ → performance
+- import/ → OSM pipeline
+
+## Rules
+- Always use migrations for changes
+- Do NOT manually edit DB without SQL file
+- Keep SQL clean and readable
+
+## Geospatial
+- Use PostGIS functions:
+  - ST_DWithin
+  - ST_Intersects
+  - ST_Contains
+
+## Performance
+- Use GIST indexes for geometry
+- Avoid full table scans
+
+## Forbidden
+- Do NOT store tiles in database
+- Do NOT mix application logic
+
+## Goal
+- Clean, versioned, reproducible database
