@@ -9,13 +9,27 @@ import categoriesRoutes from "./modules/categories/categories.routes.js";
 import placesRoutes from "./modules/places/places.routes.js";
 import streetsRoutes from "./modules/streets/streets.routes.js";
 
+const LOCAL_DASHBOARD_ORIGIN = "http://localhost:3000";
+
+function getCorsOrigins() {
+    const origins = new Set([LOCAL_DASHBOARD_ORIGIN]);
+    const configuredOrigin = process.env.CORS_ORIGIN?.trim();
+
+    if (configuredOrigin) {
+        origins.add(configuredOrigin);
+    }
+
+    return [...origins];
+}
+
 export async function buildApp() {
     const app = Fastify({
         logger: true,
     });
 
     await app.register(cors, {
-        origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+        origin: getCorsOrigins(),
+        credentials: true,
         methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allowedHeaders: ["Content-Type", "Authorization"],
     });

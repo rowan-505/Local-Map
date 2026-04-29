@@ -3,12 +3,11 @@ import { buildApp } from "./app.js";
 async function start() {
     const app = await buildApp();
     const port = Number(process.env.PORT ?? 3001);
-    const host = process.env.HOST ?? "0.0.0.0";
 
     try {
         await app.listen({
             port,
-            host,
+            host: "0.0.0.0",
         });
     } catch (error) {
         app.log.error(error);
