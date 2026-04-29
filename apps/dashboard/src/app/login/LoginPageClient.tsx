@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type LoginResponse = {
@@ -83,9 +83,16 @@ export default function LoginPageClient() {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
+    useEffect(() => {
+        const accessToken = window.localStorage.getItem("accessToken");
+
+        if (accessToken) {
+            router.replace("/dashboard");
+        }
+    }, [router]);
+
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
-        console.log("submit triggered");
 
         setError(null);
         setLoading(true);
@@ -100,8 +107,6 @@ export default function LoginPageClient() {
                 password,
             };
 
-            console.log("request body", requestBody);
-
             const response = await fetch(`${API_BASE_URL}/auth/login`, {
                 method: "POST",
                 headers: {
@@ -111,12 +116,8 @@ export default function LoginPageClient() {
                 body: JSON.stringify(requestBody),
             });
 
-            console.log("response status", response.status);
-
             const responseText = await response.text();
             const responseData = parseJsonSafely(responseText);
-
-            console.log("response data/error", responseData ?? responseText ?? null);
 
             if (!response.ok) {
                 throw new Error(getLoginErrorMessage(response.status, responseData));
@@ -128,16 +129,16 @@ export default function LoginPageClient() {
                 throw new Error("Login failed");
             }
 
+            window.localStorage.removeItem("token");
+            window.localStorage.removeItem("authToken");
+            window.localStorage.removeItem("jwt");
             window.localStorage.setItem("accessToken", data.accessToken);
             router.replace("/dashboard");
         } catch (err) {
             if (err instanceof TypeError) {
-                console.log("response data/error", err);
                 setError("Cannot connect to server");
                 return;
             }
-
-            console.log("response data/error", err);
 
             setError(err instanceof Error ? err.message : "Login failed");
         } finally {
