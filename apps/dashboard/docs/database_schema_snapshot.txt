@@ -1,0 +1,299 @@
+core	core_address_components	address_id	bigint
+core	core_address_components	id	bigint
+core	core_address_components	component_value	text
+core	core_address_components	sort_order	integer
+core	core_address_components	component_type_id	bigint
+core	core_addresses	point_geom	USER-DEFINED
+core	core_addresses	full_address	text
+core	core_addresses	created_at	timestamp with time zone
+core	core_addresses	updated_at	timestamp with time zone
+core	core_addresses	id	bigint
+core	core_addresses	public_id	uuid
+core	core_addresses	street_id	bigint
+core	core_addresses	admin_area_id	bigint
+core	core_addresses	entrance_geom	USER-DEFINED
+core	core_addresses	source_type_id	bigint
+core	core_addresses	is_public	boolean
+core	core_addresses	is_verified	boolean
+core	core_addresses	postal_code	text
+core	core_addresses	unit_number	text
+core	core_addresses	house_number	text
+core	core_admin_area_names	name	text
+core	core_admin_area_names	language_code	text
+core	core_admin_area_names	id	bigint
+core	core_admin_area_names	admin_area_id	bigint
+core	core_admin_area_names	is_primary	boolean
+core	core_admin_area_names	search_weight	integer
+core	core_admin_area_names	name_type	text
+core	core_admin_area_names	script_code	text
+core	core_admin_areas	updated_at	timestamp with time zone
+core	core_admin_areas	slug	text
+core	core_admin_areas	canonical_name	text
+core	core_admin_areas	created_at	timestamp with time zone
+core	core_admin_areas	is_active	boolean
+core	core_admin_areas	source_type_id	bigint
+core	core_admin_areas	centroid	USER-DEFINED
+core	core_admin_areas	geom	USER-DEFINED
+core	core_admin_areas	admin_level_id	bigint
+core	core_admin_areas	parent_id	bigint
+core	core_admin_areas	public_id	uuid
+core	core_admin_areas	id	bigint
+core	core_bus_route_names	route_id	bigint
+core	core_bus_route_names	is_primary	boolean
+core	core_bus_route_names	name	text
+core	core_bus_route_names	language_code	text
+core	core_bus_route_names	name_type	text
+core	core_bus_route_names	id	bigint
+core	core_bus_route_stops	stop_id	bigint
+core	core_bus_route_stops	stop_sequence	integer
+core	core_bus_route_stops	distance_from_start_m	numeric
+core	core_bus_route_stops	is_timing_point	boolean
+core	core_bus_route_stops	route_variant_id	bigint
+core	core_bus_route_variants	destination_name	text
+core	core_bus_route_variants	route_id	bigint
+core	core_bus_route_variants	id	bigint
+core	core_bus_route_variants	distance_m	numeric
+core	core_bus_route_variants	is_active	boolean
+core	core_bus_route_variants	variant_code	text
+core	core_bus_route_variants	direction_name	text
+core	core_bus_route_variants	origin_name	text
+core	core_bus_route_variants	geom	USER-DEFINED
+core	core_bus_routes	route_code	text
+core	core_bus_routes	id	bigint
+core	core_bus_routes	is_active	boolean
+core	core_bus_routes	source_type_id	bigint
+core	core_bus_routes	created_at	timestamp with time zone
+core	core_bus_routes	updated_at	timestamp with time zone
+core	core_bus_routes	public_name	text
+core	core_bus_routes	operator_name	text
+core	core_bus_routes	route_type	text
+core	core_bus_routes	directionality	text
+core	core_bus_stop_names	name	text
+core	core_bus_stop_names	id	bigint
+core	core_bus_stop_names	stop_id	bigint
+core	core_bus_stop_names	is_primary	boolean
+core	core_bus_stop_names	name_type	text
+core	core_bus_stop_names	language_code	text
+core	core_bus_stops	admin_area_id	bigint
+core	core_bus_stops	source_type_id	bigint
+core	core_bus_stops	stop_code	text
+core	core_bus_stops	name_local	text
+core	core_bus_stops	name	text
+core	core_bus_stops	created_at	timestamp with time zone
+core	core_bus_stops	id	bigint
+core	core_bus_stops	public_id	uuid
+core	core_bus_stops	updated_at	timestamp with time zone
+core	core_bus_stops	is_active	boolean
+core	core_bus_stops	geom	USER-DEFINED
+core	core_place_addresses	address_id	bigint
+core	core_place_addresses	place_id	bigint
+core	core_place_addresses	relation_type	text
+core	core_place_addresses	is_primary	boolean
+core	core_place_contacts	email	text
+core	core_place_contacts	phone	text
+core	core_place_contacts	website	text
+core	core_place_contacts	facebook_url	text
+core	core_place_contacts	opening_hours	text
+core	core_place_contacts	place_id	bigint
+core	core_place_contacts	id	bigint
+core	core_place_names	name	text
+core	core_place_names	id	bigint
+core	core_place_names	language_code	text
+core	core_place_names	script_code	text
+core	core_place_names	search_weight	integer
+core	core_place_names	name_type	text
+core	core_place_names	place_id	bigint
+core	core_place_names	is_primary	boolean
+core	core_place_sources	source_name	text
+core	core_place_sources	raw_payload	jsonb
+core	core_place_sources	captured_at	timestamp with time zone
+core	core_place_sources	source_priority	integer
+core	core_place_sources	source_type_id	bigint
+core	core_place_sources	place_id	bigint
+core	core_place_sources	id	bigint
+core	core_place_sources	source_url	text
+core	core_place_sources	external_id	text
+core	core_place_versions	snapshot_data	jsonb
+core	core_place_versions	publish_status_id	bigint
+core	core_place_versions	version_no	integer
+core	core_place_versions	place_id	bigint
+core	core_place_versions	created_by	bigint
+core	core_place_versions	created_at	timestamp with time zone
+core	core_place_versions	id	bigint
+core	core_place_versions	published_at	timestamp with time zone
+core	core_place_versions	approved_by	bigint
+core	core_places	is_verified	boolean
+core	core_places	publish_status_id	bigint
+core	core_places	current_version_id	bigint
+core	core_places	created_at	timestamp with time zone
+core	core_places	updated_at	timestamp with time zone
+core	core_places	deleted_at	timestamp with time zone
+core	core_places	plus_code	text
+core	core_places	name_local	text
+core	core_places	secondary_name	text
+core	core_places	primary_name	text
+core	core_places	display_name	text
+core	core_places	id	bigint
+core	core_places	public_id	uuid
+core	core_places	category_id	bigint
+core	core_places	admin_area_id	bigint
+core	core_places	point_geom	USER-DEFINED
+core	core_places	entry_geom	USER-DEFINED
+core	core_places	footprint_geom	USER-DEFINED
+core	core_places	lat	double precision
+core	core_places	lng	double precision
+core	core_places	importance_score	numeric
+core	core_places	popularity_score	numeric
+core	core_places	confidence_score	numeric
+core	core_places	is_public	boolean
+core	core_places	source_type_id	bigint
+core	core_street_names	street_id	bigint
+core	core_street_names	is_primary	boolean
+core	core_street_names	name_type	text
+core	core_street_names	script_code	text
+core	core_street_names	name	text
+core	core_street_names	language_code	text
+core	core_street_names	id	bigint
+core	core_streets	canonical_name	text
+core	core_streets	admin_area_id	bigint
+core	core_streets	source_type_id	bigint
+core	core_streets	id	bigint
+core	core_streets	public_id	uuid
+core	core_streets	geom	USER-DEFINED
+core	core_streets	is_active	boolean
+core	core_streets	created_at	timestamp with time zone
+core	core_streets	updated_at	timestamp with time zone
+raw	kyauktan_boundary	tags	jsonb
+raw	kyauktan_boundary	geom	USER-DEFINED
+raw	kyauktan_boundary	osm_id	text
+raw	raw_osm_lines	osm_feature_type	text
+raw	raw_osm_lines	tags	jsonb
+raw	raw_osm_lines	geom	USER-DEFINED
+raw	raw_osm_lines	source_snapshot_id	bigint
+raw	raw_osm_lines	id	bigint
+raw	raw_osm_lines	raw_payload	jsonb
+raw	raw_osm_lines	ingested_at	timestamp with time zone
+raw	raw_osm_lines	osm_id	text
+raw	raw_osm_points	source_snapshot_id	bigint
+raw	raw_osm_points	tags	jsonb
+raw	raw_osm_points	raw_payload	jsonb
+raw	raw_osm_points	ingested_at	timestamp with time zone
+raw	raw_osm_points	id	bigint
+raw	raw_osm_points	osm_id	text
+raw	raw_osm_points	osm_feature_type	text
+raw	raw_osm_points	geom	USER-DEFINED
+raw	raw_osm_polygons	tags	jsonb
+raw	raw_osm_polygons	ingested_at	timestamp with time zone
+raw	raw_osm_polygons	raw_payload	jsonb
+raw	raw_osm_polygons	source_snapshot_id	bigint
+raw	raw_osm_polygons	osm_feature_type	text
+raw	raw_osm_polygons	osm_id	text
+raw	raw_osm_polygons	id	bigint
+raw	raw_osm_polygons	geom	USER-DEFINED
+staging	staging_admin_area_candidates	canonical_name	text
+staging	staging_admin_area_candidates	updated_at	timestamp with time zone
+staging	staging_admin_area_candidates	created_at	timestamp with time zone
+staging	staging_admin_area_candidates	source_refs	jsonb
+staging	staging_admin_area_candidates	normalized_data	jsonb
+staging	staging_admin_area_candidates	matched_core_admin_area_id	bigint
+staging	staging_admin_area_candidates	confidence_score	numeric
+staging	staging_admin_area_candidates	centroid	USER-DEFINED
+staging	staging_admin_area_candidates	geom	USER-DEFINED
+staging	staging_admin_area_candidates	parent_candidate_id	bigint
+staging	staging_admin_area_candidates	admin_level_id	bigint
+staging	staging_admin_area_candidates	source_snapshot_id	bigint
+staging	staging_admin_area_candidates	id	bigint
+staging	staging_admin_area_candidates	external_id	text
+staging	staging_admin_area_candidates	match_status	text
+staging	staging_bus_route_candidates	confidence_score	numeric
+staging	staging_bus_route_candidates	external_id	text
+staging	staging_bus_route_candidates	route_code	text
+staging	staging_bus_route_candidates	source_refs	jsonb
+staging	staging_bus_route_candidates	matched_core_bus_route_id	bigint
+staging	staging_bus_route_candidates	created_at	timestamp with time zone
+staging	staging_bus_route_candidates	updated_at	timestamp with time zone
+staging	staging_bus_route_candidates	source_snapshot_id	bigint
+staging	staging_bus_route_candidates	match_status	text
+staging	staging_bus_route_candidates	id	bigint
+staging	staging_bus_route_candidates	geom	USER-DEFINED
+staging	staging_bus_route_candidates	normalized_data	jsonb
+staging	staging_bus_route_candidates	public_name	text
+staging	staging_bus_stop_candidates	admin_area_candidate_id	bigint
+staging	staging_bus_stop_candidates	confidence_score	numeric
+staging	staging_bus_stop_candidates	match_status	text
+staging	staging_bus_stop_candidates	matched_core_bus_stop_id	bigint
+staging	staging_bus_stop_candidates	normalized_data	jsonb
+staging	staging_bus_stop_candidates	source_refs	jsonb
+staging	staging_bus_stop_candidates	created_at	timestamp with time zone
+staging	staging_bus_stop_candidates	updated_at	timestamp with time zone
+staging	staging_bus_stop_candidates	external_id	text
+staging	staging_bus_stop_candidates	canonical_name	text
+staging	staging_bus_stop_candidates	id	bigint
+staging	staging_bus_stop_candidates	source_snapshot_id	bigint
+staging	staging_bus_stop_candidates	point_geom	USER-DEFINED
+staging	staging_place_candidates	id	bigint
+staging	staging_place_candidates	admin_area_candidate_id	bigint
+staging	staging_place_candidates	point_geom	USER-DEFINED
+staging	staging_place_candidates	confidence_score	numeric
+staging	staging_place_candidates	matched_core_place_id	bigint
+staging	staging_place_candidates	normalized_data	jsonb
+staging	staging_place_candidates	source_refs	jsonb
+staging	staging_place_candidates	created_at	timestamp with time zone
+staging	staging_place_candidates	place_class_id	bigint
+staging	staging_place_candidates	source_snapshot_id	bigint
+staging	staging_place_candidates	source_entity_type	text
+staging	staging_place_candidates	external_id	text
+staging	staging_place_candidates	canonical_name	text
+staging	staging_place_candidates	match_status	text
+staging	staging_place_candidates	poi_category_id	bigint
+staging	staging_place_candidates	updated_at	timestamp with time zone
+staging	staging_place_name_candidates	name_type	text
+staging	staging_place_name_candidates	search_weight	numeric
+staging	staging_place_name_candidates	id	bigint
+staging	staging_place_name_candidates	name	text
+staging	staging_place_name_candidates	source_snapshot_id	bigint
+staging	staging_place_name_candidates	language_code	text
+staging	staging_place_name_candidates	place_candidate_id	bigint
+staging	staging_place_name_candidates	script_code	text
+staging	staging_place_name_candidates	is_primary	boolean
+staging	staging_road_candidates	confidence_score	numeric
+staging	staging_road_candidates	external_id	text
+staging	staging_road_candidates	canonical_name	text
+staging	staging_road_candidates	id	bigint
+staging	staging_road_candidates	source_snapshot_id	bigint
+staging	staging_road_candidates	road_class_id	bigint
+staging	staging_road_candidates	geom	USER-DEFINED
+staging	staging_road_candidates	is_oneway	boolean
+staging	staging_road_candidates	length_m	numeric
+staging	staging_road_candidates	match_status	text
+staging	staging_road_candidates	updated_at	timestamp with time zone
+staging	staging_road_candidates	created_at	timestamp with time zone
+staging	staging_road_candidates	source_refs	jsonb
+staging	staging_road_candidates	matched_core_edge_id	bigint
+staging	staging_road_candidates	normalized_data	jsonb
+tiles	tiles_bus_routes_public_v	public_name	text
+tiles	tiles_bus_routes_public_v	route_code	text
+tiles	tiles_bus_routes_public_v	geom	USER-DEFINED
+tiles	tiles_bus_routes_public_v	route_id	bigint
+tiles	tiles_bus_routes_public_v	id	bigint
+tiles	tiles_bus_routes_public_v	variant_code	text
+tiles	tiles_bus_stops_public_v	geom	USER-DEFINED
+tiles	tiles_bus_stops_public_v	id	bigint
+tiles	tiles_bus_stops_public_v	stop_code	text
+tiles	tiles_bus_stops_public_v	public_id	uuid
+tiles	tiles_bus_stops_public_v	name	text
+tiles	tiles_poi_public_v	public_id	uuid
+tiles	tiles_poi_public_v	category_code	text
+tiles	tiles_poi_public_v	name	text
+tiles	tiles_poi_public_v	id	bigint
+tiles	tiles_poi_public_v	importance_score	numeric
+tiles	tiles_poi_public_v	geom	USER-DEFINED
+tiles	v_admin_areas	geom	USER-DEFINED
+tiles	v_admin_areas	name	text
+tiles	v_admin_areas	id	bigint
+tiles	v_places	geom	USER-DEFINED
+tiles	v_places	id	bigint
+tiles	v_places	name	text
+tiles	v_streets	id	bigint
+tiles	v_streets	geom	USER-DEFINED
+tiles	v_streets	name	text

@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["app_auth", "core", "ref"]
+}
+
+model AuthUser {
+  id           BigInt        @id @default(autoincrement())
+  publicId     String        @unique @default(dbgenerated("gen_random_uuid()")) @map("public_id") @db.Uuid
+  email        String        @unique @db.Text
+  passwordHash String        @map("password_hash") @db.Text
+  displayName  String        @map("display_name") @db.Text
+  isActive     Boolean       @default(true) @map("is_active")
+  lastLoginAt  DateTime?     @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+  userRoles    AuthUserRole[]
+
+  @@map("auth_users")
+  @@schema("app_auth")
+}
+
+model AuthRole {
+  id          BigInt        @id @default(autoincrement())
+  code        String        @unique @db.Text
+  name        String        @unique @db.Text
+  description String?       @db.Text
+  isSystem    Boolean       @default(true) @map("is_system")
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+  userRoles   AuthUserRole[]
+
+  @@map("auth_roles")
+  @@schema("app_auth")
+}
+
+model AuthUserRole {
+  id        BigInt    @id @default(autoincrement())
+  userId    BigInt    @map("user_id")
+  roleId    BigInt    @map("role_id")
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      AuthUser  @relation(fields: [userId], references: [id])
+  role      AuthRole  @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId], map: "auth_user_roles_user_id_role_id_key")
+  @@map("auth_user_roles")
+  @@schema("app_auth")
+}
+
+model RefPoiCategory {
+  id           BigInt    @id @default(autoincrement())
+  parentId     BigInt?   @map("parent_id")
+  code         String    @unique @db.Text
+  name         String    @unique @db.Text
+  sortOrder    Int       @map("sort_order")
+  isSearchable Boolean   @default(true) @map("is_searchable")
+  isPublic     Boolean   @default(true) @map("is_public")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("ref_poi_categories")
+  @@schema("ref")
+}
+
+model CoreAdminArea {
+  id            BigInt   @id @default(autoincrement())
+  publicId      String   @unique @default(dbgenerated("gen_random_uuid()")) @map("public_id") @db.Uuid
+  parentId      BigInt?  @map("parent_id")
+  adminLevelId  BigInt   @map("admin_level_id")
+  canonicalName String   @map("canonical_name") @db.Text
+  slug          String   @unique @db.Text
+  sourceTypeId  BigInt   @map("source_type_id")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("core_admin_areas")
+  @@schema("core")
+}
+
+model CorePlace {
+  id               BigInt    @id @default(autoincrement())
+  publicId         String    @unique @default(dbgenerated("gen_random_uuid()")) @map("public_id") @db.Uuid
+  primaryName      String    @map("primary_name") @db.Text
+  secondaryName    String?   @map("secondary_name") @db.Text
+  nameLocal        String?   @map("name_local") @db.Text
+  displayName      String    @map("display_name") @db.Text
+  categoryId       BigInt    @map("category_id")
+  adminAreaId      BigInt?   @map("admin_area_id")
+  lat              Float
+  lng              Float
+  plusCode         String?   @map("plus_code") @db.Text
+  importanceScore  Decimal   @default(0) @map("importance_score") @db.Decimal
+  popularityScore  Decimal   @default(0) @map("popularity_score") @db.Decimal
+  confidenceScore  Decimal   @default(0) @map("confidence_score") @db.Decimal
+  isPublic         Boolean   @default(true) @map("is_public")
+  isVerified       Boolean   @default(false) @map("is_verified")
+  sourceTypeId     BigInt    @map("source_type_id")
+  publishStatusId  BigInt?   @map("publish_status_id")
+  currentVersionId BigInt?   @map("current_version_id")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("core_places")
+  @@schema("core")
+}

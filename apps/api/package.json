@@ -1,0 +1,30 @@
+{
+  "name": "local-map-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "prisma:generate": "prisma generate"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/jwt": "^10.0.0",
+    "@prisma/client": "^6.15.0",
+    "bcryptjs": "^3.0.3",
+    "fastify": "^5.8.5",
+    "fastify-plugin": "^5.1.0",
+    "generate": "^0.14.0",
+    "npx": "^10.2.2",
+    "prisma": "^6.15.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}
