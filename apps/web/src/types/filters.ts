@@ -4,10 +4,6 @@
 import type { PoiCategoryId } from './poi-category';
 
 export type PoiFilterState = {
-  /**
-   * Categories hidden from the map/list. Empty = nothing excluded (show all categories).
-   */
-  readonly excludedCategoryIds: readonly PoiCategoryId[];
-  /** Reserved for text search; empty string = no text filter. */
+  readonly categoryId: PoiCategoryId | null;
   readonly searchQuery: string;
 };

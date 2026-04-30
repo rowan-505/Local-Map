@@ -22,7 +22,13 @@ import {
   type MapEngine,
 } from '../lib/mapEngine';
 
-function MapViewInner({ pois, selectedPoiId, onSelectPoiId, className }: MapViewProps) {
+function MapViewInner({
+  pois,
+  selectedPoiId,
+  selectedPoi,
+  onSelectPoiId,
+  className,
+}: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapEngine | null>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -81,6 +87,18 @@ function MapViewInner({ pois, selectedPoiId, onSelectPoiId, className }: MapView
     if (!map) return;
     setSelectedPoiHighlight(map, selectedPoiId);
   }, [mapReady, selectedPoiId]);
+
+  useEffect(() => {
+    if (!mapReady || !selectedPoi) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    map.flyTo({
+      center: [selectedPoi.longitude, selectedPoi.latitude],
+      zoom: 16,
+      essential: true,
+    });
+  }, [mapReady, selectedPoi]);
 
   /** Clicks / hover — stable subscription (handler reads latest callback via ref). */
   useEffect(() => {

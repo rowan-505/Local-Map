@@ -5,9 +5,19 @@ import { poiCategoryLabel } from '../categoryLabel';
 
 export type PoiDetailProps = {
   readonly poi: Poi | undefined;
+  readonly isLoading?: boolean;
+  readonly error?: Error | null;
 };
 
-function PoiDetailInner({ poi }: PoiDetailProps) {
+function PoiDetailInner({ poi, isLoading = false, error = null }: PoiDetailProps) {
+  if (isLoading) {
+    return <p className="text-xs leading-relaxed text-neutral-500">Loading place details…</p>;
+  }
+
+  if (error) {
+    return <p className="text-xs leading-relaxed text-red-600">Could not load place details.</p>;
+  }
+
   if (!poi) {
     return (
       <p className="text-xs leading-relaxed text-neutral-500">
@@ -25,7 +35,9 @@ function PoiDetailInner({ poi }: PoiDetailProps) {
     <div className="space-y-2 text-sm">
       <div>
         <h3 className="font-semibold leading-snug text-neutral-900">{poi.name}</h3>
-        <p className="mt-0.5 text-xs text-neutral-500">{poiCategoryLabel(poi.category)}</p>
+        <p className="mt-0.5 text-xs text-neutral-500">
+          {poiCategoryLabel(poi.category, poi.categoryName, poi.categoryCode)}
+        </p>
         <p className="mt-0.5 text-xs text-neutral-600">{poi.subcategory}</p>
       </div>
       {poi.address ? (
@@ -34,7 +46,10 @@ function PoiDetailInner({ poi }: PoiDetailProps) {
           {poi.address}
         </p>
       ) : null}
-      <p className="text-xs text-neutral-500">Source: {poi.source}</p>
+      {poi.isVerified ? (
+        <p className="text-xs font-medium text-emerald-700">Verified place</p>
+      ) : null}
+      <p className="text-xs text-neutral-500">Source: deployed API</p>
       {tagPreview.length > 0 ? (
         <p className="text-xs leading-relaxed text-neutral-600">
           <span className="text-neutral-500">OSM tags: </span>

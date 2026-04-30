@@ -1,15 +1,10 @@
-/**
- * Single pass: category exclusions then case-insensitive substring search.
- * Pass normalized Kyauktan OSM POIs (`MVP_POI_DATA`) as `pois` — search/tags read from that dataset only.
- */
 import type { Poi, PoiFilterState } from '@/types';
 
 export function filterPois(pois: readonly Poi[], state: PoiFilterState): readonly Poi[] {
   let out = pois;
 
-  if (state.excludedCategoryIds.length > 0) {
-    const excluded = new Set(state.excludedCategoryIds);
-    out = out.filter((p) => !excluded.has(p.category));
+  if (state.categoryId !== null) {
+    out = out.filter((p) => p.category === state.categoryId);
   }
 
   const q = state.searchQuery.trim().toLowerCase();

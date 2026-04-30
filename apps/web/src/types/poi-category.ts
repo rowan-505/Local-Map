@@ -1,15 +1,11 @@
-/**
- * Closed set of POI kinds for filtering and styling.
- * Add new values here as the product grows; UI can derive labels from this list.
- */
+/** Category ids come from the deployed API/database. */
+export type PoiCategoryId = string;
 
-export const POI_CATEGORY_IDS = [
-  'food',
-  'shop',
-  'services',
-  'outdoor',
-  'culture',
-  'other',
-] as const;
-
-export type PoiCategoryId = (typeof POI_CATEGORY_IDS)[number];
+export type PoiCategory = {
+  readonly id: PoiCategoryId;
+  readonly code: string;
+  readonly name: string;
+  readonly nameLocal: string | null;
+  readonly iconKey: string | null;
+  readonly sortOrder: number;
+};

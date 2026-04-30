@@ -1,37 +1,47 @@
-/**
- * Home route: map + Places sidebar both use `visiblePois` from normalized Kyauktan OSM (`MVP_POI_DATA`).
- * Same `selectedPoiId` / `onSelectPoiId` for map clicks and list clicks.
- */
 import { useCallback, useMemo, useState } from 'react';
-import { MVP_POI_DATA } from '@/data/poi/mvpPoiSource';
-import { filterPois } from '@/features/filters/filterPois';
 import { FilterBar } from '@/features/filters/components/FilterBar';
+import { useDebouncedValue } from '@/features/filters/useDebouncedValue';
 import { useCategoryFilter } from '@/features/filters/useCategoryFilter';
 import MapView from '@/features/map/components/MapView';
+import {
+  usePublicCategories,
+  usePublicPlace,
+  usePublicPlaces,
+} from '@/features/poi/api/usePublicMapData';
 import { PoiPanel } from '@/features/poi/components/PoiPanel';
-import { selectPoiFromVisible } from '@/features/poi/selectPoi';
 import { HomePageLayout } from './HomePageLayout';
 
 export default function HomePage() {
   const {
     filterState,
-    excludedCategoryIds,
-    toggleCategory,
+    categoryId,
+    selectCategory,
     searchQuery,
     setSearchQuery,
   } = useCategoryFilter();
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null);
+  const debouncedSearchQuery = useDebouncedValue(filterState.searchQuery, 300);
 
-  /** One derived list: normalized Kyauktan OSM (`MVP_POI_DATA`) → category filter → substring search. */
-  const visiblePois = useMemo(() => filterPois(MVP_POI_DATA, filterState), [filterState]);
+  const categoriesQuery = usePublicCategories();
+  const placesQuery = usePublicPlaces({
+    q: debouncedSearchQuery,
+    categoryId: filterState.categoryId ?? undefined,
+    limit: 500,
+  });
 
-  /** Single derivation: filtered-out POIs yield `undefined` → map gets no selection id. */
-  const selectedPoi = useMemo(
-    () => selectPoiFromVisible(visiblePois, selectedPoiId),
-    [visiblePois, selectedPoiId],
+  const places = useMemo(() => placesQuery.data ?? [], [placesQuery.data]);
+  const selectedIdInResults =
+    selectedPoiId !== null && places.some((place) => place.id === selectedPoiId);
+  const effectiveSelectedPoiId =
+    selectedIdInResults ? selectedPoiId : places.length === 1 ? places[0]?.id ?? null : null;
+  const selectedListPoi = useMemo(
+    () => places.find((place) => place.id === effectiveSelectedPoiId),
+    [effectiveSelectedPoiId, places],
   );
+  const selectedPlaceQuery = usePublicPlace(effectiveSelectedPoiId);
+  const selectedPoi = selectedPlaceQuery.data ?? selectedListPoi;
 
-  const selectedPoiIdForMap = selectedPoi?.id ?? null;
+  const selectedPoiIdForMap = selectedListPoi?.id ?? null;
 
   const onSelectPoiId = useCallback((id: string | null) => {
     setSelectedPoiId(id);
@@ -41,24 +51,32 @@ export default function HomePage() {
     <HomePageLayout
       filter={
         <FilterBar
-          excludedCategoryIds={excludedCategoryIds}
-          onToggleCategory={toggleCategory}
+          categories={categoriesQuery.data ?? []}
+          selectedCategoryId={categoryId}
+          onSelectCategory={selectCategory}
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}
+          categoriesLoading={categoriesQuery.isLoading}
+          categoriesError={categoriesQuery.isError}
         />
       }
       map={
         <MapView
-          pois={visiblePois}
+          pois={places}
           selectedPoiId={selectedPoiIdForMap}
+          selectedPoi={selectedListPoi}
           onSelectPoiId={onSelectPoiId}
         />
       }
       sidebar={
         <PoiPanel
-          pois={visiblePois}
+          pois={places}
           selectedPoi={selectedPoi}
           onSelectPoiId={onSelectPoiId}
+          isLoading={placesQuery.isLoading}
+          error={placesQuery.error}
+          detailLoading={selectedPlaceQuery.isLoading}
+          detailError={selectedPlaceQuery.error}
         />
       }
     />
