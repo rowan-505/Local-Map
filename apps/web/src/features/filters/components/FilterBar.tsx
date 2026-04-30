@@ -1,4 +1,5 @@
-import { memo } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
+import type { PublicSearchResult } from '@/features/poi/api/publicMapApi';
 import type { PoiCategory, PoiCategoryId } from '@/types';
 
 type Props = {
@@ -7,6 +8,12 @@ type Props = {
   readonly onSelectCategory: (id: PoiCategoryId | null) => void;
   readonly searchQuery: string;
   readonly onSearchQueryChange: (value: string) => void;
+  readonly searchResults: readonly PublicSearchResult[];
+  readonly selectedSearchResultId: string | null;
+  readonly onSelectSearchResult: (result: PublicSearchResult) => void;
+  readonly onClearSearch: () => void;
+  readonly searchLoading?: boolean;
+  readonly searchError?: boolean;
   readonly categoriesLoading?: boolean;
   readonly categoriesError?: boolean;
 };
@@ -17,33 +24,129 @@ function FilterBarInner({
   onSelectCategory,
   searchQuery,
   onSearchQueryChange,
+  searchResults,
+  selectedSearchResultId,
+  onSelectSearchResult,
+  onClearSearch,
+  searchLoading = false,
+  searchError = false,
   categoriesLoading = false,
   categoriesError = false,
 }: Props) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement | null>(null);
+  const showDropdown = dropdownOpen && searchQuery.trim().length > 0;
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (!searchBoxRef.current?.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, []);
+
+  const handleSelectSearchResult = (result: PublicSearchResult) => {
+    onSelectSearchResult(result);
+    setDropdownOpen(false);
+  };
+
   return (
     <header
-      className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-200 bg-white px-3 py-2"
+      className="pointer-events-auto mx-auto flex w-full max-w-3xl flex-col gap-2"
       role="banner"
     >
-      <label className="flex min-w-[10rem] max-w-xs flex-1 items-center gap-2">
+      <div ref={searchBoxRef} className="relative">
         <span className="sr-only">Search places</span>
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-neutral-400">
+          Search
+        </span>
         <input
           type="search"
           value={searchQuery}
-          onChange={(e) => onSearchQueryChange(e.target.value)}
-          placeholder="Search places…"
-          className="w-full rounded border border-neutral-200 bg-neutral-50 px-2 py-1 text-xs text-neutral-800 placeholder:text-neutral-400 focus:border-sky-400 focus:outline-none"
+          onChange={(e) => {
+            onSearchQueryChange(e.target.value);
+            setDropdownOpen(true);
+          }}
+          onFocus={() => setDropdownOpen(true)}
+          placeholder="Search places or streets…"
+          className="h-12 w-full rounded-2xl border border-white/80 bg-white/95 py-2 pl-16 pr-20 text-sm text-neutral-900 shadow-lg shadow-neutral-900/10 outline-none backdrop-blur placeholder:text-neutral-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
           autoComplete="off"
         />
-      </label>
-      <span className="text-sm font-medium text-neutral-700">Categories</span>
-      <div className="flex flex-wrap items-center gap-2">
+        {searchLoading ? (
+          <span className="absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2 border-neutral-200 border-t-sky-500" />
+        ) : null}
+        {searchQuery.length > 0 ? (
+          <button
+            type="button"
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full px-2 py-1 text-sm leading-none text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+            aria-label="Clear search"
+            onClick={() => {
+              onClearSearch();
+              setDropdownOpen(false);
+            }}
+          >
+            x
+          </button>
+        ) : null}
+
+        {showDropdown ? (
+          <div className="absolute left-0 top-full z-50 mt-2 max-h-80 w-full overflow-y-auto rounded-2xl border border-neutral-200/80 bg-white py-2 text-sm shadow-xl shadow-neutral-900/15">
+            {searchLoading ? (
+              <div className="px-4 py-4 text-xs text-neutral-500">Searching…</div>
+            ) : null}
+            {searchError ? (
+              <div className="px-4 py-4 text-xs text-red-600">Could not load search results.</div>
+            ) : null}
+            {!searchLoading && !searchError && searchResults.length === 0 ? (
+              <div className="px-4 py-4 text-xs text-neutral-500">No places or streets found.</div>
+            ) : null}
+            {!searchLoading && !searchError
+              ? searchResults.map((result) => {
+                  const selected = result.id === selectedSearchResultId;
+                  return (
+                    <button
+                      type="button"
+                      key={`${result.type}:${result.id}`}
+                      className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors ${
+                        selected
+                          ? 'bg-sky-50 text-sky-950'
+                          : 'text-neutral-800 hover:bg-neutral-50'
+                      }`}
+                      onClick={() => handleSelectSearchResult(result)}
+                    >
+                      <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                        result.type === 'street'
+                          ? 'bg-orange-50 text-orange-700'
+                          : 'bg-emerald-50 text-emerald-700'
+                      }`}>
+                        {result.type === 'street' ? 'St' : 'P'}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold">{result.name}</span>
+                        <span className="block truncate text-xs text-neutral-500">
+                          {result.subtitle ??
+                            result.categoryName ??
+                            result.categoryCode ??
+                            (result.type === 'street' ? 'Street' : 'Place')}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })
+              : null}
+          </div>
+        ) : null}
+      </div>
+      <div className="flex gap-2 overflow-x-auto rounded-2xl border border-white/70 bg-white/90 p-1.5 shadow-lg shadow-neutral-900/10 backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <button
           type="button"
-          className={`rounded border px-2 py-1 text-xs ${
+          className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
             selectedCategoryId === null
-              ? 'border-sky-300 bg-sky-50 text-sky-800'
-              : 'border-neutral-200 bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
+              ? 'bg-neutral-900 text-white shadow-sm'
+              : 'bg-transparent text-neutral-700 hover:bg-neutral-100'
           }`}
           onClick={() => onSelectCategory(null)}
         >
@@ -53,10 +156,10 @@ function FilterBarInner({
           <button
             type="button"
             key={category.id}
-            className={`rounded border px-2 py-1 text-xs ${
+            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
               selectedCategoryId === category.id
-                ? 'border-sky-300 bg-sky-50 text-sky-800'
-                : 'border-neutral-200 bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
+                ? 'bg-neutral-900 text-white shadow-sm'
+                : 'bg-transparent text-neutral-700 hover:bg-neutral-100'
             }`}
             onClick={() => onSelectCategory(category.id)}
           >
@@ -64,10 +167,10 @@ function FilterBarInner({
           </button>
         ))}
         {categoriesLoading ? (
-          <span className="text-xs text-neutral-500">Loading categories…</span>
+          <span className="shrink-0 px-3 py-1.5 text-xs text-neutral-500">Loading categories…</span>
         ) : null}
         {categoriesError ? (
-          <span className="text-xs text-red-600">Could not load categories</span>
+          <span className="shrink-0 px-3 py-1.5 text-xs text-red-600">Could not load categories</span>
         ) : null}
       </div>
     </header>

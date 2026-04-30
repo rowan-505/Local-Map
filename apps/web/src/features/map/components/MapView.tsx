@@ -26,6 +26,7 @@ function MapViewInner({
   pois,
   selectedPoiId,
   selectedPoi,
+  cameraTarget,
   onSelectPoiId,
   className,
 }: MapViewProps) {
@@ -89,6 +90,7 @@ function MapViewInner({
   }, [mapReady, selectedPoiId]);
 
   useEffect(() => {
+    if (cameraTarget) return;
     if (!mapReady || !selectedPoi) return;
     const map = mapRef.current;
     if (!map) return;
@@ -98,7 +100,39 @@ function MapViewInner({
       zoom: 16,
       essential: true,
     });
-  }, [mapReady, selectedPoi]);
+  }, [cameraTarget, mapReady, selectedPoi]);
+
+  useEffect(() => {
+    if (!mapReady || !cameraTarget) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (cameraTarget.type === 'point') {
+      map.flyTo({
+        center: [cameraTarget.center[0], cameraTarget.center[1]],
+        zoom: cameraTarget.zoom ?? 16,
+        duration: 900,
+        essential: true,
+      });
+      return;
+    }
+
+    if (cameraTarget.bbox) {
+      const [minLng, minLat, maxLng, maxLat] = cameraTarget.bbox;
+      map.fitBounds(
+        [
+          [minLng, minLat],
+          [maxLng, maxLat],
+        ],
+        {
+          padding: cameraTarget.padding ?? 80,
+          maxZoom: 17,
+          duration: 900,
+          essential: true,
+        },
+      );
+    }
+  }, [cameraTarget, mapReady]);
 
   /** Clicks / hover — stable subscription (handler reads latest callback via ref). */
   useEffect(() => {

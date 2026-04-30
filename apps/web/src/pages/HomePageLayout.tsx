@@ -12,14 +12,12 @@ type Props = {
 
 export function HomePageLayout({ filter, map, sidebar }: Props) {
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {filter}
-      <div className="flex min-h-0 min-w-0 flex-1">
-        <div className="relative min-h-0 min-w-0 flex-1">
-          <div className="absolute inset-0 min-h-0">{map}</div>
-        </div>
-        {sidebar}
+    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-neutral-100">
+      <div className="absolute inset-0 min-h-0">{map}</div>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 px-3 pt-3 sm:px-4 sm:pt-4">
+        {filter}
       </div>
+      {sidebar}
     </div>
   );
 }

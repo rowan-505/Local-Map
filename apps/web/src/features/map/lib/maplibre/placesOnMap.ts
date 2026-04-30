@@ -9,8 +9,10 @@ import type { MapEngine } from '../mapEngineTypes';
 export const PLACES_SOURCE_ID = 'places' as const;
 export const PLACES_LAYER_ID = 'places-circle' as const;
 
-const DEFAULT_COLOR = '#2563eb';
-const SELECTED_COLOR = '#ca8a04';
+const DEFAULT_COLOR = '#0ea5e9';
+const SELECTED_COLOR = '#f97316';
+const DEFAULT_STROKE_COLOR = '#ffffff';
+const SELECTED_STROKE_COLOR = '#7c2d12';
 
 function circleColorExpression(selectedPoiId: string | null): string | ExpressionSpecification {
   if (selectedPoiId === null) {
@@ -22,6 +24,37 @@ function circleColorExpression(selectedPoiId: string | null): string | Expressio
     SELECTED_COLOR,
     DEFAULT_COLOR,
   ];
+}
+
+function circleRadiusExpression(selectedPoiId: string | null): number | ExpressionSpecification {
+  if (selectedPoiId === null) {
+    return ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 5, 18, 7];
+  }
+  return [
+    'case',
+    ['==', ['get', 'id'], selectedPoiId],
+    ['interpolate', ['linear'], ['zoom'], 10, 5, 14, 8, 18, 11],
+    ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 5, 18, 7],
+  ];
+}
+
+function strokeColorExpression(selectedPoiId: string | null): string | ExpressionSpecification {
+  if (selectedPoiId === null) {
+    return DEFAULT_STROKE_COLOR;
+  }
+  return [
+    'case',
+    ['==', ['get', 'id'], selectedPoiId],
+    SELECTED_STROKE_COLOR,
+    DEFAULT_STROKE_COLOR,
+  ];
+}
+
+function strokeWidthExpression(selectedPoiId: string | null): number | ExpressionSpecification {
+  if (selectedPoiId === null) {
+    return 1.5;
+  }
+  return ['case', ['==', ['get', 'id'], selectedPoiId], 2.5, 1.5];
 }
 
 export function ensurePlacesLayer(
@@ -39,11 +72,11 @@ export function ensurePlacesLayer(
       type: 'circle',
       source: PLACES_SOURCE_ID,
       paint: {
-        'circle-radius': 7,
+        'circle-radius': circleRadiusExpression(selectedPoiId),
         'circle-color': circleColorExpression(selectedPoiId),
-        'circle-opacity': 0.95,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': '#ffffff',
+        'circle-opacity': 0.92,
+        'circle-stroke-width': strokeWidthExpression(selectedPoiId),
+        'circle-stroke-color': strokeColorExpression(selectedPoiId),
       },
     });
     return;
@@ -63,4 +96,15 @@ export function setPlacesGeoJSON(map: MapEngine, geojson: GeoJSON.FeatureCollect
 export function setSelectedPoiHighlight(map: MapEngine, selectedPoiId: string | null): void {
   if (!map.getLayer(PLACES_LAYER_ID)) return;
   map.setPaintProperty(PLACES_LAYER_ID, 'circle-color', circleColorExpression(selectedPoiId));
+  map.setPaintProperty(PLACES_LAYER_ID, 'circle-radius', circleRadiusExpression(selectedPoiId));
+  map.setPaintProperty(
+    PLACES_LAYER_ID,
+    'circle-stroke-color',
+    strokeColorExpression(selectedPoiId),
+  );
+  map.setPaintProperty(
+    PLACES_LAYER_ID,
+    'circle-stroke-width',
+    strokeWidthExpression(selectedPoiId),
+  );
 }

@@ -1,4 +1,8 @@
-import { PublicMapRepository, type PublicPlaceRow } from "./public-map.repo.js";
+import {
+    PublicMapRepository,
+    type PublicPlaceRow,
+    type PublicSearchRow,
+} from "./public-map.repo.js";
 
 export class PublicPlaceNotFoundError extends Error {
     constructor(message = "Public place not found") {
@@ -37,6 +41,11 @@ export class PublicMapService {
             sortOrder: category.sortOrder,
         }));
     }
+
+    async search(input: { q: string; limit: number }) {
+        const results = await this.publicMapRepo.search(input);
+        return results.map((result) => serializeSearchResult(result));
+    }
 }
 
 function serializePlace(place: PublicPlaceRow) {
@@ -51,5 +60,35 @@ function serializePlace(place: PublicPlaceRow) {
         lng: place.lng,
         importanceScore: place.importance_score,
         isVerified: place.is_verified,
+    };
+}
+
+function serializeSearchResult(result: PublicSearchRow) {
+    const isPlace = result.result_type === "place";
+
+    return {
+        id: result.id,
+        type: result.result_type,
+        name: result.name,
+        subtitle: result.subtitle,
+        categoryName: result.category_name,
+        lat: result.lat,
+        lng: result.lng,
+        cameraTarget: {
+            type: isPlace ? "point" : "bounds",
+            center: [result.lng, result.lat],
+            zoom: isPlace ? 16 : 15,
+            ...(isPlace
+                ? {}
+                : {
+                      bbox: [
+                          result.min_lng,
+                          result.min_lat,
+                          result.max_lng,
+                          result.max_lat,
+                      ],
+                      padding: 80,
+                  }),
+        },
     };
 }

@@ -3,6 +3,7 @@ import {
   fetchPublicCategories,
   fetchPublicPlace,
   fetchPublicPlaces,
+  fetchPublicSearch,
   type PublicPlacesParams,
 } from './publicMapApi';
 
@@ -25,5 +26,15 @@ export function usePublicPlace(publicId: string | null) {
     queryKey: ['public-place', publicId],
     queryFn: () => fetchPublicPlace(publicId ?? ''),
     enabled: publicId !== null,
+  });
+}
+
+export function usePublicSearch(q: string) {
+  const trimmedQuery = q.trim();
+
+  return useQuery({
+    queryKey: ['public-search', trimmedQuery],
+    queryFn: () => fetchPublicSearch(trimmedQuery),
+    enabled: trimmedQuery.length > 0,
   });
 }

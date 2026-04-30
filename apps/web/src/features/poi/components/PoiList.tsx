@@ -20,7 +20,7 @@ function PoiListInner({
 }: PoiListProps) {
   if (isLoading) {
     return (
-      <div className="px-3 py-6 text-center text-xs text-neutral-500">
+      <div className="px-4 py-8 text-center text-xs text-neutral-500">
         Loading places…
       </div>
     );
@@ -28,7 +28,7 @@ function PoiListInner({
 
   if (error) {
     return (
-      <div className="px-3 py-6 text-center text-xs text-red-600">
+      <div className="px-4 py-8 text-center text-xs text-red-600">
         Could not load places. Check the API URL and try again.
       </div>
     );
@@ -36,7 +36,7 @@ function PoiListInner({
 
   if (pois.length === 0) {
     return (
-      <div className="px-3 py-6 text-center text-xs text-neutral-500">
+      <div className="px-4 py-8 text-center text-xs text-neutral-500">
         <p className="font-medium text-neutral-600">No places found</p>
         <p className="mt-2 leading-relaxed">Try a different search or category.</p>
       </div>
@@ -44,7 +44,7 @@ function PoiListInner({
   }
 
   return (
-    <ul className="divide-y divide-neutral-100" role="listbox" aria-label="Visible places">
+    <ul className="space-y-1 p-2" role="listbox" aria-label="Visible places">
       {pois.map((poi) => {
         const selected = poi.id === selectedPoiId;
         return (
@@ -53,16 +53,23 @@ function PoiListInner({
               type="button"
               role="option"
               aria-selected={selected}
-              className={`w-full px-2 py-2.5 text-left transition-colors ${
+              className={`w-full rounded-2xl px-3 py-3 text-left transition-all ${
                 selected
-                  ? 'bg-sky-50 text-neutral-900'
+                  ? 'bg-sky-50 text-neutral-950 shadow-sm ring-1 ring-sky-100'
                   : 'text-neutral-800 hover:bg-neutral-50'
               } `}
               onClick={() => onSelectPoiId(poi.id)}
             >
-              <span className="block text-sm font-medium leading-tight">{poi.name}</span>
-              <span className="mt-0.5 block text-xs text-neutral-500">
-                {poiCategoryLabel(poi.category, poi.categoryName, poi.categoryCode)}
+              <span className="flex items-start gap-3">
+                <span className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${
+                  selected ? 'bg-sky-500' : 'bg-emerald-500'
+                }`} />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold leading-tight">{poi.name}</span>
+                  <span className="mt-1 block truncate text-xs text-neutral-500">
+                    {poiCategoryLabel(poi.category, poi.categoryName, poi.categoryCode)}
+                  </span>
+                </span>
               </span>
             </button>
           </li>

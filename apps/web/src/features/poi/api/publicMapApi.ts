@@ -24,6 +24,58 @@ type PublicPlaceDto = {
   readonly isVerified: boolean;
 };
 
+export type SearchCameraTarget =
+  | {
+      readonly type: 'point';
+      readonly center: readonly [number, number];
+      readonly zoom?: number;
+      readonly duration?: number;
+    }
+  | {
+      readonly type: 'bounds';
+      readonly bbox?: readonly [number, number, number, number];
+      readonly padding?: number;
+      readonly duration?: number;
+    };
+
+export type PublicSearchResult = {
+  readonly id: string;
+  readonly publicId?: string;
+  readonly type: 'place' | 'street';
+  readonly name: string;
+  readonly subtitle?: string;
+  readonly categoryName?: string | null;
+  readonly categoryCode?: string | null;
+  readonly lat?: number;
+  readonly lng?: number;
+  readonly center?: readonly [number, number];
+  readonly bbox?: readonly [number, number, number, number];
+  readonly cameraTarget?: SearchCameraTarget;
+};
+
+type PublicSearchResultDto = {
+  readonly id?: string;
+  readonly publicId?: string;
+  readonly placePublicId?: string;
+  readonly type?: string;
+  readonly name?: string;
+  readonly displayName?: string;
+  readonly subtitle?: string;
+  readonly categoryName?: string | null;
+  readonly categoryCode?: string | null;
+  readonly lat?: number;
+  readonly lng?: number;
+  readonly center?: readonly [number, number];
+  readonly bbox?: readonly [number, number, number, number];
+  readonly cameraTarget?: SearchCameraTarget;
+};
+
+type PublicSearchResponseDto =
+  | readonly PublicSearchResultDto[]
+  | {
+      readonly results: readonly PublicSearchResultDto[];
+    };
+
 export type PublicPlacesParams = {
   readonly q?: string;
   readonly categoryId?: string;
@@ -80,6 +132,17 @@ export async function fetchPublicPlace(publicId: string): Promise<Poi> {
   return publicPlaceToPoi(place);
 }
 
+export async function fetchPublicSearch(q: string): Promise<readonly PublicSearchResult[]> {
+  const trimmedQuery = q.trim();
+  if (trimmedQuery === '') return [];
+
+  const search = new URLSearchParams({ q: trimmedQuery });
+  const response = await fetchJson<PublicSearchResponseDto>(`/public/search?${search.toString()}`);
+  const results = hasSearchResults(response) ? response.results : response;
+
+  return results.map(publicSearchResultFromDto).filter((result) => result !== null);
+}
+
 function publicPlaceToPoi(place: PublicPlaceDto): Poi {
   const categoryLabel = place.categoryName ?? place.categoryCode ?? 'Place';
 
@@ -99,4 +162,35 @@ function publicPlaceToPoi(place: PublicPlaceDto): Poi {
     source: 'api',
     osm_tags: {},
   };
+}
+
+function publicSearchResultFromDto(result: PublicSearchResultDto): PublicSearchResult | null {
+  if (result.type !== 'place' && result.type !== 'street') return null;
+
+  const name = result.name ?? result.displayName;
+  if (typeof name !== 'string' || name.trim() === '') return null;
+
+  const publicId = result.publicId ?? result.placePublicId;
+  const id = result.id ?? publicId ?? `${result.type}:${name}`;
+
+  return {
+    id,
+    publicId,
+    type: result.type,
+    name,
+    subtitle: result.subtitle,
+    categoryName: result.categoryName,
+    categoryCode: result.categoryCode,
+    lat: result.lat,
+    lng: result.lng,
+    center: result.center,
+    bbox: result.bbox,
+    cameraTarget: result.cameraTarget,
+  };
+}
+
+function hasSearchResults(
+  response: PublicSearchResponseDto,
+): response is { readonly results: readonly PublicSearchResultDto[] } {
+  return !Array.isArray(response);
 }

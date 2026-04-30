@@ -14,3 +14,8 @@ export const publicPlacesQuerySchema = z.object({
         .optional(),
     limit: z.coerce.number().int().min(1).max(1000).default(200),
 });
+
+export const publicSearchQuerySchema = z.object({
+    q: z.string().trim().min(1),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+});

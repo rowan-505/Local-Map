@@ -6,6 +6,11 @@ type ListPublicPlacesParams = {
     limit: number;
 };
 
+type SearchPublicMapParams = {
+    q: string;
+    limit: number;
+};
+
 export type PublicPlaceRow = {
     id: bigint;
     public_id: string;
@@ -25,6 +30,22 @@ export type PublicCategoryRow = {
     code: string;
     name: string;
     sortOrder: number;
+};
+
+export type PublicSearchRow = {
+    id: string;
+    result_type: "place" | "street";
+    name: string;
+    subtitle: string | null;
+    category_name: string | null;
+    lat: number;
+    lng: number;
+    importance_score: number | null;
+    rank: number;
+    min_lng: number | null;
+    min_lat: number | null;
+    max_lng: number | null;
+    max_lat: number | null;
 };
 
 export class PublicMapRepository {
@@ -98,6 +119,23 @@ export class PublicMapRepository {
             orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
         });
     }
+
+    async search(params: SearchPublicMapParams): Promise<PublicSearchRow[]> {
+        const streetNamesAvailable = await this.hasStreetNamesTable();
+        const query = streetNamesAvailable
+            ? buildSearchWithStreetNamesQuery(params)
+            : buildSearchWithoutStreetNamesQuery(params);
+
+        return this.prisma.$queryRaw<PublicSearchRow[]>(query);
+    }
+
+    private async hasStreetNamesTable() {
+        const rows = await this.prisma.$queryRaw<{ exists: boolean }[]>(Prisma.sql`
+            SELECT to_regclass('core.core_street_names') IS NOT NULL AS "exists"
+        `);
+
+        return rows[0]?.exists ?? false;
+    }
 }
 
 function buildPublicPlaceConditions(params: ListPublicPlacesParams) {
@@ -123,4 +161,141 @@ function buildPublicPlaceConditions(params: ListPublicPlacesParams) {
     }
 
     return conditions;
+}
+
+function buildSearchWithStreetNamesQuery(params: SearchPublicMapParams) {
+    return buildSearchQuery(params, Prisma.sql`
+        LEFT JOIN LATERAL (
+            SELECT n.name
+            FROM core.core_street_names AS n
+            WHERE n.street_id = s.id
+              AND n.name ILIKE ${partialSearchTerm(params.q)}
+            ORDER BY
+                CASE
+                    WHEN lower(n.name) = ${normalizedSearchTerm(params.q)} THEN 1
+                    WHEN lower(n.name) LIKE ${prefixSearchTerm(params.q)} THEN 2
+                    ELSE 3
+                END,
+                n.is_primary DESC,
+                n.name ASC
+            LIMIT 1
+        ) AS sn ON true
+    `, Prisma.sql`
+        OR sn.name IS NOT NULL
+    `, Prisma.sql`
+        WHEN lower(sn.name) = ${normalizedSearchTerm(params.q)} THEN 1
+        WHEN lower(sn.name) LIKE ${prefixSearchTerm(params.q)} THEN 2
+    `);
+}
+
+function buildSearchWithoutStreetNamesQuery(params: SearchPublicMapParams) {
+    return buildSearchQuery(params, Prisma.empty, Prisma.empty, Prisma.empty);
+}
+
+function buildSearchQuery(
+    params: SearchPublicMapParams,
+    streetNamesJoin: Prisma.Sql,
+    streetNamesWhere: Prisma.Sql,
+    streetNamesRank: Prisma.Sql
+) {
+    const normalizedTerm = normalizedSearchTerm(params.q);
+    const prefixTerm = prefixSearchTerm(params.q);
+    const partialTerm = partialSearchTerm(params.q);
+
+    return Prisma.sql`
+        WITH place_results AS (
+            SELECT
+                p.public_id::text AS id,
+                'place'::text AS result_type,
+                COALESCE(NULLIF(p.display_name, ''), p.primary_name) AS name,
+                c.name AS subtitle,
+                c.name AS category_name,
+                p.lat,
+                p.lng,
+                p.importance_score::double precision AS importance_score,
+                CASE
+                    WHEN lower(p.display_name) = ${normalizedTerm}
+                      OR lower(p.primary_name) = ${normalizedTerm}
+                      OR lower(COALESCE(p.secondary_name, '')) = ${normalizedTerm}
+                      OR lower(COALESCE(p.name_local, '')) = ${normalizedTerm}
+                    THEN 1
+                    WHEN lower(p.display_name) LIKE ${prefixTerm}
+                      OR lower(p.primary_name) LIKE ${prefixTerm}
+                      OR lower(COALESCE(p.secondary_name, '')) LIKE ${prefixTerm}
+                      OR lower(COALESCE(p.name_local, '')) LIKE ${prefixTerm}
+                    THEN 2
+                    ELSE 3
+                END AS rank,
+                NULL::double precision AS min_lng,
+                NULL::double precision AS min_lat,
+                NULL::double precision AS max_lng,
+                NULL::double precision AS max_lat
+            FROM core.core_places AS p
+            LEFT JOIN ref.ref_poi_categories AS c
+                ON c.id = p.category_id
+            WHERE p.deleted_at IS NULL
+              AND p.is_public = true
+              AND p.lat IS NOT NULL
+              AND p.lng IS NOT NULL
+              AND (
+                  p.display_name ILIKE ${partialTerm}
+                  OR p.primary_name ILIKE ${partialTerm}
+                  OR p.secondary_name ILIKE ${partialTerm}
+                  OR p.name_local ILIKE ${partialTerm}
+              )
+        ),
+        street_results AS (
+            SELECT
+                s.public_id::text AS id,
+                'street'::text AS result_type,
+                s.canonical_name AS name,
+                'Street'::text AS subtitle,
+                NULL::text AS category_name,
+                ST_Y(ST_PointOnSurface(ST_Transform(s.geom, 4326))) AS lat,
+                ST_X(ST_PointOnSurface(ST_Transform(s.geom, 4326))) AS lng,
+                NULL::double precision AS importance_score,
+                CASE
+                    WHEN lower(s.canonical_name) = ${normalizedTerm} THEN 1
+                    ${streetNamesRank}
+                    WHEN lower(s.canonical_name) LIKE ${prefixTerm} THEN 2
+                    ELSE 3
+                END AS rank,
+                ST_XMin(Box2D(ST_Transform(s.geom, 4326)))::double precision AS min_lng,
+                ST_YMin(Box2D(ST_Transform(s.geom, 4326)))::double precision AS min_lat,
+                ST_XMax(Box2D(ST_Transform(s.geom, 4326)))::double precision AS max_lng,
+                ST_YMax(Box2D(ST_Transform(s.geom, 4326)))::double precision AS max_lat
+            FROM core.core_streets AS s
+            ${streetNamesJoin}
+            WHERE s.geom IS NOT NULL
+              AND s.is_active = true
+              AND (
+                  s.canonical_name ILIKE ${partialTerm}
+                  ${streetNamesWhere}
+              )
+        )
+        SELECT *
+        FROM (
+            SELECT * FROM place_results
+            UNION ALL
+            SELECT * FROM street_results
+        ) AS results
+        ORDER BY
+            rank ASC,
+            CASE WHEN result_type = 'place' THEN 0 ELSE 1 END ASC,
+            importance_score DESC NULLS LAST,
+            name ASC
+        LIMIT ${params.limit}
+    `;
+}
+
+function normalizedSearchTerm(term: string) {
+    return term.trim().toLowerCase();
+}
+
+function prefixSearchTerm(term: string) {
+    return `${normalizedSearchTerm(term)}%`;
+}
+
+function partialSearchTerm(term: string) {
+    return `%${term.trim()}%`;
 }
