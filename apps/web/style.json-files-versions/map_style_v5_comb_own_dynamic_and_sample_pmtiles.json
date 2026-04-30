@@ -45,7 +45,7 @@
     "martin_admin_areas": {
       "type": "vector",
       "tiles": [
-        "http://localhost:3000/v_admin_areas/{z}/{x}/{y}"
+        "https://martin-lively-canyon-4077.fly.dev/v_admin_areas/{z}/{x}/{y}"
       ],
       "minzoom": 0,
       "maxzoom": 22,
@@ -54,7 +54,7 @@
     "martin_streets": {
       "type": "vector",
       "tiles": [
-        "http://localhost:3000/v_streets/{z}/{x}/{y}"
+        "https://martin-lively-canyon-4077.fly.dev/v_streets/{z}/{x}/{y}"
       ],
       "minzoom": 0,
       "maxzoom": 22,
@@ -63,7 +63,7 @@
     "martin_places": {
       "type": "vector",
       "tiles": [
-        "http://localhost:3000/v_places/{z}/{x}/{y}"
+        "https://martin-lively-canyon-4077.fly.dev/v_places/{z}/{x}/{y}"
       ],
       "minzoom": 0,
       "maxzoom": 22,
