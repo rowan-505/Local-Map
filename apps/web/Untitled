@@ -1,6 +1,0 @@
-geo-database/
-*.pbf
-*.osm.pbf
-*.mbtiles
-*.pmtiles
-*.sql
