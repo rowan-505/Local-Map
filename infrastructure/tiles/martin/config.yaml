@@ -2,10 +2,7 @@ listen_addresses: 0.0.0.0:10000
 
 postgres:
   connection_string: ${DATABASE_URL}
-  auto_publish:
-    from_schemas:
-      - tiles
-    tables:
-      from_schemas:
-        - tiles
-    functions: false
+
+auto_publish:
+  from_schemas:
+    - tiles
