@@ -2,8 +2,6 @@ listen_addresses: 0.0.0.0:10000
 
 postgres:
   connection_string: ${DATABASE_URL}
-  pool_size: 1
-  auto_bounds: skip
   auto_publish:
     tables:
       from_schemas:

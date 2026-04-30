@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: local-map-martin
+    runtime: docker
+    dockerContext: ./infrastructure/tiles/martin
+    dockerfilePath: ./infrastructure/tiles/martin/Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        sync: false
