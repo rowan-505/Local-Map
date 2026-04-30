@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@local-map/map-style/*": ["../../packages/map-style/*"]
     }
   },
   "include": [

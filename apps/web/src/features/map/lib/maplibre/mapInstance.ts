@@ -1,9 +1,9 @@
 /**
- * MapLibre GL construction — style URL and interaction defaults from `../../config`;
+ * MapLibre GL construction — shared style and interaction defaults from `../../config`;
  * viewport from `mapDefaults`. GeoJSON overlays unchanged (`basemapMvpStyle`, POI layers in MapView).
  */
 import maplibregl from 'maplibre-gl';
-import { getActiveBasemapStyleUrl, MAP_LIBRE_INTERACTION_DEFAULTS } from '../../config';
+import { getActiveBasemapStyle, MAP_LIBRE_INTERACTION_DEFAULTS } from '../../config';
 import {
   MAP_MAX_BOUNDS,
   MAP_MAX_ZOOM,
@@ -31,7 +31,7 @@ export function createMaplibreMap(container: HTMLDivElement): MapEngine {
    */
   const map = new maplibregl.Map({
     container,
-    style: getActiveBasemapStyleUrl(),
+    style: getActiveBasemapStyle(),
     maxBounds: MAP_MAX_BOUNDS as BoundsLike,
     minZoom: MAP_MIN_ZOOM,
     maxZoom: MAP_MAX_ZOOM,
