@@ -1,7 +1,5 @@
-FROM ghcr.io/maplibre/martin:1.7.0
+FROM node:20-alpine
 
 EXPOSE 10000
 
-COPY config.yaml /config.yaml
-
-CMD ["--config", "/config.yaml"]
+CMD ["sh", "-c", "node -e \"require('http').createServer((req,res)=>res.end('ok')).listen(10000,'0.0.0.0')\""]
