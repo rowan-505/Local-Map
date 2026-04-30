@@ -1,11 +1,12 @@
+import type { StyleSpecification } from 'maplibre-gl';
+import BaseMapStyle from '@local-map/map-style/base-map.json';
+
 /**
- * Basemap style entrypoint — local MapLibre Style Spec JSON in `public/styles/` (vector PMTiles + `dynamic` placeholder in that file).
+ * Shared MapLibre style entrypoint (Martin vector tiles + labels).
  */
+export const BASEMAP_STYLE: StyleSpecification = BaseMapStyle as StyleSpecification;
 
-/** Path under `public/` served at site root (Vite). */
-export const BASEMAP_STYLE_PUBLIC_FILENAME = 'styles/style.json' as const;
-
-/** URL passed to `maplibregl.Map({ style })`. */
-export function getActiveBasemapStyleUrl(): string {
-  return `${import.meta.env.BASE_URL}${BASEMAP_STYLE_PUBLIC_FILENAME}`;
+/** Style passed to `maplibregl.Map({ style })`. */
+export function getActiveBasemapStyle(): StyleSpecification {
+  return BASEMAP_STYLE;
 }
