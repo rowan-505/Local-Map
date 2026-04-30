@@ -3,7 +3,7 @@
  */
 
 /** Path under `public/` served at site root (Vite). */
-export const BASEMAP_STYLE_PUBLIC_FILENAME = 'styles/base-light.json' as const;
+export const BASEMAP_STYLE_PUBLIC_FILENAME = 'styles/style.json' as const;
 
 /** URL passed to `maplibregl.Map({ style })`. */
 export function getActiveBasemapStyleUrl(): string {
