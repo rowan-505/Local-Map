@@ -1,9 +1,7 @@
-listen_addresses: 0.0.0.0:10000
-
+listen_addresses: "0.0.0.0:3000"
 postgres:
-  connection_string: ${DATABASE_URL}
-  auto_publish:
-    tables:
-      from_schemas:
-        - tiles
-    functions: false
+  connection_string: postgresql://postgres.locghyuranqaqsnbxflc:GeoCore6505@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+
+auto_publish:
+  from_schemas:
+    - tiles

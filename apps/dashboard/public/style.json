@@ -1,12 +1,87 @@
 {
   "version": 8,
-  "name": "Local Lightweight Roads Basemap",
+  "name": "Local Map Natural",
+  "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
   "sources": {
-    "roads": {
+    "core_streets": {
       "type": "vector",
       "tiles": [
-        "https://dynamic-martin-vector-tiles.onrender.com/tiles_roads_v/{z}/{x}/{y}"
-      ]
+        "https://martin-lively-canyon-4077.fly.dev/core_streets/{z}/{x}/{y}"
+      ],
+      "minzoom": 0,
+      "maxzoom": 22
+    },
+    "tiles_places_v": {
+      "type": "vector",
+      "tiles": [
+        "https://martin-lively-canyon-4077.fly.dev/tiles_places_v/{z}/{x}/{y}"
+      ],
+      "minzoom": 0,
+      "maxzoom": 22
+    },
+    "tiles_water_polygons_v": {
+      "type": "vector",
+      "tiles": [
+        "https://martin-lively-canyon-4077.fly.dev/tiles_water_polygons_v/{z}/{x}/{y}"
+      ],
+      "minzoom": 0,
+      "maxzoom": 22
+    },
+    "tiles_landuse_v": {
+      "type": "vector",
+      "tiles": [
+        "https://martin-lively-canyon-4077.fly.dev/tiles_landuse_v/{z}/{x}/{y}"
+      ],
+      "minzoom": 0,
+      "maxzoom": 22
+    },
+    "core_map_water_lines": {
+      "type": "vector",
+      "tiles": [
+        "https://martin-lively-canyon-4077.fly.dev/core_map_water_lines/{z}/{x}/{y}"
+      ],
+      "minzoom": 0,
+      "maxzoom": 22
+    },
+    "core_map_buildings": {
+      "type": "vector",
+      "tiles": [
+        "https://martin-lively-canyon-4077.fly.dev/core_map_buildings/{z}/{x}/{y}"
+      ],
+      "minzoom": 0,
+      "maxzoom": 22
+    },
+    "tiles_road_labels_v": {
+      "type": "vector",
+      "tiles": [
+        "https://martin-lively-canyon-4077.fly.dev/tiles_road_labels_v/{z}/{x}/{y}"
+      ],
+      "minzoom": 0,
+      "maxzoom": 22
+    },
+    "core_bus_stops": {
+      "type": "vector",
+      "tiles": [
+        "https://martin-lively-canyon-4077.fly.dev/core_bus_stops/{z}/{x}/{y}"
+      ],
+      "minzoom": 0,
+      "maxzoom": 22
+    },
+    "core_bus_route_variants": {
+      "type": "vector",
+      "tiles": [
+        "https://martin-lively-canyon-4077.fly.dev/core_bus_route_variants/{z}/{x}/{y}"
+      ],
+      "minzoom": 0,
+      "maxzoom": 22
+    },
+    "core_admin_areas.1": {
+      "type": "vector",
+      "tiles": [
+        "https://martin-lively-canyon-4077.fly.dev/core_admin_areas.1/{z}/{x}/{y}"
+      ],
+      "minzoom": 0,
+      "maxzoom": 22
     }
   },
   "layers": [
@@ -14,51 +89,180 @@
       "id": "background",
       "type": "background",
       "paint": {
-        "background-color": "#eef1f5"
+        "background-color": "#f3f4f1"
       }
     },
     {
-      "id": "road-casing",
+      "id": "landuse",
+      "type": "fill",
+      "source": "tiles_landuse_v",
+      "source-layer": "tiles_landuse_v",
+      "paint": {
+        "fill-color": "#d9ead3",
+        "fill-opacity": 0.55
+      }
+    },
+    {
+      "id": "water-polygons",
+      "type": "fill",
+      "source": "tiles_water_polygons_v",
+      "source-layer": "tiles_water_polygons_v",
+      "paint": {
+        "fill-color": "#a7d8f0",
+        "fill-opacity": 0.95
+      }
+    },
+    {
+      "id": "water-lines",
       "type": "line",
-      "source": "roads",
-      "source-layer": "tiles_roads_v",
-      "minzoom": 8,
+      "source": "core_map_water_lines",
+      "source-layer": "core_map_water_lines",
       "layout": {
         "line-cap": "round",
         "line-join": "round"
       },
       "paint": {
-        "line-color": "#c6ccd4",
-        "line-width": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          8, 1.2,
-          12, 3,
-          16, 8
-        ]
+        "line-color": "#8cc9e8",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 14, 1.8, 18, 4],
+        "line-opacity": 0.8
       }
     },
     {
-      "id": "roads",
+      "id": "buildings",
+      "type": "fill",
+      "source": "core_map_buildings",
+      "source-layer": "core_map_buildings",
+      "minzoom": 14,
+      "paint": {
+        "fill-color": "#ded8cf",
+        "fill-opacity": 0.72,
+        "fill-outline-color": "#c7beb2"
+      }
+    },
+    {
+      "id": "admin-boundaries",
       "type": "line",
-      "source": "roads",
-      "source-layer": "tiles_roads_v",
-      "minzoom": 8,
+      "source": "core_admin_areas.1",
+      "source-layer": "core_admin_areas.1",
+      "paint": {
+        "line-color": "#8d948c",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.7, 14, 1.2, 18, 2],
+        "line-opacity": 0.45,
+        "line-dasharray": [3, 3]
+      }
+    },
+    {
+      "id": "bus-routes",
+      "type": "line",
+      "source": "core_bus_route_variants",
+      "source-layer": "core_bus_route_variants",
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#d97706",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.2, 14, 2.6, 18, 5],
+        "line-opacity": 0.65
+      }
+    },
+    {
+      "id": "roads-casing",
+      "type": "line",
+      "source": "core_streets",
+      "source-layer": "core_streets",
       "layout": {
         "line-cap": "round",
         "line-join": "round"
       },
       "paint": {
         "line-color": "#ffffff",
-        "line-width": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          8, 0.7,
-          12, 2,
-          16, 6
-        ]
+        "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 13, 3.5, 16, 7, 19, 13],
+        "line-opacity": 0.9
+      }
+    },
+    {
+      "id": "roads",
+      "type": "line",
+      "source": "core_streets",
+      "source-layer": "core_streets",
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#b6b8b5",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 13, 1.8, 16, 4, 19, 8],
+        "line-opacity": 0.96
+      }
+    },
+    {
+      "id": "places-poi",
+      "type": "circle",
+      "source": "tiles_places_v",
+      "source-layer": "tiles_places_v",
+      "minzoom": 14,
+      "paint": {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 2.5, 17, 4.5, 20, 7],
+        "circle-color": "#3aa76d",
+        "circle-opacity": 0.85,
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 1.2
+      }
+    },
+    {
+      "id": "bus-stops",
+      "type": "circle",
+      "source": "core_bus_stops",
+      "source-layer": "core_bus_stops",
+      "minzoom": 14,
+      "paint": {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 3, 17, 4.5, 20, 7],
+        "circle-color": "#f2a900",
+        "circle-opacity": 0.95,
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 1.4
+      }
+    },
+    {
+      "id": "road-labels",
+      "type": "symbol",
+      "source": "tiles_road_labels_v",
+      "source-layer": "tiles_road_labels_v",
+      "minzoom": 13,
+      "layout": {
+        "symbol-placement": "line",
+        "text-field": ["coalesce", ["get", "name"], ["get", "ref"], ""],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 13, 10, 17, 12, 20, 15],
+        "text-padding": 3,
+        "text-rotation-alignment": "map"
+      },
+      "paint": {
+        "text-color": "#626a70",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "place-labels",
+      "type": "symbol",
+      "source": "tiles_places_v",
+      "source-layer": "tiles_places_v",
+      "minzoom": 14,
+      "layout": {
+        "text-field": ["coalesce", ["get", "name"], ["get", "name_en"], ""],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 14, 11, 17, 13, 20, 16],
+        "text-offset": [0, 1],
+        "text-anchor": "top",
+        "text-padding": 4,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#374151",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.5
       }
     }
   ]
