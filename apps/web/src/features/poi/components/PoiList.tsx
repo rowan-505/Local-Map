@@ -7,17 +7,38 @@ export type PoiListProps = {
   readonly pois: readonly Poi[];
   readonly selectedPoiId: string | null;
   readonly onSelectPoiId: (id: string) => void;
+  readonly isLoading?: boolean;
+  readonly error?: Error | null;
 };
 
-function PoiListInner({ pois, selectedPoiId, onSelectPoiId }: PoiListProps) {
+function PoiListInner({
+  pois,
+  selectedPoiId,
+  onSelectPoiId,
+  isLoading = false,
+  error = null,
+}: PoiListProps) {
+  if (isLoading) {
+    return (
+      <div className="px-3 py-6 text-center text-xs text-neutral-500">
+        Loading places…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="px-3 py-6 text-center text-xs text-red-600">
+        Could not load places. Check the API URL and try again.
+      </div>
+    );
+  }
+
   if (pois.length === 0) {
     return (
       <div className="px-3 py-6 text-center text-xs text-neutral-500">
-        <p className="font-medium text-neutral-600">No places to show yet</p>
-        <p className="mt-2 leading-relaxed">
-          Load POIs from normalized Kyauktan OSM with <code className="rounded bg-neutral-100 px-1">npm run pois:refresh</code>
-          , or widen category filters if everything is hidden.
-        </p>
+        <p className="font-medium text-neutral-600">No places found</p>
+        <p className="mt-2 leading-relaxed">Try a different search or category.</p>
       </div>
     );
   }
@@ -41,7 +62,7 @@ function PoiListInner({ pois, selectedPoiId, onSelectPoiId }: PoiListProps) {
             >
               <span className="block text-sm font-medium leading-tight">{poi.name}</span>
               <span className="mt-0.5 block text-xs text-neutral-500">
-                {poiCategoryLabel(poi.category)}
+                {poiCategoryLabel(poi.category, poi.categoryName, poi.categoryCode)}
               </span>
             </button>
           </li>

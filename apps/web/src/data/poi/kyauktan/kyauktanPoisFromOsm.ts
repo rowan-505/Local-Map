@@ -5,11 +5,8 @@
  * Do not fetch Overpass from the app.
  */
 import type { Poi } from '@/types';
-import { POI_CATEGORY_IDS } from '@/types';
 import { cleanupKyauktanPois } from './cleanupKyauktanPois';
 import kyauktanPoisProcessed from './processed/kyauktan-pois.json';
-
-const VALID_CATEGORIES = new Set<string>(POI_CATEGORY_IDS);
 
 function isOsmTagsRecord(v: unknown): v is Readonly<Record<string, string>> {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
@@ -23,7 +20,6 @@ function isPoiRecord(v: unknown): v is Poi {
     typeof o.id === 'string' &&
     typeof o.name === 'string' &&
     typeof o.category === 'string' &&
-    VALID_CATEGORIES.has(o.category) &&
     typeof o.subcategory === 'string' &&
     typeof o.latitude === 'number' &&
     typeof o.longitude === 'number' &&

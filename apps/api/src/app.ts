@@ -7,16 +7,22 @@ import adminAreasRoutes from "./modules/admin-areas/admin-areas.routes.js";
 import authRoutes from "./modules/auth/auth.routes.js";
 import categoriesRoutes from "./modules/categories/categories.routes.js";
 import placesRoutes from "./modules/places/places.routes.js";
+import publicMapRoutes from "./modules/public-map/public-map.routes.js";
 import streetsRoutes from "./modules/streets/streets.routes.js";
 
 const LOCAL_DASHBOARD_ORIGIN = "http://localhost:3000";
+const LOCAL_WEB_ORIGIN = "http://localhost:5173";
 
 function getCorsOrigins() {
-    const origins = new Set([LOCAL_DASHBOARD_ORIGIN]);
-    const configuredOrigin = process.env.CORS_ORIGIN?.trim();
+    const origins = new Set([LOCAL_DASHBOARD_ORIGIN, LOCAL_WEB_ORIGIN]);
+    const configuredOrigins = process.env.CORS_ORIGIN?.split(",") ?? [];
 
-    if (configuredOrigin) {
-        origins.add(configuredOrigin);
+    for (const origin of configuredOrigins) {
+        const trimmedOrigin = origin.trim();
+
+        if (trimmedOrigin) {
+            origins.add(trimmedOrigin);
+        }
     }
 
     return [...origins];
@@ -47,6 +53,7 @@ export async function buildApp() {
     await app.register(categoriesRoutes);
     await app.register(adminAreasRoutes);
     await app.register(placesRoutes);
+    await app.register(publicMapRoutes);
     await app.register(streetsRoutes);
 
     return app;
