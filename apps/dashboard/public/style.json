@@ -1,10 +1,12 @@
 {
   "version": 8,
-  "name": "Local Dynamic Basemap - Visible",
+  "name": "Local Lightweight Roads Basemap",
   "sources": {
-    "dynamic_basemap": {
+    "roads": {
       "type": "vector",
-      "url": "http://localhost:3002/tiles_admin_boundaries_v,tiles_buildings_v,tiles_landuse_v,tiles_places_v,tiles_roads_v,tiles_road_labels_v,tiles_water_lines_v,tiles_water_polygons_v,tiles_streets_v,tiles_admin_areas_v,tiles_places_legacy_v,tiles_poi_v,tiles_bus_routes_v,tiles_bus_stops_v"
+      "tiles": [
+        "https://dynamic-martin-vector-tiles.onrender.com/tiles_roads_v/{z}/{x}/{y}"
+      ]
     }
   },
   "layers": [
@@ -16,83 +18,9 @@
       }
     },
     {
-      "id": "landuse-fill",
-      "type": "fill",
-      "source": "dynamic_basemap",
-      "source-layer": "tiles_landuse_v",
-      "minzoom": 5,
-      "paint": {
-        "fill-color": [
-          "match",
-          ["get", "landuse_class"],
-          "forest", "#cfe3c6",
-          "wood", "#cfe3c6",
-          "grassland", "#dbe9cf",
-          "scrub", "#d6e4c9",
-          "wetland", "#cde7e3",
-          "park", "#d8ecd2",
-          "recreation_ground", "#dcebd6",
-          "#e9eee4"
-        ],
-        "fill-opacity": 0.7
-      }
-    },
-    {
-      "id": "water-polygons-fill",
-      "type": "fill",
-      "source": "dynamic_basemap",
-      "source-layer": "tiles_water_polygons_v",
-      "paint": {
-        "fill-color": "#bcdff5",
-        "fill-opacity": 1
-      }
-    },
-    {
-      "id": "buildings-fill",
-      "type": "fill",
-      "source": "dynamic_basemap",
-      "source-layer": "tiles_buildings_v",
-      "minzoom": 13,
-      "paint": {
-        "fill-color": "#d9d3cc",
-        "fill-opacity": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          13, 0.45,
-          15, 0.7,
-          17, 0.9
-        ],
-        "fill-outline-color": "#c8c2bb"
-      }
-    },
-    {
-      "id": "water-lines",
-      "type": "line",
-      "source": "dynamic_basemap",
-      "source-layer": "tiles_water_lines_v",
-      "minzoom": 9,
-      "layout": {
-        "line-cap": "round",
-        "line-join": "round"
-      },
-      "paint": {
-        "line-color": "#7fb8e6",
-        "line-width": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          9, 1,
-          12, 2,
-          15, 3
-        ],
-        "line-opacity": 0.95
-      }
-    },
-    {
       "id": "road-casing",
       "type": "line",
-      "source": "dynamic_basemap",
+      "source": "roads",
       "source-layer": "tiles_roads_v",
       "minzoom": 8,
       "layout": {
@@ -106,18 +34,15 @@
           ["linear"],
           ["zoom"],
           8, 1.2,
-          10, 2.2,
-          12, 3.5,
-          14, 6,
-          16, 10
-        ],
-        "line-opacity": 1
+          12, 3,
+          16, 8
+        ]
       }
     },
     {
-      "id": "road-main",
+      "id": "roads",
       "type": "line",
-      "source": "dynamic_basemap",
+      "source": "roads",
       "source-layer": "tiles_roads_v",
       "minzoom": 8,
       "layout": {
@@ -130,103 +55,10 @@
           "interpolate",
           ["linear"],
           ["zoom"],
-          8, 0.6,
-          10, 1.4,
-          12, 2.5,
-          14, 4.5,
-          16, 8
-        ],
-        "line-opacity": 1
-      }
-    },
-    {
-      "id": "admin-boundaries",
-      "type": "line",
-      "source": "dynamic_basemap",
-      "source-layer": "tiles_admin_boundaries_v",
-      "minzoom": 7,
-      "layout": {
-        "line-cap": "round",
-        "line-join": "round"
-      },
-      "paint": {
-        "line-color": "#9b6fa6",
-        "line-width": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          7, 0.8,
-          10, 1.2,
-          13, 1.8
-        ],
-        "line-dasharray": [2, 2],
-        "line-opacity": 0.85
-      }
-    },
-    {
-      "id": "road-labels",
-      "type": "symbol",
-      "source": "dynamic_basemap",
-      "source-layer": "tiles_road_labels_v",
-      "minzoom": 13,
-      "filter": [
-        "all",
-        ["has", "name"],
-        ["!=", ["get", "name"], ""]
-      ],
-      "layout": {
-        "symbol-placement": "line",
-        "text-field": ["get", "name"],
-        "text-font": ["Noto Sans Regular", "Arial Unicode MS Regular", "sans-serif"],
-        "text-size": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          13, 10,
-          16, 13
-        ],
-        "text-letter-spacing": 0.02,
-        "text-max-angle": 45,
-        "text-padding": 2
-      },
-      "paint": {
-        "text-color": "#5a6370",
-        "text-halo-color": "#ffffff",
-        "text-halo-width": 1.5,
-        "text-halo-blur": 0.3
-      }
-    },
-    {
-      "id": "place-labels",
-      "type": "symbol",
-      "source": "dynamic_basemap",
-      "source-layer": "tiles_places_v",
-      "minzoom": 11,
-      "filter": [
-        "all",
-        ["has", "name"],
-        ["!=", ["get", "name"], ""]
-      ],
-      "layout": {
-        "text-field": ["get", "name"],
-        "text-font": ["Noto Sans Regular", "Arial Unicode MS Regular", "sans-serif"],
-        "text-size": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          11, 11,
-          14, 13,
-          17, 16
-        ],
-        "text-offset": [0, 0.6],
-        "text-anchor": "top",
-        "text-max-width": 10
-      },
-      "paint": {
-        "text-color": "#2f3640",
-        "text-halo-color": "#ffffff",
-        "text-halo-width": 1.6,
-        "text-halo-blur": 0.4
+          8, 0.7,
+          12, 2,
+          16, 6
+        ]
       }
     }
   ]

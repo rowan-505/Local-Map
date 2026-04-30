@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
 
 import type { StreetGeometry } from "@/src/lib/api";
-import { PLACE_MAP_DEFAULT_CENTER, PLACE_MAP_STYLE_URL } from "./placeMapConfig";
+import { PLACE_MAP_DEFAULT_CENTER, PLACE_MAP_STYLE } from "./placeMapConfig";
 
 type StreetPreviewMapProps = {
     selectedStreet: {
@@ -73,7 +73,7 @@ export default function StreetPreviewMap({ selectedStreet }: StreetPreviewMapPro
 
         const map = new maplibregl.Map({
             container: containerRef.current,
-            style: PLACE_MAP_STYLE_URL,
+            style: PLACE_MAP_STYLE,
             center: PLACE_MAP_DEFAULT_CENTER,
             zoom: DEFAULT_ZOOM,
         });

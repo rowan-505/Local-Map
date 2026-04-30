@@ -3,6 +3,9 @@
 import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 
+import { apiFetch } from "@/src/lib/api";
+import { PLACE_MAP_STYLE } from "./map/placeMapConfig";
+
 type Poi = {
     id: number | string;
     name: string;
@@ -20,7 +23,7 @@ export default function MapView() {
 
         const map = new maplibregl.Map({
             container: mapContainer.current,
-            style: "https://demotiles.maplibre.org/style.json",
+            style: PLACE_MAP_STYLE,
             center: [96.3265, 16.633],
             zoom: 15,
             minZoom: 10,
@@ -58,8 +61,7 @@ export default function MapView() {
                 });
 
                 // POIs
-                const res = await fetch("/api/pois");
-                const pois: Poi[] = await res.json();
+                const pois = await apiFetch<Poi[]>("/api/pois");
 
                 const bounds = new maplibregl.LngLatBounds();
 
