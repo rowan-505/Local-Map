@@ -16,7 +16,6 @@ export class PlaceFormOptionsService {
                 id: category.id.toString(),
                 code: category.code,
                 name: category.name,
-                name_local: null,
             })),
             adminAreas: adminAreas.map((adminArea) => ({
                 id: adminArea.id.toString(),

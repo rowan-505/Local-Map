@@ -31,19 +31,6 @@ const nullableTrimmedStringSchema = z.preprocess((value) => {
     return value;
 }, z.string().nullable());
 
-const optionalTrimmedStringSchema = z.preprocess((value) => {
-    if (value === "" || value === undefined) {
-        return undefined;
-    }
-
-    if (typeof value === "string") {
-        const trimmed = value.trim();
-        return trimmed === "" ? undefined : trimmed;
-    }
-
-    return value;
-}, z.string().optional());
-
 const nullableStringIdSchema = z.preprocess((value) => {
     if (value === "" || value === undefined) {
         return null;
@@ -65,10 +52,8 @@ const nullableNumberSchema = z.preprocess((value) => {
 }, z.number().nullable());
 
 const placeCreateSchema = z.object({
-    primary_name: z.string().trim().min(1, "Primary name is required"),
-    secondary_name: nullableTrimmedStringSchema,
-    name_local: nullableTrimmedStringSchema,
-    display_name: optionalTrimmedStringSchema,
+    myanmarName: z.string().trim(),
+    englishName: z.string().trim(),
     category_id: z.string().min(1, "Category is required"),
     admin_area_id: nullableStringIdSchema,
     lat: z.number().min(-90).max(90, "Latitude must be between -90 and 90"),
@@ -85,10 +70,8 @@ const placeCreateSchema = z.object({
 
 type PlaceCreateFormValues = z.infer<typeof placeCreateSchema>;
 type PlaceCreateFormInput = {
-    primary_name: string;
-    secondary_name: string;
-    name_local: string;
-    display_name: string;
+    myanmarName: string;
+    englishName: string;
     category_id: string;
     admin_area_id: string;
     lat: number | "";
@@ -138,10 +121,8 @@ export default function NewPlacePage() {
             PlaceCreateFormValues
         >,
         defaultValues: {
-            primary_name: "",
-            secondary_name: "",
-            name_local: "",
-            display_name: "",
+            myanmarName: "",
+            englishName: "",
             category_id: "",
             admin_area_id: "",
             lat: "",
@@ -294,47 +275,24 @@ export default function NewPlacePage() {
                             className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
                         >
                             <div className="grid gap-6 sm:grid-cols-2">
-                                <label className="block sm:col-span-2">
-                                    <span className="mb-1 block text-sm text-gray-700">
-                                        Primary Name
-                                    </span>
-                                    <input
-                                        {...register("primary_name")}
-                                        className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
-                                    />
-                                    {errors.primary_name ? (
-                                        <span className="mt-1 block text-sm text-red-600">
-                                            {errors.primary_name.message}
-                                        </span>
-                                    ) : null}
-                                </label>
-
                                 <label className="block">
                                     <span className="mb-1 block text-sm text-gray-700">
-                                        Secondary Name
+                                        Myanmar Name
                                     </span>
                                     <input
-                                        {...register("secondary_name")}
+                                        {...register("myanmarName")}
+                                        placeholder="ဥပမာ - အောင်မင်္ဂလာ"
                                         className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                     />
                                 </label>
 
                                 <label className="block">
                                     <span className="mb-1 block text-sm text-gray-700">
-                                        Name Local
+                                        English Name
                                     </span>
                                     <input
-                                        {...register("name_local")}
-                                        className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
-                                    />
-                                </label>
-
-                                <label className="block sm:col-span-2">
-                                    <span className="mb-1 block text-sm text-gray-700">
-                                        Display Name
-                                    </span>
-                                    <input
-                                        {...register("display_name")}
+                                        {...register("englishName")}
+                                        placeholder="Example - Aung Mingalar"
                                         className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                     />
                                 </label>

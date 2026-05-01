@@ -22,13 +22,15 @@ const nullableStringIdSchema = z.preprocess((value) => {
 }, z.string().nullable());
 
 const streetEditSchema = z.object({
-    canonical_name: z.string().trim().min(1, "Canonical name is required"),
+    myanmarName: z.string().trim(),
+    englishName: z.string().trim(),
     admin_area_id: nullableStringIdSchema,
 });
 
 type StreetEditFormValues = z.infer<typeof streetEditSchema>;
 type StreetEditFormInput = {
-    canonical_name: string;
+    myanmarName: string;
+    englishName: string;
     admin_area_id: string;
 };
 
@@ -67,7 +69,6 @@ export default function StreetEditModal({
         register,
         handleSubmit,
         reset,
-        formState: { errors },
     } = useForm<StreetEditFormInput, unknown, StreetEditFormValues>({
         resolver: zodResolver(streetEditSchema) as Resolver<
             StreetEditFormInput,
@@ -75,7 +76,8 @@ export default function StreetEditModal({
             StreetEditFormValues
         >,
         defaultValues: {
-            canonical_name: "",
+            myanmarName: "",
+            englishName: "",
             admin_area_id: "",
         },
     });
@@ -107,7 +109,8 @@ export default function StreetEditModal({
                 setDetail(street);
                 setAdminAreas(fetchedAdminAreas);
                 reset({
-                    canonical_name: street.canonical_name,
+                    myanmarName: street.myanmarName ?? "",
+                    englishName: street.englishName ?? "",
                     admin_area_id: street.admin_area_id ?? "",
                 });
             } catch (error) {
@@ -152,7 +155,8 @@ export default function StreetEditModal({
             const updated = await updateStreet(selectedStreetId, values);
             setDetail(updated);
             reset({
-                canonical_name: updated.canonical_name,
+                myanmarName: updated.myanmarName ?? "",
+                englishName: updated.englishName ?? "",
                 admin_area_id: updated.admin_area_id ?? "",
             });
             await onSaved(updated.public_id);
@@ -203,17 +207,24 @@ export default function StreetEditModal({
 
                                     <label className="block">
                                         <span className="mb-1 block text-sm text-gray-700">
-                                            Canonical Name
+                                            Myanmar Name
                                         </span>
                                         <input
-                                            {...register("canonical_name")}
+                                            {...register("myanmarName")}
+                                            placeholder="ဥပမာ - အောင်မင်္ဂလာ"
                                             className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                         />
-                                        {errors.canonical_name ? (
-                                            <span className="mt-1 block text-sm text-red-600">
-                                                {errors.canonical_name.message}
-                                            </span>
-                                        ) : null}
+                                    </label>
+
+                                    <label className="block">
+                                        <span className="mb-1 block text-sm text-gray-700">
+                                            English Name
+                                        </span>
+                                        <input
+                                            {...register("englishName")}
+                                            placeholder="Example - Aung Mingalar"
+                                            className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
+                                        />
                                     </label>
 
                                     <label className="block">

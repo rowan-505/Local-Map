@@ -1,25 +1,24 @@
 type QueryValue = string | number | boolean | null | undefined;
 
 export type Place = {
+    id: string;
     public_id: string;
     primary_name: string;
-    name_local: string | null;
     display_name: string;
+    myanmarName: string | null;
+    englishName: string | null;
+    category_id: string;
+    admin_area_id: string | null;
     lat: number;
     lng: number;
     is_public: boolean;
     is_verified: boolean;
-    created_at: string;
-    updated_at: string;
+    names: PlaceName[];
     category_name: string | null;
     admin_area_name: string | null;
 };
 
 export type PlaceDetail = Place & {
-    id: string;
-    secondary_name: string | null;
-    category_id: string;
-    admin_area_id: string | null;
     plus_code: string | null;
     importance_score: number | null;
     popularity_score: number | null;
@@ -28,6 +27,16 @@ export type PlaceDetail = Place & {
     publish_status_id: string | null;
     current_version_id: string | null;
     deleted_at: string | null;
+};
+
+export type PlaceName = {
+    id: string;
+    name: string;
+    language_code: string | null;
+    script_code: string | null;
+    name_type: string;
+    is_primary: boolean;
+    search_weight: number;
 };
 
 export type PlacesParams = {
@@ -43,7 +52,6 @@ export type Category = {
     parent_id: string | null;
     code: string;
     name: string;
-    name_local: string | null;
     icon_key: string | null;
     is_searchable: boolean;
     is_public: boolean;
@@ -74,9 +82,9 @@ export type PlaceFormOptions = {
 
 export type UpdatePlacePayload = {
     primary_name?: string;
-    secondary_name?: string | null;
-    name_local?: string | null;
     display_name?: string;
+    myanmarName?: string;
+    englishName?: string;
     category_id?: string | null;
     admin_area_id?: string | null;
     lat?: number;
@@ -92,10 +100,10 @@ export type UpdatePlacePayload = {
 };
 
 export type CreatePlacePayload = {
-    primary_name: string;
-    secondary_name?: string | null;
-    name_local?: string | null;
+    primary_name?: string;
     display_name?: string;
+    myanmarName?: string;
+    englishName?: string;
     category_id: string;
     admin_area_id?: string | null;
     plus_code?: string | null;
@@ -124,6 +132,9 @@ export type StreetGeometry =
 export type Street = {
     public_id: string;
     canonical_name: string;
+    myanmarName: string | null;
+    englishName: string | null;
+    names: StreetName[];
     admin_area_id: string | null;
     admin_area_name: string | null;
     source_type_id?: string;
@@ -136,8 +147,26 @@ export type Street = {
 export type StreetDetail = Street;
 
 export type UpdateStreetPayload = {
-    canonical_name: string;
+    canonical_name?: string;
+    myanmarName?: string;
+    englishName?: string;
     admin_area_id: string | null;
+};
+
+export type CreateStreetPayload = {
+    canonical_name?: string;
+    myanmarName?: string;
+    englishName?: string;
+    admin_area_id: string | null;
+};
+
+export type StreetName = {
+    id: string;
+    name: string;
+    language_code: string | null;
+    script_code: string | null;
+    name_type: string;
+    is_primary: boolean;
 };
 
 export type StreetsParams = {
@@ -314,6 +343,16 @@ export function getStreets(params?: StreetsParams) {
 
 export function getStreet(id: string) {
     return apiFetch<StreetDetail>(`/streets/${id}`, { method: "GET" });
+}
+
+export function createStreet(payload: CreateStreetPayload) {
+    return apiFetch<StreetDetail>("/streets", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+    });
 }
 
 export function updateStreet(id: string, payload: UpdateStreetPayload) {

@@ -86,8 +86,6 @@ model CorePlace {
   id               BigInt    @id @default(autoincrement())
   publicId         String    @unique @default(dbgenerated("gen_random_uuid()")) @map("public_id") @db.Uuid
   primaryName      String    @map("primary_name") @db.Text
-  secondaryName    String?   @map("secondary_name") @db.Text
-  nameLocal        String?   @map("name_local") @db.Text
   displayName      String    @map("display_name") @db.Text
   categoryId       BigInt    @map("category_id")
   adminAreaId      BigInt?   @map("admin_area_id")

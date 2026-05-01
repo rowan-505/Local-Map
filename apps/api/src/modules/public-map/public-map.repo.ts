@@ -151,8 +151,12 @@ function buildPublicPlaceConditions(params: ListPublicPlacesParams) {
         conditions.push(Prisma.sql`(
             p.display_name ILIKE ${searchTerm}
             OR p.primary_name ILIKE ${searchTerm}
-            OR p.secondary_name ILIKE ${searchTerm}
-            OR p.name_local ILIKE ${searchTerm}
+            OR EXISTS (
+                SELECT 1
+                FROM core.core_place_names AS pn
+                WHERE pn.place_id = p.id
+                  AND pn.name ILIKE ${searchTerm}
+            )
         )`);
     }
 
@@ -216,13 +220,11 @@ function buildSearchQuery(
                 CASE
                     WHEN lower(p.display_name) = ${normalizedTerm}
                       OR lower(p.primary_name) = ${normalizedTerm}
-                      OR lower(COALESCE(p.secondary_name, '')) = ${normalizedTerm}
-                      OR lower(COALESCE(p.name_local, '')) = ${normalizedTerm}
+                      OR lower(COALESCE(place_name_match.name, '')) = ${normalizedTerm}
                     THEN 1
                     WHEN lower(p.display_name) LIKE ${prefixTerm}
                       OR lower(p.primary_name) LIKE ${prefixTerm}
-                      OR lower(COALESCE(p.secondary_name, '')) LIKE ${prefixTerm}
-                      OR lower(COALESCE(p.name_local, '')) LIKE ${prefixTerm}
+                      OR lower(COALESCE(place_name_match.name, '')) LIKE ${prefixTerm}
                     THEN 2
                     ELSE 3
                 END AS rank,
@@ -233,6 +235,22 @@ function buildSearchQuery(
             FROM core.core_places AS p
             LEFT JOIN ref.ref_poi_categories AS c
                 ON c.id = p.category_id
+            LEFT JOIN LATERAL (
+                SELECT pn.name
+                FROM core.core_place_names AS pn
+                WHERE pn.place_id = p.id
+                  AND pn.name ILIKE ${partialTerm}
+                ORDER BY
+                    CASE
+                        WHEN lower(pn.name) = ${normalizedTerm} THEN 1
+                        WHEN lower(pn.name) LIKE ${prefixTerm} THEN 2
+                        ELSE 3
+                    END,
+                    pn.is_primary DESC,
+                    pn.search_weight DESC,
+                    pn.name ASC
+                LIMIT 1
+            ) AS place_name_match ON true
             WHERE p.deleted_at IS NULL
               AND p.is_public = true
               AND p.lat IS NOT NULL
@@ -240,8 +258,7 @@ function buildSearchQuery(
               AND (
                   p.display_name ILIKE ${partialTerm}
                   OR p.primary_name ILIKE ${partialTerm}
-                  OR p.secondary_name ILIKE ${partialTerm}
-                  OR p.name_local ILIKE ${partialTerm}
+                  OR place_name_match.name IS NOT NULL
               )
         ),
         street_results AS (

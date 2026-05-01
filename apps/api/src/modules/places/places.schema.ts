@@ -60,6 +60,31 @@ const nullableTrimmedStringSchema = z.preprocess((value) => {
     return value;
 }, z.string().min(1).nullable().optional());
 
+const optionalNameSchema = z.preprocess((value) => {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed === "" ? undefined : trimmed;
+    }
+
+    return value;
+}, z.string().optional());
+
+const patchNameSchema = z.preprocess((value) => {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+
+    if (typeof value === "string") {
+        return value.trim();
+    }
+
+    return value;
+}, z.string().optional());
+
 const nullableNumberBodySchema = z.preprocess((value) => {
     if (value === undefined) {
         return undefined;
@@ -98,12 +123,14 @@ export const placesQuerySchema = z.object({
 
 export const createPlaceBodySchema = z
     .object({
-        primary_name: z.string().trim().min(1),
-        secondary_name: nullableTrimmedStringSchema,
-        name_local: nullableTrimmedStringSchema,
+        myanmarName: optionalNameSchema,
+        englishName: optionalNameSchema,
+        primary_name: z.string().trim().min(1).optional(),
         display_name: z.string().trim().min(1).optional(),
-        category_id: bigintBodySchema,
+        category_id: bigintBodySchema.optional(),
+        categoryId: bigintBodySchema.optional(),
         admin_area_id: nullableBigintBodySchema,
+        adminAreaId: nullableBigintBodySchema,
         plus_code: nullableTrimmedStringSchema,
         lat: z.number().min(-90).max(90),
         lng: z.number().min(-180).max(180),
@@ -111,20 +138,28 @@ export const createPlaceBodySchema = z
         popularity_score: nullableNumberBodySchema,
         confidence_score: nullableNumberBodySchema,
         is_public: z.boolean().optional(),
+        isPublic: z.boolean().optional(),
         is_verified: z.boolean().optional(),
+        isVerified: z.boolean().optional(),
         source_type_id: nullableBigintBodySchema,
         publish_status_id: nullableBigintBodySchema,
     })
-    .strict();
+    .strict()
+    .refine((value) => value.category_id !== undefined || value.categoryId !== undefined, {
+        message: "Category is required",
+        path: ["categoryId"],
+    });
 
 export const updatePlaceBodySchema = z
     .object({
+        myanmarName: patchNameSchema,
+        englishName: patchNameSchema,
         primary_name: z.string().trim().min(1).optional(),
-        secondary_name: nullableTrimmedStringSchema,
-        name_local: nullableTrimmedStringSchema,
         display_name: z.string().trim().min(1).optional(),
         category_id: nullableBigintBodySchema,
+        categoryId: nullableBigintBodySchema,
         admin_area_id: nullableBigintBodySchema,
+        adminAreaId: nullableBigintBodySchema,
         lat: z.number().min(-90).max(90).optional(),
         lng: z.number().min(-180).max(180).optional(),
         plus_code: nullableTrimmedStringSchema,
@@ -132,7 +167,9 @@ export const updatePlaceBodySchema = z
         popularity_score: nullableNumberBodySchema,
         confidence_score: nullableNumberBodySchema,
         is_public: z.boolean().optional(),
+        isPublic: z.boolean().optional(),
         is_verified: z.boolean().optional(),
+        isVerified: z.boolean().optional(),
         source_type_id: nullableBigintBodySchema,
         publish_status_id: nullableBigintBodySchema,
     })

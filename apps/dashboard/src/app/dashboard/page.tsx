@@ -29,20 +29,21 @@ const modules = [
 
 export default function DashboardPage() {
     const router = useRouter();
-    const [isReady, setIsReady] = useState(false);
-
-    useEffect(() => {
-        const accessToken = window.localStorage.getItem("accessToken");
-
-        if (!accessToken) {
-            router.replace("/login");
-            return;
+    const [hasAccessToken] = useState(() => {
+        if (typeof window === "undefined") {
+            return false;
         }
 
-        setIsReady(true);
-    }, [router]);
+        return Boolean(window.localStorage.getItem("accessToken"));
+    });
 
-    if (!isReady) {
+    useEffect(() => {
+        if (!hasAccessToken) {
+            router.replace("/login");
+        }
+    }, [hasAccessToken, router]);
+
+    if (!hasAccessToken) {
         return (
             <main className="min-h-screen bg-gray-100 p-6">
                 <div className="mx-auto max-w-6xl rounded-lg bg-white p-6 text-gray-700 shadow">

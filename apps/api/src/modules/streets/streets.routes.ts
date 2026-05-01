@@ -1,6 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import { streetIdParamsSchema, streetsQuerySchema, updateStreetBodySchema } from "./streets.schema.js";
+import {
+    createStreetBodySchema,
+    streetIdParamsSchema,
+    streetsQuerySchema,
+    updateStreetBodySchema,
+} from "./streets.schema.js";
 import { StreetsRepository } from "./streets.repo.js";
 import { StreetNotFoundError, StreetsService, StreetValidationError } from "./streets.service.js";
 
@@ -60,6 +65,44 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
             } catch (error) {
                 if (error instanceof StreetNotFoundError) {
                     return reply.code(404).send({
+                        message: error.message,
+                    });
+                }
+
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/streets",
+        {
+            preHandler: app.authenticate,
+        },
+        async (request, reply) => {
+            const parsed = createStreetBodySchema.safeParse(request.body);
+
+            if (!parsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid street payload",
+                    issues: parsed.error.flatten(),
+                });
+            }
+
+            const canCreateStreet = request.user.roles.some((role) => EDIT_STREET_ROLES.has(role));
+
+            if (!canCreateStreet) {
+                return reply.code(403).send({
+                    message: "Admin or editor role required",
+                });
+            }
+
+            try {
+                const street = await streetsService.createStreet(parsed.data);
+                return reply.code(201).send(street);
+            } catch (error) {
+                if (error instanceof StreetValidationError) {
+                    return reply.code(400).send({
                         message: error.message,
                     });
                 }

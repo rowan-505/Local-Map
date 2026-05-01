@@ -77,7 +77,6 @@ core	core_bus_stop_names	language_code	text
 core	core_bus_stops	admin_area_id	bigint
 core	core_bus_stops	source_type_id	bigint
 core	core_bus_stops	stop_code	text
-core	core_bus_stops	name_local	text
 core	core_bus_stops	name	text
 core	core_bus_stops	created_at	timestamp with time zone
 core	core_bus_stops	id	bigint
@@ -129,8 +128,6 @@ core	core_places	created_at	timestamp with time zone
 core	core_places	updated_at	timestamp with time zone
 core	core_places	deleted_at	timestamp with time zone
 core	core_places	plus_code	text
-core	core_places	name_local	text
-core	core_places	secondary_name	text
 core	core_places	primary_name	text
 core	core_places	display_name	text
 core	core_places	id	bigint
