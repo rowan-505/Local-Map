@@ -33,7 +33,7 @@ export default function HomePage() {
   const categoriesQuery = usePublicCategories();
   const placesQuery = usePublicPlaces({
     categoryCode: filterState.categoryCode ?? undefined,
-    limit: 500,
+    limit: 100,
   });
   const searchResultsQuery = usePublicSearch(debouncedSearchQuery);
 
