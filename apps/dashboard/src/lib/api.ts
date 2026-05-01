@@ -41,6 +41,7 @@ export type PlaceName = {
 
 export type PlacesParams = {
     q?: string;
+    category?: string;
     is_public?: boolean;
     is_verified?: boolean;
     limit?: number;
@@ -49,12 +50,9 @@ export type PlacesParams = {
 
 export type Category = {
     id: string;
-    parent_id: string | null;
     code: string;
     name: string;
-    icon_key: string | null;
-    is_searchable: boolean;
-    is_public: boolean;
+    name_mm: string | null;
     sort_order: number;
 };
 

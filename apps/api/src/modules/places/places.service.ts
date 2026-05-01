@@ -5,6 +5,7 @@ type ListPlacesInput = {
     limit: number;
     offset: number;
     q?: string;
+    category?: string;
     is_public?: boolean;
     is_verified?: boolean;
 };
@@ -72,6 +73,7 @@ export class PlacesService {
             limit: input.limit,
             offset: input.offset,
             q: input.q,
+            category: input.category,
             is_public: input.is_public,
             is_verified: input.is_verified,
         });

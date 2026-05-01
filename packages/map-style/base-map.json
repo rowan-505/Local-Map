@@ -297,7 +297,7 @@
           190
         ],
         "text-field": ["coalesce", ["get", "name"], ["get", "ref"], ""],
-        "text-font": ["Noto Sans Regular"],
+        "text-font": ["Noto Sans Myanmar Regular", "Noto Sans Regular"],
         "text-size": [
           "interpolate",
           ["linear"],

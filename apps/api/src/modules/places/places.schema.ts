@@ -115,6 +115,7 @@ export const placeIdParamsSchema = z.object({
 
 export const placesQuerySchema = z.object({
     q: z.string().trim().min(1).optional(),
+    category: z.string().trim().min(1).optional(),
     is_public: booleanQueryValueSchema,
     is_verified: booleanQueryValueSchema,
     limit: z.coerce.number().int().min(1).max(100).default(50),
