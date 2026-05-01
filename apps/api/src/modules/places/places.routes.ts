@@ -43,9 +43,6 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
 
     app.get(
         "/places",
-        {
-            preHandler: app.authenticate,
-        },
         async (request, reply) => {
             const parsed = placesQuerySchema.safeParse(request.query);
 
@@ -74,9 +71,6 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
 
     app.get(
         "/places/:id",
-        {
-            preHandler: app.authenticate,
-        },
         async (request, reply) => {
             const parsed = placeIdParamsSchema.safeParse(request.params);
 

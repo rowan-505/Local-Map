@@ -6,22 +6,33 @@ type PublicCategoryDto = {
   readonly id: string;
   readonly code: string;
   readonly name: string;
-  readonly nameLocal: string | null;
-  readonly iconKey: string | null;
-  readonly sortOrder: number;
+  readonly name_mm?: string | null;
+  readonly nameMm?: string | null;
+  readonly nameLocal?: string | null;
+  readonly sort_order?: number;
+  readonly sortOrder?: number;
 };
 
 type PublicPlaceDto = {
-  readonly id: string;
-  readonly publicId: string;
-  readonly name: string;
-  readonly categoryId: string;
-  readonly categoryCode: string | null;
-  readonly categoryName: string | null;
+  readonly id?: string;
+  readonly publicId?: string;
+  readonly public_id?: string;
+  readonly name?: string;
+  readonly displayName?: string;
+  readonly display_name?: string;
+  readonly primary_name?: string;
+  readonly categoryId?: string;
+  readonly category_id?: string | number;
+  readonly categoryCode?: string | null;
+  readonly category_code?: string | null;
+  readonly categoryName?: string | null;
+  readonly category_name?: string | null;
   readonly lat: number;
   readonly lng: number;
-  readonly importanceScore: number | null;
-  readonly isVerified: boolean;
+  readonly importanceScore?: number | null;
+  readonly importance_score?: number | null;
+  readonly isVerified?: boolean;
+  readonly is_verified?: boolean;
 };
 
 export type SearchCameraTarget =
@@ -78,7 +89,7 @@ type PublicSearchResponseDto =
 
 export type PublicPlacesParams = {
   readonly q?: string;
-  readonly categoryId?: string;
+  readonly categoryCode?: string;
   readonly limit?: number;
 };
 
@@ -101,7 +112,8 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function fetchPublicCategories(): Promise<readonly PoiCategory[]> {
-  return fetchJson<PublicCategoryDto[]>('/public/categories');
+  const categories = await fetchJson<PublicCategoryDto[]>('/categories');
+  return categories.map(publicCategoryToPoiCategory);
 }
 
 export async function fetchPublicPlaces(
@@ -112,8 +124,8 @@ export async function fetchPublicPlaces(
   if (params.q !== undefined && params.q.trim() !== '') {
     search.set('q', params.q.trim());
   }
-  if (params.categoryId !== undefined && params.categoryId !== '') {
-    search.set('categoryId', params.categoryId);
+  if (params.categoryCode !== undefined && params.categoryCode !== '') {
+    search.set('category', params.categoryCode);
   }
   if (params.limit !== undefined) {
     search.set('limit', String(params.limit));
@@ -121,7 +133,7 @@ export async function fetchPublicPlaces(
 
   const query = search.toString();
   const places = await fetchJson<PublicPlaceDto[]>(
-    `/public/places${query.length > 0 ? `?${query}` : ''}`,
+    `/places${query.length > 0 ? `?${query}` : ''}`,
   );
 
   return places.map(publicPlaceToPoi);
@@ -144,23 +156,41 @@ export async function fetchPublicSearch(q: string): Promise<readonly PublicSearc
 }
 
 function publicPlaceToPoi(place: PublicPlaceDto): Poi {
-  const categoryLabel = place.categoryName ?? place.categoryCode ?? 'Place';
+  const name = place.name ?? place.displayName ?? place.display_name ?? place.primary_name ?? 'Unnamed place';
+  const publicId = place.publicId ?? place.public_id ?? place.id ?? `${name}:${place.lng}:${place.lat}`;
+  const categoryId = String(place.categoryId ?? place.category_id ?? place.categoryCode ?? place.category_code ?? 'unknown');
+  const categoryCode = place.categoryCode ?? place.category_code ?? null;
+  const categoryName = place.categoryName ?? place.category_name ?? null;
+  const categoryLabel = categoryName ?? categoryCode ?? 'Place';
 
   return {
-    id: place.publicId,
+    id: publicId,
     apiId: place.id,
-    publicId: place.publicId,
-    name: place.name,
-    category: place.categoryId,
-    categoryCode: place.categoryCode,
-    categoryName: place.categoryName,
+    publicId,
+    name,
+    category: categoryId,
+    categoryCode,
+    categoryName,
     subcategory: categoryLabel,
     latitude: place.lat,
     longitude: place.lng,
-    importanceScore: place.importanceScore,
-    isVerified: place.isVerified,
+    importanceScore: place.importanceScore ?? place.importance_score ?? null,
+    isVerified: place.isVerified ?? place.is_verified ?? false,
     source: 'api',
     osm_tags: {},
+  };
+}
+
+function publicCategoryToPoiCategory(category: PublicCategoryDto): PoiCategory {
+  const nameMm = category.name_mm ?? category.nameMm ?? category.nameLocal ?? null;
+
+  return {
+    id: category.id,
+    code: category.code,
+    name: category.name,
+    nameMm,
+    nameLocal: nameMm,
+    sortOrder: category.sort_order ?? category.sortOrder ?? 0,
   };
 }
 

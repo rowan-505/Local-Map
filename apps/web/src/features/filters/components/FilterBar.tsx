@@ -1,11 +1,11 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import type { PublicSearchResult } from '@/features/poi/api/publicMapApi';
-import type { PoiCategory, PoiCategoryId } from '@/types';
+import type { PoiCategory, PoiCategoryCode } from '@/types';
 
 type Props = {
   readonly categories: readonly PoiCategory[];
-  readonly selectedCategoryId: PoiCategoryId | null;
-  readonly onSelectCategory: (id: PoiCategoryId | null) => void;
+  readonly selectedCategoryCode: PoiCategoryCode | null;
+  readonly onSelectCategory: (code: PoiCategoryCode | null) => void;
   readonly searchQuery: string;
   readonly onSearchQueryChange: (value: string) => void;
   readonly searchResults: readonly PublicSearchResult[];
@@ -20,7 +20,7 @@ type Props = {
 
 function FilterBarInner({
   categories,
-  selectedCategoryId,
+  selectedCategoryCode,
   onSelectCategory,
   searchQuery,
   onSearchQueryChange,
@@ -144,7 +144,7 @@ function FilterBarInner({
         <button
           type="button"
           className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-            selectedCategoryId === null
+            selectedCategoryCode === null
               ? 'bg-neutral-900 text-white shadow-sm'
               : 'bg-transparent text-neutral-700 hover:bg-neutral-100'
           }`}
@@ -157,11 +157,11 @@ function FilterBarInner({
             type="button"
             key={category.id}
             className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-              selectedCategoryId === category.id
+            selectedCategoryCode === category.code
                 ? 'bg-neutral-900 text-white shadow-sm'
                 : 'bg-transparent text-neutral-700 hover:bg-neutral-100'
             }`}
-            onClick={() => onSelectCategory(category.id)}
+            onClick={() => onSelectCategory(category.code)}
           >
             {category.name}
           </button>

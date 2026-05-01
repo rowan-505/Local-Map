@@ -6,6 +6,7 @@ export const publicPlaceIdParamsSchema = z.object({
 
 export const publicPlacesQuerySchema = z.object({
     q: z.string().trim().min(1).optional(),
+    category: z.string().trim().min(1).optional(),
     categoryId: z
         .string()
         .trim()

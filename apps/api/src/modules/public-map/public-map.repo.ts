@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 
 type ListPublicPlacesParams = {
     q?: string;
+    category?: string;
     categoryId?: bigint;
     limit: number;
 };
@@ -107,6 +108,7 @@ export class PublicMapRepository {
     async listCategories(): Promise<PublicCategoryRow[]> {
         return this.prisma.refPoiCategory.findMany({
             where: {
+                parentId: null,
                 isPublic: true,
                 isSearchable: true,
             },
@@ -116,7 +118,10 @@ export class PublicMapRepository {
                 name: true,
                 sortOrder: true,
             },
-            orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+            orderBy: [
+                { sortOrder: "asc" },
+                { name: "asc" },
+            ],
         });
     }
 
@@ -160,7 +165,25 @@ function buildPublicPlaceConditions(params: ListPublicPlacesParams) {
         )`);
     }
 
-    if (params.categoryId !== undefined) {
+    const categoryCode = params.category?.trim();
+
+    if (categoryCode && categoryCode !== "all") {
+        conditions.push(Prisma.sql`p.category_id IN (
+            WITH RECURSIVE category_tree AS (
+                SELECT id
+                FROM ref.ref_poi_categories
+                WHERE code = ${categoryCode}
+
+                UNION ALL
+
+                SELECT child.id
+                FROM ref.ref_poi_categories AS child
+                INNER JOIN category_tree AS parent
+                    ON child.parent_id = parent.id
+            )
+            SELECT id FROM category_tree
+        )`);
+    } else if (params.categoryId !== undefined) {
         conditions.push(Prisma.sql`p.category_id = ${params.categoryId}`);
     }
 
