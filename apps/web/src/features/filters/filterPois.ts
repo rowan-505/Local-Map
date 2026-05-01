@@ -3,8 +3,8 @@ import type { Poi, PoiFilterState } from '@/types';
 export function filterPois(pois: readonly Poi[], state: PoiFilterState): readonly Poi[] {
   let out = pois;
 
-  if (state.categoryId !== null) {
-    out = out.filter((p) => p.category === state.categoryId);
+  if (state.categoryCode !== null) {
+    out = out.filter((p) => p.categoryCode === state.categoryCode);
   }
 
   const q = state.searchQuery.trim().toLowerCase();

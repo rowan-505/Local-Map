@@ -14,7 +14,7 @@ export class PublicPlaceNotFoundError extends Error {
 export class PublicMapService {
     constructor(private readonly publicMapRepo: PublicMapRepository) {}
 
-    async listPlaces(input: { q?: string; categoryId?: bigint; limit: number }) {
+    async listPlaces(input: { q?: string; category?: string; categoryId?: bigint; limit: number }) {
         const places = await this.publicMapRepo.listPlaces(input);
         return places.map((place) => serializePlace(place));
     }

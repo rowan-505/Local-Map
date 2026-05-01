@@ -1,22 +1,22 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { PoiCategoryId } from '@/types';
+import type { PoiCategoryCode } from '@/types';
 import type { PoiFilterState } from '@/types';
 
 export function useCategoryFilter() {
-  const [categoryId, setCategoryId] = useState<PoiCategoryId | null>(null);
+  const [categoryCode, setCategoryCode] = useState<PoiCategoryCode | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const selectCategory = useCallback((id: PoiCategoryId | null) => {
-    setCategoryId(id);
+  const selectCategory = useCallback((code: PoiCategoryCode | null) => {
+    setCategoryCode(code);
   }, []);
 
   const filterState = useMemo(
     (): PoiFilterState => ({
-      categoryId,
+      categoryCode,
       searchQuery,
     }),
-    [categoryId, searchQuery],
+    [categoryCode, searchQuery],
   );
 
-  return { filterState, categoryId, selectCategory, searchQuery, setSearchQuery };
+  return { filterState, categoryCode, selectCategory, searchQuery, setSearchQuery };
 }

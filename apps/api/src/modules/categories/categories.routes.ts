@@ -10,9 +10,6 @@ const categoriesRoutes: FastifyPluginAsync = async (app) => {
 
     app.get(
         "/categories",
-        {
-            preHandler: app.authenticate,
-        },
         async (request, reply) => {
             const parsed = categoriesQuerySchema.safeParse(request.query);
 

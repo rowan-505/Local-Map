@@ -19,7 +19,7 @@ import { HomePageLayout } from './HomePageLayout';
 export default function HomePage() {
   const {
     filterState,
-    categoryId,
+    categoryCode,
     selectCategory,
     searchQuery,
     setSearchQuery,
@@ -32,7 +32,7 @@ export default function HomePage() {
 
   const categoriesQuery = usePublicCategories();
   const placesQuery = usePublicPlaces({
-    categoryId: filterState.categoryId ?? undefined,
+    categoryCode: filterState.categoryCode ?? undefined,
     limit: 500,
   });
   const searchResultsQuery = usePublicSearch(debouncedSearchQuery);
@@ -89,7 +89,7 @@ export default function HomePage() {
       filter={
         <FilterBar
           categories={categoriesQuery.data ?? []}
-          selectedCategoryId={categoryId}
+          selectedCategoryCode={categoryCode}
           onSelectCategory={selectCategory}
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}
