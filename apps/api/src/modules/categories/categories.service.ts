@@ -5,7 +5,6 @@ type CategoryResponse = {
     parent_id: string | null;
     code: string;
     name: string;
-    name_local: string | null;
     icon_key: string | null;
     is_searchable: boolean;
     is_public: boolean;
@@ -24,7 +23,6 @@ export class CategoriesService {
                 parent_id: category.parentId ? category.parentId.toString() : null,
                 code: category.code,
                 name: category.name,
-                name_local: null,
                 icon_key: null,
                 is_searchable: category.isSearchable,
                 is_public: category.isPublic,

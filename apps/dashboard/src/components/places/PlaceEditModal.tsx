@@ -47,10 +47,8 @@ const nullableNumberSchema = z.preprocess((value) => {
 }, z.number().nullable());
 
 const placeEditSchema = z.object({
-    primary_name: z.string().trim().min(1, "Primary name is required"),
-    secondary_name: nullableTrimmedStringSchema,
-    name_local: nullableTrimmedStringSchema,
-    display_name: z.string().trim().min(1, "Display name is required"),
+    myanmarName: z.string().trim(),
+    englishName: z.string().trim(),
     category_id: z.string().min(1, "Category is required"),
     admin_area_id: nullableStringIdSchema,
     lat: z.number().min(-90).max(90),
@@ -67,10 +65,8 @@ const placeEditSchema = z.object({
 
 type PlaceEditFormValues = z.infer<typeof placeEditSchema>;
 type PlaceEditFormInput = {
-    primary_name: string;
-    secondary_name: string;
-    name_local: string;
-    display_name: string;
+    myanmarName: string;
+    englishName: string;
     category_id: string;
     admin_area_id: string;
     lat: number;
@@ -107,10 +103,8 @@ function formatDate(value: string | null): string {
 
 function toFormValues(place: PlaceDetail): PlaceEditFormInput {
     return {
-        primary_name: place.primary_name,
-        secondary_name: place.secondary_name ?? "",
-        name_local: place.name_local ?? "",
-        display_name: place.display_name,
+        myanmarName: place.myanmarName ?? "",
+        englishName: place.englishName ?? "",
         category_id: place.category_id,
         admin_area_id: place.admin_area_id ?? "",
         lat: place.lat,
@@ -152,10 +146,8 @@ export default function PlaceEditModal({
             PlaceEditFormValues
         >,
         defaultValues: {
-            primary_name: "",
-            secondary_name: "",
-            name_local: "",
-            display_name: "",
+            myanmarName: "",
+            englishName: "",
             category_id: "",
             admin_area_id: "",
             lat: 0,
@@ -223,7 +215,7 @@ export default function PlaceEditModal({
             return "Edit Place";
         }
 
-        return `Edit ${detail.primary_name || detail.display_name}`;
+        return `Edit ${detail.display_name}`;
     }, [detail]);
 
     async function onSubmit(values: PlaceEditFormValues) {
@@ -241,7 +233,7 @@ export default function PlaceEditModal({
             setDetail(updated);
             reset(toFormValues(updated));
             await onSaved(updated.public_id);
-            setSaveSuccess("Place updated successfully.");
+            setSaveSuccess(`Place updated successfully: ${updated.display_name}`);
         } catch (error) {
             setSaveError(error instanceof Error ? error.message : "Failed to save place");
         } finally {
@@ -288,52 +280,24 @@ export default function PlaceEditModal({
 
                                     <label className="block">
                                         <span className="mb-1 block text-sm text-gray-700">
-                                            Primary Name
+                                            Myanmar Name
                                         </span>
                                         <input
-                                            {...register("primary_name")}
-                                            className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
-                                        />
-                                        {errors.primary_name ? (
-                                            <span className="mt-1 block text-sm text-red-600">
-                                                {errors.primary_name.message}
-                                            </span>
-                                        ) : null}
-                                    </label>
-
-                                    <label className="block">
-                                        <span className="mb-1 block text-sm text-gray-700">
-                                            Secondary Name
-                                        </span>
-                                        <input
-                                            {...register("secondary_name")}
+                                            {...register("myanmarName")}
+                                            placeholder="ဥပမာ - အောင်မင်္ဂလာ"
                                             className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                         />
                                     </label>
 
                                     <label className="block">
                                         <span className="mb-1 block text-sm text-gray-700">
-                                            Name Local
+                                            English Name
                                         </span>
                                         <input
-                                            {...register("name_local")}
+                                            {...register("englishName")}
+                                            placeholder="Example - Aung Mingalar"
                                             className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                         />
-                                    </label>
-
-                                    <label className="block">
-                                        <span className="mb-1 block text-sm text-gray-700">
-                                            Display Name
-                                        </span>
-                                        <input
-                                            {...register("display_name")}
-                                            className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
-                                        />
-                                        {errors.display_name ? (
-                                            <span className="mt-1 block text-sm text-red-600">
-                                                {errors.display_name.message}
-                                            </span>
-                                        ) : null}
                                     </label>
 
                                     <label className="block">
@@ -554,18 +518,6 @@ export default function PlaceEditModal({
                                                 <div className="text-xs text-gray-500">Deleted At</div>
                                                 <div className="text-sm text-gray-900">
                                                     {formatDate(detail.deleted_at)}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-xs text-gray-500">Created At</div>
-                                                <div className="text-sm text-gray-900">
-                                                    {formatDate(detail.created_at)}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-xs text-gray-500">Updated At</div>
-                                                <div className="text-sm text-gray-900">
-                                                    {formatDate(detail.updated_at)}
                                                 </div>
                                             </div>
                                         </div>

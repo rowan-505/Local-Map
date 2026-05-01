@@ -7,16 +7,6 @@ import PlacePreviewMap from "@/src/components/map/PlacePreviewMap";
 import PlaceEditModal from "@/src/components/places/PlaceEditModal";
 import { deletePlace, getPlaces, type Place } from "@/src/lib/api";
 
-function formatDate(value: string): string {
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
-    return date.toLocaleString();
-}
-
 export default function PlacesPage() {
     const [places, setPlaces] = useState<Place[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -100,19 +90,20 @@ export default function PlacesPage() {
                                 <thead className="sticky top-0 z-10 bg-gray-50 text-gray-700">
                                     <tr>
                                         <th className="px-4 py-3 font-medium">Name</th>
+                                        <th className="px-4 py-3 font-medium">Myanmar Name</th>
+                                        <th className="px-4 py-3 font-medium">English Name</th>
                                         <th className="px-4 py-3 font-medium">Category</th>
                                         <th className="px-4 py-3 font-medium">Admin Area</th>
                                         <th className="px-4 py-3 font-medium">Lat</th>
                                         <th className="px-4 py-3 font-medium">Lng</th>
                                         <th className="px-4 py-3 font-medium">Verified</th>
                                         <th className="px-4 py-3 font-medium">Public</th>
-                                        <th className="px-4 py-3 font-medium">Updated</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200">
                                     {places.length === 0 ? (
                                         <tr>
-                                            <td colSpan={8} className="px-4 py-6 text-center text-gray-500">
+                                            <td colSpan={9} className="px-4 py-6 text-center text-gray-500">
                                                 No places found.
                                             </td>
                                         </tr>
@@ -130,7 +121,13 @@ export default function PlacesPage() {
                                                     }`}
                                                 >
                                                     <td className="px-4 py-3">
-                                                        {place.primary_name || place.display_name}
+                                                        {place.display_name}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        {place.myanmarName || "-"}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        {place.englishName || "-"}
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         {place.category_name ?? "-"}
@@ -145,9 +142,6 @@ export default function PlacesPage() {
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         {place.is_public ? "Yes" : "No"}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        {formatDate(place.updated_at)}
                                                     </td>
                                                 </tr>
                                             );
@@ -179,7 +173,7 @@ export default function PlacesPage() {
                                                 }
 
                                                 const confirmed = window.confirm(
-                                                    `Delete "${selectedPlace.primary_name || selectedPlace.display_name}"?`
+                                                    `Delete "${selectedPlace.display_name}"?`
                                                 );
 
                                                 if (!confirmed) {
@@ -223,8 +217,22 @@ export default function PlacesPage() {
                                             Name
                                         </div>
                                         <div className="mt-1 text-base font-medium text-gray-900">
-                                            {selectedPlace.primary_name || selectedPlace.display_name}
+                                            {selectedPlace.display_name}
                                         </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                            Myanmar Name
+                                        </div>
+                                        <div className="mt-1">{selectedPlace.myanmarName || "-"}</div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                            English Name
+                                        </div>
+                                        <div className="mt-1">{selectedPlace.englishName || "-"}</div>
                                     </div>
 
                                     <div>

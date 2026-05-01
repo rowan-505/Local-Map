@@ -1,5 +1,5 @@
-import { PlacesRepository, type PlaceDetailRow } from "./places.repo.js";
-import type { CreatePlaceInput, UpdatePlaceInput } from "./places.repo.js";
+import { PlacesRepository, type PlaceDetailRow, type PlaceRow } from "./places.repo.js";
+import type { UpdatePlaceInput } from "./places.repo.js";
 
 type ListPlacesInput = {
     limit: number;
@@ -7,6 +7,11 @@ type ListPlacesInput = {
     q?: string;
     is_public?: boolean;
     is_verified?: boolean;
+};
+
+type CreatePlaceInput = UpdatePlaceInput & {
+    lat: number;
+    lng: number;
 };
 
 export class PlaceNotFoundError extends Error {
@@ -26,13 +31,11 @@ export class PlaceValidationError extends Error {
 export class PlacesService {
     constructor(private readonly placesRepo: PlacesRepository) {}
 
-    private serializePlaceDetail(place: PlaceDetailRow) {
+    private serializePlace(place: PlaceRow) {
         return {
             id: place.id.toString(),
             public_id: place.public_id,
             primary_name: place.primary_name,
-            secondary_name: place.secondary_name,
-            name_local: place.name_local,
             display_name: place.display_name,
             category_id: place.category_id.toString(),
             category_name: place.category_name,
@@ -40,6 +43,17 @@ export class PlacesService {
             admin_area_name: place.admin_area_name,
             lat: place.lat,
             lng: place.lng,
+            is_public: place.is_public,
+            is_verified: place.is_verified,
+            names: place.names,
+            myanmarName: place.myanmar_name,
+            englishName: place.english_name,
+        };
+    }
+
+    private serializePlaceDetail(place: PlaceDetailRow) {
+        return {
+            ...this.serializePlace(place),
             plus_code: place.plus_code,
             importance_score: place.importance_score,
             popularity_score: place.popularity_score,
@@ -49,20 +63,20 @@ export class PlacesService {
             source_type_id: place.source_type_id.toString(),
             publish_status_id: place.publish_status_id?.toString() ?? null,
             current_version_id: place.current_version_id?.toString() ?? null,
-            created_at: place.created_at,
-            updated_at: place.updated_at,
             deleted_at: place.deleted_at,
         };
     }
 
     async listPlaces(input: ListPlacesInput) {
-        return this.placesRepo.listPlaces({
+        const places = await this.placesRepo.listPlaces({
             limit: input.limit,
             offset: input.offset,
             q: input.q,
             is_public: input.is_public,
             is_verified: input.is_verified,
         });
+
+        return places.map((place) => this.serializePlace(place));
     }
 
     async getPlaceByPublicId(publicId: string) {
@@ -105,14 +119,26 @@ export class PlacesService {
             updated_at?: unknown;
         };
 
-        const hasCategory = await this.placesRepo.hasCategory(safeInput.category_id);
+        const categoryId = safeInput.category_id ?? safeInput.categoryId;
+        const adminAreaId = safeInput.admin_area_id ?? safeInput.adminAreaId;
+        const isPublic = safeInput.is_public ?? safeInput.isPublic ?? true;
+        const isVerified = safeInput.is_verified ?? safeInput.isVerified ?? false;
+        const names = normalizePlaceNames(safeInput);
+        const primaryName = names.englishName || names.myanmarName || "Unnamed Place";
+        const displayName = deriveDisplayNameForService(names) ?? "Unnamed Place";
+
+        if (!categoryId) {
+            throw new PlaceValidationError("category_id is invalid");
+        }
+
+        const hasCategory = await this.placesRepo.hasCategory(categoryId);
 
         if (!hasCategory) {
             throw new PlaceValidationError("category_id is invalid");
         }
 
-        if (safeInput.admin_area_id !== undefined && safeInput.admin_area_id !== null) {
-            const hasAdminArea = await this.placesRepo.hasActiveAdminArea(safeInput.admin_area_id);
+        if (adminAreaId !== undefined && adminAreaId !== null) {
+            const hasAdminArea = await this.placesRepo.hasActiveAdminArea(adminAreaId);
 
             if (!hasAdminArea) {
                 throw new PlaceValidationError("admin_area_id is invalid");
@@ -145,6 +171,14 @@ export class PlacesService {
 
         const createdPlace = await this.placesRepo.createPlace({
             ...safeInput,
+            myanmarName: names.myanmarName,
+            englishName: names.englishName,
+            primary_name: primaryName,
+            display_name: displayName,
+            category_id: categoryId,
+            admin_area_id: adminAreaId,
+            is_public: isPublic,
+            is_verified: isVerified,
             source_type_id: resolvedSourceTypeId,
         });
 
@@ -160,15 +194,23 @@ export class PlacesService {
             updated_at?: unknown;
         };
 
-        if (safeInput.category_id === null) {
+        const normalizedInput = {
+            ...safeInput,
+            category_id: safeInput.category_id ?? safeInput.categoryId,
+            admin_area_id: safeInput.admin_area_id ?? safeInput.adminAreaId,
+            is_public: safeInput.is_public ?? safeInput.isPublic,
+            is_verified: safeInput.is_verified ?? safeInput.isVerified,
+        };
+
+        if (normalizedInput.category_id === null) {
             throw new PlaceValidationError("category_id cannot be null");
         }
 
-        if (safeInput.source_type_id === null) {
+        if (normalizedInput.source_type_id === null) {
             throw new PlaceValidationError("source_type_id cannot be null");
         }
 
-        const updatedPlace = await this.placesRepo.updatePlace(publicId, safeInput);
+        const updatedPlace = await this.placesRepo.updatePlace(publicId, normalizedInput);
 
         if (!updatedPlace) {
             throw new PlaceNotFoundError();
@@ -189,4 +231,30 @@ export class PlacesService {
             public_id: deletedPlace.public_id,
         };
     }
+}
+
+function normalizePlaceNames(input: {
+    myanmarName?: string;
+    englishName?: string;
+    primary_name?: string;
+    isPublic?: boolean;
+    isVerified?: boolean;
+}) {
+    return {
+        myanmarName: normalizeNonEmpty(input.myanmarName),
+        englishName: normalizeNonEmpty(input.englishName ?? input.primary_name),
+    };
+}
+
+function normalizeNonEmpty(value: string | undefined) {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : undefined;
+}
+
+function deriveDisplayNameForService(names: { myanmarName?: string; englishName?: string }) {
+    if (names.myanmarName && names.englishName) {
+        return `${names.myanmarName} · ${names.englishName}`;
+    }
+
+    return names.myanmarName || names.englishName;
 }

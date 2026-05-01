@@ -16,7 +16,6 @@ erDiagram
         bigint parent_id FK
         text code UK
         text name
-        text name_local
         text icon_key
         boolean is_searchable
         boolean is_public
@@ -328,8 +327,6 @@ erDiagram
         bigint id PK
         uuid public_id UK
         text primary_name
-        text secondary_name
-        text name_local
         text display_name
         bigint category_id FK
         bigint admin_area_id FK
@@ -518,7 +515,6 @@ erDiagram
         bigint id PK
         uuid public_id UK
         text name
-        text name_local
         text stop_code
         geometry geom
         bigint admin_area_id FK

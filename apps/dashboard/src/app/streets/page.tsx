@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import StreetPreviewMap from "@/src/components/map/StreetPreviewMap";
@@ -117,7 +118,15 @@ export default function StreetsPage() {
     return (
         <main className="min-h-screen bg-gray-100 p-6">
             <div className="mx-auto max-w-7xl">
-                <h1 className="mb-4 text-2xl font-bold text-gray-900">Streets</h1>
+                <div className="mb-4 flex items-center justify-between gap-3">
+                    <h1 className="text-2xl font-bold text-gray-900">Streets</h1>
+                    <Link
+                        href="/streets/new"
+                        className="rounded bg-gray-900 px-4 py-2 text-sm text-white"
+                    >
+                        Add Street
+                    </Link>
+                </div>
 
                 {isLoading ? (
                     <div className="rounded-lg border border-gray-200 bg-white p-6 text-gray-700">
@@ -139,6 +148,8 @@ export default function StreetsPage() {
                                 <thead className="sticky top-0 z-10 bg-gray-50 text-gray-700">
                                     <tr>
                                         <th className="px-4 py-3 font-medium">Name</th>
+                                        <th className="px-4 py-3 font-medium">Myanmar Name</th>
+                                        <th className="px-4 py-3 font-medium">English Name</th>
                                         <th className="px-4 py-3 font-medium">Admin Area</th>
                                         <th className="px-4 py-3 font-medium">Active</th>
                                         <th className="px-4 py-3 font-medium">Updated</th>
@@ -147,7 +158,7 @@ export default function StreetsPage() {
                                 <tbody className="divide-y divide-gray-200">
                                     {streets.length === 0 ? (
                                         <tr>
-                                            <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
+                                            <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
                                                 No streets found.
                                             </td>
                                         </tr>
@@ -166,6 +177,12 @@ export default function StreetsPage() {
                                                 >
                                                     <td className="px-4 py-3">
                                                         {street.canonical_name || "-"}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        {street.myanmarName || "-"}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        {street.englishName || "-"}
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         {street.admin_area_name ?? "-"}
@@ -222,6 +239,20 @@ export default function StreetsPage() {
                                         <div className="mt-1 text-base font-medium text-gray-900">
                                             {selectedStreet.canonical_name}
                                         </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                            Myanmar Name
+                                        </div>
+                                        <div className="mt-1">{selectedStreet.myanmarName || "-"}</div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                            English Name
+                                        </div>
+                                        <div className="mt-1">{selectedStreet.englishName || "-"}</div>
                                     </div>
 
                                     <div>
