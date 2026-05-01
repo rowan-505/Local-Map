@@ -6,6 +6,7 @@ type ListPlacesParams = {
     limit: number;
     offset: number;
     q?: string;
+    category?: string;
     is_public?: boolean;
     is_verified?: boolean;
 };
@@ -130,7 +131,10 @@ export class PlacesRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
     async listPlaces(params: ListPlacesParams): Promise<PlaceRow[]> {
-        const conditions: Prisma.Sql[] = [Prisma.sql`p.deleted_at IS NULL`];
+        const conditions: Prisma.Sql[] = [
+            Prisma.sql`p.deleted_at IS NULL`,
+            Prisma.sql`p.is_public = true`,
+        ];
 
         if (params.q) {
             const searchTerm = `%${params.q}%`;
@@ -148,15 +152,14 @@ export class PlacesRepository {
             );
         }
 
-        if (params.is_public !== undefined) {
-            conditions.push(Prisma.sql`p.is_public = ${params.is_public}`);
-        }
-
         if (params.is_verified !== undefined) {
             conditions.push(Prisma.sql`p.is_verified = ${params.is_verified}`);
         }
 
+        const categoryFilter = buildCategoryFilter(params.category);
+
         return this.prisma.$queryRaw<PlaceRow[]>(Prisma.sql`
+            ${categoryFilter.cte}
             SELECT
                 p.id,
                 p.public_id,
@@ -180,6 +183,7 @@ export class PlacesRepository {
                 ON aa.id = p.admin_area_id
             LEFT JOIN LATERAL (${placeNamesJsonSql()}) AS place_names ON true
             WHERE ${Prisma.join(conditions, " AND ")}
+              ${categoryFilter.condition}
             ORDER BY p.created_at DESC, p.updated_at DESC, p.public_id DESC
             LIMIT ${params.limit}
             OFFSET ${params.offset}
@@ -693,4 +697,40 @@ function placeNamesJsonSql() {
         FROM core.core_place_names AS pn
         WHERE pn.place_id = p.id
     `;
+}
+
+function buildCategoryFilter(categoryCode: string | undefined) {
+    if (!categoryCode || categoryCode.toLowerCase() === "all") {
+        return {
+            cte: Prisma.empty,
+            condition: Prisma.empty,
+        };
+    }
+
+    return {
+        cte: Prisma.sql`
+            WITH RECURSIVE category_tree AS (
+                SELECT id
+                FROM ref.ref_poi_categories
+                WHERE code = ${categoryCode}
+                  AND is_public = true
+                  AND is_searchable = true
+
+                UNION ALL
+
+                SELECT child.id
+                FROM ref.ref_poi_categories AS child
+                INNER JOIN category_tree AS parent
+                    ON child.parent_id = parent.id
+                WHERE child.is_public = true
+                  AND child.is_searchable = true
+            )
+        `,
+        condition: Prisma.sql`
+            AND p.category_id IN (
+                SELECT id
+                FROM category_tree
+            )
+        `,
+    };
 }

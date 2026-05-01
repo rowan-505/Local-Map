@@ -2,12 +2,9 @@ import { CategoriesRepository } from "./categories.repo.js";
 
 type CategoryResponse = {
     id: string;
-    parent_id: string | null;
     code: string;
     name: string;
-    icon_key: string | null;
-    is_searchable: boolean;
-    is_public: boolean;
+    name_mm: string | null;
     sort_order: number;
 };
 
@@ -20,13 +17,10 @@ export class CategoriesService {
         return categories.map(
             (category): CategoryResponse => ({
                 id: category.id.toString(),
-                parent_id: category.parentId ? category.parentId.toString() : null,
                 code: category.code,
                 name: category.name,
-                icon_key: null,
-                is_searchable: category.isSearchable,
-                is_public: category.isPublic,
-                sort_order: category.sortOrder,
+                name_mm: category.name_mm,
+                sort_order: category.sort_order,
             })
         );
     }
