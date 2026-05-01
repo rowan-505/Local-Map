@@ -197,20 +197,6 @@
       }
     },
     {
-      "id": "places-poi",
-      "type": "circle",
-      "source": "tiles_places_v",
-      "source-layer": "tiles_places_v",
-      "minzoom": 14,
-      "paint": {
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 2.5, 17, 4.5, 20, 7],
-        "circle-color": "#3aa76d",
-        "circle-opacity": 0.85,
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": 1.2
-      }
-    },
-    {
       "id": "bus-stops",
       "type": "circle",
       "source": "core_bus_stops",
