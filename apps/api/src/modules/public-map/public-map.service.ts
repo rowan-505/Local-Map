@@ -5,28 +5,14 @@ import {
     type PublicSearchRow,
 } from "./public-map.repo.js";
 
-type PublicMapLang = "my" | "en" | "both";
-
-type DisplayNameSource = {
-    name_mm: string | null;
-    name_en: string | null;
-    display_name?: string | null;
-    primary_name?: string | null;
-    canonical_name?: string | null;
-};
-
-/** GeoJSON-ish payload consumed by apps/web MapLibre sources (validated at runtime there). */
+/** GeoJSON for MapLibre — include `name_mm` / `name_en` so clients drive `text-field` by language mode. */
 export type PublicMapGeoJsonFeatureCollection = {
     readonly type: "FeatureCollection";
     readonly features: ReadonlyArray<{
         readonly type: "Feature";
         readonly id?: string;
         readonly geometry: unknown;
-        readonly properties: {
-            readonly id: string;
-            readonly name: string;
-            readonly label_dense?: boolean;
-        };
+        readonly properties: Record<string, string | boolean>;
     }>;
 };
 
@@ -44,21 +30,20 @@ export class PublicMapService {
         q?: string;
         category?: string;
         categoryId?: bigint;
-        lang: PublicMapLang;
         limit: number;
     }) {
         const places = await this.publicMapRepo.listPlaces(input);
-        return places.map((place) => serializePlace(place, input.lang));
+        return places.map((place) => serializePlace(place));
     }
 
-    async getPlaceByPublicId(publicId: string, lang: PublicMapLang = "my") {
+    async getPlaceByPublicId(publicId: string) {
         const place = await this.publicMapRepo.getPlaceByPublicId(publicId);
 
         if (!place) {
             throw new PublicPlaceNotFoundError();
         }
 
-        return serializePlace(place, lang);
+        return serializePlace(place);
     }
 
     async listCategories() {
@@ -74,70 +59,89 @@ export class PublicMapService {
         }));
     }
 
-    async search(input: { q: string; lang: PublicMapLang; limit: number }) {
+    async search(input: { q: string; limit: number }) {
         const results = await this.publicMapRepo.search(input);
-        return results.map((result) => serializeSearchResult(result, input.lang));
+        return results.map((result) => serializeSearchResult(result));
     }
 
-    async geoJsonStreets(lang: PublicMapLang): Promise<PublicMapGeoJsonFeatureCollection> {
+    async geoJsonStreets(): Promise<PublicMapGeoJsonFeatureCollection> {
         const rows = await this.publicMapRepo.listStreetGeoLabels();
-        return toFeatureCollection(rows, lang);
+        return toFeatureCollection(rows);
     }
 
-    async geoJsonAdminAreas(lang: PublicMapLang): Promise<PublicMapGeoJsonFeatureCollection> {
+    async geoJsonAdminAreas(): Promise<PublicMapGeoJsonFeatureCollection> {
         const rows = await this.publicMapRepo.listAdminAreaGeoLabels();
-        return toFeatureCollection(rows, lang);
+        return toFeatureCollection(rows);
     }
 
-    async geoJsonBusStops(lang: PublicMapLang): Promise<PublicMapGeoJsonFeatureCollection> {
+    async geoJsonBusStops(): Promise<PublicMapGeoJsonFeatureCollection> {
         const rows = await this.publicMapRepo.listBusStopGeoLabels();
-        return toFeatureCollection(rows, lang);
+        return toFeatureCollection(rows);
     }
 
-    async geoJsonBusRoutes(lang: PublicMapLang): Promise<PublicMapGeoJsonFeatureCollection> {
+    async geoJsonBusRoutes(): Promise<PublicMapGeoJsonFeatureCollection> {
         const rows = await this.publicMapRepo.listBusRouteGeoLabels();
-        return toFeatureCollection(rows, lang);
+        return toFeatureCollection(rows);
     }
 }
 
-function toFeatureCollection(rows: readonly PublicMapGeoLabelRow[], lang: PublicMapLang): PublicMapGeoJsonFeatureCollection {
+function toFeatureCollection(rows: readonly PublicMapGeoLabelRow[]): PublicMapGeoJsonFeatureCollection {
     return {
         type: "FeatureCollection",
-        features: rows.map((row) => geoLabelFeature(row, lang)),
+        features: rows.map((row) => geoLabelFeature(row)),
     };
 }
 
-function geoLabelFeature(row: PublicMapGeoLabelRow, lang: PublicMapLang) {
-    const name = getDisplayNameForLang(
-        {
-            name_mm: row.name_mm,
-            name_en: row.name_en,
-            display_name: row.display_name ?? null,
-            primary_name: row.primary_name ?? null,
-            canonical_name: row.canonical_name,
-        },
-        lang,
-    );
-
+function geoLabelFeature(row: PublicMapGeoLabelRow) {
+    const props = geoLabelProperties(row);
     return {
         type: "Feature" as const,
         id: row.id,
         geometry: row.geom,
-        properties: {
-            id: row.id,
-            name,
-            ...(typeof row.label_dense === "boolean" ? { label_dense: row.label_dense } : {}),
-        },
+        properties: props,
     };
 }
 
-function serializePlace(place: PublicPlaceRow, lang: PublicMapLang) {
+function geoLabelProperties(row: PublicMapGeoLabelRow): Record<string, string | boolean> {
+    const mm = normalizeName(row.name_mm);
+    const en = normalizeName(row.name_en);
+    const display = normalizeName(row.display_name ?? null);
+    const primary = normalizeName(row.primary_name ?? null);
+    const canonical = normalizeName(row.canonical_name);
+
+    const props: Record<string, string | boolean> = {
+        id: row.id,
+        name: mm ?? en ?? display ?? primary ?? canonical ?? "Unnamed",
+    };
+
+    if (typeof row.label_dense === "boolean") {
+        props.label_dense = row.label_dense;
+    }
+    if (mm) props.name_mm = mm;
+    if (en) props.name_en = en;
+    if (display) props.display_name = display;
+
+    return props;
+}
+
+function serializePlace(place: PublicPlaceRow) {
+    const mm = normalizeName(place.name_mm);
+    const en = normalizeName(place.name_en);
+    const display = normalizeName(place.display_name);
+    const primary = normalizeName(place.primary_name);
+
     return {
         id: place.id.toString(),
         publicId: place.public_id,
-        name: getDisplayNameForLang(place, lang),
+        myanmar_name: mm,
+        english_name: en,
+        name_mm: mm,
+        name_en: en,
+        display_name: display,
+        primary_name: primary,
         categoryId: place.category_id.toString(),
         categoryCode: place.category_code,
+        category_name: place.category_name,
         categoryName: place.category_name,
         lat: place.lat,
         lng: place.lng,
@@ -146,45 +150,26 @@ function serializePlace(place: PublicPlaceRow, lang: PublicMapLang) {
     };
 }
 
-function getDisplayNameForLang(source: DisplayNameSource, lang: PublicMapLang) {
-    const nameMm = normalizeName(source.name_mm);
-    const nameEn = normalizeName(source.name_en);
-    const displayName = normalizeName(source.display_name ?? null);
-    const primaryName = normalizeName(source.primary_name ?? null);
-    const canonicalName = normalizeName(source.canonical_name ?? null);
-    const fallbackName = displayName ?? primaryName ?? canonicalName ?? "Unnamed";
-
-    if (lang === "my") {
-        return nameMm ?? nameEn ?? fallbackName;
-    }
-
-    if (lang === "en") {
-        return nameEn ?? nameMm ?? fallbackName;
-    }
-
-    if (lang === "both") {
-        if (nameMm && nameEn && nameMm !== nameEn) {
-            return `${nameMm} · ${nameEn}`;
-        }
-
-        return nameMm ?? nameEn ?? fallbackName;
-    }
-
-    return fallbackName;
-}
-
 function normalizeName(value: string | null) {
     const trimmed = value?.trim();
     return trimmed ? trimmed : null;
 }
 
-function serializeSearchResult(result: PublicSearchRow, lang: PublicMapLang) {
+function serializeSearchResult(result: PublicSearchRow) {
     const isPlace = result.result_type === "place";
+    const mm = normalizeName(result.name_mm);
+    const en = normalizeName(result.name_en);
 
     return {
         id: result.id,
         type: result.result_type,
-        name: getDisplayNameForLang(result, lang),
+        myanmar_name: mm,
+        english_name: en,
+        name_mm: mm,
+        name_en: en,
+        display_name: normalizeName(result.display_name),
+        primary_name: normalizeName(result.primary_name),
+        canonical_name: normalizeName(result.canonical_name),
         subtitle: result.subtitle,
         categoryName: result.category_name,
         lat: result.lat,

@@ -20,8 +20,8 @@ export function createPlaceBaseMap(
         style: PLACE_MAP_STYLE,
         center: PLACE_MAP_DEFAULT_CENTER,
         zoom: options.zoom ?? 15,
-        minZoom: options.minZoom,
-        maxZoom: options.maxZoom,
+        minZoom: options.minZoom ?? 0,
+        maxZoom: options.maxZoom ?? 22,
     });
 
     map.addControl(new maplibregl.NavigationControl(), "top-right");

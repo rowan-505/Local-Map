@@ -5,7 +5,12 @@ import { useCallback, useEffect, useState } from "react";
 
 import PlacePreviewMap from "@/src/components/map/PlacePreviewMap";
 import PlaceEditModal from "@/src/components/places/PlaceEditModal";
-import { deletePlace, getPlaces, type Place } from "@/src/lib/api";
+import {
+    deletePlace,
+    getPlaces,
+    PLACES_LIST_LIMIT,
+    type Place,
+} from "@/src/lib/api";
 
 export default function PlacesPage() {
     const [places, setPlaces] = useState<Place[]>([]);
@@ -15,13 +20,18 @@ export default function PlacesPage() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [successMessage, setSuccessMessage] = useState("");
     const [isDeleting, setIsDeleting] = useState(false);
+    const [previewMapKey, setPreviewMapKey] = useState(0);
+
+    const bumpPreviewMap = useCallback(() => {
+        setPreviewMapKey((value) => value + 1);
+    }, []);
 
     const loadPlaces = useCallback(async (selectedPublicId?: string) => {
         setIsLoading(true);
         setError("");
 
         try {
-            const data = await getPlaces({ limit: 50 });
+            const data = await getPlaces({ limit: PLACES_LIST_LIMIT });
             setPlaces(data);
 
             const nextSelectedPlace =
@@ -41,15 +51,25 @@ export default function PlacesPage() {
     }, [loadPlaces]);
 
     useEffect(() => {
+        const redirectPublicId = window.sessionStorage.getItem("placeCreatePublicId");
         const message = window.sessionStorage.getItem("placeCreateSuccess");
 
-        if (!message) {
-            return;
+        if (redirectPublicId) {
+            window.sessionStorage.removeItem("placeCreatePublicId");
         }
 
-        setSuccessMessage(message);
-        window.sessionStorage.removeItem("placeCreateSuccess");
-    }, []);
+        if (message) {
+            setSuccessMessage(message);
+            window.sessionStorage.removeItem("placeCreateSuccess");
+        }
+
+        if (redirectPublicId) {
+            void loadPlaces(redirectPublicId);
+            bumpPreviewMap();
+        } else if (message) {
+            bumpPreviewMap();
+        }
+    }, [loadPlaces, bumpPreviewMap]);
 
     return (
         <main className="min-h-screen bg-gray-100 p-6">
@@ -187,6 +207,7 @@ export default function PlacesPage() {
                                                 try {
                                                     await deletePlace(selectedPlace.public_id);
                                                     await loadPlaces();
+                                                    bumpPreviewMap();
                                                     setSuccessMessage("Place deleted successfully.");
                                                 } catch (err) {
                                                     setError(
@@ -207,7 +228,11 @@ export default function PlacesPage() {
                             </div>
 
                             <div className="mb-4">
-                                <PlacePreviewMap selectedPlace={selectedPlace} />
+                                <PlacePreviewMap
+                                    key={previewMapKey}
+                                    selectedPlace={selectedPlace}
+                                    contextPlaces={places}
+                                />
                             </div>
 
                             {selectedPlace ? (
@@ -284,6 +309,7 @@ export default function PlacesPage() {
                 onClose={() => setIsEditModalOpen(false)}
                 onSaved={async (placeId) => {
                     await loadPlaces(placeId);
+                    bumpPreviewMap();
                 }}
             />
         </main>

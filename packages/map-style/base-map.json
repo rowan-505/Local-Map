@@ -78,18 +78,18 @@
       "minzoom": 0,
       "maxzoom": 22
     },
-    "core_bus_stops": {
+    "tiles_bus_stops_v": {
       "type": "vector",
       "tiles": [
-        "https://martin-lively-canyon-4077.fly.dev/core_bus_stops/{z}/{x}/{y}"
+        "https://martin-lively-canyon-4077.fly.dev/tiles_bus_stops_v/{z}/{x}/{y}"
       ],
       "minzoom": 0,
       "maxzoom": 22
     },
-    "core_bus_route_variants": {
+    "tiles_bus_route_variants_v": {
       "type": "vector",
       "tiles": [
-        "https://martin-lively-canyon-4077.fly.dev/core_bus_route_variants/{z}/{x}/{y}"
+        "https://martin-lively-canyon-4077.fly.dev/tiles_bus_route_variants_v/{z}/{x}/{y}"
       ],
       "minzoom": 0,
       "maxzoom": 22
@@ -217,8 +217,7 @@
           "coalesce",
           ["get", "name_mm"],
           ["get", "name_en"],
-          ["get", "name"],
-          ""
+          ["get", "name"]
         ],
         "text-font": ["Noto Sans Regular"],
         "text-size": [
@@ -350,8 +349,7 @@
           "coalesce",
           ["get", "name_mm"],
           ["get", "name_en"],
-          ["get", "name"],
-          ""
+          ["get", "name"]
         ],
         "text-font": ["Noto Sans Myanmar Regular", "Noto Sans Regular"],
         "text-size": [
@@ -402,8 +400,8 @@
     {
       "id": "bus-routes",
       "type": "line",
-      "source": "core_bus_route_variants",
-      "source-layer": "core_bus_route_variants",
+      "source": "tiles_bus_route_variants_v",
+      "source-layer": "tiles_bus_route_variants_v",
       "minzoom": 12,
       "layout": {
         "line-cap": "round",
@@ -438,8 +436,8 @@
     {
       "id": "bus-route-labels",
       "type": "symbol",
-      "source": "core_bus_route_variants",
-      "source-layer": "core_bus_route_variants",
+      "source": "tiles_bus_route_variants_v",
+      "source-layer": "tiles_bus_route_variants_v",
       "minzoom": 13,
       "layout": {
         "visibility": "none",
@@ -447,9 +445,9 @@
         "symbol-spacing": 350,
         "text-field": [
           "coalesce",
-          ["get", "variant_code"],
-          ["get", "direction_name"],
-          ""
+          ["get", "name_mm"],
+          ["get", "name_en"],
+          ["get", "name"]
         ],
         "text-font": ["Noto Sans Regular"],
         "text-size": [
@@ -487,8 +485,8 @@
     {
       "id": "bus-stops",
       "type": "circle",
-      "source": "core_bus_stops",
-      "source-layer": "core_bus_stops",
+      "source": "tiles_bus_stops_v",
+      "source-layer": "tiles_bus_stops_v",
       "minzoom": 15,
       "paint": {
         "circle-color": "#d28b1f",
@@ -527,8 +525,8 @@
     {
       "id": "bus-stop-labels",
       "type": "symbol",
-      "source": "core_bus_stops",
-      "source-layer": "core_bus_stops",
+      "source": "tiles_bus_stops_v",
+      "source-layer": "tiles_bus_stops_v",
       "minzoom": 15,
       "layout": {
         "visibility": "none",
@@ -536,10 +534,7 @@
           "coalesce",
           ["get", "name_mm"],
           ["get", "name_en"],
-          ["get", "name"],
-          ["get", "name_local"],
-          ["get", "stop_code"],
-          ""
+          ["get", "name"]
         ],
         "text-font": ["Noto Sans Myanmar Regular", "Noto Sans Regular"],
         "text-size": [
@@ -619,9 +614,7 @@
           "coalesce",
           ["get", "name_mm"],
           ["get", "name_en"],
-          ["get", "display_name"],
-          ["get", "primary_name"],
-          ""
+          ["get", "name"]
         ],
         "text-font": ["Noto Sans Myanmar Regular", "Noto Sans Regular"],
         "text-size": [

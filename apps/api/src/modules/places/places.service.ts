@@ -1,5 +1,17 @@
-import { PlacesRepository, type PlaceDetailRow, type PlaceRow } from "./places.repo.js";
+import type { z } from "zod";
+
+import {
+    PlacesRepository,
+    type PlaceDetailRow,
+    type PlaceRow,
+    deriveDisplayName,
+    derivePrimaryName,
+} from "./places.repo.js";
 import type { UpdatePlaceInput } from "./places.repo.js";
+import { createPlaceBodySchema, updatePlaceBodySchema } from "./places.schema.js";
+
+type CreatePlaceBody = z.infer<typeof createPlaceBodySchema>;
+type UpdatePlaceBody = z.infer<typeof updatePlaceBodySchema>;
 
 type ListPlacesInput = {
     limit: number;
@@ -8,11 +20,6 @@ type ListPlacesInput = {
     category?: string;
     is_public?: boolean;
     is_verified?: boolean;
-};
-
-type CreatePlaceInput = UpdatePlaceInput & {
-    lat: number;
-    lng: number;
 };
 
 export class PlaceNotFoundError extends Error {
@@ -37,6 +44,12 @@ export class PlacesService {
             id: place.id.toString(),
             public_id: place.public_id,
             primary_name: place.primary_name,
+            secondary_name: place.english_name ?? null,
+            name_local: place.myanmar_name ?? null,
+            myanmar_name: place.myanmar_name,
+            english_name: place.english_name,
+            name_mm: place.myanmar_name,
+            name_en: place.english_name,
             display_name: place.display_name,
             category_id: place.category_id.toString(),
             category_name: place.category_name,
@@ -44,8 +57,15 @@ export class PlacesService {
             admin_area_name: place.admin_area_name,
             lat: place.lat,
             lng: place.lng,
+            importance_score: place.importance_score,
+            popularity_score: place.popularity_score,
+            confidence_score: place.confidence_score,
             is_public: place.is_public,
             is_verified: place.is_verified,
+            source_type_id: place.source_type_id.toString(),
+            publish_status_id: place.publish_status_id?.toString() ?? null,
+            created_at: place.created_at.toISOString(),
+            updated_at: place.updated_at.toISOString(),
             names: place.names,
             myanmarName: place.myanmar_name,
             englishName: place.english_name,
@@ -56,13 +76,6 @@ export class PlacesService {
         return {
             ...this.serializePlace(place),
             plus_code: place.plus_code,
-            importance_score: place.importance_score,
-            popularity_score: place.popularity_score,
-            confidence_score: place.confidence_score,
-            is_public: place.is_public,
-            is_verified: place.is_verified,
-            source_type_id: place.source_type_id.toString(),
-            publish_status_id: place.publish_status_id?.toString() ?? null,
             current_version_id: place.current_version_id?.toString() ?? null,
             deleted_at: place.deleted_at,
         };
@@ -116,21 +129,19 @@ export class PlacesService {
         };
     }
 
-    async createPlace(input: CreatePlaceInput) {
-        const { updated_at: _ignoredUpdatedAt, ...safeInput } = input as CreatePlaceInput & {
-            updated_at?: unknown;
-        };
+    async createPlace(body: CreatePlaceBody) {
+        const categoryId = body.categoryId;
 
-        const categoryId = safeInput.category_id ?? safeInput.categoryId;
-        const adminAreaId = safeInput.admin_area_id ?? safeInput.adminAreaId;
-        const isPublic = safeInput.is_public ?? safeInput.isPublic ?? true;
-        const isVerified = safeInput.is_verified ?? safeInput.isVerified ?? false;
-        const names = normalizePlaceNames(safeInput);
-        const primaryName = names.englishName || names.myanmarName || "Unnamed Place";
-        const displayName = deriveDisplayNameForService(names) ?? "Unnamed Place";
+        const names = normalizePlaceNames({
+            myanmarName: body.myanmarName,
+            englishName: body.englishName,
+        });
 
-        if (!categoryId) {
-            throw new PlaceValidationError("category_id is invalid");
+        const primaryName = derivePrimaryName(names);
+        const displayName = deriveDisplayName(names);
+
+        if (!names.myanmarName && !names.englishName) {
+            throw new PlaceValidationError("myanmarName or englishName is required");
         }
 
         const hasCategory = await this.placesRepo.hasCategory(categoryId);
@@ -139,7 +150,9 @@ export class PlacesService {
             throw new PlaceValidationError("category_id is invalid");
         }
 
-        if (adminAreaId !== undefined && adminAreaId !== null) {
+        const adminAreaId = body.adminAreaId ?? null;
+
+        if (adminAreaId !== null) {
             const hasAdminArea = await this.placesRepo.hasActiveAdminArea(adminAreaId);
 
             if (!hasAdminArea) {
@@ -147,10 +160,10 @@ export class PlacesService {
             }
         }
 
-        let resolvedSourceTypeId = safeInput.source_type_id ?? undefined;
+        let resolvedSourceTypeId = body.sourceTypeId ?? undefined;
 
         if (resolvedSourceTypeId === null || resolvedSourceTypeId === undefined) {
-            resolvedSourceTypeId = await this.placesRepo.getSourceTypeIdByCode("manual") ?? undefined;
+            resolvedSourceTypeId = (await this.placesRepo.getSourceTypeIdByCode("manual")) ?? undefined;
         }
 
         if (!resolvedSourceTypeId) {
@@ -163,8 +176,17 @@ export class PlacesService {
             throw new PlaceValidationError("source_type_id is invalid");
         }
 
-        if (safeInput.publish_status_id !== undefined && safeInput.publish_status_id !== null) {
-            const hasPublishStatus = await this.placesRepo.hasPublishStatus(safeInput.publish_status_id);
+        let publishStatusId = body.publishStatusId ?? null;
+
+        if (publishStatusId === undefined || publishStatusId === null) {
+            publishStatusId =
+                (await this.placesRepo.getPublishStatusIdByCode("published")) ??
+                (await this.placesRepo.getPublishStatusIdByCode("draft")) ??
+                null;
+        }
+
+        if (publishStatusId !== null) {
+            const hasPublishStatus = await this.placesRepo.hasPublishStatus(publishStatusId);
 
             if (!hasPublishStatus) {
                 throw new PlaceValidationError("publish_status_id is invalid");
@@ -172,16 +194,22 @@ export class PlacesService {
         }
 
         const createdPlace = await this.placesRepo.createPlace({
-            ...safeInput,
             myanmarName: names.myanmarName,
             englishName: names.englishName,
             primary_name: primaryName,
             display_name: displayName,
             category_id: categoryId,
             admin_area_id: adminAreaId,
-            is_public: isPublic,
-            is_verified: isVerified,
+            lat: body.lat,
+            lng: body.lng,
+            plus_code: body.plusCode ?? null,
+            importance_score: body.importanceScore ?? 0,
+            popularity_score: body.popularityScore ?? 0,
+            confidence_score: body.confidenceScore ?? 50,
+            is_public: body.isPublic ?? true,
+            is_verified: body.isVerified ?? false,
             source_type_id: resolvedSourceTypeId,
+            publish_status_id: publishStatusId,
         });
 
         if (!createdPlace) {
@@ -191,34 +219,64 @@ export class PlacesService {
         return this.serializePlaceDetail(createdPlace);
     }
 
-    async updatePlace(publicId: string, input: UpdatePlaceInput) {
-        const { updated_at: _ignoredUpdatedAt, ...safeInput } = input as UpdatePlaceInput & {
-            updated_at?: unknown;
-        };
+    async updatePlace(publicId: string, body: UpdatePlaceBody) {
+        const patch = mapUpdateBodyToRepo(body);
 
-        const normalizedInput = {
-            ...safeInput,
-            category_id: safeInput.category_id ?? safeInput.categoryId,
-            admin_area_id: safeInput.admin_area_id ?? safeInput.adminAreaId,
-            is_public: safeInput.is_public ?? safeInput.isPublic,
-            is_verified: safeInput.is_verified ?? safeInput.isVerified,
-        };
-
-        if (normalizedInput.category_id === null) {
+        if (patch.category_id === null) {
             throw new PlaceValidationError("category_id cannot be null");
         }
 
-        if (normalizedInput.source_type_id === null) {
+        if (patch.source_type_id === null) {
             throw new PlaceValidationError("source_type_id cannot be null");
         }
 
-        const updatedPlace = await this.placesRepo.updatePlace(publicId, normalizedInput);
+        if (patch.category_id !== undefined) {
+            const hasCategory = await this.placesRepo.hasCategory(patch.category_id);
 
-        if (!updatedPlace) {
-            throw new PlaceNotFoundError();
+            if (!hasCategory) {
+                throw new PlaceValidationError("category_id is invalid");
+            }
         }
 
-        return this.serializePlaceDetail(updatedPlace);
+        if (patch.admin_area_id !== undefined && patch.admin_area_id !== null) {
+            const hasAdminArea = await this.placesRepo.hasActiveAdminArea(patch.admin_area_id);
+
+            if (!hasAdminArea) {
+                throw new PlaceValidationError("admin_area_id is invalid");
+            }
+        }
+
+        if (patch.source_type_id !== undefined) {
+            const hasSourceType = await this.placesRepo.hasSourceType(patch.source_type_id);
+
+            if (!hasSourceType) {
+                throw new PlaceValidationError("source_type_id is invalid");
+            }
+        }
+
+        if (patch.publish_status_id !== undefined && patch.publish_status_id !== null) {
+            const hasPublishStatus = await this.placesRepo.hasPublishStatus(patch.publish_status_id);
+
+            if (!hasPublishStatus) {
+                throw new PlaceValidationError("publish_status_id is invalid");
+            }
+        }
+
+        try {
+            const updatedPlace = await this.placesRepo.updatePlace(publicId, patch);
+
+            if (!updatedPlace) {
+                throw new PlaceNotFoundError();
+            }
+
+            return this.serializePlaceDetail(updatedPlace);
+        } catch (error) {
+            if (error instanceof Error && error.message === "PLACE_NAMES_REQUIRED") {
+                throw new PlaceValidationError("myanmarName or englishName is required");
+            }
+
+            throw error;
+        }
     }
 
     async deletePlace(publicId: string) {
@@ -235,16 +293,10 @@ export class PlacesService {
     }
 }
 
-function normalizePlaceNames(input: {
-    myanmarName?: string;
-    englishName?: string;
-    primary_name?: string;
-    isPublic?: boolean;
-    isVerified?: boolean;
-}) {
+function normalizePlaceNames(input: { myanmarName?: string; englishName?: string }) {
     return {
         myanmarName: normalizeNonEmpty(input.myanmarName),
-        englishName: normalizeNonEmpty(input.englishName ?? input.primary_name),
+        englishName: normalizeNonEmpty(input.englishName),
     };
 }
 
@@ -253,10 +305,64 @@ function normalizeNonEmpty(value: string | undefined) {
     return trimmed ? trimmed : undefined;
 }
 
-function deriveDisplayNameForService(names: { myanmarName?: string; englishName?: string }) {
-    if (names.myanmarName && names.englishName) {
-        return `${names.myanmarName} · ${names.englishName}`;
+function mapUpdateBodyToRepo(body: UpdatePlaceBody): UpdatePlaceInput {
+    const patch: UpdatePlaceInput = {};
+
+    if (body.myanmarName !== undefined) {
+        patch.myanmarName = body.myanmarName;
     }
 
-    return names.myanmarName || names.englishName;
+    if (body.englishName !== undefined) {
+        patch.englishName = body.englishName;
+    }
+
+    if (body.categoryId !== undefined) {
+        patch.category_id = body.categoryId;
+    }
+
+    if (body.adminAreaId !== undefined) {
+        patch.admin_area_id = body.adminAreaId;
+    }
+
+    if (body.lat !== undefined) {
+        patch.lat = body.lat;
+    }
+
+    if (body.lng !== undefined) {
+        patch.lng = body.lng;
+    }
+
+    if (body.plusCode !== undefined) {
+        patch.plus_code = body.plusCode;
+    }
+
+    if (body.importanceScore !== undefined) {
+        patch.importance_score = body.importanceScore;
+    }
+
+    if (body.popularityScore !== undefined) {
+        patch.popularity_score = body.popularityScore;
+    }
+
+    if (body.confidenceScore !== undefined) {
+        patch.confidence_score = body.confidenceScore;
+    }
+
+    if (body.isPublic !== undefined) {
+        patch.is_public = body.isPublic;
+    }
+
+    if (body.isVerified !== undefined) {
+        patch.is_verified = body.isVerified;
+    }
+
+    if (body.sourceTypeId !== undefined) {
+        patch.source_type_id = body.sourceTypeId;
+    }
+
+    if (body.publishStatusId !== undefined) {
+        patch.publish_status_id = body.publishStatusId;
+    }
+
+    return patch;
 }

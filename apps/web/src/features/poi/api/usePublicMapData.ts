@@ -1,6 +1,5 @@
 import { useQuery, useQueries } from '@tanstack/react-query';
 import type { FeatureCollection } from 'geojson';
-import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import {
   fetchPublicCategories,
   fetchPublicMapGeoJson,
@@ -18,59 +17,52 @@ export function usePublicCategories() {
 }
 
 export function usePublicPlaces(params: Omit<PublicPlacesParams, 'lang'>) {
-  const lang = useMapUiStore((s) => s.languageMode);
-
   return useQuery({
-    queryKey: ['public-places', params, lang],
-    queryFn: () => fetchPublicPlaces({ ...params, lang }),
+    queryKey: ['public-places', params],
+    queryFn: () => fetchPublicPlaces(params),
   });
 }
 
 export function usePublicPlace(publicId: string | null) {
-  const lang = useMapUiStore((s) => s.languageMode);
-
   return useQuery({
-    queryKey: ['public-place', publicId, lang],
-    queryFn: () => fetchPublicPlace(publicId ?? '', lang),
+    queryKey: ['public-place', publicId],
+    queryFn: () => fetchPublicPlace(publicId ?? ''),
     enabled: publicId !== null,
   });
 }
 
 export function usePublicSearch(q: string) {
-  const lang = useMapUiStore((s) => s.languageMode);
   const trimmedQuery = q.trim();
 
   return useQuery({
-    queryKey: ['public-search', trimmedQuery, lang],
-    queryFn: () => fetchPublicSearch(trimmedQuery, lang),
+    queryKey: ['public-search', trimmedQuery],
+    queryFn: () => fetchPublicSearch(trimmedQuery),
     enabled: trimmedQuery.length > 0,
   });
 }
 
-/** Labels + geometries for `/public/map/geo/*` — each feature.Properties.name matches API `lang`. */
+/** Labels + geometries for `/public/map/geo/*` — features carry `name_mm` / `name_en` for MapLibre. */
 export function usePublicMapGeoLabelQueries() {
-  const lang = useMapUiStore((s) => s.languageMode);
-
   return useQueries({
     queries: [
       {
-        queryKey: ['public-map-geo', 'streets', lang],
-        queryFn: () => fetchPublicMapGeoJson('streets', lang),
+        queryKey: ['public-map-geo', 'streets'],
+        queryFn: () => fetchPublicMapGeoJson('streets'),
         placeholderData: (previousData: FeatureCollection | undefined) => previousData,
       },
       {
-        queryKey: ['public-map-geo', 'admin-areas', lang],
-        queryFn: () => fetchPublicMapGeoJson('admin-areas', lang),
+        queryKey: ['public-map-geo', 'admin-areas'],
+        queryFn: () => fetchPublicMapGeoJson('admin-areas'),
         placeholderData: (previousData: FeatureCollection | undefined) => previousData,
       },
       {
-        queryKey: ['public-map-geo', 'bus-stops', lang],
-        queryFn: () => fetchPublicMapGeoJson('bus-stops', lang),
+        queryKey: ['public-map-geo', 'bus-stops'],
+        queryFn: () => fetchPublicMapGeoJson('bus-stops'),
         placeholderData: (previousData: FeatureCollection | undefined) => previousData,
       },
       {
-        queryKey: ['public-map-geo', 'bus-routes', lang],
-        queryFn: () => fetchPublicMapGeoJson('bus-routes', lang),
+        queryKey: ['public-map-geo', 'bus-routes'],
+        queryFn: () => fetchPublicMapGeoJson('bus-routes'),
         placeholderData: (previousData: FeatureCollection | undefined) => previousData,
       },
     ],

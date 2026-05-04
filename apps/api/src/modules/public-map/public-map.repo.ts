@@ -4,13 +4,11 @@ type ListPublicPlacesParams = {
     q?: string;
     category?: string;
     categoryId?: bigint;
-    lang: "my" | "en" | "both";
     limit: number;
 };
 
 type SearchPublicMapParams = {
     q: string;
-    lang: "my" | "en" | "both";
     limit: number;
 };
 
@@ -105,7 +103,7 @@ export class PublicMapRepository {
                 WHERE pn.place_id = p.id
                   AND (
                       pn.language_code IN ('my', 'mm')
-                      OR pn.script_code = 'Mymr'
+                      OR upper(trim(coalesce(pn.script_code, ''))) = 'MYMR'
                   )
                 ORDER BY
                     CASE
@@ -124,7 +122,7 @@ export class PublicMapRepository {
                 WHERE pn.place_id = p.id
                   AND (
                       pn.language_code = 'en'
-                      OR pn.script_code = 'Latn'
+                      OR upper(trim(coalesce(pn.script_code, ''))) = 'LATN'
                   )
                 ORDER BY
                     CASE
@@ -168,7 +166,7 @@ export class PublicMapRepository {
                 WHERE pn.place_id = p.id
                   AND (
                       pn.language_code IN ('my', 'mm')
-                      OR pn.script_code = 'Mymr'
+                      OR upper(trim(coalesce(pn.script_code, ''))) = 'MYMR'
                   )
                 ORDER BY
                     CASE
@@ -187,7 +185,7 @@ export class PublicMapRepository {
                 WHERE pn.place_id = p.id
                   AND (
                       pn.language_code = 'en'
-                      OR pn.script_code = 'Latn'
+                      OR upper(trim(coalesce(pn.script_code, ''))) = 'LATN'
                   )
                 ORDER BY
                     CASE
@@ -268,7 +266,7 @@ export class PublicMapRepository {
                 WHERE sn.street_id = s.id
                   AND (
                       sn.language_code IN ('my', 'mm')
-                      OR sn.script_code = 'Mymr'
+                      OR upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
                   )
                 ORDER BY
                     CASE
@@ -286,7 +284,7 @@ export class PublicMapRepository {
                 WHERE sn.street_id = s.id
                   AND (
                       sn.language_code = 'en'
-                      OR sn.script_code = 'Latn'
+                      OR upper(trim(coalesce(sn.script_code, ''))) = 'LATN'
                   )
                 ORDER BY
                     CASE
@@ -322,7 +320,7 @@ export class PublicMapRepository {
                 WHERE n.admin_area_id = a.id
                   AND (
                       n.language_code IN ('my', 'mm')
-                      OR n.script_code = 'Mymr'
+                      OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
                   )
                 ORDER BY
                     CASE
@@ -341,7 +339,7 @@ export class PublicMapRepository {
                 WHERE n.admin_area_id = a.id
                   AND (
                       n.language_code = 'en'
-                      OR n.script_code = 'Latn'
+                      OR upper(trim(coalesce(n.script_code, ''))) = 'LATN'
                   )
                 ORDER BY
                     CASE
@@ -695,8 +693,8 @@ function localizedNameJoin(
 ) {
     const languageCondition =
         lang === "my"
-            ? Prisma.sql`(${Prisma.raw(tableAlias)}.language_code IN ('my', 'mm') OR ${Prisma.raw(tableAlias)}.script_code = 'Mymr')`
-            : Prisma.sql`(${Prisma.raw(tableAlias)}.language_code = 'en' OR ${Prisma.raw(tableAlias)}.script_code = 'Latn')`;
+            ? Prisma.sql`(${Prisma.raw(tableAlias)}.language_code IN ('my', 'mm') OR upper(trim(coalesce(${Prisma.raw(tableAlias)}.script_code, ''))) = 'MYMR')`
+            : Prisma.sql`(${Prisma.raw(tableAlias)}.language_code = 'en' OR upper(trim(coalesce(${Prisma.raw(tableAlias)}.script_code, ''))) = 'LATN')`;
 
     return Prisma.sql`
         LEFT JOIN LATERAL (

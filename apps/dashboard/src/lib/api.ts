@@ -4,9 +4,18 @@ export type Place = {
     id: string;
     public_id: string;
     primary_name: string;
+    secondary_name: string | null;
+    name_local: string | null;
     display_name: string;
     myanmarName: string | null;
     englishName: string | null;
+    /** Optional API fields (snake/camel variants) — used by dashboard preview labels when present */
+    nameMm?: string | null;
+    nameEn?: string | null;
+    myanmar_name?: string | null;
+    english_name?: string | null;
+    name_mm?: string | null;
+    name_en?: string | null;
     category_id: string;
     admin_area_id: string | null;
     lat: number;
@@ -25,8 +34,6 @@ export type PlaceDetail = Place & {
     confidence_score: number | null;
     source_type_id: string;
     publish_status_id: string | null;
-    current_version_id: string | null;
-    deleted_at: string | null;
 };
 
 export type PlaceName = {
@@ -47,6 +54,9 @@ export type PlacesParams = {
     limit?: number;
     offset?: number;
 };
+
+/** Max `limit` for GET /places (API rejects values above this). */
+export const PLACES_LIST_LIMIT = 100;
 
 export type Category = {
     id: string;
@@ -78,43 +88,25 @@ export type PlaceFormOptions = {
     publish_statuses: PlaceFormOption[];
 };
 
-export type UpdatePlacePayload = {
-    primary_name?: string;
-    display_name?: string;
-    myanmarName?: string;
-    englishName?: string;
-    category_id?: string | null;
-    admin_area_id?: string | null;
-    lat?: number;
-    lng?: number;
-    plus_code?: string | null;
-    importance_score?: number | null;
-    popularity_score?: number | null;
-    confidence_score?: number | null;
-    is_public?: boolean;
-    is_verified?: boolean;
-    source_type_id?: string | null;
-    publish_status_id?: string | null;
-};
-
+/** Body for POST /places — field names match the API */
 export type CreatePlacePayload = {
-    primary_name?: string;
-    display_name?: string;
     myanmarName?: string;
     englishName?: string;
-    category_id: string;
-    admin_area_id?: string | null;
-    plus_code?: string | null;
+    categoryId: string;
+    adminAreaId?: string | null;
     lat: number;
     lng: number;
-    importance_score?: number | null;
-    popularity_score?: number | null;
-    confidence_score?: number | null;
-    is_public?: boolean;
-    is_verified?: boolean;
-    source_type_id?: string | null;
-    publish_status_id?: string | null;
+    plusCode?: string | null;
+    importanceScore?: number;
+    popularityScore?: number;
+    confidenceScore?: number;
+    isPublic?: boolean;
+    isVerified?: boolean;
+    sourceTypeId?: string | null;
+    publishStatusId?: string | null;
 };
+
+export type UpdatePlacePayload = Partial<CreatePlacePayload>;
 
 export type StreetGeometry =
     | {
@@ -230,25 +222,43 @@ async function getErrorMessage(response: Response): Promise<string> {
     const contentType = response.headers.get("content-type") ?? "";
 
     if (contentType.includes("application/json")) {
-        const data = (await response.json()) as {
-            message?: string;
-            error?: string;
-            issues?: unknown;
-        };
+        let data: Record<string, unknown>;
+
+        try {
+            data = (await response.json()) as Record<string, unknown>;
+        } catch {
+            return `Request failed with status ${response.status}`;
+        }
+
+        const parts: string[] = [];
 
         if (typeof data.message === "string" && data.message.trim()) {
-            return data.message;
+            parts.push(data.message.trim());
         }
 
         if (typeof data.error === "string" && data.error.trim()) {
-            return data.error;
+            parts.push(data.error.trim());
         }
-    } else {
-        const text = await response.text();
 
-        if (text.trim()) {
-            return text;
+        if (data.issues !== undefined) {
+            try {
+                parts.push(JSON.stringify(data.issues));
+            } catch {
+                parts.push(String(data.issues));
+            }
         }
+
+        if (parts.length > 0) {
+            return parts.join(" — ");
+        }
+
+        return JSON.stringify(data);
+    }
+
+    const text = await response.text();
+
+    if (text.trim()) {
+        return text;
     }
 
     return `Request failed with status ${response.status}`;
@@ -302,6 +312,8 @@ export function getPlaceFormOptions() {
 }
 
 export function updatePlace(id: string, payload: UpdatePlacePayload) {
+    console.log("PATCH_PLACE_PAYLOAD", id, payload);
+
     return apiFetch<PlaceDetail>(`/places/${id}`, {
         method: "PATCH",
         headers: {
@@ -312,6 +324,8 @@ export function updatePlace(id: string, payload: UpdatePlacePayload) {
 }
 
 export function createPlace(payload: CreatePlacePayload) {
+    console.log("CREATE_PLACE_PAYLOAD", payload);
+
     return apiFetch<PlaceDetail>("/places", {
         method: "POST",
         headers: {

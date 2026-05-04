@@ -1,8 +1,10 @@
 /** Sidebar: scrollable list + detail strip (desktop-first). */
 import { memo } from 'react';
 import type { ReactNode } from 'react';
+import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import type { PublicSearchResult } from '@/features/poi/api/publicMapApi';
 import type { Poi } from '@/types';
+import { getLocalizedName } from '@local-map/localized-name';
 import { PoiDetail } from './PoiDetail';
 import { PoiList } from './PoiList';
 
@@ -80,6 +82,13 @@ function StreetDetail({
   readonly result: PublicSearchResult;
   readonly onZoomToSearchResult?: (result: PublicSearchResult) => void;
 }) {
+  const languageMode = useMapUiStore((s) => s.languageMode);
+  const streetTitle = getLocalizedName(result, languageMode);
+  const titleClass =
+    languageMode === 'both'
+      ? 'text-base font-semibold leading-snug whitespace-pre-line text-neutral-950'
+      : 'text-base font-semibold leading-snug text-neutral-950';
+
   const center = getStreetCenter(result);
   const coordinates = center ? formatCoordinates(center[0], center[1]) : null;
   const hasBounds = result.cameraTarget?.type === 'bounds' && result.cameraTarget.bbox;
@@ -90,8 +99,8 @@ function StreetDetail({
         <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-orange-600">
           Street
         </p>
-        <h3 className="text-base font-semibold leading-snug text-neutral-950">
-          {result.name}
+        <h3 className={titleClass}>
+          {streetTitle}
         </h3>
         <p className="mt-1 text-xs text-neutral-600">{result.subtitle ?? 'Street'}</p>
         {coordinates ? (
@@ -116,7 +125,7 @@ function StreetDetail({
         </DetailActionButton>
         <DetailActionButton
           className="col-span-2"
-          onClick={() => shareDetail(result.name, coordinates ?? 'Street selected from search')}
+          onClick={() => shareDetail(streetTitle, coordinates ?? 'Street selected from search')}
         >
           Share
         </DetailActionButton>
