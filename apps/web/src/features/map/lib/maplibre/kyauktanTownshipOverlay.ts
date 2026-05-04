@@ -4,6 +4,6 @@
  */
 import type { MapEngine } from '../mapEngineTypes';
 
-export function ensureKyauktanTownshipOverlay(_map: MapEngine): void {
-  /* no-op */
+export function ensureKyauktanTownshipOverlay(map: MapEngine): void {
+  void map;
 }

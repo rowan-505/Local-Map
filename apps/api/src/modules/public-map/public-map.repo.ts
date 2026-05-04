@@ -10,7 +10,25 @@ type ListPublicPlacesParams = {
 
 type SearchPublicMapParams = {
     q: string;
+    lang: "my" | "en" | "both";
     limit: number;
+};
+
+/** Kyauktan operational bbox (4326); keep aligned with apps/web REGION_SCOPE. */
+const PUBLIC_MAP_BOUNDS_ENVELOPE_SQL = Prisma.sql`ST_MakeEnvelope(96.12, 16.48, 96.52, 16.78, 4326)`;
+
+export type PublicMapGeoLabelRow = {
+    id: string;
+    canonical_name: string | null;
+    /** Optional richer fallbacks — bus routes may omit and rely only on multilingual + canonical fields. */
+    display_name?: string | null;
+    primary_name?: string | null;
+    name_mm: string | null;
+    name_en: string | null;
+    /** Parsed GeoJSON Geometry from Postgres json */
+    geom: unknown;
+    /** Hint for symbol-spacing: denser repeats on corridors / bus routes (`true`), looser on small streets (`false`). */
+    label_dense?: boolean | null;
 };
 
 export type PublicPlaceRow = {
@@ -40,6 +58,11 @@ export type PublicSearchRow = {
     id: string;
     result_type: "place" | "street";
     name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    display_name: string | null;
+    primary_name: string | null;
+    canonical_name: string | null;
     subtitle: string | null;
     category_name: string | null;
     lat: number;
@@ -224,6 +247,221 @@ export class PublicMapRepository {
 
         return rows[0]?.exists ?? false;
     }
+
+    async listStreetGeoLabels(): Promise<PublicMapGeoLabelRow[]> {
+        return this.prisma.$queryRaw<PublicMapGeoLabelRow[]>(Prisma.sql`
+            SELECT
+                s.public_id::text AS id,
+                s.canonical_name AS canonical_name,
+                NULL::text AS display_name,
+                NULL::text AS primary_name,
+                sn_mm.name AS name_mm,
+                sn_en.name AS name_en,
+                (
+                    COALESCE(ST_Length(s.geom::geography), 0)::double precision >= 380
+                ) AS label_dense,
+                ST_AsGeoJSON(s.geom)::json AS geom
+            FROM core.core_streets AS s
+            LEFT JOIN LATERAL (
+                SELECT sn.name
+                FROM core.core_street_names AS sn
+                WHERE sn.street_id = s.id
+                  AND (
+                      sn.language_code IN ('my', 'mm')
+                      OR sn.script_code = 'Mymr'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN sn.name_type = 'official' AND sn.is_primary = true THEN 1
+                        WHEN sn.is_primary = true THEN 2
+                        WHEN sn.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    sn.name ASC
+                LIMIT 1
+            ) AS sn_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT sn.name
+                FROM core.core_street_names AS sn
+                WHERE sn.street_id = s.id
+                  AND (
+                      sn.language_code = 'en'
+                      OR sn.script_code = 'Latn'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN sn.name_type = 'official' AND sn.is_primary = true THEN 1
+                        WHEN sn.is_primary = true THEN 2
+                        WHEN sn.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    sn.name ASC
+                LIMIT 1
+            ) AS sn_en ON true
+            WHERE s.is_active = true
+              AND ST_Intersects(s.geom, ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL})
+            ORDER BY s.canonical_name ASC
+            LIMIT 3000
+        `);
+    }
+
+    async listAdminAreaGeoLabels(): Promise<PublicMapGeoLabelRow[]> {
+        return this.prisma.$queryRaw<PublicMapGeoLabelRow[]>(Prisma.sql`
+            SELECT
+                a.public_id::text AS id,
+                a.canonical_name AS canonical_name,
+                NULL::text AS display_name,
+                NULL::text AS primary_name,
+                an_mm.name AS name_mm,
+                an_en.name AS name_en,
+                ST_AsGeoJSON(a.centroid)::json AS geom
+            FROM core.core_admin_areas AS a
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_admin_area_names AS n
+                WHERE n.admin_area_id = a.id
+                  AND (
+                      n.language_code IN ('my', 'mm')
+                      OR n.script_code = 'Mymr'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.search_weight DESC NULLS LAST,
+                    n.name ASC
+                LIMIT 1
+            ) AS an_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_admin_area_names AS n
+                WHERE n.admin_area_id = a.id
+                  AND (
+                      n.language_code = 'en'
+                      OR n.script_code = 'Latn'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.search_weight DESC NULLS LAST,
+                    n.name ASC
+                LIMIT 1
+            ) AS an_en ON true
+            WHERE a.is_active = true
+              AND ST_Intersects(a.geom, ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL})
+            ORDER BY a.canonical_name ASC
+            LIMIT 500
+        `);
+    }
+
+    async listBusStopGeoLabels(): Promise<PublicMapGeoLabelRow[]> {
+        return this.prisma.$queryRaw<PublicMapGeoLabelRow[]>(Prisma.sql`
+            SELECT
+                b.public_id::text AS id,
+                b.name AS canonical_name,
+                NULL::text AS display_name,
+                NULL::text AS primary_name,
+                bn_mm.name AS name_mm,
+                bn_en.name AS name_en,
+                ST_AsGeoJSON(b.geom)::json AS geom
+            FROM core.core_bus_stops AS b
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_bus_stop_names AS n
+                WHERE n.stop_id = b.id
+                  AND lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.name ASC
+                LIMIT 1
+            ) AS bn_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_bus_stop_names AS n
+                WHERE n.stop_id = b.id
+                  AND lower(trim(coalesce(n.language_code, ''))) = 'en'
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.name ASC
+                LIMIT 1
+            ) AS bn_en ON true
+            WHERE b.is_active = true
+              AND ST_Intersects(b.geom, ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL})
+            ORDER BY b.name ASC
+            LIMIT 2000
+        `);
+    }
+
+    async listBusRouteGeoLabels(): Promise<PublicMapGeoLabelRow[]> {
+        return this.prisma.$queryRaw<PublicMapGeoLabelRow[]>(Prisma.sql`
+            SELECT
+                v.id::text AS id,
+                COALESCE(
+                    CASE WHEN trim(r.public_name) = '' THEN NULL ELSE trim(r.public_name) END,
+                    r.route_code
+                ) AS canonical_name,
+                NULL::text AS display_name,
+                NULL::text AS primary_name,
+                rn_mm.name AS name_mm,
+                rn_en.name AS name_en,
+                true AS label_dense,
+                ST_AsGeoJSON(v.geom)::json AS geom
+            FROM core.core_bus_route_variants AS v
+            INNER JOIN core.core_bus_routes AS r ON r.id = v.route_id
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_bus_route_names AS n
+                WHERE n.route_id = r.id
+                  AND lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.name ASC
+                LIMIT 1
+            ) AS rn_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_bus_route_names AS n
+                WHERE n.route_id = r.id
+                  AND lower(trim(coalesce(n.language_code, ''))) = 'en'
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.name ASC
+                LIMIT 1
+            ) AS rn_en ON true
+            WHERE v.is_active = true
+              AND r.is_active = true
+              AND ST_Intersects(v.geom, ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL})
+            ORDER BY r.route_code ASC, v.variant_code ASC
+            LIMIT 500
+        `);
+    }
 }
 
 function buildPublicPlaceConditions(params: ListPublicPlacesParams) {
@@ -274,36 +512,59 @@ function buildPublicPlaceConditions(params: ListPublicPlacesParams) {
 }
 
 function buildSearchWithStreetNamesQuery(params: SearchPublicMapParams) {
-    return buildSearchQuery(params, Prisma.sql`
-        LEFT JOIN LATERAL (
-            SELECT n.name
-            FROM core.core_street_names AS n
-            WHERE n.street_id = s.id
-              AND n.name ILIKE ${partialSearchTerm(params.q)}
-            ORDER BY
-                CASE
-                    WHEN lower(n.name) = ${normalizedSearchTerm(params.q)} THEN 1
-                    WHEN lower(n.name) LIKE ${prefixSearchTerm(params.q)} THEN 2
-                    ELSE 3
-                END,
-                n.is_primary DESC,
-                n.name ASC
-            LIMIT 1
-        ) AS sn ON true
-    `, Prisma.sql`
-        OR sn.name IS NOT NULL
-    `, Prisma.sql`
-        WHEN lower(sn.name) = ${normalizedSearchTerm(params.q)} THEN 1
-        WHEN lower(sn.name) LIKE ${prefixSearchTerm(params.q)} THEN 2
-    `);
+    return buildSearchQuery(
+        params,
+        Prisma.sql`
+            ${localizedNameJoin("core.core_street_names", "sn", "sn.street_id = s.id", "sn_mm", "my", {
+                hasSearchWeight: false,
+            })}
+            ${localizedNameJoin("core.core_street_names", "sn", "sn.street_id = s.id", "sn_en", "en", {
+                hasSearchWeight: false,
+            })}
+        `,
+        Prisma.sql`
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_street_names AS n
+                WHERE n.street_id = s.id
+                  AND n.name ILIKE ${partialSearchTerm(params.q)}
+                ORDER BY
+                    CASE
+                        WHEN lower(n.name) = ${normalizedSearchTerm(params.q)} THEN 1
+                        WHEN lower(n.name) LIKE ${prefixSearchTerm(params.q)} THEN 2
+                        ELSE 3
+                    END,
+                    n.is_primary DESC,
+                    n.name ASC
+                LIMIT 1
+            ) AS sn ON true
+        `,
+        Prisma.sql`
+            OR sn.name IS NOT NULL
+        `,
+        Prisma.sql`
+            WHEN lower(sn.name) = ${normalizedSearchTerm(params.q)} THEN 1
+            WHEN lower(sn.name) LIKE ${prefixSearchTerm(params.q)} THEN 2
+        `
+    );
 }
 
 function buildSearchWithoutStreetNamesQuery(params: SearchPublicMapParams) {
-    return buildSearchQuery(params, Prisma.empty, Prisma.empty, Prisma.empty);
+    return buildSearchQuery(
+        params,
+        Prisma.sql`
+            LEFT JOIN LATERAL (SELECT NULL::text AS name) AS sn_mm ON true
+            LEFT JOIN LATERAL (SELECT NULL::text AS name) AS sn_en ON true
+        `,
+        Prisma.empty,
+        Prisma.empty,
+        Prisma.empty
+    );
 }
 
 function buildSearchQuery(
     params: SearchPublicMapParams,
+    streetLocalizedNamesJoin: Prisma.Sql,
     streetNamesJoin: Prisma.Sql,
     streetNamesWhere: Prisma.Sql,
     streetNamesRank: Prisma.Sql
@@ -317,7 +578,12 @@ function buildSearchQuery(
             SELECT
                 p.public_id::text AS id,
                 'place'::text AS result_type,
-                COALESCE(NULLIF(p.display_name, ''), p.primary_name) AS name,
+                COALESCE(NULLIF(p.display_name, ''), p.primary_name, 'Unnamed') AS name,
+                place_name_mm.name AS name_mm,
+                place_name_en.name AS name_en,
+                p.display_name,
+                p.primary_name,
+                NULL::text AS canonical_name,
                 c.name AS subtitle,
                 c.name AS category_name,
                 p.lat,
@@ -341,6 +607,8 @@ function buildSearchQuery(
             FROM core.core_places AS p
             LEFT JOIN ref.ref_poi_categories AS c
                 ON c.id = p.category_id
+            ${localizedNameJoin("core.core_place_names", "pn", "pn.place_id = p.id", "place_name_mm", "my")}
+            ${localizedNameJoin("core.core_place_names", "pn", "pn.place_id = p.id", "place_name_en", "en")}
             LEFT JOIN LATERAL (
                 SELECT pn.name
                 FROM core.core_place_names AS pn
@@ -371,7 +639,12 @@ function buildSearchQuery(
             SELECT
                 s.public_id::text AS id,
                 'street'::text AS result_type,
-                s.canonical_name AS name,
+                COALESCE(s.canonical_name, 'Unnamed') AS name,
+                sn_mm.name AS name_mm,
+                sn_en.name AS name_en,
+                NULL::text AS display_name,
+                NULL::text AS primary_name,
+                s.canonical_name,
                 'Street'::text AS subtitle,
                 NULL::text AS category_name,
                 ST_Y(ST_PointOnSurface(ST_Transform(s.geom, 4326))) AS lat,
@@ -388,6 +661,7 @@ function buildSearchQuery(
                 ST_XMax(Box2D(ST_Transform(s.geom, 4326)))::double precision AS max_lng,
                 ST_YMax(Box2D(ST_Transform(s.geom, 4326)))::double precision AS max_lat
             FROM core.core_streets AS s
+            ${streetLocalizedNamesJoin}
             ${streetNamesJoin}
             WHERE s.geom IS NOT NULL
               AND s.is_active = true
@@ -409,6 +683,46 @@ function buildSearchQuery(
             name ASC
         LIMIT ${params.limit}
     `;
+}
+
+function localizedNameJoin(
+    tableName: string,
+    tableAlias: string,
+    ownerCondition: string,
+    joinAlias: string,
+    lang: "my" | "en",
+    options: { hasSearchWeight?: boolean } = {}
+) {
+    const languageCondition =
+        lang === "my"
+            ? Prisma.sql`(${Prisma.raw(tableAlias)}.language_code IN ('my', 'mm') OR ${Prisma.raw(tableAlias)}.script_code = 'Mymr')`
+            : Prisma.sql`(${Prisma.raw(tableAlias)}.language_code = 'en' OR ${Prisma.raw(tableAlias)}.script_code = 'Latn')`;
+
+    return Prisma.sql`
+        LEFT JOIN LATERAL (
+            SELECT ${Prisma.raw(tableAlias)}.name
+            FROM ${Prisma.raw(tableName)} AS ${Prisma.raw(tableAlias)}
+            WHERE ${Prisma.raw(ownerCondition)}
+              AND ${languageCondition}
+            ORDER BY
+                CASE
+                    WHEN ${Prisma.raw(tableAlias)}.name_type = 'official'
+                      AND ${Prisma.raw(tableAlias)}.is_primary = true THEN 1
+                    WHEN ${Prisma.raw(tableAlias)}.is_primary = true THEN 2
+                    WHEN ${Prisma.raw(tableAlias)}.name_type = 'official' THEN 3
+                    ELSE 4
+                END,
+                ${localizedNameWeightOrder(tableAlias, options)}
+                ${Prisma.raw(tableAlias)}.name ASC
+            LIMIT 1
+        ) AS ${Prisma.raw(joinAlias)} ON true
+    `;
+}
+
+function localizedNameWeightOrder(tableAlias: string, options: { hasSearchWeight?: boolean }) {
+    return options.hasSearchWeight === false
+        ? Prisma.empty
+        : Prisma.sql`${Prisma.raw(tableAlias)}.search_weight DESC NULLS LAST,`;
 }
 
 function normalizedSearchTerm(term: string) {

@@ -37,6 +37,8 @@ type PublicPlaceDto = {
 
 export type PlaceLanguageMode = 'my' | 'en' | 'both';
 
+export type PublicMapGeoLayerId = 'streets' | 'admin-areas' | 'bus-stops' | 'bus-routes';
+
 export type SearchCameraTarget =
   | {
       readonly type: 'point';
@@ -145,20 +147,45 @@ export async function fetchPublicPlaces(
   return places.map(publicPlaceToPoi);
 }
 
-export async function fetchPublicPlace(publicId: string): Promise<Poi> {
-  const place = await fetchJson<PublicPlaceDto>(`/public/places/${encodeURIComponent(publicId)}`);
+export async function fetchPublicPlace(
+  publicId: string,
+  lang?: PlaceLanguageMode,
+): Promise<Poi> {
+  const search = new URLSearchParams();
+  if (lang !== undefined) {
+    search.set('lang', lang);
+  }
+
+  const query = search.toString();
+  const place = await fetchJson<PublicPlaceDto>(
+    `/public/places/${encodeURIComponent(publicId)}${query.length > 0 ? `?${query}` : ''}`,
+  );
   return publicPlaceToPoi(place);
 }
 
-export async function fetchPublicSearch(q: string): Promise<readonly PublicSearchResult[]> {
+export async function fetchPublicSearch(
+  q: string,
+  lang?: PlaceLanguageMode,
+): Promise<readonly PublicSearchResult[]> {
   const trimmedQuery = q.trim();
   if (trimmedQuery === '') return [];
 
   const search = new URLSearchParams({ q: trimmedQuery });
+  if (lang !== undefined) {
+    search.set('lang', lang);
+  }
   const response = await fetchJson<PublicSearchResponseDto>(`/public/search?${search.toString()}`);
   const results = hasSearchResults(response) ? response.results : response;
 
   return results.map(publicSearchResultFromDto).filter((result) => result !== null);
+}
+
+export async function fetchPublicMapGeoJson(
+  layer: PublicMapGeoLayerId,
+  lang: PlaceLanguageMode,
+): Promise<GeoJSON.FeatureCollection> {
+  const search = new URLSearchParams({ lang });
+  return fetchJson<GeoJSON.FeatureCollection>(`/public/map/geo/${layer}?${search}`);
 }
 
 function publicPlaceToPoi(place: PublicPlaceDto): Poi {

@@ -8,6 +8,8 @@
  * re-bind map listeners when the parent passes a new function identity.
  */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import type { FeatureCollection } from 'geojson';
+import { usePublicMapGeoLabelQueries } from '@/features/poi/api/usePublicMapData';
 import type { MapViewProps } from '../types';
 import { poisToFeatureCollection } from '../lib/poisToGeoJSON';
 import {
@@ -21,6 +23,20 @@ import {
   syncCountryMinZoom,
   type MapEngine,
 } from '../lib/mapEngine';
+import {
+  ADMIN_LABEL_SOURCE_ID,
+  BUS_ROUTE_LABEL_SOURCE_ID,
+  BUS_STOP_LABEL_SOURCE_ID,
+  ensurePublicMapGeoJsonLabelLayers,
+  PUBLIC_MAP_EMPTY_FC,
+  setPublicMapGeoJsonSourceData,
+  STREET_LABEL_SOURCE_ID,
+} from '../lib/maplibre/publicMapGeoLayers';
+
+function featureCollectionOrEmpty(data: FeatureCollection | undefined): FeatureCollection {
+  if (data && data.type === 'FeatureCollection') return data;
+  return { ...PUBLIC_MAP_EMPTY_FC };
+}
 
 function MapViewInner({
   pois,
@@ -33,6 +49,9 @@ function MapViewInner({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapEngine | null>(null);
   const [mapReady, setMapReady] = useState(false);
+
+  const geoLayerResults = usePublicMapGeoLabelQueries();
+  const [streetsGeo, adminGeo, busStopsGeo, busRoutesGeo] = geoLayerResults;
 
   const geojson = useMemo(() => poisToFeatureCollection(pois), [pois]);
 
@@ -59,6 +78,7 @@ function MapViewInner({
     mapRef.current = map;
 
     const onLoad = () => {
+      ensurePublicMapGeoJsonLabelLayers(map);
       ensurePlacesLayer(map, geojsonRef.current, selectedRef.current);
       applyMapOverlayStackOrder(map);
       setMapReady(true);
@@ -72,6 +92,52 @@ function MapViewInner({
       setMapReady(false);
     };
   }, []);
+
+  /** API-driven overlays — updating source data does not change camera. */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    setPublicMapGeoJsonSourceData(
+      map,
+      STREET_LABEL_SOURCE_ID,
+      streetsGeo.status === 'success'
+        ? featureCollectionOrEmpty(streetsGeo.data)
+        : { ...PUBLIC_MAP_EMPTY_FC },
+    );
+    setPublicMapGeoJsonSourceData(
+      map,
+      ADMIN_LABEL_SOURCE_ID,
+      adminGeo.status === 'success'
+        ? featureCollectionOrEmpty(adminGeo.data)
+        : { ...PUBLIC_MAP_EMPTY_FC },
+    );
+    setPublicMapGeoJsonSourceData(
+      map,
+      BUS_STOP_LABEL_SOURCE_ID,
+      busStopsGeo.status === 'success'
+        ? featureCollectionOrEmpty(busStopsGeo.data)
+        : { ...PUBLIC_MAP_EMPTY_FC },
+    );
+    setPublicMapGeoJsonSourceData(
+      map,
+      BUS_ROUTE_LABEL_SOURCE_ID,
+      busRoutesGeo.status === 'success'
+        ? featureCollectionOrEmpty(busRoutesGeo.data)
+        : { ...PUBLIC_MAP_EMPTY_FC },
+    );
+  }, [
+    mapReady,
+    streetsGeo.status,
+    streetsGeo.data,
+    adminGeo.status,
+    adminGeo.data,
+    busStopsGeo.status,
+    busStopsGeo.data,
+    busRoutesGeo.status,
+    busRoutesGeo.data,
+  ]);
 
   /** Keep latest POI GeoJSON in sync when `pois` changes after the map exists. */
   useEffect(() => {

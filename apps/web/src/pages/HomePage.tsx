@@ -3,17 +3,14 @@ import { FilterBar } from '@/features/filters/components/FilterBar';
 import { useDebouncedValue } from '@/features/filters/useDebouncedValue';
 import { useCategoryFilter } from '@/features/filters/useCategoryFilter';
 import MapView from '@/features/map/components/MapView';
+import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import {
   usePublicCategories,
   usePublicPlace,
   usePublicPlaces,
   usePublicSearch,
 } from '@/features/poi/api/usePublicMapData';
-import type {
-  PlaceLanguageMode,
-  PublicSearchResult,
-  SearchCameraTarget,
-} from '@/features/poi/api/publicMapApi';
+import type { PublicSearchResult, SearchCameraTarget } from '@/features/poi/api/publicMapApi';
 import { PoiPanel } from '@/features/poi/components/PoiPanel';
 import { HomePageLayout } from './HomePageLayout';
 
@@ -25,18 +22,19 @@ export default function HomePage() {
     searchQuery,
     setSearchQuery,
   } = useCategoryFilter();
+  const languageMode = useMapUiStore((s) => s.languageMode);
+  const setLanguageMode = useMapUiStore((s) => s.setLanguageMode);
+
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null);
   const [selectedSearchResult, setSelectedSearchResult] =
     useState<PublicSearchResult | null>(null);
   const [cameraTarget, setCameraTarget] = useState<SearchCameraTarget | undefined>();
-  const [languageMode, setLanguageMode] = useState<PlaceLanguageMode>('my');
   const debouncedSearchQuery = useDebouncedValue(filterState.searchQuery, 300);
 
   const categoriesQuery = usePublicCategories();
   const placesQuery = usePublicPlaces({
     categoryCode: filterState.categoryCode ?? undefined,
     limit: 100,
-    lang: languageMode,
   });
   const searchResultsQuery = usePublicSearch(debouncedSearchQuery);
 
