@@ -7,6 +7,7 @@ export const publicPlaceIdParamsSchema = z.object({
 export const publicPlacesQuerySchema = z.object({
     q: z.string().trim().min(1).optional(),
     category: z.string().trim().min(1).optional(),
+    lang: z.enum(["my", "en", "both"]).default("my"),
     categoryId: z
         .string()
         .trim()

@@ -10,6 +10,7 @@ import {
   usePublicSearch,
 } from '@/features/poi/api/usePublicMapData';
 import type {
+  PlaceLanguageMode,
   PublicSearchResult,
   SearchCameraTarget,
 } from '@/features/poi/api/publicMapApi';
@@ -28,12 +29,14 @@ export default function HomePage() {
   const [selectedSearchResult, setSelectedSearchResult] =
     useState<PublicSearchResult | null>(null);
   const [cameraTarget, setCameraTarget] = useState<SearchCameraTarget | undefined>();
+  const [languageMode, setLanguageMode] = useState<PlaceLanguageMode>('my');
   const debouncedSearchQuery = useDebouncedValue(filterState.searchQuery, 300);
 
   const categoriesQuery = usePublicCategories();
   const placesQuery = usePublicPlaces({
     categoryCode: filterState.categoryCode ?? undefined,
     limit: 100,
+    lang: languageMode,
   });
   const searchResultsQuery = usePublicSearch(debouncedSearchQuery);
 
@@ -97,6 +100,8 @@ export default function HomePage() {
           selectedSearchResultId={selectedSearchResult?.id ?? null}
           onSelectSearchResult={onSelectSearchResult}
           onClearSearch={onClearSearch}
+          selectedLanguageMode={languageMode}
+          onSelectLanguageMode={setLanguageMode}
           searchLoading={searchResultsQuery.isLoading}
           searchError={searchResultsQuery.isError}
           categoriesLoading={categoriesQuery.isLoading}

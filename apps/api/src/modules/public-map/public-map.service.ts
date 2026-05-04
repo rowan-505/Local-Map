@@ -4,6 +4,8 @@ import {
     type PublicSearchRow,
 } from "./public-map.repo.js";
 
+type PublicPlacesLang = "my" | "en" | "both";
+
 export class PublicPlaceNotFoundError extends Error {
     constructor(message = "Public place not found") {
         super(message);
@@ -14,9 +16,15 @@ export class PublicPlaceNotFoundError extends Error {
 export class PublicMapService {
     constructor(private readonly publicMapRepo: PublicMapRepository) {}
 
-    async listPlaces(input: { q?: string; category?: string; categoryId?: bigint; limit: number }) {
+    async listPlaces(input: {
+        q?: string;
+        category?: string;
+        categoryId?: bigint;
+        lang: PublicPlacesLang;
+        limit: number;
+    }) {
         const places = await this.publicMapRepo.listPlaces(input);
-        return places.map((place) => serializePlace(place));
+        return places.map((place) => serializePlace(place, input.lang));
     }
 
     async getPlaceByPublicId(publicId: string) {
@@ -26,7 +34,7 @@ export class PublicMapService {
             throw new PublicPlaceNotFoundError();
         }
 
-        return serializePlace(place);
+        return serializePlace(place, "my");
     }
 
     async listCategories() {
@@ -48,11 +56,16 @@ export class PublicMapService {
     }
 }
 
-function serializePlace(place: PublicPlaceRow) {
+function serializePlace(place: PublicPlaceRow, lang: PublicPlacesLang) {
+    const nameMm = normalizeName(place.name_mm);
+    const nameEn = normalizeName(place.name_en);
+
     return {
         id: place.id.toString(),
         publicId: place.public_id,
-        name: place.display_name || place.primary_name,
+        name: getDisplayNameForLang(place, lang, nameMm, nameEn),
+        nameMm,
+        nameEn,
         categoryId: place.category_id.toString(),
         categoryCode: place.category_code,
         categoryName: place.category_name,
@@ -61,6 +74,40 @@ function serializePlace(place: PublicPlaceRow) {
         importanceScore: place.importance_score,
         isVerified: place.is_verified,
     };
+}
+
+function getDisplayNameForLang(
+    place: PublicPlaceRow,
+    lang: PublicPlacesLang,
+    nameMm: string | null,
+    nameEn: string | null
+) {
+    const displayName = normalizeName(place.display_name);
+    const primaryName = normalizeName(place.primary_name);
+    const fallbackName = displayName ?? primaryName ?? "Unnamed place";
+
+    if (lang === "my") {
+        return nameMm ?? nameEn ?? fallbackName;
+    }
+
+    if (lang === "en") {
+        return nameEn ?? nameMm ?? fallbackName;
+    }
+
+    if (lang === "both") {
+        if (nameMm && nameEn && nameMm !== nameEn) {
+            return `${nameMm} · ${nameEn}`;
+        }
+
+        return nameMm ?? nameEn ?? fallbackName;
+    }
+
+    return fallbackName;
+}
+
+function normalizeName(value: string | null) {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
 }
 
 function serializeSearchResult(result: PublicSearchRow) {
