@@ -35,6 +35,8 @@ type PublicPlaceDto = {
   readonly is_verified?: boolean;
 };
 
+export type PlaceLanguageMode = 'my' | 'en' | 'both';
+
 export type SearchCameraTarget =
   | {
       readonly type: 'point';
@@ -91,6 +93,7 @@ export type PublicPlacesParams = {
   readonly q?: string;
   readonly categoryCode?: string;
   readonly limit?: number;
+  readonly lang?: PlaceLanguageMode;
 };
 
 function getApiBaseUrl(): string {
@@ -130,10 +133,13 @@ export async function fetchPublicPlaces(
   if (params.limit !== undefined) {
     search.set('limit', String(params.limit));
   }
+  if (params.lang !== undefined) {
+    search.set('lang', params.lang);
+  }
 
   const query = search.toString();
   const places = await fetchJson<PublicPlaceDto[]>(
-    `/places${query.length > 0 ? `?${query}` : ''}`,
+    `/public/places${query.length > 0 ? `?${query}` : ''}`,
   );
 
   return places.map(publicPlaceToPoi);
@@ -156,7 +162,7 @@ export async function fetchPublicSearch(q: string): Promise<readonly PublicSearc
 }
 
 function publicPlaceToPoi(place: PublicPlaceDto): Poi {
-  const name = place.name ?? place.displayName ?? place.display_name ?? place.primary_name ?? 'Unnamed place';
+  const name = place.name ?? 'Unnamed place';
   const publicId = place.publicId ?? place.public_id ?? place.id ?? `${name}:${place.lng}:${place.lat}`;
   const categoryId = String(place.categoryId ?? place.category_id ?? place.categoryCode ?? place.category_code ?? 'unknown');
   const categoryCode = place.categoryCode ?? place.category_code ?? null;

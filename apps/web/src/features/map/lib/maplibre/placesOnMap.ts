@@ -8,6 +8,7 @@ import type { MapEngine } from '../mapEngineTypes';
 
 export const PLACES_SOURCE_ID = 'places' as const;
 export const PLACES_LAYER_ID = 'places-circle' as const;
+export const PLACES_LABEL_LAYER_ID = 'places-label' as const;
 
 const DEFAULT_COLOR = '#0ea5e9';
 const SELECTED_COLOR = '#f97316';
@@ -77,6 +78,25 @@ export function ensurePlacesLayer(
         'circle-opacity': 0.92,
         'circle-stroke-width': strokeWidthExpression(selectedPoiId),
         'circle-stroke-color': strokeColorExpression(selectedPoiId),
+      },
+    });
+    map.addLayer({
+      id: PLACES_LABEL_LAYER_ID,
+      type: 'symbol',
+      source: PLACES_SOURCE_ID,
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 12,
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+        'text-optional': true,
+      },
+      paint: {
+        'text-color': '#1f2937',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.5,
       },
     });
     return;

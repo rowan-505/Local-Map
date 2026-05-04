@@ -4,6 +4,7 @@ type ListPublicPlacesParams = {
     q?: string;
     category?: string;
     categoryId?: bigint;
+    lang: "my" | "en" | "both";
     limit: number;
 };
 
@@ -15,8 +16,10 @@ type SearchPublicMapParams = {
 export type PublicPlaceRow = {
     id: bigint;
     public_id: string;
-    display_name: string;
-    primary_name: string;
+    display_name: string | null;
+    primary_name: string | null;
+    name_mm: string | null;
+    name_en: string | null;
     category_id: bigint;
     category_code: string | null;
     category_name: string | null;
@@ -61,6 +64,8 @@ export class PublicMapRepository {
                 p.public_id,
                 p.display_name,
                 p.primary_name,
+                name_mm.name AS name_mm,
+                name_en.name AS name_en,
                 p.category_id,
                 c.code AS category_code,
                 c.name AS category_name,
@@ -71,6 +76,44 @@ export class PublicMapRepository {
             FROM core.core_places AS p
             LEFT JOIN ref.ref_poi_categories AS c
                 ON c.id = p.category_id
+            LEFT JOIN LATERAL (
+                SELECT pn.name
+                FROM core.core_place_names AS pn
+                WHERE pn.place_id = p.id
+                  AND (
+                      pn.language_code IN ('my', 'mm')
+                      OR pn.script_code = 'Mymr'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN pn.name_type = 'official' AND pn.is_primary = true THEN 1
+                        WHEN pn.is_primary = true THEN 2
+                        WHEN pn.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    pn.search_weight DESC NULLS LAST,
+                    pn.name ASC
+                LIMIT 1
+            ) AS name_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT pn.name
+                FROM core.core_place_names AS pn
+                WHERE pn.place_id = p.id
+                  AND (
+                      pn.language_code = 'en'
+                      OR pn.script_code = 'Latn'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN pn.name_type = 'official' AND pn.is_primary = true THEN 1
+                        WHEN pn.is_primary = true THEN 2
+                        WHEN pn.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    pn.search_weight DESC NULLS LAST,
+                    pn.name ASC
+                LIMIT 1
+            ) AS name_en ON true
             WHERE ${Prisma.join(conditions, " AND ")}
             ORDER BY p.importance_score DESC, p.display_name ASC, p.public_id ASC
             LIMIT ${params.limit}
@@ -84,6 +127,8 @@ export class PublicMapRepository {
                 p.public_id,
                 p.display_name,
                 p.primary_name,
+                name_mm.name AS name_mm,
+                name_en.name AS name_en,
                 p.category_id,
                 c.code AS category_code,
                 c.name AS category_name,
@@ -94,6 +139,44 @@ export class PublicMapRepository {
             FROM core.core_places AS p
             LEFT JOIN ref.ref_poi_categories AS c
                 ON c.id = p.category_id
+            LEFT JOIN LATERAL (
+                SELECT pn.name
+                FROM core.core_place_names AS pn
+                WHERE pn.place_id = p.id
+                  AND (
+                      pn.language_code IN ('my', 'mm')
+                      OR pn.script_code = 'Mymr'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN pn.name_type = 'official' AND pn.is_primary = true THEN 1
+                        WHEN pn.is_primary = true THEN 2
+                        WHEN pn.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    pn.search_weight DESC NULLS LAST,
+                    pn.name ASC
+                LIMIT 1
+            ) AS name_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT pn.name
+                FROM core.core_place_names AS pn
+                WHERE pn.place_id = p.id
+                  AND (
+                      pn.language_code = 'en'
+                      OR pn.script_code = 'Latn'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN pn.name_type = 'official' AND pn.is_primary = true THEN 1
+                        WHEN pn.is_primary = true THEN 2
+                        WHEN pn.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    pn.search_weight DESC NULLS LAST,
+                    pn.name ASC
+                LIMIT 1
+            ) AS name_en ON true
             WHERE p.public_id = CAST(${publicId} AS uuid)
               AND p.deleted_at IS NULL
               AND p.is_public = true

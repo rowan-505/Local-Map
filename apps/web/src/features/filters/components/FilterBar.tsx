@@ -1,5 +1,8 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import type { PublicSearchResult } from '@/features/poi/api/publicMapApi';
+import type {
+  PlaceLanguageMode,
+  PublicSearchResult,
+} from '@/features/poi/api/publicMapApi';
 import type { PoiCategory, PoiCategoryCode } from '@/types';
 
 type Props = {
@@ -12,6 +15,8 @@ type Props = {
   readonly selectedSearchResultId: string | null;
   readonly onSelectSearchResult: (result: PublicSearchResult) => void;
   readonly onClearSearch: () => void;
+  readonly selectedLanguageMode: PlaceLanguageMode;
+  readonly onSelectLanguageMode: (mode: PlaceLanguageMode) => void;
   readonly searchLoading?: boolean;
   readonly searchError?: boolean;
   readonly categoriesLoading?: boolean;
@@ -28,6 +33,8 @@ function FilterBarInner({
   selectedSearchResultId,
   onSelectSearchResult,
   onClearSearch,
+  selectedLanguageMode,
+  onSelectLanguageMode,
   searchLoading = false,
   searchError = false,
   categoriesLoading = false,
@@ -140,42 +147,69 @@ function FilterBarInner({
           </div>
         ) : null}
       </div>
-      <div className="flex gap-2 overflow-x-auto rounded-2xl border border-white/70 bg-white/90 p-1.5 shadow-lg shadow-neutral-900/10 backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <button
-          type="button"
-          className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-            selectedCategoryCode === null
-              ? 'bg-neutral-900 text-white shadow-sm'
-              : 'bg-transparent text-neutral-700 hover:bg-neutral-100'
-          }`}
-          onClick={() => onSelectCategory(null)}
-        >
-          All
-        </button>
-        {categories.map((category) => (
+      <div className="flex gap-2">
+        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto rounded-2xl border border-white/70 bg-white/90 p-1.5 shadow-lg shadow-neutral-900/10 backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <button
             type="button"
-            key={category.id}
             className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-            selectedCategoryCode === category.code
+              selectedCategoryCode === null
                 ? 'bg-neutral-900 text-white shadow-sm'
                 : 'bg-transparent text-neutral-700 hover:bg-neutral-100'
             }`}
-            onClick={() => onSelectCategory(category.code)}
+            onClick={() => onSelectCategory(null)}
           >
-            {category.name}
+            All
           </button>
-        ))}
-        {categoriesLoading ? (
-          <span className="shrink-0 px-3 py-1.5 text-xs text-neutral-500">Loading categories…</span>
-        ) : null}
-        {categoriesError ? (
-          <span className="shrink-0 px-3 py-1.5 text-xs text-red-600">Could not load categories</span>
-        ) : null}
+          {categories.map((category) => (
+            <button
+              type="button"
+              key={category.id}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                selectedCategoryCode === category.code
+                  ? 'bg-neutral-900 text-white shadow-sm'
+                  : 'bg-transparent text-neutral-700 hover:bg-neutral-100'
+              }`}
+              onClick={() => onSelectCategory(category.code)}
+            >
+              {category.name}
+            </button>
+          ))}
+          {categoriesLoading ? (
+            <span className="shrink-0 px-3 py-1.5 text-xs text-neutral-500">Loading categories…</span>
+          ) : null}
+          {categoriesError ? (
+            <span className="shrink-0 px-3 py-1.5 text-xs text-red-600">Could not load categories</span>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 rounded-2xl border border-white/70 bg-white/90 p-1.5 shadow-lg shadow-neutral-900/10 backdrop-blur">
+          {LANGUAGE_OPTIONS.map((option) => (
+            <button
+              type="button"
+              key={option.mode}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                selectedLanguageMode === option.mode
+                  ? 'bg-neutral-900 text-white shadow-sm'
+                  : 'bg-transparent text-neutral-700 hover:bg-neutral-100'
+              }`}
+              onClick={() => onSelectLanguageMode(option.mode)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
     </header>
   );
 }
+
+const LANGUAGE_OPTIONS: readonly {
+  readonly mode: PlaceLanguageMode;
+  readonly label: string;
+}[] = [
+  { mode: 'my', label: 'မြန်မာ' },
+  { mode: 'en', label: 'English' },
+  { mode: 'both', label: 'Both' },
+];
 
 /** Skips re-renders when filter/search props are unchanged (e.g. map selection only). */
 export const FilterBar = memo(FilterBarInner);
