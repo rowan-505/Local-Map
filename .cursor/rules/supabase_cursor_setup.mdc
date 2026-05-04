@@ -1,0 +1,37 @@
+---
+description: How to connect Local Map to Supabase in Cursor (plugin + MCP OAuth, read-only)
+globs: infrastructure/database/**/*,apps/api/prisma/**/*
+alwaysApply: false
+---
+
+# Supabase in Cursor (this project)
+
+This repo is wired for two complementary pieces:
+
+1. **Supabase plugin** — `plugins.supabase.enabled` in `.cursor/settings.json` (repo root, `apps/api`, and `infrastructure`). Install or enable the **Supabase** entry from the [Cursor Marketplace](https://cursor.com/marketplace) if Cursor prompts you.
+
+2. **Supabase MCP (hosted)** — `.cursor/mcp.json` registers the official remote server with **`read_only=true`** (matches `DATABASE_RULES`: inspect first, migrations in git only). See [Supabase MCP](https://supabase.com/docs/guides/getting-started/mcp).
+
+## One-time login
+
+1. **Connect MCP in Cursor**  
+   **Cursor Settings → Tools & MCP** (or **Features → Model Context Protocol**). Confirm the **supabase** server is listed and enable it. The first connection should open a **browser OAuth** flow: sign in to Supabase, pick the **organization**, grant access, and choose the **project** you use for Local Map when the flow asks.
+
+2. **Optional: lock MCP to one project (recommended for safety)**  
+   In `.cursor/mcp.json`, change the `url` to include your ref from the dashboard URL  
+   `https://supabase.com/dashboard/project/<project_ref>`:
+
+   `https://mcp.supabase.com/mcp?read_only=true&project_ref=<project_ref>`
+
+   You can also use Cursor’s [config interpolation](https://cursor.com/docs/context/mcp) with an env var in the URL, e.g. `${env:SUPABASE_MCP_PROJECT_REF}`, only if that variable is set in the environment Cursor inherits (shell profile or OS env), not only inside `apps/api/.env`.
+
+3. **Troubleshooting**  
+   - **Output panel → “MCP Logs”** for connection or OAuth errors.  
+   - If OAuth fails (e.g. redirect issues), try again after updates; some clients need the redirect `cursor://anysphere.cursor-mcp/oauth/callback` registered on the provider side (Cursor/Supabase handle this for the hosted MCP in normal setups).  
+   - [Supabase MCP docs](https://supabase.com/docs/guides/getting-started/mcp) (security, `read_only`, `project_ref`, feature groups).
+
+## After you are connected
+
+- Ask the agent to **list tables / run read-only introspection** against the linked project (approve tool calls when prompted).  
+- For SQL you run yourself, use `infrastructure/database/migrations/000_readonly_introspection_multilingual_map_labels.sql` in the Supabase **SQL Editor**.  
+- Do **not** rely on MCP for applying production migrations; keep DDL in `infrastructure/database/migrations/` and apply deliberately (e.g. SQL Editor), per project database rules.

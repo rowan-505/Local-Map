@@ -1,0 +1,68 @@
+---
+alwaysApply: true
+---
+# Database Rules
+
+## Core Rule
+
+The database is the source of truth.
+
+All database-related work must be done carefully, reviewed, and reproducible.
+
+---
+
+## 1. Supabase / Database Access Must Be Read-Only by Default
+
+Cursor must use Supabase/database access for inspection only.
+
+Allowed:
+- inspect schemas
+- inspect tables
+- inspect columns
+- inspect views
+- inspect indexes
+- run SELECT queries
+- check relationships
+- check existing data shape
+
+Not allowed directly:
+- CREATE
+- ALTER
+- DROP
+- INSERT
+- UPDATE
+- DELETE
+- TRUNCATE
+
+Cursor must not directly modify the real database.
+
+---
+
+## 2. Always Inspect the Real Database First
+
+Before generating any database-related code, Cursor must inspect the current real database state.
+
+Check:
+- existing schemas
+- existing table columns
+- existing view definitions
+- existing indexes
+- foreign keys
+- geometry columns
+- SRID
+- current sample rows when needed
+
+Never assume table names, column names, or view definitions.
+
+---
+
+## 3. Always Generate Migration Files
+
+All database changes must be written as migration files first.
+
+Do not apply database changes directly from Cursor.
+
+Migration files should be placed in:
+
+```text
+infrastructure/database/migrations/

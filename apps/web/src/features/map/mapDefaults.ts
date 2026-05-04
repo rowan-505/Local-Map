@@ -56,6 +56,6 @@ export const MAP_DEFAULT_ZOOM = 14;
  * cap zoom-out above the true country-fit zoom from `cameraForBounds`.
  */
 export const MAP_MIN_ZOOM = 1;
-export const MAP_MAX_ZOOM = 18;
+export const MAP_MAX_ZOOM = 22;
 
 export const MAP_OPERATIONAL_BOUNDS = REGION_SCOPE.operationalArea.boundsLngLat;
