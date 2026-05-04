@@ -11,6 +11,8 @@ import { PlaceNotFoundError, PlacesService, PlaceValidationError } from "./place
 
 const EDIT_PLACE_ROLES = new Set(["admin", "editor"]);
 
+const IS_PLACES_DEV_DEBUG = process.env.NODE_ENV !== "production";
+
 function sanitizePlaceCreateBody(body: unknown) {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
         return body;
@@ -43,6 +45,9 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
 
     app.get(
         "/places",
+        {
+            preHandler: app.authenticate,
+        },
         async (request, reply) => {
             const parsed = placesQuerySchema.safeParse(request.query);
 
@@ -71,6 +76,9 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
 
     app.get(
         "/places/:id",
+        {
+            preHandler: app.authenticate,
+        },
         async (request, reply) => {
             const parsed = placeIdParamsSchema.safeParse(request.params);
 
@@ -106,6 +114,16 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
             const parsed = createPlaceBodySchema.safeParse(sanitizedBody);
 
             if (!parsed.success) {
+                if (IS_PLACES_DEV_DEBUG) {
+                    request.log.warn(
+                        {
+                            issues: parsed.error.flatten(),
+                            body: sanitizedBody,
+                        },
+                        "places POST validation failed"
+                    );
+                }
+
                 return reply.code(400).send({
                     message: "Invalid place payload",
                     issues: parsed.error.flatten(),
@@ -153,6 +171,16 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
             }
 
             if (!bodyParsed.success) {
+                if (IS_PLACES_DEV_DEBUG) {
+                    request.log.warn(
+                        {
+                            issues: bodyParsed.error.flatten(),
+                            body: sanitizedBody,
+                        },
+                        "places PATCH validation failed"
+                    );
+                }
+
                 return reply.code(400).send({
                     message: "Invalid place payload",
                     issues: bodyParsed.error.flatten(),

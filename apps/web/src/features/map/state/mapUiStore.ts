@@ -6,7 +6,7 @@ type MapUiState = {
   setLanguageMode: (mode: PlaceLanguageMode) => void;
 };
 
-/** Global map UI: language drives all `/public/map` reads and GeoJSON overlays. */
+/** Global map UI: language mode drives MapLibre `text-field` + React labels (API returns bilingual fields). */
 export const useMapUiStore = create<MapUiState>((set) => ({
   languageMode: 'my',
   setLanguageMode: (mode) => set({ languageMode: mode }),

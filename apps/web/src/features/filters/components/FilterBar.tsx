@@ -3,7 +3,9 @@ import type {
   PlaceLanguageMode,
   PublicSearchResult,
 } from '@/features/poi/api/publicMapApi';
+import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import type { PoiCategory, PoiCategoryCode } from '@/types';
+import { getLocalizedName } from '@local-map/localized-name';
 
 type Props = {
   readonly categories: readonly PoiCategory[];
@@ -40,6 +42,8 @@ function FilterBarInner({
   categoriesLoading = false,
   categoriesError = false,
 }: Props) {
+  const languageMode = useMapUiStore((s) => s.languageMode);
+
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
   const showDropdown = dropdownOpen && searchQuery.trim().length > 0;
@@ -113,6 +117,11 @@ function FilterBarInner({
             {!searchLoading && !searchError
               ? searchResults.map((result) => {
                   const selected = result.id === selectedSearchResultId;
+                  const title = getLocalizedName(result, languageMode);
+                  const titleClass =
+                    languageMode === 'both'
+                      ? 'block whitespace-pre-line break-words text-sm font-semibold'
+                      : 'block truncate text-sm font-semibold';
                   return (
                     <button
                       type="button"
@@ -132,7 +141,7 @@ function FilterBarInner({
                         {result.type === 'street' ? 'St' : 'P'}
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold">{result.name}</span>
+                        <span className={titleClass}>{title}</span>
                         <span className="block truncate text-xs text-neutral-500">
                           {result.subtitle ??
                             result.categoryName ??

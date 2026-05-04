@@ -22,6 +22,7 @@ export type UpdatePlaceInput = {
     englishName?: string;
     categoryId?: bigint | null;
     adminAreaId?: bigint | null;
+    sourceTypeId?: bigint | null;
     category_id?: bigint | null;
     admin_area_id?: bigint | null;
     lat?: number;
@@ -41,8 +42,6 @@ export type UpdatePlaceInput = {
 export type CreatePlaceInput = {
     myanmarName?: string;
     englishName?: string;
-    categoryId?: bigint | null;
-    adminAreaId?: bigint | null;
     primary_name: string;
     display_name: string;
     category_id: bigint;
@@ -70,8 +69,15 @@ export type PlaceRow = {
     admin_area_id: bigint | null;
     lat: number;
     lng: number;
+    importance_score: number | null;
+    popularity_score: number | null;
+    confidence_score: number | null;
     is_public: boolean;
     is_verified: boolean;
+    source_type_id: bigint;
+    publish_status_id: bigint | null;
+    created_at: Date;
+    updated_at: Date;
     names: PlaceNameRow[];
     myanmar_name: string | null;
     english_name: string | null;
@@ -81,11 +87,6 @@ export type PlaceRow = {
 
 export type PlaceDetailRow = PlaceRow & {
     plus_code: string | null;
-    importance_score: number | null;
-    popularity_score: number | null;
-    confidence_score: number | null;
-    source_type_id: bigint;
-    publish_status_id: bigint | null;
     current_version_id: bigint | null;
     deleted_at: Date | null;
 };
@@ -131,10 +132,11 @@ export class PlacesRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
     async listPlaces(params: ListPlacesParams): Promise<PlaceRow[]> {
-        const conditions: Prisma.Sql[] = [
-            Prisma.sql`p.deleted_at IS NULL`,
-            Prisma.sql`p.is_public = true`,
-        ];
+        const conditions: Prisma.Sql[] = [Prisma.sql`p.deleted_at IS NULL`];
+
+        if (params.is_public !== undefined) {
+            conditions.push(Prisma.sql`p.is_public = ${params.is_public}`);
+        }
 
         if (params.q) {
             const searchTerm = `%${params.q}%`;
@@ -164,16 +166,23 @@ export class PlacesRepository {
                 p.id,
                 p.public_id,
                 p.primary_name,
-                p.display_name,
+                COALESCE(p.display_name, mm_name.name, en_name.name, p.primary_name) AS display_name,
                 p.category_id,
                 p.admin_area_id,
                 p.lat,
                 p.lng,
+                p.importance_score::double precision AS importance_score,
+                p.popularity_score::double precision AS popularity_score,
+                p.confidence_score::double precision AS confidence_score,
                 p.is_public,
                 p.is_verified,
+                p.source_type_id,
+                p.publish_status_id,
+                p.created_at,
+                p.updated_at,
                 COALESCE(place_names.names, '[]'::json) AS names,
-                place_names.myanmar_name,
-                place_names.english_name,
+                mm_name.name AS myanmar_name,
+                en_name.name AS english_name,
                 c.name AS category_name,
                 aa.canonical_name AS admin_area_name
             FROM core.core_places AS p
@@ -181,7 +190,9 @@ export class PlacesRepository {
                 ON c.id = p.category_id
             LEFT JOIN core.core_admin_areas AS aa
                 ON aa.id = p.admin_area_id
-            LEFT JOIN LATERAL (${placeNamesJsonSql()}) AS place_names ON true
+            LEFT JOIN LATERAL (${mmNameLateralSql()}) mm_name ON true
+            LEFT JOIN LATERAL (${enNameLateralSql()}) en_name ON true
+            LEFT JOIN LATERAL (${placeNamesJsonAggSql()}) place_names ON true
             WHERE ${Prisma.join(conditions, " AND ")}
               ${categoryFilter.condition}
             ORDER BY p.created_at DESC, p.updated_at DESC, p.public_id DESC
@@ -196,16 +207,23 @@ export class PlacesRepository {
                 p.id,
                 p.public_id,
                 p.primary_name,
-                p.display_name,
+                COALESCE(p.display_name, mm_name.name, en_name.name, p.primary_name) AS display_name,
                 p.category_id,
                 p.admin_area_id,
                 p.lat,
                 p.lng,
+                p.importance_score::double precision AS importance_score,
+                p.popularity_score::double precision AS popularity_score,
+                p.confidence_score::double precision AS confidence_score,
                 p.is_public,
                 p.is_verified,
+                p.source_type_id,
+                p.publish_status_id,
+                p.created_at,
+                p.updated_at,
                 COALESCE(place_names.names, '[]'::json) AS names,
-                place_names.myanmar_name,
-                place_names.english_name,
+                mm_name.name AS myanmar_name,
+                en_name.name AS english_name,
                 c.name AS category_name,
                 aa.canonical_name AS admin_area_name
             FROM core.core_places AS p
@@ -213,7 +231,9 @@ export class PlacesRepository {
                 ON c.id = p.category_id
             LEFT JOIN core.core_admin_areas AS aa
                 ON aa.id = p.admin_area_id
-            LEFT JOIN LATERAL (${placeNamesJsonSql()}) AS place_names ON true
+            LEFT JOIN LATERAL (${mmNameLateralSql()}) mm_name ON true
+            LEFT JOIN LATERAL (${enNameLateralSql()}) en_name ON true
+            LEFT JOIN LATERAL (${placeNamesJsonAggSql()}) place_names ON true
             WHERE p.public_id = CAST(${publicId} AS uuid)
               AND p.deleted_at IS NULL
             LIMIT 1
@@ -246,7 +266,7 @@ export class PlacesRepository {
                 p.id,
                 p.public_id,
                 p.primary_name,
-                p.display_name,
+                COALESCE(p.display_name, mm_name.name, en_name.name, p.primary_name) AS display_name,
                 p.category_id,
                 c.name AS category_name,
                 p.admin_area_id,
@@ -261,17 +281,21 @@ export class PlacesRepository {
                 p.is_verified,
                 p.source_type_id,
                 p.publish_status_id,
+                p.created_at,
+                p.updated_at,
                 p.current_version_id,
                 p.deleted_at,
                 COALESCE(place_names.names, '[]'::json) AS names,
-                place_names.myanmar_name,
-                place_names.english_name
+                mm_name.name AS myanmar_name,
+                en_name.name AS english_name
             FROM core.core_places AS p
             LEFT JOIN ref.ref_poi_categories AS c
                 ON c.id = p.category_id
             LEFT JOIN core.core_admin_areas AS aa
                 ON aa.id = p.admin_area_id
-            LEFT JOIN LATERAL (${placeNamesJsonSql()}) AS place_names ON true
+            LEFT JOIN LATERAL (${mmNameLateralSql()}) mm_name ON true
+            LEFT JOIN LATERAL (${enNameLateralSql()}) en_name ON true
+            LEFT JOIN LATERAL (${placeNamesJsonAggSql()}) place_names ON true
             WHERE p.public_id = CAST(${publicId} AS uuid)
               AND p.deleted_at IS NULL
             LIMIT 1
@@ -387,6 +411,17 @@ export class PlacesRepository {
         return rows[0]?.id ?? null;
     }
 
+    async getPublishStatusIdByCode(code: string): Promise<bigint | null> {
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+            SELECT id
+            FROM ref.ref_publish_statuses
+            WHERE code = ${code}
+            LIMIT 1
+        `);
+
+        return rows[0]?.id ?? null;
+    }
+
     async createPlace(input: CreatePlaceInput): Promise<PlaceDetailRow | null> {
         return this.prisma.$transaction(async (tx) => {
             const rows = await tx.$queryRaw<{ public_id: string }[]>(Prisma.sql`
@@ -421,7 +456,7 @@ export class PlacesRepository {
                     ${input.plus_code ?? null},
                     ${input.importance_score ?? 0},
                     ${input.popularity_score ?? 0},
-                    ${input.confidence_score ?? 0},
+                    ${input.confidence_score ?? 50},
                     ${input.is_public ?? true},
                     ${input.is_verified ?? false},
                     ${input.source_type_id},
@@ -439,8 +474,10 @@ export class PlacesRepository {
                 return null;
             }
 
-            await this.syncOfficialPlaceName(tx, publicId, "my", input.myanmarName);
-            await this.syncOfficialPlaceName(tx, publicId, "en", input.englishName);
+            const mm = input.myanmarName?.trim() ? input.myanmarName.trim() : null;
+            const en = input.englishName?.trim() ? input.englishName.trim() : null;
+
+            await syncDashboardPlaceNames(tx, publicId, mm, en);
 
             return this.getPlaceDetailByPublicId(publicId, tx);
         });
@@ -507,17 +544,39 @@ export class PlacesRepository {
         }
 
         return this.prisma.$transaction(async (tx) => {
-            if (input.myanmarName !== undefined) {
-                await this.syncOfficialPlaceName(tx, publicId, "my", input.myanmarName);
+            if (input.myanmarName !== undefined || input.englishName !== undefined) {
+                const currentNames = await loadDashboardNameSlots(tx, publicId);
+                const mm =
+                    input.myanmarName !== undefined
+                        ? input.myanmarName.trim() === ""
+                            ? null
+                            : input.myanmarName.trim()
+                        : currentNames.mm;
+                const en =
+                    input.englishName !== undefined
+                        ? input.englishName.trim() === ""
+                            ? null
+                            : input.englishName.trim()
+                        : currentNames.en;
+
+                if (!mm && !en) {
+                    throw new Error("PLACE_NAMES_REQUIRED");
+                }
+
+                await syncDashboardPlaceNames(tx, publicId, mm, en);
             }
 
-            if (input.englishName !== undefined) {
-                await this.syncOfficialPlaceName(tx, publicId, "en", input.englishName);
+            const slots = await loadDashboardNameSlots(tx, publicId);
+
+            if (!slots.mm && !slots.en) {
+                throw new Error("PLACE_NAMES_REQUIRED");
             }
 
-            const names = await getOfficialPlaceNames(tx, publicId);
-            assignments.push(Prisma.sql`primary_name = ${derivePrimaryName(names)}`);
-            assignments.push(Prisma.sql`display_name = ${deriveDisplayName(names)}`);
+            const primary_name = slots.mm ?? slots.en ?? "Unnamed Place";
+            const display_name = slots.mm ?? slots.en ?? "Unnamed Place";
+
+            assignments.push(Prisma.sql`primary_name = ${primary_name}`);
+            assignments.push(Prisma.sql`display_name = ${display_name}`);
 
             const updatedRows = await tx.$executeRaw(Prisma.sql`
                 UPDATE core.core_places
@@ -554,50 +613,66 @@ export class PlacesRepository {
 
         return rows[0] ?? null;
     }
+}
 
-    private async syncOfficialPlaceName(
-        tx: Prisma.TransactionClient,
-        publicId: string,
-        languageCode: "my" | "en",
-        value: string | undefined
-    ) {
-        if (value === undefined) {
-            return;
-        }
-
-        const metadata = getNameMetadata(languageCode);
-
-        if (value.trim() === "") {
-            await tx.$executeRaw(Prisma.sql`
-                DELETE FROM core.core_place_names AS pn
-                USING core.core_places AS p
-                WHERE p.id = pn.place_id
-                  AND p.public_id = CAST(${publicId} AS uuid)
-                  AND pn.language_code = ${metadata.languageCode}
-                  AND pn.script_code = ${metadata.scriptCode}
+async function syncDashboardPlaceNames(
+    tx: Prisma.TransactionClient,
+    publicId: string,
+    myanmarName: string | null,
+    englishName: string | null
+): Promise<void> {
+    await tx.$executeRaw(Prisma.sql`
+        DELETE FROM core.core_place_names AS pn
+        USING core.core_places AS p
+        WHERE p.id = pn.place_id
+          AND p.public_id = CAST(${publicId} AS uuid)
+          AND (
+              (
+                  pn.language_code IN ('mm', 'my')
                   AND pn.name_type = 'official'
-                  AND pn.is_primary = true
-            `);
-            return;
-        }
+              )
+              OR (
+                  upper(trim(COALESCE(pn.script_code, ''))) = 'MYMR'
+                  AND pn.name_type = 'official'
+              )
+          )
+    `);
 
-        const updatedRows = await tx.$executeRaw(Prisma.sql`
-            UPDATE core.core_place_names AS pn
-            SET
-                name = ${value.trim()},
-                script_code = ${metadata.scriptCode},
-                search_weight = ${metadata.searchWeight}
+    await tx.$executeRaw(Prisma.sql`
+        DELETE FROM core.core_place_names AS pn
+        USING core.core_places AS p
+        WHERE p.id = pn.place_id
+          AND p.public_id = CAST(${publicId} AS uuid)
+          AND pn.language_code = 'en'
+          AND pn.name_type IN ('english', 'official')
+    `);
+
+    if (myanmarName) {
+        await tx.$executeRaw(Prisma.sql`
+            INSERT INTO core.core_place_names (
+                place_id,
+                name,
+                language_code,
+                script_code,
+                name_type,
+                is_primary,
+                search_weight
+            )
+            SELECT
+                p.id,
+                ${myanmarName},
+                'mm',
+                'MYMR',
+                'official',
+                true,
+                100
             FROM core.core_places AS p
-            WHERE p.id = pn.place_id
-              AND p.public_id = CAST(${publicId} AS uuid)
-              AND pn.language_code = ${metadata.languageCode}
-              AND pn.name_type = 'official'
-              AND pn.is_primary = true
+            WHERE p.public_id = CAST(${publicId} AS uuid)
         `);
+    }
 
-        if (updatedRows > 0) {
-            return;
-        }
+    if (englishName) {
+        const englishPrimary = !myanmarName;
 
         await tx.$executeRaw(Prisma.sql`
             INSERT INTO core.core_place_names (
@@ -611,65 +686,125 @@ export class PlacesRepository {
             )
             SELECT
                 p.id,
-                ${value.trim()},
-                ${metadata.languageCode},
-                ${metadata.scriptCode},
-                'official',
-                true,
-                ${metadata.searchWeight}
+                ${englishName},
+                'en',
+                'Latn',
+                'english',
+                ${englishPrimary},
+                90
             FROM core.core_places AS p
             WHERE p.public_id = CAST(${publicId} AS uuid)
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM core.core_place_names AS pn
-                  WHERE pn.place_id = p.id
-                    AND pn.language_code = ${metadata.languageCode}
-                    AND pn.name_type = 'official'
-                    AND pn.is_primary = true
-              )
         `);
     }
 }
 
-async function getOfficialPlaceNames(tx: Prisma.TransactionClient, publicId: string) {
-    const rows = await tx.$queryRaw<{ language_code: string | null; name: string }[]>(Prisma.sql`
-        SELECT pn.language_code, pn.name
-        FROM core.core_place_names AS pn
-        INNER JOIN core.core_places AS p
-            ON p.id = pn.place_id
-        WHERE p.public_id = CAST(${publicId} AS uuid)
-          AND pn.name_type = 'official'
-          AND pn.is_primary = true
-          AND pn.language_code IN ('my', 'en')
+async function loadDashboardNameSlots(
+    tx: Prisma.TransactionClient,
+    publicId: string
+): Promise<{ mm: string | null; en: string | null }> {
+    const rows = await tx.$queryRaw<
+        { mm: string | null; en_english: string | null; en_official: string | null }[]
+    >(Prisma.sql`
+        SELECT
+            (
+                SELECT pn.name
+                FROM core.core_place_names AS pn
+                INNER JOIN core.core_places AS p ON p.id = pn.place_id
+                WHERE p.public_id = CAST(${publicId} AS uuid)
+                  AND pn.name_type = 'official'
+                  AND (
+                      pn.language_code IN ('mm', 'my')
+                      OR upper(trim(COALESCE(pn.script_code, ''))) = 'MYMR'
+                  )
+                ORDER BY
+                    CASE pn.language_code
+                        WHEN 'mm' THEN 0
+                        WHEN 'my' THEN 1
+                        ELSE 2
+                    END,
+                    pn.is_primary DESC
+                LIMIT 1
+            ) AS mm,
+            (
+                SELECT pn.name
+                FROM core.core_place_names AS pn
+                INNER JOIN core.core_places AS p ON p.id = pn.place_id
+                WHERE p.public_id = CAST(${publicId} AS uuid)
+                  AND pn.language_code = 'en'
+                  AND pn.name_type = 'english'
+                ORDER BY pn.is_primary DESC, pn.search_weight DESC
+                LIMIT 1
+            ) AS en_english,
+            (
+                SELECT pn.name
+                FROM core.core_place_names AS pn
+                INNER JOIN core.core_places AS p ON p.id = pn.place_id
+                WHERE p.public_id = CAST(${publicId} AS uuid)
+                  AND pn.language_code = 'en'
+                  AND pn.name_type = 'official'
+                  AND upper(trim(COALESCE(pn.script_code, ''))) = 'LATN'
+                ORDER BY pn.is_primary DESC
+                LIMIT 1
+            ) AS en_official
     `);
 
+    const row = rows[0];
+
+    if (!row) {
+        return { mm: null, en: null };
+    }
+
     return {
-        myanmarName: rows.find((row) => row.language_code === "my")?.name,
-        englishName: rows.find((row) => row.language_code === "en")?.name,
+        mm: row.mm,
+        en: row.en_english ?? row.en_official,
     };
 }
 
-function getNameMetadata(languageCode: "my" | "en") {
-    return languageCode === "my"
-        ? { languageCode: "my", scriptCode: "Mymr", searchWeight: 100 }
-        : { languageCode: "en", scriptCode: "Latn", searchWeight: 90 };
-}
-
 export function derivePrimaryName(names: { myanmarName?: string; englishName?: string }) {
-    return names.englishName || names.myanmarName || "Unnamed Place";
+    const mm = names.myanmarName?.trim();
+    const en = names.englishName?.trim();
+
+    return mm || en || "Unnamed Place";
 }
 
 export function deriveDisplayName(names: { myanmarName?: string; englishName?: string }) {
-    if (names.myanmarName && names.englishName) {
-        return `${names.myanmarName} · ${names.englishName}`;
-    }
+    const mm = names.myanmarName?.trim();
+    const en = names.englishName?.trim();
 
-    return names.myanmarName || names.englishName || "Unnamed Place";
+    return mm || en || "Unnamed Place";
 }
 
-function placeNamesJsonSql() {
+function mmNameLateralSql() {
     return Prisma.sql`
-        SELECT
+        SELECT pn.name AS name
+        FROM core.core_place_names pn
+        WHERE pn.place_id = p.id
+          AND (
+              pn.language_code IN ('mm', 'my')
+              OR upper(trim(coalesce(pn.script_code, ''))) = 'MYMR'
+          )
+        ORDER BY pn.is_primary DESC, pn.search_weight DESC NULLS LAST, pn.id ASC
+        LIMIT 1
+    `;
+}
+
+function enNameLateralSql() {
+    return Prisma.sql`
+        SELECT pn.name AS name
+        FROM core.core_place_names pn
+        WHERE pn.place_id = p.id
+          AND (
+              pn.language_code = 'en'
+              OR upper(trim(coalesce(pn.script_code, ''))) = 'LATN'
+          )
+        ORDER BY pn.search_weight DESC NULLS LAST, pn.id ASC
+        LIMIT 1
+    `;
+}
+
+function placeNamesJsonAggSql() {
+    return Prisma.sql`
+        SELECT COALESCE(
             json_agg(
                 json_build_object(
                     'id', pn.id::text,
@@ -680,21 +815,11 @@ function placeNamesJsonSql() {
                     'is_primary', pn.is_primary,
                     'search_weight', pn.search_weight
                 )
-                ORDER BY pn.is_primary DESC, pn.search_weight DESC, pn.name ASC
-            ) AS names,
-            max(pn.name) FILTER (
-                WHERE pn.language_code = 'my'
-                  AND pn.script_code = 'Mymr'
-                  AND pn.name_type = 'official'
-                  AND pn.is_primary = true
-            ) AS myanmar_name,
-            max(pn.name) FILTER (
-                WHERE pn.language_code = 'en'
-                  AND pn.script_code = 'Latn'
-                  AND pn.name_type = 'official'
-                  AND pn.is_primary = true
-            ) AS english_name
-        FROM core.core_place_names AS pn
+                ORDER BY pn.is_primary DESC, pn.search_weight DESC NULLS LAST, pn.name ASC
+            ),
+            '[]'::json
+        ) AS names
+        FROM core.core_place_names pn
         WHERE pn.place_id = p.id
     `;
 }

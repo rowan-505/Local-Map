@@ -3,8 +3,6 @@ import type { FastifyPluginAsync } from "fastify";
 import { PublicMapRepository } from "./public-map.repo.js";
 import { PublicMapService, PublicPlaceNotFoundError } from "./public-map.service.js";
 import {
-    publicMapGeoQuerySchema,
-    publicPlaceDetailQuerySchema,
     publicPlaceIdParamsSchema,
     publicPlacesQuerySchema,
     publicSearchQuerySchema,
@@ -38,20 +36,8 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
             });
         }
 
-        const parsedQuery = publicPlaceDetailQuerySchema.safeParse(request.query ?? {});
-
-        if (!parsedQuery.success) {
-            return reply.code(400).send({
-                message: "Invalid public place query",
-                issues: parsedQuery.error.flatten(),
-            });
-        }
-
         try {
-            const place = await publicMapService.getPlaceByPublicId(
-                parsedParams.data.id,
-                parsedQuery.data.lang,
-            );
+            const place = await publicMapService.getPlaceByPublicId(parsedParams.data.id);
             return reply.send(place);
         } catch (error) {
             if (error instanceof PublicPlaceNotFoundError) {
@@ -83,55 +69,23 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
         return reply.send(results);
     });
 
-    app.get("/public/map/geo/streets", async (request, reply) => {
-        const parsed = publicMapGeoQuerySchema.safeParse(request.query);
-        if (!parsed.success) {
-            return reply.code(400).send({
-                message: "Invalid public map geo query",
-                issues: parsed.error.flatten(),
-            });
-        }
-
-        const collection = await publicMapService.geoJsonStreets(parsed.data.lang);
+    app.get("/public/map/geo/streets", async (_request, reply) => {
+        const collection = await publicMapService.geoJsonStreets();
         return reply.send(collection);
     });
 
-    app.get("/public/map/geo/admin-areas", async (request, reply) => {
-        const parsed = publicMapGeoQuerySchema.safeParse(request.query);
-        if (!parsed.success) {
-            return reply.code(400).send({
-                message: "Invalid public map geo query",
-                issues: parsed.error.flatten(),
-            });
-        }
-
-        const collection = await publicMapService.geoJsonAdminAreas(parsed.data.lang);
+    app.get("/public/map/geo/admin-areas", async (_request, reply) => {
+        const collection = await publicMapService.geoJsonAdminAreas();
         return reply.send(collection);
     });
 
-    app.get("/public/map/geo/bus-stops", async (request, reply) => {
-        const parsed = publicMapGeoQuerySchema.safeParse(request.query);
-        if (!parsed.success) {
-            return reply.code(400).send({
-                message: "Invalid public map geo query",
-                issues: parsed.error.flatten(),
-            });
-        }
-
-        const collection = await publicMapService.geoJsonBusStops(parsed.data.lang);
+    app.get("/public/map/geo/bus-stops", async (_request, reply) => {
+        const collection = await publicMapService.geoJsonBusStops();
         return reply.send(collection);
     });
 
-    app.get("/public/map/geo/bus-routes", async (request, reply) => {
-        const parsed = publicMapGeoQuerySchema.safeParse(request.query);
-        if (!parsed.success) {
-            return reply.code(400).send({
-                message: "Invalid public map geo query",
-                issues: parsed.error.flatten(),
-            });
-        }
-
-        const collection = await publicMapService.geoJsonBusRoutes(parsed.data.lang);
+    app.get("/public/map/geo/bus-routes", async (_request, reply) => {
+        const collection = await publicMapService.geoJsonBusRoutes();
         return reply.send(collection);
     });
 };

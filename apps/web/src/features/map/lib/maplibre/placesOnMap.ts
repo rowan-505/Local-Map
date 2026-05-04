@@ -3,12 +3,20 @@
  * - shared vector basemap (`packages/map-style/base-map.json`)
  * - Kyauktan township overlay (`kyauktanTownshipOverlay`)
  */
+import type { LanguageMode } from '@local-map/localized-name';
+import { getMapTextFieldExpression } from '@local-map/localized-name';
 import type { ExpressionSpecification, GeoJSONSource } from 'maplibre-gl';
 import type { MapEngine } from '../mapEngineTypes';
 
 export const PLACES_SOURCE_ID = 'places' as const;
 export const PLACES_LAYER_ID = 'places-circle' as const;
 export const PLACES_LABEL_LAYER_ID = 'places-label' as const;
+
+const DEFAULT_LANGUAGE_MODE: LanguageMode = 'my';
+
+function placesLabelTextField(mode: LanguageMode): ExpressionSpecification {
+  return getMapTextFieldExpression(mode) as ExpressionSpecification;
+}
 
 const DEFAULT_COLOR = '#0ea5e9';
 const SELECTED_COLOR = '#f97316';
@@ -62,6 +70,7 @@ export function ensurePlacesLayer(
   map: MapEngine,
   geojson: GeoJSON.FeatureCollection,
   selectedPoiId: string | null,
+  languageMode: LanguageMode = DEFAULT_LANGUAGE_MODE,
 ): void {
   if (!map.getSource(PLACES_SOURCE_ID)) {
     map.addSource(PLACES_SOURCE_ID, {
@@ -85,8 +94,8 @@ export function ensurePlacesLayer(
       type: 'symbol',
       source: PLACES_SOURCE_ID,
       layout: {
-        'text-field': ['get', 'name'],
-        'text-font': ['Noto Sans Regular'],
+        'text-field': placesLabelTextField(languageMode),
+        'text-font': ['Noto Sans Myanmar Regular', 'Noto Sans Regular'],
         'text-size': 12,
         'text-offset': [0, 1.2],
         'text-anchor': 'top',

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm, type Resolver } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import {
@@ -11,74 +11,50 @@ import {
     updatePlace,
     type PlaceDetail,
     type PlaceFormOptions,
+    type UpdatePlacePayload,
 } from "@/src/lib/api";
 
-const nullableTrimmedStringSchema = z.preprocess((value) => {
-    if (value === "" || value === undefined) {
-        return null;
-    }
+const scoreFieldSchema = z.union([z.number().finite(), z.literal("")]);
 
-    if (typeof value === "string") {
-        const trimmed = value.trim();
-        return trimmed === "" ? null : trimmed;
-    }
+const placeEditFormSchema = z
+    .object({
+        myanmarName: z.string(),
+        englishName: z.string(),
+        categoryId: z.string().min(1, "Category is required"),
+        adminAreaId: z.string(),
+        lat: z.number().min(-90).max(90),
+        lng: z.number().min(-180).max(180),
+        plusCode: z.string(),
+        importanceScore: scoreFieldSchema,
+        popularityScore: scoreFieldSchema,
+        confidenceScore: scoreFieldSchema,
+        isPublic: z.boolean(),
+        isVerified: z.boolean(),
+        sourceTypeId: z.string().min(1, "Source type is required"),
+        publishStatusId: z.string(),
+    })
+    .refine((values) => values.myanmarName.trim().length > 0 || values.englishName.trim().length > 0, {
+        message: "Myanmar name or English name is required",
+        path: ["myanmarName"],
+    });
 
-    return value;
-}, z.string().nullable());
+type PlaceEditFormValues = z.infer<typeof placeEditFormSchema>;
 
-const nullableStringIdSchema = z.preprocess((value) => {
-    if (value === "" || value === undefined) {
-        return null;
-    }
-
-    return value;
-}, z.string().nullable());
-
-const nullableNumberSchema = z.preprocess((value) => {
-    if (value === "" || value === undefined || value === null) {
-        return null;
-    }
-
-    if (typeof value === "string") {
-        return Number(value);
-    }
-
-    return value;
-}, z.number().nullable());
-
-const placeEditSchema = z.object({
-    myanmarName: z.string().trim(),
-    englishName: z.string().trim(),
-    category_id: z.string().min(1, "Category is required"),
-    admin_area_id: nullableStringIdSchema,
-    lat: z.number().min(-90).max(90),
-    lng: z.number().min(-180).max(180),
-    plus_code: nullableTrimmedStringSchema,
-    importance_score: nullableNumberSchema,
-    popularity_score: nullableNumberSchema,
-    confidence_score: nullableNumberSchema,
-    is_public: z.boolean(),
-    is_verified: z.boolean(),
-    source_type_id: z.string().min(1, "Source type is required"),
-    publish_status_id: nullableStringIdSchema,
-});
-
-type PlaceEditFormValues = z.infer<typeof placeEditSchema>;
 type PlaceEditFormInput = {
     myanmarName: string;
     englishName: string;
-    category_id: string;
-    admin_area_id: string;
+    categoryId: string;
+    adminAreaId: string;
     lat: number;
     lng: number;
-    plus_code: string;
-    importance_score: number | "";
-    popularity_score: number | "";
-    confidence_score: number | "";
-    is_public: boolean;
-    is_verified: boolean;
-    source_type_id: string;
-    publish_status_id: string;
+    plusCode: string;
+    importanceScore: number | "";
+    popularityScore: number | "";
+    confidenceScore: number | "";
+    isPublic: boolean;
+    isVerified: boolean;
+    sourceTypeId: string;
+    publishStatusId: string;
 };
 
 type PlaceEditModalProps = {
@@ -88,44 +64,52 @@ type PlaceEditModalProps = {
     onSaved: (placeId: string) => Promise<void> | void;
 };
 
-function formatDate(value: string | null): string {
-    if (!value) {
-        return "-";
-    }
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
-    return date.toLocaleString();
+function roundCoord(value: number) {
+    return Number(value.toFixed(7));
 }
 
 function toFormValues(place: PlaceDetail): PlaceEditFormInput {
     return {
         myanmarName: place.myanmarName ?? "",
         englishName: place.englishName ?? "",
-        category_id: place.category_id,
-        admin_area_id: place.admin_area_id ?? "",
+        categoryId: place.category_id,
+        adminAreaId: place.admin_area_id ?? "",
         lat: place.lat,
         lng: place.lng,
-        plus_code: place.plus_code ?? "",
-        importance_score: place.importance_score ?? "",
-        popularity_score: place.popularity_score ?? "",
-        confidence_score: place.confidence_score ?? "",
-        is_public: place.is_public,
-        is_verified: place.is_verified,
-        source_type_id: place.source_type_id,
-        publish_status_id: place.publish_status_id ?? "",
+        plusCode: place.plus_code ?? "",
+        importanceScore: place.importance_score ?? "",
+        popularityScore: place.popularity_score ?? "",
+        confidenceScore: place.confidence_score ?? "",
+        isPublic: place.is_public,
+        isVerified: place.is_verified,
+        sourceTypeId: place.source_type_id,
+        publishStatusId: place.publish_status_id ?? "",
     };
 }
 
-export default function PlaceEditModal({
-    open,
-    placeId,
-    onClose,
-    onSaved,
-}: PlaceEditModalProps) {
+function buildUpdatePayload(values: PlaceEditFormValues): UpdatePlacePayload {
+    const mm = values.myanmarName.trim();
+    const en = values.englishName.trim();
+
+    return {
+        myanmarName: mm,
+        englishName: en,
+        categoryId: values.categoryId,
+        adminAreaId: values.adminAreaId.trim() ? values.adminAreaId : null,
+        lat: roundCoord(values.lat),
+        lng: roundCoord(values.lng),
+        plusCode: values.plusCode.trim() ? values.plusCode.trim() : null,
+        importanceScore: values.importanceScore === "" ? 0 : values.importanceScore,
+        popularityScore: values.popularityScore === "" ? 0 : values.popularityScore,
+        confidenceScore: values.confidenceScore === "" ? 50 : values.confidenceScore,
+        isPublic: values.isPublic,
+        isVerified: values.isVerified,
+        sourceTypeId: values.sourceTypeId,
+        publishStatusId: values.publishStatusId.trim() ? values.publishStatusId : null,
+    };
+}
+
+export default function PlaceEditModal({ open, placeId, onClose, onSaved }: PlaceEditModalProps) {
     const [detail, setDetail] = useState<PlaceDetail | null>(null);
     const [options, setOptions] = useState<PlaceFormOptions | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -140,26 +124,22 @@ export default function PlaceEditModal({
         reset,
         formState: { errors },
     } = useForm<PlaceEditFormInput, unknown, PlaceEditFormValues>({
-        resolver: zodResolver(placeEditSchema) as Resolver<
-            PlaceEditFormInput,
-            unknown,
-            PlaceEditFormValues
-        >,
+        resolver: zodResolver(placeEditFormSchema),
         defaultValues: {
             myanmarName: "",
             englishName: "",
-            category_id: "",
-            admin_area_id: "",
+            categoryId: "",
+            adminAreaId: "",
             lat: 0,
             lng: 0,
-            plus_code: "",
-            importance_score: "",
-            popularity_score: "",
-            confidence_score: "",
-            is_public: false,
-            is_verified: false,
-            source_type_id: "",
-            publish_status_id: "",
+            plusCode: "",
+            importanceScore: "",
+            popularityScore: "",
+            confidenceScore: "",
+            isPublic: true,
+            isVerified: false,
+            sourceTypeId: "",
+            publishStatusId: "",
         },
     });
 
@@ -223,13 +203,12 @@ export default function PlaceEditModal({
             return;
         }
 
-        const selectedPlaceId = placeId;
         setIsSaving(true);
         setSaveError("");
         setSaveSuccess("");
 
         try {
-            const updated = await updatePlace(selectedPlaceId, values);
+            const updated = await updatePlace(placeId, buildUpdatePayload(values));
             setDetail(updated);
             reset(toFormValues(updated));
             await onSaved(updated.public_id);
@@ -240,6 +219,9 @@ export default function PlaceEditModal({
             setIsSaving(false);
         }
     }
+
+    const categoryError =
+        typeof errors.categoryId?.message === "string" ? errors.categoryId.message : null;
 
     if (!open) {
         return null;
@@ -271,11 +253,11 @@ export default function PlaceEditModal({
                     ) : null}
 
                     {!isLoading && !loadError && detail && options ? (
-                        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+                        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
                             <div className="grid gap-6 lg:grid-cols-2">
                                 <div className="space-y-4">
                                     <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                                        Editable Fields
+                                        Names
                                     </h3>
 
                                     <label className="block">
@@ -284,9 +266,13 @@ export default function PlaceEditModal({
                                         </span>
                                         <input
                                             {...register("myanmarName")}
-                                            placeholder="ဥပမာ - အောင်မင်္ဂလာ"
                                             className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                         />
+                                        {errors.myanmarName?.message ? (
+                                            <span className="mt-1 block text-sm text-red-600">
+                                                {String(errors.myanmarName.message)}
+                                            </span>
+                                        ) : null}
                                     </label>
 
                                     <label className="block">
@@ -295,7 +281,6 @@ export default function PlaceEditModal({
                                         </span>
                                         <input
                                             {...register("englishName")}
-                                            placeholder="Example - Aung Mingalar"
                                             className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                         />
                                     </label>
@@ -303,7 +288,7 @@ export default function PlaceEditModal({
                                     <label className="block">
                                         <span className="mb-1 block text-sm text-gray-700">Category</span>
                                         <select
-                                            {...register("category_id")}
+                                            {...register("categoryId")}
                                             className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                         >
                                             <option value="">Select category</option>
@@ -313,9 +298,9 @@ export default function PlaceEditModal({
                                                 </option>
                                             ))}
                                         </select>
-                                        {errors.category_id ? (
+                                        {categoryError ? (
                                             <span className="mt-1 block text-sm text-red-600">
-                                                {errors.category_id.message}
+                                                {categoryError}
                                             </span>
                                         ) : null}
                                     </label>
@@ -325,7 +310,7 @@ export default function PlaceEditModal({
                                             Admin Area
                                         </span>
                                         <select
-                                            {...register("admin_area_id")}
+                                            {...register("adminAreaId")}
                                             className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                         >
                                             <option value="">No admin area</option>
@@ -348,9 +333,9 @@ export default function PlaceEditModal({
                                                 })}
                                                 className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                             />
-                                            {errors.lat ? (
+                                            {errors.lat?.message ? (
                                                 <span className="mt-1 block text-sm text-red-600">
-                                                    {errors.lat.message}
+                                                    {String(errors.lat.message)}
                                                 </span>
                                             ) : null}
                                         </label>
@@ -365,9 +350,9 @@ export default function PlaceEditModal({
                                                 })}
                                                 className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                             />
-                                            {errors.lng ? (
+                                            {errors.lng?.message ? (
                                                 <span className="mt-1 block text-sm text-red-600">
-                                                    {errors.lng.message}
+                                                    {String(errors.lng.message)}
                                                 </span>
                                             ) : null}
                                         </label>
@@ -376,7 +361,7 @@ export default function PlaceEditModal({
                                     <label className="block">
                                         <span className="mb-1 block text-sm text-gray-700">Plus Code</span>
                                         <input
-                                            {...register("plus_code")}
+                                            {...register("plusCode")}
                                             className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                         />
                                     </label>
@@ -384,7 +369,7 @@ export default function PlaceEditModal({
 
                                 <div className="space-y-4">
                                     <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                                        Scores and Status
+                                        Scores and status
                                     </h3>
 
                                     <div className="grid gap-4 sm:grid-cols-3">
@@ -395,9 +380,9 @@ export default function PlaceEditModal({
                                             <input
                                                 type="number"
                                                 step="any"
-                                                {...register("importance_score", {
+                                                {...register("importanceScore", {
                                                     setValueAs: (value) =>
-                                                        value === "" ? null : Number(value),
+                                                        value === "" ? "" : Number(value),
                                                 })}
                                                 className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                             />
@@ -410,9 +395,9 @@ export default function PlaceEditModal({
                                             <input
                                                 type="number"
                                                 step="any"
-                                                {...register("popularity_score", {
+                                                {...register("popularityScore", {
                                                     setValueAs: (value) =>
-                                                        value === "" ? null : Number(value),
+                                                        value === "" ? "" : Number(value),
                                                 })}
                                                 className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                             />
@@ -425,9 +410,9 @@ export default function PlaceEditModal({
                                             <input
                                                 type="number"
                                                 step="any"
-                                                {...register("confidence_score", {
+                                                {...register("confidenceScore", {
                                                     setValueAs: (value) =>
-                                                        value === "" ? null : Number(value),
+                                                        value === "" ? "" : Number(value),
                                                 })}
                                                 className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                             />
@@ -435,18 +420,14 @@ export default function PlaceEditModal({
                                     </div>
 
                                     <label className="flex items-center gap-3 rounded border border-gray-200 p-3">
-                                        <input
-                                            type="checkbox"
-                                            {...register("is_public")}
-                                            className="h-4 w-4"
-                                        />
+                                        <input type="checkbox" {...register("isPublic")} className="h-4 w-4" />
                                         <span className="text-sm text-gray-700">Is Public</span>
                                     </label>
 
                                     <label className="flex items-center gap-3 rounded border border-gray-200 p-3">
                                         <input
                                             type="checkbox"
-                                            {...register("is_verified")}
+                                            {...register("isVerified")}
                                             className="h-4 w-4"
                                         />
                                         <span className="text-sm text-gray-700">Is Verified</span>
@@ -457,7 +438,7 @@ export default function PlaceEditModal({
                                             Source Type
                                         </span>
                                         <select
-                                            {...register("source_type_id")}
+                                            {...register("sourceTypeId")}
                                             className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                         >
                                             <option value="">Select source type</option>
@@ -467,9 +448,9 @@ export default function PlaceEditModal({
                                                 </option>
                                             ))}
                                         </select>
-                                        {errors.source_type_id ? (
+                                        {errors.sourceTypeId?.message ? (
                                             <span className="mt-1 block text-sm text-red-600">
-                                                {errors.source_type_id.message}
+                                                {String(errors.sourceTypeId.message)}
                                             </span>
                                         ) : null}
                                     </label>
@@ -479,7 +460,7 @@ export default function PlaceEditModal({
                                             Publish Status
                                         </span>
                                         <select
-                                            {...register("publish_status_id")}
+                                            {...register("publishStatusId")}
                                             className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                         >
                                             <option value="">No publish status</option>
@@ -490,38 +471,6 @@ export default function PlaceEditModal({
                                             ))}
                                         </select>
                                     </label>
-
-                                    <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
-                                        <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                                            Read-only Fields
-                                        </h3>
-                                        <div className="grid gap-3 sm:grid-cols-2">
-                                            <div>
-                                                <div className="text-xs text-gray-500">ID</div>
-                                                <div className="text-sm text-gray-900">{detail.id}</div>
-                                            </div>
-                                            <div>
-                                                <div className="text-xs text-gray-500">Public ID</div>
-                                                <div className="break-all text-sm text-gray-900">
-                                                    {detail.public_id}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-xs text-gray-500">
-                                                    Current Version ID
-                                                </div>
-                                                <div className="text-sm text-gray-900">
-                                                    {detail.current_version_id ?? "-"}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-xs text-gray-500">Deleted At</div>
-                                                <div className="text-sm text-gray-900">
-                                                    {formatDate(detail.deleted_at)}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
 

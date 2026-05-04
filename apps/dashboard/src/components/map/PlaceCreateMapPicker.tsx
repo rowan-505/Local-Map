@@ -3,13 +3,21 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 
+import {
+    ensureDashboardPreviewPlacesLayers,
+    placesToPreviewGeoJSON,
+    setDashboardPreviewPlacesGeoJSON,
+} from "./dashboardPreviewPlacesLayers";
 import { createPlaceBaseMap } from "./createPlaceBaseMap";
 import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
+import type { Place } from "@/src/lib/api";
 
 type PlaceCreateMapPickerProps = {
     lat: number | null;
     lng: number | null;
     onChange: (coords: { lat: number; lng: number }) => void;
+    /** Existing places from the API to show as context on the preview map */
+    contextPlaces?: Place[];
 };
 
 const DEFAULT_ZOOM = 15;
@@ -27,10 +35,13 @@ function hasCoordinates(lat: number | null, lng: number | null): boolean {
     );
 }
 
+const NEARBY_KM = 8;
+
 export default function PlaceCreateMapPicker({
     lat,
     lng,
     onChange,
+    contextPlaces = [],
 }: PlaceCreateMapPickerProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -49,6 +60,7 @@ export default function PlaceCreateMapPicker({
             map = createPlaceBaseMap(containerRef.current, {
                 zoom: DEFAULT_ZOOM,
                 onLoad: (loadedMap) => {
+                    ensureDashboardPreviewPlacesLayers(loadedMap);
                     loadedMap.resize();
                     resizeTimeoutId = window.setTimeout(() => {
                         loadedMap.resize();
@@ -110,6 +122,26 @@ export default function PlaceCreateMapPicker({
             mapRef.current = null;
         };
     }, [onChange]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map || !isMapReady) {
+            return;
+        }
+
+        const center = hasCoordinates(lat, lng)
+            ? { lat: lat as number, lng: lng as number }
+            : { lat: PLACE_MAP_DEFAULT_CENTER[1], lng: PLACE_MAP_DEFAULT_CENTER[0] };
+
+        setDashboardPreviewPlacesGeoJSON(
+            map,
+            placesToPreviewGeoJSON(contextPlaces, {
+                center,
+                nearbyKm: NEARBY_KM,
+            })
+        );
+    }, [isMapReady, lat, lng, contextPlaces]);
 
     useEffect(() => {
         const map = mapRef.current;

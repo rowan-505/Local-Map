@@ -3,7 +3,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@local-map/map-style/*": ["../../packages/map-style/*"]
+      "@local-map/map-style/*": ["../../packages/map-style/*"],
+      "@local-map/localized-name": ["../../packages/localized-name/index.ts"]
     },
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "ES2023",

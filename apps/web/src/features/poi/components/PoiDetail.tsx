@@ -1,7 +1,9 @@
 /** Detail strip for the active POI — presentation only. */
 import { memo } from 'react';
 import type { ReactNode } from 'react';
+import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import type { Poi } from '@/types';
+import { getLocalizedName } from '@local-map/localized-name';
 import { poiCategoryLabel } from '../categoryLabel';
 
 export type PoiDetailProps = {
@@ -11,6 +13,8 @@ export type PoiDetailProps = {
 };
 
 function PoiDetailInner({ poi, isLoading = false, error = null }: PoiDetailProps) {
+  const languageMode = useMapUiStore((s) => s.languageMode);
+
   if (isLoading) {
     return <p className="text-xs leading-relaxed text-neutral-500">Loading place details…</p>;
   }
@@ -33,6 +37,11 @@ function PoiDetailInner({ poi, isLoading = false, error = null }: PoiDetailProps
     .join(', ');
   const coordinates = formatCoordinates(poi.longitude, poi.latitude);
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${poi.latitude},${poi.longitude}`;
+  const title = getLocalizedName(poi, languageMode);
+  const titleClass =
+    languageMode === 'both'
+      ? 'text-base font-semibold leading-snug whitespace-pre-line text-neutral-950'
+      : 'text-base font-semibold leading-snug text-neutral-950';
 
   return (
     <div className="space-y-4 text-sm">
@@ -40,7 +49,7 @@ function PoiDetailInner({ poi, isLoading = false, error = null }: PoiDetailProps
         <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
           Place
         </p>
-        <h3 className="text-base font-semibold leading-snug text-neutral-950">{poi.name}</h3>
+        <h3 className={titleClass}>{title}</h3>
         <p className="mt-1 text-xs text-neutral-500">
           {poiCategoryLabel(poi.category, poi.categoryName, poi.categoryCode)}
         </p>
@@ -71,7 +80,7 @@ function PoiDetailInner({ poi, isLoading = false, error = null }: PoiDetailProps
         </a>
         <DetailActionButton
           className="col-span-2"
-          onClick={() => shareDetail(poi.name, coordinates, mapsUrl)}
+          onClick={() => shareDetail(title, coordinates, mapsUrl)}
         >
           Share
         </DetailActionButton>

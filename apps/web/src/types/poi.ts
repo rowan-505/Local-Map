@@ -10,6 +10,12 @@ export type Poi = {
   readonly apiId?: string;
   readonly publicId?: string;
   readonly name: string;
+  readonly nameMm?: string;
+  readonly nameEn?: string;
+  readonly displayName?: string;
+  readonly primaryName?: string;
+  readonly myanmarName?: string;
+  readonly englishName?: string;
   readonly category: PoiCategoryId;
   readonly categoryCode?: string | null;
   readonly categoryName?: string | null;

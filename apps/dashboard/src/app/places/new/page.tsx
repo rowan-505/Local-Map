@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type Resolver } from "react-hook-form";
 import { z } from "zod";
@@ -10,80 +10,55 @@ import { z } from "zod";
 import PlaceCreateMapPicker from "@/src/components/map/PlaceCreateMapPicker";
 import {
     createPlace,
-    getAdminAreas,
-    getCategories,
     getPlaceFormOptions,
-    type AdminArea,
-    type Category,
+    getPlaces,
+    PLACES_LIST_LIMIT,
+    type CreatePlacePayload,
+    type Place,
     type PlaceFormOptions,
 } from "@/src/lib/api";
 
-const nullableTrimmedStringSchema = z.preprocess((value) => {
-    if (value === "" || value === undefined) {
-        return null;
-    }
+const scoreFieldSchema = z.union([z.number().finite(), z.literal("")]);
 
-    if (typeof value === "string") {
-        const trimmed = value.trim();
-        return trimmed === "" ? null : trimmed;
-    }
+const placeCreateFormSchema = z
+    .object({
+        myanmarName: z.string(),
+        englishName: z.string(),
+        categoryId: z.string().min(1, "Category is required"),
+        adminAreaId: z.string(),
+        lat: z.number().min(-90).max(90),
+        lng: z.number().min(-180).max(180),
+        plusCode: z.string(),
+        importanceScore: scoreFieldSchema,
+        popularityScore: scoreFieldSchema,
+        confidenceScore: scoreFieldSchema,
+        isPublic: z.boolean(),
+        isVerified: z.boolean(),
+        sourceTypeId: z.string(),
+        publishStatusId: z.string(),
+    })
+    .refine((values) => values.myanmarName.trim().length > 0 || values.englishName.trim().length > 0, {
+        message: "Myanmar name or English name is required",
+        path: ["myanmarName"],
+    });
 
-    return value;
-}, z.string().nullable());
+type PlaceCreateFormValues = z.infer<typeof placeCreateFormSchema>;
 
-const nullableStringIdSchema = z.preprocess((value) => {
-    if (value === "" || value === undefined) {
-        return null;
-    }
-
-    return value;
-}, z.string().nullable());
-
-const nullableNumberSchema = z.preprocess((value) => {
-    if (value === "" || value === undefined || value === null) {
-        return null;
-    }
-
-    if (typeof value === "string") {
-        return Number(value);
-    }
-
-    return value;
-}, z.number().nullable());
-
-const placeCreateSchema = z.object({
-    myanmarName: z.string().trim(),
-    englishName: z.string().trim(),
-    category_id: z.string().min(1, "Category is required"),
-    admin_area_id: nullableStringIdSchema,
-    lat: z.number().min(-90).max(90, "Latitude must be between -90 and 90"),
-    lng: z.number().min(-180).max(180, "Longitude must be between -180 and 180"),
-    plus_code: nullableTrimmedStringSchema,
-    importance_score: nullableNumberSchema,
-    popularity_score: nullableNumberSchema,
-    confidence_score: nullableNumberSchema,
-    is_public: z.boolean(),
-    is_verified: z.boolean(),
-    source_type_id: nullableStringIdSchema,
-    publish_status_id: nullableStringIdSchema,
-});
-
-type PlaceCreateFormValues = z.infer<typeof placeCreateSchema>;
 type PlaceCreateFormInput = {
     myanmarName: string;
     englishName: string;
-    category_id: string;
-    admin_area_id: string;
+    categoryId: string;
+    adminAreaId: string;
     lat: number | "";
     lng: number | "";
-    plus_code: string;
-    importance_score: number | "";
-    popularity_score: number | "";
-    confidence_score: number | "";
-    is_public: boolean;
-    is_verified: boolean;
-    source_type_id: string;
-    publish_status_id: string;
+    plusCode: string;
+    importanceScore: number | "";
+    popularityScore: number | "";
+    confidenceScore: number | "";
+    isPublic: boolean;
+    isVerified: boolean;
+    sourceTypeId: string;
+    publishStatusId: string;
 };
 
 function roundCoord(value: number) {
@@ -98,15 +73,37 @@ function parseCoordInput(value: string) {
     return roundCoord(Number(value));
 }
 
+function buildCreatePayload(values: PlaceCreateFormValues): CreatePlacePayload {
+    const mm = values.myanmarName.trim();
+    const en = values.englishName.trim();
+
+    return {
+        ...(mm ? { myanmarName: mm } : {}),
+        ...(en ? { englishName: en } : {}),
+        categoryId: values.categoryId,
+        adminAreaId: values.adminAreaId.trim() ? values.adminAreaId : null,
+        lat: roundCoord(values.lat),
+        lng: roundCoord(values.lng),
+        plusCode: values.plusCode.trim() ? values.plusCode.trim() : null,
+        importanceScore: values.importanceScore === "" ? 0 : values.importanceScore,
+        popularityScore: values.popularityScore === "" ? 0 : values.popularityScore,
+        confidenceScore: values.confidenceScore === "" ? 50 : values.confidenceScore,
+        isPublic: values.isPublic,
+        isVerified: values.isVerified,
+        sourceTypeId: values.sourceTypeId.trim() ? values.sourceTypeId : null,
+        publishStatusId: values.publishStatusId.trim() ? values.publishStatusId : null,
+    };
+}
+
 export default function NewPlacePage() {
     const router = useRouter();
-    const [categories, setCategories] = useState<Category[]>([]);
-    const [adminAreas, setAdminAreas] = useState<AdminArea[]>([]);
     const [formOptions, setFormOptions] = useState<PlaceFormOptions | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
     const [saveError, setSaveError] = useState("");
     const [isSaving, setIsSaving] = useState(false);
+    const [previewContextPlaces, setPreviewContextPlaces] = useState<Place[]>([]);
+    const appliedOptionDefaultsRef = useRef(false);
 
     const {
         register,
@@ -115,7 +112,7 @@ export default function NewPlacePage() {
         watch,
         formState: { errors },
     } = useForm<PlaceCreateFormInput, unknown, PlaceCreateFormValues>({
-        resolver: zodResolver(placeCreateSchema) as Resolver<
+        resolver: zodResolver(placeCreateFormSchema) as Resolver<
             PlaceCreateFormInput,
             unknown,
             PlaceCreateFormValues
@@ -123,18 +120,18 @@ export default function NewPlacePage() {
         defaultValues: {
             myanmarName: "",
             englishName: "",
-            category_id: "",
-            admin_area_id: "",
+            categoryId: "",
+            adminAreaId: "",
             lat: "",
             lng: "",
-            plus_code: "",
-            importance_score: "",
-            popularity_score: "",
-            confidence_score: "",
-            is_public: true,
-            is_verified: false,
-            source_type_id: "",
-            publish_status_id: "",
+            plusCode: "",
+            importanceScore: "",
+            popularityScore: "",
+            confidenceScore: "",
+            isPublic: true,
+            isVerified: false,
+            sourceTypeId: "",
+            publishStatusId: "",
         },
     });
 
@@ -146,37 +143,13 @@ export default function NewPlacePage() {
             setLoadError("");
 
             try {
-                const [categoriesResult, adminAreasResult, placeFormOptionsResult] =
-                    await Promise.allSettled([
-                        getCategories(),
-                        getAdminAreas(),
-                        getPlaceFormOptions(),
-                    ]);
+                const options = await getPlaceFormOptions();
 
                 if (!isMounted) {
                     return;
                 }
 
-                if (categoriesResult.status === "rejected") {
-                    throw categoriesResult.reason;
-                }
-
-                if (adminAreasResult.status === "rejected") {
-                    throw adminAreasResult.reason;
-                }
-
-                setCategories(categoriesResult.value);
-                setAdminAreas(adminAreasResult.value);
-                setFormOptions(
-                    placeFormOptionsResult.status === "fulfilled"
-                        ? placeFormOptionsResult.value
-                        : {
-                              categories: [],
-                              admin_areas: [],
-                              source_types: [],
-                              publish_statuses: [],
-                          }
-                );
+                setFormOptions(options);
             } catch (error) {
                 if (isMounted) {
                     setLoadError(
@@ -191,6 +164,45 @@ export default function NewPlacePage() {
         }
 
         void loadOptions();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!formOptions || appliedOptionDefaultsRef.current) {
+            return;
+        }
+
+        const manual = formOptions.source_types.find((source) => source.code === "manual");
+        const published = formOptions.publish_statuses.find((status) => status.code === "published");
+
+        if (manual?.id) {
+            setValue("sourceTypeId", manual.id);
+        }
+
+        if (published?.id) {
+            setValue("publishStatusId", published.id);
+        }
+
+        appliedOptionDefaultsRef.current = true;
+    }, [formOptions, setValue]);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        void getPlaces({ limit: PLACES_LIST_LIMIT })
+            .then((data) => {
+                if (isMounted) {
+                    setPreviewContextPlaces(data);
+                }
+            })
+            .catch(() => {
+                if (isMounted) {
+                    setPreviewContextPlaces([]);
+                }
+            });
 
         return () => {
             isMounted = false;
@@ -224,12 +236,9 @@ export default function NewPlacePage() {
         setSaveError("");
 
         try {
-            await createPlace({
-                ...values,
-                lat: roundCoord(values.lat),
-                lng: roundCoord(values.lng),
-            });
+            const created = await createPlace(buildCreatePayload(values));
             window.sessionStorage.setItem("placeCreateSuccess", "Place created successfully.");
+            window.sessionStorage.setItem("placeCreatePublicId", created.public_id);
             router.push("/places");
         } catch (error) {
             setSaveError(error instanceof Error ? error.message : "Failed to create place");
@@ -238,6 +247,9 @@ export default function NewPlacePage() {
         }
     }
 
+    const categoryError =
+        typeof errors.categoryId?.message === "string" ? errors.categoryId.message : null;
+
     return (
         <main className="min-h-screen bg-gray-100 p-6">
             <div className="mx-auto max-w-7xl">
@@ -245,7 +257,7 @@ export default function NewPlacePage() {
                     <div>
                         <h1 className="text-2xl font-bold text-gray-900">Create Place</h1>
                         <p className="mt-1 text-sm text-gray-600">
-                            Enter place details and pick coordinates from the map.
+                            Enter Myanmar and English names (at least one required). Other fields match the API.
                         </p>
                     </div>
                     <Link
@@ -276,23 +288,22 @@ export default function NewPlacePage() {
                         >
                             <div className="grid gap-6 sm:grid-cols-2">
                                 <label className="block">
-                                    <span className="mb-1 block text-sm text-gray-700">
-                                        Myanmar Name
-                                    </span>
+                                    <span className="mb-1 block text-sm text-gray-700">Myanmar Name</span>
                                     <input
                                         {...register("myanmarName")}
-                                        placeholder="ဥပမာ - အောင်မင်္ဂလာ"
                                         className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                     />
+                                    {errors.myanmarName?.message ? (
+                                        <span className="mt-1 block text-sm text-red-600">
+                                            {String(errors.myanmarName.message)}
+                                        </span>
+                                    ) : null}
                                 </label>
 
                                 <label className="block">
-                                    <span className="mb-1 block text-sm text-gray-700">
-                                        English Name
-                                    </span>
+                                    <span className="mb-1 block text-sm text-gray-700">English Name</span>
                                     <input
                                         {...register("englishName")}
-                                        placeholder="Example - Aung Mingalar"
                                         className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                     />
                                 </label>
@@ -300,19 +311,19 @@ export default function NewPlacePage() {
                                 <label className="block">
                                     <span className="mb-1 block text-sm text-gray-700">Category</span>
                                     <select
-                                        {...register("category_id")}
+                                        {...register("categoryId")}
                                         className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                     >
                                         <option value="">Select category</option>
-                                        {categories.map((category) => (
+                                        {formOptions?.categories.map((category) => (
                                             <option key={category.id} value={category.id}>
-                                                {category.name}
+                                                {category.label}
                                             </option>
                                         ))}
                                     </select>
-                                    {errors.category_id ? (
+                                    {categoryError ? (
                                         <span className="mt-1 block text-sm text-red-600">
-                                            {errors.category_id.message}
+                                            {categoryError}
                                         </span>
                                     ) : null}
                                 </label>
@@ -320,13 +331,13 @@ export default function NewPlacePage() {
                                 <label className="block">
                                     <span className="mb-1 block text-sm text-gray-700">Admin Area</span>
                                     <select
-                                        {...register("admin_area_id")}
+                                        {...register("adminAreaId")}
                                         className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                     >
                                         <option value="">No admin area</option>
-                                        {adminAreas.map((adminArea) => (
-                                            <option key={adminArea.id} value={adminArea.id}>
-                                                {adminArea.canonical_name}
+                                        {formOptions?.admin_areas.map((area) => (
+                                            <option key={area.id} value={area.id}>
+                                                {area.label}
                                             </option>
                                         ))}
                                     </select>
@@ -342,9 +353,9 @@ export default function NewPlacePage() {
                                         })}
                                         className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                     />
-                                    {errors.lat ? (
+                                    {errors.lat?.message ? (
                                         <span className="mt-1 block text-sm text-red-600">
-                                            {errors.lat.message}
+                                            {String(errors.lat.message)}
                                         </span>
                                     ) : null}
                                 </label>
@@ -359,9 +370,9 @@ export default function NewPlacePage() {
                                         })}
                                         className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                     />
-                                    {errors.lng ? (
+                                    {errors.lng?.message ? (
                                         <span className="mt-1 block text-sm text-red-600">
-                                            {errors.lng.message}
+                                            {String(errors.lng.message)}
                                         </span>
                                     ) : null}
                                 </label>
@@ -369,7 +380,7 @@ export default function NewPlacePage() {
                                 <label className="block sm:col-span-2">
                                     <span className="mb-1 block text-sm text-gray-700">Plus Code</span>
                                     <input
-                                        {...register("plus_code")}
+                                        {...register("plusCode")}
                                         className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                     />
                                 </label>
@@ -381,7 +392,7 @@ export default function NewPlacePage() {
                                     <input
                                         type="number"
                                         step="any"
-                                        {...register("importance_score", {
+                                        {...register("importanceScore", {
                                             setValueAs: (value) =>
                                                 value === "" ? "" : Number(value),
                                         })}
@@ -396,7 +407,7 @@ export default function NewPlacePage() {
                                     <input
                                         type="number"
                                         step="any"
-                                        {...register("popularity_score", {
+                                        {...register("popularityScore", {
                                             setValueAs: (value) =>
                                                 value === "" ? "" : Number(value),
                                         })}
@@ -411,7 +422,7 @@ export default function NewPlacePage() {
                                     <input
                                         type="number"
                                         step="any"
-                                        {...register("confidence_score", {
+                                        {...register("confidenceScore", {
                                             setValueAs: (value) =>
                                                 value === "" ? "" : Number(value),
                                         })}
@@ -420,28 +431,22 @@ export default function NewPlacePage() {
                                 </label>
 
                                 <label className="flex items-center gap-3 rounded border border-gray-200 p-3">
-                                    <input type="checkbox" {...register("is_public")} className="h-4 w-4" />
+                                    <input type="checkbox" {...register("isPublic")} className="h-4 w-4" />
                                     <span className="text-sm text-gray-700">Is Public</span>
                                 </label>
 
                                 <label className="flex items-center gap-3 rounded border border-gray-200 p-3">
-                                    <input
-                                        type="checkbox"
-                                        {...register("is_verified")}
-                                        className="h-4 w-4"
-                                    />
+                                    <input type="checkbox" {...register("isVerified")} className="h-4 w-4" />
                                     <span className="text-sm text-gray-700">Is Verified</span>
                                 </label>
 
                                 <label className="block">
-                                    <span className="mb-1 block text-sm text-gray-700">
-                                        Source Type
-                                    </span>
+                                    <span className="mb-1 block text-sm text-gray-700">Source Type</span>
                                     <select
-                                        {...register("source_type_id")}
+                                        {...register("sourceTypeId")}
                                         className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                     >
-                                        <option value="">Use default manual source</option>
+                                        <option value="">Use API default</option>
                                         {formOptions?.source_types.map((option) => (
                                             <option key={option.id} value={option.id}>
                                                 {option.label}
@@ -455,10 +460,10 @@ export default function NewPlacePage() {
                                         Publish Status
                                     </span>
                                     <select
-                                        {...register("publish_status_id")}
+                                        {...register("publishStatusId")}
                                         className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                                     >
-                                        <option value="">No publish status</option>
+                                        <option value="">Use API default</option>
                                         {formOptions?.publish_statuses.map((option) => (
                                             <option key={option.id} value={option.id}>
                                                 {option.label}
@@ -499,10 +504,11 @@ export default function NewPlacePage() {
                                 lat={selectedLat}
                                 lng={selectedLng}
                                 onChange={handleMapChange}
+                                contextPlaces={previewContextPlaces}
                             />
                             <p className="mt-3 text-sm text-gray-600">
-                                Click the map to place the marker. Drag the marker or edit the
-                                latitude/longitude fields to fine-tune the location.
+                                Click the map to place the marker. Drag the marker or edit the latitude/longitude
+                                fields to fine-tune the location.
                             </p>
                         </div>
                     </div>

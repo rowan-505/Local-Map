@@ -1,6 +1,9 @@
-import type { StyleSpecification } from "maplibre-gl";
+import type { ExpressionSpecification, StyleSpecification } from "maplibre-gl";
+import { getMapTextFieldExpression } from "@local-map/localized-name";
 
 const TILE_SERVER_URL = "https://martin-lively-canyon-4077.fly.dev";
+
+const LABEL_TEXT_MY = getMapTextFieldExpression("my") as ExpressionSpecification;
 
 export const PLACE_MAP_STYLE: StyleSpecification = {
     version: 8,
@@ -49,15 +52,15 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
             minzoom: 0,
             maxzoom: 22,
         },
-        core_bus_stops: {
+        tiles_bus_stops_v: {
             type: "vector",
-            tiles: [`${TILE_SERVER_URL}/core_bus_stops/{z}/{x}/{y}`],
+            tiles: [`${TILE_SERVER_URL}/tiles_bus_stops_v/{z}/{x}/{y}`],
             minzoom: 0,
             maxzoom: 22,
         },
-        core_bus_route_variants: {
+        tiles_bus_route_variants_v: {
             type: "vector",
-            tiles: [`${TILE_SERVER_URL}/core_bus_route_variants/{z}/{x}/{y}`],
+            tiles: [`${TILE_SERVER_URL}/tiles_bus_route_variants_v/{z}/{x}/{y}`],
             minzoom: 0,
             maxzoom: 22,
         },
@@ -138,8 +141,8 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         {
             id: "bus-routes",
             type: "line",
-            source: "core_bus_route_variants",
-            "source-layer": "core_bus_route_variants",
+            source: "tiles_bus_route_variants_v",
+            "source-layer": "tiles_bus_route_variants_v",
             layout: {
                 "line-cap": "round",
                 "line-join": "round",
@@ -197,8 +200,8 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         {
             id: "bus-stops",
             type: "circle",
-            source: "core_bus_stops",
-            "source-layer": "core_bus_stops",
+            source: "tiles_bus_stops_v",
+            "source-layer": "tiles_bus_stops_v",
             minzoom: 14,
             paint: {
                 "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 3, 17, 4.5, 20, 7],
@@ -216,7 +219,7 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
             minzoom: 13,
             layout: {
                 "symbol-placement": "line",
-                "text-field": ["coalesce", ["get", "name"], ["get", "ref"], ""],
+                "text-field": LABEL_TEXT_MY,
                 "text-font": ["Noto Sans Regular"],
                 "text-size": ["interpolate", ["linear"], ["zoom"], 13, 10, 17, 12, 20, 15],
                 "text-padding": 3,
@@ -235,7 +238,7 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
             "source-layer": "tiles_places_v",
             minzoom: 14,
             layout: {
-                "text-field": ["coalesce", ["get", "name"], ["get", "name_en"], ""],
+                "text-field": LABEL_TEXT_MY,
                 "text-font": ["Noto Sans Regular"],
                 "text-size": ["interpolate", ["linear"], ["zoom"], 14, 11, 17, 13, 20, 16],
                 "text-offset": [0, 1],

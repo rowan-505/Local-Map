@@ -9,6 +9,7 @@
  */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { FeatureCollection } from 'geojson';
+import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import { usePublicMapGeoLabelQueries } from '@/features/poi/api/usePublicMapData';
 import type { MapViewProps } from '../types';
 import { poisToFeatureCollection } from '../lib/poisToGeoJSON';
@@ -23,6 +24,7 @@ import {
   syncCountryMinZoom,
   type MapEngine,
 } from '../lib/mapEngine';
+import { applyAllLocalizedMapLabels } from '../lib/maplibre/localizedBasemapLabels';
 import {
   ADMIN_LABEL_SOURCE_ID,
   BUS_ROUTE_LABEL_SOURCE_ID,
@@ -49,6 +51,13 @@ function MapViewInner({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapEngine | null>(null);
   const [mapReady, setMapReady] = useState(false);
+
+  const languageMode = useMapUiStore((s) => s.languageMode);
+  const languageModeRef = useRef(languageMode);
+
+  useEffect(() => {
+    languageModeRef.current = languageMode;
+  }, [languageMode]);
 
   const geoLayerResults = usePublicMapGeoLabelQueries();
   const [streetsGeo, adminGeo, busStopsGeo, busRoutesGeo] = geoLayerResults;
@@ -79,8 +88,9 @@ function MapViewInner({
 
     const onLoad = () => {
       ensurePublicMapGeoJsonLabelLayers(map);
-      ensurePlacesLayer(map, geojsonRef.current, selectedRef.current);
+      ensurePlacesLayer(map, geojsonRef.current, selectedRef.current, languageModeRef.current);
       applyMapOverlayStackOrder(map);
+      applyAllLocalizedMapLabels(map, languageModeRef.current);
       setMapReady(true);
     };
     map.on('load', onLoad);
@@ -92,6 +102,14 @@ function MapViewInner({
       setMapReady(false);
     };
   }, []);
+
+  /** Basemap + GeoJSON overlay symbol layers follow UI language mode without reload. */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+    applyAllLocalizedMapLabels(map, languageMode);
+  }, [mapReady, languageMode]);
 
   /** API-driven overlays — updating source data does not change camera. */
   useEffect(() => {

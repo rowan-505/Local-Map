@@ -1,6 +1,8 @@
 /** Scrollable list of visible POIs — click selects the same id the map uses. */
 import { memo } from 'react';
+import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import type { Poi } from '@/types';
+import { getLocalizedName } from '@local-map/localized-name';
 import { poiCategoryLabel } from '../categoryLabel';
 
 export type PoiListProps = {
@@ -18,6 +20,8 @@ function PoiListInner({
   isLoading = false,
   error = null,
 }: PoiListProps) {
+  const languageMode = useMapUiStore((s) => s.languageMode);
+
   if (isLoading) {
     return (
       <div className="px-4 py-8 text-center text-xs text-neutral-500">
@@ -47,6 +51,11 @@ function PoiListInner({
     <ul className="space-y-1 p-2" role="listbox" aria-label="Visible places">
       {pois.map((poi) => {
         const selected = poi.id === selectedPoiId;
+        const title = getLocalizedName(poi, languageMode);
+        const titleClass =
+          languageMode === 'both'
+            ? 'block whitespace-pre-line break-words text-sm font-semibold leading-tight'
+            : 'block truncate text-sm font-semibold leading-tight';
         return (
           <li key={poi.id}>
             <button
@@ -65,7 +74,7 @@ function PoiListInner({
                   selected ? 'bg-sky-500' : 'bg-emerald-500'
                 }`} />
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-semibold leading-tight">{poi.name}</span>
+                  <span className={titleClass}>{title}</span>
                   <span className="mt-1 block truncate text-xs text-neutral-500">
                     {poiCategoryLabel(poi.category, poi.categoryName, poi.categoryCode)}
                   </span>

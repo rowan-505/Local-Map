@@ -1,7 +1,9 @@
 /**
- * GeoJSON label overlays from `/public/map/geo/*` — every symbol uses `properties.name`
- * resolved server-side from `lang`.
+ * GeoJSON label overlays from `/public/map/geo/*` — features carry `name_mm` / `name_en` / `name`;
+ * `text-field` is driven globally via `applyAllLocalizedMapLabels` + `getMapTextFieldExpression`.
  */
+import type { LanguageMode } from '@local-map/localized-name';
+import { getMapTextFieldExpression } from '@local-map/localized-name';
 import type {
   ExpressionSpecification,
   GeoJSONSource,
@@ -25,15 +27,11 @@ const ADMIN_LAYER_ID = 'public-map-admin-labels';
 const BUS_ROUTE_LAYER_ID = 'public-map-bus-route-labels';
 const BUS_STOP_LAYER_ID = 'public-map-bus-stop-labels';
 
-const TEXT_GET_NAME = ['get', 'name'] as ExpressionSpecification;
+const INITIAL_LANGUAGE_MODE: LanguageMode = 'my';
 
-/** Major corridors + bus routes: tighter spacing; minor streets default to looser. */
-const STREET_SYMBOL_SPACING: ExpressionSpecification = [
-  'case',
-  ['==', ['get', 'label_dense'], true],
-  250,
-  450,
-];
+function initialLabelExpr(): ExpressionSpecification {
+  return getMapTextFieldExpression(INITIAL_LANGUAGE_MODE) as ExpressionSpecification;
+}
 
 export const PUBLIC_MAP_GEO_LABEL_LAYER_IDS = [
   STREET_LAYER_ID,
@@ -54,9 +52,9 @@ const LINE_TEXT_SIZE_INTERPOLATE: ExpressionSpecification = [
   14,
 ];
 
-const LINE_LAYOUT_SHARED = {
+const LINE_LAYOUT_LINE_SHARED = {
   'symbol-placement': 'line' as const,
-  'text-field': TEXT_GET_NAME,
+  'text-field': initialLabelExpr(),
   'text-size': LINE_TEXT_SIZE_INTERPOLATE,
   'text-font': ['Noto Sans Regular'],
   'text-rotation-alignment': 'map' as const,
@@ -88,7 +86,7 @@ function streetLineSymbolLayer(): SymbolLayerSpecification {
     source: STREET_LABEL_SOURCE_ID,
     minzoom: 12,
     layout: {
-      ...LINE_LAYOUT_SHARED,
+      ...LINE_LAYOUT_LINE_SHARED,
       'symbol-spacing': 400,
     },
     paint: {
@@ -107,7 +105,7 @@ function busRouteLineSymbolLayer(): SymbolLayerSpecification {
     source: BUS_ROUTE_LABEL_SOURCE_ID,
     minzoom: 12,
     layout: {
-      ...LINE_LAYOUT_SHARED,
+      ...LINE_LAYOUT_LINE_SHARED,
       'symbol-spacing': 250,
     },
     paint: {
@@ -140,7 +138,7 @@ function pointSymbolLayer(
     source,
     minzoom,
     layout: {
-      'text-field': TEXT_GET_NAME,
+      'text-field': initialLabelExpr(),
       'text-font': ['Noto Sans Myanmar Regular', 'Noto Sans Regular'],
       'text-size': [
         'interpolate',

@@ -59,3 +59,24 @@ tables:
     srid: 4326
     geometry_column: geom
     id_column: id
+
+  tiles_admin_areas_v:
+    schema: tiles
+    table: tiles_admin_areas_v
+    srid: 4326
+    geometry_column: geom
+    id_column: id
+
+  tiles_bus_stops_v:
+    schema: tiles
+    table: tiles_bus_stops_v
+    srid: 4326
+    geometry_column: geom
+    id_column: id
+
+  tiles_bus_route_variants_v:
+    schema: tiles
+    table: tiles_bus_route_variants_v
+    srid: 4326
+    geometry_column: geom
+    id_column: id

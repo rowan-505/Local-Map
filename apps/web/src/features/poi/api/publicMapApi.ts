@@ -18,9 +18,13 @@ type PublicPlaceDto = {
   readonly publicId?: string;
   readonly public_id?: string;
   readonly name?: string;
+  readonly myanmar_name?: string | null;
+  readonly english_name?: string | null;
+  readonly name_mm?: string | null;
+  readonly name_en?: string | null;
   readonly displayName?: string;
-  readonly display_name?: string;
-  readonly primary_name?: string;
+  readonly display_name?: string | null;
+  readonly primary_name?: string | null;
   readonly categoryId?: string;
   readonly category_id?: string | number;
   readonly categoryCode?: string | null;
@@ -57,7 +61,13 @@ export type PublicSearchResult = {
   readonly id: string;
   readonly publicId?: string;
   readonly type: 'place' | 'street';
-  readonly name: string;
+  readonly myanmar_name?: string | null;
+  readonly english_name?: string | null;
+  readonly name_mm?: string | null;
+  readonly name_en?: string | null;
+  readonly display_name?: string | null;
+  readonly primary_name?: string | null;
+  readonly canonical_name?: string | null;
   readonly subtitle?: string;
   readonly categoryName?: string | null;
   readonly categoryCode?: string | null;
@@ -73,8 +83,13 @@ type PublicSearchResultDto = {
   readonly publicId?: string;
   readonly placePublicId?: string;
   readonly type?: string;
-  readonly name?: string;
-  readonly displayName?: string;
+  readonly myanmar_name?: string | null;
+  readonly english_name?: string | null;
+  readonly name_mm?: string | null;
+  readonly name_en?: string | null;
+  readonly display_name?: string | null;
+  readonly primary_name?: string | null;
+  readonly canonical_name?: string | null;
   readonly subtitle?: string;
   readonly categoryName?: string | null;
   readonly categoryCode?: string | null;
@@ -95,7 +110,6 @@ export type PublicPlacesParams = {
   readonly q?: string;
   readonly categoryCode?: string;
   readonly limit?: number;
-  readonly lang?: PlaceLanguageMode;
 };
 
 function getApiBaseUrl(): string {
@@ -135,9 +149,6 @@ export async function fetchPublicPlaces(
   if (params.limit !== undefined) {
     search.set('limit', String(params.limit));
   }
-  if (params.lang !== undefined) {
-    search.set('lang', params.lang);
-  }
 
   const query = search.toString();
   const places = await fetchJson<PublicPlaceDto[]>(
@@ -147,33 +158,18 @@ export async function fetchPublicPlaces(
   return places.map(publicPlaceToPoi);
 }
 
-export async function fetchPublicPlace(
-  publicId: string,
-  lang?: PlaceLanguageMode,
-): Promise<Poi> {
-  const search = new URLSearchParams();
-  if (lang !== undefined) {
-    search.set('lang', lang);
-  }
-
-  const query = search.toString();
+export async function fetchPublicPlace(publicId: string): Promise<Poi> {
   const place = await fetchJson<PublicPlaceDto>(
-    `/public/places/${encodeURIComponent(publicId)}${query.length > 0 ? `?${query}` : ''}`,
+    `/public/places/${encodeURIComponent(publicId)}`,
   );
   return publicPlaceToPoi(place);
 }
 
-export async function fetchPublicSearch(
-  q: string,
-  lang?: PlaceLanguageMode,
-): Promise<readonly PublicSearchResult[]> {
+export async function fetchPublicSearch(q: string): Promise<readonly PublicSearchResult[]> {
   const trimmedQuery = q.trim();
   if (trimmedQuery === '') return [];
 
   const search = new URLSearchParams({ q: trimmedQuery });
-  if (lang !== undefined) {
-    search.set('lang', lang);
-  }
   const response = await fetchJson<PublicSearchResponseDto>(`/public/search?${search.toString()}`);
   const results = hasSearchResults(response) ? response.results : response;
 
@@ -182,16 +178,35 @@ export async function fetchPublicSearch(
 
 export async function fetchPublicMapGeoJson(
   layer: PublicMapGeoLayerId,
-  lang: PlaceLanguageMode,
 ): Promise<GeoJSON.FeatureCollection> {
-  const search = new URLSearchParams({ lang });
-  return fetchJson<GeoJSON.FeatureCollection>(`/public/map/geo/${layer}?${search}`);
+  return fetchJson<GeoJSON.FeatureCollection>(`/public/map/geo/${layer}`);
+}
+
+function trimOpt(value: string | null | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const t = value.trim();
+  return t.length ? t : undefined;
 }
 
 function publicPlaceToPoi(place: PublicPlaceDto): Poi {
-  const name = place.name ?? 'Unnamed place';
-  const publicId = place.publicId ?? place.public_id ?? place.id ?? `${name}:${place.lng}:${place.lat}`;
-  const categoryId = String(place.categoryId ?? place.category_id ?? place.categoryCode ?? place.category_code ?? 'unknown');
+  const mm = trimOpt(place.name_mm ?? place.myanmar_name);
+  const en = trimOpt(place.name_en ?? place.english_name);
+  const display = trimOpt(place.display_name ?? place.displayName ?? undefined);
+  const primary = trimOpt(place.primary_name);
+
+  const fallback =
+    mm ??
+    en ??
+    display ??
+    primary ??
+    trimOpt(place.name) ??
+    `Place:${place.lng}:${place.lat}`;
+  const publicId =
+    trimOpt(place.publicId ?? place.public_id ?? place.id) ??
+    `${fallback}:${place.lng}:${place.lat}`;
+  const categoryId = String(
+    place.categoryId ?? place.category_id ?? place.categoryCode ?? place.category_code ?? 'unknown',
+  );
   const categoryCode = place.categoryCode ?? place.category_code ?? null;
   const categoryName = place.categoryName ?? place.category_name ?? null;
   const categoryLabel = categoryName ?? categoryCode ?? 'Place';
@@ -200,7 +215,13 @@ function publicPlaceToPoi(place: PublicPlaceDto): Poi {
     id: publicId,
     apiId: place.id,
     publicId,
-    name,
+    name: fallback,
+    nameMm: mm,
+    nameEn: en,
+    displayName: display,
+    primaryName: primary,
+    myanmarName: mm,
+    englishName: en,
     category: categoryId,
     categoryCode,
     categoryName,
@@ -230,17 +251,22 @@ function publicCategoryToPoiCategory(category: PublicCategoryDto): PoiCategory {
 function publicSearchResultFromDto(result: PublicSearchResultDto): PublicSearchResult | null {
   if (result.type !== 'place' && result.type !== 'street') return null;
 
-  const name = result.name ?? result.displayName;
-  if (typeof name !== 'string' || name.trim() === '') return null;
-
-  const publicId = result.publicId ?? result.placePublicId;
-  const id = result.id ?? publicId ?? `${result.type}:${name}`;
+  const publicId = trimOpt(result.publicId ?? result.placePublicId);
+  const id = trimOpt(result.id) ?? publicId ?? `${result.type}:unknown`;
+  const mm = trimOpt(result.name_mm ?? result.myanmar_name);
+  const en = trimOpt(result.name_en ?? result.english_name);
 
   return {
     id,
     publicId,
     type: result.type,
-    name,
+    myanmar_name: mm ?? null,
+    english_name: en ?? null,
+    name_mm: mm ?? null,
+    name_en: en ?? null,
+    display_name: trimOpt(result.display_name) ?? null,
+    primary_name: trimOpt(result.primary_name) ?? null,
+    canonical_name: trimOpt(result.canonical_name) ?? null,
     subtitle: result.subtitle,
     categoryName: result.categoryName,
     categoryCode: result.categoryCode,
