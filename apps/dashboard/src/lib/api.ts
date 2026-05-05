@@ -194,7 +194,8 @@ export type Building = {
     created_at: string;
     updated_at: string;
     deleted_at: string | null;
-    geometry: BuildingGeometry;
+    /** Omitted in some list responses — fetch `GET /buildings/:id` for full footprint when missing. */
+    geometry?: BuildingGeometry | null;
 };
 
 /** Default/max `limit` for GET /buildings (aligned with API default 100). */

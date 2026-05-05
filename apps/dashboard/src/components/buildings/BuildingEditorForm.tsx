@@ -69,7 +69,11 @@ export default function BuildingEditorForm({
             return;
         }
 
-        setGeometryJson(JSON.stringify(initialBuilding.geometry, null, 2));
+        setGeometryJson(
+            initialBuilding.geometry
+                ? JSON.stringify(initialBuilding.geometry, null, 2)
+                : ""
+        );
         setName(initialBuilding.name ?? "");
         setBuildingType(initialBuilding.building_type?.trim() ?? "");
         setLevels(initialBuilding.levels != null ? String(initialBuilding.levels) : "");

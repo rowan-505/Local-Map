@@ -50,7 +50,7 @@ export default function DashboardPage() {
 
     if (!hasAccessToken) {
         return (
-            <main className="min-h-screen bg-gray-100 p-6">
+            <main className="p-6">
                 <div className="mx-auto max-w-6xl rounded-lg bg-white p-6 text-gray-700 shadow">
                     Loading dashboard...
                 </div>
@@ -59,7 +59,7 @@ export default function DashboardPage() {
     }
 
     return (
-        <main className="min-h-screen bg-gray-100 p-6">
+        <main className="p-6">
             <div className="mx-auto max-w-6xl">
                 <h1 className="mb-2 text-3xl font-bold text-gray-900">Dashboard</h1>
                 <p className="mb-6 text-sm text-gray-600">

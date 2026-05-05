@@ -1,7 +1,7 @@
 import type { FeatureCollection, Point } from "geojson";
 import type { ExpressionSpecification, Map } from "maplibre-gl";
 import { GeoJSONSource } from "maplibre-gl";
-import { getMapTextFieldExpression } from "@local-map/localized-name";
+import { getMapTextFieldExpression } from "@/src/lib/mapLocalizedName";
 
 import type { Place } from "@/src/lib/api";
 import { placePreviewDisplayName } from "@/src/lib/placePreviewDisplayName";

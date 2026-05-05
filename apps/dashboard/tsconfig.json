@@ -20,8 +20,7 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "@local-map/map-style/*": ["../../packages/map-style/*"],
-      "@local-map/localized-name": ["../../packages/localized-name/index.ts"]
+      "@local-map/map-style/*": ["../../packages/map-style/*"]
     }
   },
   "include": [

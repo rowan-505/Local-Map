@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 import StreetPreviewMap from "@/src/components/map/StreetPreviewMap";
 import StreetEditModal from "@/src/components/streets/StreetEditModal";
 import { getStreet, getStreets, type StreetDetail, type Street } from "@/src/lib/api";
@@ -116,7 +117,7 @@ export default function StreetsPage() {
     }
 
     return (
-        <main className="min-h-screen bg-gray-100 p-6">
+        <main className="p-6">
             <div className="mx-auto max-w-7xl">
                 <div className="mb-4 flex items-center justify-between gap-3">
                     <h1 className="text-2xl font-bold text-gray-900">Streets</h1>
@@ -142,9 +143,9 @@ export default function StreetsPage() {
 
                 {!isLoading && !error ? (
                     <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] lg:items-start">
-                        <div className="rounded-lg border border-gray-200 bg-white shadow-sm lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
+                        <div className="min-h-0 rounded-lg border border-gray-200 bg-white shadow-sm lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
                             <div className="overflow-x-auto">
-                            <table className="min-w-full text-left text-sm">
+                                <table className="min-w-full text-left text-sm">
                                 <thead className="sticky top-0 z-10 bg-gray-50 text-gray-700">
                                     <tr>
                                         <th className="px-4 py-3 font-medium">Name</th>
@@ -175,22 +176,22 @@ export default function StreetsPage() {
                                                         isSelected ? "bg-blue-50" : "hover:bg-gray-50"
                                                     }`}
                                                 >
-                                                    <td className="px-4 py-3">
+                                                    <td className="min-w-0 max-w-[min(100%,18rem)] wrap-break-word px-4 py-3 align-top">
                                                         {street.canonical_name || "-"}
                                                     </td>
-                                                    <td className="px-4 py-3">
+                                                    <td className="px-4 py-3 align-top">
                                                         {street.myanmarName || "-"}
                                                     </td>
-                                                    <td className="px-4 py-3">
+                                                    <td className="px-4 py-3 align-top">
                                                         {street.englishName || "-"}
                                                     </td>
-                                                    <td className="px-4 py-3">
+                                                    <td className="px-4 py-3 align-top">
                                                         {street.admin_area_name ?? "-"}
                                                     </td>
-                                                    <td className="px-4 py-3">
+                                                    <td className="px-4 py-3 align-top whitespace-nowrap">
                                                         {street.is_active ? "Yes" : "No"}
                                                     </td>
-                                                    <td className="px-4 py-3">
+                                                    <td className="whitespace-nowrap px-4 py-3 align-top">
                                                         {formatDate(street.updated_at)}
                                                     </td>
                                                 </tr>
@@ -198,11 +199,11 @@ export default function StreetsPage() {
                                         })
                                     )}
                                 </tbody>
-                            </table>
+                                </table>
                             </div>
                         </div>
 
-                        <aside className="sticky top-6 self-start rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                        <aside className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm lg:sticky lg:top-6">
                             <div className="mb-4 flex items-center justify-between gap-3">
                                 <h2 className="text-lg font-semibold text-gray-900">Street Details</h2>
                                 {selectedStreet ? (
@@ -216,9 +217,9 @@ export default function StreetsPage() {
                                 ) : null}
                             </div>
 
-                            <div className="mb-4">
+                            <MapPreviewCard className="mb-4">
                                 <StreetPreviewMap selectedStreet={selectedStreet} />
-                            </div>
+                            </MapPreviewCard>
 
                             {isDetailLoading ? (
                                 <p className="mb-3 text-sm text-gray-500">Loading street details...</p>
@@ -237,7 +238,7 @@ export default function StreetsPage() {
                                             Name
                                         </div>
                                         <div className="mt-1 text-base font-medium text-gray-900">
-                                            {selectedStreet.canonical_name}
+                                            {selectedStreet.canonical_name || "-"}
                                         </div>
                                     </div>
 

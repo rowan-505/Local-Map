@@ -9,6 +9,7 @@ import {
     setDashboardPreviewPlacesGeoJSON,
 } from "./dashboardPreviewPlacesLayers";
 import { createPlaceBaseMap } from "./createPlaceBaseMap";
+import { MAP_PREVIEW_VIEWPORT_PLACES_SIDEBAR } from "./mapPreviewUi";
 import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
 import type { Place } from "@/src/lib/api";
 import { placePreviewDisplayName } from "@/src/lib/placePreviewDisplayName";
@@ -121,7 +122,7 @@ export default function PlacePreviewMap({
     return (
         <div
             ref={containerRef}
-            className="h-[60vh] min-h-[320px] w-full overflow-hidden rounded-lg lg:min-h-[500px]"
+            className={MAP_PREVIEW_VIEWPORT_PLACES_SIDEBAR}
         />
     );
 }

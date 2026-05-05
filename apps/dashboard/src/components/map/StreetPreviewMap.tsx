@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
 
 import type { StreetGeometry } from "@/src/lib/api";
+import { MAP_PREVIEW_VIEWPORT_STREET } from "./mapPreviewUi";
+import { attachDashboardMapErrorHandler } from "./mapErrorHandlers";
 import { PLACE_MAP_DEFAULT_CENTER, PLACE_MAP_STYLE } from "./placeMapConfig";
 
 type StreetPreviewMapProps = {
@@ -79,9 +81,7 @@ export default function StreetPreviewMap({ selectedStreet }: StreetPreviewMapPro
         });
 
         map.addControl(new maplibregl.NavigationControl(), "top-right");
-        map.on("error", (event) => {
-            console.error("StreetPreviewMap map error:", event.error ?? event);
-        });
+        attachDashboardMapErrorHandler(map, "StreetPreviewMap");
 
         map.on("load", () => {
             map.addSource(STREET_SOURCE_ID, {
@@ -161,7 +161,7 @@ export default function StreetPreviewMap({ selectedStreet }: StreetPreviewMapPro
         <div className="relative">
             <div
                 ref={containerRef}
-                className="h-[45vh] min-h-[360px] w-full overflow-hidden rounded-lg"
+                className={MAP_PREVIEW_VIEWPORT_STREET}
             />
             {!selectedStreet?.geometry ? (
                 <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded bg-white/90 px-3 py-2 text-sm text-gray-700 shadow">

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 
 import { createPlaceBaseMap } from "@/src/components/map/createPlaceBaseMap";
+import { MAP_PREVIEW_VIEWPORT_BUILDING_PANEL } from "@/src/components/map/mapPreviewUi";
 import {
     BUILDINGS_LIST_LIMIT,
     getBuilding,
@@ -45,7 +46,13 @@ function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): nu
     return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
-function buildingCentroid(geom: Building["geometry"]): { lng: number; lat: number } | null {
+function buildingCentroid(
+    geom: Building["geometry"] | null | undefined
+): { lng: number; lat: number } | null {
+    if (!geom) {
+        return null;
+    }
+
     if (geom.type === "Polygon") {
         const ring = geom.coordinates[0];
         if (!ring?.length) {
@@ -201,7 +208,7 @@ export default function PlaceLinkedBuildingsPanel({
             return;
         }
 
-        if (!building) {
+        if (!building?.geometry) {
             src.setData({ type: "FeatureCollection", features: [] });
             return;
         }
@@ -705,7 +712,7 @@ export default function PlaceLinkedBuildingsPanel({
                 </div>
             </div>
 
-            <div ref={mapContainerRef} className="h-[280px] w-full overflow-hidden rounded-lg border border-gray-200 shadow-inner bg-gray-200" />
+            <div ref={mapContainerRef} className={MAP_PREVIEW_VIEWPORT_BUILDING_PANEL} />
 
             {actionError ? (
                 <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">

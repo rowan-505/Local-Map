@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
+import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 import PlacePreviewMap from "@/src/components/map/PlacePreviewMap";
 import PlaceEditModal from "@/src/components/places/PlaceEditModal";
 import {
@@ -104,7 +105,7 @@ function PlacesPageContent() {
     }, [editPlaceOpenId, isLoading, places, router]);
 
     return (
-        <main className="min-h-screen bg-gray-100 p-6">
+        <main className="p-6">
             <div className="mx-auto max-w-7xl">
                 <div className="mb-4 flex items-center justify-between gap-3">
                     <h1 className="text-2xl font-bold text-gray-900">Places</h1>
@@ -136,7 +137,7 @@ function PlacesPageContent() {
 
                 {!isLoading && !error ? (
                     <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] lg:items-start">
-                        <div className="rounded-lg border border-gray-200 bg-white shadow-sm lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
+                        <div className="min-h-0 rounded-lg border border-gray-200 bg-white shadow-sm lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
                             <div className="overflow-x-auto">
                             <table className="min-w-full text-left text-sm">
                                 <thead className="sticky top-0 z-10 bg-gray-50 text-gray-700">
@@ -259,13 +260,13 @@ function PlacesPageContent() {
                                 ) : null}
                             </div>
 
-                            <div className="mb-4">
+                            <MapPreviewCard className="mb-4">
                                 <PlacePreviewMap
                                     key={previewMapKey}
                                     selectedPlace={selectedPlace}
                                     contextPlaces={places}
                                 />
-                            </div>
+                            </MapPreviewCard>
 
                             {selectedPlace ? (
                                 <div className="space-y-3 text-sm text-gray-700">
@@ -352,7 +353,7 @@ export default function PlacesPage() {
     return (
         <Suspense
             fallback={
-                <main className="min-h-screen bg-gray-100 p-6">
+                <main className="p-6">
                     <div className="mx-auto max-w-7xl rounded-lg border border-gray-200 bg-white p-6 text-gray-700">
                         Loading places...
                     </div>

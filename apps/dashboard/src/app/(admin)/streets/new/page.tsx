@@ -104,7 +104,7 @@ export default function NewStreetPage() {
     }
 
     return (
-        <main className="min-h-screen bg-gray-100 p-6">
+        <main className="p-6">
             <div className="mx-auto max-w-3xl">
                 <div className="mb-6 flex items-center justify-between gap-3">
                     <div>
