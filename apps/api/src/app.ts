@@ -9,6 +9,8 @@ import categoriesRoutes from "./modules/categories/categories.routes.js";
 import placesRoutes from "./modules/places/places.routes.js";
 import publicMapRoutes from "./modules/public-map/public-map.routes.js";
 import streetsRoutes from "./modules/streets/streets.routes.js";
+import buildingsRoutes from "./modules/buildings/buildings.routes.js";
+import placeBuildingRoutes from "./modules/place-buildings/place-buildings.routes.js";
 
 const LOCAL_DASHBOARD_ORIGIN = "http://localhost:3000";
 const LOCAL_WEB_ORIGIN = "http://localhost:5173";
@@ -55,6 +57,8 @@ export async function buildApp() {
     await app.register(placesRoutes);
     await app.register(publicMapRoutes);
     await app.register(streetsRoutes);
+    await app.register(buildingsRoutes);
+    await app.register(placeBuildingRoutes);
 
     return app;
 }

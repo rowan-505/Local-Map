@@ -510,6 +510,11 @@ export default function NewPlacePage() {
                                 Click the map to place the marker. Drag the marker or edit the latitude/longitude
                                 fields to fine-tune the location.
                             </p>
+                            <p className="mt-4 rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-950">
+                                <strong>Linked buildings:</strong> After you create the place, open{" "}
+                                <strong>Edit</strong> from the Places list to attach nearby footprints. Buildings
+                                are optional for every POI.
+                            </p>
                         </div>
                     </div>
                 ) : null}

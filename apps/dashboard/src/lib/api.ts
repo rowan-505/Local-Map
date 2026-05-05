@@ -163,6 +163,118 @@ export type StreetsParams = {
     limit?: number;
 };
 
+export type BuildingPolygonGeometry = {
+    type: "Polygon";
+    coordinates: number[][][];
+};
+
+export type BuildingMultiPolygonGeometry = {
+    type: "MultiPolygon";
+    coordinates: number[][][][];
+};
+
+export type BuildingGeometry = BuildingPolygonGeometry | BuildingMultiPolygonGeometry;
+
+export type Building = {
+    id: string;
+    public_id: string;
+    source_staging_id: string | null;
+    external_id: string | null;
+    name: string | null;
+    building_type: string | null;
+    class_code: string;
+    normalized_data: Record<string, unknown>;
+    source_refs: Record<string, unknown>;
+    levels: number | null;
+    height_m: number | null;
+    area_m2: number | null;
+    confidence_score: number | null;
+    is_verified: boolean;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+    deleted_at: string | null;
+    geometry: BuildingGeometry;
+};
+
+/** Default/max `limit` for GET /buildings (aligned with API default 100). */
+export const BUILDINGS_LIST_LIMIT = 100;
+
+export type BuildingsParams = {
+    q?: string;
+    limit?: number;
+    offset?: number;
+};
+
+export type PlaceBuildingRelationType = "inside" | "entrance" | "nearby" | "compound";
+
+export type LinkedBuildingSummaryApi = {
+    relation_type: string;
+    is_primary: boolean;
+    created_at: string;
+    building: {
+        public_id: string;
+        name: string | null;
+        building_type: string | null;
+        class_code: string;
+        area_m2: number | null;
+    };
+};
+
+export type LinkedPlaceSummaryApi = {
+    relation_type: string;
+    is_primary: boolean;
+    created_at: string;
+    place: {
+        public_id: string;
+        primary_name: string | null;
+        display_name: string | null;
+        lat?: number | null;
+        lng?: number | null;
+        category_name: string | null;
+    };
+};
+
+export type LinkedPlacesForBuildingResponse = {
+    items: LinkedPlaceSummaryApi[];
+};
+
+export type LinkedPlaceBuildingListResponse = {
+    items: LinkedBuildingSummaryApi[];
+};
+
+export type LinkPlaceBuildingPayload = {
+    building_id: string;
+    relation_type?: PlaceBuildingRelationType;
+    is_primary?: boolean;
+};
+
+export type PatchPlaceBuildingPayload = {
+    relation_type?: PlaceBuildingRelationType;
+    is_primary?: boolean;
+};
+
+/** POST /places/:id/buildings */
+export type LinkPlaceBuildingResponse = LinkedBuildingSummaryApi & {
+    place_id: string;
+};
+
+/** PATCH /places/:id/buildings/:buildingId */
+export type PatchPlaceBuildingResponse = LinkPlaceBuildingResponse;
+
+/** POST/PATCH bodies — snake_case matches API JSON */
+export type CreateBuildingPayload = {
+    geometry: BuildingGeometry;
+    name?: string | null;
+    building_type?: string;
+    levels?: number;
+    height_m?: number;
+    confidence_score?: number;
+    is_verified?: boolean;
+};
+
+export type UpdateBuildingPayload = Partial<CreateBuildingPayload>;
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 function getApiBaseUrl(): string {
@@ -218,6 +330,66 @@ function redirectToLogin() {
     window.location.replace("/login");
 }
 
+/** Formats API `issues` from Zod `.flatten()` or `{ path, message }[]` (e.g. building geometry validation). */
+function formatApiIssuesBlock(issues: unknown): string {
+    if (issues === undefined || issues === null) {
+        return "";
+    }
+
+    if (Array.isArray(issues)) {
+        const lines: string[] = [];
+
+        for (const item of issues) {
+            if (item && typeof item === "object" && !Array.isArray(item)) {
+                const rec = item as { path?: unknown; message?: unknown };
+                const path = typeof rec.path === "string" && rec.path.trim() ? rec.path.trim() : "";
+                const msg = typeof rec.message === "string" && rec.message.trim() ? rec.message.trim() : "";
+
+                if (path && msg) {
+                    lines.push(`• ${path}: ${msg}`);
+                } else if (msg) {
+                    lines.push(`• ${msg}`);
+                } else {
+                    lines.push(`• ${JSON.stringify(item)}`);
+                }
+            } else {
+                lines.push(`• ${String(item)}`);
+            }
+        }
+
+        return lines.join("\n");
+    }
+
+    if (typeof issues === "object") {
+        const o = issues as { formErrors?: unknown; fieldErrors?: Record<string, unknown> };
+        const lines: string[] = [];
+
+        if (Array.isArray(o.formErrors)) {
+            for (const fe of o.formErrors) {
+                if (typeof fe === "string" && fe.trim()) {
+                    lines.push(`• ${fe.trim()}`);
+                }
+            }
+        }
+
+        if (o.fieldErrors && typeof o.fieldErrors === "object") {
+            for (const [field, errs] of Object.entries(o.fieldErrors)) {
+                if (Array.isArray(errs)) {
+                    for (const err of errs) {
+                        if (typeof err === "string" && err.trim()) {
+                            lines.push(`• ${field}: ${err.trim()}`);
+                        }
+                    }
+                }
+            }
+        }
+
+        return lines.join("\n");
+    }
+
+    return `• ${String(issues)}`;
+}
+
 async function getErrorMessage(response: Response): Promise<string> {
     const contentType = response.headers.get("content-type") ?? "";
 
@@ -230,26 +402,24 @@ async function getErrorMessage(response: Response): Promise<string> {
             return `Request failed with status ${response.status}`;
         }
 
-        const parts: string[] = [];
+        const headline: string[] = [];
 
         if (typeof data.message === "string" && data.message.trim()) {
-            parts.push(data.message.trim());
+            headline.push(data.message.trim());
         }
 
         if (typeof data.error === "string" && data.error.trim()) {
-            parts.push(data.error.trim());
+            headline.push(data.error.trim());
         }
 
-        if (data.issues !== undefined) {
-            try {
-                parts.push(JSON.stringify(data.issues));
-            } catch {
-                parts.push(String(data.issues));
-            }
+        const issuesBlock = formatApiIssuesBlock(data.issues);
+
+        if (issuesBlock) {
+            return headline.length > 0 ? `${headline.join(" — ")}\n\n${issuesBlock}` : issuesBlock;
         }
 
-        if (parts.length > 0) {
-            return parts.join(" — ");
+        if (headline.length > 0) {
+            return headline.join(" — ");
         }
 
         return JSON.stringify(data);
@@ -375,4 +545,84 @@ export function updateStreet(id: string, payload: UpdateStreetPayload) {
         },
         body: JSON.stringify(payload),
     });
+}
+
+export function getBuildings(params?: BuildingsParams) {
+    return apiFetch<Building[]>("/buildings", { method: "GET" }, params);
+}
+
+export function getBuilding(id: string) {
+    return apiFetch<Building>(`/buildings/${id}`, { method: "GET" });
+}
+
+export function createBuilding(payload: CreateBuildingPayload) {
+    return apiFetch<Building>("/buildings", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+    });
+}
+
+export function updateBuilding(id: string, payload: UpdateBuildingPayload) {
+    return apiFetch<Building>(`/buildings/${id}`, {
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+    });
+}
+
+export function deleteBuilding(id: string) {
+    return apiFetch<Building>(`/buildings/${id}`, {
+        method: "DELETE",
+    });
+}
+
+export function getLinkedBuildingsForPlace(placePublicId: string) {
+    return apiFetch<LinkedPlaceBuildingListResponse>(`/places/${placePublicId}/buildings`, {
+        method: "GET",
+    });
+}
+
+export function linkBuildingToPlace(placePublicId: string, payload: LinkPlaceBuildingPayload) {
+    return apiFetch<LinkPlaceBuildingResponse>(`/places/${placePublicId}/buildings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            building_id: payload.building_id,
+            relation_type: payload.relation_type ?? "inside",
+            is_primary: payload.is_primary ?? false,
+        }),
+    });
+}
+
+export function unlinkBuildingFromPlace(placePublicId: string, buildingPublicId: string) {
+    return apiFetch<{ ok: boolean; place_id: string; building_id: string }>(
+        `/places/${placePublicId}/buildings/${buildingPublicId}`,
+        { method: "DELETE" }
+    );
+}
+
+export function getLinkedPlacesForBuilding(buildingPublicId: string) {
+    return apiFetch<LinkedPlacesForBuildingResponse>(`/buildings/${buildingPublicId}/places`, {
+        method: "GET",
+    });
+}
+
+export function patchPlaceBuildingLink(
+    placePublicId: string,
+    buildingPublicId: string,
+    payload: PatchPlaceBuildingPayload
+) {
+    return apiFetch<PatchPlaceBuildingResponse>(
+        `/places/${placePublicId}/buildings/${buildingPublicId}`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        }
+    );
 }

@@ -1,7 +1,36 @@
-import type { ExpressionSpecification, StyleSpecification } from "maplibre-gl";
+import type {
+    ExpressionSpecification,
+    Map as MaplibreMap,
+    StyleSpecification,
+    VectorTileSource,
+} from "maplibre-gl";
 import { getMapTextFieldExpression } from "@local-map/localized-name";
 
 const TILE_SERVER_URL = "https://martin-lively-canyon-4077.fly.dev";
+
+/** Martin + MapLibre vector source for OSM and dashboard footprints (tiles.tiles_buildings_v). */
+export const MAP_BUILDINGS_VECTOR_SOURCE_ID = "tiles_buildings_v";
+
+export function mapBuildingsTileUrl(cacheBust?: string): string {
+    const path = `${TILE_SERVER_URL}/tiles_buildings_v/{z}/{x}/{y}`;
+    return cacheBust ? `${path}?v=${encodeURIComponent(cacheBust)}` : path;
+}
+
+/**
+ * Busts the browser tile cache for the unified buildings layer (use after creating/editing via API).
+ * No-op if the style does not include `MAP_BUILDINGS_VECTOR_SOURCE_ID`.
+ */
+export function reloadMapBuildingsVectorTiles(map: MaplibreMap): boolean {
+    const src = map.getSource(MAP_BUILDINGS_VECTOR_SOURCE_ID);
+
+    if (!src || src.type !== "vector") {
+        return false;
+    }
+
+    (src as VectorTileSource).setTiles([mapBuildingsTileUrl(String(Date.now()))]);
+    map.triggerRepaint();
+    return true;
+}
 
 const LABEL_TEXT_MY = getMapTextFieldExpression("my") as ExpressionSpecification;
 
@@ -40,9 +69,9 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
             minzoom: 0,
             maxzoom: 22,
         },
-        core_map_buildings: {
+        [MAP_BUILDINGS_VECTOR_SOURCE_ID]: {
             type: "vector",
-            tiles: [`${TILE_SERVER_URL}/core_map_buildings/{z}/{x}/{y}`],
+            tiles: [mapBuildingsTileUrl()],
             minzoom: 0,
             maxzoom: 22,
         },
@@ -117,12 +146,25 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         {
             id: "buildings",
             type: "fill",
-            source: "core_map_buildings",
-            "source-layer": "core_map_buildings",
-            minzoom: 14,
+            source: MAP_BUILDINGS_VECTOR_SOURCE_ID,
+            "source-layer": MAP_BUILDINGS_VECTOR_SOURCE_ID,
+            /** Keep OSM + dashboard footprints visible from regional zoom; matches `packages/map-style/base-map.json`. */
+            minzoom: 0,
             paint: {
                 "fill-color": "#ded8cf",
-                "fill-opacity": 0.72,
+                "fill-opacity": [
+                    "interpolate",
+                    ["linear"],
+                    ["zoom"],
+                    10,
+                    0.22,
+                    14,
+                    0.48,
+                    17,
+                    0.72,
+                    22,
+                    0.72,
+                ],
                 "fill-outline-color": "#c7beb2",
             },
         },
