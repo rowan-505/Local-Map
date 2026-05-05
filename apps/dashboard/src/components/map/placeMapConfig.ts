@@ -4,7 +4,7 @@ import type {
     StyleSpecification,
     VectorTileSource,
 } from "maplibre-gl";
-import { getMapTextFieldExpression } from "@local-map/localized-name";
+import { getMapTextFieldExpression } from "@/src/lib/mapLocalizedName";
 
 const TILE_SERVER_URL = "https://martin-lively-canyon-4077.fly.dev";
 
@@ -296,5 +296,25 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         },
     ],
 };
+
+/**
+ * Same basemap as {@link PLACE_MAP_STYLE} but omits Martin bus stop / bus route vector
+ * sources and layers. Use on **Buildings** admin routes so failing `tiles_bus_stops_v` does
+ * not request tiles at all (see `attachDashboardMapErrorHandler` for remaining soft failures).
+ */
+export const PLACE_MAP_STYLE_BUILDINGS: StyleSpecification = (() => {
+    const sources = { ...PLACE_MAP_STYLE.sources } as Record<string, (typeof PLACE_MAP_STYLE.sources)[string]>;
+    delete sources.tiles_bus_stops_v;
+    delete sources.tiles_bus_route_variants_v;
+
+    return {
+        ...PLACE_MAP_STYLE,
+        name: "Local Map Natural (buildings)",
+        sources: sources as StyleSpecification["sources"],
+        layers: PLACE_MAP_STYLE.layers.filter(
+            (layer) => !("id" in layer) || (layer.id !== "bus-routes" && layer.id !== "bus-stops")
+        ),
+    };
+})();
 
 export const PLACE_MAP_DEFAULT_CENTER: [number, number] = [96.3242, 16.6395];

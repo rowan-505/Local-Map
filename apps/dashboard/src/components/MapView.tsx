@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 
 import { apiFetch } from "@/src/lib/api";
+import { attachDashboardMapErrorHandler } from "@/src/components/map/mapErrorHandlers";
 import { PLACE_MAP_STYLE } from "./map/placeMapConfig";
 
 type Poi = {
@@ -31,6 +32,8 @@ export default function MapView() {
         });
 
         map.addControl(new maplibregl.NavigationControl(), "top-right");
+
+        attachDashboardMapErrorHandler(map, "MapView");
 
         map.on("load", async () => {
             try {

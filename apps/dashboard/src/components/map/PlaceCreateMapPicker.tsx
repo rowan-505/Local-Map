@@ -9,6 +9,7 @@ import {
     setDashboardPreviewPlacesGeoJSON,
 } from "./dashboardPreviewPlacesLayers";
 import { createPlaceBaseMap } from "./createPlaceBaseMap";
+import { MAP_PREVIEW_VIEWPORT_FORM } from "./mapPreviewUi";
 import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
 import type { Place } from "@/src/lib/api";
 
@@ -72,10 +73,6 @@ export default function PlaceCreateMapPicker({
             console.error("PlaceCreateMapPicker constructor error:", error);
             return;
         }
-
-        map.on("error", (event) => {
-            console.error("PlaceCreateMapPicker map error:", event.error ?? event);
-        });
 
         const ensureMarker = () => {
             if (!markerRef.current) {
@@ -197,7 +194,7 @@ export default function PlaceCreateMapPicker({
     return (
         <div
             ref={containerRef}
-            className="h-[400px] w-full overflow-hidden rounded-lg lg:h-[60vh] lg:min-h-[420px]"
+            className={MAP_PREVIEW_VIEWPORT_FORM}
         />
     );
 }

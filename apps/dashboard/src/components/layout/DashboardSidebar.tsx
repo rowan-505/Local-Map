@@ -8,6 +8,8 @@ const NAV = [
     { href: "/places", label: "Places", match: "prefix" as const },
     { href: "/streets", label: "Streets", match: "prefix" as const },
     { href: "/buildings", label: "Buildings", match: "prefix" as const },
+    { href: "/categories", label: "Categories", match: "prefix" as const },
+    { href: "/admin-areas", label: "Admin Areas", match: "prefix" as const },
 ];
 
 function isActive(pathname: string, href: string, match: "exact" | "prefix") {

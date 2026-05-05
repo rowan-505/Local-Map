@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type Resolver } from "react-hook-form";
 import { z } from "zod";
 
+import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 import PlaceCreateMapPicker from "@/src/components/map/PlaceCreateMapPicker";
 import {
     createPlace,
@@ -251,7 +252,7 @@ export default function NewPlacePage() {
         typeof errors.categoryId?.message === "string" ? errors.categoryId.message : null;
 
     return (
-        <main className="min-h-screen bg-gray-100 p-6">
+        <main className="p-6">
             <div className="mx-auto max-w-7xl">
                 <div className="mb-6 flex items-center justify-between gap-3">
                     <div>
@@ -497,19 +498,17 @@ export default function NewPlacePage() {
                         </form>
 
                         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm lg:sticky lg:top-6">
-                            <h2 className="mb-4 text-lg font-semibold text-gray-900">
-                                Coordinate Picker
-                            </h2>
-                            <PlaceCreateMapPicker
-                                lat={selectedLat}
-                                lng={selectedLng}
-                                onChange={handleMapChange}
-                                contextPlaces={previewContextPlaces}
-                            />
-                            <p className="mt-3 text-sm text-gray-600">
-                                Click the map to place the marker. Drag the marker or edit the latitude/longitude
-                                fields to fine-tune the location.
-                            </p>
+                            <MapPreviewCard
+                                title="Coordinate Picker"
+                                description="Click the map to place the marker. Drag the marker or edit the latitude/longitude fields to fine-tune the location."
+                            >
+                                <PlaceCreateMapPicker
+                                    lat={selectedLat}
+                                    lng={selectedLng}
+                                    onChange={handleMapChange}
+                                    contextPlaces={previewContextPlaces}
+                                />
+                            </MapPreviewCard>
                             <p className="mt-4 rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-950">
                                 <strong>Linked buildings:</strong> After you create the place, open{" "}
                                 <strong>Edit</strong> from the Places list to attach nearby footprints. Buildings

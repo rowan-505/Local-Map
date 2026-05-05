@@ -2,7 +2,11 @@ import type { ReactNode } from "react";
 
 import DashboardSidebar from "@/src/components/layout/DashboardSidebar";
 
-export default function BuildingsLayout({ children }: { children: ReactNode }) {
+/**
+ * Shared shell for authenticated data modules (`/dashboard`, `/places`, `/streets`, etc.).
+ * Route group name `(admin)` is not part of URLs.
+ */
+export default function AdminModuleLayout({ children }: { children: ReactNode }) {
     return (
         <div className="flex min-h-screen bg-gray-100">
             <DashboardSidebar />
