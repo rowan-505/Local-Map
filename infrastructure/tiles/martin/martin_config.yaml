@@ -1,82 +1,97 @@
-listen_addresses: "0.0.0.0:3002"
+# listen_addresses: "0.0.0.0:3002"
 
-postgres:
-  connection_string: postgres://postgres:postgres@localhost:5433/geo_core
+# ---------------------------------------------------------------------------
+# Dashboard + web basemap use Martin path: /tiles_buildings_v/{z}/{x}/{y}
+# Source layer id in MapLibre: tiles_buildings_v (Postgres view tiles.tiles_buildings_v).
+# Register explicitly if auto_publish does not pick up views in schema `tiles`:
+#
+#   tiles_buildings_v:
+#     schema: tiles
+#     table: tiles_buildings_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
+#
+# See infrastructure/database/migrations/005_tiles_buildings_v.sql and 007_*.sql
+# ---------------------------------------------------------------------------
 
-tables:
-  tiles_roads_v:
-    schema: tiles
-    table: tiles_roads_v
-    srid: 4326
-    geometry_column: geom
-    id_column: id
+# postgres:
+#   connection_string: postgres://postgres:postgres@localhost:5433/geo_core
 
-  tiles_buildings_v:
-    schema: tiles
-    table: tiles_buildings_v
-    srid: 4326
-    geometry_column: geom
-    id_column: id
+# tables:
+#   tiles_roads_v:
+#     schema: tiles
+#     table: tiles_roads_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
 
-  tiles_landuse_v:
-    schema: tiles
-    table: tiles_landuse_v
-    srid: 4326
-    geometry_column: geom
-    id_column: id
+#   tiles_buildings_v:
+#     schema: tiles
+#     table: tiles_buildings_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
 
-  tiles_water_polygons_v:
-    schema: tiles
-    table: tiles_water_polygons_v
-    srid: 4326
-    geometry_column: geom
-    id_column: id
+#   tiles_landuse_v:
+#     schema: tiles
+#     table: tiles_landuse_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
 
-  tiles_water_lines_v:
-    schema: tiles
-    table: tiles_water_lines_v
-    srid: 4326
-    geometry_column: geom
-    id_column: id
+#   tiles_water_polygons_v:
+#     schema: tiles
+#     table: tiles_water_polygons_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
 
-  tiles_places_v:
-    schema: tiles
-    table: tiles_places_v
-    srid: 4326
-    geometry_column: geom
-    id_column: id
+#   tiles_water_lines_v:
+#     schema: tiles
+#     table: tiles_water_lines_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
 
-  tiles_road_labels_v:
-    schema: tiles
-    table: tiles_road_labels_v
-    srid: 4326
-    geometry_column: geom
-    id_column: id
+#   tiles_places_v:
+#     schema: tiles
+#     table: tiles_places_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
 
-  tiles_admin_boundaries_v:
-    schema: tiles
-    table: tiles_admin_boundaries_v
-    srid: 4326
-    geometry_column: geom
-    id_column: id
+#   tiles_road_labels_v:
+#     schema: tiles
+#     table: tiles_road_labels_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
 
-  tiles_admin_areas_v:
-    schema: tiles
-    table: tiles_admin_areas_v
-    srid: 4326
-    geometry_column: geom
-    id_column: id
+#   tiles_admin_boundaries_v:
+#     schema: tiles
+#     table: tiles_admin_boundaries_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
 
-  tiles_bus_stops_v:
-    schema: tiles
-    table: tiles_bus_stops_v
-    srid: 4326
-    geometry_column: geom
-    id_column: id
+#   tiles_admin_areas_v:
+#     schema: tiles
+#     table: tiles_admin_areas_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
 
-  tiles_bus_route_variants_v:
-    schema: tiles
-    table: tiles_bus_route_variants_v
-    srid: 4326
-    geometry_column: geom
-    id_column: id
+#   tiles_bus_stops_v:
+#     schema: tiles
+#     table: tiles_bus_stops_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id
+
+#   tiles_bus_route_variants_v:
+#     schema: tiles
+#     table: tiles_bus_route_variants_v
+#     srid: 4326
+#     geometry_column: geom
+#     id_column: id

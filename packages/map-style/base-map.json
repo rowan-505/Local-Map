@@ -30,10 +30,10 @@
       "minzoom": 0,
       "maxzoom": 22
     },
-    "core_map_buildings": {
+    "tiles_buildings_v": {
       "type": "vector",
       "tiles": [
-        "https://martin-lively-canyon-4077.fly.dev/core_map_buildings/{z}/{x}/{y}"
+        "https://martin-lively-canyon-4077.fly.dev/tiles_buildings_v/{z}/{x}/{y}"
       ],
       "minzoom": 0,
       "maxzoom": 22
@@ -378,23 +378,25 @@
     {
       "id": "buildings",
       "type": "fill",
-      "source": "core_map_buildings",
-      "source-layer": "core_map_buildings",
-      "minzoom": 15,
+      "source": "tiles_buildings_v",
+      "source-layer": "tiles_buildings_v",
+      "minzoom": 0,
       "paint": {
-        "fill-color": "#ddd7ce",
+        "fill-color": "#ded8cf",
         "fill-opacity": [
           "interpolate",
           ["linear"],
           ["zoom"],
-          15,
-          0.28,
+          10,
+          0.22,
+          14,
+          0.48,
           17,
-          0.5,
-          20,
-          0.64
+          0.72,
+          22,
+          0.72
         ],
-        "fill-outline-color": "rgba(194, 187, 176, 0.45)"
+        "fill-outline-color": "#c7beb2"
       }
     },
     {

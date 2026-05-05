@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import PlacePreviewMap from "@/src/components/map/PlacePreviewMap";
 import PlaceEditModal from "@/src/components/places/PlaceEditModal";
@@ -12,7 +13,10 @@ import {
     type Place,
 } from "@/src/lib/api";
 
-export default function PlacesPage() {
+function PlacesPageContent() {
+    const searchParams = useSearchParams();
+    const router = useRouter();
+
     const [places, setPlaces] = useState<Place[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState("");
@@ -21,6 +25,8 @@ export default function PlacesPage() {
     const [successMessage, setSuccessMessage] = useState("");
     const [isDeleting, setIsDeleting] = useState(false);
     const [previewMapKey, setPreviewMapKey] = useState(0);
+    const editPlaceHandledRef = useRef<string | null>(null);
+    const editPlaceOpenId = searchParams.get("editPlace");
 
     const bumpPreviewMap = useCallback(() => {
         setPreviewMapKey((value) => value + 1);
@@ -70,6 +76,32 @@ export default function PlacesPage() {
             bumpPreviewMap();
         }
     }, [loadPlaces, bumpPreviewMap]);
+
+    useEffect(() => {
+        if (!editPlaceOpenId) {
+            editPlaceHandledRef.current = null;
+            return;
+        }
+
+        if (isLoading || places.length === 0) {
+            return;
+        }
+
+        if (editPlaceHandledRef.current === editPlaceOpenId) {
+            return;
+        }
+
+        editPlaceHandledRef.current = editPlaceOpenId;
+
+        router.replace("/places", { scroll: false });
+
+        const target = places.find((place) => place.public_id === editPlaceOpenId);
+
+        if (target) {
+            setSelectedPlace(target);
+            setIsEditModalOpen(true);
+        }
+    }, [editPlaceOpenId, isLoading, places, router]);
 
     return (
         <main className="min-h-screen bg-gray-100 p-6">
@@ -313,5 +345,21 @@ export default function PlacesPage() {
                 }}
             />
         </main>
+    );
+}
+
+export default function PlacesPage() {
+    return (
+        <Suspense
+            fallback={
+                <main className="min-h-screen bg-gray-100 p-6">
+                    <div className="mx-auto max-w-7xl rounded-lg border border-gray-200 bg-white p-6 text-gray-700">
+                        Loading places...
+                    </div>
+                </main>
+            }
+        >
+            <PlacesPageContent />
+        </Suspense>
     );
 }

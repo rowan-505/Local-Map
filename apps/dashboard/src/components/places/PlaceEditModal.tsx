@@ -13,6 +13,7 @@ import {
     type PlaceFormOptions,
     type UpdatePlacePayload,
 } from "@/src/lib/api";
+import PlaceLinkedBuildingsPanel from "./PlaceLinkedBuildingsPanel";
 
 const scoreFieldSchema = z.union([z.number().finite(), z.literal("")]);
 
@@ -122,6 +123,7 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
         register,
         handleSubmit,
         reset,
+        watch,
         formState: { errors },
     } = useForm<PlaceEditFormInput, unknown, PlaceEditFormValues>({
         resolver: zodResolver(placeEditFormSchema),
@@ -142,6 +144,9 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
             publishStatusId: "",
         },
     });
+
+    const watchedLat = watch("lat");
+    const watchedLng = watch("lng");
 
     useEffect(() => {
         if (!open || !placeId) {
@@ -253,7 +258,8 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
                     ) : null}
 
                     {!isLoading && !loadError && detail && options ? (
-                        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+                        <>
+                            <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
                             <div className="grid gap-6 lg:grid-cols-2">
                                 <div className="space-y-4">
                                     <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
@@ -502,7 +508,15 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
                                     {isSaving ? "Saving..." : "Save"}
                                 </button>
                             </div>
-                        </form>
+                            </form>
+
+                            <PlaceLinkedBuildingsPanel
+                                key={`${detail.public_id}-linked-buildings`}
+                                placePublicId={detail.public_id}
+                                placeLat={typeof watchedLat === "number" ? watchedLat : detail.lat}
+                                placeLng={typeof watchedLng === "number" ? watchedLng : detail.lng}
+                            />
+                        </>
                     ) : null}
                 </div>
             </div>

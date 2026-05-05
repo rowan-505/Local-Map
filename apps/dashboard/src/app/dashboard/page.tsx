@@ -16,6 +16,11 @@ const modules = [
         description: "Browse street records and review street geometry.",
     },
     {
+        href: "/buildings",
+        title: "Buildings",
+        description: "Create and edit dashboard-sourced building polygons.",
+    },
+    {
         href: "/categories",
         title: "Categories",
         description: "Open the category module for reference data management.",
