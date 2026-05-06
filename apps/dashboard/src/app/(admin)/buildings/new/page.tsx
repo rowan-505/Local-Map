@@ -27,7 +27,10 @@ export default function NewBuildingPage() {
                 submitLabel="Create building"
                 onSubmit={async (payload: CreateBuildingPayload) => {
                     const created = await createBuilding(payload);
-                    router.push(`/buildings/${created.public_id}/edit`);
+                    /** Defer navigation so {@link BuildingEditorForm} runs tile refresh before unmount (macrotask after microtasks / rAF). */
+                    window.setTimeout(() => {
+                        router.push(`/buildings/${created.public_id}/edit`);
+                    }, 0);
                 }}
             />
         </main>

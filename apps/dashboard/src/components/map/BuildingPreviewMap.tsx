@@ -1,13 +1,29 @@
 "use client";
 
+/**
+ * Buildings list preview map (dashboard `/buildings`): basemap polygons + GeoJSON footprint overlay.
+ *
+ * Footprint pipelines on this widget:
+ * - Vector MVT: style source id {@link MAP_BUILDINGS_VECTOR_SOURCE_ID} (`tiles_buildings_v`),
+ *   fill layer id `buildings` → DB view `tiles.tiles_buildings_v` via Martin.
+ * - Selected footprint GeoJSON overlay: {@link BUILDING_PREVIEW_FOOTPRINT_SOURCE_ID}, layers
+ *   {@link BUILDING_PREVIEW_FILL_LAYER_ID} / {@link BUILDING_PREVIEW_OUTLINE_LAYER_ID}.
+ * Edit pages use BuildingEditorMap `current-building-geometry*` — not rendered here.
+ */
 import area from "@turf/area";
+import type { MutableRefObject } from "react";
 import { useEffect, useRef, useState } from "react";
-import maplibregl, { type GeoJSONSource } from "maplibre-gl";
+import maplibregl, { type GeoJSONSource, type Map as MaplibreMap } from "maplibre-gl";
 import type { Feature, MultiPolygon, Polygon } from "geojson";
 
 import { createPlaceBaseMap } from "./createPlaceBaseMap";
 import { MAP_PREVIEW_VIEWPORT_PLACES_SIDEBAR } from "./mapPreviewUi";
-import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
+import {
+    BUILDING_PREVIEW_FILL_LAYER_ID,
+    BUILDING_PREVIEW_FOOTPRINT_SOURCE_ID,
+    BUILDING_PREVIEW_OUTLINE_LAYER_ID,
+    PLACE_MAP_DEFAULT_CENTER,
+} from "./placeMapConfig";
 import type { BuildingGeometry } from "@/src/lib/api";
 
 export type BuildingPreviewMapProps = {
@@ -15,6 +31,8 @@ export type BuildingPreviewMapProps = {
     /** Shown when `geometry` is missing (after loading or if API has no footprint). */
     emptyHint?: string;
     className?: string;
+    /** When the map instance is ready, assigned so the parent can call `refreshBuildingTiles` after mutations. */
+    mapSurfaceRef?: MutableRefObject<MaplibreMap | null>;
 };
 
 const DEFAULT_ZOOM = 12;
@@ -24,9 +42,9 @@ const LARGE_FIT_MAX_ZOOM = 18;
 /** Above this planar area (m²), treat footprint as "large" and use {@link LARGE_FIT_MAX_ZOOM}. */
 const LARGE_FOOTPRINT_AREA_M2 = 8_000;
 
-const SOURCE_ID = "building-preview-footprint";
-const FILL_LAYER_ID = "building-preview-fill";
-const LINE_LAYER_ID = "building-preview-outline";
+const SOURCE_ID = BUILDING_PREVIEW_FOOTPRINT_SOURCE_ID;
+const FILL_LAYER_ID = BUILDING_PREVIEW_FILL_LAYER_ID;
+const LINE_LAYER_ID = BUILDING_PREVIEW_OUTLINE_LAYER_ID;
 
 const IS_DEV = process.env.NODE_ENV === "development";
 
@@ -119,6 +137,7 @@ export default function BuildingPreviewMap({
     geometry,
     emptyHint = "No geometry available for this building.",
     className,
+    mapSurfaceRef,
 }: BuildingPreviewMapProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -162,6 +181,9 @@ export default function BuildingPreviewMap({
             });
 
             exposeBuildingPreviewMapForDev(map);
+            if (mapSurfaceRef) {
+                mapSurfaceRef.current = map;
+            }
             setIsMapReady(true);
         };
 
@@ -173,10 +195,13 @@ export default function BuildingPreviewMap({
                 delete (window as unknown as { __buildingPreviewMap?: maplibregl.Map }).__buildingPreviewMap;
             }
             setIsMapReady(false);
+            if (mapSurfaceRef?.current === map) {
+                mapSurfaceRef.current = null;
+            }
             map.remove();
             mapRef.current = null;
         };
-    }, []);
+    }, [mapSurfaceRef]);
 
     useEffect(() => {
         if (!isMapReady || !containerRef.current || !mapRef.current) {

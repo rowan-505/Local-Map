@@ -231,6 +231,14 @@ export class BuildingsRepository {
                   AND ST_IsValid(geom)
                   AND ST_Area(geom::geography) > ${AREA_MIN_EXCLUSIVE}
                   AND ST_Area(geom::geography) < ${AREA_MAX_EXCLUSIVE}
+            ),
+            lbl AS (
+                SELECT COALESCE(
+                    NULLIF(btrim(${snapshot.building_type_column}::text), ''),
+                    NULLIF(btrim(${snapshot.class_code}::text), ''),
+                    'yes'
+                )::text AS resolved_label
+                FROM ready
             )
             INSERT INTO core.core_map_buildings (
                 source_staging_id,
@@ -256,22 +264,22 @@ export class BuildingsRepository {
                 NULL,
                 NULL,
                 ${snapshot.name},
-                ${snapshot.class_code},
+                lbl.resolved_label,
                 ${normalizedJson}::jsonb,
                 '{"source":"dashboard"}'::jsonb,
-                geom,
-                ${snapshot.building_type_column},
+                ready.geom,
+                lbl.resolved_label,
                 ${snapshot.levels},
                 ${snapshot.height_m},
-                centroid,
-                area_m2,
+                ready.centroid,
+                ready.area_m2,
                 ${snapshot.confidence_score},
                 ${snapshot.is_verified},
                 TRUE,
                 NOW(),
                 NOW(),
-                NULL
-            FROM ready
+                NULL::timestamptz
+            FROM ready, lbl
             RETURNING
                 id::text AS id,
                 public_id::text AS public_id,
@@ -329,6 +337,14 @@ export class BuildingsRepository {
                   AND ST_Area(geom::geography) > ${AREA_MIN_EXCLUSIVE}
                   AND ST_Area(geom::geography) < ${AREA_MAX_EXCLUSIVE}
             ),
+            lbl AS (
+                SELECT COALESCE(
+                    NULLIF(btrim(${snapshot.building_type_column}::text), ''),
+                    NULLIF(btrim(${snapshot.class_code}::text), ''),
+                    'yes'
+                )::text AS resolved_label
+                FROM ready
+            ),
             updated AS (
                 UPDATE core.core_map_buildings AS b
                 SET
@@ -336,15 +352,15 @@ export class BuildingsRepository {
                     centroid = ready.centroid,
                     area_m2 = ready.area_m2,
                     name = ${snapshot.name},
-                    class_code = ${snapshot.class_code},
-                    building_type = ${snapshot.building_type_column},
+                    class_code = lbl.resolved_label,
+                    building_type = lbl.resolved_label,
                     normalized_data = ${normalizedJson}::jsonb,
                     levels = ${snapshot.levels},
                     height_m = ${snapshot.height_m},
                     confidence_score = ${snapshot.confidence_score},
                     is_verified = ${snapshot.is_verified},
                     updated_at = NOW()
-                FROM ready
+                FROM ready, lbl
                 WHERE b.public_id = CAST(${publicId} AS uuid)
                   AND ${dashboardBuildingClause}
                   AND b.deleted_at IS NULL
@@ -386,8 +402,16 @@ export class BuildingsRepository {
             UPDATE core.core_map_buildings AS b
             SET
                 name = ${snapshot.name},
-                class_code = ${snapshot.class_code},
-                building_type = ${snapshot.building_type_column},
+                class_code = COALESCE(
+                    NULLIF(btrim(${snapshot.building_type_column}::text), ''),
+                    NULLIF(btrim(${snapshot.class_code}::text), ''),
+                    'yes'
+                ),
+                building_type = COALESCE(
+                    NULLIF(btrim(${snapshot.building_type_column}::text), ''),
+                    NULLIF(btrim(${snapshot.class_code}::text), ''),
+                    'yes'
+                ),
                 normalized_data = ${normalizedJson}::jsonb,
                 levels = ${snapshot.levels},
                 height_m = ${snapshot.height_m},
@@ -425,7 +449,11 @@ export class BuildingsRepository {
         return rows[0] ?? null;
     }
 
-    async softDeleteDashboardBuilding(publicId: string): Promise<BuildingDetailRow | null> {
+    /**
+     * Soft-delete any active building (dashboard or import) by public_id.
+     * Sets is_active = false, deleted_at = now, updated_at = now (explicit for tile + audit consistency).
+     */
+    async softDeleteActiveBuildingByPublicId(publicId: string): Promise<BuildingDetailRow | null> {
         const rows = await this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
             UPDATE core.core_map_buildings AS b
             SET
@@ -433,7 +461,6 @@ export class BuildingsRepository {
                 deleted_at = NOW(),
                 updated_at = NOW()
             WHERE b.public_id = CAST(${publicId} AS uuid)
-              AND ${dashboardBuildingClause}
               AND b.deleted_at IS NULL
               AND b.is_active IS TRUE
             RETURNING

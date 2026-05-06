@@ -10,6 +10,7 @@ import PlaceEditModal from "@/src/components/places/PlaceEditModal";
 import {
     deletePlace,
     getPlaces,
+    isAbortError,
     PLACES_LIST_LIMIT,
     type Place,
 } from "@/src/lib/api";
@@ -33,49 +34,66 @@ function PlacesPageContent() {
         setPreviewMapKey((value) => value + 1);
     }, []);
 
-    const loadPlaces = useCallback(async (selectedPublicId?: string) => {
-        setIsLoading(true);
-        setError("");
+    const loadPlaces = useCallback(
+        async (selectedPublicId?: string, signal?: AbortSignal) => {
+            setIsLoading(true);
+            setError("");
 
-        try {
-            const data = await getPlaces({ limit: PLACES_LIST_LIMIT });
-            setPlaces(data);
+            try {
+                const data = await getPlaces(
+                    { limit: PLACES_LIST_LIMIT },
+                    signal ? { signal } : undefined
+                );
+                setPlaces(data);
 
-            const nextSelectedPlace =
-                data.find((place) => place.public_id === selectedPublicId) ?? data[0] ?? null;
+                const nextSelectedPlace =
+                    data.find((place) => place.public_id === selectedPublicId) ?? data[0] ?? null;
 
-            setSelectedPlace(nextSelectedPlace);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to load places");
-            setSelectedPlace(null);
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
+                setSelectedPlace(nextSelectedPlace);
+            } catch (err) {
+                if (isAbortError(err)) {
+                    return;
+                }
+
+                setError(err instanceof Error ? err.message : "Failed to load places");
+                setSelectedPlace(null);
+            } finally {
+                setIsLoading(false);
+            }
+        },
+        []
+    );
 
     useEffect(() => {
-        void loadPlaces();
-    }, [loadPlaces]);
-
-    useEffect(() => {
-        const redirectPublicId = window.sessionStorage.getItem("placeCreatePublicId");
-        const message = window.sessionStorage.getItem("placeCreateSuccess");
-
-        if (redirectPublicId) {
-            window.sessionStorage.removeItem("placeCreatePublicId");
-        }
+        const abort = new AbortController();
+        const redirectPublicId =
+            typeof window !== "undefined"
+                ? window.sessionStorage.getItem("placeCreatePublicId")
+                : null;
+        const message =
+            typeof window !== "undefined"
+                ? window.sessionStorage.getItem("placeCreateSuccess")
+                : null;
 
         if (message) {
             setSuccessMessage(message);
-            window.sessionStorage.removeItem("placeCreateSuccess");
+            sessionStorage.removeItem("placeCreateSuccess");
+            bumpPreviewMap();
         }
 
-        if (redirectPublicId) {
-            void loadPlaces(redirectPublicId);
-            bumpPreviewMap();
-        } else if (message) {
-            bumpPreviewMap();
-        }
+        void (async () => {
+            await loadPlaces(redirectPublicId ?? undefined, abort.signal);
+            if (abort.signal.aborted) {
+                return;
+            }
+
+            if (redirectPublicId) {
+                sessionStorage.removeItem("placeCreatePublicId");
+                bumpPreviewMap();
+            }
+        })();
+
+        return () => abort.abort();
     }, [loadPlaces, bumpPreviewMap]);
 
     useEffect(() => {

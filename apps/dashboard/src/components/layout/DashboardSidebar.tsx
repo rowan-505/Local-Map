@@ -26,7 +26,11 @@ export default function DashboardSidebar() {
     return (
         <aside className="flex w-52 shrink-0 flex-col border-r border-gray-200 bg-white">
             <div className="border-b border-gray-100 px-4 py-4">
-                <Link href="/dashboard" className="text-sm font-semibold text-gray-900">
+                <Link
+                    href="/dashboard"
+                    prefetch={false}
+                    className="text-sm font-semibold text-gray-900"
+                >
                     Local Map
                 </Link>
                 <p className="mt-1 text-xs text-gray-500">Admin</p>
@@ -37,6 +41,7 @@ export default function DashboardSidebar() {
 
                     return (
                         <Link
+                            prefetch={false}
                             key={item.href}
                             href={item.href}
                             className={`rounded-md px-3 py-2 text-sm ${

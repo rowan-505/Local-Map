@@ -11,8 +11,4 @@ declare module "fastify" {
 
 export default fp(async function prismaPlugin(app) {
     app.decorate("prisma", prisma);
-
-    app.addHook("onClose", async (instance) => {
-        await instance.prisma.$disconnect();
-    });
 });

@@ -1,14 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import type { Map as MaplibreMap } from "maplibre-gl";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import BuildingPreviewMap from "@/src/components/map/BuildingPreviewMap";
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 import {
+    clearBuildingSelectionGeoJsonSources,
+    debugLogDashboardBuildingFootprintLayers,
+    MAP_BUILDINGS_VECTOR_SOURCE_ID,
+    scheduleBuildingTileRefresh,
+} from "@/src/components/map/placeMapConfig";
+
+const IS_BUILDINGS_PAGE_DEV = process.env.NODE_ENV !== "production";
+import {
     BUILDINGS_LIST_LIMIT,
+    deleteBuilding,
     getBuilding,
     getBuildings,
+    isAbortError,
     type Building,
 } from "@/src/lib/api";
 
@@ -62,6 +73,19 @@ function hasUsableGeometry(b: Building): boolean {
     return Array.isArray(firstRing) && firstRing.length > 0;
 }
 
+function safeTechnicalClientMessage(raw: string, readableFallback: string): string {
+    if (
+        raw.length > 400 ||
+        /\b(pg_|postgresql|prisma|P1012|syntax error at|violates|duplicate key value|permission denied for relation)\b/i.test(
+            raw
+        )
+    ) {
+        return readableFallback;
+    }
+
+    return raw;
+}
+
 export default function BuildingsPage() {
     const [buildings, setBuildings] = useState<Building[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -70,38 +94,78 @@ export default function BuildingsPage() {
     const [previewBuilding, setPreviewBuilding] = useState<Building | null>(null);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewError, setPreviewError] = useState("");
+    const [isDeleting, setIsDeleting] = useState(false);
+    const buildingsPreviewMapRef = useRef<MaplibreMap | null>(null);
 
-    const loadBuildings = useCallback(async () => {
-        setIsLoading(true);
-        setError("");
+    const loadBuildings = useCallback(
+        async (opts?: {
+            signal?: AbortSignal;
+            removedPublicId?: string;
+            removedIndex?: number;
+            quiet?: boolean;
+        }): Promise<Building[] | null> => {
+            if (!opts?.quiet) {
+                setIsLoading(true);
+            }
 
-        try {
-            const data = await getBuildings({ limit: BUILDINGS_LIST_LIMIT });
-            setBuildings(data);
+            setError("");
 
-            setSelectedBuilding((prev) => {
-                if (data.length === 0) {
+            try {
+                const data = await getBuildings(
+                    { limit: BUILDINGS_LIST_LIMIT },
+                    opts?.signal ? { signal: opts.signal } : undefined
+                );
+                setBuildings(data);
+
+                setSelectedBuilding((prev) => {
+                    if (data.length === 0) {
+                        return null;
+                    }
+
+                    if (opts?.removedPublicId != null) {
+                        const nextIndex = Math.min(Math.max(opts.removedIndex ?? 0, 0), data.length - 1);
+                        return data[nextIndex] ?? null;
+                    }
+
+                    if (prev) {
+                        const stillThere = data.find((b) => b.public_id === prev.public_id);
+                        if (stillThere) {
+                            return stillThere;
+                        }
+                    }
+
+                    return data[0];
+                });
+
+                return data;
+            } catch (err) {
+                if (isAbortError(err)) {
                     return null;
                 }
-                if (prev) {
-                    const stillThere = data.find((b) => b.public_id === prev.public_id);
-                    if (stillThere) {
-                        return stillThere;
-                    }
+
+                setError(
+                    safeTechnicalClientMessage(
+                        err instanceof Error ? err.message : "Failed to load buildings",
+                        "Something went wrong while loading buildings."
+                    )
+                );
+                setBuildings([]);
+                setSelectedBuilding(null);
+
+                return null;
+            } finally {
+                if (!opts?.quiet) {
+                    setIsLoading(false);
                 }
-                return data[0];
-            });
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to load buildings");
-            setBuildings([]);
-            setSelectedBuilding(null);
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
+            }
+        },
+        []
+    );
 
     useEffect(() => {
-        void loadBuildings();
+        const abort = new AbortController();
+        void loadBuildings({ signal: abort.signal });
+        return () => abort.abort();
     }, [loadBuildings]);
 
     useEffect(() => {
@@ -119,15 +183,15 @@ export default function BuildingsPage() {
             return;
         }
 
-        let cancelled = false;
+        const abort = new AbortController();
 
         setPreviewLoading(true);
         setPreviewError("");
         setPreviewBuilding(null);
 
-        void getBuilding(selectedBuilding.public_id)
+        void getBuilding(selectedBuilding.public_id, { signal: abort.signal })
             .then((full) => {
-                if (cancelled) {
+                if (abort.signal.aborted) {
                     return;
                 }
                 setPreviewBuilding(full);
@@ -136,21 +200,24 @@ export default function BuildingsPage() {
                 }
             })
             .catch((err) => {
-                if (cancelled) {
+                if (isAbortError(err)) {
                     return;
                 }
                 setPreviewBuilding(null);
-                setPreviewError(err instanceof Error ? err.message : "Failed to load building");
+                setPreviewError(
+                    safeTechnicalClientMessage(
+                        err instanceof Error ? err.message : "Failed to load building",
+                        "Unable to load building details."
+                    )
+                );
             })
             .finally(() => {
-                if (!cancelled) {
+                if (!abort.signal.aborted) {
                     setPreviewLoading(false);
                 }
             });
 
-        return () => {
-            cancelled = true;
-        };
+        return () => abort.abort();
     }, [selectedBuilding]);
 
     const detail = previewBuilding ?? selectedBuilding;
@@ -194,16 +261,13 @@ export default function BuildingsPage() {
                                             <th className="px-4 py-3 font-medium">Confidence</th>
                                             <th className="px-4 py-3 font-medium">Verified</th>
                                             <th className="px-4 py-3 font-medium">Updated</th>
-                                            <th className="w-[1%] whitespace-nowrap px-4 py-3 text-right font-medium">
-                                                <span className="sr-only">Actions</span>
-                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
                                         {buildings.length === 0 ? (
                                             <tr>
                                                 <td
-                                                    colSpan={8}
+                                                    colSpan={7}
                                                     className="px-4 py-6 text-center text-gray-500"
                                                 >
                                                     No buildings found.
@@ -247,17 +311,6 @@ export default function BuildingsPage() {
                                                         <td className="whitespace-nowrap px-4 py-3 align-top">
                                                             {formatDate(building.updated_at)}
                                                         </td>
-                                                        <td
-                                                            className="whitespace-nowrap px-4 py-3 text-right align-top"
-                                                            onClick={(event) => event.stopPropagation()}
-                                                        >
-                                                            <Link
-                                                                href={`/buildings/${building.public_id}/edit`}
-                                                                className="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50"
-                                                            >
-                                                                Edit
-                                                            </Link>
-                                                        </td>
                                                     </tr>
                                                 );
                                             })
@@ -271,12 +324,159 @@ export default function BuildingsPage() {
                             <div className="mb-4 flex items-center justify-between gap-3">
                                 <h2 className="text-lg font-semibold text-gray-900">Building Details</h2>
                                 {detail ? (
-                                    <Link
-                                        href={`/buildings/${detail.public_id}/edit`}
-                                        className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700"
-                                    >
-                                        Edit
-                                    </Link>
+                                    <div className="flex items-center gap-2">
+                                        <Link
+                                            href={`/buildings/${detail.public_id}/edit`}
+                                            className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                                        >
+                                            Edit
+                                        </Link>
+                                        <button
+                                            type="button"
+                                            disabled={isDeleting}
+                                            onClick={async () => {
+                                                if (!detail) {
+                                                    return;
+                                                }
+
+                                                const confirmed = window.confirm(
+                                                    "Delete this building?"
+                                                );
+
+                                                if (!confirmed) {
+                                                    return;
+                                                }
+
+                                                setIsDeleting(true);
+                                                setError("");
+
+                                                const deletedId = detail.public_id;
+                                                const deletedIndex = buildings.findIndex(
+                                                    (b) => b.public_id === deletedId
+                                                );
+
+                                                try {
+                                                    await deleteBuilding(deletedId);
+
+                                                    const mapInstance = buildingsPreviewMapRef.current;
+
+                                                    const geoSourcesCleared =
+                                                        clearBuildingSelectionGeoJsonSources(
+                                                            mapInstance
+                                                        );
+
+                                                    if (
+                                                        IS_BUILDINGS_PAGE_DEV &&
+                                                        typeof console.info === "function"
+                                                    ) {
+                                                        console.info("selected building GeoJSON cleared", {
+                                                            sourcesCleared: geoSourcesCleared,
+                                                        });
+                                                    }
+
+                                                    const tilesRefreshed =
+                                                        scheduleBuildingTileRefresh(mapInstance);
+
+                                                    if (
+                                                        typeof window !== "undefined" &&
+                                                        IS_BUILDINGS_PAGE_DEV
+                                                    ) {
+                                                        const w = window as Window & {
+                                                            __buildingPreviewMap?: MaplibreMap;
+                                                        };
+                                                        const devMap = w.__buildingPreviewMap;
+
+                                                        if (devMap && devMap !== mapInstance) {
+                                                            clearBuildingSelectionGeoJsonSources(
+                                                                devMap
+                                                            );
+                                                            scheduleBuildingTileRefresh(devMap);
+                                                        }
+                                                    }
+
+                                                    const filtered = buildings.filter(
+                                                        (b) => b.public_id !== deletedId
+                                                    );
+                                                    const wasSelected =
+                                                        selectedBuilding?.public_id === deletedId;
+
+                                                    const nextSelected = wasSelected
+                                                        ? filtered.length > 0
+                                                            ? filtered[
+                                                                  Math.min(
+                                                                      Math.max(
+                                                                          deletedIndex,
+                                                                          0
+                                                                      ),
+                                                                      filtered.length - 1
+                                                                  )
+                                                              ] ?? null
+                                                            : null
+                                                        : selectedBuilding;
+
+                                                    setPreviewLoading(false);
+                                                    setPreviewBuilding(null);
+                                                    setPreviewError("");
+                                                    setBuildings(filtered);
+                                                    setSelectedBuilding(nextSelected);
+
+                                                    if (
+                                                        IS_BUILDINGS_PAGE_DEV &&
+                                                        typeof console.info === "function"
+                                                    ) {
+                                                        console.info("deleted building removed from state", {
+                                                            deletedPublicId: deletedId,
+                                                        });
+                                                        if (wasSelected) {
+                                                            console.info(
+                                                                "selected building cleared after delete",
+                                                                {
+                                                                    nextPublicId:
+                                                                        nextSelected?.public_id ??
+                                                                        null,
+                                                                }
+                                                            );
+                                                        }
+                                                    }
+
+                                                    await loadBuildings({
+                                                        quiet: true,
+                                                    });
+
+                                                    debugLogDashboardBuildingFootprintLayers(mapInstance);
+
+                                                    if (typeof console.debug === "function") {
+                                                        console.debug("[buildings-page] delete footprint debug", {
+                                                            deletedPublicId: deletedId,
+                                                            nextSelectedPublicId:
+                                                                nextSelected?.public_id ?? null,
+                                                            buildingVectorSourceId:
+                                                                MAP_BUILDINGS_VECTOR_SOURCE_ID,
+                                                            selectionGeoSourcesCleared:
+                                                                geoSourcesCleared,
+                                                            vectorTilesRefreshSucceeded:
+                                                                tilesRefreshed,
+                                                            tilesTilesBuildingsVerifySql: `SELECT * FROM tiles.tiles_buildings_v WHERE public_id = '${deletedId}'::uuid`,
+                                                        });
+                                                    }
+                                                } catch (err) {
+                                                    setError(
+                                                        safeTechnicalClientMessage(
+                                                            err instanceof Error
+                                                                ? err.message
+                                                                : "Failed to delete building",
+                                                            "Unable to delete the building."
+                                                        )
+                                                    );
+                                                } finally {
+                                                    setIsDeleting(false);
+                                                }
+                                            }}
+                                            className="rounded border border-red-300 px-3 py-2 text-sm text-red-700 disabled:opacity-60"
+                                        >
+                                            {isDeleting ? "Deleting..." : "Delete"}
+                                        </button>
+                                    </div>
                                 ) : null}
                             </div>
 
@@ -287,11 +487,14 @@ export default function BuildingsPage() {
                                 error={previewError || null}
                             >
                                 <BuildingPreviewMap
+                                    mapSurfaceRef={buildingsPreviewMapRef}
                                     geometry={previewBuilding?.geometry}
                                     emptyHint={
-                                        detail
-                                            ? "No geometry available for this building."
-                                            : "Select a building from the list."
+                                        buildings.length === 0
+                                            ? "No buildings in the list."
+                                            : detail
+                                              ? "No geometry available for this building."
+                                              : "Select a building from the list."
                                     }
                                 />
                             </MapPreviewCard>
@@ -344,6 +547,8 @@ export default function BuildingsPage() {
                                         </div>
                                     </div>
                                 </div>
+                            ) : buildings.length === 0 ? (
+                                <p className="text-sm text-gray-500">No buildings in the list.</p>
                             ) : (
                                 <p className="text-sm text-gray-500">
                                     Select a building to view details.

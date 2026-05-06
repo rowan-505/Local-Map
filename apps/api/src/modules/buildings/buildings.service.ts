@@ -112,14 +112,14 @@ export class BuildingsService {
         return this.serializeBuilding(updated);
     }
 
-    async softDeleteBuilding(publicId: string) {
-        const deleted = await this.buildingsRepo.softDeleteDashboardBuilding(publicId);
+    async softDeleteBuilding(publicId: string): Promise<{ public_id: string }> {
+        const deleted = await this.buildingsRepo.softDeleteActiveBuildingByPublicId(publicId);
 
         if (!deleted) {
             throw new BuildingNotFoundError();
         }
 
-        return this.serializeBuilding(deleted);
+        return { public_id: deleted.public_id };
     }
 
     private serializeBuilding(row: BuildingDetailRow) {
