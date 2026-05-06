@@ -110,6 +110,10 @@ function formatBuildingTypeDisplay(b: Building): string {
     return "Unclassified";
 }
 
+function formatAdminAreaDisplay(b: Building): string {
+    return dash(b.admin_area?.canonical_name ?? null);
+}
+
 export default function BuildingsPage() {
     const { bumpBuildingTileVersion } = useBuildingTileVersion();
     const [buildings, setBuildings] = useState<Building[]>([]);
@@ -281,6 +285,7 @@ export default function BuildingsPage() {
                                         <tr>
                                             <th className="px-4 py-3 font-medium">Name</th>
                                             <th className="px-4 py-3 font-medium">Building type</th>
+                                            <th className="px-4 py-3 font-medium">Admin area</th>
                                             <th className="px-4 py-3 font-medium">Area (m²)</th>
                                             <th className="px-4 py-3 font-medium">Levels</th>
                                             <th className="px-4 py-3 font-medium">Confidence</th>
@@ -292,7 +297,7 @@ export default function BuildingsPage() {
                                         {buildings.length === 0 ? (
                                             <tr>
                                                 <td
-                                                    colSpan={7}
+                                                    colSpan={8}
                                                     className="px-4 py-6 text-center text-gray-500"
                                                 >
                                                     No buildings found.
@@ -320,6 +325,9 @@ export default function BuildingsPage() {
                                                         </td>
                                                         <td className="px-4 py-3 align-top">
                                                             {formatBuildingTypeDisplay(building)}
+                                                        </td>
+                                                        <td className="px-4 py-3 align-top min-w-[8rem]">
+                                                            {formatAdminAreaDisplay(building)}
                                                         </td>
                                                         <td className="px-4 py-3 align-top whitespace-nowrap">
                                                             {formatArea(building.area_m2)}
@@ -548,6 +556,13 @@ export default function BuildingsPage() {
                                             Building type
                                         </div>
                                         <div className="mt-1">{formatBuildingTypeDisplay(detail)}</div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                            Admin area
+                                        </div>
+                                        <div className="mt-1">{formatAdminAreaDisplay(detail)}</div>
                                     </div>
 
                                     <div>

@@ -19,6 +19,9 @@ export type LinkedBuildingSummaryRow = {
     building_type_name_mm: string | null;
     class_code: string;
     building_area_m2: number | null;
+    building_admin_area_row_id: string | null;
+    building_admin_area_canonical_name: string | null;
+    building_admin_area_slug: string | null;
 };
 
 export type LinkedPlaceSummaryRow = {
@@ -105,13 +108,17 @@ export class PlaceBuildingsRepository {
                 bt.name AS building_type_name,
                 bt.name_mm AS building_type_name_mm,
                 b.class_code,
-                b.area_m2::double precision AS building_area_m2
+                b.area_m2::double precision AS building_area_m2,
+                aa.id::text AS building_admin_area_row_id,
+                aa.canonical_name AS building_admin_area_canonical_name,
+                aa.slug AS building_admin_area_slug
             FROM core.core_places AS p
             INNER JOIN core.core_place_buildings AS pb
                 ON pb.place_id = p.id
             INNER JOIN core.core_map_buildings AS b
                 ON b.id = pb.building_id
             LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
+            LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
             WHERE p.public_id = CAST(${placePublicId} AS uuid)
               AND p.deleted_at IS NULL
               AND b.deleted_at IS NULL
@@ -184,11 +191,15 @@ export class PlaceBuildingsRepository {
                     bt.name AS building_type_name,
                     bt.name_mm AS building_type_name_mm,
                     b.class_code,
-                    b.area_m2::double precision AS building_area_m2
+                    b.area_m2::double precision AS building_area_m2,
+                    aa.id::text AS building_admin_area_row_id,
+                    aa.canonical_name AS building_admin_area_canonical_name,
+                    aa.slug AS building_admin_area_slug
                 FROM core.core_place_buildings AS pb
                 INNER JOIN core.core_map_buildings AS b
                     ON b.id = pb.building_id
                 LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
+                LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
                 WHERE pb.place_id = ${placeInternalId}
                   AND pb.building_id = ${buildingInternalId}
                 LIMIT 1
@@ -293,11 +304,15 @@ export class PlaceBuildingsRepository {
                     bt.name AS building_type_name,
                     bt.name_mm AS building_type_name_mm,
                     b.class_code,
-                    b.area_m2::double precision AS building_area_m2
+                    b.area_m2::double precision AS building_area_m2,
+                    aa.id::text AS building_admin_area_row_id,
+                    aa.canonical_name AS building_admin_area_canonical_name,
+                    aa.slug AS building_admin_area_slug
                 FROM core.core_place_buildings AS pb
                 INNER JOIN core.core_map_buildings AS b
                     ON b.id = pb.building_id
                 LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
+                LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
                 WHERE pb.place_id = ${placeInternalId}
                   AND pb.building_id = ${buildingInternalId}
                 LIMIT 1

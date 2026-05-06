@@ -59,6 +59,15 @@ export class PlaceBuildingsService {
                 building_type_name_mm: row.building_type_name_mm,
                 class_code: row.class_code,
                 area_m2: row.building_area_m2,
+                admin_area:
+                    row.building_admin_area_row_id !== null &&
+                    row.building_admin_area_row_id !== undefined
+                        ? {
+                              id: row.building_admin_area_row_id,
+                              canonical_name: row.building_admin_area_canonical_name ?? "",
+                              slug: row.building_admin_area_slug ?? "",
+                          }
+                        : null,
             },
         };
     }

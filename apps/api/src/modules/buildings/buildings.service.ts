@@ -149,6 +149,15 @@ export class BuildingsService {
             building_type_code: row.building_type_code,
             building_type_name: row.building_type_name,
             building_type_name_mm: row.building_type_name_mm,
+            admin_area_id: row.admin_area_id,
+            admin_area:
+                row.admin_area_row_id !== null && row.admin_area_row_id !== undefined
+                    ? {
+                          id: row.admin_area_row_id,
+                          canonical_name: row.admin_area_canonical_name ?? "",
+                          slug: row.admin_area_slug ?? "",
+                      }
+                    : null,
             class_code: row.class_code,
             normalized_data: row.normalized_data,
             source_refs: row.source_refs,
@@ -166,6 +175,16 @@ export class BuildingsService {
     }
 
     private async buildPersistSnapshotFromCreate(body: CreateBuildingBody): Promise<BuildingPersistSnapshot> {
+        const userPinnedAdmin = typeof body.admin_area_id === "bigint";
+
+        let admin_area_id: bigint | null = null;
+        let admin_area_resolve_spatial = true;
+
+        if (userPinnedAdmin) {
+            admin_area_id = await this.resolveAdminAreaOrThrow(body.admin_area_id, "create");
+            admin_area_resolve_spatial = false;
+        }
+
         if (body.building_type_id !== undefined) {
             const ref = await this.buildingsRepo.getActiveBuildingTypeById(body.building_type_id);
 
@@ -185,6 +204,8 @@ export class BuildingsService {
                 class_code: label,
                 building_type_column: label,
                 building_type_id: ref.id,
+                admin_area_resolve_spatial,
+                admin_area_id,
                 normalized_data: normalizedFromCreate(body, label, ref.id),
                 levels: body.levels ?? null,
                 height_m: body.height_m ?? null,
@@ -202,6 +223,8 @@ export class BuildingsService {
             class_code: label,
             building_type_column: label,
             building_type_id: matched?.id ?? null,
+            admin_area_resolve_spatial,
+            admin_area_id,
             normalized_data: normalizedFromCreate(body, label, matched?.id ?? null),
             levels: body.levels ?? null,
             height_m: body.height_m ?? null,
@@ -265,17 +288,61 @@ export class BuildingsService {
             patch
         );
 
+        let admin_area_id: bigint | null =
+            existing.admin_area_id !== null &&
+            existing.admin_area_id !== undefined &&
+            existing.admin_area_id !== ""
+                ? BigInt(existing.admin_area_id)
+                : null;
+
+        let admin_area_resolve_spatial = false;
+
+        if (patch.admin_area_id === null) {
+            admin_area_id = null;
+        } else if (patch.admin_area_id !== undefined) {
+            admin_area_id = await this.resolveAdminAreaOrThrow(patch.admin_area_id, "patch");
+            admin_area_resolve_spatial = false;
+        } else if (patch.geometry !== undefined) {
+            admin_area_resolve_spatial = true;
+            admin_area_id = null;
+        }
+
         return {
             name,
             class_code: resolvedType,
             building_type_column: resolvedType,
             building_type_id,
+            admin_area_resolve_spatial,
+            admin_area_id,
             normalized_data,
             levels,
             height_m,
             confidence_score,
             is_verified,
         };
+    }
+
+    /** Resolves nullable admin FK; rejects inactive or unknown ids when non-null. */
+    private async resolveAdminAreaOrThrow(
+        adminAreaId: bigint | undefined | null,
+        _context: "create" | "patch"
+    ): Promise<bigint | null> {
+        if (adminAreaId === undefined || adminAreaId === null) {
+            return null;
+        }
+
+        const has = await this.buildingsRepo.hasActiveAdminArea(adminAreaId);
+
+        if (!has) {
+            throw new BuildingValidationError("Invalid admin area", [
+                {
+                    path: "admin_area_id",
+                    message: "Not found or inactive.",
+                },
+            ]);
+        }
+
+        return adminAreaId;
     }
 
     private async validateGeoJsonPipeline(geojsonText: string) {

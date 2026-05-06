@@ -195,6 +195,13 @@ export type RefBuildingType = {
     sort_order?: number;
 };
 
+/** Embedded admin area on building API responses. */
+export type BuildingAdminAreaRef = {
+    id: string;
+    canonical_name: string;
+    slug: string;
+};
+
 export type Building = {
     id: string;
     public_id: string;
@@ -209,6 +216,9 @@ export type Building = {
     building_type_code?: string | null;
     building_type_name?: string | null;
     building_type_name_mm?: string | null;
+    /** Optional FK to core.core_admin_areas. */
+    admin_area_id?: string | null;
+    admin_area?: BuildingAdminAreaRef | null;
     class_code: string;
     normalized_data: Record<string, unknown>;
     source_refs: Record<string, unknown>;
@@ -256,6 +266,7 @@ export type LinkedBuildingSummaryApi = {
         building_type_name_mm?: string | null;
         class_code: string;
         area_m2: number | null;
+        admin_area?: BuildingAdminAreaRef | null;
     };
 };
 
@@ -308,6 +319,8 @@ export type CreateBuildingPayload = {
     building_type?: string;
     /** Omit or null: create omits; PATCH may send null to clear FK. */
     building_type_id?: string | null;
+    /** Omit, set, or null (PATCH) to clear. */
+    admin_area_id?: string | null;
     levels?: number;
     height_m?: number;
     confidence_score?: number;
