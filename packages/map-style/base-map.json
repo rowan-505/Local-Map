@@ -2,9 +2,10 @@
   "version": 8,
   "name": "Local Map Production Light",
   "metadata": {
-    "local-map:purpose": "Rendering-only production basemap. Search, detail cards, and live CRUD data come from API/core."
+    "local-map:purpose": "Rendering-only production basemap. Search, detail cards, and live CRUD data come from API/core.",
+    "local-map:glyphs": "Self-hosted in apps/web/public/fonts/{fontstack}/ — MapLibre requests /fonts/{fontstack}/{range}.pbf from the web app origin. Folder names must match text-font stack names exactly."
   },
-  "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+  "glyphs": "/fonts/{fontstack}/{range}.pbf",
   "sources": {
     "tiles_water_polygons_v": {
       "type": "vector",
@@ -219,7 +220,7 @@
           ["get", "name_en"],
           ["get", "name"]
         ],
-        "text-font": ["Noto Sans Regular"],
+        "text-font": ["Noto Sans Myanmar Regular"],
         "text-size": [
           "interpolate",
           ["linear"],
@@ -351,7 +352,7 @@
           ["get", "name_en"],
           ["get", "name"]
         ],
-        "text-font": ["Noto Sans Myanmar Regular", "Noto Sans Regular"],
+        "text-font": ["Noto Sans Myanmar Regular"],
         "text-size": [
           "interpolate",
           ["linear"],
@@ -449,7 +450,7 @@
           ["get", "name_en"],
           ["get", "name"]
         ],
-        "text-font": ["Noto Sans Regular"],
+        "text-font": ["Noto Sans Myanmar Regular"],
         "text-size": [
           "interpolate",
           ["linear"],
@@ -536,7 +537,7 @@
           ["get", "name_en"],
           ["get", "name"]
         ],
-        "text-font": ["Noto Sans Myanmar Regular", "Noto Sans Regular"],
+        "text-font": ["Noto Sans Myanmar Regular"],
         "text-size": [
           "interpolate",
           ["linear"],
@@ -616,7 +617,7 @@
           ["get", "name_en"],
           ["get", "name"]
         ],
-        "text-font": ["Noto Sans Myanmar Regular", "Noto Sans Regular"],
+        "text-font": ["Noto Sans Myanmar Regular"],
         "text-size": [
           "interpolate",
           ["linear"],

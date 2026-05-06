@@ -15,12 +15,7 @@ export class DashboardStatsService {
     constructor(private readonly dashboardStatsRepo: DashboardStatsRepository) {}
 
     async getDashboardStats(): Promise<DashboardStatsResponse> {
-        const [main, metadata, transit, health] = await Promise.all([
-            this.dashboardStatsRepo.getMainCounts(),
-            this.dashboardStatsRepo.getMetadataCounts(),
-            this.dashboardStatsRepo.getTransitCounts(),
-            this.dashboardStatsRepo.getHealthCounts(),
-        ]);
+        const { main, metadata, transit, health } = await this.dashboardStatsRepo.fetchStatsSnapshot();
 
         return {
             overview: {

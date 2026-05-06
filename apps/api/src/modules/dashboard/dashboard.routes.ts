@@ -12,9 +12,16 @@ const dashboardRoutes: FastifyPluginAsync = async (app) => {
         {
             preHandler: app.authenticate,
         },
-        async (_request, reply) => {
-            const stats = await dashboardStatsService.getDashboardStats();
-            return reply.send(stats);
+        async (request, reply) => {
+            console.log("GET /dashboard/stats called");
+            try {
+                const stats = await dashboardStatsService.getDashboardStats();
+                return reply.send(stats);
+            } catch (err) {
+                console.error("DASHBOARD_STATS_ERROR:", err);
+                request.log.error({ err }, "GET /dashboard/stats failed");
+                throw err;
+            }
         }
     );
 };
