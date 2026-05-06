@@ -12,6 +12,7 @@ import {
     MAP_BUILDINGS_VECTOR_SOURCE_ID,
     scheduleBuildingTileRefresh,
 } from "@/src/components/map/placeMapConfig";
+import { useBuildingTileVersion } from "@/src/components/map/BuildingTileVersionContext";
 
 const IS_BUILDINGS_PAGE_DEV = process.env.NODE_ENV !== "production";
 import {
@@ -87,6 +88,7 @@ function safeTechnicalClientMessage(raw: string, readableFallback: string): stri
 }
 
 export default function BuildingsPage() {
+    const { bumpBuildingTileVersion } = useBuildingTileVersion();
     const [buildings, setBuildings] = useState<Building[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState("");
@@ -374,8 +376,13 @@ export default function BuildingsPage() {
                                                         });
                                                     }
 
+                                                    const tileVersion = bumpBuildingTileVersion();
+
                                                     const tilesRefreshed =
-                                                        scheduleBuildingTileRefresh(mapInstance);
+                                                        scheduleBuildingTileRefresh(
+                                                            mapInstance,
+                                                            tileVersion
+                                                        );
 
                                                     if (
                                                         typeof window !== "undefined" &&
@@ -390,7 +397,10 @@ export default function BuildingsPage() {
                                                             clearBuildingSelectionGeoJsonSources(
                                                                 devMap
                                                             );
-                                                            scheduleBuildingTileRefresh(devMap);
+                                                            scheduleBuildingTileRefresh(
+                                                                devMap,
+                                                                tileVersion
+                                                            );
                                                         }
                                                     }
 

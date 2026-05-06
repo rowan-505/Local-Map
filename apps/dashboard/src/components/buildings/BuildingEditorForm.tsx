@@ -10,6 +10,7 @@ import BuildingEditorMap, {
 } from "@/src/components/buildings/BuildingEditorMap";
 import type { Building, BuildingGeometry, CreateBuildingPayload } from "@/src/lib/api";
 import { scheduleBuildingTileRefresh } from "@/src/components/map/placeMapConfig";
+import { useBuildingTileVersion } from "@/src/components/map/BuildingTileVersionContext";
 
 function isBuildingGeometry(value: unknown): value is BuildingGeometry {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -62,6 +63,7 @@ export default function BuildingEditorForm({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const submitLockRef = useRef(false);
     const editorMapSurfaceRef = useRef<MaplibreMap | null>(null);
+    const { bumpBuildingTileVersion } = useBuildingTileVersion();
 
     const handleDrawOutput = useCallback((output: BuildingEditorMapDrawOutput) => {
         setGeometryJson(output.geometryJson);
@@ -168,7 +170,8 @@ export default function BuildingEditorForm({
         try {
             await onSubmit(payload);
             setSubmitApiError("");
-            scheduleBuildingTileRefresh(editorMapSurfaceRef.current);
+            const tileVersion = bumpBuildingTileVersion();
+            scheduleBuildingTileRefresh(editorMapSurfaceRef.current, tileVersion);
         } catch (err) {
             const raw = err instanceof Error ? err.message : "Request failed";
             const looksTechnical =

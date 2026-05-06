@@ -17,12 +17,14 @@ import maplibregl, { type GeoJSONSource, type Map as MaplibreMap } from "maplibr
 import type { Feature, MultiPolygon, Polygon } from "geojson";
 
 import { createPlaceBaseMap } from "./createPlaceBaseMap";
+import { useBuildingTileVersion } from "./BuildingTileVersionContext";
 import { MAP_PREVIEW_VIEWPORT_PLACES_SIDEBAR } from "./mapPreviewUi";
 import {
     BUILDING_PREVIEW_FILL_LAYER_ID,
     BUILDING_PREVIEW_FOOTPRINT_SOURCE_ID,
     BUILDING_PREVIEW_OUTLINE_LAYER_ID,
     PLACE_MAP_DEFAULT_CENTER,
+    refreshBuildingTiles,
 } from "./placeMapConfig";
 import type { BuildingGeometry } from "@/src/lib/api";
 
@@ -139,6 +141,7 @@ export default function BuildingPreviewMap({
     className,
     mapSurfaceRef,
 }: BuildingPreviewMapProps) {
+    const { buildingTileVersion } = useBuildingTileVersion();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const [isMapReady, setIsMapReady] = useState(false);
@@ -218,6 +221,16 @@ export default function BuildingPreviewMap({
 
         return () => ro.disconnect();
     }, [isMapReady]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map?.isStyleLoaded() || !isMapReady) {
+            return;
+        }
+
+        refreshBuildingTiles(map, buildingTileVersion);
+    }, [isMapReady, buildingTileVersion]);
 
     useEffect(() => {
         const map = mapRef.current;
