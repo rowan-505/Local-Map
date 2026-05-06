@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 import StreetPreviewMap from "@/src/components/map/StreetPreviewMap";
 import StreetEditModal from "@/src/components/streets/StreetEditModal";
-import { getStreet, getStreets, type StreetDetail, type Street } from "@/src/lib/api";
+import { getStreet, getStreets, isAbortError, type StreetDetail, type Street } from "@/src/lib/api";
 
 function formatDate(value: string): string {
     const date = new Date(value);
@@ -27,12 +27,12 @@ export default function StreetsPage() {
     const [detailError, setDetailError] = useState("");
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-    const loadStreets = useCallback(async (selectedPublicId?: string) => {
+    const loadStreets = useCallback(async (selectedPublicId?: string, signal?: AbortSignal) => {
         setIsLoading(true);
         setError("");
 
         try {
-            const data = await getStreets({ limit: 50 });
+            const data = await getStreets({ limit: 50 }, signal ? { signal } : undefined);
             setStreets(data);
 
             setSelectedStreet((current) => {
@@ -57,6 +57,10 @@ export default function StreetsPage() {
                 return (data[0] as StreetDetail | undefined) ?? null;
             });
         } catch (err) {
+            if (isAbortError(err)) {
+                return;
+            }
+
             setError(err instanceof Error ? err.message : "Failed to load streets");
             setSelectedStreet(null);
         } finally {
@@ -65,37 +69,42 @@ export default function StreetsPage() {
     }, []);
 
     useEffect(() => {
-        void loadStreets();
+        const abort = new AbortController();
+        void loadStreets(undefined, abort.signal);
+        return () => abort.abort();
     }, [loadStreets]);
 
     useEffect(() => {
-        const selectedStreetId = selectedStreet?.public_id;
+        const id = selectedStreet?.public_id;
 
-        if (!selectedStreetId) {
+        if (!id) {
             return;
         }
 
-        const streetId = selectedStreetId;
-        let isMounted = true;
+        const streetFetchId = id;
+
+        const abort = new AbortController();
 
         async function loadStreetDetail() {
             setIsDetailLoading(true);
             setDetailError("");
 
             try {
-                const data = await getStreet(streetId);
+                const data = await getStreet(streetFetchId, { signal: abort.signal });
 
-                if (isMounted) {
+                if (!abort.signal.aborted) {
                     setSelectedStreet(data);
                 }
             } catch (err) {
-                if (isMounted) {
-                    setDetailError(
-                        err instanceof Error ? err.message : "Failed to load street details"
-                    );
+                if (isAbortError(err)) {
+                    return;
                 }
+
+                setDetailError(
+                    err instanceof Error ? err.message : "Failed to load street details"
+                );
             } finally {
-                if (isMounted) {
+                if (!abort.signal.aborted) {
                     setIsDetailLoading(false);
                 }
             }
@@ -103,9 +112,7 @@ export default function StreetsPage() {
 
         void loadStreetDetail();
 
-        return () => {
-            isMounted = false;
-        };
+        return () => abort.abort();
     }, [selectedStreet?.public_id]);
 
     function handleSelectStreet(street: Street) {

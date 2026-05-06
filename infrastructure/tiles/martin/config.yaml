@@ -1,7 +1,21 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/maplibre/martin/main/schemas/config.json
+
 listen_addresses: "0.0.0.0:3000"
+
 postgres:
   connection_string: postgresql://postgres.locghyuranqaqsnbxflc:GeoCore6505@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
 
-auto_publish:
-  from_schemas:
-    - tiles
+  # Discover all usable tables/views in schema `tiles` (places, road labels, admin, bus stops, routes, …).
+  auto_publish:
+    from_schemas:
+      - tiles
+
+  # Force-publish `tiles.tiles_buildings_v` as source id `tiles_buildings_v` (path `/tiles_buildings_v/...`).
+  # Auto-discovery sometimes omits views from catalog; dashboard/web rely on this name.
+  tables:
+    tiles_buildings_v:
+      schema: tiles
+      table: tiles_buildings_v
+      srid: 4326
+      geometry_column: geom
+      id_column: id

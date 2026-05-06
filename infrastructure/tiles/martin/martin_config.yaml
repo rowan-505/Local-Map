@@ -1,3 +1,6 @@
+# Supplementary docs & commented examples — **not mounted in the Fly image**.
+# Deployed runtime config is `config.yaml` (see README in this folder).
+
 # listen_addresses: "0.0.0.0:3002"
 
 # ---------------------------------------------------------------------------
@@ -12,7 +15,7 @@
 #     geometry_column: geom
 #     id_column: id
 #
-# See infrastructure/database/migrations/005_tiles_buildings_v.sql and 007_*.sql
+# See infrastructure/database/migrations/005_tiles_buildings_v.sql, 007_*.sql, and 009_tiles_buildings_v_strict_active.sql
 # ---------------------------------------------------------------------------
 
 # postgres:

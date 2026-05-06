@@ -17,7 +17,7 @@ export class CategoriesRepository {
                 id,
                 code,
                 name,
-                name_mm,
+                NULL::text AS name_mm,
                 sort_order
             FROM ref.ref_poi_categories
             WHERE parent_id IS NULL

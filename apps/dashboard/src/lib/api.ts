@@ -1,5 +1,14 @@
 type QueryValue = string | number | boolean | null | undefined;
 
+/** True when `fetch` was aborted (Strict Mode remount, navigation, dependency change). */
+export function isAbortError(error: unknown): boolean {
+    if (!error || typeof error !== "object") {
+        return false;
+    }
+
+    return (error as { name?: string }).name === "AbortError";
+}
+
 export type Place = {
     id: string;
     public_id: string;
@@ -205,6 +214,12 @@ export type BuildingsParams = {
     q?: string;
     limit?: number;
     offset?: number;
+};
+
+export type DeleteBuildingResponse = {
+    ok: boolean;
+    deleted: boolean;
+    public_id: string;
 };
 
 export type PlaceBuildingRelationType = "inside" | "entrance" | "nearby" | "compound";
@@ -470,12 +485,12 @@ export async function apiFetch<T>(
     return (await response.json()) as T;
 }
 
-export function getPlaces(params?: PlacesParams) {
-    return apiFetch<Place[]>("/places", { method: "GET" }, params);
+export function getPlaces(params?: PlacesParams, fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<Place[]>("/places", { method: "GET", ...fetchInit }, params);
 }
 
-export function getPlace(id: string) {
-    return apiFetch<PlaceDetail>(`/places/${id}`, { method: "GET" });
+export function getPlace(id: string, fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<PlaceDetail>(`/places/${id}`, { method: "GET", ...fetchInit });
 }
 
 export function getPlaceFormOptions() {
@@ -520,12 +535,12 @@ export function getAdminAreas() {
     return apiFetch<AdminArea[]>("/admin-areas", { method: "GET" });
 }
 
-export function getStreets(params?: StreetsParams) {
-    return apiFetch<Street[]>("/streets", { method: "GET" }, params);
+export function getStreets(params?: StreetsParams, fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<Street[]>("/streets", { method: "GET", ...fetchInit }, params);
 }
 
-export function getStreet(id: string) {
-    return apiFetch<StreetDetail>(`/streets/${id}`, { method: "GET" });
+export function getStreet(id: string, fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<StreetDetail>(`/streets/${id}`, { method: "GET", ...fetchInit });
 }
 
 export function createStreet(payload: CreateStreetPayload) {
@@ -548,12 +563,12 @@ export function updateStreet(id: string, payload: UpdateStreetPayload) {
     });
 }
 
-export function getBuildings(params?: BuildingsParams) {
-    return apiFetch<Building[]>("/buildings", { method: "GET" }, params);
+export function getBuildings(params?: BuildingsParams, fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<Building[]>("/buildings", { method: "GET", ...fetchInit }, params);
 }
 
-export function getBuilding(id: string) {
-    return apiFetch<Building>(`/buildings/${id}`, { method: "GET" });
+export function getBuilding(id: string, fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<Building>(`/buildings/${id}`, { method: "GET", ...fetchInit });
 }
 
 export function createBuilding(payload: CreateBuildingPayload) {
@@ -577,7 +592,7 @@ export function updateBuilding(id: string, payload: UpdateBuildingPayload) {
 }
 
 export function deleteBuilding(id: string) {
-    return apiFetch<Building>(`/buildings/${id}`, {
+    return apiFetch<DeleteBuildingResponse>(`/buildings/${id}`, {
         method: "DELETE",
     });
 }

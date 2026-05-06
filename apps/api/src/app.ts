@@ -1,6 +1,8 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import { Prisma } from "@prisma/client";
 
+import { prisma } from "./lib/prisma.js";
 import authPlugin from "./plugins/auth.js";
 import prismaPlugin from "./plugins/prisma.js";
 import adminAreasRoutes from "./modules/admin-areas/admin-areas.routes.js";
@@ -35,6 +37,8 @@ export async function buildApp() {
         logger: true,
     });
 
+    registerPublicErrorHandler(app);
+
     await app.register(cors, {
         origin: getCorsOrigins(),
         credentials: true,
@@ -43,6 +47,9 @@ export async function buildApp() {
     });
 
     await app.register(prismaPlugin);
+    app.addHook("onClose", async () => {
+        await prisma.$disconnect();
+    });
     await app.register(authPlugin);
 
     app.get("/health", async () => {
@@ -61,4 +68,68 @@ export async function buildApp() {
     await app.register(placeBuildingRoutes);
 
     return app;
+}
+
+/** Safe JSON bodies for browsers; structured logs retain Prisma / DB diagnostics. */
+function registerPublicErrorHandler(app: FastifyInstance) {
+    app.setErrorHandler((error, request, reply) => {
+        const fastifyErr = error as { statusCode?: number; message?: string; validation?: unknown };
+
+        const statusCode =
+            typeof fastifyErr.statusCode === "number" && fastifyErr.statusCode > 0
+                ? fastifyErr.statusCode
+                : 500;
+
+        const prismaKnown = error instanceof Prisma.PrismaClientKnownRequestError;
+        const prismaUnknown = error instanceof Prisma.PrismaClientUnknownRequestError;
+        const prismaInit = error instanceof Prisma.PrismaClientInitializationError;
+
+        const errMessage = error instanceof Error ? error.message : String(error);
+        if (/max clients reached|pool.?size|connection.*refused/i.test(errMessage)) {
+            request.log.warn(
+                { poolHint: "possible Supabase session pool exhaustion" },
+                "Database pool / connection limit"
+            );
+        }
+
+        request.log.error(
+            {
+                err: error,
+                statusCode,
+                prismaCode: prismaKnown ? error.code : undefined,
+            },
+            "API request failed"
+        );
+
+        if (reply.sent) {
+            return;
+        }
+
+        const message = publicClientErrorMessage(statusCode, error, {
+            prismaKnown,
+            prismaUnknown,
+            prismaInit,
+        });
+
+        return reply.code(statusCode).send({ message });
+    });
+}
+
+function publicClientErrorMessage(
+    statusCode: number,
+    error: unknown,
+    flags: { prismaKnown: boolean; prismaUnknown: boolean; prismaInit: boolean }
+): string {
+    if (statusCode >= 500 || flags.prismaKnown || flags.prismaUnknown || flags.prismaInit) {
+        return "We could not load this data right now. Please try again in a moment.";
+    }
+
+    const raw =
+        error instanceof Error ? error.message.trim() : typeof error === "string" ? error.trim() : "";
+
+    if (!raw || raw.length > 240 || /prisma|\$queryRaw|connector:/i.test(raw)) {
+        return "Request could not be completed.";
+    }
+
+    return raw;
 }

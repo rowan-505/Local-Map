@@ -6,26 +6,26 @@
   },
   "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
   "sources": {
-    "core_map_water_polygons": {
+    "tiles_water_polygons_v": {
       "type": "vector",
       "tiles": [
-        "https://martin-lively-canyon-4077.fly.dev/core_map_water_polygons/{z}/{x}/{y}"
+        "https://martin-lively-canyon-4077.fly.dev/tiles_water_polygons_v/{z}/{x}/{y}"
       ],
       "minzoom": 0,
       "maxzoom": 22
     },
-    "core_map_water_lines": {
+    "tiles_water_lines_v": {
       "type": "vector",
       "tiles": [
-        "https://martin-lively-canyon-4077.fly.dev/core_map_water_lines/{z}/{x}/{y}"
+        "https://martin-lively-canyon-4077.fly.dev/tiles_water_lines_v/{z}/{x}/{y}"
       ],
       "minzoom": 0,
       "maxzoom": 22
     },
-    "core_map_landuse": {
+    "tiles_landuse_v": {
       "type": "vector",
       "tiles": [
-        "https://martin-lively-canyon-4077.fly.dev/core_map_landuse/{z}/{x}/{y}"
+        "https://martin-lively-canyon-4077.fly.dev/tiles_landuse_v/{z}/{x}/{y}"
       ],
       "minzoom": 0,
       "maxzoom": 22
@@ -35,7 +35,7 @@
       "tiles": [
         "https://martin-lively-canyon-4077.fly.dev/tiles_buildings_v/{z}/{x}/{y}"
       ],
-      "minzoom": 0,
+      "minzoom": 14,
       "maxzoom": 22
     },
     "tiles_streets_v": {
@@ -106,8 +106,8 @@
     {
       "id": "landuse",
       "type": "fill",
-      "source": "core_map_landuse",
-      "source-layer": "core_map_landuse",
+      "source": "tiles_landuse_v",
+      "source-layer": "tiles_landuse_v",
       "minzoom": 8,
       "paint": {
         "fill-color": "#dce8d5",
@@ -127,8 +127,8 @@
     {
       "id": "water-polygons",
       "type": "fill",
-      "source": "core_map_water_polygons",
-      "source-layer": "core_map_water_polygons",
+      "source": "tiles_water_polygons_v",
+      "source-layer": "tiles_water_polygons_v",
       "paint": {
         "fill-color": "#b8ddea",
         "fill-opacity": 0.9
@@ -137,8 +137,8 @@
     {
       "id": "water-lines",
       "type": "line",
-      "source": "core_map_water_lines",
-      "source-layer": "core_map_water_lines",
+      "source": "tiles_water_lines_v",
+      "source-layer": "tiles_water_lines_v",
       "minzoom": 9,
       "layout": {
         "line-cap": "round",
@@ -380,15 +380,13 @@
       "type": "fill",
       "source": "tiles_buildings_v",
       "source-layer": "tiles_buildings_v",
-      "minzoom": 0,
+      "minzoom": 14,
       "paint": {
         "fill-color": "#ded8cf",
         "fill-opacity": [
           "interpolate",
           ["linear"],
           ["zoom"],
-          10,
-          0.22,
           14,
           0.48,
           17,

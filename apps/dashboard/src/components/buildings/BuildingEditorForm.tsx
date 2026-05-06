@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Map as MaplibreMap } from "maplibre-gl";
 
 import BuildingEditorMap, {
     hasDrawableBuildingPolygon,
     type BuildingEditorMapDrawOutput,
 } from "@/src/components/buildings/BuildingEditorMap";
 import type { Building, BuildingGeometry, CreateBuildingPayload } from "@/src/lib/api";
+import { scheduleBuildingTileRefresh } from "@/src/components/map/placeMapConfig";
 
 function isBuildingGeometry(value: unknown): value is BuildingGeometry {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -59,6 +61,7 @@ export default function BuildingEditorForm({
     const [submitApiError, setSubmitApiError] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const submitLockRef = useRef(false);
+    const editorMapSurfaceRef = useRef<MaplibreMap | null>(null);
 
     const handleDrawOutput = useCallback((output: BuildingEditorMapDrawOutput) => {
         setGeometryJson(output.geometryJson);
@@ -165,10 +168,17 @@ export default function BuildingEditorForm({
         try {
             await onSubmit(payload);
             setSubmitApiError("");
+            scheduleBuildingTileRefresh(editorMapSurfaceRef.current);
         } catch (err) {
-            const msg = err instanceof Error ? err.message : "Request failed";
-            setError(msg);
-            setSubmitApiError(msg);
+            const raw = err instanceof Error ? err.message : "Request failed";
+            const looksTechnical =
+                raw.length > 400 ||
+                /\b(pg_|postgresql|prisma|P1012|syntax error at|violates(?: foreign key)?|duplicate key value|permission denied for relation|syntax error\b)/i.test(
+                    raw
+                );
+            const safe = looksTechnical ? "Saving the building failed. Please try again." : raw;
+            setError(safe);
+            setSubmitApiError(safe);
         } finally {
             submitLockRef.current = false;
             setIsSubmitting(false);
@@ -197,6 +207,7 @@ export default function BuildingEditorForm({
                     <BuildingEditorMap
                         geometryJson={geometryJson}
                         onDrawOutput={handleDrawOutput}
+                        editorMapSurfaceRef={editorMapSurfaceRef}
                         showDebugPanel
                         submissionError={submitApiError}
                     />

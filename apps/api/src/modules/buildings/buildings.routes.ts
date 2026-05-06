@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 
 import {
     buildingIdParamsSchema,
@@ -16,6 +16,22 @@ import {
 const EDIT_BUILDING_ROLES = new Set(["admin", "editor"]);
 
 const IS_BUILDINGS_DEV_DEBUG = process.env.NODE_ENV !== "production";
+
+function replyBuildingsReadError(request: FastifyRequest, reply: FastifyReply, error: unknown, context: string) {
+    request.log.error({ err: error }, context);
+
+    return reply.code(500).send({
+        message: "Unable to load building data.",
+    });
+}
+
+function replyBuildingsMutationError(request: FastifyRequest, reply: FastifyReply, error: unknown, context: string) {
+    request.log.error({ err: error }, context);
+
+    return reply.code(500).send({
+        message: "We could not save that building change. Please try again.",
+    });
+}
 
 function sanitizeBuildingCreateBody(body: unknown) {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -62,8 +78,12 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
                 });
             }
 
-            const buildings = await buildingsService.listBuildings(parsed.data);
-            return reply.send(buildings);
+            try {
+                const buildings = await buildingsService.listBuildings(parsed.data);
+                return reply.send(buildings);
+            } catch (error) {
+                return replyBuildingsReadError(request, reply, error, "buildings GET list failed");
+            }
         }
     );
 
@@ -92,7 +112,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
                     });
                 }
 
-                throw error;
+                return replyBuildingsReadError(request, reply, error, "buildings GET by id failed");
             }
         }
     );
@@ -133,6 +153,17 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
 
             try {
                 const created = await buildingsService.createBuilding(parsed.data);
+                if (IS_BUILDINGS_DEV_DEBUG) {
+                    request.log.info(
+                        {
+                            public_id: created.public_id,
+                            created_at: created.created_at,
+                            updated_at: created.updated_at,
+                        },
+                        "building created with timestamps"
+                    );
+                    request.log.info("tiles_buildings_v includes dashboard buildings");
+                }
                 return reply.code(201).send(created);
             } catch (error) {
                 if (error instanceof BuildingValidationError) {
@@ -142,7 +173,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
                     });
                 }
 
-                throw error;
+                return replyBuildingsMutationError(request, reply, error, "buildings POST failed");
             }
         }
     );
@@ -195,6 +226,16 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
                     bodyParsed.data
                 );
 
+                if (IS_BUILDINGS_DEV_DEBUG) {
+                    request.log.info(
+                        {
+                            public_id: updated.public_id,
+                            updated_at: updated.updated_at,
+                        },
+                        "building updated timestamp"
+                    );
+                }
+
                 return reply.send(updated);
             } catch (error) {
                 if (error instanceof BuildingValidationError) {
@@ -210,7 +251,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
                     });
                 }
 
-                throw error;
+                return replyBuildingsMutationError(request, reply, error, "buildings PATCH failed");
             }
         }
     );
@@ -239,8 +280,14 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
             }
 
             try {
-                const deleted = await buildingsService.softDeleteBuilding(parsed.data.id);
-                return reply.send(deleted);
+                const { public_id } = await buildingsService.softDeleteBuilding(parsed.data.id);
+                request.log.info({ public_id }, "building soft deleted");
+
+                return reply.send({
+                    ok: true,
+                    deleted: true,
+                    public_id,
+                });
             } catch (error) {
                 if (error instanceof BuildingNotFoundError) {
                     return reply.code(404).send({
@@ -248,7 +295,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
                     });
                 }
 
-                throw error;
+                return replyBuildingsMutationError(request, reply, error, "buildings DELETE failed");
             }
         }
     );

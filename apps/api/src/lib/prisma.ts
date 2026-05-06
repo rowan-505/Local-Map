@@ -5,13 +5,23 @@ const globalForPrisma = globalThis as typeof globalThis & {
     prismaShutdownHooksRegistered?: boolean;
 };
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-    globalForPrisma.prisma = prisma;
-}
+/**
+ * Single PrismaClient per Node process. Always attached to `globalThis` so dev HMR / tooling
+ * and production builds cannot accidentally create multiple pools to the same database.
+ */
+export const prisma: PrismaClient = getOrCreatePrismaClient();
 
 registerPrismaShutdownHooks();
+
+function getOrCreatePrismaClient(): PrismaClient {
+    if (globalForPrisma.prisma) {
+        return globalForPrisma.prisma;
+    }
+
+    const client = createPrismaClient();
+    globalForPrisma.prisma = client;
+    return client;
+}
 
 function createPrismaClient() {
     const databaseUrl = getPrismaDatabaseUrl();
@@ -28,14 +38,22 @@ function createPrismaClient() {
     return new PrismaClient(options);
 }
 
+/**
+ * When `DATABASE_URL` has no `connection_limit`, append one so Supabase / poolers with a small
+ * `pool_size` are not exhausted by Prisma's default pool (especially in production).
+ *
+ * Override with `PRISMA_CONNECTION_LIMIT` (e.g. `1` for tight session poolers).
+ */
 function getPrismaDatabaseUrl() {
     const databaseUrl = process.env.DATABASE_URL;
 
-    if (!databaseUrl || process.env.NODE_ENV === "production" || hasConnectionLimit(databaseUrl)) {
+    if (!databaseUrl || hasConnectionLimit(databaseUrl)) {
         return databaseUrl;
     }
 
-    return appendConnectionLimit(databaseUrl, "3");
+    /* Supabase session pooler (5432) caps concurrent DB sessions; default Prisma pool (e.g. 5–9) + other clients (Martin, etc.) exhausts fast. */
+    const limit = process.env.PRISMA_CONNECTION_LIMIT?.trim() ?? "1";
+    return appendConnectionLimit(databaseUrl, limit);
 }
 
 function hasConnectionLimit(databaseUrl: string) {

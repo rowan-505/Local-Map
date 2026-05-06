@@ -63,6 +63,7 @@ export type BuildingEditorMapProps = {
     className?: string;
     showDebugPanel?: boolean;
     submissionError?: string;
+    editorMapSurfaceRef?: MutableRefObject<maplibregl.Map | null>;
 };
 
 function setLayerVisibility(map: maplibregl.Map, layerId: string, visible: boolean) {
@@ -698,6 +699,7 @@ export default function BuildingEditorMap({
     className,
     showDebugPanel = false,
     submissionError = "",
+    editorMapSurfaceRef,
 }: BuildingEditorMapProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -941,6 +943,10 @@ export default function BuildingEditorMap({
 
             exposeBuildingMapForDev(map);
 
+            if (editorMapSurfaceRef) {
+                editorMapSurfaceRef.current = map;
+            }
+
             const syncZoomDisplay = () => {
                 if (cancelled) {
                     return;
@@ -962,6 +968,10 @@ export default function BuildingEditorMap({
             cancelled = true;
 
             hasAppliedInitialBuildingCameraRef.current = false;
+
+            if (editorMapSurfaceRef?.current === map) {
+                editorMapSurfaceRef.current = null;
+            }
 
             for (const m of editMarkersRef.current) {
                 m.remove();
@@ -986,7 +996,7 @@ export default function BuildingEditorMap({
             setMapReady(false);
             setStats({ areaSqM: null, vertexCount: 0 });
         };
-    }, []);
+    }, [editorMapSurfaceRef]);
 
     useEffect(() => {
         const map = mapRef.current;
