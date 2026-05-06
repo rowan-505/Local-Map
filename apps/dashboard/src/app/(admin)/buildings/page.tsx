@@ -4,6 +4,11 @@ import Link from "next/link";
 import type { Map as MaplibreMap } from "maplibre-gl";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import DataTableToolbar, {
+    type DataTableArrange,
+    type DataTableSortOption,
+} from "@/src/components/dashboard/DataTableToolbar";
+import HighlightMatch from "@/src/components/dashboard/HighlightMatch";
 import BuildingPreviewMap from "@/src/components/map/BuildingPreviewMap";
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 import {
@@ -14,7 +19,7 @@ import {
 } from "@/src/components/map/placeMapConfig";
 import { useBuildingTileVersion } from "@/src/components/map/BuildingTileVersionContext";
 
-const IS_BUILDINGS_PAGE_DEV = process.env.NODE_ENV !== "production";
+import { listApiSortOrder } from "@/src/lib/listToolbarSortOrder";
 import {
     BUILDINGS_LIST_LIMIT,
     deleteBuilding,
@@ -23,6 +28,16 @@ import {
     isAbortError,
     type Building,
 } from "@/src/lib/api";
+
+const IS_BUILDINGS_PAGE_DEV = process.env.NODE_ENV !== "production";
+
+const BUILDINGS_SORT_OPTIONS: DataTableSortOption[] = [
+    { value: "name", label: "Name", type: "text" },
+    { value: "building_type", label: "Building Type/Class", type: "text" },
+    { value: "admin_area", label: "Admin Area", type: "text" },
+    { value: "created", label: "Created Date", type: "date" },
+    { value: "updated", label: "Updated Date", type: "date" },
+];
 
 function dash(value: string | number | null | undefined): string {
     if (value === null || value === undefined) {
@@ -114,6 +129,10 @@ function formatAdminAreaDisplay(b: Building): string {
     return dash(b.admin_area?.canonical_name ?? null);
 }
 
+function buildingListName(b: Building): string {
+    return dash(b.name);
+}
+
 export default function BuildingsPage() {
     const { bumpBuildingTileVersion } = useBuildingTileVersion();
     const [buildings, setBuildings] = useState<Building[]>([]);
@@ -125,6 +144,19 @@ export default function BuildingsPage() {
     const [previewError, setPreviewError] = useState("");
     const [isDeleting, setIsDeleting] = useState(false);
     const buildingsPreviewMapRef = useRef<MaplibreMap | null>(null);
+
+    const [listSearch, setListSearch] = useState("");
+    const [sortBy, setSortBy] = useState("name");
+    const [arrange, setArrange] = useState<DataTableArrange>("az");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            setDebouncedSearch(listSearch.trim());
+        }, 300);
+
+        return () => window.clearTimeout(timer);
+    }, [listSearch]);
 
     const loadBuildings = useCallback(
         async (opts?: {
@@ -141,7 +173,12 @@ export default function BuildingsPage() {
 
             try {
                 const data = await getBuildings(
-                    { limit: BUILDINGS_LIST_LIMIT },
+                    {
+                        limit: BUILDINGS_LIST_LIMIT,
+                        ...(debouncedSearch !== "" ? { q: debouncedSearch } : {}),
+                        sortBy,
+                        sortOrder: listApiSortOrder(sortBy, arrange),
+                    },
                     opts?.signal ? { signal: opts.signal } : undefined
                 );
                 setBuildings(data);
@@ -188,7 +225,7 @@ export default function BuildingsPage() {
                 }
             }
         },
-        []
+        [debouncedSearch, sortBy, arrange]
     );
 
     useEffect(() => {
@@ -277,6 +314,28 @@ export default function BuildingsPage() {
                 ) : null}
 
                 {!isLoading && !error ? (
+                    <>
+                        <div className="mb-4">
+                            <DataTableToolbar
+                                searchValue={listSearch}
+                                onSearchChange={setListSearch}
+                                placeholder="Search buildings in this table…"
+                                sortBy={sortBy}
+                                onSortByChange={setSortBy}
+                                sortOptions={BUILDINGS_SORT_OPTIONS}
+                                arrange={arrange}
+                                onArrangeChange={setArrange}
+                                totalCount={buildings.length}
+                                filteredCount={buildings.length}
+                                onClearFilters={() => {
+                                    setListSearch("");
+                                    setDebouncedSearch("");
+                                    setSortBy("name");
+                                    setArrange("az");
+                                }}
+                            />
+                        </div>
+
                     <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] lg:items-start">
                         <div className="min-h-0 rounded-lg border border-gray-200 bg-white shadow-sm lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
                             <div className="overflow-x-auto">
@@ -300,13 +359,23 @@ export default function BuildingsPage() {
                                                     colSpan={8}
                                                     className="px-4 py-6 text-center text-gray-500"
                                                 >
-                                                    No buildings found.
+                                                    {debouncedSearch
+                                                        ? "No buildings match your search."
+                                                        : "No buildings found."}
                                                 </td>
                                             </tr>
                                         ) : (
                                             buildings.map((building) => {
                                                 const isSelected =
                                                     selectedBuilding?.public_id === building.public_id;
+                                                const nameCell = buildingListName(building);
+                                                const typeCell = formatBuildingTypeDisplay(building);
+                                                const adminCell = formatAdminAreaDisplay(building);
+                                                const areaCell = formatArea(building.area_m2);
+                                                const levelsCell = dash(building.levels);
+                                                const confCell = dash(building.confidence_score);
+                                                const verifiedCell = building.is_verified ? "Yes" : "No";
+                                                const updatedCell = formatDate(building.updated_at);
 
                                                 return (
                                                     <tr
@@ -321,28 +390,52 @@ export default function BuildingsPage() {
                                                         <td
                                                             className="min-w-0 max-w-[min(100%,18rem)] wrap-break-word px-4 py-3 align-top"
                                                         >
-                                                            {dash(building.name)}
+                                                            <HighlightMatch
+                                                                text={nameCell}
+                                                                query={listSearch}
+                                                            />
                                                         </td>
                                                         <td className="px-4 py-3 align-top">
-                                                            {formatBuildingTypeDisplay(building)}
+                                                            <HighlightMatch
+                                                                text={typeCell}
+                                                                query={listSearch}
+                                                            />
                                                         </td>
-                                                        <td className="px-4 py-3 align-top min-w-[8rem]">
-                                                            {formatAdminAreaDisplay(building)}
-                                                        </td>
-                                                        <td className="px-4 py-3 align-top whitespace-nowrap">
-                                                            {formatArea(building.area_m2)}
-                                                        </td>
-                                                        <td className="px-4 py-3 align-top whitespace-nowrap">
-                                                            {dash(building.levels)}
-                                                        </td>
-                                                        <td className="px-4 py-3 align-top whitespace-nowrap">
-                                                            {dash(building.confidence_score)}
+                                                        <td className="px-4 py-3 align-top min-w-32">
+                                                            <HighlightMatch
+                                                                text={adminCell}
+                                                                query={listSearch}
+                                                            />
                                                         </td>
                                                         <td className="px-4 py-3 align-top whitespace-nowrap">
-                                                            {building.is_verified ? "Yes" : "No"}
+                                                            <HighlightMatch
+                                                                text={areaCell}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3 align-top whitespace-nowrap">
+                                                            <HighlightMatch
+                                                                text={levelsCell}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3 align-top whitespace-nowrap">
+                                                            <HighlightMatch
+                                                                text={confCell}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3 align-top whitespace-nowrap">
+                                                            <HighlightMatch
+                                                                text={verifiedCell}
+                                                                query={listSearch}
+                                                            />
                                                         </td>
                                                         <td className="whitespace-nowrap px-4 py-3 align-top">
-                                                            {formatDate(building.updated_at)}
+                                                            <HighlightMatch
+                                                                text={updatedCell}
+                                                                query={listSearch}
+                                                            />
                                                         </td>
                                                     </tr>
                                                 );
@@ -532,10 +625,12 @@ export default function BuildingsPage() {
                                     geometry={previewBuilding?.geometry}
                                     emptyHint={
                                         buildings.length === 0
-                                            ? "No buildings in the list."
+                                            ? debouncedSearch
+                                                ? "No buildings match your search."
+                                                : "No buildings in the list."
                                             : detail
-                                              ? "No geometry available for this building."
-                                              : "Select a building from the list."
+                                                ? "No geometry available for this building."
+                                                : "Select a building from the list."
                                     }
                                 />
                             </MapPreviewCard>
@@ -596,7 +691,11 @@ export default function BuildingsPage() {
                                     </div>
                                 </div>
                             ) : buildings.length === 0 ? (
-                                <p className="text-sm text-gray-500">No buildings in the list.</p>
+                                <p className="text-sm text-gray-500">
+                                    {debouncedSearch
+                                        ? "No buildings match your search."
+                                        : "No buildings in the list."}
+                                </p>
                             ) : (
                                 <p className="text-sm text-gray-500">
                                     Select a building to view details.
@@ -604,6 +703,7 @@ export default function BuildingsPage() {
                             )}
                         </aside>
                     </div>
+                    </>
                 ) : null}
             </div>
         </main>

@@ -1,5 +1,6 @@
 import { StreetsRepository, deriveStreetCanonicalName } from "./streets.repo.js";
 import type { UpdateStreetInput } from "./streets.repo.js";
+import type { StreetsListQuery } from "./streets.schema.js";
 
 type StreetGeometry =
     | {
@@ -79,8 +80,14 @@ export class StreetsService {
         };
     }
 
-    async listStreets(limit: number): Promise<StreetResponse[]> {
-        const streets = await this.streetsRepo.listStreets({ limit });
+    async listStreets(query: StreetsListQuery): Promise<StreetResponse[]> {
+        const streets = await this.streetsRepo.listStreets({
+            limit: query.limit,
+            q: query.q,
+            sortBy: query.sortBy,
+            sortOrder: query.sortOrder,
+        });
+
         return streets.map((street) => this.serializeStreet(street));
     }
 

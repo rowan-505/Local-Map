@@ -34,6 +34,9 @@ export type Place = {
     names: PlaceName[];
     category_name: string | null;
     admin_area_name: string | null;
+    /** ISO timestamps from GET /places (list and detail). */
+    created_at: string;
+    updated_at: string;
 };
 
 export type PlaceDetail = Place & {
@@ -62,6 +65,8 @@ export type PlacesParams = {
     is_verified?: boolean;
     limit?: number;
     offset?: number;
+    sortBy?: string;
+    sortOrder?: "asc" | "desc";
 };
 
 /** Max `limit` for GET /places (API rejects values above this). */
@@ -170,6 +175,9 @@ export type StreetName = {
 
 export type StreetsParams = {
     limit?: number;
+    q?: string;
+    sortBy?: string;
+    sortOrder?: "asc" | "desc";
 };
 
 export type BuildingPolygonGeometry = {
@@ -242,6 +250,8 @@ export type BuildingsParams = {
     q?: string;
     limit?: number;
     offset?: number;
+    sortBy?: string;
+    sortOrder?: "asc" | "desc";
 };
 
 export type DeleteBuildingResponse = {

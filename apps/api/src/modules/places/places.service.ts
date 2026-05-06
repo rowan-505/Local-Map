@@ -20,6 +20,8 @@ type ListPlacesInput = {
     category?: string;
     is_public?: boolean;
     is_verified?: boolean;
+    sortBy: "name" | "category" | "admin_area" | "created" | "updated";
+    sortOrder: "asc" | "desc";
 };
 
 export class PlaceNotFoundError extends Error {
@@ -89,6 +91,8 @@ export class PlacesService {
             category: input.category,
             is_public: input.is_public,
             is_verified: input.is_verified,
+            sortBy: input.sortBy,
+            sortOrder: input.sortOrder,
         });
 
         return places.map((place) => this.serializePlace(place));

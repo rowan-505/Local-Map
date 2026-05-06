@@ -154,11 +154,29 @@ export const placeIdParamsSchema = z.object({
     id: z.string().uuid(),
 });
 
+export const placesSortBySchema = z.enum(["name", "category", "admin_area", "created", "updated"]);
+export const listSortOrderSchema = z.enum(["asc", "desc"]);
+
+const optionalPlacesSearchQuerySchema = z.preprocess((value) => {
+    if (value === undefined || value === null || value === "") {
+        return undefined;
+    }
+
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed === "" ? undefined : trimmed;
+    }
+
+    return value;
+}, z.string().min(1).optional());
+
 export const placesQuerySchema = z.object({
-    q: z.string().trim().min(1).optional(),
+    q: optionalPlacesSearchQuerySchema,
     category: z.string().trim().min(1).optional(),
     is_public: booleanQueryValueSchema,
     is_verified: booleanQueryValueSchema,
     limit: z.coerce.number().int().min(1).max(100).default(50),
     offset: z.coerce.number().int().min(0).default(0),
+    sortBy: placesSortBySchema.default("name"),
+    sortOrder: listSortOrderSchema.default("asc"),
 });

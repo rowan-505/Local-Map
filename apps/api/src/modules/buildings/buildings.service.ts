@@ -35,7 +35,13 @@ export class BuildingValidationError extends Error {
 export class BuildingsService {
     constructor(private readonly buildingsRepo: BuildingsRepository) {}
 
-    async listBuildings(params: { limit: number; offset: number; q?: string }) {
+    async listBuildings(params: {
+        limit: number;
+        offset: number;
+        q?: string;
+        sortBy: "name" | "building_type" | "admin_area" | "created" | "updated";
+        sortOrder: "asc" | "desc";
+    }) {
         const buildings = await this.buildingsRepo.listActiveBuildings(params);
         return buildings.map((row) => this.serializeBuilding(row));
     }

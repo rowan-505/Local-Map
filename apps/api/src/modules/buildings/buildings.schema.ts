@@ -193,11 +193,32 @@ export const buildingIdParamsSchema = z.object({
     id: z.string().uuid(),
 });
 
+export const buildingsSortBySchema = z.enum(["name", "building_type", "admin_area", "created", "updated"]);
+
+const listSortOrderSchema = z.enum(["asc", "desc"]);
+
+const optionalBuildingSearchQuerySchema = z.preprocess((value) => {
+    if (value === undefined || value === null || value === "") {
+        return undefined;
+    }
+
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed === "" ? undefined : trimmed;
+    }
+
+    return value;
+}, z.string().min(1).optional());
+
 export const buildingsQuerySchema = z.object({
     limit: z.coerce.number().int().min(1).max(100).default(100),
     offset: z.coerce.number().int().min(0).default(0),
-    q: z.string().trim().min(1).optional(),
+    q: optionalBuildingSearchQuerySchema,
+    sortBy: buildingsSortBySchema.default("name"),
+    sortOrder: listSortOrderSchema.default("asc"),
 });
+
+export type BuildingsListQuery = z.infer<typeof buildingsQuerySchema>;
 
 export type BuildingValidationIssue = {
     path: string;
