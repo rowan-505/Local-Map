@@ -13,6 +13,7 @@ import publicMapRoutes from "./modules/public-map/public-map.routes.js";
 import streetsRoutes from "./modules/streets/streets.routes.js";
 import buildingsRoutes from "./modules/buildings/buildings.routes.js";
 import placeBuildingRoutes from "./modules/place-buildings/place-buildings.routes.js";
+import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
 
 const LOCAL_DASHBOARD_ORIGIN = "http://localhost:3000";
 const LOCAL_WEB_ORIGIN = "http://localhost:5173";
@@ -66,6 +67,7 @@ export async function buildApp() {
     await app.register(streetsRoutes);
     await app.register(buildingsRoutes);
     await app.register(placeBuildingRoutes);
+    await app.register(dashboardRoutes);
 
     return app;
 }
