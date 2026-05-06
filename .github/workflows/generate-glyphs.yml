@@ -7,50 +7,20 @@ jobs:
   generate-glyphs:
     runs-on: ubuntu-22.04
 
-    defaults:
-      run:
-        shell: bash
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Node 18
-        uses: actions/setup-node@v4
+      - name: Build PBF glyphs
+        uses: linz/action-build-pbf-glyphs@v1
         with:
-          node-version: 18
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential python3 make g++ git curl
-
-      - name: Create glyph workspace
-        run: |
-          mkdir -p glyph-output/"Noto Sans Myanmar Regular"
-          mkdir -p glyph-output/"Noto Sans Regular"
-
-      - name: Install genfontgl
-        run: |
-          npm init -y
-          npm install genfontgl
-
-      - name: Generate Myanmar glyphs
-        run: |
-          npx genfontgl \
-            glyph-source/NotoSansMyanmar-Regular.ttf \
-            glyph-output/"Noto Sans Myanmar Regular"
-
-      - name: Generate English glyphs
-        run: |
-          npx genfontgl \
-            glyph-source/NotoSans-Regular.ttf \
-            glyph-output/"Noto Sans Regular"
+          source: glyph-source/
+          target: glyph-output/
 
       - name: Check Myanmar glyph range
         run: |
-          ls glyph-output/"Noto Sans Myanmar Regular"
-          test -f glyph-output/"Noto Sans Myanmar Regular"/4096-4351.pbf
+          ls "glyph-output/Noto Sans Myanmar Regular"
+          test -f "glyph-output/Noto Sans Myanmar Regular/4096-4351.pbf"
 
       - name: Upload glyph artifact
         uses: actions/upload-artifact@v4
