@@ -1,6 +1,9 @@
 import type { StyleSpecification } from 'maplibre-gl';
 import BaseMapStyle from '@local-map/map-style/base-map.json';
 
+/** Single fontstack for every symbol layer — must match `apps/web/public/fonts/<name>/`. */
+export const MAP_SYMBOL_TEXT_FONT = ['NotoSansMyanmar-Regular'] as const;
+
 /**
  * Martin vector source id for footprints (must match `packages/map-style/base-map.json`).
  */

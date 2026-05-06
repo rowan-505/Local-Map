@@ -80,26 +80,40 @@ function MapViewInner({
 
   /** One-time map engine; teardown on unmount (StrictMode-safe). */
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    const el = containerRef.current;
+    if (!el || mapRef.current) return;
 
-    const map = createMapEngine(containerRef.current);
-    addNavigationControl(map);
-    mapRef.current = map;
+    let cancelled = false;
 
-    const onLoad = () => {
-      ensurePublicMapGeoJsonLabelLayers(map);
-      ensurePlacesLayer(map, geojsonRef.current, selectedRef.current, languageModeRef.current);
-      applyMapOverlayStackOrder(map);
-      applyAllLocalizedMapLabels(map, languageModeRef.current);
-      setMapReady(true);
-    };
-    map.on('load', onLoad);
+    void (async () => {
+      try {
+        const map = await createMapEngine(el);
+        if (cancelled) {
+          map.remove();
+          return;
+        }
+        mapRef.current = map;
+        addNavigationControl(map);
+
+        const onLoad = () => {
+          ensurePublicMapGeoJsonLabelLayers(map);
+          ensurePlacesLayer(map, geojsonRef.current, selectedRef.current, languageModeRef.current);
+          applyMapOverlayStackOrder(map);
+          applyAllLocalizedMapLabels(map, languageModeRef.current);
+          setMapReady(true);
+        };
+        map.once('load', onLoad);
+      } catch (e) {
+        console.error('[map] Failed to initialize MapLibre', e);
+      }
+    })();
 
     return () => {
-      map.off('load', onLoad);
-      map.remove();
+      cancelled = true;
+      const map = mapRef.current;
       mapRef.current = null;
       setMapReady(false);
+      map?.remove();
     };
   }, []);
 

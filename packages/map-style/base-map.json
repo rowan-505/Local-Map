@@ -3,7 +3,7 @@
   "name": "Local Map Production Light",
   "metadata": {
     "local-map:purpose": "Rendering-only production basemap. Search, detail cards, and live CRUD data come from API/core.",
-    "local-map:glyphs": "Self-hosted in apps/web/public/fonts/{fontstack}/ — MapLibre requests /fonts/{fontstack}/{range}.pbf from the web app origin. Folder names must match text-font stack names exactly."
+    "local-map:glyphs": "Self-hosted in apps/web/public/fonts/{fontstack}/ — MapLibre requests /fonts/{fontstack}/{range}.pbf from the web app origin. Use a single text-font so {fontstack} is one folder name (e.g. NotoSansMyanmar-Regular). Do not use multi-font stacks."
   },
   "glyphs": "/fonts/{fontstack}/{range}.pbf",
   "sources": {
@@ -220,7 +220,7 @@
           ["get", "name_en"],
           ["get", "name"]
         ],
-        "text-font": ["Noto Sans Myanmar Regular"],
+        "text-font": ["NotoSansMyanmar-Regular"],
         "text-size": [
           "interpolate",
           ["linear"],
@@ -352,7 +352,7 @@
           ["get", "name_en"],
           ["get", "name"]
         ],
-        "text-font": ["Noto Sans Myanmar Regular"],
+        "text-font": ["NotoSansMyanmar-Regular"],
         "text-size": [
           "interpolate",
           ["linear"],
@@ -450,7 +450,7 @@
           ["get", "name_en"],
           ["get", "name"]
         ],
-        "text-font": ["Noto Sans Myanmar Regular"],
+        "text-font": ["NotoSansMyanmar-Regular"],
         "text-size": [
           "interpolate",
           ["linear"],
@@ -537,7 +537,7 @@
           ["get", "name_en"],
           ["get", "name"]
         ],
-        "text-font": ["Noto Sans Myanmar Regular"],
+        "text-font": ["NotoSansMyanmar-Regular"],
         "text-size": [
           "interpolate",
           ["linear"],
@@ -617,7 +617,7 @@
           ["get", "name_en"],
           ["get", "name"]
         ],
-        "text-font": ["Noto Sans Myanmar Regular"],
+        "text-font": ["NotoSansMyanmar-Regular"],
         "text-size": [
           "interpolate",
           ["linear"],

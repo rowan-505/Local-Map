@@ -6,6 +6,7 @@
 import type { LanguageMode } from '@local-map/localized-name';
 import { getMapTextFieldExpression } from '@local-map/localized-name';
 import type { ExpressionSpecification, GeoJSONSource } from 'maplibre-gl';
+import { MAP_SYMBOL_TEXT_FONT } from '../../config';
 import type { MapEngine } from '../mapEngineTypes';
 
 export const PLACES_SOURCE_ID = 'places' as const;
@@ -95,7 +96,7 @@ export function ensurePlacesLayer(
       source: PLACES_SOURCE_ID,
       layout: {
         'text-field': placesLabelTextField(languageMode),
-        'text-font': ['Noto Sans Myanmar Regular', 'Noto Sans Regular'],
+        'text-font': [...MAP_SYMBOL_TEXT_FONT],
         'text-size': 12,
         'text-offset': [0, 1.2],
         'text-anchor': 'top',
