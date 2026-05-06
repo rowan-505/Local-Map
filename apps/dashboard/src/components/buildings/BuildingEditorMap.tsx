@@ -7,7 +7,9 @@ import maplibregl, { type FilterSpecification } from "maplibre-gl";
 import {
     PLACE_MAP_DEFAULT_CENTER,
     PLACE_MAP_STYLE_BUILDINGS,
+    refreshBuildingTiles,
 } from "@/src/components/map/placeMapConfig";
+import { useBuildingTileVersion } from "@/src/components/map/BuildingTileVersionContext";
 import { attachDashboardMapErrorHandler } from "@/src/components/map/mapErrorHandlers";
 
 type PolygonGeom = {
@@ -32,8 +34,8 @@ const BASE_MAP_LAYERS = [
 const SATELLITE_HIDE_VECTOR_LAYERS = [
     "admin-boundaries",
     "bus-routes",
-    "roads-casing",
-    "roads",
+    "streets-casing",
+    "streets-line",
     "places-poi",
     "bus-stops",
     "road-labels",
@@ -701,6 +703,7 @@ export default function BuildingEditorMap({
     submissionError = "",
     editorMapSurfaceRef,
 }: BuildingEditorMapProps) {
+    const { buildingTileVersion } = useBuildingTileVersion();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
 
@@ -1007,6 +1010,16 @@ export default function BuildingEditorMap({
 
         applyBasemapMode(map, basemapMode);
     }, [basemapMode, mapReady]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!mapReady || !map?.isStyleLoaded()) {
+            return;
+        }
+
+        refreshBuildingTiles(map, buildingTileVersion);
+    }, [buildingTileVersion, mapReady]);
 
     useEffect(() => {
         const cancelInitialCamera = () => {

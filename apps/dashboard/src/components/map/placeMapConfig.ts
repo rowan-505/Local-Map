@@ -209,16 +209,20 @@ export function debugLogDashboardBuildingFootprintLayers(map: MaplibreMap | null
     console.debug(`[dashboard buildings map] layers bound to "${MAP_BUILDINGS_VECTOR_SOURCE_ID}"`, vectorBuildingsLayerIds);
 }
 
-export function mapBuildingsTileUrl(cacheBust?: string): string {
+/** Martin `tiles_buildings_v` tile URL; always includes `?v=` for cache-busting (default stable `"0"`). */
+export function mapBuildingsTileUrl(version: string | number = "0"): string {
     const path = `${TILE_SERVER_URL}/tiles_buildings_v/{z}/{x}/{y}`;
-    return cacheBust ? `${path}?v=${encodeURIComponent(cacheBust)}` : path;
+    return `${path}?v=${encodeURIComponent(String(version))}`;
 }
 
 /**
  * Clears in-memory vector tiles and reloads the unified buildings source (`MAP_BUILDINGS_VECTOR_SOURCE_ID`).
- * Call after create / update / soft-delete so new polygons appear and removed ones disappear without reload.
+ * Pass `buildingTileVersion` so the MVT URL query matches app state; when omitted, uses `Date.now()` once per call.
  */
-export function refreshBuildingTiles(map: MaplibreMap | null | undefined): boolean {
+export function refreshBuildingTiles(
+    map: MaplibreMap | null | undefined,
+    buildingTileVersion?: string | number
+): boolean {
     if (!map?.isStyleLoaded()) {
         return false;
     }
@@ -229,6 +233,8 @@ export function refreshBuildingTiles(map: MaplibreMap | null | undefined): boole
     if (!src || src.type !== "vector") {
         return false;
     }
+
+    const version = buildingTileVersion ?? Date.now();
 
     if (typeof console !== "undefined" && typeof console.info === "function" && IS_DASHBOARD_DEV) {
         console.info("building tile source id", sourceId);
@@ -242,7 +248,7 @@ export function refreshBuildingTiles(map: MaplibreMap | null | undefined): boole
             console.info("building vector tile source refreshed");
         }
 
-        const bustUrl = mapBuildingsTileUrl(String(Date.now()));
+        const bustUrl = mapBuildingsTileUrl(version);
         (src as VectorTileSource).setTiles([bustUrl]);
         map.triggerRepaint();
 
@@ -274,18 +280,23 @@ export function refreshBuildingTiles(map: MaplibreMap | null | undefined): boole
 /**
  * Runs {@link refreshBuildingTiles} immediately and on the next microtask / two animation frames so
  * Martin-backed tiles can repopulate after mutations (helps when navigation or paint would otherwise skip a pass).
+ * When `buildingTileVersion` is omitted, pins one `Date.now()` for every pass in this batch.
  */
-export function scheduleBuildingTileRefresh(map: MaplibreMap | null | undefined): boolean {
-    const primaryOk = refreshBuildingTiles(map);
+export function scheduleBuildingTileRefresh(
+    map: MaplibreMap | null | undefined,
+    buildingTileVersion?: string | number
+): boolean {
+    const version = buildingTileVersion ?? Date.now();
+    const primaryOk = refreshBuildingTiles(map, version);
 
     queueMicrotask(() => {
-        refreshBuildingTiles(map);
+        refreshBuildingTiles(map, version);
     });
 
     requestAnimationFrame(() => {
-        refreshBuildingTiles(map);
+        refreshBuildingTiles(map, version);
         requestAnimationFrame(() => {
-            refreshBuildingTiles(map);
+            refreshBuildingTiles(map, version);
         });
     });
 
@@ -306,9 +317,9 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
     name: "Local Map Natural",
     glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
     sources: {
-        core_streets: {
+        streets: {
             type: "vector",
-            tiles: [`${TILE_SERVER_URL}/core_streets/{z}/{x}/{y}`],
+            tiles: [`${TILE_SERVER_URL}/tiles_streets_v/{z}/{x}/{y}`],
             minzoom: 0,
             maxzoom: 22,
         },
@@ -362,7 +373,7 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         },
         "core_admin_areas.1": {
             type: "vector",
-            tiles: [`${TILE_SERVER_URL}/core_admin_areas.1/{z}/{x}/{y}`],
+            tiles: [`${TILE_SERVER_URL}/tiles_admin_areas_v.1/{z}/{x}/{y}`],
             minzoom: 0,
             maxzoom: 22,
         },
@@ -460,33 +471,33 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
             },
         },
         {
-            id: "roads-casing",
+            id: "streets-casing",
             type: "line",
-            source: "core_streets",
-            "source-layer": "core_streets",
+            source: "streets",
+            "source-layer": "tiles_streets_v",
             layout: {
                 "line-cap": "round",
                 "line-join": "round",
             },
             paint: {
                 "line-color": "#ffffff",
-                "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 13, 3.5, 16, 7, 19, 13],
-                "line-opacity": 0.9,
+                "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1, 14, 3, 18, 6],
+                "line-opacity": 0.6,
             },
         },
         {
-            id: "roads",
+            id: "streets-line",
             type: "line",
-            source: "core_streets",
-            "source-layer": "core_streets",
+            source: "streets",
+            "source-layer": "tiles_streets_v",
             layout: {
                 "line-cap": "round",
                 "line-join": "round",
             },
             paint: {
-                "line-color": "#b6b8b5",
-                "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 13, 1.8, 16, 4, 19, 8],
-                "line-opacity": 0.96,
+                "line-color": "#6b7280",
+                "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 14, 1.5, 18, 4],
+                "line-opacity": 0.8,
             },
         },
         {
