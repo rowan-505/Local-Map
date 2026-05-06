@@ -8,7 +8,15 @@ export type LinkedBuildingSummaryRow = {
     created_at: Date;
     building_public_id: string;
     building_name: string | null;
-    building_type: string | null;
+    building_type_id: string | null;
+    ref_bt_id: string | null;
+    ref_bt_code: string | null;
+    ref_bt_name: string | null;
+    ref_bt_name_mm: string | null;
+    ref_bt_parent_id: string | null;
+    building_type_code: string | null;
+    building_type_name: string | null;
+    building_type_name_mm: string | null;
     class_code: string;
     building_area_m2: number | null;
 };
@@ -87,7 +95,15 @@ export class PlaceBuildingsRepository {
                 pb.created_at,
                 b.public_id::text AS building_public_id,
                 b.name AS building_name,
-                b.building_type,
+                b.building_type_id::text AS building_type_id,
+                bt.id::text AS ref_bt_id,
+                bt.code AS ref_bt_code,
+                bt.name AS ref_bt_name,
+                bt.name_mm AS ref_bt_name_mm,
+                bt.parent_id::text AS ref_bt_parent_id,
+                bt.code AS building_type_code,
+                bt.name AS building_type_name,
+                bt.name_mm AS building_type_name_mm,
                 b.class_code,
                 b.area_m2::double precision AS building_area_m2
             FROM core.core_places AS p
@@ -95,6 +111,7 @@ export class PlaceBuildingsRepository {
                 ON pb.place_id = p.id
             INNER JOIN core.core_map_buildings AS b
                 ON b.id = pb.building_id
+            LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
             WHERE p.public_id = CAST(${placePublicId} AS uuid)
               AND p.deleted_at IS NULL
               AND b.deleted_at IS NULL
@@ -157,12 +174,21 @@ export class PlaceBuildingsRepository {
                     pb.created_at,
                     b.public_id::text AS building_public_id,
                     b.name AS building_name,
-                    b.building_type,
+                    b.building_type_id::text AS building_type_id,
+                    bt.id::text AS ref_bt_id,
+                    bt.code AS ref_bt_code,
+                    bt.name AS ref_bt_name,
+                    bt.name_mm AS ref_bt_name_mm,
+                    bt.parent_id::text AS ref_bt_parent_id,
+                    bt.code AS building_type_code,
+                    bt.name AS building_type_name,
+                    bt.name_mm AS building_type_name_mm,
                     b.class_code,
                     b.area_m2::double precision AS building_area_m2
                 FROM core.core_place_buildings AS pb
                 INNER JOIN core.core_map_buildings AS b
                     ON b.id = pb.building_id
+                LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
                 WHERE pb.place_id = ${placeInternalId}
                   AND pb.building_id = ${buildingInternalId}
                 LIMIT 1
@@ -257,12 +283,21 @@ export class PlaceBuildingsRepository {
                     pb.created_at,
                     b.public_id::text AS building_public_id,
                     b.name AS building_name,
-                    b.building_type,
+                    b.building_type_id::text AS building_type_id,
+                    bt.id::text AS ref_bt_id,
+                    bt.code AS ref_bt_code,
+                    bt.name AS ref_bt_name,
+                    bt.name_mm AS ref_bt_name_mm,
+                    bt.parent_id::text AS ref_bt_parent_id,
+                    bt.code AS building_type_code,
+                    bt.name AS building_type_name,
+                    bt.name_mm AS building_type_name_mm,
                     b.class_code,
                     b.area_m2::double precision AS building_area_m2
                 FROM core.core_place_buildings AS pb
                 INNER JOIN core.core_map_buildings AS b
                     ON b.id = pb.building_id
+                LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
                 WHERE pb.place_id = ${placeInternalId}
                   AND pb.building_id = ${buildingInternalId}
                 LIMIT 1

@@ -184,13 +184,31 @@ export type BuildingMultiPolygonGeometry = {
 
 export type BuildingGeometry = BuildingPolygonGeometry | BuildingMultiPolygonGeometry;
 
+/** Row from ref.ref_building_types (GET /building-types and embedded on buildings). */
+export type RefBuildingType = {
+    id: string;
+    code: string;
+    name: string;
+    name_mm: string | null;
+    parent_id: string | null;
+    /** Present on GET /building-types; omitted on embedded building references. */
+    sort_order?: number;
+};
+
 export type Building = {
     id: string;
     public_id: string;
     source_staging_id: string | null;
     external_id: string | null;
     name: string | null;
-    building_type: string | null;
+    /** FK to ref.ref_building_types (when exposed by API). */
+    building_type_id?: string | null;
+    /** Resolved taxonomy; null when not linked to ref or inactive. */
+    building_type: RefBuildingType | null;
+    /** From ref join (flat); use for display when building_type object is null. */
+    building_type_code?: string | null;
+    building_type_name?: string | null;
+    building_type_name_mm?: string | null;
     class_code: string;
     normalized_data: Record<string, unknown>;
     source_refs: Record<string, unknown>;
@@ -231,7 +249,11 @@ export type LinkedBuildingSummaryApi = {
     building: {
         public_id: string;
         name: string | null;
-        building_type: string | null;
+        building_type_id?: string | null;
+        building_type: RefBuildingType | null;
+        building_type_code?: string | null;
+        building_type_name?: string | null;
+        building_type_name_mm?: string | null;
         class_code: string;
         area_m2: number | null;
     };
@@ -282,7 +304,10 @@ export type PatchPlaceBuildingResponse = LinkPlaceBuildingResponse;
 export type CreateBuildingPayload = {
     geometry: BuildingGeometry;
     name?: string | null;
+    /** Prefer {@link building_type_id} when both are set (API resolves ref codes). */
     building_type?: string;
+    /** Omit or null: create omits; PATCH may send null to clear FK. */
+    building_type_id?: string | null;
     levels?: number;
     height_m?: number;
     confidence_score?: number;
@@ -565,6 +590,10 @@ export function updateStreet(id: string, payload: UpdateStreetPayload) {
 
 export function getBuildings(params?: BuildingsParams, fetchInit?: Pick<RequestInit, "signal">) {
     return apiFetch<Building[]>("/buildings", { method: "GET", ...fetchInit }, params);
+}
+
+export function getBuildingTypes(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<RefBuildingType[]>("/building-types", { method: "GET", ...fetchInit });
 }
 
 export function getBuilding(id: string, fetchInit?: Pick<RequestInit, "signal">) {
