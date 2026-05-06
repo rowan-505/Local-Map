@@ -19,8 +19,8 @@ jobs:
 
       - name: Check Myanmar glyph range
         run: |
-          ls "glyph-output/Noto Sans Myanmar Regular"
-          test -f "glyph-output/Noto Sans Myanmar Regular/4096-4351.pbf"
+          ls "glyph-output/NotoSansMyanmar-Regular"
+          test -f "glyph-output/NotoSansMyanmar-Regular/4096-4351.pbf"
 
       - name: Upload glyph artifact
         uses: actions/upload-artifact@v4
