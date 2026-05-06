@@ -10,9 +10,11 @@ import BuildingEditorMap, {
 } from "@/src/components/buildings/BuildingEditorMap";
 import {
     getBuildingTypes,
+    getPlaceFormOptions,
     type Building,
     type BuildingGeometry,
     type CreateBuildingPayload,
+    type PlaceFormOptions,
     type RefBuildingType,
 } from "@/src/lib/api";
 import { scheduleBuildingTileRefresh } from "@/src/components/map/placeMapConfig";
@@ -62,9 +64,13 @@ export default function BuildingEditorForm({
     const [geometryJson, setGeometryJson] = useState("");
     const [name, setName] = useState("");
     const [buildingTypeId, setBuildingTypeId] = useState("");
+    const [adminAreaId, setAdminAreaId] = useState("");
     const [refTypes, setRefTypes] = useState<RefBuildingType[]>([]);
     const [refTypesLoading, setRefTypesLoading] = useState(true);
     const [refTypesError, setRefTypesError] = useState<string | null>(null);
+    const [formOptions, setFormOptions] = useState<PlaceFormOptions | null>(null);
+    const [formOptionsLoading, setFormOptionsLoading] = useState(true);
+    const [formOptionsError, setFormOptionsError] = useState<string | null>(null);
     const [levels, setLevels] = useState("");
     const [heightM, setHeightM] = useState("");
     const [confidenceScore, setConfidenceScore] = useState("80");
@@ -95,6 +101,26 @@ export default function BuildingEditorForm({
         }
     }, []);
 
+    const loadPlaceFormOptions = useCallback(async () => {
+        setFormOptionsLoading(true);
+        setFormOptionsError(null);
+        try {
+            const data = await getPlaceFormOptions();
+            setFormOptions(data);
+        } catch (err) {
+            setFormOptions(null);
+            setFormOptionsError(
+                err instanceof Error ? err.message : "Failed to load create form options"
+            );
+        } finally {
+            setFormOptionsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        void loadPlaceFormOptions();
+    }, [loadPlaceFormOptions]);
+
     useEffect(() => {
         void loadRefTypes();
     }, [loadRefTypes]);
@@ -119,6 +145,13 @@ export default function BuildingEditorForm({
                 ? String(resolvedId)
                 : ""
         );
+        const resolvedAdmin =
+            initialBuilding.admin_area_id !== null &&
+            initialBuilding.admin_area_id !== undefined &&
+            String(initialBuilding.admin_area_id).length > 0
+                ? String(initialBuilding.admin_area_id)
+                : "";
+        setAdminAreaId(resolvedAdmin);
         setLevels(initialBuilding.levels != null ? String(initialBuilding.levels) : "");
         setHeightM(initialBuilding.height_m != null ? String(initialBuilding.height_m) : "");
         setConfidenceScore(
@@ -160,8 +193,14 @@ export default function BuildingEditorForm({
 
         if (isEdit) {
             payload.building_type_id = buildingTypeId.trim() === "" ? null : buildingTypeId.trim();
-        } else if (buildingTypeId.trim() !== "") {
-            payload.building_type_id = buildingTypeId.trim();
+            payload.admin_area_id = adminAreaId.trim() === "" ? null : adminAreaId.trim();
+        } else {
+            if (buildingTypeId.trim() !== "") {
+                payload.building_type_id = buildingTypeId.trim();
+            }
+            if (adminAreaId.trim() !== "") {
+                payload.admin_area_id = adminAreaId.trim();
+            }
         }
 
         const levelsTrimmed = levels.trim();
@@ -329,6 +368,39 @@ export default function BuildingEditorForm({
                             <p className="mt-1 text-xs text-gray-500">Loading building types…</p>
                         ) : null}
                     </div>
+
+                    <label className="block" htmlFor="building-admin-area">
+                        <span className="mb-1 block text-sm text-gray-700">Admin area</span>
+                        {formOptionsError ? (
+                            <div className="mb-2 rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                                <p>{formOptionsError}</p>
+                                <button
+                                    type="button"
+                                    onClick={() => void loadPlaceFormOptions()}
+                                    className="mt-2 rounded border border-red-300 bg-white px-3 py-1.5 text-sm text-red-800 hover:bg-red-50"
+                                >
+                                    Try again
+                                </button>
+                            </div>
+                        ) : null}
+                        {formOptionsLoading ? (
+                            <p className="mb-2 text-sm text-gray-600">Loading admin areas...</p>
+                        ) : null}
+                        <select
+                            id="building-admin-area"
+                            value={adminAreaId}
+                            onChange={(e) => setAdminAreaId(e.target.value)}
+                            disabled={formOptionsLoading}
+                            className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900 disabled:cursor-not-allowed disabled:bg-gray-50"
+                        >
+                            <option value="">Select admin area</option>
+                            {(formOptions?.admin_areas ?? []).map((area) => (
+                                <option key={area.id} value={area.id}>
+                                    {area.label}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
 
                     <div>
                         <label htmlFor="building-levels" className="block text-sm font-medium text-gray-700">

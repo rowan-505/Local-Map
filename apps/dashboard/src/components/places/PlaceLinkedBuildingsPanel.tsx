@@ -46,6 +46,16 @@ function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): nu
     return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
+function formatBuildingAdminCanonical(ref: Building["admin_area"]): string {
+    const name = ref?.canonical_name?.trim();
+
+    if (!name) {
+        return "-";
+    }
+
+    return name;
+}
+
 function buildingCentroid(
     geom: Building["geometry"] | null | undefined
 ): { lng: number; lat: number } | null {
@@ -554,6 +564,10 @@ export default function PlaceLinkedBuildingsPanel({
                                     ) : null}
                                 </div>
                                 <div className="mt-1 text-xs text-gray-600">
+                                    <span className="text-gray-500">Admin area: </span>
+                                    {formatBuildingAdminCanonical(row.building.admin_area)}
+                                </div>
+                                <div className="mt-1 text-xs text-gray-600">
                                     {row.building.public_id}{" "}
                                     {typeof row.building.area_m2 === "number"
                                         ? `· ${Math.round(row.building.area_m2)} m²`
@@ -644,8 +658,12 @@ export default function PlaceLinkedBuildingsPanel({
                                             } disabled:cursor-not-allowed disabled:opacity-50`}
                                             onClick={() => setPickedPublicId(building.public_id)}
                                         >
-                                            <span>{label}</span>
-                                            <span className="ml-2 text-xs text-gray-500 font-mono">
+                                            <span className="block">{label}</span>
+                                            <span className="mt-0.5 block text-xs text-gray-600">
+                                                <span className="text-gray-500">Admin area: </span>
+                                                {formatBuildingAdminCanonical(building.admin_area)}
+                                            </span>
+                                            <span className="mt-0.5 block text-xs text-gray-500 font-mono">
                                                 {linkedHere ? "(linked)" : building.public_id.slice(0, 8)}
                                             </span>
                                         </button>
@@ -689,6 +707,9 @@ export default function PlaceLinkedBuildingsPanel({
                                     {pickedBuilding.name?.trim() ||
                                         `${pickedBuilding.building_type?.name ?? pickedBuilding.building_type_name ?? pickedBuilding.building_type_code ?? pickedBuilding.class_code}`}
                                 </strong>
+                                <span className="mt-1 block">
+                                    Admin area: {formatBuildingAdminCanonical(pickedBuilding.admin_area)}
+                                </span>
                             </p>
                         ) : pickedPublicId ? (
                             <p className="mt-3 text-xs text-gray-600">Loading building… ({pickedPublicId})</p>

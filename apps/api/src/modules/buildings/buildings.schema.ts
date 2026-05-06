@@ -112,12 +112,58 @@ const optionalBuildingTypeIdPatchSchema = z.preprocess((value) => {
     return undefined;
 }, z.union([z.bigint(), z.null()]).optional());
 
+/** PATCH: explicit null clears admin_area_id. */
+const optionalAdminAreaIdPatchSchema = z.preprocess((value) => {
+    if (value === null) {
+        return null;
+    }
+
+    if (value === undefined || value === "") {
+        return undefined;
+    }
+
+    if (typeof value === "bigint") {
+        return value;
+    }
+
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+        return BigInt(value);
+    }
+
+    if (typeof value === "string" && /^[0-9]+$/.test(value)) {
+        return BigInt(value);
+    }
+
+    return undefined;
+}, z.union([z.bigint(), z.null()]).optional());
+
+const optionalAdminAreaIdCreateSchema = z.preprocess((value) => {
+    if (value === undefined || value === null || value === "") {
+        return undefined;
+    }
+
+    if (typeof value === "bigint") {
+        return value;
+    }
+
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+        return BigInt(value);
+    }
+
+    if (typeof value === "string" && /^[0-9]+$/.test(value)) {
+        return BigInt(value);
+    }
+
+    return undefined;
+}, z.bigint().optional());
+
 export const createBuildingBodySchema = z
     .object({
         geometry: buildingGeometrySchema,
         name: optionalNameSchema,
         building_type: optionalTrimmedStringSchema,
         building_type_id: optionalBuildingTypeIdSchema,
+        admin_area_id: optionalAdminAreaIdCreateSchema,
         levels: optionalLevelsCreateSchema,
         height_m: optionalHeightCreateSchema,
         confidence_score: finiteConfidenceSchema,
@@ -131,6 +177,7 @@ export const updateBuildingBodySchema = z
         name: optionalNameSchema,
         building_type: optionalTrimmedStringSchema,
         building_type_id: optionalBuildingTypeIdPatchSchema,
+        admin_area_id: optionalAdminAreaIdPatchSchema,
         levels: optionalLevelsPatchSchema,
         height_m: optionalHeightPatchSchema,
         confidence_score: finiteConfidenceSchema,

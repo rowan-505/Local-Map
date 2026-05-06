@@ -32,6 +32,11 @@ export type BuildingDetailRow = {
     building_type_code: string | null;
     building_type_name: string | null;
     building_type_name_mm: string | null;
+    admin_area_id: string | null;
+    /** Populated when FK joins to core_admin_areas. */
+    admin_area_row_id: string | null;
+    admin_area_canonical_name: string | null;
+    admin_area_slug: string | null;
     normalized_data: unknown;
     source_refs: unknown;
     levels: number | null;
@@ -53,6 +58,9 @@ export type BuildingPersistSnapshot = {
     building_type_column: string;
     /** When set, must reference an active row in ref.ref_building_types. */
     building_type_id: bigint | null;
+    /** When true, INSERT/geometry UPDATE clears FK before best-effort spatial inference (failure never raises). */
+    admin_area_resolve_spatial: boolean;
+    admin_area_id: bigint | null;
     normalized_data: Record<string, unknown>;
     levels: number | null;
     height_m: number | null;
@@ -109,6 +117,55 @@ export class BuildingsRepository {
         return rows[0] ?? null;
     }
 
+    async hasActiveAdminArea(adminAreaId: bigint): Promise<boolean> {
+        const adminArea = await this.prisma.coreAdminArea.findFirst({
+            where: {
+                id: adminAreaId,
+                isActive: true,
+            },
+            select: {
+                id: true,
+            },
+        });
+
+        return Boolean(adminArea);
+    }
+
+    /**
+     * Best-effort: set admin_area_id from active admin polygons containing ST_PointOnSurface(geom).
+     * Tie-break smallest geography area. Exceptions are swallowed.
+     */
+    async tryInferDashboardBuildingAdminAreaFromGeometry(
+        internalBuildingId: bigint,
+        db: DbClient = this.prisma
+    ): Promise<void> {
+        try {
+            await db.$executeRaw(Prisma.sql`
+                UPDATE core.core_map_buildings AS b
+                SET
+                    admin_area_id = (
+                        SELECT a.id
+                        FROM core.core_admin_areas AS a
+                        WHERE a.is_active IS TRUE
+                          AND a.geom IS NOT NULL
+                          AND ST_IsValid(a.geom)
+                          AND ST_Contains(a.geom::geometry, ST_PointOnSurface(b.geom))
+                        ORDER BY ST_Area(a.geom::geography) ASC NULLS LAST
+                        LIMIT 1
+                    ),
+                    updated_at = NOW()
+                WHERE b.id = ${internalBuildingId}
+                  AND ${dashboardBuildingClause}
+                  AND b.deleted_at IS NULL
+                  AND b.is_active IS TRUE
+                  AND b.geom IS NOT NULL
+                  AND ST_IsValid(b.geom)
+            `);
+        } catch {
+            /* Inference must not fail building workflows. */
+        }
+    }
+
     /** Active, non-deleted buildings (imports + dashboard), no source filter. */
     async listActiveBuildings(params: {
         limit: number;
@@ -124,6 +181,8 @@ export class BuildingsRepository {
                     OR COALESCE(b.class_code, '') ILIKE ${"%" + params.q + "%"}
                     OR COALESCE(bt.code, '') ILIKE ${"%" + params.q + "%"}
                     OR COALESCE(bt.name, '') ILIKE ${"%" + params.q + "%"}
+                    OR COALESCE(aa.canonical_name, '') ILIKE ${"%" + params.q + "%"}
+                    OR COALESCE(aa.slug, '') ILIKE ${"%" + params.q + "%"}
                 )`;
 
         return this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
@@ -143,6 +202,10 @@ export class BuildingsRepository {
                 bt.code AS building_type_code,
                 bt.name AS building_type_name,
                 bt.name_mm AS building_type_name_mm,
+                b.admin_area_id::text AS admin_area_id,
+                aa.id::text AS admin_area_row_id,
+                aa.canonical_name AS admin_area_canonical_name,
+                aa.slug AS admin_area_slug,
                 b.normalized_data,
                 b.source_refs,
                 b.levels,
@@ -157,6 +220,7 @@ export class BuildingsRepository {
                 ST_AsGeoJSON(b.geom)::json AS geometry
             FROM core.core_map_buildings AS b
             LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
+            LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
             WHERE b.deleted_at IS NULL
               AND b.is_active IS TRUE
               AND ${searchClause}
@@ -185,6 +249,10 @@ export class BuildingsRepository {
                 bt.code AS building_type_code,
                 bt.name AS building_type_name,
                 bt.name_mm AS building_type_name_mm,
+                b.admin_area_id::text AS admin_area_id,
+                aa.id::text AS admin_area_row_id,
+                aa.canonical_name AS admin_area_canonical_name,
+                aa.slug AS admin_area_slug,
                 b.normalized_data,
                 b.source_refs,
                 b.levels,
@@ -199,6 +267,7 @@ export class BuildingsRepository {
                 ST_AsGeoJSON(b.geom)::json AS geometry
             FROM core.core_map_buildings AS b
             LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
+            LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
             WHERE b.public_id = CAST(${publicId} AS uuid)
               AND b.deleted_at IS NULL
               AND b.is_active IS TRUE
@@ -226,6 +295,10 @@ export class BuildingsRepository {
                 bt.code AS building_type_code,
                 bt.name AS building_type_name,
                 bt.name_mm AS building_type_name_mm,
+                b.admin_area_id::text AS admin_area_id,
+                aa.id::text AS admin_area_row_id,
+                aa.canonical_name AS admin_area_canonical_name,
+                aa.slug AS admin_area_slug,
                 b.normalized_data,
                 b.source_refs,
                 b.levels,
@@ -240,6 +313,7 @@ export class BuildingsRepository {
                 ST_AsGeoJSON(b.geom)::json AS geometry
             FROM core.core_map_buildings AS b
             LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
+            LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
             WHERE b.public_id = CAST(${publicId} AS uuid)
               AND ${dashboardBuildingClause}
               AND b.deleted_at IS NULL
@@ -255,6 +329,10 @@ export class BuildingsRepository {
         snapshot: BuildingPersistSnapshot
     ): Promise<BuildingDetailRow | null> {
         const normalizedJson = JSON.stringify(snapshot.normalized_data);
+
+        const persistedAdminFk = snapshot.admin_area_resolve_spatial
+            ? Prisma.sql`NULL::bigint`
+            : Prisma.sql`${snapshot.admin_area_id}`;
 
         const rows = await this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
             WITH inp AS (
@@ -305,6 +383,7 @@ export class BuildingsRepository {
                 source_refs,
                 geom,
                 building_type_id,
+                admin_area_id,
                 levels,
                 height_m,
                 centroid,
@@ -325,6 +404,7 @@ export class BuildingsRepository {
                 '{"source":"dashboard"}'::jsonb,
                 ready.geom,
                 ${snapshot.building_type_id},
+                ${persistedAdminFk},
                 ${snapshot.levels},
                 ${snapshot.height_m},
                 ready.centroid,
@@ -352,6 +432,13 @@ export class BuildingsRepository {
                 (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = building_type_id LIMIT 1) AS building_type_code,
                 (SELECT bt.name FROM ref.ref_building_types AS bt WHERE bt.id = building_type_id LIMIT 1) AS building_type_name,
                 (SELECT bt.name_mm FROM ref.ref_building_types AS bt WHERE bt.id = building_type_id LIMIT 1) AS building_type_name_mm,
+                admin_area_id::text AS admin_area_id,
+                (SELECT aa.id::text FROM core.core_admin_areas AS aa WHERE aa.id = admin_area_id LIMIT 1)
+                    AS admin_area_row_id,
+                (SELECT aa.canonical_name FROM core.core_admin_areas AS aa WHERE aa.id = admin_area_id LIMIT 1)
+                    AS admin_area_canonical_name,
+                (SELECT aa.slug FROM core.core_admin_areas AS aa WHERE aa.id = admin_area_id LIMIT 1)
+                    AS admin_area_slug,
                 normalized_data,
                 source_refs,
                 levels,
@@ -366,7 +453,15 @@ export class BuildingsRepository {
                 ST_AsGeoJSON(geom)::json AS geometry
         `);
 
-        return rows[0] ?? null;
+        let row = rows[0] ?? null;
+
+        if (row && snapshot.admin_area_resolve_spatial) {
+            await this.tryInferDashboardBuildingAdminAreaFromGeometry(BigInt(row.id));
+            row =
+                (await this.getDashboardBuildingByPublicId(row.public_id)) ?? row;
+        }
+
+        return row;
     }
 
     async updateDashboardBuildingGeometry(
@@ -375,6 +470,10 @@ export class BuildingsRepository {
         snapshot: BuildingPersistSnapshot
     ): Promise<BuildingDetailRow | null> {
         const normalizedJson = JSON.stringify(snapshot.normalized_data);
+
+        const persistedAdminFk = snapshot.admin_area_resolve_spatial
+            ? Prisma.sql`NULL::bigint`
+            : Prisma.sql`${snapshot.admin_area_id}`;
 
         const rows = await this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
             WITH inp AS (
@@ -425,6 +524,7 @@ export class BuildingsRepository {
                     name = ${snapshot.name},
                     class_code = lbl.resolved_label,
                     building_type_id = ${snapshot.building_type_id},
+                    admin_area_id = ${persistedAdminFk},
                     normalized_data = ${normalizedJson}::jsonb,
                     levels = ${snapshot.levels},
                     height_m = ${snapshot.height_m},
@@ -452,6 +552,13 @@ export class BuildingsRepository {
                     (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_code,
                     (SELECT bt.name FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_name,
                     (SELECT bt.name_mm FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_name_mm,
+                    b.admin_area_id::text AS admin_area_id,
+                    (SELECT aa.id::text FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
+                        AS admin_area_row_id,
+                    (SELECT aa.canonical_name FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
+                        AS admin_area_canonical_name,
+                    (SELECT aa.slug FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
+                        AS admin_area_slug,
                     b.normalized_data,
                     b.source_refs,
                     b.levels,
@@ -468,7 +575,15 @@ export class BuildingsRepository {
             SELECT * FROM updated
         `);
 
-        return rows[0] ?? null;
+        let row = rows[0] ?? null;
+
+        if (row && snapshot.admin_area_resolve_spatial) {
+            await this.tryInferDashboardBuildingAdminAreaFromGeometry(BigInt(row.id));
+            row =
+                (await this.getDashboardBuildingByPublicId(publicId)) ?? row;
+        }
+
+        return row;
     }
 
     async updateDashboardBuildingScalars(
@@ -494,6 +609,7 @@ export class BuildingsRepository {
                     'yes'
                 ),
                 building_type_id = ${snapshot.building_type_id},
+                admin_area_id = ${snapshot.admin_area_id},
                 normalized_data = ${normalizedJson}::jsonb,
                 levels = ${snapshot.levels},
                 height_m = ${snapshot.height_m},
@@ -522,6 +638,13 @@ export class BuildingsRepository {
                 (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_code,
                 (SELECT bt.name FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_name,
                 (SELECT bt.name_mm FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_name_mm,
+                b.admin_area_id::text AS admin_area_id,
+                (SELECT aa.id::text FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
+                    AS admin_area_row_id,
+                (SELECT aa.canonical_name FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
+                    AS admin_area_canonical_name,
+                (SELECT aa.slug FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
+                    AS admin_area_slug,
                 b.normalized_data,
                 b.source_refs,
                 b.levels,
@@ -569,6 +692,13 @@ export class BuildingsRepository {
                 (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_code,
                 (SELECT bt.name FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_name,
                 (SELECT bt.name_mm FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_name_mm,
+                b.admin_area_id::text AS admin_area_id,
+                (SELECT aa.id::text FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
+                    AS admin_area_row_id,
+                (SELECT aa.canonical_name FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
+                    AS admin_area_canonical_name,
+                (SELECT aa.slug FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
+                    AS admin_area_slug,
                 b.normalized_data,
                 b.source_refs,
                 b.levels,
