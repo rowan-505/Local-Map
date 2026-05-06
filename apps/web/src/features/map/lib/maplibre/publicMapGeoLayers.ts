@@ -10,6 +10,7 @@ import type {
   SymbolLayerSpecification,
 } from 'maplibre-gl';
 import type { MapEngine } from '../mapEngineTypes';
+import { MAP_SYMBOL_TEXT_FONT } from '../../config';
 import { PLACES_LAYER_ID } from './placesOnMap';
 
 export const PUBLIC_MAP_EMPTY_FC = Object.freeze({
@@ -56,7 +57,7 @@ const LINE_LAYOUT_LINE_SHARED = {
   'symbol-placement': 'line' as const,
   'text-field': initialLabelExpr(),
   'text-size': LINE_TEXT_SIZE_INTERPOLATE,
-  'text-font': ['Noto Sans Regular'],
+  'text-font': [...MAP_SYMBOL_TEXT_FONT],
   'text-rotation-alignment': 'map' as const,
   'text-pitch-alignment': 'viewport' as const,
   'text-keep-upright': true as const,
@@ -139,7 +140,7 @@ function pointSymbolLayer(
     minzoom,
     layout: {
       'text-field': initialLabelExpr(),
-      'text-font': ['Noto Sans Myanmar Regular', 'Noto Sans Regular'],
+      'text-font': [...MAP_SYMBOL_TEXT_FONT],
       'text-size': [
         'interpolate',
         ['linear'],

@@ -2,55 +2,47 @@
 
 Map labels use **glyph PBF ranges**, not raw `.ttf` files at runtime. You must produce `.pbf` files and copy them into:
 
-- `apps/web/public/fonts/Noto Sans Myanmar Regular/*.pbf`
-- `apps/web/public/fonts/Noto Sans Regular/*.pbf`
+- `apps/web/public/fonts/NotoSansMyanmar-Regular/*.pbf`
 
-(Paths and names must match the style’s `text-font` and the [`glyphs` URL](/fonts/{fontstack}/{range}.pbf) template.)
+(Paths must match the style’s **`text-font`** and the glyphs URL **`/fonts/{fontstack}/{range}.pbf`**. The active style uses **`["NotoSansMyanmar-Regular"]`** — a **single** stack per symbol layer.)
 
 ## Fonts to start from (you obtain these — do not commit unless license allows)
 
-- **Noto Sans Myanmar Regular** — e.g. `NotoSansMyanmar-Regular.ttf` from [Noto Sans Myanmar](https://fonts.google.com/noto/specimen/Noto+Sans+Myanmar) (typically **SIL OFL**).
-- **Noto Sans Regular** — e.g. `NotoSans-Regular.ttf` from [Noto Sans](https://fonts.google.com/noto/specimen/Noto+Sans) (**SIL OFL**).
+- **Noto Sans Myanmar** — e.g. `NotoSansMyanmar-Regular.ttf` from [Google Fonts / Noto](https://fonts.google.com/noto/specimen/Noto+Sans+Myanmar) (typically **SIL OFL**).
+- **Noto Sans** — e.g. `NotoSans-Regular.ttf`, if you need a separate **`NotoSans-Regular/`** glyph set for tooling or experimentation (**SIL OFL**).
 
-Keep `.ttf` files outside the repo or in a local scratch directory unless your project explicitly allows committing them.
+Keep `.ttf` files outside the repo or under `glyph-source/` as your workflow allows.
 
 ## What to generate
 
-For each logical font stack, emit the standard **Unicode range** PBF filenames MapLibre expects, e.g.:
+For each **`fontstack`** directory, emit the standard Unicode **range** filenames MapLibre expects:
 
-- `0-255.pbf`, `256-511.pbf`, … up through the code-point ranges you care about (Latin + Myanmar blocks at minimum).
+- `0-255.pbf`, `256-511.pbf`, … through the Unicode blocks you need (Latin + Myanmar at minimum).
 
-A quick smoke test after the dev server is running:
+### Smoke URLs (after `pnpm dev` in `apps/web`)
 
 ```txt
-http://localhost:5173/fonts/Noto%20Sans%20Myanmar%20Regular/4096-4351.pbf
+/fonts/NotoSansMyanmar-Regular/0-255.pbf
+/fonts/NotoSansMyanmar-Regular/4096-4351.pbf
 ```
 
-(Spaces may appear URL-encoded as `%20`.)
+(Optional `NotoSans-Regular` folder for Latin-only glyphs is supported on disk — do not reference a comma-joined stack in styles.)
 
-If that URL 404s, labels for that stack will fail.
+If those URLs **404** or return **HTML**, labels for that stack will fail.
 
 ## Practical generation options
 
-Tooling evolves; choose one workflow your team can maintain.
+### CI / local tooling
 
-### Option A — OpenMapTiles font tooling (starting point)
+The repo wires **`.github/workflows/generate-glyphs.yml`** → **`linz/action-build-pbf-glyphs`** reading **`glyph-source/`** and emitting **`glyph-output/NotoSansMyanmar-Regular/`** (hyphen names, aligned with **`text-font`**).
 
-The [openmaptiles/fonts](https://github.com/openmaptiles/fonts) repository documents how stacks of `.pbf` ranges are produced from font files. Adapt their pipeline so outputs land in the **`apps/web/public/fonts/<exact text-font name>/`** folders above.
+### Manual references
 
-### Option B — `node-fontnik` / glyph build utilities
-
-[mapbox/node-fontnik](https://github.com/mapbox/fontnik) (or maintained forks / wrappers) can generate range PBFs from a `.ttf`. You typically script one directory per `{fontstack}` name.
-
-**Note:** Native compilation may be required; use Node version and platform instructions from the chosen tool.
-
-### Option C — Prebuilt stacks (only if licenses match)
-
-Some projects publish packs of glyphs for named fonts; only use packs that legally match **Noto** and verify the **`fontstack` folder name** matches our style (`Noto Sans Myanmar Regular`, etc.).
+Tooling evolves; alternatives include OpenMapTiles / **node-fontnik** forks. Outputs must land in **`apps/web/public/fonts/<exact text-font name>/`** with **hyphenated** stack names matching the JSON (**`NotoSansMyanmar-Regular`**, not **`Noto Sans Myanmar Regular`** with spaces unless you deliberately mirror that everywhere).
 
 ## Sanity checklist
 
-1. Style root `glyphs` is **`/fonts/{fontstack}/{range}.pbf`** (`packages/map-style/base-map.json`).
-2. **`text-font`** uses **exact names** matching subfolders under `apps/web/public/fonts/`.
-3. Ranges covering **Myanmar script** plus **digits / Latin** for mixed labels exist for **Noto Sans Myanmar Regular**.
-4. Rebuild/serve `apps/web` and confirm the network panel shows **200** for glyph URLs, not 404.
+1. Style root **`glyphs`** is **`/fonts/{fontstack}/{range}.pbf`** (`packages/map-style/base-map.json`).
+2. **`text-font`** is a **single** string per symbol layer matching a subfolder (`NotoSansMyanmar-Regular`).
+3. Ranges covering **Myanmar script** plus **ASCII/Latin** exist under **`NotoSansMyanmar-Regular/`** for mixed labels (Noto Myanmar includes Latin glyphs for typical road names).
+4. Rebuild/serve `apps/web` and confirm DevTools shows **200** for glyph URLs, **`application/octet-stream`** or similar, **not** `text/html`.

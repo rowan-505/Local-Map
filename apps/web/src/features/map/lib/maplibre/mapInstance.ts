@@ -5,12 +5,17 @@
 import maplibregl from 'maplibre-gl';
 import { getActiveBasemapStyle, MAP_LIBRE_INTERACTION_DEFAULTS } from '../../config';
 import {
+  ensureMaplibreComplexTextPlugin,
+  maplibreComplexTextTransformRequest,
+} from './maplibreComplexText';
+import {
   MAP_MAX_BOUNDS,
   MAP_MAX_ZOOM,
   MAP_MIN_ZOOM,
 } from '../../mapDefaults';
 import type { MapEngine } from '../mapEngineTypes';
 import { applyMvpBasemapStyle } from './basemapMvpStyle';
+import { logGlyphServingHealthInDev } from './glyphDevCheck';
 import { syncCountryMinZoom } from './mapCountryMinZoom';
 import { ensurePmtilesProtocol } from './pmtilesProtocol';
 
@@ -20,8 +25,10 @@ const KYAUKTAN_INITIAL_BOUNDS = [
   [96.4651032, 16.685961],
 ] as const satisfies BoundsLike;
 
-export function createMaplibreMap(container: HTMLDivElement): MapEngine {
+export async function createMaplibreMap(container: HTMLDivElement): Promise<MapEngine> {
   ensurePmtilesProtocol();
+  await ensureMaplibreComplexTextPlugin();
+  logGlyphServingHealthInDev();
 
   /**
    * Initial camera = Kyauktan bounds, applied on first load with an instant `fitBounds`.
@@ -32,6 +39,7 @@ export function createMaplibreMap(container: HTMLDivElement): MapEngine {
   const map = new maplibregl.Map({
     container,
     style: getActiveBasemapStyle(),
+    transformRequest: maplibreComplexTextTransformRequest,
     maxBounds: MAP_MAX_BOUNDS as BoundsLike,
     minZoom: MAP_MIN_ZOOM,
     maxZoom: MAP_MAX_ZOOM,
