@@ -4,6 +4,9 @@ type DbClient = PrismaClient | Prisma.TransactionClient;
 
 type ListStreetsParams = {
     limit: number;
+    q?: string;
+    sortBy: "name" | "admin_area" | "created" | "updated";
+    sortOrder: "asc" | "desc";
 };
 
 type StreetGeometry =
@@ -61,10 +64,41 @@ export type StreetNameRow = {
     is_primary: boolean;
 };
 
+function streetsListOrderBy(sortBy: ListStreetsParams["sortBy"], sortOrder: ListStreetsParams["sortOrder"]): Prisma.Sql {
+    const dir = sortOrder === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+
+    switch (sortBy) {
+        case "name":
+            return Prisma.sql`LOWER(COALESCE(s.canonical_name, '')) ${dir} NULLS LAST, s.public_id ASC`;
+        case "admin_area":
+            return Prisma.sql`LOWER(COALESCE(aa.canonical_name, '')) ${dir} NULLS LAST, s.public_id ASC`;
+        case "created":
+            return Prisma.sql`s.created_at ${dir} NULLS LAST, s.public_id ASC`;
+        case "updated":
+            return Prisma.sql`s.updated_at ${dir} NULLS LAST, s.public_id ASC`;
+        default:
+            return Prisma.sql`s.updated_at DESC NULLS LAST, s.public_id ASC`;
+    }
+}
+
 export class StreetsRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
     async listStreets(params: ListStreetsParams): Promise<StreetRow[]> {
+        const searchClause =
+            params.q === undefined
+                ? Prisma.sql`TRUE`
+                : Prisma.sql`(
+                    COALESCE(s.canonical_name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(street_names.myanmar_name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(street_names.english_name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(aa.canonical_name, '') ILIKE ${`%${params.q}%`}
+                    OR (CASE WHEN s.is_active THEN 'Yes' ELSE 'No' END) ILIKE ${`%${params.q}%`}
+                    OR s.updated_at::text ILIKE ${`%${params.q}%`}
+                )`;
+
+        const orderByClause = streetsListOrderBy(params.sortBy, params.sortOrder);
+
         return this.prisma.$queryRaw<StreetRow[]>(Prisma.sql`
             SELECT
                 s.public_id,
@@ -85,7 +119,8 @@ export class StreetsRepository {
             LEFT JOIN core.core_admin_areas AS aa
                 ON aa.id = s.admin_area_id
             LEFT JOIN LATERAL (${streetNamesJsonSql()}) AS street_names ON true
-            ORDER BY s.updated_at DESC, s.public_id DESC
+            WHERE ${searchClause}
+            ORDER BY ${orderByClause}
             LIMIT ${params.limit}
         `);
     }

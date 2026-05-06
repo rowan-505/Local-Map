@@ -9,6 +9,8 @@ type ListPlacesParams = {
     category?: string;
     is_public?: boolean;
     is_verified?: boolean;
+    sortBy: "name" | "category" | "admin_area" | "created" | "updated";
+    sortOrder: "asc" | "desc";
 };
 
 type EditablePlaceState = {
@@ -128,6 +130,28 @@ export type PlaceFormOptionsRow = {
     publish_statuses: PlaceFormRefRow[];
 };
 
+function placesListOrderBy(
+    sortBy: ListPlacesParams["sortBy"],
+    sortOrder: ListPlacesParams["sortOrder"]
+): Prisma.Sql {
+    const dir = sortOrder === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+
+    switch (sortBy) {
+        case "name":
+            return Prisma.sql`LOWER(COALESCE(p.display_name, mm_name.name, en_name.name, p.primary_name)) ${dir} NULLS LAST, p.public_id ASC`;
+        case "category":
+            return Prisma.sql`LOWER(COALESCE(c.name, '')) ${dir} NULLS LAST, p.public_id ASC`;
+        case "admin_area":
+            return Prisma.sql`LOWER(COALESCE(aa.canonical_name, '')) ${dir} NULLS LAST, p.public_id ASC`;
+        case "created":
+            return Prisma.sql`p.created_at ${dir} NULLS LAST, p.public_id ASC`;
+        case "updated":
+            return Prisma.sql`p.updated_at ${dir} NULLS LAST, p.public_id ASC`;
+        default:
+            return Prisma.sql`p.updated_at DESC NULLS LAST, p.public_id ASC`;
+    }
+}
+
 export class PlacesRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
@@ -142,14 +166,16 @@ export class PlacesRepository {
             const searchTerm = `%${params.q}%`;
             conditions.push(
                 Prisma.sql`(
-                    p.primary_name ILIKE ${searchTerm}
-                    OR p.display_name ILIKE ${searchTerm}
-                    OR EXISTS (
-                        SELECT 1
-                        FROM core.core_place_names AS pn
-                        WHERE pn.place_id = p.id
-                          AND pn.name ILIKE ${searchTerm}
-                    )
+                    COALESCE(p.primary_name, '') ILIKE ${searchTerm}
+                    OR COALESCE(p.display_name, mm_name.name, en_name.name, p.primary_name) ILIKE ${searchTerm}
+                    OR COALESCE(mm_name.name, '') ILIKE ${searchTerm}
+                    OR COALESCE(en_name.name, '') ILIKE ${searchTerm}
+                    OR COALESCE(c.name, '') ILIKE ${searchTerm}
+                    OR COALESCE(aa.canonical_name, '') ILIKE ${searchTerm}
+                    OR p.lat::text ILIKE ${searchTerm}
+                    OR p.lng::text ILIKE ${searchTerm}
+                    OR (CASE WHEN p.is_verified THEN 'Yes' ELSE 'No' END) ILIKE ${searchTerm}
+                    OR (CASE WHEN p.is_public THEN 'Yes' ELSE 'No' END) ILIKE ${searchTerm}
                 )`
             );
         }
@@ -159,6 +185,7 @@ export class PlacesRepository {
         }
 
         const categoryFilter = buildCategoryFilter(params.category);
+        const orderByClause = placesListOrderBy(params.sortBy, params.sortOrder);
 
         return this.prisma.$queryRaw<PlaceRow[]>(Prisma.sql`
             ${categoryFilter.cte}
@@ -195,7 +222,7 @@ export class PlacesRepository {
             LEFT JOIN LATERAL (${placeNamesJsonAggSql()}) place_names ON true
             WHERE ${Prisma.join(conditions, " AND ")}
               ${categoryFilter.condition}
-            ORDER BY p.created_at DESC, p.updated_at DESC, p.public_id DESC
+            ORDER BY ${orderByClause}
             LIMIT ${params.limit}
             OFFSET ${params.offset}
         `);

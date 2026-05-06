@@ -3,10 +3,23 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import DataTableToolbar, {
+    type DataTableArrange,
+    type DataTableSortOption,
+} from "@/src/components/dashboard/DataTableToolbar";
+import HighlightMatch from "@/src/components/dashboard/HighlightMatch";
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 import StreetPreviewMap from "@/src/components/map/StreetPreviewMap";
 import StreetEditModal from "@/src/components/streets/StreetEditModal";
+import { listApiSortOrder } from "@/src/lib/listToolbarSortOrder";
 import { getStreet, getStreets, isAbortError, type StreetDetail, type Street } from "@/src/lib/api";
+
+const STREETS_SORT_OPTIONS: DataTableSortOption[] = [
+    { value: "name", label: "Name", type: "text" },
+    { value: "admin_area", label: "Admin Area", type: "text" },
+    { value: "created", label: "Created Date", type: "date" },
+    { value: "updated", label: "Updated Date", type: "date" },
+];
 
 function formatDate(value: string): string {
     const date = new Date(value);
@@ -27,46 +40,70 @@ export default function StreetsPage() {
     const [detailError, setDetailError] = useState("");
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-    const loadStreets = useCallback(async (selectedPublicId?: string, signal?: AbortSignal) => {
-        setIsLoading(true);
-        setError("");
+    const [listSearch, setListSearch] = useState("");
+    const [sortBy, setSortBy] = useState("name");
+    const [arrange, setArrange] = useState<DataTableArrange>("az");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
 
-        try {
-            const data = await getStreets({ limit: 50 }, signal ? { signal } : undefined);
-            setStreets(data);
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            setDebouncedSearch(listSearch.trim());
+        }, 300);
 
-            setSelectedStreet((current) => {
-                const targetPublicId = selectedPublicId ?? current?.public_id ?? null;
-                const matchedStreet = targetPublicId
-                    ? data.find((street) => street.public_id === targetPublicId) ?? null
-                    : null;
+        return () => window.clearTimeout(timer);
+    }, [listSearch]);
 
-                if (matchedStreet) {
-                    return current?.public_id === matchedStreet.public_id
-                        ? {
-                              ...matchedStreet,
-                              source_type_id: current.source_type_id,
-                          }
-                        : (matchedStreet as StreetDetail);
+    const loadStreets = useCallback(
+        async (selectedPublicId?: string, signal?: AbortSignal) => {
+            setIsLoading(true);
+            setError("");
+
+            try {
+                const data = await getStreets(
+                    {
+                        limit: 50,
+                        ...(debouncedSearch !== "" ? { q: debouncedSearch } : {}),
+                        sortBy,
+                        sortOrder: listApiSortOrder(sortBy, arrange),
+                    },
+                    signal ? { signal } : undefined
+                );
+                setStreets(data);
+
+                setSelectedStreet((current) => {
+                    const targetPublicId = selectedPublicId ?? current?.public_id ?? null;
+                    const matchedStreet = targetPublicId
+                        ? data.find((street) => street.public_id === targetPublicId) ?? null
+                        : null;
+
+                    if (matchedStreet) {
+                        return current?.public_id === matchedStreet.public_id
+                            ? {
+                                  ...matchedStreet,
+                                  source_type_id: current.source_type_id,
+                              }
+                            : (matchedStreet as StreetDetail);
+                    }
+
+                    if (current) {
+                        return current;
+                    }
+
+                    return (data[0] as StreetDetail | undefined) ?? null;
+                });
+            } catch (err) {
+                if (isAbortError(err)) {
+                    return;
                 }
 
-                if (current) {
-                    return current;
-                }
-
-                return (data[0] as StreetDetail | undefined) ?? null;
-            });
-        } catch (err) {
-            if (isAbortError(err)) {
-                return;
+                setError(err instanceof Error ? err.message : "Failed to load streets");
+                setSelectedStreet(null);
+            } finally {
+                setIsLoading(false);
             }
-
-            setError(err instanceof Error ? err.message : "Failed to load streets");
-            setSelectedStreet(null);
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
+        },
+        [debouncedSearch, sortBy, arrange]
+    );
 
     useEffect(() => {
         const abort = new AbortController();
@@ -149,63 +186,109 @@ export default function StreetsPage() {
                 ) : null}
 
                 {!isLoading && !error ? (
+                    <>
+                        <div className="mb-4">
+                            <DataTableToolbar
+                                searchValue={listSearch}
+                                onSearchChange={setListSearch}
+                                placeholder="Search streets in this table…"
+                                sortBy={sortBy}
+                                onSortByChange={setSortBy}
+                                sortOptions={STREETS_SORT_OPTIONS}
+                                arrange={arrange}
+                                onArrangeChange={setArrange}
+                                totalCount={streets.length}
+                                filteredCount={streets.length}
+                                onClearFilters={() => {
+                                    setListSearch("");
+                                    setDebouncedSearch("");
+                                    setSortBy("name");
+                                    setArrange("az");
+                                }}
+                            />
+                        </div>
+
                     <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] lg:items-start">
                         <div className="min-h-0 rounded-lg border border-gray-200 bg-white shadow-sm lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
                             <div className="overflow-x-auto">
                                 <table className="min-w-full text-left text-sm">
-                                <thead className="sticky top-0 z-10 bg-gray-50 text-gray-700">
-                                    <tr>
-                                        <th className="px-4 py-3 font-medium">Name</th>
-                                        <th className="px-4 py-3 font-medium">Myanmar Name</th>
-                                        <th className="px-4 py-3 font-medium">English Name</th>
-                                        <th className="px-4 py-3 font-medium">Admin Area</th>
-                                        <th className="px-4 py-3 font-medium">Active</th>
-                                        <th className="px-4 py-3 font-medium">Updated</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200">
-                                    {streets.length === 0 ? (
+                                    <thead className="sticky top-0 z-10 bg-gray-50 text-gray-700">
                                         <tr>
-                                            <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
-                                                No streets found.
-                                            </td>
+                                            <th className="px-4 py-3 font-medium">Name</th>
+                                            <th className="px-4 py-3 font-medium">Myanmar Name</th>
+                                            <th className="px-4 py-3 font-medium">English Name</th>
+                                            <th className="px-4 py-3 font-medium">Admin Area</th>
+                                            <th className="px-4 py-3 font-medium">Active</th>
+                                            <th className="px-4 py-3 font-medium">Updated</th>
                                         </tr>
-                                    ) : (
-                                        streets.map((street) => {
-                                            const isSelected =
-                                                selectedStreet?.public_id === street.public_id;
-
-                                            return (
-                                                <tr
-                                                    key={street.public_id}
-                                                    onClick={() => handleSelectStreet(street)}
-                                                    className={`cursor-pointer text-gray-900 ${
-                                                        isSelected ? "bg-blue-50" : "hover:bg-gray-50"
-                                                    }`}
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {streets.length === 0 ? (
+                                            <tr>
+                                                <td
+                                                    colSpan={6}
+                                                    className="px-4 py-6 text-center text-gray-500"
                                                 >
-                                                    <td className="min-w-0 max-w-[min(100%,18rem)] wrap-break-word px-4 py-3 align-top">
-                                                        {street.canonical_name || "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3 align-top">
-                                                        {street.myanmarName || "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3 align-top">
-                                                        {street.englishName || "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3 align-top">
-                                                        {street.admin_area_name ?? "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3 align-top whitespace-nowrap">
-                                                        {street.is_active ? "Yes" : "No"}
-                                                    </td>
-                                                    <td className="whitespace-nowrap px-4 py-3 align-top">
-                                                        {formatDate(street.updated_at)}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })
-                                    )}
-                                </tbody>
+                                                    {debouncedSearch
+                                                        ? "No streets match your search."
+                                                        : "No streets found."}
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            streets.map((street) => {
+                                                const isSelected =
+                                                    selectedStreet?.public_id === street.public_id;
+                                                const updatedLabel = formatDate(street.updated_at);
+
+                                                return (
+                                                    <tr
+                                                        key={street.public_id}
+                                                        onClick={() => handleSelectStreet(street)}
+                                                        className={`cursor-pointer text-gray-900 ${
+                                                            isSelected ? "bg-blue-50" : "hover:bg-gray-50"
+                                                        }`}
+                                                    >
+                                                        <td className="min-w-0 max-w-[min(100%,18rem)] wrap-break-word px-4 py-3 align-top">
+                                                            <HighlightMatch
+                                                                text={street.canonical_name || "-"}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3 align-top">
+                                                            <HighlightMatch
+                                                                text={street.myanmarName || "-"}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3 align-top">
+                                                            <HighlightMatch
+                                                                text={street.englishName || "-"}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3 align-top">
+                                                            <HighlightMatch
+                                                                text={street.admin_area_name ?? "-"}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="whitespace-nowrap px-4 py-3 align-top">
+                                                            <HighlightMatch
+                                                                text={street.is_active ? "Yes" : "No"}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="whitespace-nowrap px-4 py-3 align-top">
+                                                            <HighlightMatch
+                                                                text={updatedLabel}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
                                 </table>
                             </div>
                         </div>
@@ -328,6 +411,7 @@ export default function StreetsPage() {
                             )}
                         </aside>
                     </div>
+                    </>
                 ) : null}
             </div>
 

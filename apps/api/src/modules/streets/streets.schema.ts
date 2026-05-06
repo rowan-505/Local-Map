@@ -1,8 +1,29 @@
 import { z } from "zod";
 
+export const streetsSortBySchema = z.enum(["name", "admin_area", "created", "updated"]);
+export const listSortOrderSchema = z.enum(["asc", "desc"]);
+
+const optionalStreetsSearchQuerySchema = z.preprocess((value) => {
+    if (value === undefined || value === null || value === "") {
+        return undefined;
+    }
+
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed === "" ? undefined : trimmed;
+    }
+
+    return value;
+}, z.string().min(1).optional());
+
 export const streetsQuerySchema = z.object({
+    q: optionalStreetsSearchQuerySchema,
     limit: z.coerce.number().int().min(1).max(100).default(50),
+    sortBy: streetsSortBySchema.default("name"),
+    sortOrder: listSortOrderSchema.default("asc"),
 });
+
+export type StreetsListQuery = z.infer<typeof streetsQuerySchema>;
 
 export const streetIdParamsSchema = z.object({
     id: z.string().uuid(),

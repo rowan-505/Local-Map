@@ -77,6 +77,28 @@ export type RefBuildingTypeRow = {
     sort_order: number;
 };
 
+function buildingsListOrderBy(
+    sortBy: "name" | "building_type" | "admin_area" | "created" | "updated",
+    sortOrder: "asc" | "desc"
+): Prisma.Sql {
+    const dir = sortOrder === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+
+    switch (sortBy) {
+        case "name":
+            return Prisma.sql`LOWER(COALESCE(b.name, '')) ${dir} NULLS LAST, b.public_id ASC`;
+        case "building_type":
+            return Prisma.sql`LOWER(COALESCE(bt.name, bt.code, b.class_code, '')) ${dir} NULLS LAST, b.public_id ASC`;
+        case "admin_area":
+            return Prisma.sql`LOWER(COALESCE(aa.canonical_name, '')) ${dir} NULLS LAST, b.public_id ASC`;
+        case "created":
+            return Prisma.sql`b.created_at ${dir} NULLS LAST, b.public_id ASC`;
+        case "updated":
+            return Prisma.sql`b.updated_at ${dir} NULLS LAST, b.public_id ASC`;
+        default:
+            return Prisma.sql`b.updated_at DESC NULLS LAST, b.public_id ASC`;
+    }
+}
+
 export class BuildingsRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
@@ -171,19 +193,27 @@ export class BuildingsRepository {
         limit: number;
         offset: number;
         q?: string;
+        sortBy: "name" | "building_type" | "admin_area" | "created" | "updated";
+        sortOrder: "asc" | "desc";
     }): Promise<BuildingDetailRow[]> {
         const searchClause =
             params.q === undefined
                 ? Prisma.sql`TRUE`
                 : Prisma.sql`(
-                    COALESCE(b.name, '') ILIKE ${"%" + params.q + "%"}
-                    OR COALESCE(bt.code, b.class_code, 'yes'::text) ILIKE ${"%" + params.q + "%"}
-                    OR COALESCE(b.class_code, '') ILIKE ${"%" + params.q + "%"}
-                    OR COALESCE(bt.code, '') ILIKE ${"%" + params.q + "%"}
-                    OR COALESCE(bt.name, '') ILIKE ${"%" + params.q + "%"}
-                    OR COALESCE(aa.canonical_name, '') ILIKE ${"%" + params.q + "%"}
-                    OR COALESCE(aa.slug, '') ILIKE ${"%" + params.q + "%"}
+                    COALESCE(b.name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(bt.name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(bt.code, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(b.class_code, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(aa.canonical_name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(b.area_m2::text, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(b.levels::text, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(b.confidence_score::text, '') ILIKE ${`%${params.q}%`}
+                    OR (CASE WHEN b.is_verified THEN 'Yes' ELSE 'No' END) ILIKE ${`%${params.q}%`}
+                    OR b.created_at::text ILIKE ${`%${params.q}%`}
+                    OR b.updated_at::text ILIKE ${`%${params.q}%`}
                 )`;
+
+        const orderByClause = buildingsListOrderBy(params.sortBy, params.sortOrder);
 
         return this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
             SELECT
@@ -224,7 +254,7 @@ export class BuildingsRepository {
             WHERE b.deleted_at IS NULL
               AND b.is_active IS TRUE
               AND ${searchClause}
-            ORDER BY b.updated_at DESC, b.id DESC
+            ORDER BY ${orderByClause}
             LIMIT ${params.limit}
             OFFSET ${params.offset}
         `);

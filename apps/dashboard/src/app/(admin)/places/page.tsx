@@ -7,6 +7,12 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 import PlacePreviewMap from "@/src/components/map/PlacePreviewMap";
 import PlaceEditModal from "@/src/components/places/PlaceEditModal";
+import DataTableToolbar, {
+    type DataTableArrange,
+    type DataTableSortOption,
+} from "@/src/components/dashboard/DataTableToolbar";
+import HighlightMatch from "@/src/components/dashboard/HighlightMatch";
+import { listApiSortOrder } from "@/src/lib/listToolbarSortOrder";
 import {
     deletePlace,
     getPlaces,
@@ -14,6 +20,14 @@ import {
     PLACES_LIST_LIMIT,
     type Place,
 } from "@/src/lib/api";
+
+const PLACES_SORT_OPTIONS: DataTableSortOption[] = [
+    { value: "name", label: "Name", type: "text" },
+    { value: "category", label: "Category", type: "text" },
+    { value: "admin_area", label: "Admin Area", type: "text" },
+    { value: "created", label: "Created Date", type: "date" },
+    { value: "updated", label: "Updated Date", type: "date" },
+];
 
 function PlacesPageContent() {
     const searchParams = useSearchParams();
@@ -30,9 +44,22 @@ function PlacesPageContent() {
     const editPlaceHandledRef = useRef<string | null>(null);
     const editPlaceOpenId = searchParams.get("editPlace");
 
+    const [listSearch, setListSearch] = useState("");
+    const [sortBy, setSortBy] = useState("name");
+    const [arrange, setArrange] = useState<DataTableArrange>("az");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
+
     const bumpPreviewMap = useCallback(() => {
         setPreviewMapKey((value) => value + 1);
     }, []);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            setDebouncedSearch(listSearch.trim());
+        }, 300);
+
+        return () => window.clearTimeout(timer);
+    }, [listSearch]);
 
     const loadPlaces = useCallback(
         async (selectedPublicId?: string, signal?: AbortSignal) => {
@@ -41,7 +68,12 @@ function PlacesPageContent() {
 
             try {
                 const data = await getPlaces(
-                    { limit: PLACES_LIST_LIMIT },
+                    {
+                        limit: PLACES_LIST_LIMIT,
+                        ...(debouncedSearch !== "" ? { q: debouncedSearch } : {}),
+                        sortBy,
+                        sortOrder: listApiSortOrder(sortBy, arrange),
+                    },
                     signal ? { signal } : undefined
                 );
                 setPlaces(data);
@@ -61,7 +93,7 @@ function PlacesPageContent() {
                 setIsLoading(false);
             }
         },
-        []
+        [debouncedSearch, sortBy, arrange]
     );
 
     useEffect(() => {
@@ -154,72 +186,130 @@ function PlacesPageContent() {
                 ) : null}
 
                 {!isLoading && !error ? (
+                    <>
+                        <div className="mb-4">
+                            <DataTableToolbar
+                                searchValue={listSearch}
+                                onSearchChange={setListSearch}
+                                placeholder="Search places in this table…"
+                                sortBy={sortBy}
+                                onSortByChange={setSortBy}
+                                sortOptions={PLACES_SORT_OPTIONS}
+                                arrange={arrange}
+                                onArrangeChange={setArrange}
+                                totalCount={places.length}
+                                filteredCount={places.length}
+                                onClearFilters={() => {
+                                    setListSearch("");
+                                    setDebouncedSearch("");
+                                    setSortBy("name");
+                                    setArrange("az");
+                                }}
+                            />
+                        </div>
+
                     <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] lg:items-start">
                         <div className="min-h-0 rounded-lg border border-gray-200 bg-white shadow-sm lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
                             <div className="overflow-x-auto">
-                            <table className="min-w-full text-left text-sm">
-                                <thead className="sticky top-0 z-10 bg-gray-50 text-gray-700">
-                                    <tr>
-                                        <th className="px-4 py-3 font-medium">Name</th>
-                                        <th className="px-4 py-3 font-medium">Myanmar Name</th>
-                                        <th className="px-4 py-3 font-medium">English Name</th>
-                                        <th className="px-4 py-3 font-medium">Category</th>
-                                        <th className="px-4 py-3 font-medium">Admin Area</th>
-                                        <th className="px-4 py-3 font-medium">Lat</th>
-                                        <th className="px-4 py-3 font-medium">Lng</th>
-                                        <th className="px-4 py-3 font-medium">Verified</th>
-                                        <th className="px-4 py-3 font-medium">Public</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200">
-                                    {places.length === 0 ? (
+                                <table className="min-w-full text-left text-sm">
+                                    <thead className="sticky top-0 z-10 bg-gray-50 text-gray-700">
                                         <tr>
-                                            <td colSpan={9} className="px-4 py-6 text-center text-gray-500">
-                                                No places found.
-                                            </td>
+                                            <th className="px-4 py-3 font-medium">Name</th>
+                                            <th className="px-4 py-3 font-medium">Myanmar Name</th>
+                                            <th className="px-4 py-3 font-medium">English Name</th>
+                                            <th className="px-4 py-3 font-medium">Category</th>
+                                            <th className="px-4 py-3 font-medium">Admin Area</th>
+                                            <th className="px-4 py-3 font-medium">Lat</th>
+                                            <th className="px-4 py-3 font-medium">Lng</th>
+                                            <th className="px-4 py-3 font-medium">Verified</th>
+                                            <th className="px-4 py-3 font-medium">Public</th>
                                         </tr>
-                                    ) : (
-                                        places.map((place) => {
-                                            const isSelected =
-                                                selectedPlace?.public_id === place.public_id;
-
-                                            return (
-                                                <tr
-                                                    key={place.public_id}
-                                                    onClick={() => setSelectedPlace(place)}
-                                                    className={`cursor-pointer text-gray-900 ${
-                                                        isSelected ? "bg-blue-50" : "hover:bg-gray-50"
-                                                    }`}
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {places.length === 0 ? (
+                                            <tr>
+                                                <td
+                                                    colSpan={9}
+                                                    className="px-4 py-6 text-center text-gray-500"
                                                 >
-                                                    <td className="px-4 py-3">
-                                                        {place.display_name}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        {place.myanmarName || "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        {place.englishName || "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        {place.category_name ?? "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        {place.admin_area_name ?? "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3">{place.lat}</td>
-                                                    <td className="px-4 py-3">{place.lng}</td>
-                                                    <td className="px-4 py-3">
-                                                        {place.is_verified ? "Yes" : "No"}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        {place.is_public ? "Yes" : "No"}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })
-                                    )}
-                                </tbody>
-                            </table>
+                                                    {debouncedSearch
+                                                        ? "No places match your search."
+                                                        : "No places found."}
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            places.map((place) => {
+                                                const isSelected =
+                                                    selectedPlace?.public_id === place.public_id;
+
+                                                return (
+                                                    <tr
+                                                        key={place.public_id}
+                                                        onClick={() => setSelectedPlace(place)}
+                                                        className={`cursor-pointer text-gray-900 ${
+                                                            isSelected ? "bg-blue-50" : "hover:bg-gray-50"
+                                                        }`}
+                                                    >
+                                                        <td className="px-4 py-3">
+                                                            <HighlightMatch
+                                                                text={place.display_name}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <HighlightMatch
+                                                                text={place.myanmarName ?? "-"}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <HighlightMatch
+                                                                text={place.englishName ?? "-"}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <HighlightMatch
+                                                                text={place.category_name ?? "-"}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <HighlightMatch
+                                                                text={place.admin_area_name ?? "-"}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <HighlightMatch
+                                                                text={place.lat}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <HighlightMatch
+                                                                text={place.lng}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <HighlightMatch
+                                                                text={place.is_verified ? "Yes" : "No"}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <HighlightMatch
+                                                                text={place.is_public ? "Yes" : "No"}
+                                                                query={listSearch}
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
 
@@ -351,6 +441,7 @@ function PlacesPageContent() {
                             )}
                         </aside>
                     </div>
+                    </>
                 ) : null}
             </div>
 

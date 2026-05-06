@@ -39,7 +39,7 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
                 });
             }
 
-            const streets = await streetsService.listStreets(parsed.data.limit);
+            const streets = await streetsService.listStreets(parsed.data);
             return reply.send(streets);
         }
     );
