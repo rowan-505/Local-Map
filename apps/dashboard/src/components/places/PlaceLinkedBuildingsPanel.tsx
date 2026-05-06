@@ -546,7 +546,7 @@ export default function PlaceLinkedBuildingsPanel({
                                 <div className="font-medium text-gray-900">
                                     {row.building.name?.trim()
                                         ? row.building.name
-                                        : `${row.building.building_type ?? row.building.class_code ?? "building"}`}
+                                        : `${row.building.building_type?.name ?? row.building.building_type_name ?? row.building.building_type_code ?? row.building.class_code ?? "building"}`}
                                     {row.is_primary ? (
                                         <span className="ml-2 rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900">
                                             Primary
@@ -629,7 +629,7 @@ export default function PlaceLinkedBuildingsPanel({
                                     const linkedHere = linkedIds.includes(building.public_id);
                                     const label =
                                         building.name?.trim() ||
-                                        `${building.building_type ?? building.class_code}` ||
+                                        `${building.building_type?.name ?? building.building_type_name ?? building.building_type_code ?? building.class_code}` ||
                                         building.public_id;
 
                                     return (
@@ -687,7 +687,7 @@ export default function PlaceLinkedBuildingsPanel({
                                 Selected:{" "}
                                 <strong>
                                     {pickedBuilding.name?.trim() ||
-                                        `${pickedBuilding.building_type ?? pickedBuilding.class_code}`}
+                                        `${pickedBuilding.building_type?.name ?? pickedBuilding.building_type_name ?? pickedBuilding.building_type_code ?? pickedBuilding.class_code}`}
                                 </strong>
                             </p>
                         ) : pickedPublicId ? (

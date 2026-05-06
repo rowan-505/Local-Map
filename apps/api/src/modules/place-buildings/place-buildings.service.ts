@@ -34,6 +34,17 @@ export class PlaceBuildingsService {
     constructor(private readonly repo: PlaceBuildingsRepository) {}
 
     private serializeBuildingLink(row: LinkedBuildingSummaryRow) {
+        const buildingType =
+            row.ref_bt_id && row.ref_bt_code && row.ref_bt_name
+                ? {
+                      id: row.ref_bt_id,
+                      code: row.ref_bt_code,
+                      name: row.ref_bt_name,
+                      name_mm: row.ref_bt_name_mm,
+                      parent_id: row.ref_bt_parent_id,
+                  }
+                : null;
+
         return {
             relation_type: row.relation_type,
             is_primary: row.is_primary,
@@ -41,7 +52,11 @@ export class PlaceBuildingsService {
             building: {
                 public_id: row.building_public_id,
                 name: row.building_name,
-                building_type: row.building_type,
+                building_type_id: row.building_type_id,
+                building_type: buildingType,
+                building_type_code: row.building_type_code,
+                building_type_name: row.building_type_name,
+                building_type_name_mm: row.building_type_name_mm,
                 class_code: row.class_code,
                 area_m2: row.building_area_m2,
             },

@@ -8,7 +8,13 @@ import BuildingEditorMap, {
     hasDrawableBuildingPolygon,
     type BuildingEditorMapDrawOutput,
 } from "@/src/components/buildings/BuildingEditorMap";
-import type { Building, BuildingGeometry, CreateBuildingPayload } from "@/src/lib/api";
+import {
+    getBuildingTypes,
+    type Building,
+    type BuildingGeometry,
+    type CreateBuildingPayload,
+    type RefBuildingType,
+} from "@/src/lib/api";
 import { scheduleBuildingTileRefresh } from "@/src/components/map/placeMapConfig";
 import { useBuildingTileVersion } from "@/src/components/map/BuildingTileVersionContext";
 
@@ -29,6 +35,9 @@ function isBuildingGeometry(value: unknown): value is BuildingGeometry {
 
     return false;
 }
+
+/** Used only if GET /building-types fails so the form can still render. */
+const EMERGENCY_REF_BUILDING_TYPES_FALLBACK: RefBuildingType[] = [];
 
 export type BuildingEditorFormProps = {
     title: string;
@@ -52,7 +61,10 @@ export default function BuildingEditorForm({
 }: BuildingEditorFormProps) {
     const [geometryJson, setGeometryJson] = useState("");
     const [name, setName] = useState("");
-    const [buildingType, setBuildingType] = useState("");
+    const [buildingTypeId, setBuildingTypeId] = useState("");
+    const [refTypes, setRefTypes] = useState<RefBuildingType[]>([]);
+    const [refTypesLoading, setRefTypesLoading] = useState(true);
+    const [refTypesError, setRefTypesError] = useState<string | null>(null);
     const [levels, setLevels] = useState("");
     const [heightM, setHeightM] = useState("");
     const [confidenceScore, setConfidenceScore] = useState("80");
@@ -69,6 +81,24 @@ export default function BuildingEditorForm({
         setGeometryJson(output.geometryJson);
     }, []);
 
+    const loadRefTypes = useCallback(async () => {
+        setRefTypesLoading(true);
+        setRefTypesError(null);
+        try {
+            const data = await getBuildingTypes();
+            setRefTypes(data);
+        } catch (err) {
+            setRefTypes(EMERGENCY_REF_BUILDING_TYPES_FALLBACK);
+            setRefTypesError(err instanceof Error ? err.message : "Could not load building types.");
+        } finally {
+            setRefTypesLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        void loadRefTypes();
+    }, [loadRefTypes]);
+
     useEffect(() => {
         if (!initialBuilding) {
             return;
@@ -80,7 +110,15 @@ export default function BuildingEditorForm({
                 : ""
         );
         setName(initialBuilding.name ?? "");
-        setBuildingType(initialBuilding.building_type?.trim() ?? "");
+        const resolvedId =
+            initialBuilding.building_type_id ??
+            initialBuilding.building_type?.id ??
+            null;
+        setBuildingTypeId(
+            resolvedId !== null && resolvedId !== undefined && String(resolvedId).length > 0
+                ? String(resolvedId)
+                : ""
+        );
         setLevels(initialBuilding.levels != null ? String(initialBuilding.levels) : "");
         setHeightM(initialBuilding.height_m != null ? String(initialBuilding.height_m) : "");
         setConfidenceScore(
@@ -116,8 +154,15 @@ export default function BuildingEditorForm({
         const payload: CreateBuildingPayload = {
             geometry,
             name: name.trim() === "" ? null : name.trim(),
-            building_type: buildingType.trim() === "" ? undefined : buildingType.trim(),
         };
+
+        const isEdit = initialBuilding != null;
+
+        if (isEdit) {
+            payload.building_type_id = buildingTypeId.trim() === "" ? null : buildingTypeId.trim();
+        } else if (buildingTypeId.trim() !== "") {
+            payload.building_type_id = buildingTypeId.trim();
+        }
 
         const levelsTrimmed = levels.trim();
 
@@ -251,16 +296,38 @@ export default function BuildingEditorForm({
                     </div>
 
                     <div>
-                        <label htmlFor="building-type" className="block text-sm font-medium text-gray-700">
+                        <label htmlFor="building-type-id" className="block text-sm font-medium text-gray-700">
                             Building type (optional)
                         </label>
-                        <input
-                            id="building-type"
-                            type="text"
-                            value={buildingType}
-                            onChange={(e) => setBuildingType(e.target.value)}
-                            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                        />
+                        {refTypesError ? (
+                            <div className="mt-1 space-y-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                <p>{refTypesError}</p>
+                                <button
+                                    type="button"
+                                    onClick={() => void loadRefTypes()}
+                                    className="text-sm font-medium text-amber-900 underline decoration-amber-700 hover:text-amber-950"
+                                >
+                                    Retry loading types
+                                </button>
+                            </div>
+                        ) : null}
+                        <select
+                            id="building-type-id"
+                            value={buildingTypeId}
+                            onChange={(e) => setBuildingTypeId(e.target.value)}
+                            disabled={refTypesLoading}
+                            className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 disabled:cursor-not-allowed disabled:bg-gray-50"
+                        >
+                            <option value="">Select building type</option>
+                            {refTypes.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                    {t.parent_id ? `— ${t.name}` : t.name}
+                                </option>
+                            ))}
+                        </select>
+                        {refTypesLoading ? (
+                            <p className="mt-1 text-xs text-gray-500">Loading building types…</p>
+                        ) : null}
                     </div>
 
                     <div>

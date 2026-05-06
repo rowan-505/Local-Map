@@ -55,7 +55,7 @@ export class BuildingsService {
 
         await this.validateGeoJsonPipeline(geojsonText);
 
-        const snapshot = persistSnapshotFromCreate(body);
+        const snapshot = await this.buildPersistSnapshotFromCreate(body);
         const created = await this.buildingsRepo.createDashboardBuilding(geojsonText, snapshot);
 
         if (!created) {
@@ -78,7 +78,7 @@ export class BuildingsService {
             throw new BuildingNotFoundError();
         }
 
-        const snapshot = mergePersistSnapshot(existing, body);
+        const snapshot = await this.mergePersistSnapshot(existing, body);
 
         if (body.geometry !== undefined) {
             const geojsonText = JSON.stringify(body.geometry);
@@ -122,14 +122,33 @@ export class BuildingsService {
         return { public_id: deleted.public_id };
     }
 
+    async listRefBuildingTypes() {
+        return this.buildingsRepo.listActiveRefBuildingTypes();
+    }
+
     private serializeBuilding(row: BuildingDetailRow) {
+        const buildingType =
+            row.ref_bt_id && row.ref_bt_code && row.ref_bt_name
+                ? {
+                      id: row.ref_bt_id,
+                      code: row.ref_bt_code,
+                      name: row.ref_bt_name,
+                      name_mm: row.ref_bt_name_mm,
+                      parent_id: row.ref_bt_parent_id,
+                  }
+                : null;
+
         return {
             id: row.id,
             public_id: row.public_id,
             source_staging_id: row.source_staging_id,
             external_id: row.external_id,
             name: row.name,
-            building_type: coalesceBuildingType(row.building_type, row.class_code),
+            building_type_id: row.building_type_id,
+            building_type: buildingType,
+            building_type_code: row.building_type_code,
+            building_type_name: row.building_type_name,
+            building_type_name_mm: row.building_type_name_mm,
             class_code: row.class_code,
             normalized_data: row.normalized_data,
             source_refs: row.source_refs,
@@ -143,6 +162,119 @@ export class BuildingsService {
             updated_at: row.updated_at.toISOString(),
             deleted_at: row.deleted_at?.toISOString() ?? null,
             geometry: row.geometry,
+        };
+    }
+
+    private async buildPersistSnapshotFromCreate(body: CreateBuildingBody): Promise<BuildingPersistSnapshot> {
+        if (body.building_type_id !== undefined) {
+            const ref = await this.buildingsRepo.getActiveBuildingTypeById(body.building_type_id);
+
+            if (!ref) {
+                throw new BuildingValidationError("Invalid building type", [
+                    {
+                        path: "building_type_id",
+                        message: "Not found or inactive.",
+                    },
+                ]);
+            }
+
+            const label = ref.code;
+
+            return {
+                name: body.name ?? null,
+                class_code: label,
+                building_type_column: label,
+                building_type_id: ref.id,
+                normalized_data: normalizedFromCreate(body, label, ref.id),
+                levels: body.levels ?? null,
+                height_m: body.height_m ?? null,
+                confidence_score: body.confidence_score ?? 80,
+                is_verified: body.is_verified ?? false,
+            };
+        }
+
+        const normalizedLabel = normalizeBuildingType(body.building_type);
+        const matched = await this.buildingsRepo.findBuildingTypeByCode(normalizedLabel);
+        const label = matched?.code ?? normalizedLabel;
+
+        return {
+            name: body.name ?? null,
+            class_code: label,
+            building_type_column: label,
+            building_type_id: matched?.id ?? null,
+            normalized_data: normalizedFromCreate(body, label, matched?.id ?? null),
+            levels: body.levels ?? null,
+            height_m: body.height_m ?? null,
+            confidence_score: body.confidence_score ?? 80,
+            is_verified: body.is_verified ?? false,
+        };
+    }
+
+    private async mergePersistSnapshot(
+        existing: BuildingDetailRow,
+        patch: UpdateBuildingBody
+    ): Promise<BuildingPersistSnapshot> {
+        let building_type_id: bigint | null = existing.building_type_id ? BigInt(existing.building_type_id) : null;
+        let resolvedType: string;
+
+        if (patch.building_type_id === null) {
+            building_type_id = null;
+            resolvedType = coalesceBuildingTypeFromRow(existing.building_type_code, existing.class_code);
+        } else if (patch.building_type_id !== undefined) {
+            const ref = await this.buildingsRepo.getActiveBuildingTypeById(patch.building_type_id);
+
+            if (!ref) {
+                throw new BuildingValidationError("Invalid building type", [
+                    {
+                        path: "building_type_id",
+                        message: "Not found or inactive.",
+                    },
+                ]);
+            }
+
+            building_type_id = ref.id;
+            resolvedType = ref.code;
+        } else if (patch.building_type !== undefined) {
+            resolvedType = normalizeBuildingType(patch.building_type);
+            const matched = await this.buildingsRepo.findBuildingTypeByCode(resolvedType);
+            building_type_id = matched?.id ?? null;
+            if (matched) {
+                resolvedType = matched.code;
+            }
+        } else {
+            resolvedType = coalesceBuildingTypeFromRow(existing.building_type_code, existing.class_code);
+        }
+
+        const name = patch.name !== undefined ? patch.name : existing.name;
+
+        const levels = patch.levels !== undefined ? patch.levels : existing.levels;
+
+        const height_m = patch.height_m !== undefined ? patch.height_m : existing.height_m;
+
+        const confidence_score =
+            patch.confidence_score !== undefined
+                ? patch.confidence_score
+                : Number(existing.confidence_score ?? 80);
+
+        const is_verified = patch.is_verified !== undefined ? patch.is_verified : existing.is_verified;
+
+        const normalized_data = mergeNormalizedForPatch(
+            coerceRecord(existing.normalized_data),
+            resolvedType,
+            building_type_id,
+            patch
+        );
+
+        return {
+            name,
+            class_code: resolvedType,
+            building_type_column: resolvedType,
+            building_type_id,
+            normalized_data,
+            levels,
+            height_m,
+            confidence_score,
+            is_verified,
         };
     }
 
@@ -200,11 +332,11 @@ function normalizeBuildingType(input?: string | null): string {
     return trimmed && trimmed.length > 0 ? trimmed : "yes";
 }
 
-/** Matches SQL: COALESCE(building_type, class_code, 'yes') (blank building_type falls through). */
-function coalesceBuildingType(buildingType: string | null, classCode: string): string {
-    const bt = buildingType?.trim();
-    if (bt) {
-        return bt;
+/** Label for class_code when no FK: COALESCE(ref code via join, class_code, 'yes'). */
+function coalesceBuildingTypeFromRow(buildingTypeCode: string | null, classCode: string): string {
+    const code = buildingTypeCode?.trim();
+    if (code) {
+        return code;
     }
 
     const cc = classCode?.trim();
@@ -223,11 +355,18 @@ function coerceRecord(value: unknown): Record<string, unknown> {
     return {};
 }
 
-function normalizedFromCreate(body: CreateBuildingBody): Record<string, unknown> {
-    const label = normalizeBuildingType(body.building_type);
+function normalizedFromCreate(
+    body: CreateBuildingBody,
+    label: string,
+    buildingTypeId: bigint | null
+): Record<string, unknown> {
     const out: Record<string, unknown> = {
         building_type: label,
     };
+
+    if (buildingTypeId !== null) {
+        out.building_type_id = String(buildingTypeId);
+    }
 
     if (body.levels !== undefined) {
         out.levels = body.levels;
@@ -240,28 +379,20 @@ function normalizedFromCreate(body: CreateBuildingBody): Record<string, unknown>
     return out;
 }
 
-function persistSnapshotFromCreate(body: CreateBuildingBody): BuildingPersistSnapshot {
-    const resolvedType = normalizeBuildingType(body.building_type);
-
-    return {
-        name: body.name ?? null,
-        class_code: resolvedType,
-        building_type_column: resolvedType,
-        normalized_data: normalizedFromCreate(body),
-        levels: body.levels ?? null,
-        height_m: body.height_m ?? null,
-        confidence_score: body.confidence_score ?? 80,
-        is_verified: body.is_verified ?? false,
-    };
-}
-
 function mergeNormalizedForPatch(
     existing: Record<string, unknown>,
     resolvedBuildingTypeLabel: string,
+    buildingTypeId: bigint | null,
     patch: UpdateBuildingBody
 ): Record<string, unknown> {
     const next = { ...existing };
     next.building_type = resolvedBuildingTypeLabel;
+
+    if (buildingTypeId !== null) {
+        next.building_type_id = String(buildingTypeId);
+    } else {
+        delete next.building_type_id;
+    }
 
     if ("levels" in patch) {
         if (patch.levels === null) {
@@ -280,43 +411,4 @@ function mergeNormalizedForPatch(
     }
 
     return next;
-}
-
-function mergePersistSnapshot(existing: BuildingDetailRow, patch: UpdateBuildingBody): BuildingPersistSnapshot {
-    const resolvedTypeSource =
-        patch.building_type !== undefined
-            ? patch.building_type
-            : coalesceBuildingType(existing.building_type, existing.class_code);
-
-    const resolvedType = normalizeBuildingType(resolvedTypeSource);
-
-    const name = patch.name !== undefined ? patch.name : existing.name;
-
-    const levels = patch.levels !== undefined ? patch.levels : existing.levels;
-
-    const height_m = patch.height_m !== undefined ? patch.height_m : existing.height_m;
-
-    const confidence_score =
-        patch.confidence_score !== undefined
-            ? patch.confidence_score
-            : Number(existing.confidence_score ?? 80);
-
-    const is_verified = patch.is_verified !== undefined ? patch.is_verified : existing.is_verified;
-
-    const normalized_data = mergeNormalizedForPatch(
-        coerceRecord(existing.normalized_data),
-        resolvedType,
-        patch
-    );
-
-    return {
-        name,
-        class_code: resolvedType,
-        building_type_column: resolvedType,
-        normalized_data,
-        levels,
-        height_m,
-        confidence_score,
-        is_verified,
-    };
 }

@@ -87,6 +87,29 @@ function safeTechnicalClientMessage(raw: string, readableFallback: string): stri
     return raw;
 }
 
+/**
+ * Human-readable taxonomy for list / detail: ref name, else flat name/code, else unclassified.
+ * Never surfaces raw IDs.
+ */
+function formatBuildingTypeDisplay(b: Building): string {
+    const resolvedName = b.building_type?.name?.trim();
+    if (resolvedName) {
+        return resolvedName;
+    }
+
+    const flatName = b.building_type_name?.trim();
+    if (flatName) {
+        return flatName;
+    }
+
+    const code = b.building_type_code?.trim();
+    if (code) {
+        return code;
+    }
+
+    return "Unclassified";
+}
+
 export default function BuildingsPage() {
     const { bumpBuildingTileVersion } = useBuildingTileVersion();
     const [buildings, setBuildings] = useState<Building[]>([]);
@@ -296,7 +319,7 @@ export default function BuildingsPage() {
                                                             {dash(building.name)}
                                                         </td>
                                                         <td className="px-4 py-3 align-top">
-                                                            {dash(building.building_type)}
+                                                            {formatBuildingTypeDisplay(building)}
                                                         </td>
                                                         <td className="px-4 py-3 align-top whitespace-nowrap">
                                                             {formatArea(building.area_m2)}
@@ -522,9 +545,9 @@ export default function BuildingsPage() {
 
                                     <div>
                                         <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                                            building_type
+                                            Building type
                                         </div>
-                                        <div className="mt-1">{dash(detail.building_type)}</div>
+                                        <div className="mt-1">{formatBuildingTypeDisplay(detail)}</div>
                                     </div>
 
                                     <div>

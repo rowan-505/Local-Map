@@ -64,6 +64,21 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
     const buildingsService = new BuildingsService(buildingsRepo);
 
     app.get(
+        "/building-types",
+        {
+            preHandler: app.authenticate,
+        },
+        async (request, reply) => {
+            try {
+                const types = await buildingsService.listRefBuildingTypes();
+                return reply.send(types);
+            } catch (error) {
+                return replyBuildingsReadError(request, reply, error, "building-types GET failed");
+            }
+        }
+    );
+
+    app.get(
         "/buildings",
         {
             preHandler: app.authenticate,

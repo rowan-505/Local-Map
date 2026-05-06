@@ -67,11 +67,57 @@ const optionalLevelsCreateSchema = z.number().int().min(0).optional();
 
 const optionalHeightCreateSchema = z.number().finite().min(0).optional();
 
+const optionalBuildingTypeIdSchema = z.preprocess((value) => {
+    if (value === undefined || value === null || value === "") {
+        return undefined;
+    }
+
+    if (typeof value === "bigint") {
+        return value;
+    }
+
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+        return BigInt(value);
+    }
+
+    if (typeof value === "string" && /^[0-9]+$/.test(value)) {
+        return BigInt(value);
+    }
+
+    return undefined;
+}, z.bigint().optional());
+
+/** PATCH: allow explicit null to clear the taxonomy FK. */
+const optionalBuildingTypeIdPatchSchema = z.preprocess((value) => {
+    if (value === null) {
+        return null;
+    }
+
+    if (value === undefined || value === "") {
+        return undefined;
+    }
+
+    if (typeof value === "bigint") {
+        return value;
+    }
+
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+        return BigInt(value);
+    }
+
+    if (typeof value === "string" && /^[0-9]+$/.test(value)) {
+        return BigInt(value);
+    }
+
+    return undefined;
+}, z.union([z.bigint(), z.null()]).optional());
+
 export const createBuildingBodySchema = z
     .object({
         geometry: buildingGeometrySchema,
         name: optionalNameSchema,
         building_type: optionalTrimmedStringSchema,
+        building_type_id: optionalBuildingTypeIdSchema,
         levels: optionalLevelsCreateSchema,
         height_m: optionalHeightCreateSchema,
         confidence_score: finiteConfidenceSchema,
@@ -84,6 +130,7 @@ export const updateBuildingBodySchema = z
         geometry: buildingGeometrySchema.optional(),
         name: optionalNameSchema,
         building_type: optionalTrimmedStringSchema,
+        building_type_id: optionalBuildingTypeIdPatchSchema,
         levels: optionalLevelsPatchSchema,
         height_m: optionalHeightPatchSchema,
         confidence_score: finiteConfidenceSchema,
