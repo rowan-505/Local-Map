@@ -1,0 +1,13 @@
+{
+  "scripts": {
+    "db:erd": "tsx tools/database/generate-erd.ts"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "tsx": "^4.21.0"
+  }
+}

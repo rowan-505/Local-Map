@@ -1,0 +1,572 @@
+# Current Database ERD
+
+Generated from live Supabase database.
+
+Generated at: 2026-05-08T15:27:24.857Z
+
+```mermaid
+erDiagram
+  app_auth_auth_roles {
+    bigint id PK
+    text code
+    text name
+    text description
+    boolean is_system
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  app_auth_auth_user_roles {
+    bigint id PK
+    bigint user_id FK
+    bigint role_id FK
+    timestamp_with_time_zone assigned_at
+    timestamp_with_time_zone created_at
+  }
+  app_auth_auth_users {
+    bigint id PK
+    uuid public_id
+    text email
+    text password_hash
+    text display_name
+    boolean is_active
+    timestamp_with_time_zone last_login_at
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_address_components {
+    bigint id PK
+    bigint address_id FK
+    bigint component_type_id FK
+    text component_value
+    integer sort_order
+  }
+  core_core_addresses {
+    bigint id PK
+    uuid public_id
+    text full_address
+    text house_number
+    text unit_number
+    bigint street_id FK
+    bigint admin_area_id FK
+    geometry point_geom
+    geometry entrance_geom
+    text postal_code
+    bigint source_type_id FK
+    boolean is_public
+    boolean is_verified
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_admin_area_names {
+    bigint id PK
+    bigint admin_area_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+  }
+  core_core_admin_areas {
+    bigint id PK
+    uuid public_id
+    bigint parent_id FK
+    bigint admin_level_id FK
+    text canonical_name
+    text slug
+    geometry geom
+    geometry centroid
+    bigint source_type_id FK
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_bus_route_names {
+    bigint id PK
+    bigint route_id FK
+    text name
+    text language_code
+    text name_type
+    boolean is_primary
+  }
+  core_core_bus_route_stops {
+    bigint route_variant_id PK, FK
+    bigint stop_id PK, FK
+    integer stop_sequence PK
+    numeric distance_from_start_m
+    boolean is_timing_point
+  }
+  core_core_bus_route_variants {
+    bigint id PK
+    bigint route_id FK
+    text variant_code
+    text direction_name
+    text origin_name
+    text destination_name
+    geometry geom
+    numeric distance_m
+    boolean is_active
+  }
+  core_core_bus_routes {
+    bigint id PK
+    text route_code
+    text public_name
+    text operator_name
+    text route_type
+    text directionality
+    boolean is_active
+    bigint source_type_id FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_bus_stop_names {
+    bigint id PK
+    bigint stop_id FK
+    text name
+    text language_code
+    text name_type
+    boolean is_primary
+  }
+  core_core_bus_stops {
+    bigint id PK
+    uuid public_id
+    text name
+    text name_local
+    text stop_code
+    geometry geom
+    bigint admin_area_id FK
+    bigint source_type_id FK
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_map_buildings {
+    bigint id PK
+    bigint source_staging_id
+    text external_id
+    text name
+    text class_code
+    jsonb normalized_data
+    jsonb source_refs
+    geometry geom
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    uuid public_id
+    text building_type
+    geometry centroid
+    numeric area_m2
+    integer levels
+    numeric height_m
+    numeric confidence_score
+    boolean is_verified
+    bigint created_by
+    bigint updated_by
+    timestamp_with_time_zone deleted_at
+    bigint building_type_id FK
+    bigint admin_area_id FK
+  }
+  core_core_map_landuse {
+    bigint id PK
+    bigint source_staging_id
+    text external_id
+    text name
+    text class_code
+    jsonb normalized_data
+    jsonb source_refs
+    geometry geom
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_map_water_lines {
+    bigint id PK
+    bigint source_staging_id
+    text external_id
+    text name
+    text class_code
+    jsonb normalized_data
+    jsonb source_refs
+    geometry geom
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_map_water_polygons {
+    bigint id PK
+    bigint source_staging_id
+    text external_id
+    text name
+    text class_code
+    jsonb normalized_data
+    jsonb source_refs
+    geometry geom
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_place_addresses {
+    bigint place_id PK, FK
+    bigint address_id PK, FK
+    text relation_type
+    boolean is_primary
+  }
+  core_core_place_buildings {
+    bigint place_id PK, FK
+    bigint building_id PK, FK
+    text relation_type
+    boolean is_primary
+    timestamp_with_time_zone created_at
+  }
+  core_core_place_contacts {
+    bigint id PK
+    bigint place_id FK
+    text phone
+    text website
+    text facebook_url
+    text opening_hours
+    text email
+  }
+  core_core_place_names {
+    bigint id PK
+    bigint place_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+  }
+  core_core_place_sources {
+    bigint id PK
+    bigint place_id FK
+    bigint source_type_id FK
+    text external_id
+    text source_name
+    text source_url
+    integer source_priority
+    timestamp_with_time_zone captured_at
+    jsonb raw_payload
+  }
+  core_core_place_versions {
+    bigint id PK
+    bigint place_id FK
+    integer version_no
+    jsonb snapshot_data
+    bigint publish_status_id FK
+    bigint created_by
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone published_at
+    bigint approved_by
+  }
+  core_core_places {
+    bigint id PK
+    uuid public_id
+    text primary_name
+    text display_name
+    bigint category_id FK
+    bigint admin_area_id FK
+    geometry point_geom
+    geometry entry_geom
+    geometry footprint_geom
+    double_precision lat
+    double_precision lng
+    text plus_code
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    boolean is_public
+    boolean is_verified
+    bigint source_type_id FK
+    bigint publish_status_id FK
+    bigint current_version_id FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  core_core_street_names {
+    bigint id PK
+    bigint street_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+  }
+  core_core_street_versions {
+    bigint id PK
+    bigint street_id FK
+    integer version_no
+    jsonb snapshot_data
+    geometry geom
+    bigint edited_by
+    text edit_reason
+    text action_type
+    timestamp_with_time_zone created_at
+  }
+  core_core_streets {
+    bigint id PK
+    uuid public_id
+    text canonical_name
+    geometry geom
+    bigint admin_area_id FK
+    bigint source_type_id FK
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    bigint road_class_id FK
+    text road_class
+    text surface
+    boolean is_oneway
+    boolean bridge
+    boolean tunnel
+    integer layer
+    jsonb source_tags
+    boolean is_verified
+    boolean manual_override
+    text edit_status
+    text routing_status
+    timestamp_with_time_zone deleted_at
+    timestamp_with_time_zone last_edited_at
+  }
+  ref_ref_address_component_types {
+    bigint id PK
+    text code
+    text name
+    integer rank
+  }
+  ref_ref_admin_levels {
+    bigint id PK
+    text code
+    text name
+    integer rank
+    timestamp_with_time_zone created_at
+  }
+  ref_ref_building_types {
+    bigint id PK
+    text code
+    text name
+    text name_mm
+    bigint parent_id FK
+    integer sort_order
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  ref_ref_place_classes {
+    bigint id PK
+    text code
+    text name
+  }
+  ref_ref_poi_categories {
+    bigint id PK
+    bigint parent_id FK
+    text code
+    text name
+    integer sort_order
+    boolean is_searchable
+    boolean is_public
+    timestamp_with_time_zone created_at
+    text name_mm
+  }
+  ref_ref_publish_statuses {
+    bigint id PK
+    text code
+    text name
+    timestamp_with_time_zone created_at
+  }
+  ref_ref_report_statuses {
+    bigint id PK
+    text code
+    text name
+    timestamp_with_time_zone created_at
+  }
+  ref_ref_report_types {
+    bigint id PK
+    text code
+    text name
+    timestamp_with_time_zone created_at
+  }
+  ref_ref_road_classes {
+    bigint id PK
+    text code
+    text name
+    integer rank
+    numeric min_zoom
+    numeric default_width
+    boolean is_public
+    timestamp_with_time_zone created_at
+  }
+  ref_ref_source_types {
+    bigint id PK
+    text code
+    text name
+  }
+  ref_ref_validation_statuses {
+    bigint id PK
+    text code
+    text name
+    timestamp_with_time_zone created_at
+  }
+  ref_ref_validation_task_types {
+    bigint id PK
+    text code
+    text name
+    timestamp_with_time_zone created_at
+  }
+  %% VIEWS
+  tiles_tiles_admin_areas_v {
+    bigint id
+    text name
+    geometry geom
+    text name_mm
+    text name_en
+  }
+  tiles_tiles_admin_boundaries_v {
+    bigint id
+    text name
+    bigint admin_level_id
+    geometry geom
+  }
+  tiles_tiles_buildings_v {
+    bigint id
+    uuid public_id
+    text name
+    text building_type
+    text class_code
+    integer levels
+    numeric height_m
+    numeric area_m2
+    numeric confidence_score
+    boolean is_verified
+    geometry geom
+    text building_type_code
+    text building_type_name
+    text building_type_name_mm
+    bigint admin_area_id
+    text admin_area_name
+  }
+  tiles_tiles_bus_routes_v {
+    bigint id
+    bigint route_id
+    text route_code
+    text public_name
+    text variant_code
+    geometry geom
+    text name_mm
+    text name_en
+  }
+  tiles_tiles_bus_stops_v {
+    bigint id
+    uuid public_id
+    text name
+    text stop_code
+    geometry geom
+    text name_mm
+    text name_en
+  }
+  tiles_tiles_landuse_v {
+    bigint id
+    text name
+    text landuse_class
+    geometry geom
+  }
+  tiles_tiles_places_v {
+    bigint id
+    uuid public_id
+    text display_name
+    text primary_name
+    bigint category_id
+    text category_name
+    numeric importance_score
+    boolean is_public
+    boolean is_verified
+    timestamp_with_time_zone updated_at
+    geometry geom
+  }
+  tiles_tiles_road_labels_v {
+    bigint id
+    text name
+    geometry geom
+    text layer_type
+    text name_mm
+    text name_en
+  }
+  tiles_tiles_streets_v {
+    bigint id
+    text public_id
+    text name
+    text canonical_name
+    bigint admin_area_id
+    boolean is_active
+    timestamp_with_time_zone updated_at
+    geometry geom
+    text name_mm
+    text name_en
+    text road_class
+    text road_class_code
+    integer sort_rank
+    numeric min_zoom
+    text surface
+    boolean is_oneway
+    boolean bridge
+    boolean tunnel
+    integer layer
+  }
+  tiles_tiles_water_lines_v {
+    bigint id
+    text name
+    text waterway_class
+    geometry geom
+  }
+  tiles_tiles_water_polygons_v {
+    bigint id
+    text name
+    text water_class
+    geometry geom
+  }
+  app_auth_auth_roles ||--o{ app_auth_auth_user_roles : "role_id"
+  app_auth_auth_users ||--o{ app_auth_auth_user_roles : "user_id"
+  core_core_addresses ||--o{ core_core_address_components : "address_id"
+  ref_ref_address_component_types ||--o{ core_core_address_components : "component_type_id"
+  core_core_admin_areas ||--o{ core_core_addresses : "admin_area_id"
+  ref_ref_source_types ||--o{ core_core_addresses : "source_type_id"
+  core_core_streets ||--o{ core_core_addresses : "street_id"
+  core_core_admin_areas ||--o{ core_core_admin_area_names : "admin_area_id"
+  ref_ref_admin_levels ||--o{ core_core_admin_areas : "admin_level_id"
+  core_core_admin_areas ||--o{ core_core_admin_areas : "parent_id"
+  ref_ref_source_types ||--o{ core_core_admin_areas : "source_type_id"
+  core_core_bus_routes ||--o{ core_core_bus_route_names : "route_id"
+  core_core_bus_route_variants ||--o{ core_core_bus_route_stops : "route_variant_id"
+  core_core_bus_stops ||--o{ core_core_bus_route_stops : "stop_id"
+  core_core_bus_routes ||--o{ core_core_bus_route_variants : "route_id"
+  ref_ref_source_types ||--o{ core_core_bus_routes : "source_type_id"
+  core_core_bus_stops ||--o{ core_core_bus_stop_names : "stop_id"
+  core_core_admin_areas ||--o{ core_core_bus_stops : "admin_area_id"
+  ref_ref_source_types ||--o{ core_core_bus_stops : "source_type_id"
+  core_core_admin_areas ||--o{ core_core_map_buildings : "admin_area_id"
+  ref_ref_building_types ||--o{ core_core_map_buildings : "building_type_id"
+  core_core_addresses ||--o{ core_core_place_addresses : "address_id"
+  core_core_places ||--o{ core_core_place_addresses : "place_id"
+  core_core_map_buildings ||--o{ core_core_place_buildings : "building_id"
+  core_core_places ||--o{ core_core_place_buildings : "place_id"
+  core_core_places ||--o{ core_core_place_contacts : "place_id"
+  core_core_places ||--o{ core_core_place_names : "place_id"
+  core_core_places ||--o{ core_core_place_sources : "place_id"
+  ref_ref_source_types ||--o{ core_core_place_sources : "source_type_id"
+  core_core_places ||--o{ core_core_place_versions : "place_id"
+  ref_ref_publish_statuses ||--o{ core_core_place_versions : "publish_status_id"
+  core_core_admin_areas ||--o{ core_core_places : "admin_area_id"
+  ref_ref_poi_categories ||--o{ core_core_places : "category_id"
+  core_core_place_versions ||--o{ core_core_places : "current_version_id"
+  ref_ref_publish_statuses ||--o{ core_core_places : "publish_status_id"
+  ref_ref_source_types ||--o{ core_core_places : "source_type_id"
+  core_core_streets ||--o{ core_core_street_names : "street_id"
+  core_core_streets ||--o{ core_core_street_versions : "street_id"
+  core_core_admin_areas ||--o{ core_core_streets : "admin_area_id"
+  ref_ref_road_classes ||--o{ core_core_streets : "road_class_id"
+  ref_ref_source_types ||--o{ core_core_streets : "source_type_id"
+  core_core_admin_areas ||--o{ core_core_map_buildings : "admin_area_id"
+  ref_ref_building_types ||--o{ ref_ref_building_types : "parent_id"
+  ref_ref_poi_categories ||--o{ ref_ref_poi_categories : "parent_id"
+```
