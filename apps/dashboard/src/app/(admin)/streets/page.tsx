@@ -10,15 +10,22 @@ import DataTableToolbar, {
 import HighlightMatch from "@/src/components/dashboard/HighlightMatch";
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 import StreetPreviewMap from "@/src/components/map/StreetPreviewMap";
-import StreetEditModal from "@/src/components/streets/StreetEditModal";
 import { listApiSortOrder } from "@/src/lib/listToolbarSortOrder";
-import { getStreet, getStreets, isAbortError, type StreetDetail, type Street } from "@/src/lib/api";
+import {
+    deleteStreet,
+    getStreet,
+    getStreets,
+    isAbortError,
+    type Street,
+    type StreetDetail,
+} from "@/src/lib/api";
+import { DASHBOARD_STREET_MVT_SESSION_BUST_KEY } from "@/src/components/map/placeMapConfig";
 
 const STREETS_SORT_OPTIONS: DataTableSortOption[] = [
     { value: "name", label: "Name", type: "text" },
     { value: "admin_area", label: "Admin Area", type: "text" },
     { value: "created", label: "Created Date", type: "date" },
-    { value: "updated", label: "Updated Date", type: "date" },
+    { value: "updated_at", label: "Updated Date", type: "date" },
 ];
 
 function formatDate(value: string): string {
@@ -31,6 +38,27 @@ function formatDate(value: string): string {
     return date.toLocaleString();
 }
 
+function dash(value: string | null | undefined): string {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : "-";
+}
+
+function yesNo(value: boolean | null | undefined): string {
+    if (value === null || value === undefined) {
+        return "-";
+    }
+
+    return value ? "Yes" : "No";
+}
+
+function roadClassLabel(street: Pick<Street, "road_class" | "road_class_name">): string {
+    if (street.road_class_name && street.road_class && street.road_class_name !== street.road_class) {
+        return `${street.road_class_name} (${street.road_class})`;
+    }
+
+    return dash(street.road_class_name ?? street.road_class);
+}
+
 export default function StreetsPage() {
     const [streets, setStreets] = useState<Street[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -38,20 +66,29 @@ export default function StreetsPage() {
     const [selectedStreet, setSelectedStreet] = useState<StreetDetail | null>(null);
     const [isDetailLoading, setIsDetailLoading] = useState(false);
     const [detailError, setDetailError] = useState("");
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [streetDeleteBusy, setStreetDeleteBusy] = useState(false);
+    /** Timestamp passed to preview map MVT `?v=` after delete / returning from edit delete (sessionStorage). */
+    const [streetMvtCacheVersion, setStreetMvtCacheVersion] = useState(0);
 
     const [listSearch, setListSearch] = useState("");
-    const [sortBy, setSortBy] = useState("name");
-    const [arrange, setArrange] = useState<DataTableArrange>("az");
-    const [debouncedSearch, setDebouncedSearch] = useState("");
+    const [searchQuery, setSearchQuery] = useState("");
+    const [sortBy, setSortBy] = useState("updated_at");
+    const [arrange, setArrange] = useState<DataTableArrange>("newest");
+    const [includeDeleted, setIncludeDeleted] = useState(false);
 
     useEffect(() => {
-        const timer = window.setTimeout(() => {
-            setDebouncedSearch(listSearch.trim());
-        }, 300);
-
-        return () => window.clearTimeout(timer);
-    }, [listSearch]);
+        try {
+            const raw = sessionStorage.getItem(DASHBOARD_STREET_MVT_SESSION_BUST_KEY);
+            if (!raw) {
+                return;
+            }
+            sessionStorage.removeItem(DASHBOARD_STREET_MVT_SESSION_BUST_KEY);
+            const parsed = Number(raw);
+            setStreetMvtCacheVersion(Number.isFinite(parsed) && parsed > 0 ? parsed : Date.now());
+        } catch {
+            /* ignore private mode */
+        }
+    }, []);
 
     const loadStreets = useCallback(
         async (selectedPublicId?: string, signal?: AbortSignal) => {
@@ -62,9 +99,10 @@ export default function StreetsPage() {
                 const data = await getStreets(
                     {
                         limit: 50,
-                        ...(debouncedSearch !== "" ? { q: debouncedSearch } : {}),
+                        ...(searchQuery !== "" ? { q: searchQuery } : {}),
                         sortBy,
                         sortOrder: listApiSortOrder(sortBy, arrange),
+                        ...(includeDeleted ? { include_deleted: true } : {}),
                     },
                     signal ? { signal } : undefined
                 );
@@ -102,8 +140,17 @@ export default function StreetsPage() {
                 setIsLoading(false);
             }
         },
-        [debouncedSearch, sortBy, arrange]
+        [searchQuery, sortBy, arrange, includeDeleted]
     );
+
+    function handleSearchSubmit() {
+        setSearchQuery(listSearch.trim());
+    }
+
+    function handleSearchClear() {
+        setListSearch("");
+        setSearchQuery("");
+    }
 
     useEffect(() => {
         const abort = new AbortController();
@@ -115,6 +162,12 @@ export default function StreetsPage() {
         const id = selectedStreet?.public_id;
 
         if (!id) {
+            return;
+        }
+
+        if (selectedStreet?.deleted_at) {
+            setIsDetailLoading(false);
+            setDetailError("");
             return;
         }
 
@@ -150,7 +203,49 @@ export default function StreetsPage() {
         void loadStreetDetail();
 
         return () => abort.abort();
-    }, [selectedStreet?.public_id]);
+    }, [selectedStreet?.public_id, selectedStreet?.deleted_at]);
+
+    async function handleSoftDeleteStreet(street: Pick<Street, "public_id" | "canonical_name" | "deleted_at">) {
+        const target = street.public_id;
+        const label = street.canonical_name || target;
+
+        if (!target || street.deleted_at) {
+            return;
+        }
+
+        if (
+            !window.confirm(
+                label
+                    ? `Soft-delete street “${label}”? It will be hidden from default lists.`
+                    : "Soft-delete this street? It will be hidden from default lists.",
+            )
+        ) {
+            return;
+        }
+
+        const reason = window.prompt("Optional note for the audit log (edit reason):")?.trim() ?? "";
+
+        setStreetDeleteBusy(true);
+        setDetailError("");
+
+        try {
+            await deleteStreet(target, reason.length > 0 ? { edit_reason: reason } : undefined);
+            setStreetMvtCacheVersion(Date.now());
+            await loadStreets(target);
+        } catch (error) {
+            setDetailError(error instanceof Error ? error.message : "Failed to soft-delete street");
+        } finally {
+            setStreetDeleteBusy(false);
+        }
+    }
+
+    async function handleSoftDeleteSelectedStreet() {
+        if (!selectedStreet) {
+            return;
+        }
+
+        await handleSoftDeleteStreet(selectedStreet);
+    }
 
     function handleSelectStreet(street: Street) {
         setSelectedStreet((current) => ({
@@ -191,6 +286,8 @@ export default function StreetsPage() {
                             <DataTableToolbar
                                 searchValue={listSearch}
                                 onSearchChange={setListSearch}
+                                onSearchSubmit={handleSearchSubmit}
+                                onSearchClear={handleSearchClear}
                                 placeholder="Search streets in this table…"
                                 sortBy={sortBy}
                                 onSortByChange={setSortBy}
@@ -200,12 +297,23 @@ export default function StreetsPage() {
                                 totalCount={streets.length}
                                 filteredCount={streets.length}
                                 onClearFilters={() => {
-                                    setListSearch("");
-                                    setDebouncedSearch("");
-                                    setSortBy("name");
-                                    setArrange("az");
+                                    handleSearchClear();
+                                    setSortBy("updated_at");
+                                    setArrange("newest");
+                                    setIncludeDeleted(false);
                                 }}
                             />
+                            <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+                                <input
+                                    type="checkbox"
+                                    checked={includeDeleted}
+                                    onChange={(event) => {
+                                        setIncludeDeleted(event.target.checked);
+                                    }}
+                                    className="rounded border-gray-300"
+                                />
+                                <span>Show soft-deleted streets</span>
+                            </label>
                         </div>
 
                     <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] lg:items-start">
@@ -215,21 +323,23 @@ export default function StreetsPage() {
                                     <thead className="sticky top-0 z-10 bg-gray-50 text-gray-700">
                                         <tr>
                                             <th className="px-4 py-3 font-medium">Name</th>
-                                            <th className="px-4 py-3 font-medium">Myanmar Name</th>
-                                            <th className="px-4 py-3 font-medium">English Name</th>
-                                            <th className="px-4 py-3 font-medium">Admin Area</th>
-                                            <th className="px-4 py-3 font-medium">Active</th>
-                                            <th className="px-4 py-3 font-medium">Updated</th>
+                                            <th className="px-4 py-3 font-medium">Road class</th>
+                                            <th className="px-4 py-3 font-medium">Surface</th>
+                                            <th className="px-4 py-3 font-medium">One way</th>
+                                            <th className="px-4 py-3 font-medium">Bridge</th>
+                                            <th className="px-4 py-3 font-medium">Tunnel</th>
+                                            <th className="px-4 py-3 font-medium">Admin area</th>
+                                            <th className="px-4 py-3 font-medium">Updated at</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
                                         {streets.length === 0 ? (
                                             <tr>
                                                 <td
-                                                    colSpan={6}
+                                                    colSpan={8}
                                                     className="px-4 py-6 text-center text-gray-500"
                                                 >
-                                                    {debouncedSearch
+                                                    {searchQuery
                                                         ? "No streets match your search."
                                                         : "No streets found."}
                                                 </td>
@@ -239,6 +349,7 @@ export default function StreetsPage() {
                                                 const isSelected =
                                                     selectedStreet?.public_id === street.public_id;
                                                 const updatedLabel = formatDate(street.updated_at);
+                                                const isRowDeleted = Boolean(street.deleted_at);
 
                                                 return (
                                                     <tr
@@ -246,42 +357,54 @@ export default function StreetsPage() {
                                                         onClick={() => handleSelectStreet(street)}
                                                         className={`cursor-pointer text-gray-900 ${
                                                             isSelected ? "bg-blue-50" : "hover:bg-gray-50"
-                                                        }`}
+                                                        } ${isRowDeleted ? "opacity-75" : ""}`}
                                                     >
                                                         <td className="min-w-0 max-w-[min(100%,18rem)] wrap-break-word px-4 py-3 align-top">
                                                             <HighlightMatch
                                                                 text={street.canonical_name || "-"}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
-                                                        <td className="px-4 py-3 align-top">
+                                                        <td className="whitespace-nowrap px-4 py-3 align-top">
                                                             <HighlightMatch
-                                                                text={street.myanmarName || "-"}
-                                                                query={listSearch}
+                                                                text={roadClassLabel(street)}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
-                                                        <td className="px-4 py-3 align-top">
+                                                        <td className="whitespace-nowrap px-4 py-3 align-top">
                                                             <HighlightMatch
-                                                                text={street.englishName || "-"}
-                                                                query={listSearch}
+                                                                text={dash(street.surface)}
+                                                                query={searchQuery}
+                                                            />
+                                                        </td>
+                                                        <td className="whitespace-nowrap px-4 py-3 align-top">
+                                                            <HighlightMatch
+                                                                text={yesNo(street.is_oneway)}
+                                                                query={searchQuery}
+                                                            />
+                                                        </td>
+                                                        <td className="whitespace-nowrap px-4 py-3 align-top">
+                                                            <HighlightMatch
+                                                                text={yesNo(street.bridge)}
+                                                                query={searchQuery}
+                                                            />
+                                                        </td>
+                                                        <td className="whitespace-nowrap px-4 py-3 align-top">
+                                                            <HighlightMatch
+                                                                text={yesNo(street.tunnel)}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3 align-top">
                                                             <HighlightMatch
                                                                 text={street.admin_area_name ?? "-"}
-                                                                query={listSearch}
-                                                            />
-                                                        </td>
-                                                        <td className="whitespace-nowrap px-4 py-3 align-top">
-                                                            <HighlightMatch
-                                                                text={street.is_active ? "Yes" : "No"}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="whitespace-nowrap px-4 py-3 align-top">
                                                             <HighlightMatch
                                                                 text={updatedLabel}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                     </tr>
@@ -294,21 +417,35 @@ export default function StreetsPage() {
                         </div>
 
                         <aside className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm lg:sticky lg:top-6">
-                            <div className="mb-4 flex items-center justify-between gap-3">
-                                <h2 className="text-lg font-semibold text-gray-900">Street Details</h2>
-                                {selectedStreet ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsEditModalOpen(true)}
-                                        className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700"
-                                    >
-                                        Edit
-                                    </button>
+                            <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+                                <h2 className="mr-auto text-lg font-semibold text-gray-900">Street Details</h2>
+                                {selectedStreet && !selectedStreet.deleted_at ? (
+                                    <>
+                                        <Link
+                                            href={`/streets/${selectedStreet.public_id}/edit`}
+                                            className="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700"
+                                        >
+                                            Edit
+                                        </Link>
+                                        <button
+                                            type="button"
+                                            onClick={() => void handleSoftDeleteSelectedStreet()}
+                                            disabled={streetDeleteBusy || isDetailLoading}
+                                            className="rounded border border-red-200 bg-white px-3 py-2 text-sm text-red-700 disabled:opacity-50"
+                                        >
+                                            {streetDeleteBusy ? "Deleting…" : "Soft delete"}
+                                        </button>
+                                    </>
+                                ) : selectedStreet?.deleted_at ? (
+                                    <span className="text-xs font-medium text-amber-800">Soft-deleted</span>
                                 ) : null}
                             </div>
 
                             <MapPreviewCard className="mb-4">
-                                <StreetPreviewMap selectedStreet={selectedStreet} />
+                                <StreetPreviewMap
+                                    selectedStreet={selectedStreet}
+                                    streetMvtCacheVersion={streetMvtCacheVersion}
+                                />
                             </MapPreviewCard>
 
                             {isDetailLoading ? (
@@ -369,6 +506,41 @@ export default function StreetsPage() {
 
                                     <div>
                                         <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                            Road Class
+                                        </div>
+                                        <div className="mt-1">{roadClassLabel(selectedStreet)}</div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                            Surface
+                                        </div>
+                                        <div className="mt-1">{dash(selectedStreet.surface)}</div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                            One-way
+                                        </div>
+                                        <div className="mt-1">{yesNo(selectedStreet.is_oneway)}</div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                            Bridge
+                                        </div>
+                                        <div className="mt-1">{yesNo(selectedStreet.bridge)}</div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                            Tunnel
+                                        </div>
+                                        <div className="mt-1">{yesNo(selectedStreet.tunnel)}</div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
                                             Source Type ID
                                         </div>
                                         <div className="mt-1">{selectedStreet.source_type_id ?? "-"}</div>
@@ -415,14 +587,6 @@ export default function StreetsPage() {
                 ) : null}
             </div>
 
-            <StreetEditModal
-                open={isEditModalOpen}
-                streetId={selectedStreet?.public_id ?? null}
-                onClose={() => setIsEditModalOpen(false)}
-                onSaved={async (streetId) => {
-                    await loadStreets(streetId);
-                }}
-            />
         </main>
     );
 }

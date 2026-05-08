@@ -193,7 +193,7 @@ export const buildingIdParamsSchema = z.object({
     id: z.string().uuid(),
 });
 
-export const buildingsSortBySchema = z.enum(["name", "building_type", "admin_area", "created", "updated"]);
+export const buildingsSortBySchema = z.enum(["name", "building_type", "admin_area", "created", "updated", "updated_at"]);
 
 const listSortOrderSchema = z.enum(["asc", "desc"]);
 
@@ -214,8 +214,8 @@ export const buildingsQuerySchema = z.object({
     limit: z.coerce.number().int().min(1).max(100).default(100),
     offset: z.coerce.number().int().min(0).default(0),
     q: optionalBuildingSearchQuerySchema,
-    sortBy: buildingsSortBySchema.default("name"),
-    sortOrder: listSortOrderSchema.default("asc"),
+    sortBy: buildingsSortBySchema.default("updated_at"),
+    sortOrder: listSortOrderSchema.default("desc"),
 });
 
 export type BuildingsListQuery = z.infer<typeof buildingsQuerySchema>;

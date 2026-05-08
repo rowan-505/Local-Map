@@ -20,7 +20,7 @@ type ListPlacesInput = {
     category?: string;
     is_public?: boolean;
     is_verified?: boolean;
-    sortBy: "name" | "category" | "admin_area" | "created" | "updated";
+    sortBy: "name" | "category" | "admin_area" | "created" | "updated" | "updated_at";
     sortOrder: "asc" | "desc";
 };
 

@@ -3,7 +3,7 @@
   "name": "Local Map Production Light",
   "metadata": {
     "local-map:purpose": "Rendering-only production basemap. Search, detail cards, and live CRUD data come from API/core.",
-    "local-map:glyphs": "Self-hosted in apps/web/public/fonts/{fontstack}/ — MapLibre requests /fonts/{fontstack}/{range}.pbf from the web app origin. Use a single text-font so {fontstack} is one folder name (e.g. NotoSansMyanmar-Regular). Do not use multi-font stacks."
+    "local-map:glyphs": "Self-hosted in apps/web/public/fonts/{fontstack}/ \u2014 MapLibre requests /fonts/{fontstack}/{range}.pbf from the web app origin. Use a single text-font so {fontstack} is one folder name (e.g. NotoSansMyanmar-Regular). Do not use multi-font stacks."
   },
   "glyphs": "/fonts/{fontstack}/{range}.pbf",
   "sources": {
@@ -114,8 +114,12 @@
         "fill-color": "#dce8d5",
         "fill-opacity": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           8,
           0.16,
           12,
@@ -149,8 +153,12 @@
         "line-color": "#9ccfe1",
         "line-opacity": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           9,
           0.42,
           13,
@@ -160,8 +168,13 @@
         ],
         "line-width": [
           "interpolate",
-          ["exponential", 1.35],
-          ["zoom"],
+          [
+            "exponential",
+            1.35
+          ],
+          [
+            "zoom"
+          ],
           9,
           0.35,
           12,
@@ -181,11 +194,18 @@
       "minzoom": 8,
       "paint": {
         "line-color": "#8f9690",
-        "line-dasharray": [2.5, 2.5],
+        "line-dasharray": [
+          2.5,
+          2.5
+        ],
         "line-opacity": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           8,
           0.22,
           12,
@@ -195,8 +215,12 @@
         ],
         "line-width": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           8,
           0.45,
           12,
@@ -216,15 +240,30 @@
         "visibility": "none",
         "text-field": [
           "coalesce",
-          ["get", "name_mm"],
-          ["get", "name_en"],
-          ["get", "name"]
+          [
+            "get",
+            "name_mm"
+          ],
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "name"
+          ]
         ],
-        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-font": [
+          "NotoSansMyanmar-Regular"
+        ],
         "text-size": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           8,
           9,
           12,
@@ -245,8 +284,12 @@
         "text-halo-blur": 0.2,
         "text-opacity": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           8,
           0.35,
           11,
@@ -270,8 +313,12 @@
         "line-color": "#ffffff",
         "line-opacity": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           10,
           0.62,
           13,
@@ -281,18 +328,23 @@
         ],
         "line-width": [
           "interpolate",
-          ["exponential", 1.45],
-          ["zoom"],
+          [
+            "exponential",
+            1.45
+          ],
+          [
+            "zoom"
+          ],
           10,
-          1.2,
+          1.488,
           12,
-          1.8,
+          2.232,
           14,
-          3.4,
+          4.216,
           16,
-          6.4,
+          7.936,
           19,
-          13.5
+          16.74
         ]
       }
     },
@@ -310,8 +362,12 @@
         "line-color": "#c1c4bf",
         "line-opacity": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           10,
           0.52,
           13,
@@ -321,18 +377,23 @@
         ],
         "line-width": [
           "interpolate",
-          ["exponential", 1.45],
-          ["zoom"],
+          [
+            "exponential",
+            1.45
+          ],
+          [
+            "zoom"
+          ],
           10,
-          0.55,
+          0.737,
           12,
-          0.95,
+          1.273,
           14,
-          1.9,
+          2.546,
           16,
-          4,
+          5.36,
           19,
-          9.4
+          12.596
         ]
       }
     },
@@ -348,15 +409,30 @@
         "symbol-spacing": 350,
         "text-field": [
           "coalesce",
-          ["get", "name_mm"],
-          ["get", "name_en"],
-          ["get", "name"]
+          [
+            "get",
+            "name_mm"
+          ],
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "name"
+          ]
         ],
-        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-font": [
+          "NotoSansMyanmar-Regular"
+        ],
         "text-size": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           13,
           10,
           16,
@@ -386,8 +462,12 @@
         "fill-color": "#ded8cf",
         "fill-opacity": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           14,
           0.48,
           17,
@@ -412,8 +492,12 @@
         "line-color": "#d38a2e",
         "line-opacity": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           12,
           0.36,
           15,
@@ -423,8 +507,13 @@
         ],
         "line-width": [
           "interpolate",
-          ["exponential", 1.35],
-          ["zoom"],
+          [
+            "exponential",
+            1.35
+          ],
+          [
+            "zoom"
+          ],
           12,
           0.7,
           15,
@@ -446,15 +535,30 @@
         "symbol-spacing": 350,
         "text-field": [
           "coalesce",
-          ["get", "name_mm"],
-          ["get", "name_en"],
-          ["get", "name"]
+          [
+            "get",
+            "name_mm"
+          ],
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "name"
+          ]
         ],
-        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-font": [
+          "NotoSansMyanmar-Regular"
+        ],
         "text-size": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           13,
           9.5,
           16,
@@ -474,8 +578,12 @@
         "text-halo-blur": 0.2,
         "text-opacity": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           13,
           0.55,
           16,
@@ -493,8 +601,12 @@
         "circle-color": "#d28b1f",
         "circle-opacity": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           15,
           0.72,
           18,
@@ -502,8 +614,12 @@
         ],
         "circle-radius": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           15,
           2.4,
           17,
@@ -514,8 +630,12 @@
         "circle-stroke-color": "#ffffff",
         "circle-stroke-width": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           15,
           0.8,
           18,
@@ -533,15 +653,30 @@
         "visibility": "none",
         "text-field": [
           "coalesce",
-          ["get", "name_mm"],
-          ["get", "name_en"],
-          ["get", "name"]
+          [
+            "get",
+            "name_mm"
+          ],
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "name"
+          ]
         ],
-        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-font": [
+          "NotoSansMyanmar-Regular"
+        ],
         "text-size": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           15,
           9.5,
           17,
@@ -549,7 +684,10 @@
           20,
           12
         ],
-        "text-offset": [0, 1.05],
+        "text-offset": [
+          0,
+          1.05
+        ],
         "text-anchor": "top",
         "text-padding": 6,
         "text-optional": true
@@ -571,8 +709,12 @@
         "circle-color": "#5fa178",
         "circle-opacity": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           15,
           0.5,
           17,
@@ -582,8 +724,12 @@
         ],
         "circle-radius": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           15,
           1.8,
           17,
@@ -594,8 +740,12 @@
         "circle-stroke-color": "#ffffff",
         "circle-stroke-width": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           15,
           0.7,
           18,
@@ -613,15 +763,30 @@
         "visibility": "none",
         "text-field": [
           "coalesce",
-          ["get", "name_mm"],
-          ["get", "name_en"],
-          ["get", "name"]
+          [
+            "get",
+            "name_mm"
+          ],
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "name"
+          ]
         ],
-        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-font": [
+          "NotoSansMyanmar-Regular"
+        ],
         "text-size": [
           "interpolate",
-          ["linear"],
-          ["zoom"],
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
           14,
           10.5,
           16,
@@ -629,7 +794,10 @@
           19,
           14
         ],
-        "text-offset": [0, 1.05],
+        "text-offset": [
+          0,
+          1.05
+        ],
         "text-anchor": "top",
         "text-padding": 7,
         "text-max-width": 9,

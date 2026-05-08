@@ -9,7 +9,7 @@ type ListPlacesParams = {
     category?: string;
     is_public?: boolean;
     is_verified?: boolean;
-    sortBy: "name" | "category" | "admin_area" | "created" | "updated";
+    sortBy: "name" | "category" | "admin_area" | "created" | "updated" | "updated_at";
     sortOrder: "asc" | "desc";
 };
 
@@ -146,6 +146,7 @@ function placesListOrderBy(
         case "created":
             return Prisma.sql`p.created_at ${dir} NULLS LAST, p.public_id ASC`;
         case "updated":
+        case "updated_at":
             return Prisma.sql`p.updated_at ${dir} NULLS LAST, p.public_id ASC`;
         default:
             return Prisma.sql`p.updated_at DESC NULLS LAST, p.public_id ASC`;

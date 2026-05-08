@@ -15,6 +15,13 @@ import {
     PlaceBuildingsService,
 } from "./place-buildings.service.js";
 import { buildingIdParamsSchema } from "../buildings/buildings.schema.js";
+import {
+    deletePlaceBuildingLinkSchema,
+    getBuildingPlacesSchema,
+    getPlaceBuildingsSchema,
+    patchPlaceBuildingLinkSchema,
+    postPlaceBuildingLinkSchema,
+} from "./place-buildings.openapi.js";
 
 const EDIT_LINK_ROLES = new Set(["admin", "editor"]);
 
@@ -26,6 +33,7 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
         "/places/:id/buildings",
         {
             preHandler: app.authenticate,
+            schema: getPlaceBuildingsSchema,
         },
         async (request, reply) => {
             const parsed = placeIdParamsSchema.safeParse(request.params);
@@ -54,6 +62,7 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
         "/places/:id/buildings",
         {
             preHandler: app.authenticate,
+            schema: postPlaceBuildingLinkSchema,
         },
         async (request, reply) => {
             const paramsParsed = placeIdParamsSchema.safeParse(request.params);
@@ -106,6 +115,7 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
         "/places/:id/buildings/:buildingId",
         {
             preHandler: app.authenticate,
+            schema: patchPlaceBuildingLinkSchema,
         },
         async (request, reply) => {
             const paramsParsed = placeBuildingParamsSchema.safeParse(request.params);
@@ -158,6 +168,7 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
         "/places/:id/buildings/:buildingId",
         {
             preHandler: app.authenticate,
+            schema: deletePlaceBuildingLinkSchema,
         },
         async (request, reply) => {
             const parsed = placeBuildingParamsSchema.safeParse(request.params);
@@ -198,6 +209,7 @@ const placeBuildingRoutes: FastifyPluginAsync = async (app) => {
         "/buildings/:id/places",
         {
             preHandler: app.authenticate,
+            schema: getBuildingPlacesSchema,
         },
         async (request, reply) => {
             const parsed = buildingIdParamsSchema.safeParse(request.params);

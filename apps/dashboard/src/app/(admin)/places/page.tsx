@@ -26,7 +26,7 @@ const PLACES_SORT_OPTIONS: DataTableSortOption[] = [
     { value: "category", label: "Category", type: "text" },
     { value: "admin_area", label: "Admin Area", type: "text" },
     { value: "created", label: "Created Date", type: "date" },
-    { value: "updated", label: "Updated Date", type: "date" },
+    { value: "updated_at", label: "Updated Date", type: "date" },
 ];
 
 function PlacesPageContent() {
@@ -45,21 +45,13 @@ function PlacesPageContent() {
     const editPlaceOpenId = searchParams.get("editPlace");
 
     const [listSearch, setListSearch] = useState("");
-    const [sortBy, setSortBy] = useState("name");
-    const [arrange, setArrange] = useState<DataTableArrange>("az");
-    const [debouncedSearch, setDebouncedSearch] = useState("");
+    const [searchQuery, setSearchQuery] = useState("");
+    const [sortBy, setSortBy] = useState("updated_at");
+    const [arrange, setArrange] = useState<DataTableArrange>("newest");
 
     const bumpPreviewMap = useCallback(() => {
         setPreviewMapKey((value) => value + 1);
     }, []);
-
-    useEffect(() => {
-        const timer = window.setTimeout(() => {
-            setDebouncedSearch(listSearch.trim());
-        }, 300);
-
-        return () => window.clearTimeout(timer);
-    }, [listSearch]);
 
     const loadPlaces = useCallback(
         async (selectedPublicId?: string, signal?: AbortSignal) => {
@@ -70,7 +62,7 @@ function PlacesPageContent() {
                 const data = await getPlaces(
                     {
                         limit: PLACES_LIST_LIMIT,
-                        ...(debouncedSearch !== "" ? { q: debouncedSearch } : {}),
+                        ...(searchQuery !== "" ? { q: searchQuery } : {}),
                         sortBy,
                         sortOrder: listApiSortOrder(sortBy, arrange),
                     },
@@ -93,8 +85,17 @@ function PlacesPageContent() {
                 setIsLoading(false);
             }
         },
-        [debouncedSearch, sortBy, arrange]
+        [searchQuery, sortBy, arrange]
     );
+
+    function handleSearchSubmit() {
+        setSearchQuery(listSearch.trim());
+    }
+
+    function handleSearchClear() {
+        setListSearch("");
+        setSearchQuery("");
+    }
 
     useEffect(() => {
         const abort = new AbortController();
@@ -191,6 +192,8 @@ function PlacesPageContent() {
                             <DataTableToolbar
                                 searchValue={listSearch}
                                 onSearchChange={setListSearch}
+                                onSearchSubmit={handleSearchSubmit}
+                                onSearchClear={handleSearchClear}
                                 placeholder="Search places in this table…"
                                 sortBy={sortBy}
                                 onSortByChange={setSortBy}
@@ -200,10 +203,9 @@ function PlacesPageContent() {
                                 totalCount={places.length}
                                 filteredCount={places.length}
                                 onClearFilters={() => {
-                                    setListSearch("");
-                                    setDebouncedSearch("");
-                                    setSortBy("name");
-                                    setArrange("az");
+                                    handleSearchClear();
+                                    setSortBy("updated_at");
+                                    setArrange("newest");
                                 }}
                             />
                         </div>
@@ -232,7 +234,7 @@ function PlacesPageContent() {
                                                     colSpan={9}
                                                     className="px-4 py-6 text-center text-gray-500"
                                                 >
-                                                    {debouncedSearch
+                                                    {searchQuery
                                                         ? "No places match your search."
                                                         : "No places found."}
                                                 </td>
@@ -253,55 +255,55 @@ function PlacesPageContent() {
                                                         <td className="px-4 py-3">
                                                             <HighlightMatch
                                                                 text={place.display_name}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <HighlightMatch
                                                                 text={place.myanmarName ?? "-"}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <HighlightMatch
                                                                 text={place.englishName ?? "-"}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <HighlightMatch
                                                                 text={place.category_name ?? "-"}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <HighlightMatch
                                                                 text={place.admin_area_name ?? "-"}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <HighlightMatch
                                                                 text={place.lat}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <HighlightMatch
                                                                 text={place.lng}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <HighlightMatch
                                                                 text={place.is_verified ? "Yes" : "No"}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <HighlightMatch
                                                                 text={place.is_public ? "Yes" : "No"}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                     </tr>

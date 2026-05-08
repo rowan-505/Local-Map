@@ -154,7 +154,7 @@ export const placeIdParamsSchema = z.object({
     id: z.string().uuid(),
 });
 
-export const placesSortBySchema = z.enum(["name", "category", "admin_area", "created", "updated"]);
+export const placesSortBySchema = z.enum(["name", "category", "admin_area", "created", "updated", "updated_at"]);
 export const listSortOrderSchema = z.enum(["asc", "desc"]);
 
 const optionalPlacesSearchQuerySchema = z.preprocess((value) => {
@@ -177,6 +177,6 @@ export const placesQuerySchema = z.object({
     is_verified: booleanQueryValueSchema,
     limit: z.coerce.number().int().min(1).max(100).default(50),
     offset: z.coerce.number().int().min(0).default(0),
-    sortBy: placesSortBySchema.default("name"),
-    sortOrder: listSortOrderSchema.default("asc"),
+    sortBy: placesSortBySchema.default("updated_at"),
+    sortOrder: listSortOrderSchema.default("desc"),
 });

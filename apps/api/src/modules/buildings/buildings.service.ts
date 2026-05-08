@@ -39,7 +39,7 @@ export class BuildingsService {
         limit: number;
         offset: number;
         q?: string;
-        sortBy: "name" | "building_type" | "admin_area" | "created" | "updated";
+        sortBy: "name" | "building_type" | "admin_area" | "created" | "updated" | "updated_at";
         sortOrder: "asc" | "desc";
     }) {
         const buildings = await this.buildingsRepo.listActiveBuildings(params);

@@ -6,13 +6,21 @@ import maplibregl, { GeoJSONSource } from "maplibre-gl";
 import type { StreetGeometry } from "@/src/lib/api";
 import { MAP_PREVIEW_VIEWPORT_STREET } from "./mapPreviewUi";
 import { attachDashboardMapErrorHandler } from "./mapErrorHandlers";
-import { PLACE_MAP_DEFAULT_CENTER, PLACE_MAP_STYLE } from "./placeMapConfig";
+import {
+    PLACE_MAP_DEFAULT_CENTER,
+    PLACE_MAP_STYLE,
+    scheduleStreetTileRefresh,
+} from "./placeMapConfig";
 
 type StreetPreviewMapProps = {
     selectedStreet: {
         canonical_name: string;
+        myanmarName: string | null;
+        englishName: string | null;
         geometry: StreetGeometry;
     } | null;
+    /** Non-zero after street CRUD: timestamp passed as MVT `?v=` (see {@link scheduleStreetTileRefresh}). */
+    streetMvtCacheVersion?: number;
 };
 
 const DEFAULT_ZOOM = 12;
@@ -63,7 +71,7 @@ function streetFeature(geometry: StreetGeometry, name: string) {
     };
 }
 
-export default function StreetPreviewMap({ selectedStreet }: StreetPreviewMapProps) {
+export default function StreetPreviewMap({ selectedStreet, streetMvtCacheVersion = 0 }: StreetPreviewMapProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const [isMapReady, setIsMapReady] = useState(false);
@@ -131,9 +139,13 @@ export default function StreetPreviewMap({ selectedStreet }: StreetPreviewMapPro
 
         const geometry = selectedStreet?.geometry ?? null;
 
-        source.setData(
-            streetFeature(geometry, selectedStreet?.canonical_name ?? "Selected street")
-        );
+        const label =
+            selectedStreet?.englishName?.trim() ||
+            selectedStreet?.myanmarName?.trim() ||
+            selectedStreet?.canonical_name?.trim() ||
+            "Selected street";
+
+        source.setData(streetFeature(geometry, label));
 
         if (!geometry) {
             map.easeTo({
@@ -156,6 +168,14 @@ export default function StreetPreviewMap({ selectedStreet }: StreetPreviewMapPro
             duration: 500,
         });
     }, [isMapReady, selectedStreet]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !isMapReady || streetMvtCacheVersion === 0) {
+            return;
+        }
+        scheduleStreetTileRefresh(map, streetMvtCacheVersion);
+    }, [isMapReady, streetMvtCacheVersion]);
 
     return (
         <div className="relative">

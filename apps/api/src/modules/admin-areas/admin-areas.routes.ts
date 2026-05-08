@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { adminAreasQuerySchema } from "./admin-areas.schema.js";
 import { AdminAreasRepository } from "./admin-areas.repo.js";
 import { AdminAreasService } from "./admin-areas.service.js";
+import { getAdminAreasSchema } from "./admin-areas.openapi.js";
 
 const adminAreasRoutes: FastifyPluginAsync = async (app) => {
     const adminAreasRepo = new AdminAreasRepository(app.prisma);
@@ -12,6 +13,7 @@ const adminAreasRoutes: FastifyPluginAsync = async (app) => {
         "/admin-areas",
         {
             preHandler: app.authenticate,
+            schema: getAdminAreasSchema,
         },
         async (request, reply) => {
             const parsed = adminAreasQuerySchema.safeParse(request.query);

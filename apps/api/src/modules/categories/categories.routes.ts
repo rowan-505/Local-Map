@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { categoriesQuerySchema } from "./categories.schema.js";
 import { CategoriesRepository } from "./categories.repo.js";
 import { CategoriesService } from "./categories.service.js";
+import { getCategoriesSchema } from "./categories.openapi.js";
 
 const categoriesRoutes: FastifyPluginAsync = async (app) => {
     const categoriesRepo = new CategoriesRepository(app.prisma);
@@ -10,6 +11,9 @@ const categoriesRoutes: FastifyPluginAsync = async (app) => {
 
     app.get(
         "/categories",
+        {
+            schema: getCategoriesSchema,
+        },
         async (request, reply) => {
             const parsed = categoriesQuerySchema.safeParse(request.query);
 

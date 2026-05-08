@@ -9,12 +9,13 @@ import {
     signupBodySchema,
     signupResponseSchema,
 } from "./auth.schema.js";
+import { getMeSchema, postAuthLoginSchema, postAuthSignupSchema } from "./auth.openapi.js";
 
 const authRoutes: FastifyPluginAsync = async (app) => {
     const authRepo = new AuthRepository(app.prisma);
     const authService = new AuthService(authRepo);
 
-    app.post("/auth/login", async (request, reply) => {
+    app.post("/auth/login", { schema: postAuthLoginSchema }, async (request, reply) => {
         const parsed = loginBodySchema.safeParse(request.body);
 
         if (!parsed.success) {
@@ -51,16 +52,19 @@ const authRoutes: FastifyPluginAsync = async (app) => {
             return reply.send(loginResponseSchema.parse(response));
         } catch (error) {
             if (error instanceof AuthError) {
-                return reply.code(error.statusCode).send({
-                    message: error.message,
-                });
+                if (error.statusCode === 401) {
+                    return reply.code(401).send({ message: error.message });
+                }
+                if (error.statusCode === 403) {
+                    return reply.code(403).send({ message: error.message });
+                }
             }
 
             throw error;
         }
     });
 
-    app.post("/auth/signup", async (request, reply) => {
+    app.post("/auth/signup", { schema: postAuthSignupSchema }, async (request, reply) => {
         const parsed = signupBodySchema.safeParse(request.body);
 
         if (!parsed.success) {
@@ -84,9 +88,12 @@ const authRoutes: FastifyPluginAsync = async (app) => {
             );
         } catch (error) {
             if (error instanceof AuthError) {
-                return reply.code(error.statusCode).send({
-                    message: error.message,
-                });
+                if (error.statusCode === 409) {
+                    return reply.code(409).send({ message: error.message });
+                }
+                if (error.statusCode === 500) {
+                    return reply.code(500).send({ message: error.message });
+                }
             }
 
             throw error;
@@ -97,6 +104,7 @@ const authRoutes: FastifyPluginAsync = async (app) => {
         "/me",
         {
             preHandler: app.authenticate,
+            schema: getMeSchema,
         },
         async (request, reply) => {
             if (isAuthBypassEnabled()) {
@@ -114,9 +122,12 @@ const authRoutes: FastifyPluginAsync = async (app) => {
                 return reply.send(user);
             } catch (error) {
                 if (error instanceof AuthError) {
-                    return reply.code(error.statusCode).send({
-                        message: error.message,
-                    });
+                    if (error.statusCode === 401) {
+                        return reply.code(401).send({ message: error.message });
+                    }
+                    if (error.statusCode === 403) {
+                        return reply.code(403).send({ message: error.message });
+                    }
                 }
 
                 throw error;

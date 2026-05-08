@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ChangeEvent } from "react";
+import { useEffect, type ChangeEvent, type FormEvent } from "react";
 
 /** Drives which arrange options appear in the second dropdown. */
 export type DataTableSortOptionType = "date" | "text";
@@ -22,6 +22,8 @@ export type DataTableArrange = DataTableArrangeDate | DataTableArrangeText;
 type DataTableToolbarProps = {
     searchValue: string;
     onSearchChange: (value: string) => void;
+    onSearchSubmit: () => void;
+    onSearchClear: () => void;
     placeholder: string;
     sortBy: string;
     onSortByChange: (value: string) => void;
@@ -68,6 +70,8 @@ function coerceArrangeForType(
 export default function DataTableToolbar({
     searchValue,
     onSearchChange,
+    onSearchSubmit,
+    onSearchClear,
     placeholder,
     sortBy,
     onSortByChange,
@@ -86,6 +90,11 @@ export default function DataTableToolbar({
 
     const handleSearchInput = (event: ChangeEvent<HTMLInputElement>) => {
         onSearchChange(event.target.value);
+    };
+
+    const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        onSearchSubmit();
     };
 
     const handleSortChange = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -107,18 +116,35 @@ export default function DataTableToolbar({
         <div
             className={`flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end sm:justify-between ${className ?? ""}`}
         >
-            <div className="flex min-w-0 flex-1 flex-col gap-3 sm:max-w-md">
-                <label className="block">
-                    <span className="sr-only">Search</span>
-                    <input
-                        type="search"
-                        value={searchValue}
-                        onChange={handleSearchInput}
-                        placeholder={placeholder}
-                        autoComplete="off"
-                        className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-                    />
-                </label>
+            <div className="flex min-w-0 flex-1 flex-col gap-3 sm:max-w-xl">
+                <form className="flex flex-col gap-2 sm:flex-row" onSubmit={handleSearchSubmit}>
+                    <label className="min-w-0 flex-1">
+                        <span className="sr-only">Search</span>
+                        <input
+                            type="search"
+                            value={searchValue}
+                            onChange={handleSearchInput}
+                            placeholder={placeholder}
+                            autoComplete="off"
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+                        />
+                    </label>
+                    <div className="flex gap-2">
+                        <button
+                            type="submit"
+                            className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                        >
+                            Search
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onSearchClear}
+                            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                            Clear
+                        </button>
+                    </div>
+                </form>
 
                 <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
                     <span aria-live="polite">

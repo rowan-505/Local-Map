@@ -12,6 +12,14 @@ import {
     BuildingsService,
     BuildingValidationError,
 } from "./buildings.service.js";
+import {
+    deleteBuildingSchema,
+    getBuildingByIdSchema,
+    getBuildingsListSchema,
+    getBuildingTypesSchema,
+    patchBuildingSchema,
+    postBuildingsSchema,
+} from "./buildings.openapi.js";
 
 const EDIT_BUILDING_ROLES = new Set(["admin", "editor"]);
 
@@ -67,6 +75,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
         "/building-types",
         {
             preHandler: app.authenticate,
+            schema: getBuildingTypesSchema,
         },
         async (request, reply) => {
             try {
@@ -82,6 +91,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
         "/buildings",
         {
             preHandler: app.authenticate,
+            schema: getBuildingsListSchema,
         },
         async (request, reply) => {
             const parsed = buildingsQuerySchema.safeParse(request.query);
@@ -106,6 +116,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
         "/buildings/:id",
         {
             preHandler: app.authenticate,
+            schema: getBuildingByIdSchema,
         },
         async (request, reply) => {
             const parsed = buildingIdParamsSchema.safeParse(request.params);
@@ -136,6 +147,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
         "/buildings",
         {
             preHandler: app.authenticate,
+            schema: postBuildingsSchema,
         },
         async (request, reply) => {
             const sanitizedBody = sanitizeBuildingCreateBody(request.body);
@@ -197,6 +209,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
         "/buildings/:id",
         {
             preHandler: app.authenticate,
+            schema: patchBuildingSchema,
         },
         async (request, reply) => {
             const paramsParsed = buildingIdParamsSchema.safeParse(request.params);
@@ -275,6 +288,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
         "/buildings/:id",
         {
             preHandler: app.authenticate,
+            schema: deleteBuildingSchema,
         },
         async (request, reply) => {
             const parsed = buildingIdParamsSchema.safeParse(request.params);
