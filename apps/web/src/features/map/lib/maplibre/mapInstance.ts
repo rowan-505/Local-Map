@@ -25,6 +25,24 @@ const KYAUKTAN_INITIAL_BOUNDS = [
   [96.4651032, 16.685961],
 ] as const satisfies BoundsLike;
 
+/** Vite dev, non-production client build, or localhost (e.g. `vite preview`). */
+function isMapDebugExposeEnabled(): boolean {
+  if (import.meta.env.DEV) return true;
+  if (!import.meta.env.PROD) return true;
+  if (typeof window === 'undefined') return false;
+  const { hostname } = window.location;
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+}
+
+function exposeMaplibreDebugGlobals(map: MapEngine): void {
+  if (!isMapDebugExposeEnabled()) return;
+  window.__MAP__ = map;
+  window.__MAP_STYLE__ = map.getStyle.bind(map);
+  window.__MAP_SOURCES__ = () => map.getStyle().sources;
+  window.__MAP_LAYERS__ = () => map.getStyle().layers;
+  console.log('[debug] MapLibre map exposed as window.__MAP__');
+}
+
 export async function createMaplibreMap(container: HTMLDivElement): Promise<MapEngine> {
   ensurePmtilesProtocol();
   await ensureMaplibreComplexTextPlugin();
@@ -59,6 +77,8 @@ export async function createMaplibreMap(container: HTMLDivElement): Promise<MapE
 
     syncCountryMinZoom(map);
     map.once('idle', () => syncCountryMinZoom(map));
+
+    exposeMaplibreDebugGlobals(map);
   });
 
   return map;

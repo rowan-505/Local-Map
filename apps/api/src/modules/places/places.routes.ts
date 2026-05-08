@@ -8,6 +8,14 @@ import {
 } from "./places.schema.js";
 import { PlacesRepository } from "./places.repo.js";
 import { PlaceNotFoundError, PlacesService, PlaceValidationError } from "./places.service.js";
+import {
+    deletePlaceSchema,
+    getPlaceByIdSchema,
+    getPlaceFormOptionsSchema,
+    getPlacesSchema,
+    patchPlaceSchema,
+    postPlacesSchema,
+} from "./places.openapi.js";
 
 const EDIT_PLACE_ROLES = new Set(["admin", "editor"]);
 
@@ -47,6 +55,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
         "/places",
         {
             preHandler: app.authenticate,
+            schema: getPlacesSchema,
         },
         async (request, reply) => {
             const parsed = placesQuerySchema.safeParse(request.query);
@@ -67,6 +76,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
         "/place-form-options",
         {
             preHandler: app.authenticate,
+            schema: getPlaceFormOptionsSchema,
         },
         async (_request, reply) => {
             const options = await placesService.getPlaceFormOptions();
@@ -78,6 +88,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
         "/places/:id",
         {
             preHandler: app.authenticate,
+            schema: getPlaceByIdSchema,
         },
         async (request, reply) => {
             const parsed = placeIdParamsSchema.safeParse(request.params);
@@ -108,6 +119,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
         "/places",
         {
             preHandler: app.authenticate,
+            schema: postPlacesSchema,
         },
         async (request, reply) => {
             const sanitizedBody = sanitizePlaceCreateBody(request.body);
@@ -157,6 +169,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
         "/places/:id",
         {
             preHandler: app.authenticate,
+            schema: patchPlaceSchema,
         },
         async (request, reply) => {
             const paramsParsed = placeIdParamsSchema.safeParse(request.params);
@@ -224,6 +237,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
         "/places/:id",
         {
             preHandler: app.authenticate,
+            schema: deletePlaceSchema,
         },
         async (request, reply) => {
             const parsed = placeIdParamsSchema.safeParse(request.params);

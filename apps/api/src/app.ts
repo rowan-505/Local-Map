@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "./lib/prisma.js";
 import authPlugin from "./plugins/auth.js";
 import prismaPlugin from "./plugins/prisma.js";
+import { swaggerCorePlugin, swaggerUiPlugin } from "./plugins/swagger.js";
 import adminAreasRoutes from "./modules/admin-areas/admin-areas.routes.js";
 import authRoutes from "./modules/auth/auth.routes.js";
 import categoriesRoutes from "./modules/categories/categories.routes.js";
@@ -14,6 +15,7 @@ import streetsRoutes from "./modules/streets/streets.routes.js";
 import buildingsRoutes from "./modules/buildings/buildings.routes.js";
 import placeBuildingRoutes from "./modules/place-buildings/place-buildings.routes.js";
 import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
+import { healthGetSchema } from "./lib/openapi/health.openapi.js";
 
 const LOCAL_DASHBOARD_ORIGIN = "http://localhost:3000";
 const LOCAL_WEB_ORIGIN = "http://localhost:5173";
@@ -53,7 +55,9 @@ export async function buildApp() {
     });
     await app.register(authPlugin);
 
-    app.get("/health", async () => {
+    await app.register(swaggerCorePlugin);
+
+    app.get("/health", { schema: healthGetSchema }, async () => {
         return {
             ok: true,
         };
@@ -68,6 +72,8 @@ export async function buildApp() {
     await app.register(buildingsRoutes);
     await app.register(placeBuildingRoutes);
     await app.register(dashboardRoutes);
+
+    await app.register(swaggerUiPlugin);
 
     return app;
 }

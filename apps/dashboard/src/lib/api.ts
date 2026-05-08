@@ -122,6 +122,7 @@ export type CreatePlacePayload = {
 
 export type UpdatePlacePayload = Partial<CreatePlacePayload>;
 
+/** GeoJSON from API (existing OSM rows may be MultiLineString). */
 export type StreetGeometry =
     | {
           type: "LineString";
@@ -133,6 +134,12 @@ export type StreetGeometry =
       }
     | null;
 
+/** Payload for POST/PATCH centerline (API accepts LineString only). */
+export type StreetLineStringGeoJson = {
+    type: "LineString";
+    coordinates: number[][];
+};
+
 export type Street = {
     public_id: string;
     canonical_name: string;
@@ -142,6 +149,18 @@ export type Street = {
     admin_area_id: string | null;
     admin_area_name: string | null;
     source_type_id?: string;
+    road_class_id: string | null;
+    road_class: string | null;
+    road_class_name: string | null;
+    surface: string | null;
+    is_oneway: boolean;
+    bridge: boolean;
+    tunnel: boolean;
+    manual_override: boolean;
+    edit_status: string;
+    routing_status: string;
+    deleted_at: string | null;
+    last_edited_at: string | null;
     is_active: boolean;
     created_at: string;
     updated_at: string;
@@ -151,17 +170,39 @@ export type Street = {
 export type StreetDetail = Street;
 
 export type UpdateStreetPayload = {
-    canonical_name?: string;
     myanmarName?: string;
     englishName?: string;
-    admin_area_id: string | null;
+    admin_area_id?: string | null;
+    geometry?: StreetLineStringGeoJson;
+    road_class_id?: string | null;
+    is_oneway?: boolean;
+    surface?: string | null;
+    edit_reason?: string;
+    bridge?: boolean;
+    tunnel?: boolean;
 };
 
 export type CreateStreetPayload = {
-    canonical_name?: string;
     myanmarName?: string;
     englishName?: string;
-    admin_area_id: string | null;
+    admin_area_id?: string | null;
+    road_class_id: string;
+    is_oneway?: boolean;
+    surface?: string | null;
+    bridge?: boolean;
+    tunnel?: boolean;
+    geometry: StreetLineStringGeoJson;
+};
+
+export type DeleteStreetPayload = {
+    edit_reason?: string;
+};
+
+export type RoadClassOption = {
+    id: string;
+    code: string;
+    name: string;
+    rank: number;
 };
 
 export type StreetName = {
@@ -178,6 +219,46 @@ export type StreetsParams = {
     q?: string;
     sortBy?: string;
     sortOrder?: "asc" | "desc";
+    /** When true, include soft-deleted streets. */
+    include_deleted?: boolean;
+};
+
+/** GET /streets/nearest-point — `street_id` is core street `public_id` (UUID). */
+export type NearestStreetPointHit = {
+    street_id: string;
+    nearest: { lng: number; lat: number };
+    distance_m: number;
+    street_name: string | null;
+    road_class: string | null;
+};
+
+/** POST /streets/validate-geometry — camelCase response. */
+export type StreetGeometryConnectionApi = {
+    streetId: string;
+    nearest: { lng: number; lat: number };
+    distanceM: number;
+    streetName: string | null;
+    roadClass: string | null;
+} | null;
+
+export type StreetGeometryCrossingApi = {
+    streetId: string;
+    streetName: string | null;
+    roadClass: string | null;
+};
+
+export type StreetGeometryDuplicateApi = StreetGeometryCrossingApi & {
+    kind: "overlap" | "near_duplicate";
+};
+
+export type ValidateStreetGeometryResponse = {
+    isValid: boolean;
+    errors: string[];
+    warnings: string[];
+    startConnection: StreetGeometryConnectionApi;
+    endConnection: StreetGeometryConnectionApi;
+    crossings: StreetGeometryCrossingApi[];
+    duplicates: StreetGeometryDuplicateApi[];
 };
 
 export type BuildingPolygonGeometry = {
@@ -641,12 +722,54 @@ export function getDashboardStats(fetchInit?: Pick<RequestInit, "signal">) {
     });
 }
 
+export function getRoadClasses(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<RoadClassOption[]>("/road-classes", { method: "GET", ...fetchInit });
+}
+
 export function getStreets(params?: StreetsParams, fetchInit?: Pick<RequestInit, "signal">) {
     return apiFetch<Street[]>("/streets", { method: "GET", ...fetchInit }, params);
 }
 
 export function getStreet(id: string, fetchInit?: Pick<RequestInit, "signal">) {
     return apiFetch<StreetDetail>(`/streets/${id}`, { method: "GET", ...fetchInit });
+}
+
+export function getNearestStreetPoint(
+    params: {
+        lat: number;
+        lng: number;
+        radiusMeters: number;
+        excludePublicId?: string;
+    },
+    fetchInit?: Pick<RequestInit, "signal">,
+) {
+    return apiFetch<NearestStreetPointHit | null>(
+        "/streets/nearest-point",
+        { method: "GET", ...fetchInit },
+        {
+            lat: params.lat,
+            lng: params.lng,
+            radiusMeters: params.radiusMeters,
+            ...(params.excludePublicId ? { excludePublicId: params.excludePublicId } : {}),
+        },
+    );
+}
+
+export function validateStreetGeometry(payload: {
+    geometry: StreetLineStringGeoJson;
+    /** `public_id` (UUID) or core `id` (digits / number). */
+    streetId?: string | number;
+    /** @deprecated Use `streetId`. */
+    street_id?: string;
+    toleranceMeters?: number;
+}) {
+    return apiFetch<ValidateStreetGeometryResponse>("/streets/validate-geometry", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+    });
 }
 
 export function createStreet(payload: CreateStreetPayload) {
@@ -662,6 +785,38 @@ export function createStreet(payload: CreateStreetPayload) {
 export function updateStreet(id: string, payload: UpdateStreetPayload) {
     return apiFetch<StreetDetail>(`/streets/${id}`, {
         method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+    });
+}
+
+export function deleteStreet(id: string, payload?: DeleteStreetPayload) {
+    return apiFetch<StreetDetail>(`/streets/${id}`, {
+        method: "DELETE",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload ?? {}),
+    });
+}
+
+export type SplitStreetPayload = {
+    point: { lat: number; lng: number };
+    editReason?: string;
+};
+
+export type SplitStreetResponse = {
+    originalStreetId: string;
+    newStreets: StreetDetail[];
+    /** @deprecated Same as newStreets; kept for backward compatibility. */
+    streets?: StreetDetail[];
+};
+
+export function splitStreet(id: string, payload: SplitStreetPayload) {
+    return apiFetch<SplitStreetResponse>(`/streets/${id}/split`, {
+        method: "POST",
         headers: {
             "Content-Type": "application/json",
         },

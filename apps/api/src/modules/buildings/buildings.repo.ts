@@ -78,7 +78,7 @@ export type RefBuildingTypeRow = {
 };
 
 function buildingsListOrderBy(
-    sortBy: "name" | "building_type" | "admin_area" | "created" | "updated",
+    sortBy: "name" | "building_type" | "admin_area" | "created" | "updated" | "updated_at",
     sortOrder: "asc" | "desc"
 ): Prisma.Sql {
     const dir = sortOrder === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
@@ -93,6 +93,7 @@ function buildingsListOrderBy(
         case "created":
             return Prisma.sql`b.created_at ${dir} NULLS LAST, b.public_id ASC`;
         case "updated":
+        case "updated_at":
             return Prisma.sql`b.updated_at ${dir} NULLS LAST, b.public_id ASC`;
         default:
             return Prisma.sql`b.updated_at DESC NULLS LAST, b.public_id ASC`;
@@ -193,7 +194,7 @@ export class BuildingsRepository {
         limit: number;
         offset: number;
         q?: string;
-        sortBy: "name" | "building_type" | "admin_area" | "created" | "updated";
+        sortBy: "name" | "building_type" | "admin_area" | "created" | "updated" | "updated_at";
         sortOrder: "asc" | "desc";
     }): Promise<BuildingDetailRow[]> {
         const searchClause =

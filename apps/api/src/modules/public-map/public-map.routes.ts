@@ -7,12 +7,22 @@ import {
     publicPlacesQuerySchema,
     publicSearchQuerySchema,
 } from "./public-map.schema.js";
+import {
+    getPublicCategoriesSchema,
+    getPublicGeoAdminAreasSchema,
+    getPublicGeoBusRoutesSchema,
+    getPublicGeoBusStopsSchema,
+    getPublicGeoStreetsSchema,
+    getPublicPlaceByIdSchema,
+    getPublicPlacesSchema,
+    getPublicSearchSchema,
+} from "./public-map.openapi.js";
 
 const publicMapRoutes: FastifyPluginAsync = async (app) => {
     const publicMapRepo = new PublicMapRepository(app.prisma);
     const publicMapService = new PublicMapService(publicMapRepo);
 
-    app.get("/public/places", async (request, reply) => {
+    app.get("/public/places", { schema: getPublicPlacesSchema }, async (request, reply) => {
         const parsed = publicPlacesQuerySchema.safeParse(request.query);
 
         if (!parsed.success) {
@@ -26,7 +36,7 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
         return reply.send(places);
     });
 
-    app.get("/public/places/:id", async (request, reply) => {
+    app.get("/public/places/:id", { schema: getPublicPlaceByIdSchema }, async (request, reply) => {
         const parsedParams = publicPlaceIdParamsSchema.safeParse(request.params);
 
         if (!parsedParams.success) {
@@ -50,12 +60,12 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
         }
     });
 
-    app.get("/public/categories", async (_request, reply) => {
+    app.get("/public/categories", { schema: getPublicCategoriesSchema }, async (_request, reply) => {
         const categories = await publicMapService.listCategories();
         return reply.send(categories);
     });
 
-    app.get("/public/search", async (request, reply) => {
+    app.get("/public/search", { schema: getPublicSearchSchema }, async (request, reply) => {
         const parsed = publicSearchQuerySchema.safeParse(request.query);
 
         if (!parsed.success) {
@@ -69,22 +79,22 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
         return reply.send(results);
     });
 
-    app.get("/public/map/geo/streets", async (_request, reply) => {
+    app.get("/public/map/geo/streets", { schema: getPublicGeoStreetsSchema }, async (_request, reply) => {
         const collection = await publicMapService.geoJsonStreets();
         return reply.send(collection);
     });
 
-    app.get("/public/map/geo/admin-areas", async (_request, reply) => {
+    app.get("/public/map/geo/admin-areas", { schema: getPublicGeoAdminAreasSchema }, async (_request, reply) => {
         const collection = await publicMapService.geoJsonAdminAreas();
         return reply.send(collection);
     });
 
-    app.get("/public/map/geo/bus-stops", async (_request, reply) => {
+    app.get("/public/map/geo/bus-stops", { schema: getPublicGeoBusStopsSchema }, async (_request, reply) => {
         const collection = await publicMapService.geoJsonBusStops();
         return reply.send(collection);
     });
 
-    app.get("/public/map/geo/bus-routes", async (_request, reply) => {
+    app.get("/public/map/geo/bus-routes", { schema: getPublicGeoBusRoutesSchema }, async (_request, reply) => {
         const collection = await publicMapService.geoJsonBusRoutes();
         return reply.send(collection);
     });

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import { DashboardStatsRepository } from "./dashboard.repo.js";
 import { DashboardStatsService } from "./dashboard.service.js";
+import { getDashboardStatsSchema } from "./dashboard.openapi.js";
 
 const dashboardRoutes: FastifyPluginAsync = async (app) => {
     const dashboardStatsRepo = new DashboardStatsRepository(app.prisma);
@@ -11,6 +12,7 @@ const dashboardRoutes: FastifyPluginAsync = async (app) => {
         "/dashboard/stats",
         {
             preHandler: app.authenticate,
+            schema: getDashboardStatsSchema,
         },
         async (request, reply) => {
             console.log("GET /dashboard/stats called");

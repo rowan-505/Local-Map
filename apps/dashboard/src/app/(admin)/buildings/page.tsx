@@ -36,7 +36,7 @@ const BUILDINGS_SORT_OPTIONS: DataTableSortOption[] = [
     { value: "building_type", label: "Building Type/Class", type: "text" },
     { value: "admin_area", label: "Admin Area", type: "text" },
     { value: "created", label: "Created Date", type: "date" },
-    { value: "updated", label: "Updated Date", type: "date" },
+    { value: "updated_at", label: "Updated Date", type: "date" },
 ];
 
 function dash(value: string | number | null | undefined): string {
@@ -146,17 +146,9 @@ export default function BuildingsPage() {
     const buildingsPreviewMapRef = useRef<MaplibreMap | null>(null);
 
     const [listSearch, setListSearch] = useState("");
-    const [sortBy, setSortBy] = useState("name");
-    const [arrange, setArrange] = useState<DataTableArrange>("az");
-    const [debouncedSearch, setDebouncedSearch] = useState("");
-
-    useEffect(() => {
-        const timer = window.setTimeout(() => {
-            setDebouncedSearch(listSearch.trim());
-        }, 300);
-
-        return () => window.clearTimeout(timer);
-    }, [listSearch]);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [sortBy, setSortBy] = useState("updated_at");
+    const [arrange, setArrange] = useState<DataTableArrange>("newest");
 
     const loadBuildings = useCallback(
         async (opts?: {
@@ -175,7 +167,7 @@ export default function BuildingsPage() {
                 const data = await getBuildings(
                     {
                         limit: BUILDINGS_LIST_LIMIT,
-                        ...(debouncedSearch !== "" ? { q: debouncedSearch } : {}),
+                        ...(searchQuery !== "" ? { q: searchQuery } : {}),
                         sortBy,
                         sortOrder: listApiSortOrder(sortBy, arrange),
                     },
@@ -225,8 +217,17 @@ export default function BuildingsPage() {
                 }
             }
         },
-        [debouncedSearch, sortBy, arrange]
+        [searchQuery, sortBy, arrange]
     );
+
+    function handleSearchSubmit() {
+        setSearchQuery(listSearch.trim());
+    }
+
+    function handleSearchClear() {
+        setListSearch("");
+        setSearchQuery("");
+    }
 
     useEffect(() => {
         const abort = new AbortController();
@@ -319,6 +320,8 @@ export default function BuildingsPage() {
                             <DataTableToolbar
                                 searchValue={listSearch}
                                 onSearchChange={setListSearch}
+                                onSearchSubmit={handleSearchSubmit}
+                                onSearchClear={handleSearchClear}
                                 placeholder="Search buildings in this table…"
                                 sortBy={sortBy}
                                 onSortByChange={setSortBy}
@@ -328,10 +331,9 @@ export default function BuildingsPage() {
                                 totalCount={buildings.length}
                                 filteredCount={buildings.length}
                                 onClearFilters={() => {
-                                    setListSearch("");
-                                    setDebouncedSearch("");
-                                    setSortBy("name");
-                                    setArrange("az");
+                                    handleSearchClear();
+                                    setSortBy("updated_at");
+                                    setArrange("newest");
                                 }}
                             />
                         </div>
@@ -359,7 +361,7 @@ export default function BuildingsPage() {
                                                     colSpan={8}
                                                     className="px-4 py-6 text-center text-gray-500"
                                                 >
-                                                    {debouncedSearch
+                                                    {searchQuery
                                                         ? "No buildings match your search."
                                                         : "No buildings found."}
                                                 </td>
@@ -392,49 +394,49 @@ export default function BuildingsPage() {
                                                         >
                                                             <HighlightMatch
                                                                 text={nameCell}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3 align-top">
                                                             <HighlightMatch
                                                                 text={typeCell}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3 align-top min-w-32">
                                                             <HighlightMatch
                                                                 text={adminCell}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3 align-top whitespace-nowrap">
                                                             <HighlightMatch
                                                                 text={areaCell}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3 align-top whitespace-nowrap">
                                                             <HighlightMatch
                                                                 text={levelsCell}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3 align-top whitespace-nowrap">
                                                             <HighlightMatch
                                                                 text={confCell}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="px-4 py-3 align-top whitespace-nowrap">
                                                             <HighlightMatch
                                                                 text={verifiedCell}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                         <td className="whitespace-nowrap px-4 py-3 align-top">
                                                             <HighlightMatch
                                                                 text={updatedCell}
-                                                                query={listSearch}
+                                                                query={searchQuery}
                                                             />
                                                         </td>
                                                     </tr>
@@ -625,7 +627,7 @@ export default function BuildingsPage() {
                                     geometry={previewBuilding?.geometry}
                                     emptyHint={
                                         buildings.length === 0
-                                            ? debouncedSearch
+                                            ? searchQuery
                                                 ? "No buildings match your search."
                                                 : "No buildings in the list."
                                             : detail
@@ -692,7 +694,7 @@ export default function BuildingsPage() {
                                 </div>
                             ) : buildings.length === 0 ? (
                                 <p className="text-sm text-gray-500">
-                                    {debouncedSearch
+                                    {searchQuery
                                         ? "No buildings match your search."
                                         : "No buildings in the list."}
                                 </p>

@@ -19,6 +19,17 @@ const IS_DASHBOARD_DEV = process.env.NODE_ENV !== "production";
 export const MAP_BUILDINGS_VECTOR_SOURCE_ID = "tiles_buildings_v";
 
 /**
+ * MapLibre vector source id for Martin `tiles_streets_v` on dashboard maps (`PLACE_MAP_STYLE`).
+ * Geometry reflects `tiles.tiles_streets_v`, which excludes inactive + soft-deleted streets (see migration `018_tiles_streets_v.sql`).
+ */
+export const MAP_STREETS_VECTOR_SOURCE_ID = "streets";
+
+/**
+ * SessionStorage key: edit-page soft-delete sets this so the streets list preview busts MVT after navigation.
+ */
+export const DASHBOARD_STREET_MVT_SESSION_BUST_KEY = "local-map-dash-street-mvt-bust";
+
+/**
  * MapLibre layer id drawing building fills from {@link MAP_BUILDINGS_VECTOR_SOURCE_ID}.
  * Separate from GeoJSON draw/preview overlays (e.g. {@link BUILDING_PREVIEW_FOOTPRINT_SOURCE_ID}).
  */
@@ -215,6 +226,24 @@ export function mapBuildingsTileUrl(version: string | number = "0"): string {
     return `${path}?v=${encodeURIComponent(String(version))}`;
 }
 
+/** Martin `tiles_streets_v` tile URL; always includes `?v=` for cache-busting (default stable `"0"`). */
+export function mapStreetsTileUrl(version: string | number = "0"): string {
+    const path = `${TILE_SERVER_URL}/tiles_streets_v/{z}/{x}/{y}`;
+    return `${path}?v=${encodeURIComponent(String(version))}`;
+}
+
+/**
+ * Initial `?v=` for street MVT on first paint. Set `NEXT_PUBLIC_STREETS_TILES_CACHE_BUSTER` at build time in production
+ * (e.g. git SHA); after dashboard street CRUD, {@link scheduleStreetTileRefresh} bumps `v` without redeploying Martin.
+ */
+export function initialDashboardStreetsTileVersion(): string {
+    const fromEnv = process.env.NEXT_PUBLIC_STREETS_TILES_CACHE_BUSTER;
+    if (fromEnv !== undefined && String(fromEnv).trim() !== "") {
+        return String(fromEnv).trim();
+    }
+    return "0";
+}
+
 /**
  * Clears in-memory vector tiles and reloads the unified buildings source (`MAP_BUILDINGS_VECTOR_SOURCE_ID`).
  * Pass `buildingTileVersion` so the MVT URL query matches app state; when omitted, uses `Date.now()` once per call.
@@ -278,6 +307,77 @@ export function refreshBuildingTiles(
 }
 
 /**
+ * Clears in-memory vector tiles and reloads the dashboard streets source ({@link MAP_STREETS_VECTOR_SOURCE_ID}).
+ * Pass `streetTileVersion` so MVT URL query matches app state; when omitted, uses `Date.now()` once per call.
+ */
+export function refreshStreetTiles(map: MaplibreMap | null | undefined, streetTileVersion?: string | number): boolean {
+    if (!map?.isStyleLoaded()) {
+        return false;
+    }
+
+    const sourceId = MAP_STREETS_VECTOR_SOURCE_ID;
+    const src = map.getSource(sourceId);
+
+    if (!src || src.type !== "vector") {
+        return false;
+    }
+
+    const version = streetTileVersion ?? Date.now();
+
+    if (typeof console !== "undefined" && typeof console.info === "function" && IS_DASHBOARD_DEV) {
+        console.info("street tile source id", sourceId);
+    }
+
+    try {
+        refreshVectorTileSource(map, sourceId);
+        refreshVectorSource(map, sourceId);
+
+        const bustUrl = mapStreetsTileUrl(version);
+        (src as VectorTileSource).setTiles([bustUrl]);
+        map.triggerRepaint();
+
+        requestAnimationFrame(() => {
+            const styleReload = map.style as StyleWithVectorInternals;
+
+            try {
+                styleReload._reloadSource?.(sourceId);
+            } catch {
+                /* ignore */
+            }
+
+            refreshVectorTileSource(map, sourceId);
+            styleReload.tileManagers?.[sourceId]?.clearTiles?.();
+            map.triggerRepaint();
+        });
+
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Runs {@link refreshStreetTiles} immediately and on microtask / animation frames (same pattern as buildings).
+ */
+export function scheduleStreetTileRefresh(map: MaplibreMap | null | undefined, streetTileVersion?: string | number): boolean {
+    const version = streetTileVersion ?? Date.now();
+    const primaryOk = refreshStreetTiles(map, version);
+
+    queueMicrotask(() => {
+        refreshStreetTiles(map, version);
+    });
+
+    requestAnimationFrame(() => {
+        refreshStreetTiles(map, version);
+        requestAnimationFrame(() => {
+            refreshStreetTiles(map, version);
+        });
+    });
+
+    return primaryOk;
+}
+
+/**
  * Runs {@link refreshBuildingTiles} immediately and on the next microtask / two animation frames so
  * Martin-backed tiles can repopulate after mutations (helps when navigation or paint would otherwise skip a pass).
  * When `buildingTileVersion` is omitted, pins one `Date.now()` for every pass in this batch.
@@ -317,9 +417,9 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
     name: "Local Map Natural",
     glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
     sources: {
-        streets: {
+        [MAP_STREETS_VECTOR_SOURCE_ID]: {
             type: "vector",
-            tiles: [`${TILE_SERVER_URL}/tiles_streets_v/{z}/{x}/{y}`],
+            tiles: [mapStreetsTileUrl(initialDashboardStreetsTileVersion())],
             minzoom: 0,
             maxzoom: 22,
         },
@@ -473,7 +573,7 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         {
             id: "streets-casing",
             type: "line",
-            source: "streets",
+            source: MAP_STREETS_VECTOR_SOURCE_ID,
             "source-layer": "tiles_streets_v",
             layout: {
                 "line-cap": "round",
@@ -488,7 +588,7 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         {
             id: "streets-line",
             type: "line",
-            source: "streets",
+            source: MAP_STREETS_VECTOR_SOURCE_ID,
             "source-layer": "tiles_streets_v",
             layout: {
                 "line-cap": "round",

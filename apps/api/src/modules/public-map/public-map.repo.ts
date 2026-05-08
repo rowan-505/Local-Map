@@ -264,6 +264,7 @@ export class PublicMapRepository {
                 SELECT sn.name
                 FROM core.core_street_names AS sn
                 WHERE sn.street_id = s.id
+                  AND lower(trim(coalesce(sn.name_type, ''))) <> 'generated'
                   AND (
                       sn.language_code IN ('my', 'mm')
                       OR upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
@@ -282,6 +283,7 @@ export class PublicMapRepository {
                 SELECT sn.name
                 FROM core.core_street_names AS sn
                 WHERE sn.street_id = s.id
+                  AND lower(trim(coalesce(sn.name_type, ''))) <> 'generated'
                   AND (
                       sn.language_code = 'en'
                       OR upper(trim(coalesce(sn.script_code, ''))) = 'LATN'
@@ -525,6 +527,7 @@ function buildSearchWithStreetNamesQuery(params: SearchPublicMapParams) {
                 SELECT n.name
                 FROM core.core_street_names AS n
                 WHERE n.street_id = s.id
+                  AND lower(trim(coalesce(n.name_type, ''))) <> 'generated'
                   AND n.name ILIKE ${partialSearchTerm(params.q)}
                 ORDER BY
                     CASE
@@ -696,12 +699,19 @@ function localizedNameJoin(
             ? Prisma.sql`(${Prisma.raw(tableAlias)}.language_code IN ('my', 'mm') OR upper(trim(coalesce(${Prisma.raw(tableAlias)}.script_code, ''))) = 'MYMR')`
             : Prisma.sql`(${Prisma.raw(tableAlias)}.language_code = 'en' OR upper(trim(coalesce(${Prisma.raw(tableAlias)}.script_code, ''))) = 'LATN')`;
 
+    const excludeGeneratedStreetNames = tableName === "core.core_street_names";
+
+    const generatedExcludeSql = excludeGeneratedStreetNames
+        ? Prisma.sql`AND lower(trim(coalesce(${Prisma.raw(tableAlias)}.name_type, ''))) <> 'generated'`
+        : Prisma.empty;
+
     return Prisma.sql`
         LEFT JOIN LATERAL (
             SELECT ${Prisma.raw(tableAlias)}.name
             FROM ${Prisma.raw(tableName)} AS ${Prisma.raw(tableAlias)}
             WHERE ${Prisma.raw(ownerCondition)}
               AND ${languageCondition}
+              ${generatedExcludeSql}
             ORDER BY
                 CASE
                     WHEN ${Prisma.raw(tableAlias)}.name_type = 'official'

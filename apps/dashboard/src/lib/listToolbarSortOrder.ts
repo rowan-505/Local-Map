@@ -1,6 +1,6 @@
 import type { DataTableArrange } from "@/src/components/dashboard/DataTableToolbar";
 
-const DATE_SORT_FIELDS = new Set(["created", "updated"]);
+const DATE_SORT_FIELDS = new Set(["created", "created_at", "updated", "updated_at"]);
 
 /** Maps toolbar `arrange` + `sortBy` to API `sortOrder` (asc | desc). */
 export function listApiSortOrder(sortBy: string, arrange: DataTableArrange): "asc" | "desc" {

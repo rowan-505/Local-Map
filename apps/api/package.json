@@ -8,11 +8,15 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
+    "check:streets-names": "tsx scripts/check-street-name-normalization.ts",
+    "docs:api": "tsx scripts/generate-api-docs.ts",
     "prisma:generate": "prisma generate"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@fastify/jwt": "^10.0.0",
+    "@fastify/swagger": "^9.7.0",
+    "@fastify/swagger-ui": "^5.2.6",
     "@prisma/client": "^6.15.0",
     "@supabase/supabase-js": "^2.105.1",
     "bcryptjs": "^3.0.3",
