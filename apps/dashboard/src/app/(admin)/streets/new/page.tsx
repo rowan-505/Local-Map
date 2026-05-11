@@ -8,6 +8,8 @@ import { useForm, type Resolver } from "react-hook-form";
 import { z } from "zod";
 
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
+import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
+import { DASHBOARD_STREET_MVT_SESSION_BUST_KEY } from "@/src/components/map/placeMapConfig";
 import StreetEditorMap from "@/src/components/streets/StreetEditorMap";
 import StreetGeometryValidationFeedback from "@/src/components/streets/StreetGeometryValidationFeedback";
 import {
@@ -53,6 +55,7 @@ type StreetCreateFormInput = StreetCreateFormValues;
 
 export default function NewStreetPage() {
     const router = useRouter();
+    const { bumpStreetTileVersion, bumpRoadLabelTileVersion } = useDashboardTileVersions();
     const [adminAreas, setAdminAreas] = useState<AdminArea[]>([]);
     const [roadClasses, setRoadClasses] = useState<RoadClassOption[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -213,6 +216,13 @@ export default function NewStreetPage() {
             dashDevLog("street:create:payload", body);
 
             const created = await createStreet(body);
+            const streetTileVersion = bumpStreetTileVersion();
+            bumpRoadLabelTileVersion();
+            try {
+                sessionStorage.setItem(DASHBOARD_STREET_MVT_SESSION_BUST_KEY, String(streetTileVersion));
+            } catch {
+                /* ignore */
+            }
             dashDevLog("street:create:response", {
                 public_id: created.public_id,
                 canonical_name: created.canonical_name,

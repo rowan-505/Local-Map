@@ -4,8 +4,16 @@ import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 
 import { apiFetch } from "@/src/lib/api";
+import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
 import { attachDashboardMapErrorHandler } from "@/src/components/map/mapErrorHandlers";
-import { PLACE_MAP_STYLE } from "./map/placeMapConfig";
+import {
+    PLACE_MAP_STYLE,
+    refreshBuildingTiles,
+    refreshPlaceTiles,
+    refreshRoadLabelTiles,
+    refreshStreetTiles,
+} from "./map/placeMapConfig";
+import { useDashboardTileVersions } from "./map/BuildingTileVersionContext";
 
 type Poi = {
     id: number | string;
@@ -17,7 +25,10 @@ type Poi = {
 };
 
 export default function MapView() {
+    const { buildingTileVersion, streetTileVersion, placeTileVersion, roadLabelTileVersion } =
+        useDashboardTileVersions();
     const mapContainer = useRef<HTMLDivElement | null>(null);
+    const mapRef = useRef<maplibregl.Map | null>(null);
 
     useEffect(() => {
         if (!mapContainer.current) return;
@@ -30,12 +41,14 @@ export default function MapView() {
             minZoom: 10,
             maxZoom: 18,
         });
+        mapRef.current = map;
 
         map.addControl(new maplibregl.NavigationControl(), "top-right");
 
         attachDashboardMapErrorHandler(map, "MapView");
 
         map.on("load", async () => {
+            attachMapLibreDevDebugMap(map);
             try {
                 // buildings
                 map.addSource("buildings", {
@@ -99,8 +112,25 @@ export default function MapView() {
 
         return () => {
             map.remove();
+            mapRef.current = null;
         };
     }, []);
+
+    useEffect(() => {
+        refreshBuildingTiles(mapRef.current, buildingTileVersion);
+    }, [buildingTileVersion]);
+
+    useEffect(() => {
+        refreshStreetTiles(mapRef.current, streetTileVersion);
+    }, [streetTileVersion]);
+
+    useEffect(() => {
+        refreshPlaceTiles(mapRef.current, placeTileVersion);
+    }, [placeTileVersion]);
+
+    useEffect(() => {
+        refreshRoadLabelTiles(mapRef.current, roadLabelTileVersion);
+    }, [roadLabelTileVersion]);
 
     return <div ref={mapContainer} className="w-full h-[600px] rounded-xl overflow-hidden" />;
 }

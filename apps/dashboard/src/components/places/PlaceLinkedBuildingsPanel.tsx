@@ -4,7 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 
 import { createPlaceBaseMap } from "@/src/components/map/createPlaceBaseMap";
+import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 import { MAP_PREVIEW_VIEWPORT_BUILDING_PANEL } from "@/src/components/map/mapPreviewUi";
+import {
+    refreshBuildingTiles,
+    refreshPlaceTiles,
+    refreshRoadLabelTiles,
+    refreshStreetTiles,
+} from "@/src/components/map/placeMapConfig";
 import {
     BUILDINGS_LIST_LIMIT,
     getBuilding,
@@ -168,6 +175,8 @@ export default function PlaceLinkedBuildingsPanel({
     placeLat,
     placeLng,
 }: PlaceLinkedBuildingsPanelProps) {
+    const { buildingTileVersion, streetTileVersion, placeTileVersion, roadLabelTileVersion } =
+        useDashboardTileVersions();
     const [linked, setLinked] = useState<LinkedBuildingSummaryApi[]>([]);
     const [loadError, setLoadError] = useState("");
     const [busy, setBusy] = useState(false);
@@ -186,6 +195,11 @@ export default function PlaceLinkedBuildingsPanel({
     const mapRef = useRef<maplibregl.Map | null>(null);
     const poiMarkerRef = useRef<maplibregl.Marker | null>(null);
     const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const placeCoordsRef = useRef({ lat: placeLat, lng: placeLng });
+
+    useEffect(() => {
+        placeCoordsRef.current = { lat: placeLat, lng: placeLng };
+    }, [placeLat, placeLng]);
 
     const loadLinked = useCallback(async () => {
         setLoadError("");
@@ -252,9 +266,10 @@ export default function PlaceLinkedBuildingsPanel({
         const map = createPlaceBaseMap(container, {
             zoom: MAP_ZOOM,
             onLoad: (m) => {
+                const coords = placeCoordsRef.current;
                 ensureHighlightLayers(m);
                 m.jumpTo({
-                    center: [placeLng, placeLat],
+                    center: [coords.lng, coords.lat],
                     zoom: MAP_ZOOM,
                 });
 
@@ -262,7 +277,7 @@ export default function PlaceLinkedBuildingsPanel({
                     poiMarkerRef.current = new maplibregl.Marker({ color: "#7c3aed" });
                 }
 
-                poiMarkerRef.current.setLngLat([placeLng, placeLat]).addTo(m);
+                poiMarkerRef.current.setLngLat([coords.lng, coords.lat]).addTo(m);
 
                 window.setTimeout(() => {
                     m.resize();
@@ -349,6 +364,46 @@ export default function PlaceLinkedBuildingsPanel({
 
         poiMarkerRef.current.setLngLat([placeLng, placeLat]).addTo(map);
     }, [placeLat, placeLng]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map?.isStyleLoaded()) {
+            return;
+        }
+
+        refreshBuildingTiles(map, buildingTileVersion);
+    }, [buildingTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map?.isStyleLoaded()) {
+            return;
+        }
+
+        refreshStreetTiles(map, streetTileVersion);
+    }, [streetTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map?.isStyleLoaded()) {
+            return;
+        }
+
+        refreshPlaceTiles(map, placeTileVersion);
+    }, [placeTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map?.isStyleLoaded()) {
+            return;
+        }
+
+        refreshRoadLabelTiles(map, roadLabelTileVersion);
+    }, [roadLabelTileVersion]);
 
     /** Debounced search */
     useEffect(() => {

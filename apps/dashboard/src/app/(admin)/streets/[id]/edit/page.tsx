@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 import { DASHBOARD_STREET_MVT_SESSION_BUST_KEY } from "@/src/components/map/placeMapConfig";
+import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 import StreetEditorMap from "@/src/components/streets/StreetEditorMap";
 import StreetGeometryValidationFeedback from "@/src/components/streets/StreetGeometryValidationFeedback";
 import {
@@ -112,6 +113,7 @@ function applyStreetToForm(street: StreetDetail): StreetEditFormValues {
 export default function EditStreetPage() {
     const params = useParams();
     const router = useRouter();
+    const { bumpStreetTileVersion, bumpRoadLabelTileVersion } = useDashboardTileVersions();
     const rawId = typeof params.id === "string" ? params.id : "";
     const parsedId = uuidSchema.safeParse(rawId);
     const fetchStreetId = parsedId.success ? parsedId.data : null;
@@ -358,8 +360,10 @@ export default function EditStreetPage() {
                     public_id: data.public_id,
                     geometryType: data.geometry?.type ?? null,
                 });
+                dashDevLog("street:edit:loaded-api-geometry", data.geometry);
                 dashDevLog("street:edit:geometry-parsed", normalized);
                 dashDevLog("street:edit:debug-original-api-geometry", data.geometry);
+                dashDevLog("street:edit:editable-geometry-vertex-count", normalized.line?.coordinates.length ?? 0);
 
                 setGeometryLoadNotice(normalized.unsupportedReason ?? normalized.parseError ?? "");
                 setMultiLineWarning(normalized.multiLineWarning ?? "");
@@ -509,6 +513,8 @@ export default function EditStreetPage() {
             dashDevLog("street:edit:save-payload", payload);
 
             const updated = await updateStreet(fetchStreetId, payload);
+            const streetTileVersion = bumpStreetTileVersion();
+            bumpRoadLabelTileVersion();
 
             const resolvedGeometry = resolveEditableLineAfterSave(updated, coercedPatch, preSaveEditable);
 
@@ -547,7 +553,7 @@ export default function EditStreetPage() {
             geometryDirtyRef.current = false;
             setGeometryValidationStale(false);
 
-            setEditableStreetsRefreshKey((k) => k + 1);
+            setEditableStreetsRefreshKey(streetTileVersion);
         } catch (error) {
             dashDevLog("street:edit:save-error", error instanceof Error ? error.message : error);
             setSaveError(error instanceof Error ? error.message : "Failed to update street");
@@ -577,6 +583,8 @@ export default function EditStreetPage() {
 
         try {
             const deleted = await deleteStreet(fetchStreetId, reason.length > 0 ? { edit_reason: reason } : undefined);
+            const streetTileVersion = bumpStreetTileVersion();
+            bumpRoadLabelTileVersion();
             setStreet(deleted);
             editableGeometryRef.current = null;
             setEditableGeometry(null);
@@ -584,7 +592,7 @@ export default function EditStreetPage() {
             geometryDirtyRef.current = false;
             setMapHydrateEpoch((e) => e + 1);
             try {
-                sessionStorage.setItem(DASHBOARD_STREET_MVT_SESSION_BUST_KEY, String(Date.now()));
+                sessionStorage.setItem(DASHBOARD_STREET_MVT_SESSION_BUST_KEY, String(streetTileVersion));
             } catch {
                 /* ignore */
             }

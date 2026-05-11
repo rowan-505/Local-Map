@@ -678,8 +678,6 @@ export function getPlaceFormOptions() {
 }
 
 export function updatePlace(id: string, payload: UpdatePlacePayload) {
-    console.log("PATCH_PLACE_PAYLOAD", id, payload);
-
     return apiFetch<PlaceDetail>(`/places/${id}`, {
         method: "PATCH",
         headers: {
@@ -690,8 +688,6 @@ export function updatePlace(id: string, payload: UpdatePlacePayload) {
 }
 
 export function createPlace(payload: CreatePlacePayload) {
-    console.log("CREATE_PLACE_PAYLOAD", payload);
-
     return apiFetch<PlaceDetail>("/places", {
         method: "POST",
         headers: {

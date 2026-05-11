@@ -19,6 +19,7 @@ import {
 } from "@/src/lib/api";
 import { scheduleBuildingTileRefresh } from "@/src/components/map/placeMapConfig";
 import { useBuildingTileVersion } from "@/src/components/map/BuildingTileVersionContext";
+import { dashDevLog } from "@/src/lib/dashDevLog";
 
 function isBuildingGeometry(value: unknown): value is BuildingGeometry {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -49,7 +50,7 @@ export type BuildingEditorFormProps = {
     initialBuilding?: Building | null;
     /** Fires after client-side validation passes, immediately before `onSubmit` is awaited. */
     onCommit?: () => void;
-    onSubmit: (payload: CreateBuildingPayload) => Promise<void>;
+    onSubmit: (payload: CreateBuildingPayload) => Promise<Building | void>;
 };
 
 export default function BuildingEditorForm({
@@ -129,6 +130,8 @@ export default function BuildingEditorForm({
         if (!initialBuilding) {
             return;
         }
+
+        dashDevLog("building:form:loaded-api-geometry", initialBuilding.geometry ?? null);
 
         setGeometryJson(
             initialBuilding.geometry
@@ -246,13 +249,16 @@ export default function BuildingEditorForm({
         payload.confidence_score = parsedConf;
         payload.is_verified = isVerified;
 
+        dashDevLog("building:form:outgoing-save-payload-geometry", payload.geometry);
+
         submitLockRef.current = true;
         setIsSubmitting(true);
         setSubmitApiError("");
         onCommit?.();
 
         try {
-            await onSubmit(payload);
+            const updated = await onSubmit(payload);
+            dashDevLog("building:form:api-response-after-save", updated ?? null);
             setSubmitApiError("");
             const tileVersion = bumpBuildingTileVersion();
             scheduleBuildingTileRefresh(editorMapSurfaceRef.current, tileVersion);

@@ -20,6 +20,7 @@ import {
     type StreetDetail,
 } from "@/src/lib/api";
 import { DASHBOARD_STREET_MVT_SESSION_BUST_KEY } from "@/src/components/map/placeMapConfig";
+import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 
 const STREETS_SORT_OPTIONS: DataTableSortOption[] = [
     { value: "name", label: "Name", type: "text" },
@@ -60,6 +61,7 @@ function roadClassLabel(street: Pick<Street, "road_class" | "road_class_name">):
 }
 
 export default function StreetsPage() {
+    const { bumpStreetTileVersion, bumpRoadLabelTileVersion } = useDashboardTileVersions();
     const [streets, setStreets] = useState<Street[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState("");
@@ -84,11 +86,14 @@ export default function StreetsPage() {
             }
             sessionStorage.removeItem(DASHBOARD_STREET_MVT_SESSION_BUST_KEY);
             const parsed = Number(raw);
-            setStreetMvtCacheVersion(Number.isFinite(parsed) && parsed > 0 ? parsed : Date.now());
+            const version = Number.isFinite(parsed) && parsed > 0 ? parsed : Date.now();
+            setStreetMvtCacheVersion(version);
+            bumpStreetTileVersion();
+            bumpRoadLabelTileVersion();
         } catch {
             /* ignore private mode */
         }
-    }, []);
+    }, [bumpRoadLabelTileVersion, bumpStreetTileVersion]);
 
     const loadStreets = useCallback(
         async (selectedPublicId?: string, signal?: AbortSignal) => {
@@ -230,7 +235,9 @@ export default function StreetsPage() {
 
         try {
             await deleteStreet(target, reason.length > 0 ? { edit_reason: reason } : undefined);
-            setStreetMvtCacheVersion(Date.now());
+            const version = bumpStreetTileVersion();
+            bumpRoadLabelTileVersion();
+            setStreetMvtCacheVersion(version);
             await loadStreets(target);
         } catch (error) {
             setDetailError(error instanceof Error ? error.message : "Failed to soft-delete street");

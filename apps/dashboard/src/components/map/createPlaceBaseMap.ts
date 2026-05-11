@@ -2,6 +2,7 @@
 
 import maplibregl from "maplibre-gl";
 
+import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
 import { attachDashboardMapErrorHandler } from "./mapErrorHandlers";
 import { PLACE_MAP_DEFAULT_CENTER, PLACE_MAP_STYLE, PLACE_MAP_STYLE_BUILDINGS } from "./placeMapConfig";
 
@@ -36,11 +37,10 @@ export function createPlaceBaseMap(
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     attachDashboardMapErrorHandler(map, "createPlaceBaseMap");
 
-    if (options.onLoad) {
-        map.on("load", () => {
-            options.onLoad?.(map);
-        });
-    }
+    map.on("load", () => {
+        attachMapLibreDevDebugMap(map);
+        options.onLoad?.(map);
+    });
 
     return map;
 }

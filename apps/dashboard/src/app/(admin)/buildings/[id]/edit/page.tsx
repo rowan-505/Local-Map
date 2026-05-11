@@ -115,8 +115,11 @@ export default function EditBuildingPage() {
                     submitLabel="Save changes"
                     onCommit={() => setSaveSuccess("")}
                     onSubmit={async (payload: CreateBuildingPayload) => {
-                        await updateBuilding(id, payload);
+                        const updated = await updateBuilding(id, payload);
+                        const fresh = await getBuilding(id);
+                        setBuilding(fresh);
                         setSaveSuccess("Building saved successfully.");
+                        return updated;
                     }}
                 />
 
