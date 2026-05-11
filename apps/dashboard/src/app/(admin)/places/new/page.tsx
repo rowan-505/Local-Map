@@ -8,6 +8,7 @@ import { useForm, type Resolver } from "react-hook-form";
 import { z } from "zod";
 
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
+import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 import PlaceCreateMapPicker from "@/src/components/map/PlaceCreateMapPicker";
 import {
     createPlace,
@@ -18,6 +19,7 @@ import {
     type Place,
     type PlaceFormOptions,
 } from "@/src/lib/api";
+import { dashDevLog } from "@/src/lib/dashDevLog";
 
 const scoreFieldSchema = z.union([z.number().finite(), z.literal("")]);
 
@@ -98,6 +100,7 @@ function buildCreatePayload(values: PlaceCreateFormValues): CreatePlacePayload {
 
 export default function NewPlacePage() {
     const router = useRouter();
+    const { bumpPlaceTileVersion } = useDashboardTileVersions();
     const [formOptions, setFormOptions] = useState<PlaceFormOptions | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
@@ -237,7 +240,14 @@ export default function NewPlacePage() {
         setSaveError("");
 
         try {
-            const created = await createPlace(buildCreatePayload(values));
+            const payload = buildCreatePayload(values);
+            dashDevLog("place:create:outgoing-save-payload-geometry", {
+                type: "Point",
+                coordinates: [payload.lng, payload.lat],
+            });
+            const created = await createPlace(payload);
+            dashDevLog("place:create:api-response-after-save", created);
+            bumpPlaceTileVersion();
             window.sessionStorage.setItem("placeCreateSuccess", "Place created successfully.");
             window.sessionStorage.setItem("placeCreatePublicId", created.public_id);
             router.push("/places");

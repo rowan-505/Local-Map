@@ -10,7 +10,14 @@ import {
 } from "./dashboardPreviewPlacesLayers";
 import { createPlaceBaseMap } from "./createPlaceBaseMap";
 import { MAP_PREVIEW_VIEWPORT_PLACES_SIDEBAR } from "./mapPreviewUi";
-import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
+import {
+    PLACE_MAP_DEFAULT_CENTER,
+    refreshBuildingTiles,
+    refreshPlaceTiles,
+    refreshRoadLabelTiles,
+    refreshStreetTiles,
+} from "./placeMapConfig";
+import { useDashboardTileVersions } from "./BuildingTileVersionContext";
 import type { Place } from "@/src/lib/api";
 import { placePreviewDisplayName } from "@/src/lib/placePreviewDisplayName";
 
@@ -27,6 +34,8 @@ export default function PlacePreviewMap({
     selectedPlace,
     contextPlaces,
 }: PlacePreviewMapProps) {
+    const { buildingTileVersion, streetTileVersion, placeTileVersion, roadLabelTileVersion } =
+        useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const markerRef = useRef<maplibregl.Marker | null>(null);
@@ -118,6 +127,46 @@ export default function PlacePreviewMap({
             duration: 500,
         });
     }, [mapReady, selectedPlace]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map || !mapReady) {
+            return;
+        }
+
+        refreshBuildingTiles(map, buildingTileVersion);
+    }, [mapReady, buildingTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map || !mapReady) {
+            return;
+        }
+
+        refreshStreetTiles(map, streetTileVersion);
+    }, [mapReady, streetTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map || !mapReady) {
+            return;
+        }
+
+        refreshPlaceTiles(map, placeTileVersion);
+    }, [mapReady, placeTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map || !mapReady) {
+            return;
+        }
+
+        refreshRoadLabelTiles(map, roadLabelTileVersion);
+    }, [mapReady, roadLabelTileVersion]);
 
     return (
         <div

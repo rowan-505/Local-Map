@@ -8,9 +8,14 @@ import {
     PLACE_MAP_DEFAULT_CENTER,
     PLACE_MAP_STYLE_BUILDINGS,
     refreshBuildingTiles,
+    refreshPlaceTiles,
+    refreshRoadLabelTiles,
+    refreshStreetTiles,
 } from "@/src/components/map/placeMapConfig";
-import { useBuildingTileVersion } from "@/src/components/map/BuildingTileVersionContext";
+import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 import { attachDashboardMapErrorHandler } from "@/src/components/map/mapErrorHandlers";
+import { dashDevLog } from "@/src/lib/dashDevLog";
+import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
 
 type PolygonGeom = {
     type: "Polygon";
@@ -703,7 +708,8 @@ export default function BuildingEditorMap({
     submissionError = "",
     editorMapSurfaceRef,
 }: BuildingEditorMapProps) {
-    const { buildingTileVersion } = useBuildingTileVersion();
+    const { buildingTileVersion, streetTileVersion, placeTileVersion, roadLabelTileVersion } =
+        useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
 
@@ -912,6 +918,8 @@ export default function BuildingEditorMap({
                 return;
             }
 
+            attachMapLibreDevDebugMap(map);
+
             if (!map.getSource(SATELLITE_SOURCE_ID)) {
                 map.addSource(SATELLITE_SOURCE_ID, {
                     type: "raster",
@@ -1022,6 +1030,36 @@ export default function BuildingEditorMap({
     }, [buildingTileVersion, mapReady]);
 
     useEffect(() => {
+        const map = mapRef.current;
+
+        if (!mapReady || !map?.isStyleLoaded()) {
+            return;
+        }
+
+        refreshStreetTiles(map, streetTileVersion);
+    }, [streetTileVersion, mapReady]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!mapReady || !map?.isStyleLoaded()) {
+            return;
+        }
+
+        refreshPlaceTiles(map, placeTileVersion);
+    }, [placeTileVersion, mapReady]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!mapReady || !map?.isStyleLoaded()) {
+            return;
+        }
+
+        refreshRoadLabelTiles(map, roadLabelTileVersion);
+    }, [roadLabelTileVersion, mapReady]);
+
+    useEffect(() => {
         const cancelInitialCamera = () => {
             initialBuildingCameraCleanupRef.current?.();
             initialBuildingCameraCleanupRef.current = null;
@@ -1086,8 +1124,17 @@ export default function BuildingEditorMap({
         }
 
         removeEditMarkerElements();
+        if (parsed?.type === "Polygon" && exteriorVertexCount(parsed) >= 3) {
+            setupPolygonVertexMarkers(map, parsed, (next) => {
+                emitGeometryToParent(next);
+            });
+            dashDevLog("building:editor:editable-geometry-vertex-count", exteriorVertexCount(parsed));
+            setDrawUiMode("edit");
+        } else {
+            setDrawUiMode(DRAW_UI_LABEL_NAV);
+        }
         queueMicrotask(() => {
-            setVertexEditActive(false);
+            setVertexEditActive(parsed?.type === "Polygon" && exteriorVertexCount(parsed) >= 3);
 
             if (!parsed) {
                 setStats({ areaSqM: null, vertexCount: 0 });
@@ -1103,7 +1150,7 @@ export default function BuildingEditorMap({
         return () => {
             cancelInitialCamera();
         };
-    }, [geometryJson, mapReady, removeEditMarkerElements]);
+    }, [emitGeometryToParent, geometryJson, mapReady, removeEditMarkerElements, setupPolygonVertexMarkers]);
 
     useEffect(() => {
         if (!mapReady || !containerRef.current || !mapRef.current) {

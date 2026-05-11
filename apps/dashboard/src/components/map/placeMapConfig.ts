@@ -24,6 +24,12 @@ export const MAP_BUILDINGS_VECTOR_SOURCE_ID = "tiles_buildings_v";
  */
 export const MAP_STREETS_VECTOR_SOURCE_ID = "streets";
 
+/** MapLibre vector source id for Martin `tiles_places_v` (POI dots + labels). */
+export const MAP_PLACES_VECTOR_SOURCE_ID = "tiles_places_v";
+
+/** MapLibre vector source id for Martin `tiles_road_labels_v` (street labels). */
+export const MAP_ROAD_LABELS_VECTOR_SOURCE_ID = "tiles_road_labels_v";
+
 /**
  * SessionStorage key: edit-page soft-delete sets this so the streets list preview busts MVT after navigation.
  */
@@ -232,6 +238,18 @@ export function mapStreetsTileUrl(version: string | number = "0"): string {
     return `${path}?v=${encodeURIComponent(String(version))}`;
 }
 
+/** Martin `tiles_places_v` tile URL; always includes `?v=` for cache-busting (default stable `"0"`). */
+export function mapPlacesTileUrl(version: string | number = "0"): string {
+    const path = `${TILE_SERVER_URL}/tiles_places_v/{z}/{x}/{y}`;
+    return `${path}?v=${encodeURIComponent(String(version))}`;
+}
+
+/** Martin `tiles_road_labels_v` tile URL; always includes `?v=` for cache-busting (default stable `"0"`). */
+export function mapRoadLabelsTileUrl(version: string | number = "0"): string {
+    const path = `${TILE_SERVER_URL}/tiles_road_labels_v/{z}/{x}/{y}`;
+    return `${path}?v=${encodeURIComponent(String(version))}`;
+}
+
 /**
  * Initial `?v=` for street MVT on first paint. Set `NEXT_PUBLIC_STREETS_TILES_CACHE_BUSTER` at build time in production
  * (e.g. git SHA); after dashboard street CRUD, {@link scheduleStreetTileRefresh} bumps `v` without redeploying Martin.
@@ -356,6 +374,62 @@ export function refreshStreetTiles(map: MaplibreMap | null | undefined, streetTi
     }
 }
 
+function refreshVersionedVectorTiles(
+    map: MaplibreMap | null | undefined,
+    sourceId: string,
+    tileUrl: string
+): boolean {
+    if (!map?.isStyleLoaded()) {
+        return false;
+    }
+
+    const src = map.getSource(sourceId);
+
+    if (!src || src.type !== "vector") {
+        return false;
+    }
+
+    try {
+        refreshVectorTileSource(map, sourceId);
+        refreshVectorSource(map, sourceId);
+        (src as VectorTileSource).setTiles([tileUrl]);
+        map.triggerRepaint();
+
+        requestAnimationFrame(() => {
+            const styleReload = map.style as StyleWithVectorInternals;
+
+            try {
+                styleReload._reloadSource?.(sourceId);
+            } catch {
+                /* ignore */
+            }
+
+            refreshVectorTileSource(map, sourceId);
+            styleReload.tileManagers?.[sourceId]?.clearTiles?.();
+            map.triggerRepaint();
+        });
+
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Clears in-memory vector tiles and reloads the dashboard places source (`tiles_places_v`). */
+export function refreshPlaceTiles(map: MaplibreMap | null | undefined, placeTileVersion?: string | number): boolean {
+    const version = placeTileVersion ?? Date.now();
+    return refreshVersionedVectorTiles(map, MAP_PLACES_VECTOR_SOURCE_ID, mapPlacesTileUrl(version));
+}
+
+/** Clears in-memory vector tiles and reloads the dashboard road-label source (`tiles_road_labels_v`). */
+export function refreshRoadLabelTiles(
+    map: MaplibreMap | null | undefined,
+    roadLabelTileVersion?: string | number
+): boolean {
+    const version = roadLabelTileVersion ?? Date.now();
+    return refreshVersionedVectorTiles(map, MAP_ROAD_LABELS_VECTOR_SOURCE_ID, mapRoadLabelsTileUrl(version));
+}
+
 /**
  * Runs {@link refreshStreetTiles} immediately and on microtask / animation frames (same pattern as buildings).
  */
@@ -371,6 +445,47 @@ export function scheduleStreetTileRefresh(map: MaplibreMap | null | undefined, s
         refreshStreetTiles(map, version);
         requestAnimationFrame(() => {
             refreshStreetTiles(map, version);
+        });
+    });
+
+    return primaryOk;
+}
+
+/** Runs {@link refreshPlaceTiles} immediately and on microtask / animation frames. */
+export function schedulePlaceTileRefresh(map: MaplibreMap | null | undefined, placeTileVersion?: string | number): boolean {
+    const version = placeTileVersion ?? Date.now();
+    const primaryOk = refreshPlaceTiles(map, version);
+
+    queueMicrotask(() => {
+        refreshPlaceTiles(map, version);
+    });
+
+    requestAnimationFrame(() => {
+        refreshPlaceTiles(map, version);
+        requestAnimationFrame(() => {
+            refreshPlaceTiles(map, version);
+        });
+    });
+
+    return primaryOk;
+}
+
+/** Runs {@link refreshRoadLabelTiles} immediately and on microtask / animation frames. */
+export function scheduleRoadLabelTileRefresh(
+    map: MaplibreMap | null | undefined,
+    roadLabelTileVersion?: string | number
+): boolean {
+    const version = roadLabelTileVersion ?? Date.now();
+    const primaryOk = refreshRoadLabelTiles(map, version);
+
+    queueMicrotask(() => {
+        refreshRoadLabelTiles(map, version);
+    });
+
+    requestAnimationFrame(() => {
+        refreshRoadLabelTiles(map, version);
+        requestAnimationFrame(() => {
+            refreshRoadLabelTiles(map, version);
         });
     });
 
@@ -423,9 +538,9 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
             minzoom: 0,
             maxzoom: 22,
         },
-        tiles_places_v: {
+        [MAP_PLACES_VECTOR_SOURCE_ID]: {
             type: "vector",
-            tiles: [`${TILE_SERVER_URL}/tiles_places_v/{z}/{x}/{y}`],
+            tiles: [mapPlacesTileUrl()],
             minzoom: 0,
             maxzoom: 22,
         },
@@ -453,9 +568,9 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
             minzoom: BUILDINGS_MARTIN_MIN_ZOOM,
             maxzoom: 22,
         },
-        tiles_road_labels_v: {
+        [MAP_ROAD_LABELS_VECTOR_SOURCE_ID]: {
             type: "vector",
-            tiles: [`${TILE_SERVER_URL}/tiles_road_labels_v/{z}/{x}/{y}`],
+            tiles: [mapRoadLabelsTileUrl()],
             minzoom: 0,
             maxzoom: 22,
         },
@@ -603,8 +718,8 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         {
             id: "places-poi",
             type: "circle",
-            source: "tiles_places_v",
-            "source-layer": "tiles_places_v",
+            source: MAP_PLACES_VECTOR_SOURCE_ID,
+            "source-layer": MAP_PLACES_VECTOR_SOURCE_ID,
             minzoom: 14,
             paint: {
                 "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 2.5, 17, 4.5, 20, 7],
@@ -631,8 +746,8 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         {
             id: "road-labels",
             type: "symbol",
-            source: "tiles_road_labels_v",
-            "source-layer": "tiles_road_labels_v",
+            source: MAP_ROAD_LABELS_VECTOR_SOURCE_ID,
+            "source-layer": MAP_ROAD_LABELS_VECTOR_SOURCE_ID,
             minzoom: 13,
             layout: {
                 "symbol-placement": "line",
@@ -651,8 +766,8 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         {
             id: "place-labels",
             type: "symbol",
-            source: "tiles_places_v",
-            "source-layer": "tiles_places_v",
+            source: MAP_PLACES_VECTOR_SOURCE_ID,
+            "source-layer": MAP_PLACES_VECTOR_SOURCE_ID,
             minzoom: 14,
             layout: {
                 "text-field": LABEL_TEXT_MY,

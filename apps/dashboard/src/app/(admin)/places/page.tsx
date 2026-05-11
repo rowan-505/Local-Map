@@ -7,6 +7,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 import PlacePreviewMap from "@/src/components/map/PlacePreviewMap";
 import PlaceEditModal from "@/src/components/places/PlaceEditModal";
+import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 import DataTableToolbar, {
     type DataTableArrange,
     type DataTableSortOption,
@@ -32,6 +33,7 @@ const PLACES_SORT_OPTIONS: DataTableSortOption[] = [
 function PlacesPageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
+    const { bumpPlaceTileVersion } = useDashboardTileVersions();
 
     const [places, setPlaces] = useState<Place[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -111,6 +113,7 @@ function PlacesPageContent() {
         if (message) {
             setSuccessMessage(message);
             sessionStorage.removeItem("placeCreateSuccess");
+            bumpPlaceTileVersion();
             bumpPreviewMap();
         }
 
@@ -122,12 +125,13 @@ function PlacesPageContent() {
 
             if (redirectPublicId) {
                 sessionStorage.removeItem("placeCreatePublicId");
+                bumpPlaceTileVersion();
                 bumpPreviewMap();
             }
         })();
 
         return () => abort.abort();
-    }, [loadPlaces, bumpPreviewMap]);
+    }, [loadPlaces, bumpPlaceTileVersion, bumpPreviewMap]);
 
     useEffect(() => {
         if (!editPlaceOpenId) {
@@ -350,6 +354,7 @@ function PlacesPageContent() {
                                                 try {
                                                     await deletePlace(selectedPlace.public_id);
                                                     await loadPlaces();
+                                                    bumpPlaceTileVersion();
                                                     bumpPreviewMap();
                                                     setSuccessMessage("Place deleted successfully.");
                                                 } catch (err) {
@@ -453,6 +458,7 @@ function PlacesPageContent() {
                 onClose={() => setIsEditModalOpen(false)}
                 onSaved={async (placeId) => {
                     await loadPlaces(placeId);
+                    bumpPlaceTileVersion();
                     bumpPreviewMap();
                 }}
             />

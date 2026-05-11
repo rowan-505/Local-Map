@@ -12,7 +12,13 @@ import {
 } from "terra-draw";
 import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
 
-import { PLACE_MAP_STYLE, scheduleStreetTileRefresh } from "@/src/components/map/placeMapConfig";
+import {
+    PLACE_MAP_STYLE,
+    refreshPlaceTiles,
+    refreshRoadLabelTiles,
+    scheduleStreetTileRefresh,
+} from "@/src/components/map/placeMapConfig";
+import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 import { attachDashboardMapErrorHandler } from "@/src/components/map/mapErrorHandlers";
 import {
     KYAUKTAN_STREET_EDITOR_CENTER,
@@ -25,6 +31,7 @@ import {
     type Street,
     type StreetLineStringGeoJson,
 } from "@/src/lib/api";
+import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
 
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -385,6 +392,7 @@ export default function StreetEditorMap({
     onSplitPointClicked,
     splitPreviewLngLat = null,
 }: StreetEditorMapProps) {
+    const { streetTileVersion, placeTileVersion, roadLabelTileVersion } = useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const drawRef = useRef<TerraDraw | null>(null);
@@ -815,7 +823,7 @@ export default function StreetEditorMap({
 
                 setGeoJsonSourceData(mapInstance, EDITABLE_STREETS_SOURCE_ID, streetsToFeatureCollection(streets));
 
-                const tileV = streetVectorTileVersion ?? streetSourceRefreshKey ?? Date.now();
+                const tileV = streetVectorTileVersion ?? streetSourceRefreshKey ?? streetTileVersion ?? Date.now();
                 scheduleStreetTileRefresh(mapInstance, tileV);
             } catch (error) {
                 if (isAbortError(error) || abort.signal.aborted) {
@@ -829,7 +837,27 @@ export default function StreetEditorMap({
         void refreshEditableStreets();
 
         return () => abort.abort();
-    }, [mapReady, streetSourceRefreshKey, streetVectorTileVersion]);
+    }, [mapReady, streetSourceRefreshKey, streetVectorTileVersion, streetTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!mapReady || !map) {
+            return;
+        }
+
+        refreshPlaceTiles(map, placeTileVersion);
+    }, [mapReady, placeTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!mapReady || !map) {
+            return;
+        }
+
+        refreshRoadLabelTiles(map, roadLabelTileVersion);
+    }, [mapReady, roadLabelTileVersion]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -933,6 +961,7 @@ export default function StreetEditorMap({
         attachDashboardMapErrorHandler(map, "StreetEditorMap");
 
         map.on("load", () => {
+            attachMapLibreDevDebugMap(map);
             addStreetEditorPreviewSources(map);
 
             /** Hide TerraDraw's own stroke/points when editing an existing street — DOM vertex handles + blue GeoJSON line are authoritative. */

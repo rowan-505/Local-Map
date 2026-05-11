@@ -13,6 +13,9 @@ import {
     type PlaceFormOptions,
     type UpdatePlacePayload,
 } from "@/src/lib/api";
+import PlacePointMapPicker from "@/src/components/map/PlacePointMapPicker";
+import MapPreviewCard from "@/src/components/map/MapPreviewCard";
+import { dashDevLog } from "@/src/lib/dashDevLog";
 import PlaceLinkedBuildingsPanel from "./PlaceLinkedBuildingsPanel";
 
 const scoreFieldSchema = z.union([z.number().finite(), z.literal("")]);
@@ -124,6 +127,7 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
         handleSubmit,
         reset,
         watch,
+        setValue,
         formState: { errors },
     } = useForm<PlaceEditFormInput, unknown, PlaceEditFormValues>({
         resolver: zodResolver(placeEditFormSchema),
@@ -147,6 +151,11 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
 
     const watchedLat = watch("lat");
     const watchedLng = watch("lng");
+
+    function handleMapChange(coords: { lat: number; lng: number }) {
+        setValue("lat", coords.lat, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+        setValue("lng", coords.lng, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+    }
 
     useEffect(() => {
         if (!open || !placeId) {
@@ -175,6 +184,10 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
                 setDetail(placeDetail);
                 setOptions(formOptions);
                 reset(toFormValues(placeDetail));
+                dashDevLog("place:edit:loaded-api-geometry", {
+                    type: "Point",
+                    coordinates: [placeDetail.lng, placeDetail.lat],
+                });
             } catch (error) {
                 if (isMounted) {
                     setLoadError(
@@ -213,7 +226,13 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
         setSaveSuccess("");
 
         try {
-            const updated = await updatePlace(placeId, buildUpdatePayload(values));
+            const payload = buildUpdatePayload(values);
+            dashDevLog("place:edit:outgoing-save-payload-geometry", {
+                type: "Point",
+                coordinates: [payload.lng, payload.lat],
+            });
+            const updated = await updatePlace(placeId, payload);
+            dashDevLog("place:edit:api-response-after-save", updated);
             setDetail(updated);
             reset(toFormValues(updated));
             await onSaved(updated.public_id);
@@ -260,6 +279,17 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
                     {!isLoading && !loadError && detail && options ? (
                         <>
                             <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+                            <MapPreviewCard
+                                title="Point location"
+                                description="Drag the marker or edit latitude/longitude fields to update the saved point."
+                            >
+                                <PlacePointMapPicker
+                                    lat={typeof watchedLat === "number" ? watchedLat : detail.lat}
+                                    lng={typeof watchedLng === "number" ? watchedLng : detail.lng}
+                                    onChange={handleMapChange}
+                                />
+                            </MapPreviewCard>
+
                             <div className="grid gap-6 lg:grid-cols-2">
                                 <div className="space-y-4">
                                     <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">

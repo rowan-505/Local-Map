@@ -9,8 +9,12 @@ import { attachDashboardMapErrorHandler } from "./mapErrorHandlers";
 import {
     PLACE_MAP_DEFAULT_CENTER,
     PLACE_MAP_STYLE,
+    refreshPlaceTiles,
+    refreshRoadLabelTiles,
     scheduleStreetTileRefresh,
 } from "./placeMapConfig";
+import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
+import { useDashboardTileVersions } from "./BuildingTileVersionContext";
 
 type StreetPreviewMapProps = {
     selectedStreet: {
@@ -72,6 +76,7 @@ function streetFeature(geometry: StreetGeometry, name: string) {
 }
 
 export default function StreetPreviewMap({ selectedStreet, streetMvtCacheVersion = 0 }: StreetPreviewMapProps) {
+    const { streetTileVersion, placeTileVersion, roadLabelTileVersion } = useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const [isMapReady, setIsMapReady] = useState(false);
@@ -92,6 +97,7 @@ export default function StreetPreviewMap({ selectedStreet, streetMvtCacheVersion
         attachDashboardMapErrorHandler(map, "StreetPreviewMap");
 
         map.on("load", () => {
+            attachMapLibreDevDebugMap(map);
             map.addSource(STREET_SOURCE_ID, {
                 type: "geojson",
                 data: emptyStreetFeature(),
@@ -171,11 +177,28 @@ export default function StreetPreviewMap({ selectedStreet, streetMvtCacheVersion
 
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || !isMapReady || streetMvtCacheVersion === 0) {
+        const version = streetMvtCacheVersion || streetTileVersion;
+        if (!map || !isMapReady || version === 0) {
             return;
         }
-        scheduleStreetTileRefresh(map, streetMvtCacheVersion);
-    }, [isMapReady, streetMvtCacheVersion]);
+        scheduleStreetTileRefresh(map, version);
+    }, [isMapReady, streetMvtCacheVersion, streetTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !isMapReady) {
+            return;
+        }
+        refreshPlaceTiles(map, placeTileVersion);
+    }, [isMapReady, placeTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !isMapReady) {
+            return;
+        }
+        refreshRoadLabelTiles(map, roadLabelTileVersion);
+    }, [isMapReady, roadLabelTileVersion]);
 
     return (
         <div className="relative">

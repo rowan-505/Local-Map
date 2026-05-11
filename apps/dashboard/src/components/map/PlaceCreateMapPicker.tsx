@@ -10,7 +10,14 @@ import {
 } from "./dashboardPreviewPlacesLayers";
 import { createPlaceBaseMap } from "./createPlaceBaseMap";
 import { MAP_PREVIEW_VIEWPORT_FORM } from "./mapPreviewUi";
-import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
+import {
+    PLACE_MAP_DEFAULT_CENTER,
+    refreshBuildingTiles,
+    refreshPlaceTiles,
+    refreshRoadLabelTiles,
+    refreshStreetTiles,
+} from "./placeMapConfig";
+import { useDashboardTileVersions } from "./BuildingTileVersionContext";
 import type { Place } from "@/src/lib/api";
 
 type PlaceCreateMapPickerProps = {
@@ -44,6 +51,8 @@ export default function PlaceCreateMapPicker({
     onChange,
     contextPlaces = [],
 }: PlaceCreateMapPickerProps) {
+    const { buildingTileVersion, streetTileVersion, placeTileVersion, roadLabelTileVersion } =
+        useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const markerRef = useRef<maplibregl.Marker | null>(null);
@@ -190,6 +199,46 @@ export default function PlaceCreateMapPicker({
             duration: 300,
         });
     }, [isMapReady, lat, lng, onChange]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map || !isMapReady) {
+            return;
+        }
+
+        refreshBuildingTiles(map, buildingTileVersion);
+    }, [isMapReady, buildingTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map || !isMapReady) {
+            return;
+        }
+
+        refreshStreetTiles(map, streetTileVersion);
+    }, [isMapReady, streetTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map || !isMapReady) {
+            return;
+        }
+
+        refreshPlaceTiles(map, placeTileVersion);
+    }, [isMapReady, placeTileVersion]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map || !isMapReady) {
+            return;
+        }
+
+        refreshRoadLabelTiles(map, roadLabelTileVersion);
+    }, [isMapReady, roadLabelTileVersion]);
 
     return (
         <div
