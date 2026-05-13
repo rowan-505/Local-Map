@@ -3,15 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 
-import { createPlaceBaseMap } from "@/src/components/map/createPlaceBaseMap";
-import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
+import { createPreviewBaseMap } from "@/src/components/map/createPreviewBaseMap";
 import { MAP_PREVIEW_VIEWPORT_BUILDING_PANEL } from "@/src/components/map/mapPreviewUi";
-import {
-    refreshBuildingTiles,
-    refreshPlaceTiles,
-    refreshRoadLabelTiles,
-    refreshStreetTiles,
-} from "@/src/components/map/placeMapConfig";
+import { useClientMounted } from "@/src/hooks/useClientMounted";
 import {
     BUILDINGS_LIST_LIMIT,
     getBuilding,
@@ -175,8 +169,6 @@ export default function PlaceLinkedBuildingsPanel({
     placeLat,
     placeLng,
 }: PlaceLinkedBuildingsPanelProps) {
-    const { buildingTileVersion, streetTileVersion, placeTileVersion, roadLabelTileVersion } =
-        useDashboardTileVersions();
     const [linked, setLinked] = useState<LinkedBuildingSummaryApi[]>([]);
     const [loadError, setLoadError] = useState("");
     const [busy, setBusy] = useState(false);
@@ -196,6 +188,7 @@ export default function PlaceLinkedBuildingsPanel({
     const poiMarkerRef = useRef<maplibregl.Marker | null>(null);
     const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const placeCoordsRef = useRef({ lat: placeLat, lng: placeLng });
+    const clientMounted = useClientMounted();
 
     useEffect(() => {
         placeCoordsRef.current = { lat: placeLat, lng: placeLng };
@@ -253,19 +246,23 @@ export default function PlaceLinkedBuildingsPanel({
     useEffect(() => {
         const container = mapContainerRef.current;
 
-        if (!container || mapRef.current) {
+        if (!clientMounted || !container || mapRef.current) {
             return;
         }
 
+        let cancelled = false;
         const pickHandlers: {
             onBuildingLayerClick?: (event: maplibregl.MapLayerMouseEvent) => void;
             onMouseEnterBuildings?: () => void;
             onMouseLeaveBuildings?: () => void;
         } = {};
 
-        const map = createPlaceBaseMap(container, {
-            zoom: MAP_ZOOM,
-            onLoad: (m) => {
+        void (async () => {
+            let map: maplibregl.Map;
+            try {
+                map = await createPreviewBaseMap(container, {
+                    zoom: MAP_ZOOM,
+                    onLoad: (m) => {
                 const coords = placeCoordsRef.current;
                 ensureHighlightLayers(m);
                 m.jumpTo({
@@ -308,7 +305,7 @@ export default function PlaceLinkedBuildingsPanel({
                 const attachWhenReady = () => {
                     if (
                         pickHandlersAttached ||
-                        !m.getLayer("buildings") ||
+                        !m.getLayer("basemap-buildings") ||
                         !pickHandlers.onBuildingLayerClick ||
                         !pickHandlers.onMouseEnterBuildings ||
                         !pickHandlers.onMouseLeaveBuildings
@@ -317,36 +314,48 @@ export default function PlaceLinkedBuildingsPanel({
                     }
 
                     pickHandlersAttached = true;
-                    m.on("click", "buildings", pickHandlers.onBuildingLayerClick);
-                    m.on("mouseenter", "buildings", pickHandlers.onMouseEnterBuildings);
-                    m.on("mouseleave", "buildings", pickHandlers.onMouseLeaveBuildings);
+                    m.on("click", "basemap-buildings", pickHandlers.onBuildingLayerClick);
+                    m.on("mouseenter", "basemap-buildings", pickHandlers.onMouseEnterBuildings);
+                    m.on("mouseleave", "basemap-buildings", pickHandlers.onMouseLeaveBuildings);
                 };
 
                 m.once("idle", attachWhenReady);
             },
-        });
+                });
+            } catch (err) {
+                console.error("PlaceLinkedBuildingsPanel map init failed:", err);
+                return;
+            }
 
-        mapRef.current = map;
+            if (cancelled) {
+                map.remove();
+                return;
+            }
+
+            mapRef.current = map;
+        })();
 
         return () => {
+            cancelled = true;
+            const map = mapRef.current;
             if (pickHandlers.onBuildingLayerClick) {
-                map.off("click", "buildings", pickHandlers.onBuildingLayerClick);
+                map?.off("click", "basemap-buildings", pickHandlers.onBuildingLayerClick);
             }
 
             if (pickHandlers.onMouseEnterBuildings) {
-                map.off("mouseenter", "buildings", pickHandlers.onMouseEnterBuildings);
+                map?.off("mouseenter", "basemap-buildings", pickHandlers.onMouseEnterBuildings);
             }
 
             if (pickHandlers.onMouseLeaveBuildings) {
-                map.off("mouseleave", "buildings", pickHandlers.onMouseLeaveBuildings);
+                map?.off("mouseleave", "basemap-buildings", pickHandlers.onMouseLeaveBuildings);
             }
 
             poiMarkerRef.current?.remove();
             poiMarkerRef.current = null;
-            map.remove();
+            map?.remove();
             mapRef.current = null;
         };
-    }, [placePublicId, setHighlightGeometry]);
+    }, [clientMounted, placePublicId, setHighlightGeometry]);
 
     /** POI marker + recenter */
     useEffect(() => {
@@ -364,46 +373,6 @@ export default function PlaceLinkedBuildingsPanel({
 
         poiMarkerRef.current.setLngLat([placeLng, placeLat]).addTo(map);
     }, [placeLat, placeLng]);
-
-    useEffect(() => {
-        const map = mapRef.current;
-
-        if (!map?.isStyleLoaded()) {
-            return;
-        }
-
-        refreshBuildingTiles(map, buildingTileVersion);
-    }, [buildingTileVersion]);
-
-    useEffect(() => {
-        const map = mapRef.current;
-
-        if (!map?.isStyleLoaded()) {
-            return;
-        }
-
-        refreshStreetTiles(map, streetTileVersion);
-    }, [streetTileVersion]);
-
-    useEffect(() => {
-        const map = mapRef.current;
-
-        if (!map?.isStyleLoaded()) {
-            return;
-        }
-
-        refreshPlaceTiles(map, placeTileVersion);
-    }, [placeTileVersion]);
-
-    useEffect(() => {
-        const map = mapRef.current;
-
-        if (!map?.isStyleLoaded()) {
-            return;
-        }
-
-        refreshRoadLabelTiles(map, roadLabelTileVersion);
-    }, [roadLabelTileVersion]);
 
     /** Debounced search */
     useEffect(() => {
@@ -788,7 +757,11 @@ export default function PlaceLinkedBuildingsPanel({
                 </div>
             </div>
 
-            <div ref={mapContainerRef} className={MAP_PREVIEW_VIEWPORT_BUILDING_PANEL} />
+            {clientMounted ? (
+                <div ref={mapContainerRef} className={MAP_PREVIEW_VIEWPORT_BUILDING_PANEL} />
+            ) : (
+                <div className={MAP_PREVIEW_VIEWPORT_BUILDING_PANEL} aria-hidden />
+            )}
 
             {actionError ? (
                 <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">

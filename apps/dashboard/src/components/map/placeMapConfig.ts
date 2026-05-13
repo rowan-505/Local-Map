@@ -7,6 +7,8 @@ import type {
     VectorTileSource,
 } from "maplibre-gl";
 import { getMapTextFieldExpression } from "@/src/lib/mapLocalizedName";
+import { clearLiveOverlay, LIVE_BUILDING_SOURCE_ID } from "@/src/lib/map/liveOverlays";
+import { DASHBOARD_GLYPH_URL, dashboardMyanmarTextFont } from "@/src/lib/map/dashboardMapFonts";
 
 const TILE_SERVER_URL = "https://martin-lively-canyon-4077.fly.dev";
 
@@ -63,6 +65,7 @@ export const BUILDING_SELECTION_GEOJSON_SOURCE_IDS = [
     "current-building-geometry",
     "building-preview-selected",
     BUILDING_PREVIEW_FOOTPRINT_SOURCE_ID,
+    LIVE_BUILDING_SOURCE_ID,
 ] as const;
 
 function emptyPreviewFeatureCollection(): { type: "FeatureCollection"; features: [] } {
@@ -78,13 +81,14 @@ export function clearBuildingPreviewFootprint(map: MaplibreMap | null | undefine
         return false;
     }
 
-    const source = map.getSource(BUILDING_PREVIEW_FOOTPRINT_SOURCE_ID);
+    clearLiveOverlay(map, LIVE_BUILDING_SOURCE_ID);
 
-    if (!source || source.type !== "geojson") {
-        return false;
+    const legacy = map.getSource(BUILDING_PREVIEW_FOOTPRINT_SOURCE_ID);
+
+    if (legacy?.type === "geojson") {
+        (legacy as GeoJSONSource).setData(emptyPreviewFeatureCollection());
     }
 
-    (source as GeoJSONSource).setData(emptyPreviewFeatureCollection());
     map.triggerRepaint();
     return true;
 }
@@ -530,7 +534,7 @@ const LABEL_TEXT_MY = getMapTextFieldExpression("my") as ExpressionSpecification
 export const PLACE_MAP_STYLE: StyleSpecification = {
     version: 8,
     name: "Local Map Natural",
-    glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+    glyphs: DASHBOARD_GLYPH_URL,
     sources: {
         [MAP_STREETS_VECTOR_SOURCE_ID]: {
             type: "vector",
@@ -752,7 +756,7 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
             layout: {
                 "symbol-placement": "line",
                 "text-field": LABEL_TEXT_MY,
-                "text-font": ["Noto Sans Regular"],
+                "text-font": dashboardMyanmarTextFont(),
                 "text-size": ["interpolate", ["linear"], ["zoom"], 13, 10, 17, 12, 20, 15],
                 "text-padding": 3,
                 "text-rotation-alignment": "map",
@@ -771,7 +775,7 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
             minzoom: 14,
             layout: {
                 "text-field": LABEL_TEXT_MY,
-                "text-font": ["Noto Sans Regular"],
+                "text-font": dashboardMyanmarTextFont(),
                 "text-size": ["interpolate", ["linear"], ["zoom"], 14, 11, 17, 13, 20, 16],
                 "text-offset": [0, 1],
                 "text-anchor": "top",

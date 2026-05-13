@@ -1,20 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import maplibregl, { GeoJSONSource } from "maplibre-gl";
+import type { LineString, MultiLineString } from "geojson";
+import maplibregl from "maplibre-gl";
 
 import type { StreetGeometry } from "@/src/lib/api";
 import { MAP_PREVIEW_VIEWPORT_STREET } from "./mapPreviewUi";
 import { attachDashboardMapErrorHandler } from "./mapErrorHandlers";
-import {
-    PLACE_MAP_DEFAULT_CENTER,
-    PLACE_MAP_STYLE,
-    refreshPlaceTiles,
-    refreshRoadLabelTiles,
-    scheduleStreetTileRefresh,
-} from "./placeMapConfig";
+import { createPreviewBaseMap } from "./createPreviewBaseMap";
+import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
 import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
-import { useDashboardTileVersions } from "./BuildingTileVersionContext";
+import { useClientMounted } from "@/src/hooks/useClientMounted";
+import { dashDevLog } from "@/src/lib/dashDevLog";
+import {
+    addStreetLiveOverlay,
+    clearLiveOverlay,
+    LIVE_STREET_SOURCE_ID,
+    streetLineToLiveFeatureCollection,
+} from "@/src/lib/map/liveOverlays";
 
 type StreetPreviewMapProps = {
     selectedStreet: {
@@ -23,13 +26,9 @@ type StreetPreviewMapProps = {
         englishName: string | null;
         geometry: StreetGeometry;
     } | null;
-    /** Non-zero after street CRUD: timestamp passed as MVT `?v=` (see {@link scheduleStreetTileRefresh}). */
-    streetMvtCacheVersion?: number;
 };
 
 const DEFAULT_ZOOM = 12;
-const STREET_SOURCE_ID = "selected-street";
-const STREET_LAYER_ID = "selected-street-line";
 
 function getGeometryBounds(geometry: StreetGeometry): maplibregl.LngLatBounds | null {
     if (!geometry) {
@@ -49,111 +48,65 @@ function getGeometryBounds(geometry: StreetGeometry): maplibregl.LngLatBounds | 
     return bounds.isEmpty() ? null : bounds;
 }
 
-function emptyStreetFeature() {
-    return {
-        type: "FeatureCollection" as const,
-        features: [],
-    };
-}
-
-function streetFeature(geometry: StreetGeometry, name: string) {
-    if (!geometry) {
-        return emptyStreetFeature();
-    }
-
-    return {
-        type: "FeatureCollection" as const,
-        features: [
-            {
-                type: "Feature" as const,
-                properties: {
-                    name,
-                },
-                geometry,
-            },
-        ],
-    };
-}
-
-export default function StreetPreviewMap({ selectedStreet, streetMvtCacheVersion = 0 }: StreetPreviewMapProps) {
-    const { streetTileVersion, placeTileVersion, roadLabelTileVersion } = useDashboardTileVersions();
+export default function StreetPreviewMap({ selectedStreet }: StreetPreviewMapProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const [isMapReady, setIsMapReady] = useState(false);
+    const clientMounted = useClientMounted();
 
     useEffect(() => {
-        if (!containerRef.current || mapRef.current) {
+        if (!clientMounted || !containerRef.current || mapRef.current) {
             return;
         }
 
-        const map = new maplibregl.Map({
-            container: containerRef.current,
-            style: PLACE_MAP_STYLE,
-            center: PLACE_MAP_DEFAULT_CENTER,
-            zoom: DEFAULT_ZOOM,
-        });
+        let cancelled = false;
+        const root = containerRef.current;
+        let mapInstance: maplibregl.Map | null = null;
 
-        map.addControl(new maplibregl.NavigationControl(), "top-right");
-        attachDashboardMapErrorHandler(map, "StreetPreviewMap");
+        void (async () => {
+            try {
+                mapInstance = await createPreviewBaseMap(root, {
+                    zoom: DEFAULT_ZOOM,
+                    onLoad: (map) => {
+                        attachMapLibreDevDebugMap(map);
+                        setIsMapReady(true);
+                    },
+                });
+            } catch (err) {
+                console.error("StreetPreviewMap basemap style failed:", err);
+                return;
+            }
 
-        map.on("load", () => {
-            attachMapLibreDevDebugMap(map);
-            map.addSource(STREET_SOURCE_ID, {
-                type: "geojson",
-                data: emptyStreetFeature(),
-            });
+            if (cancelled) {
+                mapInstance?.remove();
+                mapInstance = null;
+                return;
+            }
 
-            map.addLayer({
-                id: STREET_LAYER_ID,
-                type: "line",
-                source: STREET_SOURCE_ID,
-                paint: {
-                    "line-color": "#2563eb",
-                    "line-width": 5,
-                    "line-opacity": 0.95,
-                },
-                layout: {
-                    "line-cap": "round",
-                    "line-join": "round",
-                },
-            });
-
-            setIsMapReady(true);
-        });
-
-        mapRef.current = map;
+            attachDashboardMapErrorHandler(mapInstance, "StreetPreviewMap");
+            mapRef.current = mapInstance;
+        })();
 
         return () => {
+            cancelled = true;
             setIsMapReady(false);
-            map.remove();
+            mapInstance?.remove();
             mapRef.current = null;
         };
-    }, []);
+    }, [clientMounted]);
 
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!map || !isMapReady) {
-            return;
-        }
-
-        const source = map.getSource(STREET_SOURCE_ID) as GeoJSONSource | undefined;
-
-        if (!source) {
+        if (!map || !isMapReady || !map.isStyleLoaded()) {
             return;
         }
 
         const geometry = selectedStreet?.geometry ?? null;
 
-        const label =
-            selectedStreet?.englishName?.trim() ||
-            selectedStreet?.myanmarName?.trim() ||
-            selectedStreet?.canonical_name?.trim() ||
-            "Selected street";
-
-        source.setData(streetFeature(geometry, label));
-
         if (!geometry) {
+            clearLiveOverlay(map, LIVE_STREET_SOURCE_ID);
+            dashDevLog("street:preview:live-overlay-cleared-no-selection");
             map.easeTo({
                 center: PLACE_MAP_DEFAULT_CENTER,
                 zoom: DEFAULT_ZOOM,
@@ -161,6 +114,13 @@ export default function StreetPreviewMap({ selectedStreet, streetMvtCacheVersion
             });
             return;
         }
+
+        dashDevLog("street:preview:loaded-api-geometry", geometry);
+        addStreetLiveOverlay(
+            map,
+            streetLineToLiveFeatureCollection(geometry as LineString | MultiLineString),
+        );
+        dashDevLog("street:preview:live-overlay-updated");
 
         const bounds = getGeometryBounds(geometry);
 
@@ -175,37 +135,16 @@ export default function StreetPreviewMap({ selectedStreet, streetMvtCacheVersion
         });
     }, [isMapReady, selectedStreet]);
 
-    useEffect(() => {
-        const map = mapRef.current;
-        const version = streetMvtCacheVersion || streetTileVersion;
-        if (!map || !isMapReady || version === 0) {
-            return;
-        }
-        scheduleStreetTileRefresh(map, version);
-    }, [isMapReady, streetMvtCacheVersion, streetTileVersion]);
-
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !isMapReady) {
-            return;
-        }
-        refreshPlaceTiles(map, placeTileVersion);
-    }, [isMapReady, placeTileVersion]);
-
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !isMapReady) {
-            return;
-        }
-        refreshRoadLabelTiles(map, roadLabelTileVersion);
-    }, [isMapReady, roadLabelTileVersion]);
-
     return (
         <div className="relative">
-            <div
-                ref={containerRef}
-                className={MAP_PREVIEW_VIEWPORT_STREET}
-            />
+            {clientMounted ? (
+                <div
+                    ref={containerRef}
+                    className={MAP_PREVIEW_VIEWPORT_STREET}
+                />
+            ) : (
+                <div className={MAP_PREVIEW_VIEWPORT_STREET} aria-hidden />
+            )}
             {!selectedStreet?.geometry ? (
                 <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded bg-white/90 px-3 py-2 text-sm text-gray-700 shadow">
                     No geometry available.

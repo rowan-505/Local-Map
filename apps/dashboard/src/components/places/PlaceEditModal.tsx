@@ -151,6 +151,23 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
 
     const watchedLat = watch("lat");
     const watchedLng = watch("lng");
+    const watchedMyanmar = watch("myanmarName");
+    const watchedEnglish = watch("englishName");
+
+    const mapOverlayNames = useMemo(() => {
+        if (!detail) {
+            return null;
+        }
+
+        const mmRaw = typeof watchedMyanmar === "string" ? watchedMyanmar : (detail.myanmarName ?? "");
+        const enRaw = typeof watchedEnglish === "string" ? watchedEnglish : (detail.englishName ?? "");
+
+        return {
+            name_mm: mmRaw.trim() ? mmRaw.trim() : null,
+            name_en: enRaw.trim() ? enRaw.trim() : null,
+            name: detail.display_name?.trim() ? detail.display_name.trim() : null,
+        };
+    }, [detail, watchedMyanmar, watchedEnglish]);
 
     function handleMapChange(coords: { lat: number; lng: number }) {
         setValue("lat", coords.lat, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
@@ -233,10 +250,23 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
             });
             const updated = await updatePlace(placeId, payload);
             dashDevLog("place:edit:api-response-after-save", updated);
-            setDetail(updated);
-            reset(toFormValues(updated));
-            await onSaved(updated.public_id);
-            setSaveSuccess(`Place updated successfully: ${updated.display_name}`);
+
+            const refetched = await getPlace(placeId);
+            dashDevLog("place:edit:refetched-place-for-overlay", {
+                public_id: refetched.public_id,
+                lat: refetched.lat,
+                lng: refetched.lng,
+            });
+
+            setDetail(refetched);
+            reset(toFormValues(refetched));
+            dashDevLog("place:edit:live-overlay-state-from-refetch", {
+                type: "Point",
+                coordinates: [refetched.lng, refetched.lat],
+            });
+
+            await onSaved(refetched.public_id);
+            setSaveSuccess(`Place updated successfully: ${refetched.display_name}`);
         } catch (error) {
             setSaveError(error instanceof Error ? error.message : "Failed to save place");
         } finally {
@@ -287,6 +317,7 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
                                     lat={typeof watchedLat === "number" ? watchedLat : detail.lat}
                                     lng={typeof watchedLng === "number" ? watchedLng : detail.lng}
                                     onChange={handleMapChange}
+                                    overlayNames={mapOverlayNames}
                                 />
                             </MapPreviewCard>
 

@@ -1,35 +1,28 @@
 "use client";
 
 /**
- * Buildings list preview map (dashboard `/buildings`): basemap polygons + GeoJSON footprint overlay.
+ * Buildings list/detail preview (dashboard `/buildings`).
  *
- * Footprint pipelines on this widget:
- * - Vector MVT: style source id {@link MAP_BUILDINGS_VECTOR_SOURCE_ID} (`tiles_buildings_v`),
- *   fill layer id `buildings` → DB view `tiles.tiles_buildings_v` via Martin.
- * - Selected footprint GeoJSON overlay: {@link BUILDING_PREVIEW_FOOTPRINT_SOURCE_ID}, layers
- *   {@link BUILDING_PREVIEW_FILL_LAYER_ID} / {@link BUILDING_PREVIEW_OUTLINE_LAYER_ID}.
- * Edit pages use BuildingEditorMap `current-building-geometry*` — not rendered here.
+ * PMTiles = stable snapshot (may show stale footprints until rebuild).
+ * API GeoJSON live overlay = truth for the selected row — see {@link addBuildingLiveOverlay}.
  */
 import area from "@turf/area";
+import type { Feature, MultiPolygon, Polygon } from "geojson";
 import type { MutableRefObject } from "react";
 import { useEffect, useRef, useState } from "react";
-import maplibregl, { type GeoJSONSource, type Map as MaplibreMap } from "maplibre-gl";
-import type { Feature, MultiPolygon, Polygon } from "geojson";
+import maplibregl, { type Map as MaplibreMap } from "maplibre-gl";
 
-import { createPlaceBaseMap } from "./createPlaceBaseMap";
+import { createPreviewBaseMap } from "./createPreviewBaseMap";
 import { MAP_PREVIEW_VIEWPORT_PLACES_SIDEBAR } from "./mapPreviewUi";
-import {
-    BUILDING_PREVIEW_FILL_LAYER_ID,
-    BUILDING_PREVIEW_FOOTPRINT_SOURCE_ID,
-    BUILDING_PREVIEW_OUTLINE_LAYER_ID,
-    PLACE_MAP_DEFAULT_CENTER,
-    refreshPlaceTiles,
-    refreshRoadLabelTiles,
-    refreshBuildingTiles,
-    refreshStreetTiles,
-} from "./placeMapConfig";
-import { useDashboardTileVersions } from "./BuildingTileVersionContext";
+import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
 import type { BuildingGeometry } from "@/src/lib/api";
+import { useClientMounted } from "@/src/hooks/useClientMounted";
+import { dashDevLog } from "@/src/lib/dashDevLog";
+import {
+    addBuildingLiveOverlay,
+    clearLiveOverlay,
+    LIVE_BUILDING_SOURCE_ID,
+} from "@/src/lib/map/liveOverlays";
 
 export type BuildingPreviewMapProps = {
     geometry: BuildingGeometry | null | undefined;
@@ -47,17 +40,7 @@ const LARGE_FIT_MAX_ZOOM = 18;
 /** Above this planar area (m²), treat footprint as "large" and use {@link LARGE_FIT_MAX_ZOOM}. */
 const LARGE_FOOTPRINT_AREA_M2 = 8_000;
 
-const SOURCE_ID = BUILDING_PREVIEW_FOOTPRINT_SOURCE_ID;
-const FILL_LAYER_ID = BUILDING_PREVIEW_FILL_LAYER_ID;
-const LINE_LAYER_ID = BUILDING_PREVIEW_OUTLINE_LAYER_ID;
-
 const IS_DEV = process.env.NODE_ENV === "development";
-
-/** Same palette as `PLACE_MAP_STYLE` `buildings` fill — slightly higher opacity + stronger outline for focus. */
-const PREVIEW_FILL_COLOR = "#ded8cf";
-const PREVIEW_FILL_OPACITY = 0.82;
-const PREVIEW_LINE_COLOR = "#a39282";
-const PREVIEW_LINE_WIDTH = 2;
 
 function emptyFeatureCollection() {
     return {
@@ -134,81 +117,63 @@ function exposeBuildingPreviewMapForDev(map: maplibregl.Map) {
     w.__buildingPreviewMap = map;
 }
 
-/**
- * Admin **Buildings** preview: same vector basemap as Places (`PLACE_MAP_STYLE`), no satellite.
- * Selected footprint uses fill + outline styled like tile buildings, with slightly stronger contrast.
- */
 export default function BuildingPreviewMap({
     geometry,
     emptyHint = "No geometry available for this building.",
     className,
     mapSurfaceRef,
 }: BuildingPreviewMapProps) {
-    const { buildingTileVersion, streetTileVersion, placeTileVersion, roadLabelTileVersion } =
-        useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const [isMapReady, setIsMapReady] = useState(false);
+    const clientMounted = useClientMounted();
 
     useEffect(() => {
-        if (!containerRef.current || mapRef.current) {
+        if (!clientMounted || !containerRef.current || mapRef.current) {
             return;
         }
 
-        const map = createPlaceBaseMap(containerRef.current, {
-            zoom: DEFAULT_ZOOM,
-            includeBusTransitLayers: false,
-        });
-        mapRef.current = map;
+        let cancelled = false;
 
-        const onLoad = () => {
-            map.addSource(SOURCE_ID, {
-                type: "geojson",
-                data: emptyFeatureCollection(),
-            });
-
-            map.addLayer({
-                id: FILL_LAYER_ID,
-                type: "fill",
-                source: SOURCE_ID,
-                paint: {
-                    "fill-color": PREVIEW_FILL_COLOR,
-                    "fill-opacity": PREVIEW_FILL_OPACITY,
-                },
-            });
-
-            map.addLayer({
-                id: LINE_LAYER_ID,
-                type: "line",
-                source: SOURCE_ID,
-                paint: {
-                    "line-color": PREVIEW_LINE_COLOR,
-                    "line-width": PREVIEW_LINE_WIDTH,
-                },
-            });
-
-            exposeBuildingPreviewMapForDev(map);
-            if (mapSurfaceRef) {
-                mapSurfaceRef.current = map;
+        void (async () => {
+            let map: maplibregl.Map;
+            try {
+                map = await createPreviewBaseMap(containerRef.current!, {
+                    zoom: DEFAULT_ZOOM,
+                    onLoad: (loadedMap) => {
+                        exposeBuildingPreviewMapForDev(loadedMap);
+                        if (mapSurfaceRef) {
+                            mapSurfaceRef.current = loadedMap;
+                        }
+                        setIsMapReady(true);
+                    },
+                });
+            } catch (err) {
+                console.error("BuildingPreviewMap map init failed:", err);
+                return;
             }
-            setIsMapReady(true);
-        };
 
-        map.on("load", onLoad);
+            if (cancelled) {
+                map.remove();
+                return;
+            }
+
+            mapRef.current = map;
+        })();
 
         return () => {
-            map.off("load", onLoad);
+            cancelled = true;
             if (typeof window !== "undefined" && IS_DEV) {
                 delete (window as unknown as { __buildingPreviewMap?: maplibregl.Map }).__buildingPreviewMap;
             }
             setIsMapReady(false);
-            if (mapSurfaceRef?.current === map) {
+            if (mapSurfaceRef?.current === mapRef.current) {
                 mapSurfaceRef.current = null;
             }
-            map.remove();
+            mapRef.current?.remove();
             mapRef.current = null;
         };
-    }, [mapSurfaceRef]);
+    }, [clientMounted, mapSurfaceRef]);
 
     useEffect(() => {
         if (!isMapReady || !containerRef.current || !mapRef.current) {
@@ -229,57 +194,18 @@ export default function BuildingPreviewMap({
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!map?.isStyleLoaded() || !isMapReady) {
+        if (!map || !isMapReady || !map.isStyleLoaded()) {
             return;
         }
 
-        refreshBuildingTiles(map, buildingTileVersion);
-    }, [isMapReady, buildingTileVersion]);
-
-    useEffect(() => {
-        const map = mapRef.current;
-
-        if (!map?.isStyleLoaded() || !isMapReady) {
-            return;
+        if (geometry) {
+            dashDevLog("building:preview:loaded-api-geometry", geometry);
+            addBuildingLiveOverlay(map, footprintFeatureCollection(geometry));
+            dashDevLog("building:preview:live-overlay-updated");
+        } else {
+            clearLiveOverlay(map, LIVE_BUILDING_SOURCE_ID);
+            dashDevLog("building:preview:live-overlay-cleared-no-selection");
         }
-
-        refreshStreetTiles(map, streetTileVersion);
-    }, [isMapReady, streetTileVersion]);
-
-    useEffect(() => {
-        const map = mapRef.current;
-
-        if (!map?.isStyleLoaded() || !isMapReady) {
-            return;
-        }
-
-        refreshPlaceTiles(map, placeTileVersion);
-    }, [isMapReady, placeTileVersion]);
-
-    useEffect(() => {
-        const map = mapRef.current;
-
-        if (!map?.isStyleLoaded() || !isMapReady) {
-            return;
-        }
-
-        refreshRoadLabelTiles(map, roadLabelTileVersion);
-    }, [isMapReady, roadLabelTileVersion]);
-
-    useEffect(() => {
-        const map = mapRef.current;
-
-        if (!map || !isMapReady) {
-            return;
-        }
-
-        const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
-
-        if (!source) {
-            return;
-        }
-
-        source.setData(footprintFeatureCollection(geometry ?? null));
 
         const bounds = getFootprintBounds(geometry ?? null);
 
@@ -315,12 +241,18 @@ export default function BuildingPreviewMap({
 
     const showEmptyHint = !geometry;
 
+    const viewportClass = className ?? MAP_PREVIEW_VIEWPORT_PLACES_SIDEBAR;
+
     return (
         <div className="relative">
-            <div
-                ref={containerRef}
-                className={className ?? MAP_PREVIEW_VIEWPORT_PLACES_SIDEBAR}
-            />
+            {clientMounted ? (
+                <div
+                    ref={containerRef}
+                    className={viewportClass}
+                />
+            ) : (
+                <div className={viewportClass} aria-hidden />
+            )}
             {showEmptyHint ? (
                 <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded bg-white/90 px-3 py-2 text-sm text-gray-700 shadow">
                     {emptyHint}

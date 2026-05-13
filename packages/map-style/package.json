@@ -1,0 +1,9 @@
+{
+  "name": "@local-map/map-style",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pmtiles": "^4.4.1"
+  }
+}

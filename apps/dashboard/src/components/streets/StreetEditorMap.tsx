@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { LineString } from "geojson";
 import maplibregl, { type GeoJSONSource, type LayerSpecification } from "maplibre-gl";
 
 import {
@@ -12,14 +13,21 @@ import {
 } from "terra-draw";
 import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
 
+import { fetchDashboardPlaceMapStyle } from "@/src/components/map/dashboardBasemapStyle";
+import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
+import { useClientMounted } from "@/src/hooks/useClientMounted";
+import { attachDashboardMapErrorHandler } from "@/src/components/map/mapErrorHandlers";
+import { logDashboardGlyphServingHealthInDev } from "@/src/lib/map/dashboardGlyphDevCheck";
 import {
-    PLACE_MAP_STYLE,
+    dashboardComplexTextTransformRequest,
+    ensureDashboardMaplibreComplexTextPlugin,
+} from "@/src/lib/map/dashboardMaplibreComplexText";
+import {
     refreshPlaceTiles,
     refreshRoadLabelTiles,
     scheduleStreetTileRefresh,
 } from "@/src/components/map/placeMapConfig";
-import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
-import { attachDashboardMapErrorHandler } from "@/src/components/map/mapErrorHandlers";
+import { ensurePmtilesProtocol } from "@local-map/map-style/registerPmtilesProtocol";
 import {
     KYAUKTAN_STREET_EDITOR_CENTER,
     KYAUKTAN_STREET_EDITOR_ZOOM,
@@ -32,6 +40,13 @@ import {
     type StreetLineStringGeoJson,
 } from "@/src/lib/api";
 import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
+import { dashDevLog } from "@/src/lib/dashDevLog";
+import {
+    addStreetLiveOverlay,
+    clearLiveOverlay,
+    LIVE_STREET_SOURCE_ID,
+    streetLineToLiveFeatureCollection,
+} from "@/src/lib/map/liveOverlays";
 
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -141,6 +156,28 @@ function setGeoJsonSourceData(map: maplibregl.Map, sourceId: string, data: Stree
     return true;
 }
 
+function updateStreetLiveOverlayFromLine(
+    map: maplibregl.Map,
+    line: StreetLineStringGeoJson | null,
+    scope: string,
+): void {
+    if (!map.isStyleLoaded()) {
+        return;
+    }
+
+    if (!line || line.coordinates.length < 2) {
+        clearLiveOverlay(map, LIVE_STREET_SOURCE_ID);
+        dashDevLog(`${scope}:live-overlay-cleared`);
+        return;
+    }
+
+    addStreetLiveOverlay(
+        map,
+        streetLineToLiveFeatureCollection(line as LineString),
+    );
+    dashDevLog(`${scope}:live-overlay-updated`, line);
+}
+
 function addStreetEditorLayer(map: maplibregl.Map, layer: LayerSpecification) {
     const beforeLabels = map.getLayer("road-labels") ? "road-labels" : undefined;
     map.addLayer(layer, beforeLabels);
@@ -216,6 +253,23 @@ function addStreetEditorPreviewSources(map: maplibregl.Map) {
                 "line-width": ["interpolate", ["linear"], ["zoom"], 10, 3, 14, 6, 18, 9],
             },
         });
+    }
+
+    bringStreetEditorPreviewLayersAboveBasemapStack(map);
+}
+
+/** Keep editor/API street GeoJSON above PMTiles + Martin vector paint (layer order is reassigned on each call). */
+function bringStreetEditorPreviewLayersAboveBasemapStack(map: maplibregl.Map) {
+    const ids = [
+        EDITABLE_STREETS_CASING_LAYER_ID,
+        EDITABLE_STREETS_LINE_LAYER_ID,
+        SELECTED_STREET_HIGHLIGHT_LAYER_ID,
+    ] as const;
+
+    for (const id of ids) {
+        if (map.getLayer(id)) {
+            map.moveLayer(id);
+        }
     }
 }
 
@@ -395,6 +449,7 @@ export default function StreetEditorMap({
     const { streetTileVersion, placeTileVersion, roadLabelTileVersion } = useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
+    const clientMounted = useClientMounted();
     const drawRef = useRef<TerraDraw | null>(null);
     const lineModeRef = useRef<TerraDrawLineStringMode | null>(null);
 
@@ -682,6 +737,7 @@ export default function StreetEditorMap({
                 selectedStreetNameRef.current,
             ),
         );
+        updateStreetLiveOverlayFromLine(map, nextLine, "street:editor");
 
         if (draw) {
             safeUpsertDrawLine(nextLine);
@@ -944,23 +1000,46 @@ export default function StreetEditorMap({
     useEffect(() => {
         const root = containerRef.current;
 
-        if (!root || mapRef.current) {
+        if (!clientMounted || !root || mapRef.current) {
             return;
         }
 
+        let cancelled = false;
         const ctl = snapCtlRef.current;
 
-        const map = new maplibregl.Map({
-            container: root,
-            style: PLACE_MAP_STYLE as maplibregl.StyleSpecification,
-            center: KYAUKTAN_STREET_EDITOR_CENTER,
-            zoom: KYAUKTAN_STREET_EDITOR_ZOOM,
-        });
+        void (async () => {
+            await ensurePmtilesProtocol(maplibregl);
+            await ensureDashboardMaplibreComplexTextPlugin();
+            logDashboardGlyphServingHealthInDev();
+            let style: maplibregl.StyleSpecification;
+            try {
+                style = await fetchDashboardPlaceMapStyle({ includeBusTransitLayers: true });
+            } catch (err) {
+                console.error("StreetEditorMap basemap style failed:", err);
+                return;
+            }
 
-        map.addControl(new maplibregl.NavigationControl(), "top-right");
-        attachDashboardMapErrorHandler(map, "StreetEditorMap");
+            if (cancelled || !root) {
+                return;
+            }
 
-        map.on("load", () => {
+            const map = new maplibregl.Map({
+                container: root,
+                style,
+                center: KYAUKTAN_STREET_EDITOR_CENTER,
+                zoom: KYAUKTAN_STREET_EDITOR_ZOOM,
+                transformRequest: dashboardComplexTextTransformRequest,
+            });
+
+            if (cancelled) {
+                map.remove();
+                return;
+            }
+
+            map.addControl(new maplibregl.NavigationControl(), "top-right");
+            attachDashboardMapErrorHandler(map, "StreetEditorMap");
+
+            map.on("load", () => {
             attachMapLibreDevDebugMap(map);
             addStreetEditorPreviewSources(map);
 
@@ -1023,6 +1102,7 @@ export default function StreetEditorMap({
                         selectedStreetNameRef.current,
                     ),
                 );
+                updateStreetLiveOverlayFromLine(map, next, "street:editor:draw-change");
                 ctl.coordsForSnapDiff = next?.coordinates.length ? copyCoords(next.coordinates) : null;
             }
 
@@ -1169,9 +1249,11 @@ export default function StreetEditorMap({
             setMapReady(true);
         });
 
-        mapRef.current = map;
+            mapRef.current = map;
+        })();
 
         return () => {
+            cancelled = true;
             setMapReady(false);
 
             if (snapRoadDebounceTimerRef.current !== null) {
@@ -1188,11 +1270,11 @@ export default function StreetEditorMap({
             drawRef.current?.stop();
             drawRef.current = null;
             lineModeRef.current = null;
-            map.remove();
+            mapRef.current?.remove();
             mapRef.current = null;
             lastEmittedCoordsKey.current = "";
         };
-    }, [clearSnapFeedbackTimer, safeGetDrawSnapshot, safeUpsertDrawLine, scheduleSnapFeedback]);
+    }, [clientMounted, clearSnapFeedbackTimer, safeGetDrawSnapshot, safeUpsertDrawLine, scheduleSnapFeedback]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -1231,6 +1313,8 @@ export default function StreetEditorMap({
                     selectedStreetNameRef.current,
                 ),
             );
+            dashDevLog("street:editor:loaded-api-geometry", geomForDraw);
+            updateStreetLiveOverlayFromLine(map, geomForDraw, "street:editor:hydrate-api-geometry");
             const id = safeUpsertDrawLine(geomForDraw);
 
             /** Select immediately so midpoint / vertex handles are active after load */
@@ -1262,6 +1346,7 @@ export default function StreetEditorMap({
             vertexEditLineRef.current = null;
             setSelectedVertexIndex(null);
             setGeoJsonSourceData(map, SELECTED_STREET_SOURCE_ID, emptyStreetFeatureCollection());
+            updateStreetLiveOverlayFromLine(map, null, "street:editor:hydrate-empty-geometry");
             queueMicrotask(() => map.resize());
             map.easeTo({
                 center: KYAUKTAN_STREET_EDITOR_CENTER,
@@ -1652,11 +1737,19 @@ export default function StreetEditorMap({
                 </div>
             ) : null}
 
-            <div
-                ref={containerRef}
-                className="h-[min(28rem,calc(100vh-22rem))] w-full overflow-hidden rounded-md border border-gray-200 shadow-inner"
-                style={{ touchAction: "none" }}
-            />
+            {clientMounted ? (
+                <div
+                    ref={containerRef}
+                    className="h-[min(28rem,calc(100vh-22rem))] w-full overflow-hidden rounded-md border border-gray-200 shadow-inner"
+                    style={{ touchAction: "none" }}
+                />
+            ) : (
+                <div
+                    className="h-[min(28rem,calc(100vh-22rem))] w-full overflow-hidden rounded-md border border-gray-200 shadow-inner"
+                    style={{ touchAction: "none" }}
+                    aria-hidden
+                />
+            )}
         </div>
     );
 }

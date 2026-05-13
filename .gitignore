@@ -59,3 +59,32 @@ build
 # ========================
 database/data/
 tiles/output/
+
+
+infrastructure/tiles/pmtiles/exports/
+infrastructure/tiles/pmtiles/regions/**/*.pmtiles
+
+
+
+# Cloudflare / Wrangler
+.wrangler/
+.dev.vars
+
+# PMTiles outputs
+*.pmtiles
+infrastructure/tiles/pmtiles/output/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+out/
+.vercel/

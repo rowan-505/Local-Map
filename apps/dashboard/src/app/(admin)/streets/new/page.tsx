@@ -21,6 +21,7 @@ import {
     createStreet,
     getAdminAreas,
     getRoadClasses,
+    getStreet,
     validateStreetGeometry,
     type AdminArea,
     type RoadClassOption,
@@ -28,6 +29,7 @@ import {
     type ValidateStreetGeometryResponse,
 } from "@/src/lib/api";
 import { dashDevLog } from "@/src/lib/dashDevLog";
+import { normalizeLineStringForEditor } from "@/src/features/streets/normalizeStreetLineString";
 
 const SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM = "This street has topology warnings. Save anyway?";
 
@@ -67,7 +69,7 @@ export default function NewStreetPage() {
     const [isSaving, setIsSaving] = useState(false);
 
     const [drawnLine, setDrawnLine] = useState<StreetLineStringGeoJson | null>(null);
-    const [seedLine] = useState<StreetLineStringGeoJson | null>(null);
+    const [seedLine, setSeedLine] = useState<StreetLineStringGeoJson | null>(null);
     /** Bump after mount so StreetEditorMap recenters once layout has measured the map container. */
     const [mapEpoch, setMapEpoch] = useState(0);
 
@@ -213,9 +215,12 @@ export default function NewStreetPage() {
                 geometry: sanitized,
             };
 
-            dashDevLog("street:create:payload", body);
+            dashDevLog("street:create:save-payload", body);
+            dashDevLog("street:create:save-payload-geometry", body.geometry);
 
             const created = await createStreet(body);
+            const fresh = await getStreet(created.public_id);
+            const freshLine = normalizeLineStringForEditor(fresh.geometry).line;
             const streetTileVersion = bumpStreetTileVersion();
             bumpRoadLabelTileVersion();
             try {
@@ -223,14 +228,22 @@ export default function NewStreetPage() {
             } catch {
                 /* ignore */
             }
+            dashDevLog("street:create:api-response-geometry", fresh.geometry);
             dashDevLog("street:create:response", {
-                public_id: created.public_id,
-                canonical_name: created.canonical_name,
-                routing_status: created.routing_status,
-                manual_override: created.manual_override,
+                public_id: fresh.public_id,
+                canonical_name: fresh.canonical_name,
+                routing_status: fresh.routing_status,
+                manual_override: fresh.manual_override,
             });
 
-            router.push(`/streets/${created.public_id}/edit`);
+            setDrawnLine(freshLine);
+            setSeedLine(freshLine);
+            setMapEpoch((e) => e + 1);
+            dashDevLog("street:create:live-overlay-updated", freshLine);
+
+            window.setTimeout(() => {
+                router.push(`/streets/${fresh.public_id}/edit`);
+            }, 0);
         } catch (error) {
             dashDevLog("street:create:error", error instanceof Error ? error.message : error);
             setSaveError(error instanceof Error ? error.message : "Failed to create street");

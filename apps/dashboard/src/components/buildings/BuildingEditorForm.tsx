@@ -131,7 +131,7 @@ export default function BuildingEditorForm({
             return;
         }
 
-        dashDevLog("building:form:loaded-api-geometry", initialBuilding.geometry ?? null);
+        dashDevLog("building:map:loaded-api-geometry", initialBuilding.geometry ?? null);
 
         setGeometryJson(
             initialBuilding.geometry
@@ -249,6 +249,7 @@ export default function BuildingEditorForm({
         payload.confidence_score = parsedConf;
         payload.is_verified = isVerified;
 
+        dashDevLog("building:map:outgoing-save-payload-geometry", payload.geometry);
         dashDevLog("building:form:outgoing-save-payload-geometry", payload.geometry);
 
         submitLockRef.current = true;
@@ -258,7 +259,18 @@ export default function BuildingEditorForm({
 
         try {
             const updated = await onSubmit(payload);
-            dashDevLog("building:form:api-response-after-save", updated ?? null);
+            dashDevLog("building:map:api-response-geometry-after-save", (updated as Building | null | undefined)?.geometry ?? null);
+
+            if (updated != null && typeof updated === "object" && "public_id" in updated) {
+                const b = updated as Building;
+                if (b.geometry) {
+                    setGeometryJson(JSON.stringify(b.geometry, null, 2));
+                } else {
+                    setGeometryJson("");
+                }
+            }
+
+            dashDevLog("building:map:live-overlay-form-geometry-synced-from-api");
             setSubmitApiError("");
             const tileVersion = bumpBuildingTileVersion();
             scheduleBuildingTileRefresh(editorMapSurfaceRef.current, tileVersion);
