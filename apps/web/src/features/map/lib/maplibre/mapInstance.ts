@@ -14,10 +14,10 @@ import {
   MAP_MIN_ZOOM,
 } from '../../mapDefaults';
 import type { MapEngine } from '../mapEngineTypes';
+import { ensurePmtilesProtocol } from '@local-map/map-style/registerPmtilesProtocol';
 import { applyMvpBasemapStyle } from './basemapMvpStyle';
 import { logGlyphServingHealthInDev } from './glyphDevCheck';
 import { syncCountryMinZoom } from './mapCountryMinZoom';
-import { ensurePmtilesProtocol } from './pmtilesProtocol';
 
 type BoundsLike = maplibregl.LngLatBoundsLike;
 const KYAUKTAN_INITIAL_BOUNDS = [
@@ -44,7 +44,7 @@ function exposeMaplibreDebugGlobals(map: MapEngine): void {
 }
 
 export async function createMaplibreMap(container: HTMLDivElement): Promise<MapEngine> {
-  ensurePmtilesProtocol();
+  await ensurePmtilesProtocol(maplibregl);
   await ensureMaplibreComplexTextPlugin();
   logGlyphServingHealthInDev();
 
@@ -56,7 +56,7 @@ export async function createMaplibreMap(container: HTMLDivElement): Promise<MapE
    */
   const map = new maplibregl.Map({
     container,
-    style: getActiveBasemapStyle(),
+    style: await getActiveBasemapStyle(),
     transformRequest: maplibreComplexTextTransformRequest,
     maxBounds: MAP_MAX_BOUNDS as BoundsLike,
     minZoom: MAP_MIN_ZOOM,

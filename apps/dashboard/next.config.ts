@@ -1,11 +1,12 @@
 import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 
-const appRoot = fileURLToPath(new URL(".", import.meta.url));
+/** Monorepo root (parent of `apps/`) so Turbopack can resolve `packages/map-style` via tsconfig paths. */
+const monorepoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 const nextConfig: NextConfig = {
     turbopack: {
-        root: appRoot,
+        root: monorepoRoot,
     },
 };
 

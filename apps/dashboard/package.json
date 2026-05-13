@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "npm ci --prefix ../../packages/map-style",
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
@@ -13,6 +14,7 @@
     "@turf/area": "^7.3.5",
     "lucide-react": "^1.14.0",
     "maplibre-gl": "^5.24.0",
+    "maplibre-gl-complex-text": "github:wipfli/maplibre-gl-complex-text",
     "next": "16.2.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",

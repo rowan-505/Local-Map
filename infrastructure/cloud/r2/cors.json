@@ -1,0 +1,23 @@
+{
+    "rules": [
+      {
+        "allowed": {
+          "origins": [
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "https://map-web-seven.vercel.app",
+            "https://db-dashboard-ebon.vercel.app"
+          ],
+          "methods": ["GET", "HEAD"],
+          "headers": ["range", "if-match", "if-none-match"]
+        },
+        "exposeHeaders": [
+          "etag",
+          "accept-ranges",
+          "content-range",
+          "content-length"
+        ],
+        "maxAgeSeconds": 3000
+      }
+    ]
+  }

@@ -119,7 +119,7 @@ export default function EditBuildingPage() {
                         const fresh = await getBuilding(id);
                         setBuilding(fresh);
                         setSaveSuccess("Building saved successfully.");
-                        return updated;
+                        return fresh;
                     }}
                 />
 

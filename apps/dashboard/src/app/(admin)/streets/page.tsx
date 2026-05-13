@@ -21,6 +21,7 @@ import {
 } from "@/src/lib/api";
 import { DASHBOARD_STREET_MVT_SESSION_BUST_KEY } from "@/src/components/map/placeMapConfig";
 import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
+import { dashDevLog } from "@/src/lib/dashDevLog";
 
 const STREETS_SORT_OPTIONS: DataTableSortOption[] = [
     { value: "name", label: "Name", type: "text" },
@@ -69,8 +70,6 @@ export default function StreetsPage() {
     const [isDetailLoading, setIsDetailLoading] = useState(false);
     const [detailError, setDetailError] = useState("");
     const [streetDeleteBusy, setStreetDeleteBusy] = useState(false);
-    /** Timestamp passed to preview map MVT `?v=` after delete / returning from edit delete (sessionStorage). */
-    const [streetMvtCacheVersion, setStreetMvtCacheVersion] = useState(0);
 
     const [listSearch, setListSearch] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
@@ -87,7 +86,6 @@ export default function StreetsPage() {
             sessionStorage.removeItem(DASHBOARD_STREET_MVT_SESSION_BUST_KEY);
             const parsed = Number(raw);
             const version = Number.isFinite(parsed) && parsed > 0 ? parsed : Date.now();
-            setStreetMvtCacheVersion(version);
             bumpStreetTileVersion();
             bumpRoadLabelTileVersion();
         } catch {
@@ -234,11 +232,13 @@ export default function StreetsPage() {
         setDetailError("");
 
         try {
-            await deleteStreet(target, reason.length > 0 ? { edit_reason: reason } : undefined);
-            const version = bumpStreetTileVersion();
+            const deleted = await deleteStreet(target, reason.length > 0 ? { edit_reason: reason } : undefined);
+            bumpStreetTileVersion();
             bumpRoadLabelTileVersion();
-            setStreetMvtCacheVersion(version);
-            await loadStreets(target);
+            setSelectedStreet(null);
+            dashDevLog("street:list:api-response-geometry-after-delete", deleted.geometry);
+            dashDevLog("street:list:live-overlay-cleared-after-delete");
+            await loadStreets();
         } catch (error) {
             setDetailError(error instanceof Error ? error.message : "Failed to soft-delete street");
         } finally {
@@ -451,7 +451,6 @@ export default function StreetsPage() {
                             <MapPreviewCard className="mb-4">
                                 <StreetPreviewMap
                                     selectedStreet={selectedStreet}
-                                    streetMvtCacheVersion={streetMvtCacheVersion}
                                 />
                             </MapPreviewCard>
 

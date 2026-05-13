@@ -1,10 +1,18 @@
 {
   "scripts": {
-    "db:erd": "tsx tools/database/generate-erd.ts"
+    "db:erd": "tsx tools/database/generate-erd.ts",
+    "tiles:export": "bash infrastructure/tiles/pmtiles/scripts/export-region.sh",
+    "tiles:build": "bash infrastructure/tiles/pmtiles/scripts/build-region.sh",
+    "tiles:rebuild": "bash infrastructure/tiles/pmtiles/scripts/rebuild-region.sh",
+    "tiles:export:yangon:v1": "npm run tiles:export -- yangon v1",
+    "tiles:build:yangon:v1": "npm run tiles:build -- yangon v1",
+    "tiles:rebuild:yangon:v1": "npm run tiles:rebuild -- yangon v1",
+    "tiles:serve": "bash infrastructure/tiles/pmtiles/scripts/serve-local.sh"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "pmtiles": "^4.4.1"
   },
   "devDependencies": {
     "@types/pg": "^8.20.0",

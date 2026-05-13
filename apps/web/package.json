@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "npm ci --prefix ../../packages/map-style",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "data:kyauktan": "tsx scripts/fetchKyauktanOsmPois.ts",
@@ -16,7 +17,6 @@
     "@tanstack/react-query": "^5.96.1",
     "maplibre-gl": "^5.21.1",
     "maplibre-gl-complex-text": "github:wipfli/maplibre-gl-complex-text",
-    "pmtiles": "^4.4.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.13.2",
@@ -37,7 +37,6 @@
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",
-    "vite": "^8.0.1",
-    "vite-tsconfig-paths": "^6.1.1"
+    "vite": "^8.0.1"
   }
 }

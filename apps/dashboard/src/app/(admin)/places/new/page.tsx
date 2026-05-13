@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type Resolver } from "react-hook-form";
 import { z } from "zod";
@@ -215,9 +215,21 @@ export default function NewPlacePage() {
 
     const lat = watch("lat");
     const lng = watch("lng");
+    const draftMyanmar = watch("myanmarName");
+    const draftEnglish = watch("englishName");
 
     const selectedLat = typeof lat === "number" && Number.isFinite(lat) ? lat : null;
     const selectedLng = typeof lng === "number" && Number.isFinite(lng) ? lng : null;
+
+    const createMapDraftOverlayNames = useMemo(() => {
+        const mm = typeof draftMyanmar === "string" ? draftMyanmar.trim() : "";
+        const en = typeof draftEnglish === "string" ? draftEnglish.trim() : "";
+        return {
+            name_mm: mm || null,
+            name_en: en || null,
+            name: mm || en || null,
+        };
+    }, [draftMyanmar, draftEnglish]);
 
     const handleMapChange = useCallback(
         (coords: { lat: number; lng: number }) => {
@@ -517,6 +529,7 @@ export default function NewPlacePage() {
                                     lng={selectedLng}
                                     onChange={handleMapChange}
                                     contextPlaces={previewContextPlaces}
+                                    draftOverlayNames={createMapDraftOverlayNames}
                                 />
                             </MapPreviewCard>
                             <p className="mt-4 rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-950">

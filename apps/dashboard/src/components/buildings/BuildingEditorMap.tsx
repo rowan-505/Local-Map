@@ -2,20 +2,38 @@
 
 import area from "@turf/area";
 import { type MutableRefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { MultiPolygon, Polygon } from "geojson";
 import maplibregl, { type FilterSpecification } from "maplibre-gl";
 
 import {
     PLACE_MAP_DEFAULT_CENTER,
-    PLACE_MAP_STYLE_BUILDINGS,
     refreshBuildingTiles,
     refreshPlaceTiles,
     refreshRoadLabelTiles,
     refreshStreetTiles,
 } from "@/src/components/map/placeMapConfig";
+import { fetchDashboardPlaceMapStyle } from "@/src/components/map/dashboardBasemapStyle";
+import { ensurePmtilesProtocol } from "@local-map/map-style/registerPmtilesProtocol";
 import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 import { attachDashboardMapErrorHandler } from "@/src/components/map/mapErrorHandlers";
+import { useClientMounted } from "@/src/hooks/useClientMounted";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
+import { logDashboardGlyphServingHealthInDev } from "@/src/lib/map/dashboardGlyphDevCheck";
+import {
+    dashboardComplexTextTransformRequest,
+    ensureDashboardMaplibreComplexTextPlugin,
+} from "@/src/lib/map/dashboardMaplibreComplexText";
+import {
+    addBuildingLiveOverlay,
+    buildingPolygonToLiveFeatureCollection,
+    clearLiveOverlay,
+    LIVE_BUILDING_FILL_LAYER,
+    LIVE_BUILDING_OUTLINE_LAYER,
+    LIVE_BUILDING_SELECTED_FILL_LAYER,
+    LIVE_BUILDING_SELECTED_OUTLINE_LAYER,
+    LIVE_BUILDING_SOURCE_ID,
+} from "@/src/lib/map/liveOverlays";
 
 type PolygonGeom = {
     type: "Polygon";
@@ -27,17 +45,20 @@ type MultiPolygonGeom = {
     coordinates: number[][][][];
 };
 
-/** Must match layer `id`s in the buildings basemap style — base map paint hidden when imagery shows. */
+/** Must match basemap layer `id`s (PMTiles layers use `basemap-` prefix in dashboard merged style). */
 const BASE_MAP_LAYERS = [
-    "background",
-    "landuse",
-    "water-polygons",
-    "water-lines",
+    "basemap-background",
+    "basemap-landuse",
+    "basemap-water-polygons",
+    "basemap-water-lines",
 ] as const;
 
 /** Hidden in pure satellite mode only; keeps roads, POI, labels for hybrid/map. */
 const SATELLITE_HIDE_VECTOR_LAYERS = [
-    "admin-boundaries",
+    "basemap-admin-boundaries",
+    "basemap-road-casing",
+    "basemap-road-fill",
+    "basemap-buildings",
     "bus-routes",
     "streets-casing",
     "streets-line",
@@ -386,6 +407,17 @@ function bringEditorOverlayLayersToFront(map: maplibregl.Map) {
             map.moveLayer(CURRENT_BUILDING_CENTER);
         }
     }
+
+    /* API live footprint (cyan) above editor “saved” tan layers + draft so it stays visible over PMTiles. */
+    if (map.getLayer(LIVE_BUILDING_FILL_LAYER)) {
+        map.moveLayer(LIVE_BUILDING_FILL_LAYER);
+        map.moveLayer(LIVE_BUILDING_OUTLINE_LAYER);
+    }
+
+    if (map.getLayer(LIVE_BUILDING_SELECTED_FILL_LAYER)) {
+        map.moveLayer(LIVE_BUILDING_SELECTED_FILL_LAYER);
+        map.moveLayer(LIVE_BUILDING_SELECTED_OUTLINE_LAYER);
+    }
 }
 
 function ensureCurrentBuildingGeometryLayers(map: maplibregl.Map) {
@@ -555,6 +587,9 @@ function clearCurrentGeometry(map: maplibregl.Map): void {
         currentSrc.setData({ type: "FeatureCollection", features: [] });
     }
 
+    clearLiveOverlay(map, LIVE_BUILDING_SOURCE_ID);
+    dashDevLog("building:map:live-overlay-cleared-after-delete-or-reset");
+
     bringEditorOverlayLayersToFront(map);
 }
 
@@ -712,6 +747,7 @@ export default function BuildingEditorMap({
         useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
+    const clientMounted = useClientMounted();
 
     const onDrawOutputRef = useRef(onDrawOutput);
 
@@ -841,6 +877,11 @@ export default function BuildingEditorMap({
 
             if (currentSrc) {
                 currentSrc.setData(buildCurrentBuildingFeatureCollection(poly));
+                addBuildingLiveOverlay(
+                    map,
+                    buildingPolygonToLiveFeatureCollection(poly as Polygon),
+                );
+                dashDevLog("building:map:live-overlay-updated-after-draw-finish");
                 devLog("current geometry source updated after finish");
             }
 
@@ -888,97 +929,127 @@ export default function BuildingEditorMap({
     }, []);
 
     useEffect(() => {
-        if (!containerRef.current || mapRef.current) {
+        if (!clientMounted || !containerRef.current || mapRef.current) {
             return;
         }
 
         let cancelled = false;
-
-        const map = new maplibregl.Map({
-            container: containerRef.current,
-            style: PLACE_MAP_STYLE_BUILDINGS,
-            center: PLACE_MAP_DEFAULT_CENTER,
-            zoom: INITIAL_BUILDING_CAMERA_ZOOM,
-            minZoom: 0,
-            maxZoom: 22,
-            scrollZoom: true,
-            doubleClickZoom: true,
-        });
-
-        map.addControl(new maplibregl.NavigationControl({ showZoom: true, showCompass: true }), "top-right");
-
-        attachDashboardMapErrorHandler(map, "BuildingEditorMap");
+        const container = containerRef.current;
+        let mapInstance: maplibregl.Map | null = null;
 
         const relayMapClick = (e: maplibregl.MapMouseEvent) => {
             handleMapClickRef.current(e);
         };
 
-        map.on("load", () => {
-            if (cancelled) {
+        void (async () => {
+            await ensurePmtilesProtocol(maplibregl);
+            await ensureDashboardMaplibreComplexTextPlugin();
+            logDashboardGlyphServingHealthInDev();
+            let style: maplibregl.StyleSpecification;
+            try {
+                style = await fetchDashboardPlaceMapStyle({ includeBusTransitLayers: false });
+            } catch (err) {
+                console.error("BuildingEditorMap basemap style failed:", err);
                 return;
             }
 
-            attachMapLibreDevDebugMap(map);
-
-            if (!map.getSource(SATELLITE_SOURCE_ID)) {
-                map.addSource(SATELLITE_SOURCE_ID, {
-                    type: "raster",
-                    tiles: [...SATELLITE_TILES],
-                    tileSize: 256,
-                    maxzoom: SATELLITE_RASTER_SOURCE_MAX_ZOOM,
-                    attribution:
-                        '<a href="https://www.esri.com/">© Esri</a> — Sources: Esri, Maxar, Earthstar Geographics',
-                });
+            if (cancelled || !container) {
+                return;
             }
 
-            if (!map.getLayer(SATELLITE_LAYER_ID)) {
-                map.addLayer(
-                    {
-                        id: SATELLITE_LAYER_ID,
-                        type: "raster",
-                        source: SATELLITE_SOURCE_ID,
-                        layout: { visibility: "none" },
-                        paint: {
-                            "raster-opacity": 1,
-                            "raster-resampling": "linear",
-                        },
-                    },
-                    "landuse"
-                );
+            mapInstance = new maplibregl.Map({
+                container,
+                style,
+                center: PLACE_MAP_DEFAULT_CENTER,
+                zoom: INITIAL_BUILDING_CAMERA_ZOOM,
+                minZoom: 0,
+                maxZoom: 22,
+                scrollZoom: true,
+                doubleClickZoom: true,
+                transformRequest: dashboardComplexTextTransformRequest,
+            });
+
+            if (cancelled) {
+                mapInstance.remove();
+                mapInstance = null;
+                return;
             }
 
-            ensureDraftBuildingLayers(map);
-            ensureCurrentBuildingGeometryLayers(map);
+            const map = mapInstance;
 
-            mapRef.current = map;
+            map.addControl(new maplibregl.NavigationControl({ showZoom: true, showCompass: true }), "top-right");
 
-            exposeBuildingMapForDev(map);
+            attachDashboardMapErrorHandler(map, "BuildingEditorMap");
 
-            if (editorMapSurfaceRef) {
-                editorMapSurfaceRef.current = map;
-            }
-
-            const syncZoomDisplay = () => {
+            map.on("load", () => {
                 if (cancelled) {
                     return;
                 }
 
-                setZoomDisplay(map.getZoom().toFixed(2));
-            };
+                attachMapLibreDevDebugMap(map);
 
-            syncZoomDisplay();
-            map.on("zoom", syncZoomDisplay);
-            map.on("moveend", syncZoomDisplay);
+                if (!map.getSource(SATELLITE_SOURCE_ID)) {
+                    map.addSource(SATELLITE_SOURCE_ID, {
+                        type: "raster",
+                        tiles: [...SATELLITE_TILES],
+                        tileSize: 256,
+                        maxzoom: SATELLITE_RASTER_SOURCE_MAX_ZOOM,
+                        attribution:
+                            '<a href="https://www.esri.com/">© Esri</a> — Sources: Esri, Maxar, Earthstar Geographics',
+                    });
+                }
 
-            map.on("click", relayMapClick);
+                if (!map.getLayer(SATELLITE_LAYER_ID)) {
+                    map.addLayer(
+                        {
+                            id: SATELLITE_LAYER_ID,
+                            type: "raster",
+                            source: SATELLITE_SOURCE_ID,
+                            layout: { visibility: "none" },
+                            paint: {
+                                "raster-opacity": 1,
+                                "raster-resampling": "linear",
+                            },
+                        },
+                        "basemap-landuse"
+                    );
+                }
 
-            setMapReady(true);
-        });
+                ensureDraftBuildingLayers(map);
+                ensureCurrentBuildingGeometryLayers(map);
+
+                mapRef.current = map;
+
+                exposeBuildingMapForDev(map);
+
+                if (editorMapSurfaceRef) {
+                    editorMapSurfaceRef.current = map;
+                }
+
+                const syncZoomDisplay = () => {
+                    if (cancelled) {
+                        return;
+                    }
+
+                    setZoomDisplay(map.getZoom().toFixed(2));
+                };
+
+                syncZoomDisplay();
+                map.on("zoom", syncZoomDisplay);
+                map.on("moveend", syncZoomDisplay);
+
+                map.on("click", relayMapClick);
+
+                setMapReady(true);
+            });
+        })();
 
         return () => {
             cancelled = true;
 
             hasAppliedInitialBuildingCameraRef.current = false;
+
+            const map = mapInstance ?? mapRef.current;
 
             if (editorMapSurfaceRef?.current === map) {
                 editorMapSurfaceRef.current = null;
@@ -991,7 +1062,7 @@ export default function BuildingEditorMap({
             editMarkersRef.current = [];
 
             try {
-                map.off("click", relayMapClick);
+                map?.off("click", relayMapClick);
             } catch {
                 /* ignore */
             }
@@ -1003,11 +1074,11 @@ export default function BuildingEditorMap({
             }
 
             setZoomDisplay("—");
-            map.remove();
+            map?.remove();
             setMapReady(false);
             setStats({ areaSqM: null, vertexCount: 0 });
         };
-    }, [editorMapSurfaceRef]);
+    }, [clientMounted, editorMapSurfaceRef]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -1089,13 +1160,21 @@ export default function BuildingEditorMap({
 
         if (currentBuildingSrc) {
             if (parsed) {
+                dashDevLog("building:map:loaded-api-geometry-into-editor-map", parsed);
                 currentBuildingSrc.setData(buildCurrentBuildingFeatureCollection(parsed));
+                addBuildingLiveOverlay(
+                    map,
+                    buildingPolygonToLiveFeatureCollection(parsed as Polygon | MultiPolygon),
+                );
+                dashDevLog("building:map:live-overlay-updated");
                 devLog("current building geometry rendered");
                 bringEditorOverlayLayersToFront(map);
             } else if (suppressNextEmptySourceClearRef.current) {
                 suppressNextEmptySourceClearRef.current = false;
             } else {
                 currentBuildingSrc.setData({ type: "FeatureCollection", features: [] });
+                clearLiveOverlay(map, LIVE_BUILDING_SOURCE_ID);
+                dashDevLog("building:map:live-overlay-cleared-empty-geometry");
             }
         }
 
@@ -1380,7 +1459,11 @@ export default function BuildingEditorMap({
     return (
         <div className={className ?? ""}>
             <div className="relative h-[420px] w-full overflow-hidden rounded-lg border border-gray-300 bg-gray-200 shadow-inner">
-                <div ref={containerRef} className="absolute inset-0 h-full w-full" />
+                {clientMounted ? (
+                    <div ref={containerRef} className="absolute inset-0 h-full w-full" />
+                ) : (
+                    <div className="absolute inset-0 h-full w-full" aria-hidden />
+                )}
 
                 <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[min(100%-1.5rem,28rem)] flex-col gap-2">
                     <div className="pointer-events-auto flex flex-wrap gap-1.5 rounded-lg bg-white/95 p-1.5 shadow-md ring-1 ring-gray-200">

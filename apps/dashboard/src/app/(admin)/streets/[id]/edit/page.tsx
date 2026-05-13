@@ -509,28 +509,31 @@ export default function EditStreetPage() {
                 payload.geometry = coercedPatch;
             }
 
+            dashDevLog("street:edit:save-payload-geometry", payload.geometry ?? null);
             dashDevLog("street:edit:patch-payload-geometry", payload.geometry ?? null);
             dashDevLog("street:edit:save-payload", payload);
 
             const updated = await updateStreet(fetchStreetId, payload);
+            const fresh = await getStreet(fetchStreetId);
             const streetTileVersion = bumpStreetTileVersion();
             bumpRoadLabelTileVersion();
 
-            const resolvedGeometry = resolveEditableLineAfterSave(updated, coercedPatch, preSaveEditable);
+            const resolvedGeometry = resolveEditableLineAfterSave(fresh, coercedPatch, preSaveEditable);
 
-            dashDevLog("street:edit:debug-save-api-normalized-line", normalizeLineStringForEditor(updated.geometry).line);
+            dashDevLog("street:edit:debug-save-api-normalized-line", normalizeLineStringForEditor(fresh.geometry).line);
 
             dashDevLog("street:edit:debug-save-response-geometry", updated.geometry);
+            dashDevLog("street:edit:api-response-geometry", fresh.geometry);
             dashDevLog("street:edit:debug-save-resolved-geometry", resolvedGeometry);
             dashDevLog("street:edit:save-response", {
-                public_id: updated.public_id,
-                routing_status: updated.routing_status,
-                manual_override: updated.manual_override,
+                public_id: fresh.public_id,
+                routing_status: fresh.routing_status,
+                manual_override: fresh.manual_override,
             });
 
             const mergedStreet: StreetDetail = {
-                ...updated,
-                geometry: (resolvedGeometry ?? updated.geometry) as StreetDetail["geometry"],
+                ...fresh,
+                geometry: (resolvedGeometry ?? fresh.geometry) as StreetDetail["geometry"],
             };
 
             setStreet(mergedStreet);
@@ -554,6 +557,7 @@ export default function EditStreetPage() {
             setGeometryValidationStale(false);
 
             setEditableStreetsRefreshKey(streetTileVersion);
+            dashDevLog("street:edit:live-overlay-updated", nextNorm.line);
         } catch (error) {
             dashDevLog("street:edit:save-error", error instanceof Error ? error.message : error);
             setSaveError(error instanceof Error ? error.message : "Failed to update street");
@@ -591,6 +595,9 @@ export default function EditStreetPage() {
             originalGeometrySanitizedKeyRef.current = "";
             geometryDirtyRef.current = false;
             setMapHydrateEpoch((e) => e + 1);
+            setEditableStreetsRefreshKey(streetTileVersion);
+            dashDevLog("street:edit:api-response-geometry-after-delete", deleted.geometry);
+            dashDevLog("street:edit:live-overlay-cleared-after-delete");
             try {
                 sessionStorage.setItem(DASHBOARD_STREET_MVT_SESSION_BUST_KEY, String(streetTileVersion));
             } catch {

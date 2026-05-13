@@ -5,7 +5,9 @@
 export {
   BASEMAP_STYLE,
   getActiveBasemapStyle,
+  getBasemapPmtilesUrlOverride,
+  LOCAL_BASEMAP_SOURCE_ID,
   MAP_SYMBOL_TEXT_FONT,
-  WEB_MAP_BUILDINGS_VECTOR_SOURCE_ID,
+  resolveBasemapPmtilesHttpUrl,
 } from './basemapStyle';
 export { MAP_LIBRE_INTERACTION_DEFAULTS } from './mapLibreInteraction';

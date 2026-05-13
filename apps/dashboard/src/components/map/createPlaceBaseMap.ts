@@ -4,43 +4,56 @@ import maplibregl from "maplibre-gl";
 
 import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
 import { attachDashboardMapErrorHandler } from "./mapErrorHandlers";
-import { PLACE_MAP_DEFAULT_CENTER, PLACE_MAP_STYLE, PLACE_MAP_STYLE_BUILDINGS } from "./placeMapConfig";
+import { fetchDashboardPlaceMapStyle } from "./dashboardBasemapStyle";
+import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
+import { ensurePmtilesProtocol } from "@local-map/map-style/registerPmtilesProtocol";
+import { logDashboardGlyphServingHealthInDev } from "@/src/lib/map/dashboardGlyphDevCheck";
+import {
+  dashboardComplexTextTransformRequest,
+  ensureDashboardMaplibreComplexTextPlugin,
+} from "@/src/lib/map/dashboardMaplibreComplexText";
 
 type CreatePlaceBaseMapOptions = {
-    zoom: number;
-    minZoom?: number;
-    maxZoom?: number;
-    /**
-     * When false, omits Martin bus stop / bus route vector layers (use on Buildings admin maps).
-     * Default true for place pickers and place preview.
-     */
-    includeBusTransitLayers?: boolean;
-    onLoad?: (map: maplibregl.Map) => void;
+  zoom: number;
+  minZoom?: number;
+  maxZoom?: number;
+  /**
+   * When false, omits Martin bus stop / bus route vector layers (use on Buildings admin maps).
+   * Default true for place pickers and place preview.
+   */
+  includeBusTransitLayers?: boolean;
+  onLoad?: (map: maplibregl.Map) => void;
 };
 
-export function createPlaceBaseMap(
-    container: HTMLDivElement,
-    options: CreatePlaceBaseMapOptions
-) {
-    const includeBus =
-        options.includeBusTransitLayers !== undefined ? options.includeBusTransitLayers : true;
+export async function createPlaceBaseMap(
+  container: HTMLDivElement,
+  options: CreatePlaceBaseMapOptions,
+): Promise<maplibregl.Map> {
+  const includeBus =
+    options.includeBusTransitLayers !== undefined ? options.includeBusTransitLayers : true;
 
-    const map = new maplibregl.Map({
-        container,
-        style: includeBus ? PLACE_MAP_STYLE : PLACE_MAP_STYLE_BUILDINGS,
-        center: PLACE_MAP_DEFAULT_CENTER,
-        zoom: options.zoom ?? 15,
-        minZoom: options.minZoom ?? 0,
-        maxZoom: options.maxZoom ?? 22,
-    });
+  await ensurePmtilesProtocol(maplibregl);
+  await ensureDashboardMaplibreComplexTextPlugin();
+  logDashboardGlyphServingHealthInDev();
+  const style = await fetchDashboardPlaceMapStyle({ includeBusTransitLayers: includeBus });
 
-    map.addControl(new maplibregl.NavigationControl(), "top-right");
-    attachDashboardMapErrorHandler(map, "createPlaceBaseMap");
+  const map = new maplibregl.Map({
+    container,
+    style,
+    center: PLACE_MAP_DEFAULT_CENTER,
+    zoom: options.zoom ?? 15,
+    minZoom: options.minZoom ?? 0,
+    maxZoom: options.maxZoom ?? 22,
+    transformRequest: dashboardComplexTextTransformRequest,
+  });
 
-    map.on("load", () => {
-        attachMapLibreDevDebugMap(map);
-        options.onLoad?.(map);
-    });
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  attachDashboardMapErrorHandler(map, "createPlaceBaseMap");
 
-    return map;
+  map.on("load", () => {
+    attachMapLibreDevDebugMap(map);
+    options.onLoad?.(map);
+  });
+
+  return map;
 }

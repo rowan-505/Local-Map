@@ -3,24 +3,31 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 
-import { useDashboardTileVersions } from "./BuildingTileVersionContext";
-import { createPlaceBaseMap } from "./createPlaceBaseMap";
+import { createPreviewBaseMap } from "./createPreviewBaseMap";
 import { MAP_PREVIEW_VIEWPORT_FORM } from "./mapPreviewUi";
+import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
+import { useClientMounted } from "@/src/hooks/useClientMounted";
+import { dashDevLog } from "@/src/lib/dashDevLog";
 import {
-    PLACE_MAP_DEFAULT_CENTER,
-    refreshBuildingTiles,
-    refreshPlaceTiles,
-    refreshRoadLabelTiles,
-    refreshStreetTiles,
-} from "./placeMapConfig";
+    addPlaceLiveOverlay,
+    clearLiveOverlay,
+    LIVE_PLACE_SOURCE_ID,
+    placeLatLngToLiveFeatureCollection,
+    type PlaceLiveOverlayLabelProps,
+} from "@/src/lib/map/liveOverlays";
 
 type PlacePointMapPickerProps = {
     lat: number | null;
     lng: number | null;
     onChange: (coords: { lat: number; lng: number }) => void;
+    /** Optional labels for the API-backed `place-live-overlay` symbol layer */
+    overlayNames?: PlaceLiveOverlayLabelProps | null;
 };
 
-const DEFAULT_ZOOM = 16;
+const DEFAULT_ZOOM = 18;
+
+/** Matches live overlay dot — high-contrast handle above PMTiles */
+const LIVE_PLACE_MARKER_COLOR = "#06b6d4";
 
 function roundCoord(value: number) {
     return Number(value.toFixed(7));
@@ -35,44 +42,111 @@ function hasCoordinates(lat: number | null, lng: number | null): lat is number {
     );
 }
 
-export default function PlacePointMapPicker({ lat, lng, onChange }: PlacePointMapPickerProps) {
-    const { buildingTileVersion, streetTileVersion, placeTileVersion, roadLabelTileVersion } =
-        useDashboardTileVersions();
+export default function PlacePointMapPicker({
+    lat,
+    lng,
+    onChange,
+    overlayNames = null,
+}: PlacePointMapPickerProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const markerRef = useRef<maplibregl.Marker | null>(null);
+    const lastCameraKeyRef = useRef<string | null>(null);
     const [isMapReady, setIsMapReady] = useState(false);
+    const clientMounted = useClientMounted();
 
     useEffect(() => {
-        if (!containerRef.current || mapRef.current) {
+        if (!clientMounted || !containerRef.current || mapRef.current) {
             return;
         }
 
-        const map = createPlaceBaseMap(containerRef.current, {
-            zoom: DEFAULT_ZOOM,
-            onLoad: (loadedMap) => {
-                loadedMap.resize();
-                setIsMapReady(true);
-            },
-        });
+        let cancelled = false;
+        const root = containerRef.current;
 
-        map.on("click", (event) => {
-            onChange({
-                lat: roundCoord(event.lngLat.lat),
-                lng: roundCoord(event.lngLat.lng),
+        void (async () => {
+            let map: maplibregl.Map;
+            try {
+                map = await createPreviewBaseMap(root, {
+                    zoom: DEFAULT_ZOOM,
+                    onLoad: (loadedMap) => {
+                        loadedMap.resize();
+                        setIsMapReady(true);
+                    },
+                });
+            } catch (err) {
+                console.error("PlacePointMapPicker map init failed:", err);
+                return;
+            }
+
+            if (cancelled) {
+                map.remove();
+                return;
+            }
+
+            map.on("click", (event) => {
+                onChange({
+                    lat: roundCoord(event.lngLat.lat),
+                    lng: roundCoord(event.lngLat.lng),
+                });
             });
-        });
 
-        mapRef.current = map;
+            mapRef.current = map;
+        })();
 
         return () => {
+            cancelled = true;
             setIsMapReady(false);
             markerRef.current?.remove();
             markerRef.current = null;
-            map.remove();
+            mapRef.current?.remove();
             mapRef.current = null;
+            lastCameraKeyRef.current = null;
         };
-    }, [onChange]);
+    }, [clientMounted, onChange]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!map || !isMapReady) {
+            return;
+        }
+
+        const applyLiveOverlay = () => {
+            if (!map.isStyleLoaded()) {
+                return;
+            }
+
+            if (!hasCoordinates(lat, lng) || lng === null) {
+                clearLiveOverlay(map, LIVE_PLACE_SOURCE_ID);
+                lastCameraKeyRef.current = null;
+                dashDevLog("place:picker:edit:live-overlay-cleared-no-coords");
+                return;
+            }
+
+            dashDevLog("place:picker:edit:selected-place-coordinates", {
+                sourceId: LIVE_PLACE_SOURCE_ID,
+                coordinates: [lng, lat],
+            });
+            const geojson = placeLatLngToLiveFeatureCollection(lat, lng, overlayNames ?? undefined);
+            addPlaceLiveOverlay(map, geojson);
+            dashDevLog("place:picker:edit:live-overlay-updated", {
+                sourceId: LIVE_PLACE_SOURCE_ID,
+                lat,
+                lng,
+            });
+        };
+
+        applyLiveOverlay();
+
+        if (!map.isStyleLoaded()) {
+            map.once("style.load", applyLiveOverlay);
+            return () => {
+                map.off("style.load", applyLiveOverlay);
+            };
+        }
+
+        return undefined;
+    }, [isMapReady, lat, lng, overlayNames]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -84,12 +158,16 @@ export default function PlacePointMapPicker({ lat, lng, onChange }: PlacePointMa
         if (!hasCoordinates(lat, lng) || lng === null) {
             markerRef.current?.remove();
             markerRef.current = null;
+            lastCameraKeyRef.current = null;
             map.easeTo({ center: PLACE_MAP_DEFAULT_CENTER, zoom: DEFAULT_ZOOM, duration: 300 });
             return;
         }
 
         if (!markerRef.current) {
-            const marker = new maplibregl.Marker({ color: "#2563eb", draggable: true });
+            const marker = new maplibregl.Marker({
+                color: LIVE_PLACE_MARKER_COLOR,
+                draggable: true,
+            });
             marker.on("dragend", () => {
                 const position = marker.getLngLat();
                 onChange({
@@ -101,24 +179,20 @@ export default function PlacePointMapPicker({ lat, lng, onChange }: PlacePointMa
         }
 
         markerRef.current.setLngLat([lng, lat]).addTo(map);
-        map.easeTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), DEFAULT_ZOOM), duration: 300 });
+        const cameraKey = `${lat}:${lng}`;
+        if (lastCameraKeyRef.current !== cameraKey) {
+            map.easeTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), DEFAULT_ZOOM), duration: 300 });
+            lastCameraKeyRef.current = cameraKey;
+            dashDevLog("place:picker:edit:camera-moved-to-selected-place", {
+                center: [lng, lat],
+                zoom: Math.max(map.getZoom(), DEFAULT_ZOOM),
+            });
+        }
     }, [isMapReady, lat, lng, onChange]);
 
-    useEffect(() => {
-        refreshBuildingTiles(mapRef.current, buildingTileVersion);
-    }, [buildingTileVersion]);
-
-    useEffect(() => {
-        refreshStreetTiles(mapRef.current, streetTileVersion);
-    }, [streetTileVersion]);
-
-    useEffect(() => {
-        refreshPlaceTiles(mapRef.current, placeTileVersion);
-    }, [placeTileVersion]);
-
-    useEffect(() => {
-        refreshRoadLabelTiles(mapRef.current, roadLabelTileVersion);
-    }, [roadLabelTileVersion]);
-
-    return <div ref={containerRef} className={MAP_PREVIEW_VIEWPORT_FORM} />;
+    return clientMounted ? (
+        <div ref={containerRef} className={MAP_PREVIEW_VIEWPORT_FORM} />
+    ) : (
+        <div className={MAP_PREVIEW_VIEWPORT_FORM} aria-hidden />
+    );
 }

@@ -5,6 +5,7 @@ import { getMapTextFieldExpression } from "@/src/lib/mapLocalizedName";
 
 import type { Place } from "@/src/lib/api";
 import { placePreviewDisplayName } from "@/src/lib/placePreviewDisplayName";
+import { dashboardMyanmarTextFont } from "@/src/lib/map/dashboardMapFonts";
 
 const PREVIEW_LABEL_TEXT = getMapTextFieldExpression("my") as ExpressionSpecification;
 
@@ -125,7 +126,7 @@ export function ensureDashboardPreviewPlacesLayers(map: Map): void {
             "text-optional": true,
             "text-allow-overlap": false,
             "text-ignore-placement": false,
-            "text-font": ["Noto Sans Regular"],
+            "text-font": dashboardMyanmarTextFont(),
         },
         paint: {
             "text-color": "#334155",

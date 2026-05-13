@@ -21,6 +21,7 @@ import {
     PLACES_LIST_LIMIT,
     type Place,
 } from "@/src/lib/api";
+import { dashDevLog } from "@/src/lib/dashDevLog";
 
 const PLACES_SORT_OPTIONS: DataTableSortOption[] = [
     { value: "name", label: "Name", type: "text" },
@@ -54,6 +55,20 @@ function PlacesPageContent() {
     const bumpPreviewMap = useCallback(() => {
         setPreviewMapKey((value) => value + 1);
     }, []);
+
+    useEffect(() => {
+        dashDevLog("[places-page-debug] selectedPlace passed to preview", {
+            selectedPlace,
+            id: selectedPlace?.id ?? null,
+            public_id: selectedPlace?.public_id ?? null,
+            lat: selectedPlace?.lat ?? null,
+            lng: selectedPlace?.lng ?? null,
+            parsedLat: selectedPlace ? Number(selectedPlace.lat) : null,
+            parsedLng: selectedPlace ? Number(selectedPlace.lng) : null,
+            latType: selectedPlace ? typeof selectedPlace.lat : null,
+            lngType: selectedPlace ? typeof selectedPlace.lng : null,
+        });
+    }, [selectedPlace]);
 
     const loadPlaces = useCallback(
         async (selectedPublicId?: string, signal?: AbortSignal) => {
@@ -251,7 +266,20 @@ function PlacesPageContent() {
                                                 return (
                                                     <tr
                                                         key={place.public_id}
-                                                        onClick={() => setSelectedPlace(place)}
+                                                        onClick={() => {
+                                                            dashDevLog("[places-page-debug] table row selected", {
+                                                                place,
+                                                                id: place.id,
+                                                                public_id: place.public_id,
+                                                                lat: place.lat,
+                                                                lng: place.lng,
+                                                                parsedLat: Number(place.lat),
+                                                                parsedLng: Number(place.lng),
+                                                                latType: typeof place.lat,
+                                                                lngType: typeof place.lng,
+                                                            });
+                                                            setSelectedPlace(place);
+                                                        }}
                                                         className={`cursor-pointer text-gray-900 ${
                                                             isSelected ? "bg-blue-50" : "hover:bg-gray-50"
                                                         }`}
@@ -352,11 +380,17 @@ function PlacesPageContent() {
                                                 setSuccessMessage("");
 
                                                 try {
-                                                    await deletePlace(selectedPlace.public_id);
+                                                    const deletedPublicId = selectedPlace.public_id;
+                                                    await deletePlace(deletedPublicId);
+                                                    dashDevLog("place:list:delete-success", {
+                                                        public_id: deletedPublicId,
+                                                    });
                                                     await loadPlaces();
+                                                    setSelectedPlace(null);
                                                     bumpPlaceTileVersion();
                                                     bumpPreviewMap();
                                                     setSuccessMessage("Place deleted successfully.");
+                                                    dashDevLog("place:list:selection-cleared-after-delete");
                                                 } catch (err) {
                                                     setError(
                                                         err instanceof Error
