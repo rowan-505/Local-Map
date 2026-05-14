@@ -38,3 +38,5 @@ tiles/
 *.sql
 
 
+# Allow deployed MapLibre glyph files
+!public/fonts/**/*.pbf

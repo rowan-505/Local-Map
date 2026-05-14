@@ -89,6 +89,6 @@ dist/
 out/
 .vercel/
 
-# Keep generated map glyphs for deployed apps
-!apps/web/public/fonts/**/*.pbf
-!apps/dashboard/public/fonts/**/*.pbf
+
+# Allow deployed MapLibre glyph files
+!public/fonts/**/*.pbf
