@@ -92,3 +92,8 @@ out/
 
 # Allow deployed MapLibre glyph files
 !public/fonts/**/*.pbf
+
+# database backups
+backups/
+*.dump
+*.sql
