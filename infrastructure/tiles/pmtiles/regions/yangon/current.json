@@ -2,5 +2,5 @@
   "region": "yangon",
   "version": "v1",
   "filename": "yangon-v1.pmtiles",
-  "url": "http://localhost:8080/regions/yangon/yangon-v1.pmtiles"
+  "url": "https://pub-1f8b4bea1a884f51966c7916c5e618ce.r2.dev/basemaps/yangon/v1/basemap.pmtiles"
 }

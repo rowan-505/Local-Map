@@ -9,7 +9,7 @@
   "sources": {
     "local-basemap": {
       "type": "vector",
-      "url": "pmtiles://http://localhost:8080/regions/yangon/yangon-v1.pmtiles",
+      "url": "pmtiles://https://pub-1f8b4bea1a884f51966c7916c5e618ce.r2.dev/basemaps/yangon/v1/basemap.pmtiles",
       "minzoom": 0,
       "maxzoom": 22
     }
