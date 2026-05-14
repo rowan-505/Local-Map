@@ -61,6 +61,7 @@ export const BUILDING_PREVIEW_OUTLINE_LAYER_ID = "building-preview-outline";
  */
 export const BUILDING_SELECTION_GEOJSON_SOURCE_IDS = [
     "selected-building",
+    "selected-building-source",
     "selected-building-geometry",
     "current-building-geometry",
     "building-preview-selected",

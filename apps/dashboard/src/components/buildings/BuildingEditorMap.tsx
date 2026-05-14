@@ -2,7 +2,6 @@
 
 import area from "@turf/area";
 import { type MutableRefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { MultiPolygon, Polygon } from "geojson";
 import maplibregl, { type FilterSpecification } from "maplibre-gl";
 
 import {
@@ -24,16 +23,6 @@ import {
     dashboardComplexTextTransformRequest,
     ensureDashboardMaplibreComplexTextPlugin,
 } from "@/src/lib/map/dashboardMaplibreComplexText";
-import {
-    addBuildingLiveOverlay,
-    buildingPolygonToLiveFeatureCollection,
-    clearLiveOverlay,
-    LIVE_BUILDING_FILL_LAYER,
-    LIVE_BUILDING_OUTLINE_LAYER,
-    LIVE_BUILDING_SELECTED_FILL_LAYER,
-    LIVE_BUILDING_SELECTED_OUTLINE_LAYER,
-    LIVE_BUILDING_SOURCE_ID,
-} from "@/src/lib/map/liveOverlays";
 
 type PolygonGeom = {
     type: "Polygon";
@@ -151,29 +140,29 @@ export function parsePolygonOrMultiPolygon(text: string): PolygonGeom | MultiPol
 }
 
 export function exteriorVertexCount(g: PolygonGeom | MultiPolygonGeom): number {
-    const ring =
-        g.type === "Polygon"
-            ? g.coordinates[0]
-            : g.coordinates.length > 0
-              ? g.coordinates[0]?.[0]
-              : undefined;
+    const countRing = (ring: number[][] | undefined): number => {
+        if (!ring || ring.length < 2) {
+            return 0;
+        }
 
-    if (!ring || ring.length < 2) {
-        return 0;
+        const first = ring[0];
+        const last = ring[ring.length - 1];
+        const closed =
+            first &&
+            last &&
+            first.length >= 2 &&
+            last.length >= 2 &&
+            first[0] === last[0] &&
+            first[1] === last[1];
+
+        return closed ? ring.length - 1 : ring.length;
+    };
+
+    if (g.type === "Polygon") {
+        return countRing(g.coordinates[0]);
     }
 
-    const first = ring[0];
-    const last = ring[ring.length - 1];
-
-    const closed =
-        first &&
-        last &&
-        first.length >= 2 &&
-        last.length >= 2 &&
-        first[0] === last[0] &&
-        first[1] === last[1];
-
-    return closed ? ring.length - 1 : ring.length;
+    return g.coordinates.reduce((sum, poly) => sum + countRing(poly[0]), 0);
 }
 
 export function hasDrawableBuildingPolygon(text: string): boolean {
@@ -184,6 +173,44 @@ export function hasDrawableBuildingPolygon(text: string): boolean {
     }
 
     return exteriorVertexCount(parsed) >= 3;
+}
+
+type NormalizedEditableBuildingGeometry = {
+    displayGeometry: PolygonGeom | MultiPolygonGeom;
+    editableGeometry: PolygonGeom | null;
+    vertexEditingMessage: string | null;
+};
+
+export function normalizeEditableBuildingGeometry(
+    geometry: PolygonGeom | MultiPolygonGeom
+): NormalizedEditableBuildingGeometry {
+    if (geometry.type === "Polygon") {
+        return {
+            displayGeometry: geometry,
+            editableGeometry: geometry,
+            vertexEditingMessage: null,
+        };
+    }
+
+    if (geometry.coordinates.length === 1) {
+        const editableGeometry: PolygonGeom = {
+            type: "Polygon",
+            coordinates: geometry.coordinates[0],
+        };
+
+        return {
+            displayGeometry: editableGeometry,
+            editableGeometry,
+            vertexEditingMessage: null,
+        };
+    }
+
+    return {
+        displayGeometry: geometry,
+        editableGeometry: null,
+        vertexEditingMessage:
+            "This building is a MultiPolygon. Use Draw/redraw to replace it, or edit GeoJSON manually.",
+    };
 }
 
 export function getGeoJsonBounds(g: PolygonGeom | MultiPolygonGeom): maplibregl.LngLatBoundsLike | null {
@@ -258,11 +285,11 @@ function centerLngLatFromParsed(g: PolygonGeom | MultiPolygonGeom): [number, num
     return [(west + east) / 2, (south + north) / 2];
 }
 
-/** Saved footprint overlay (from parent `geometryJson`). */
-const CURRENT_BUILDING_SOURCE = "current-building-geometry";
-const CURRENT_BUILDING_FILL = "current-building-geometry-fill";
-const CURRENT_BUILDING_OUTLINE = "current-building-geometry-outline";
-const CURRENT_BUILDING_CENTER = "current-building-center";
+/** API-selected editable footprint overlay; PMTiles/Martin remain basemap context only. */
+const CURRENT_BUILDING_SOURCE = "selected-building-source";
+const CURRENT_BUILDING_FILL = "selected-building-fill";
+const CURRENT_BUILDING_OUTLINE = "selected-building-outline";
+const CURRENT_BUILDING_CENTER = "selected-building-center";
 
 const CURRENT_BUILDING_ROLE_FOOTPRINT = "footprint";
 const CURRENT_BUILDING_ROLE_MARKER = "marker";
@@ -275,11 +302,11 @@ const DRAFT_VERTICES_LAYER_ID = "draft-building-vertices-circle";
 
 const INITIAL_BUILDING_CAMERA_ZOOM = 14;
 
-/** Aligned with building preview / tile fill palette (readable on basemap). */
-const CURRENT_BUILDING_FILL_COLOR = "#ded8cf";
-const CURRENT_BUILDING_OUTLINE_COLOR = "#9d9488";
-const CURRENT_BUILDING_FILL_OPACITY = 0.78 as const;
-const CURRENT_BUILDING_OUTLINE_WIDTH = 2.5 as const;
+/** Bright overlay so the API-selected building is visible above static PMTiles buildings. */
+const CURRENT_BUILDING_FILL_COLOR = "#06b6d4";
+const CURRENT_BUILDING_OUTLINE_COLOR = "#0891b2";
+const CURRENT_BUILDING_FILL_OPACITY = 0.35 as const;
+const CURRENT_BUILDING_OUTLINE_WIDTH = 4 as const;
 
 const CURRENT_BUILDING_FOOTPRINT_FILTER: FilterSpecification = [
     "==",
@@ -408,19 +435,10 @@ function bringEditorOverlayLayersToFront(map: maplibregl.Map) {
         }
     }
 
-    /* API live footprint (cyan) above editor “saved” tan layers + draft so it stays visible over PMTiles. */
-    if (map.getLayer(LIVE_BUILDING_FILL_LAYER)) {
-        map.moveLayer(LIVE_BUILDING_FILL_LAYER);
-        map.moveLayer(LIVE_BUILDING_OUTLINE_LAYER);
-    }
-
-    if (map.getLayer(LIVE_BUILDING_SELECTED_FILL_LAYER)) {
-        map.moveLayer(LIVE_BUILDING_SELECTED_FILL_LAYER);
-        map.moveLayer(LIVE_BUILDING_SELECTED_OUTLINE_LAYER);
-    }
 }
 
 function ensureCurrentBuildingGeometryLayers(map: maplibregl.Map) {
+    // PMTiles/Martin are basemap context only; the selected editable building is API GeoJSON.
     if (!map.getSource(CURRENT_BUILDING_SOURCE)) {
         map.addSource(CURRENT_BUILDING_SOURCE, {
             type: "geojson",
@@ -587,9 +605,6 @@ function clearCurrentGeometry(map: maplibregl.Map): void {
         currentSrc.setData({ type: "FeatureCollection", features: [] });
     }
 
-    clearLiveOverlay(map, LIVE_BUILDING_SOURCE_ID);
-    dashDevLog("building:map:live-overlay-cleared-after-delete-or-reset");
-
     bringEditorOverlayLayersToFront(map);
 }
 
@@ -625,10 +640,6 @@ function scheduleOneShotInitialBuildingCamera(
             return;
         }
 
-        if (!map.isStyleLoaded()) {
-            return;
-        }
-
         const sourceId = CURRENT_BUILDING_SOURCE;
         const srcReady = !!map.getSource(sourceId);
         const fillReady = !!map.getLayer(CURRENT_BUILDING_FILL);
@@ -655,8 +666,8 @@ function scheduleOneShotInitialBuildingCamera(
 
             if (bounds) {
                 map.fitBounds(bounds, {
-                    padding: 72,
-                    maxZoom: 22,
+                    padding: 80,
+                    maxZoom: 19,
                     duration: 900,
                 });
             } else {
@@ -773,6 +784,7 @@ export default function BuildingEditorMap({
     const [manualDrawing, setManualDrawing] = useState(false);
     const [draftPointsCount, setDraftPointsCount] = useState(0);
     const [vertexEditActive, setVertexEditActive] = useState(false);
+    const [vertexEditMessage, setVertexEditMessage] = useState("");
     const [drawUiMode, setDrawUiMode] = useState<ToolUi>(DRAW_UI_LABEL_NAV);
 
     const [stats, setStats] = useState<{ areaSqM: number | null; vertexCount: number }>({
@@ -871,17 +883,13 @@ export default function BuildingEditorMap({
 
         const map = mapRef.current;
 
-        if (map?.isStyleLoaded()) {
+        if (map) {
             ensureCurrentBuildingGeometryLayers(map);
             const currentSrc = map.getSource(CURRENT_BUILDING_SOURCE) as maplibregl.GeoJSONSource | undefined;
 
             if (currentSrc) {
                 currentSrc.setData(buildCurrentBuildingFeatureCollection(poly));
-                addBuildingLiveOverlay(
-                    map,
-                    buildingPolygonToLiveFeatureCollection(poly as Polygon),
-                );
-                dashDevLog("building:map:live-overlay-updated-after-draw-finish");
+                dashDevLog("building:map:selected-api-overlay-updated-after-draw-finish");
                 devLog("current geometry source updated after finish");
             }
 
@@ -892,7 +900,7 @@ export default function BuildingEditorMap({
 
         emitGeometryToParent(poly);
 
-        if (map?.isStyleLoaded()) {
+        if (map) {
             clearDraftGeometry(map);
             devLog("draft cleared after finish");
             bringEditorOverlayLayersToFront(map);
@@ -904,11 +912,11 @@ export default function BuildingEditorMap({
         drawModeRef.current = false;
         setDrawUiMode(DRAW_UI_LABEL_NAV);
 
-        if (map?.isStyleLoaded()) {
+        if (map) {
             setMapInteractionCursor(map, "default");
         }
 
-        if (map?.isStyleLoaded()) {
+        if (map) {
             const b = getGeoJsonBounds(poly);
 
             if (b) {
@@ -916,7 +924,7 @@ export default function BuildingEditorMap({
                     map.resize();
                     map.fitBounds(b, {
                         padding: 80,
-                        maxZoom: 22,
+                        maxZoom: 19,
                         duration: 500,
                     });
                 });
@@ -1083,7 +1091,7 @@ export default function BuildingEditorMap({
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!mapReady || !map?.isStyleLoaded()) {
+        if (!mapReady || !map) {
             return;
         }
 
@@ -1093,7 +1101,7 @@ export default function BuildingEditorMap({
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!mapReady || !map?.isStyleLoaded()) {
+        if (!mapReady || !map) {
             return;
         }
 
@@ -1103,7 +1111,7 @@ export default function BuildingEditorMap({
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!mapReady || !map?.isStyleLoaded()) {
+        if (!mapReady || !map) {
             return;
         }
 
@@ -1113,7 +1121,7 @@ export default function BuildingEditorMap({
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!mapReady || !map?.isStyleLoaded()) {
+        if (!mapReady || !map) {
             return;
         }
 
@@ -1123,7 +1131,7 @@ export default function BuildingEditorMap({
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!mapReady || !map?.isStyleLoaded()) {
+        if (!mapReady || !map) {
             return;
         }
 
@@ -1140,7 +1148,7 @@ export default function BuildingEditorMap({
 
         const map = mapRef.current;
 
-        if (!mapReady || !map?.isStyleLoaded()) {
+        if (!mapReady || !map) {
             return () => {
                 cancelInitialCamera();
             };
@@ -1148,6 +1156,9 @@ export default function BuildingEditorMap({
 
         const trimmed = geometryJson.trim();
         const parsed = parsePolygonOrMultiPolygon(trimmed);
+        const normalized = parsed ? normalizeEditableBuildingGeometry(parsed) : null;
+        const displayGeometry = normalized?.displayGeometry ?? null;
+        const editableGeometry = normalized?.editableGeometry ?? null;
 
         if (IS_DEV) {
             devLog("current geometry prop", geometryJson);
@@ -1159,22 +1170,17 @@ export default function BuildingEditorMap({
         const currentBuildingSrc = map.getSource(CURRENT_BUILDING_SOURCE) as maplibregl.GeoJSONSource | undefined;
 
         if (currentBuildingSrc) {
-            if (parsed) {
-                dashDevLog("building:map:loaded-api-geometry-into-editor-map", parsed);
-                currentBuildingSrc.setData(buildCurrentBuildingFeatureCollection(parsed));
-                addBuildingLiveOverlay(
-                    map,
-                    buildingPolygonToLiveFeatureCollection(parsed as Polygon | MultiPolygon),
-                );
-                dashDevLog("building:map:live-overlay-updated");
+            if (displayGeometry) {
+                dashDevLog("building:map:loaded-api-geometry-into-editor-map", displayGeometry);
+                currentBuildingSrc.setData(buildCurrentBuildingFeatureCollection(displayGeometry));
+                dashDevLog("building:map:selected-api-overlay-updated");
                 devLog("current building geometry rendered");
                 bringEditorOverlayLayersToFront(map);
             } else if (suppressNextEmptySourceClearRef.current) {
                 suppressNextEmptySourceClearRef.current = false;
             } else {
                 currentBuildingSrc.setData({ type: "FeatureCollection", features: [] });
-                clearLiveOverlay(map, LIVE_BUILDING_SOURCE_ID);
-                dashDevLog("building:map:live-overlay-cleared-empty-geometry");
+                dashDevLog("building:map:selected-api-overlay-cleared-empty-geometry");
             }
         }
 
@@ -1182,11 +1188,11 @@ export default function BuildingEditorMap({
             hasAppliedInitialBuildingCameraRef.current = false;
         }
 
-        if (parsed && !hasAppliedInitialBuildingCameraRef.current) {
+        if (displayGeometry && !hasAppliedInitialBuildingCameraRef.current) {
             initialBuildingCameraCleanupRef.current = scheduleOneShotInitialBuildingCamera(
                 map,
                 hasAppliedInitialBuildingCameraRef,
-                parsed
+                displayGeometry
             );
         }
 
@@ -1203,17 +1209,22 @@ export default function BuildingEditorMap({
         }
 
         removeEditMarkerElements();
-        if (parsed?.type === "Polygon" && exteriorVertexCount(parsed) >= 3) {
-            setupPolygonVertexMarkers(map, parsed, (next) => {
+        if (editableGeometry && exteriorVertexCount(editableGeometry) >= 3) {
+            setupPolygonVertexMarkers(map, editableGeometry, (next) => {
                 emitGeometryToParent(next);
             });
-            dashDevLog("building:editor:editable-geometry-vertex-count", exteriorVertexCount(parsed));
+            dashDevLog("building:editor:editable-geometry-vertex-count", exteriorVertexCount(editableGeometry));
             setDrawUiMode("edit");
         } else {
             setDrawUiMode(DRAW_UI_LABEL_NAV);
         }
         queueMicrotask(() => {
-            setVertexEditActive(parsed?.type === "Polygon" && exteriorVertexCount(parsed) >= 3);
+            setVertexEditActive(Boolean(editableGeometry && exteriorVertexCount(editableGeometry) >= 3));
+            setVertexEditMessage(
+                editableGeometry && exteriorVertexCount(editableGeometry) >= 3
+                    ? ""
+                    : normalized?.vertexEditingMessage ?? ""
+            );
 
             if (!parsed) {
                 setStats({ areaSqM: null, vertexCount: 0 });
@@ -1222,9 +1233,7 @@ export default function BuildingEditorMap({
             }
         });
 
-        if (map.isStyleLoaded()) {
-            setDraftFromRing(map, drawModeRef.current ? draftPointsRef.current : []);
-        }
+        setDraftFromRing(map, drawModeRef.current ? draftPointsRef.current : []);
 
         return () => {
             cancelInitialCamera();
@@ -1265,11 +1274,12 @@ export default function BuildingEditorMap({
         setDraftPointsCount(0);
         drawModeRef.current = true;
         setManualDrawing(true);
+        setVertexEditMessage("");
         setDrawUiMode(DRAW_UI_LABEL_POLYGON);
 
         const map = mapRef.current;
 
-        if (map?.isStyleLoaded()) {
+        if (map) {
             clearDraftGeometry(map);
             setDraftFromRing(map, []);
             setMapInteractionCursor(map, "crosshair");
@@ -1285,7 +1295,7 @@ export default function BuildingEditorMap({
 
         const map = mapRef.current;
 
-        if (!map?.isStyleLoaded()) {
+        if (!map) {
             setDrawUiMode(DRAW_UI_LABEL_NAV);
             return;
         }
@@ -1297,19 +1307,25 @@ export default function BuildingEditorMap({
 
         if (!parsed) {
             window.alert("No polygon to edit. Use Draw to create one.");
+            setVertexEditMessage("");
             setDrawUiMode(DRAW_UI_LABEL_NAV);
             return;
         }
 
-        if (parsed.type === "MultiPolygon") {
-            window.alert(
-                "Vertex editing applies to a single Polygon. Use Draw to redraw this footprint, or edit the GeoJSON below."
-            );
+        const normalized = normalizeEditableBuildingGeometry(parsed);
+
+        if (!normalized.editableGeometry || exteriorVertexCount(normalized.editableGeometry) < 3) {
+            const message =
+                normalized.vertexEditingMessage ??
+                "No editable polygon vertices found. Use Draw to replace it, or edit GeoJSON manually.";
+            window.alert(message);
+            setVertexEditMessage(message);
             setDrawUiMode(DRAW_UI_LABEL_NAV);
             return;
         }
 
-        setupPolygonVertexMarkers(map, parsed, (next) => {
+        setVertexEditMessage("");
+        setupPolygonVertexMarkers(map, normalized.editableGeometry, (next) => {
             emitGeometryToParent(next);
         });
     }, [emitGeometryToParent, setupPolygonVertexMarkers]);
@@ -1323,7 +1339,7 @@ export default function BuildingEditorMap({
 
         const map = mapRef.current;
 
-        if (map?.isStyleLoaded()) {
+        if (map) {
             clearCurrentGeometry(map);
             clearDraftGeometry(map);
             bringEditorOverlayLayersToFront(map);
@@ -1333,6 +1349,7 @@ export default function BuildingEditorMap({
         draftPointsRef.current = [];
         setDraftPointsCount(0);
         setManualDrawing(false);
+        setVertexEditMessage("");
         drawModeRef.current = false;
         setDrawUiMode(DRAW_UI_LABEL_NAV);
 
@@ -1354,7 +1371,7 @@ export default function BuildingEditorMap({
 
         const map = mapRef.current;
 
-        if (map?.isStyleLoaded()) {
+        if (map) {
             clearDraftGeometry(map);
             setMapInteractionCursor(map, "default");
         }
@@ -1368,7 +1385,7 @@ export default function BuildingEditorMap({
         const map = mapRef.current;
         const parsed = parsePolygonOrMultiPolygon(geometryJson.trim());
 
-        if (!map?.isStyleLoaded() || !parsed) {
+        if (!map || !parsed) {
             return;
         }
 
@@ -1382,7 +1399,7 @@ export default function BuildingEditorMap({
             map.resize();
             map.fitBounds(b, {
                 padding: 80,
-                maxZoom: 22,
+                maxZoom: 19,
                 duration: 500,
             });
         });
@@ -1420,7 +1437,7 @@ export default function BuildingEditorMap({
 
             const map = mapRef.current;
 
-            if (!map?.isStyleLoaded()) {
+            if (!map) {
                 return;
             }
 
@@ -1602,14 +1619,21 @@ export default function BuildingEditorMap({
                         </strong>
                     </span>
                     <span>
-                        Exterior vertices (first polygon):{" "}
+                        Exterior vertices:{" "}
                         <strong className="tabular-nums">{stats.vertexCount}</strong>
                     </span>
                 </div>
             )}
 
+            {vertexEditMessage ? (
+                <p className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                    {vertexEditMessage}
+                </p>
+            ) : null}
+
             <p className="mt-1.5 text-xs text-gray-500">
-                Gray fills are buildings from the live tile layer. <strong>Draw</strong>: click corners, then{" "}
+                PMTiles/Martin layers are basemap context only; this bright overlay comes from the building API.{" "}
+                <strong>Draw</strong>: click corners, then{" "}
                 <strong>Finish polygon</strong>. <strong>Edit</strong>: drag vertices on a single Polygon — MultiPolygon
                 footprints use Draw (confirm) or the JSON field. <strong>Delete</strong> clears the saved footprint from
                 this form only. <strong>Clear</strong> removes in-progress clicks only.
