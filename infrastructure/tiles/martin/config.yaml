@@ -1,17 +1,18 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/maplibre/martin/main/schemas/config.json
+#
+# Runtime: set DATABASE_URL (Fly: `fly secrets set DATABASE_URL='postgresql://...'`).
+# Never put credentials in this file — see config.yaml.example and README.md.
 
 listen_addresses: "0.0.0.0:3000"
 
 postgres:
-  connection_string: postgresql://postgres.locghyuranqaqsnbxflc:GeoCore6505@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+  # Martin expands ${VAR:?message} at startup; fails fast if unset.
+  connection_string: ${DATABASE_URL:?Set DATABASE_URL — e.g. fly secrets set DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/postgres'}
 
-  # Discover all usable tables/views in schema `tiles` (places, road labels, admin, bus stops, routes, …).
   auto_publish:
     from_schemas:
       - tiles
 
-  # Force-publish `tiles.tiles_buildings_v` as source id `tiles_buildings_v` (path `/tiles_buildings_v/...`).
-  # Auto-discovery sometimes omits views from catalog; dashboard/web rely on this name.
   tables:
     tiles_buildings_v:
       schema: tiles

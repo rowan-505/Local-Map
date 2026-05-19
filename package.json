@@ -1,6 +1,10 @@
 {
   "scripts": {
     "db:erd": "tsx tools/database/generate-erd.ts",
+    "db:erd:supabase": "bash infrastructure/database/introspection/supabase/scripts/export-erd.sh",
+    "db:context:local": "bash infrastructure/database/introspection/local/scripts/export-context.sh",
+    "db:schema:local": "bash infrastructure/database/introspection/local/scripts/export-context.sh --schema-only",
+    "db:erd:local": "bash infrastructure/database/introspection/local/scripts/export-erd.sh",
     "tiles:export": "bash infrastructure/tiles/pmtiles/scripts/export-region.sh",
     "tiles:build": "bash infrastructure/tiles/pmtiles/scripts/build-region.sh",
     "tiles:rebuild": "bash infrastructure/tiles/pmtiles/scripts/rebuild-region.sh",

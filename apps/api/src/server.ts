@@ -1,6 +1,15 @@
-import { buildApp } from "./app.js";
+import { config } from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/** Repo root then apps/api — later files override for duplicate keys (api wins). */
+const apiRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = resolve(apiRoot, "../..");
+config({ path: resolve(repoRoot, ".env") });
+config({ path: resolve(apiRoot, ".env"), override: true });
 
 async function start() {
+    const { buildApp } = await import("./app.js");
     const app = await buildApp();
     const port = Number(process.env.PORT ?? 3001);
 

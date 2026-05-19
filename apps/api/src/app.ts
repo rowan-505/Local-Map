@@ -2,6 +2,8 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { Prisma } from "@prisma/client";
 
+import { disconnectImportReviewPrisma } from "./lib/import-review-prisma.js";
+import { bootstrapImportReviewDatabase } from "./modules/import-review/import-review-bootstrap.js";
 import { prisma } from "./lib/prisma.js";
 import authPlugin from "./plugins/auth.js";
 import prismaPlugin from "./plugins/prisma.js";
@@ -15,6 +17,8 @@ import streetsRoutes from "./modules/streets/streets.routes.js";
 import buildingsRoutes from "./modules/buildings/buildings.routes.js";
 import placeBuildingRoutes from "./modules/place-buildings/place-buildings.routes.js";
 import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
+import importReviewRoutes from "./modules/import-review/import-review.routes.js";
+import { IMPORT_REVIEW_ADMIN_TOKEN_HEADER } from "./modules/import-review/import-review-admin.guard.js";
 import { healthGetSchema } from "./lib/openapi/health.openapi.js";
 
 const LOCAL_DASHBOARD_ORIGIN = "http://localhost:3000";
@@ -40,17 +44,20 @@ export async function buildApp() {
         logger: true,
     });
 
+    await bootstrapImportReviewDatabase(app.log);
+
     registerPublicErrorHandler(app);
 
     await app.register(cors, {
         origin: getCorsOrigins(),
         credentials: true,
         methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization"],
+        allowedHeaders: ["Content-Type", "Authorization", IMPORT_REVIEW_ADMIN_TOKEN_HEADER],
     });
 
     await app.register(prismaPlugin);
     app.addHook("onClose", async () => {
+        await disconnectImportReviewPrisma();
         await prisma.$disconnect();
     });
     await app.register(authPlugin);
@@ -72,6 +79,7 @@ export async function buildApp() {
     await app.register(buildingsRoutes);
     await app.register(placeBuildingRoutes);
     await app.register(dashboardRoutes);
+    await app.register(importReviewRoutes, { prefix: "/api/import-review" });
 
     await app.register(swaggerUiPlugin);
 

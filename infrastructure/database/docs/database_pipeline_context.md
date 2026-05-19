@@ -1,5 +1,7 @@
 # 🗺️ Map App Database Context
 
+> **Schema introspection (local vs Supabase):** see [`../README.md`](../README.md).
+
 ## 🧠 System Overview
 
 This project is a geospatial map system with strict architecture:

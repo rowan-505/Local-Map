@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "check:streets-names": "tsx scripts/check-street-name-normalization.ts",
     "docs:api": "tsx scripts/generate-api-docs.ts",
+    "curl-examples:import-review-auth": "bash scripts/import-review-admin-curl-examples.sh",
     "prisma:generate": "prisma generate"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "@prisma/client": "^6.15.0",
     "@supabase/supabase-js": "^2.105.1",
     "bcryptjs": "^3.0.3",
+    "dotenv": "^16.6.1",
     "fastify": "^5.8.5",
     "fastify-plugin": "^5.1.0",
     "generate": "^0.14.0",

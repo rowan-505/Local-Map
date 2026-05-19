@@ -39,6 +39,11 @@ import {
     type Street,
     type StreetLineStringGeoJson,
 } from "@/src/lib/api";
+import {
+    applyDataReviewBasemapMode,
+    ensureDataReviewSatelliteLayer,
+    type DataReviewBasemapMode,
+} from "@/src/components/map/dataReviewBasemap";
 import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 import {
@@ -421,6 +426,12 @@ export type StreetEditorMapProps = {
     onSplitPointClicked?: (lng: number, lat: number) => void;
     /** Marker shown after the user picks a split point (dashboard split flow). */
     splitPreviewLngLat?: { lng: number; lat: number } | null;
+    /** When set, enables Map / Sat / Hyb raster overlay (import-review road editor). */
+    dataReviewBasemapMode?: DataReviewBasemapMode;
+    /** Fired once when the MapLibre instance is ready (for Fit-to-geometry controls). */
+    onMapInstance?: (map: maplibregl.Map | null) => void;
+    /** Override map viewport height class (default street editor sizing). */
+    mapViewportClassName?: string;
 };
 
 type SnapCtl = {
@@ -445,6 +456,9 @@ export default function StreetEditorMap({
     splitPickActive = false,
     onSplitPointClicked,
     splitPreviewLngLat = null,
+    dataReviewBasemapMode,
+    onMapInstance,
+    mapViewportClassName,
 }: StreetEditorMapProps) {
     const { streetTileVersion, placeTileVersion, roadLabelTileVersion } = useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -459,6 +473,8 @@ export default function StreetEditorMap({
 
     const [mapReady, setMapReady] = useState(false);
     const [snapToRoad, setSnapToRoad] = useState(true);
+    const dataReviewBasemapModeRef = useRef(dataReviewBasemapMode);
+    dataReviewBasemapModeRef.current = dataReviewBasemapMode;
 
     const seedPropRef = useRef(seedLine);
 
@@ -1043,6 +1059,12 @@ export default function StreetEditorMap({
             attachMapLibreDevDebugMap(map);
             addStreetEditorPreviewSources(map);
 
+            if (dataReviewBasemapModeRef.current !== undefined) {
+                ensureDataReviewSatelliteLayer(map);
+                applyDataReviewBasemapMode(map, dataReviewBasemapModeRef.current);
+            }
+            onMapInstance?.(map);
+
             /** Hide TerraDraw's own stroke/points when editing an existing street — DOM vertex handles + blue GeoJSON line are authoritative. */
             const hideTerraDrawLineOverlay = Boolean(selectedStreetPublicIdRef.current);
 
@@ -1270,11 +1292,20 @@ export default function StreetEditorMap({
             drawRef.current?.stop();
             drawRef.current = null;
             lineModeRef.current = null;
+            onMapInstance?.(null);
             mapRef.current?.remove();
             mapRef.current = null;
             lastEmittedCoordsKey.current = "";
         };
     }, [clientMounted, clearSnapFeedbackTimer, safeGetDrawSnapshot, safeUpsertDrawLine, scheduleSnapFeedback]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapReady || !map || !map.isStyleLoaded() || dataReviewBasemapMode === undefined) {
+            return;
+        }
+        applyDataReviewBasemapMode(map, dataReviewBasemapMode);
+    }, [mapReady, dataReviewBasemapMode]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -1740,12 +1771,18 @@ export default function StreetEditorMap({
             {clientMounted ? (
                 <div
                     ref={containerRef}
-                    className="h-[min(28rem,calc(100vh-22rem))] w-full overflow-hidden rounded-md border border-gray-200 shadow-inner"
+                    className={
+                        mapViewportClassName ??
+                        "h-[min(28rem,calc(100vh-22rem))] w-full overflow-hidden rounded-md border border-gray-200 shadow-inner"
+                    }
                     style={{ touchAction: "none" }}
                 />
             ) : (
                 <div
-                    className="h-[min(28rem,calc(100vh-22rem))] w-full overflow-hidden rounded-md border border-gray-200 shadow-inner"
+                    className={
+                        mapViewportClassName ??
+                        "h-[min(28rem,calc(100vh-22rem))] w-full overflow-hidden rounded-md border border-gray-200 shadow-inner"
+                    }
                     style={{ touchAction: "none" }}
                     aria-hidden
                 />

@@ -1,8 +1,8 @@
 # Current Database ERD
 
-Generated from live Supabase database.
+Generated from: configured DATABASE_URL
 
-Generated at: 2026-05-08T15:27:24.857Z
+Generated at: 2026-05-15T08:36:14.052Z
 
 ```mermaid
 erDiagram

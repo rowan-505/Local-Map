@@ -24,7 +24,7 @@ function getOrCreatePrismaClient(): PrismaClient {
 }
 
 function createPrismaClient() {
-    const databaseUrl = getPrismaDatabaseUrl();
+    const databaseUrl = applyPrismaConnectionLimit(process.env.DATABASE_URL);
     const options = databaseUrl
         ? {
               datasources: {
@@ -39,21 +39,28 @@ function createPrismaClient() {
 }
 
 /**
- * When `DATABASE_URL` has no `connection_limit`, append one so Supabase / poolers with a small
+ * When the URL has no `connection_limit`, append one so Supabase / poolers with a small
  * `pool_size` are not exhausted by Prisma's default pool (especially in production).
  *
  * Override with `PRISMA_CONNECTION_LIMIT` (e.g. `1` for tight session poolers).
+ * Safe to reuse for secondary Prisma clients that need the same pooling behavior.
  */
-function getPrismaDatabaseUrl() {
-    const databaseUrl = process.env.DATABASE_URL;
-
-    if (!databaseUrl || hasConnectionLimit(databaseUrl)) {
-        return databaseUrl;
+export function applyPrismaConnectionLimit(databaseUrl: string | undefined): string | undefined {
+    if (!databaseUrl) {
+        return undefined;
     }
 
-    /* Supabase session pooler (5432) caps concurrent DB sessions; default Prisma pool (e.g. 5–9) + other clients (Martin, etc.) exhausts fast. */
+    const trimmed = databaseUrl.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+
+    if (hasConnectionLimit(trimmed)) {
+        return trimmed;
+    }
+
     const limit = process.env.PRISMA_CONNECTION_LIMIT?.trim() ?? "1";
-    return appendConnectionLimit(databaseUrl, limit);
+    return appendConnectionLimit(trimmed, limit);
 }
 
 function hasConnectionLimit(databaseUrl: string) {
@@ -84,6 +91,8 @@ function registerPrismaShutdownHooks() {
     for (const signal of ["SIGINT", "SIGTERM"] as const) {
         process.once(signal, async () => {
             await prisma.$disconnect();
+            const { disconnectImportReviewPrisma } = await import("./import-review-prisma.js");
+            await disconnectImportReviewPrisma();
             process.kill(process.pid, signal);
         });
     }

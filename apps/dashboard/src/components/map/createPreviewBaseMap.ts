@@ -36,6 +36,8 @@ type CreatePreviewBaseMapOptions = {
   maxZoom?: number;
   /** Override `current.json` URL (defaults to env / {@link getDashboardBasemapCurrentJsonUrl}). */
   currentJsonUrl?: string;
+  /** Import-review style: zoom only, no compass or pitch ring. */
+  navigationMode?: "default" | "compact";
   onLoad?: (map: maplibregl.Map) => void;
 };
 
@@ -89,7 +91,15 @@ export async function createPreviewBaseMap(
     transformRequest: dashboardComplexTextTransformRequest,
   });
 
-  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  const navMode = options.navigationMode ?? "default";
+  if (navMode === "compact") {
+    map.addControl(
+      new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }),
+      "top-right",
+    );
+  } else {
+    map.addControl(new maplibregl.NavigationControl(), "top-right");
+  }
   attachDashboardMapErrorHandler(map, "createPreviewBaseMap");
 
   map.on("load", () => {

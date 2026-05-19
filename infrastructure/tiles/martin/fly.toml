@@ -6,6 +6,9 @@
 app = 'martin-lively-canyon-4077'
 primary_region = 'sin'
 
+# DATABASE_URL must be set via Fly secrets (not in this file):
+#   fly secrets set DATABASE_URL='postgresql://...'
+
 [build]
 
 [http_service]

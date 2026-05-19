@@ -1,3 +1,12 @@
+import {
+    attachImportReviewDevAdminTokenHeader,
+    isImportReviewDevRouteBypassActive,
+    isImportReviewApiPath,
+    logImportReviewAuthDecision,
+    markImportReviewApiAuthFailed,
+    readImportReviewAuthDebugState,
+} from "./importReviewDevAccess";
+
 type QueryValue = string | number | boolean | null | undefined;
 
 /** True when `fetch` was aborted (Strict Mode remount, navigation, dependency change). */
@@ -385,6 +394,239 @@ export type DashboardStatsResponse = {
     transit: DashboardStatsTransitCounts;
     health: DashboardStatsHealthCounts;
 };
+export type ImportReviewEnvelopeFields = {
+    source_snapshot_version: string;
+    review_batch_id: string | null;
+    source_snapshot_id_local: string | null;
+};
+
+/** Query/body selectors accepted by `/api/import-review/*` — prefer `source_snapshot_version`. */
+export type ImportReviewEnvelopeQuery = {
+    source_snapshot_version?: string;
+    snapshot_version?: string;
+    review_batch_id?: string;
+};
+
+function normalizedImportReviewUrlParams(params?: Record<string, QueryValue>): Record<string, QueryValue> | undefined {
+    if (!params) {
+        return undefined;
+    }
+
+    const next: Record<string, QueryValue> = { ...params };
+    const snapshotAlias = next.snapshot_version;
+    const snapshotCanon = next.source_snapshot_version;
+
+    delete next.snapshot_version;
+
+    const ssv =
+        snapshotCanon !== undefined &&
+        snapshotCanon !== null &&
+        String(snapshotCanon).trim() !== ""
+            ? String(snapshotCanon).trim()
+            : snapshotAlias !== undefined &&
+                snapshotAlias !== null &&
+                String(snapshotAlias).trim() !== ""
+              ? String(snapshotAlias).trim()
+              : "";
+
+    if (ssv) {
+        next.source_snapshot_version = ssv;
+    } else {
+        delete next.source_snapshot_version;
+    }
+
+    return next;
+}
+
+function wireImportReviewJsonBody(body: Record<string, unknown>): Record<string, unknown> {
+    const next = { ...body };
+    const raw = next.source_snapshot_version ?? next.snapshot_version;
+    delete next.snapshot_version;
+
+    if (typeof raw === "string" && raw.trim()) {
+        next.source_snapshot_version = raw.trim();
+    } else {
+        delete next.source_snapshot_version;
+    }
+
+    return next;
+}
+
+export type ImportReviewSummaryBucketRow = {
+    entity_family: string;
+    review_batch_id: string;
+    source_snapshot_version: string;
+    match_status: string | null;
+    auto_action: string | null;
+    review_status: string | null;
+    review_decision: string | null;
+    promotion_status: string | null;
+    row_count: number;
+};
+
+export type ImportReviewSummaryResponse = {
+    source_snapshot_version: string;
+    review_batch_id: string | null;
+    source_snapshot_id_local: string | null;
+    entity_summaries: ImportReviewSummaryBucketRow[];
+    warnings?: string[];
+    total_pending_review_count: number;
+    total_approved_count: number;
+    total_rejected_count: number;
+};
+
+/** GeoJSON geometry for import-review rows when include_geometry=true. */
+export type ImportReviewGeoJson = Record<string, unknown>;
+
+export type ImportReviewBuildingListItem = {
+    id: string;
+    public_id: string;
+    review_batch_id: string;
+    source_snapshot_version: string;
+    local_staging_id: string;
+    source_snapshot_id_local: string | null;
+    external_id: string | null;
+    canonical_name: string | null;
+    name: string | null;
+    class_code: string | null;
+    building_type: string | null;
+    building_type_id: string | null;
+    admin_area_id: string | null;
+    levels: number | null;
+    height_m: number | null;
+    area_m2: number | null;
+    confidence_score: number | null;
+    match_status: string | null;
+    auto_action: string | null;
+    review_status: string | null;
+    review_decision: string | null;
+    reviewed_by: string | null;
+    reviewed_at: string | null;
+    review_note: string | null;
+    normalized_data: unknown;
+    source_refs: unknown;
+    review_overrides?: unknown;
+    matched_core_id: string | null;
+    matched_core_table: string | null;
+    matched_core_data: unknown;
+    f2_comparison: unknown;
+    validation_warnings: unknown;
+    validation_errors: unknown;
+    promotion_status: string | null;
+    promoted_core_id: string | null;
+    created_at: string;
+    updated_at: string;
+    geometry: ImportReviewGeoJson | null;
+    geom?: ImportReviewGeoJson | null;
+    centroid?: ImportReviewGeoJson | null;
+    /** Populated on road endpoints when available. */
+    road_candidate_road_class_id?: string | null;
+    road_candidate_class_label?: string | null;
+    road_candidate_surface?: string | null;
+    road_candidate_is_oneway?: boolean | null;
+};
+
+export type ImportReviewBuildingsListResponse = ImportReviewEnvelopeFields & {
+    items: ImportReviewBuildingListItem[];
+    total: number;
+    limit: number;
+    offset: number;
+};
+
+
+
+export type ImportReviewBuildingsFilterOptionsResponse = ImportReviewEnvelopeFields & {
+    match_status: string[];
+    auto_action: string[];
+    review_status: string[];
+    review_decision: string[];
+    class_code: string[];
+    promotion_status: string[];
+};
+
+export type ImportReviewDecision =
+    | "approved"
+    | "rejected"
+    | "needs_more_review"
+    | "ignored"
+    | "merged";
+
+export type ImportReviewBuildingsListParams = ImportReviewEnvelopeQuery & {
+    match_status?: string;
+    auto_action?: string;
+    review_status?: string;
+    review_decision?: string;
+    promotion_status?: string;
+    class_code?: string;
+    q?: string;
+    limit?: number;
+    offset?: number;
+    sort?: string;
+    include_geometry?: boolean;
+};
+
+/** Places/roads list — same as buildings but no `class_code` filter. */
+export type ImportReviewPlacesListParams = Omit<ImportReviewBuildingsListParams, "class_code">;
+export type ImportReviewRoadsListParams = Omit<ImportReviewBuildingsListParams, "class_code">;
+
+export type PatchImportReviewBuildingDecisionBody = ImportReviewEnvelopeQuery & {
+    review_decision: ImportReviewDecision;
+    review_note?: string | null;
+    force?: boolean;
+    confirm_duplicate_reviewed?: boolean;
+    /** Roads: approving when matched as auto-update candidate requires confirmation. */
+    confirm_matched_auto_update?: boolean;
+    /** Roads: approving while `validation_warnings` remain requires this or `force`. */
+    confirm_routing_warnings?: boolean;
+};
+
+export type PatchImportReviewBuildingOverridesBody = ImportReviewEnvelopeQuery & {
+    review_overrides: Record<string, unknown>;
+    review_note?: string | null;
+};
+
+export type ImportReviewRoadReviewOverridesLeaf = {
+    canonical_name?: string | null;
+    road_class_id?: string | number | bigint | null;
+    road_class_code?: string | null;
+    is_oneway?: boolean | null;
+    surface?: string | null;
+    geom?: ImportReviewGeoJson | null;
+};
+
+export type PatchImportReviewRoadOverridesBody = ImportReviewEnvelopeQuery & {
+    review_overrides: ImportReviewRoadReviewOverridesLeaf;
+    review_note?: string | null;
+    routing_validation_tolerance_meters?: number;
+    confirm_acknowledge_routing_warnings?: boolean;
+};
+
+export type ImportReviewBulkFiltersBody = {
+    match_status?: string;
+    auto_action?: string;
+    review_decision?: string | null;
+};
+
+export type PostImportReviewBuildingsBulkBody = ImportReviewEnvelopeQuery & {
+    review_decision: ImportReviewDecision;
+    review_note?: string | null;
+    force?: boolean;
+    dry_run?: boolean;
+    ids?: (string | number)[];
+    filters?: ImportReviewBulkFiltersBody;
+};
+
+export type ImportReviewBulkSkippedReason = {
+    reason: string;
+    count: number;
+};
+
+export type ImportReviewBulkDecisionResponse = ImportReviewEnvelopeFields & {
+    updated_count: number;
+    skipped_count: number;
+    skipped_reasons: ImportReviewBulkSkippedReason[];
+    dry_run: boolean;
+};
 
 export type DeleteBuildingResponse = {
     ok: boolean;
@@ -518,10 +760,31 @@ function clearAuthTokens() {
     window.localStorage.removeItem("jwt");
 }
 
-function redirectToLogin() {
-    if (typeof window === "undefined" || window.location.pathname === "/login") {
+function redirectToLogin(reason: string) {
+    if (typeof window === "undefined") {
         return;
     }
+
+    const pathname = window.location.pathname;
+
+    if (pathname === "/login") {
+        return;
+    }
+
+    if (isImportReviewDevRouteBypassActive(pathname)) {
+        logImportReviewAuthDecision(
+            "apiFetch.redirectToLogin",
+            `skip-dev-route-bypass:${reason}`,
+            readImportReviewAuthDebugState(pathname, false)
+        );
+        return;
+    }
+
+    logImportReviewAuthDecision(
+        "apiFetch.redirectToLogin",
+        reason,
+        readImportReviewAuthDebugState(pathname, false)
+    );
 
     window.location.replace("/login");
 }
@@ -614,6 +877,35 @@ async function getErrorMessage(response: Response): Promise<string> {
             return headline.length > 0 ? `${headline.join(" — ")}\n\n${issuesBlock}` : issuesBlock;
         }
 
+        const extraBullets: string[] = [];
+
+        if (Array.isArray(data.errors)) {
+            for (const entry of data.errors) {
+                if (typeof entry === "string" && entry.trim()) {
+                    extraBullets.push(`✗ ${entry.trim()}`);
+                }
+            }
+        }
+
+        if (Array.isArray(data.warnings)) {
+            for (const entry of data.warnings) {
+                if (typeof entry === "string" && entry.trim()) {
+                    extraBullets.push(`⚠ ${entry.trim()}`);
+                }
+            }
+        }
+
+        const extraBlock =
+            extraBullets.length > 0
+                ? extraBullets.length <= 30
+                    ? extraBullets.join("\n")
+                    : `${extraBullets.slice(0, 25).join("\n")}\n…(+${extraBullets.length - 25} more)`
+                : "";
+
+        if (extraBlock) {
+            return headline.length > 0 ? `${headline.join(" — ")}\n\n${extraBlock}` : extraBlock;
+        }
+
         if (headline.length > 0) {
             return headline.join(" — ");
         }
@@ -638,13 +930,27 @@ export async function apiFetch<T>(
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
 
+    const importReviewHeaderFallbackOk = attachImportReviewDevAdminTokenHeader(headers, path);
     const accessToken = getAccessToken();
-    if (!accessToken) {
-        redirectToLogin();
-        throw new Error("Authentication required");
+    const importReviewApiDevAuth = importReviewHeaderFallbackOk && isImportReviewApiPath(path);
+
+    if (accessToken && !importReviewApiDevAuth) {
+        headers.set("Authorization", `Bearer ${accessToken}`);
+    } else if (accessToken && importReviewApiDevAuth) {
+        logImportReviewAuthDecision(
+            "apiFetch",
+            "omit-bearer-for-import-review-dev-admin-header",
+            readImportReviewAuthDebugState(
+                typeof window !== "undefined" ? window.location.pathname : "",
+                false
+            )
+        );
     }
 
-    headers.set("Authorization", `Bearer ${accessToken}`);
+    if (!accessToken && !importReviewHeaderFallbackOk) {
+        redirectToLogin("missing-credentials");
+        throw new Error("Authentication required");
+    }
 
     const response = await fetch(buildUrl(path, params), {
         ...init,
@@ -652,8 +958,22 @@ export async function apiFetch<T>(
     });
 
     if (response.status === 401) {
-        clearAuthTokens();
-        redirectToLogin();
+        if (isImportReviewApiPath(path)) {
+            markImportReviewApiAuthFailed();
+        }
+        if (!importReviewHeaderFallbackOk) {
+            clearAuthTokens();
+            redirectToLogin("http-401");
+        } else {
+            logImportReviewAuthDecision(
+                "apiFetch",
+                "http-401-with-dev-admin-header-no-redirect",
+                readImportReviewAuthDebugState(
+                    typeof window !== "undefined" ? window.location.pathname : "",
+                    false
+                )
+            );
+        }
         throw new Error("Session expired. Please log in again.");
     }
 
@@ -716,6 +1036,573 @@ export function getDashboardStats(fetchInit?: Pick<RequestInit, "signal">) {
         method: "GET",
         ...fetchInit,
     });
+}
+
+export function getImportReviewSummary(params: ImportReviewEnvelopeQuery, fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<ImportReviewSummaryResponse>(
+        "/api/import-review/summary",
+        {
+            method: "GET",
+            ...fetchInit,
+        },
+        normalizedImportReviewUrlParams(params as Record<string, QueryValue>)
+    );
+}
+
+export function getImportReviewBuildingsFilterOptions(
+    params: ImportReviewEnvelopeQuery,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewBuildingsFilterOptionsResponse>(
+        "/api/import-review/buildings/filter-options",
+        { method: "GET", ...fetchInit },
+        normalizedImportReviewUrlParams(params as Record<string, QueryValue>)
+    );
+}
+
+export function getImportReviewBuildings(
+    params: ImportReviewBuildingsListParams,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const { include_geometry = false, ...rest } = params;
+    return apiFetch<ImportReviewBuildingsListResponse>(
+        "/api/import-review/buildings",
+        { method: "GET", ...fetchInit },
+        normalizedImportReviewUrlParams({ ...rest, include_geometry } as Record<string, QueryValue>)
+    );
+}
+
+export function patchImportReviewBuildingDecision(
+    id: string,
+    body: PatchImportReviewBuildingDecisionBody
+) {
+    return apiFetch<ImportReviewBuildingListItem>(`/api/import-review/buildings/${id}/decision`, {
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+    });
+}
+
+export function patchImportReviewBuildingOverrides(id: string, body: PatchImportReviewBuildingOverridesBody) {
+    return apiFetch<ImportReviewBuildingListItem>(`/api/import-review/buildings/${id}/overrides`, {
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+    });
+}
+
+export function postImportReviewBuildingsBulkDecision(body: PostImportReviewBuildingsBulkBody) {
+    return apiFetch<ImportReviewBulkDecisionResponse>("/api/import-review/buildings/bulk-decision", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+    });
+}
+
+export function getImportReviewPlaces(
+    params: ImportReviewPlacesListParams,
+    fetchInit?: Pick<RequestInit, "signal">,
+) {
+    const { include_geometry = true, ...rest } = params;
+    return apiFetch<ImportReviewBuildingsListResponse>(
+        "/api/import-review/places",
+        { method: "GET", ...fetchInit },
+        normalizedImportReviewUrlParams({ ...rest, include_geometry } as Record<string, QueryValue>),
+    );
+}
+
+export function getImportReviewRoads(
+    params: ImportReviewRoadsListParams,
+    fetchInit?: Pick<RequestInit, "signal">,
+) {
+    const { include_geometry = false, ...rest } = params;
+    return apiFetch<ImportReviewBuildingsListResponse>(
+        "/api/import-review/roads",
+        { method: "GET", ...fetchInit },
+        normalizedImportReviewUrlParams({ ...rest, include_geometry } as Record<string, QueryValue>),
+    );
+}
+
+export function patchImportReviewPlaceDecision(id: string, body: PatchImportReviewBuildingDecisionBody) {
+    return apiFetch<ImportReviewBuildingListItem>(`/api/import-review/places/${id}/decision`, {
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+    });
+}
+
+export function patchImportReviewRoadDecision(id: string, body: PatchImportReviewBuildingDecisionBody) {
+    return apiFetch<ImportReviewBuildingListItem>(`/api/import-review/roads/${id}/decision`, {
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+    });
+}
+
+export type ImportReviewRoadValidationIssue = {
+    code: string;
+    message: string;
+    severity: "error" | "warning" | "info";
+};
+
+export type ImportReviewRoadRoutingValidationStats = {
+    nearby_core_roads: number;
+    nearby_review_roads: number;
+    connected_endpoints: number;
+    isolated_endpoints: number;
+    possible_duplicates: number;
+    possible_unsplit_intersections: number;
+    length_m: number;
+};
+
+export type ImportReviewRoadRoutingValidationResponse = {
+    candidate_id: string;
+    validation_mode: "existing_region" | "new_region";
+    can_save: boolean;
+    can_approve: boolean;
+    errors: ImportReviewRoadValidationIssue[];
+    warnings: ImportReviewRoadValidationIssue[];
+    info?: ImportReviewRoadValidationIssue[];
+    stats: ImportReviewRoadRoutingValidationStats;
+};
+
+export type PostImportReviewRoadValidateRoutingBody = ImportReviewEnvelopeQuery & {
+    use_review_overrides?: boolean;
+    connectivity_threshold_m?: number;
+    duplicate_threshold_m?: number;
+    confirm_warnings?: boolean;
+};
+
+export function postImportReviewRoadValidateRouting(id: string, body: PostImportReviewRoadValidateRoutingBody) {
+    return apiFetch<ImportReviewRoadRoutingValidationResponse>(
+        `/api/import-review/roads/${id}/validate-routing`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+        },
+    );
+}
+
+export function patchImportReviewRoadOverrides(id: string, body: PatchImportReviewRoadOverridesBody) {
+    const ro = { ...(body.review_overrides ?? {}) };
+    const rc = ro.road_class_id as unknown;
+    if (typeof rc === "bigint") {
+        ro.road_class_id = rc.toString();
+    }
+
+    const payload: PatchImportReviewRoadOverridesBody = {
+        ...body,
+        review_overrides: ro,
+    };
+
+    return apiFetch<ImportReviewBuildingListItem>(`/api/import-review/roads/${id}/overrides`, {
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(wireImportReviewJsonBody(payload as unknown as Record<string, unknown>)),
+    });
+}
+
+export function postImportReviewPlacesBulkDecision(body: PostImportReviewBuildingsBulkBody) {
+    return apiFetch<ImportReviewBulkDecisionResponse>("/api/import-review/places/bulk-decision", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+    });
+}
+
+export function postImportReviewRoadsBulkDecision(body: PostImportReviewBuildingsBulkBody) {
+    return apiFetch<ImportReviewBulkDecisionResponse>("/api/import-review/roads/bulk-decision", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+    });
+}
+
+export type ImportReviewPromotionReadyCounts = {
+    entity_family: "buildings";
+    review_batch_id: string;
+    source_snapshot_version: string;
+    ready_count: number;
+    already_batched_count: number;
+    promoted_count: number;
+    blocked_in_active_publish_batch_count: number;
+};
+
+export type ImportReviewPublishBatchSummary = {
+    id: string;
+    public_id: string;
+    batch_name: string;
+    status: string;
+    source_review_batch_id: string | null;
+    source_snapshot_version: string | null;
+    region_code: string | null;
+    total_item_count: number;
+    success_count: number;
+    failed_count: number;
+    skipped_count: number;
+    note: string | null;
+    created_at: string;
+    published_at: string | null;
+    promoted_at: string | null;
+};
+
+export type ImportReviewPublishBatchItemCounts = {
+    pending: number;
+    success: number;
+    failed: number;
+    skipped: number;
+    rolled_back: number;
+    total: number;
+};
+
+export type ImportReviewPublishBatchDetail = ImportReviewPublishBatchSummary & {
+    item_counts: ImportReviewPublishBatchItemCounts;
+    building_item_counts: ImportReviewPublishBatchItemCounts;
+};
+
+export type ImportReviewCreatePublishBatchResult = {
+    message: string;
+    batch: ImportReviewPublishBatchDetail;
+    items_added: number;
+    building_candidates_marked_batched: number;
+};
+
+export type ImportReviewPromotionScopeParams = ImportReviewEnvelopeQuery & {
+    include_merged?: boolean;
+};
+
+export type ImportReviewPromotionBatchesListParams = ImportReviewPromotionScopeParams & {
+    limit?: number;
+    offset?: number;
+};
+
+export type PostImportReviewPromotionBatchBody = ImportReviewEnvelopeQuery & {
+    batch_name: string;
+    note?: string;
+    include_merged?: boolean;
+};
+
+export type ImportReviewPromotionBatchesListResponse = {
+    items: ImportReviewPublishBatchSummary[];
+    total: number;
+    limit: number;
+    offset: number;
+};
+
+export type ImportReviewPromotionReadyCandidateItem = {
+    id: string;
+    public_id: string;
+    external_id: string | null;
+    name: string | null;
+    canonical_name: string | null;
+    class_code: string | null;
+    building_type: string | null;
+    building_type_id: string | null;
+    confidence_score: number | null;
+    match_status: string | null;
+    auto_action: string | null;
+    review_status: string | null;
+    review_decision: string | null;
+    promotion_status: string | null;
+    validation_warnings_count: number;
+    validation_errors_count: number;
+    updated_at: string;
+    source_snapshot_version: string;
+    review_batch_id: string;
+    normalized_data: unknown;
+    review_overrides: unknown;
+    source_refs: unknown;
+    geometry: Record<string, unknown> | null;
+};
+
+export type ImportReviewPromotionReadyCandidatesCounts = {
+    ready: number;
+    already_batched: number;
+    promoted: number;
+    blocked_active_batch: number;
+};
+
+export type ImportReviewPromotionReadyCandidatesResponse = {
+    items: ImportReviewPromotionReadyCandidateItem[];
+    total: number;
+    limit: number;
+    offset: number;
+    counts: ImportReviewPromotionReadyCandidatesCounts;
+};
+
+export type ImportReviewPromotionReadyCandidatesParams = ImportReviewPromotionScopeParams & {
+    limit?: number;
+    offset?: number;
+    sort?: "updated_at_desc" | "updated_at_asc" | "confidence_score_desc" | "name_asc";
+    include_geometry?: boolean;
+};
+
+function importReviewPromotionQueryParams(
+    params: ImportReviewPromotionScopeParams
+): Record<string, QueryValue> {
+    const base = normalizedImportReviewUrlParams(params as Record<string, QueryValue>) ?? {};
+    if (params.include_merged) {
+        base.include_merged = "true";
+    }
+    return base;
+}
+
+export function getImportReviewPromotionReady(
+    params: ImportReviewPromotionScopeParams,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewPromotionReadyCounts>(
+        "/api/import-review/promotion/ready",
+        { method: "GET", ...fetchInit },
+        importReviewPromotionQueryParams(params)
+    );
+}
+
+export function getImportReviewPromotionReadyCandidates(
+    params: ImportReviewPromotionReadyCandidatesParams,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const { limit, offset, sort, include_geometry, ...scope } = params;
+    const q: Record<string, QueryValue> = {
+        ...importReviewPromotionQueryParams(scope),
+        entity_family: "buildings",
+    };
+    if (limit !== undefined) {
+        q.limit = limit;
+    }
+    if (offset !== undefined) {
+        q.offset = offset;
+    }
+    if (sort) {
+        q.sort = sort;
+    }
+    if (include_geometry) {
+        q.include_geometry = "true";
+    }
+    return apiFetch<ImportReviewPromotionReadyCandidatesResponse>(
+        "/api/import-review/promotion/ready-candidates",
+        { method: "GET", ...fetchInit },
+        q
+    );
+}
+
+export function getImportReviewPromotionBatches(
+    params: ImportReviewPromotionBatchesListParams,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const { limit, offset, ...scope } = params;
+    const q: Record<string, QueryValue> = {
+        ...importReviewPromotionQueryParams(scope),
+    };
+    if (limit !== undefined) {
+        q.limit = limit;
+    }
+    if (offset !== undefined) {
+        q.offset = offset;
+    }
+    return apiFetch<ImportReviewPromotionBatchesListResponse>(
+        "/api/import-review/promotion/batches",
+        { method: "GET", ...fetchInit },
+        q
+    );
+}
+
+export function getImportReviewPromotionBatchById(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewPublishBatchDetail>(`/api/import-review/promotion/batches/${id}`, {
+        method: "GET",
+        ...fetchInit,
+    });
+}
+
+export function postImportReviewPromotionBatch(body: PostImportReviewPromotionBatchBody) {
+    return apiFetch<ImportReviewCreatePublishBatchResult>("/api/import-review/promotion/batches", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+    });
+}
+
+export type ImportReviewPublishBatchValidationResultSummary = {
+    outcome: "passed" | "blocked";
+    valid_count: number;
+    warning_count: number;
+    blocked_count: number;
+    total_items: number;
+    by_publish_action: { insert: number; update: number; merge: number };
+    entity_family: { buildings: number };
+};
+
+export type ImportReviewPublishBatchPromotionResultSummary = {
+    status: "promoted" | "failed";
+    inserted_count: number;
+    updated_count: number;
+    success_count: number;
+    failed_count: number;
+    skipped_count: number;
+    total: number;
+    core_verified_count: number;
+    import_review_marked_promoted_count: number;
+    partial_success?: boolean;
+    started_at: string;
+    finished_at: string;
+    duration_ms: number;
+    promoted_entity_families: string[];
+};
+
+export type ImportReviewPublishBatchProgressResponse = {
+    batch_id: string;
+    status: string;
+    workflow: "validation" | "promotion" | "idle";
+    validation_total: number;
+    validation_done: number;
+    validation_percent: number;
+    validated_at: string | null;
+    current_stage_key: string | null;
+    current_stage_label: string | null;
+    current_stage_status: string | null;
+    current_message: string | null;
+    validation_result: ImportReviewPublishBatchValidationResultSummary | null;
+    validation_logs_summary: string | null;
+    promotion_result: ImportReviewPublishBatchPromotionResultSummary | null;
+    promotion_logs_summary: string | null;
+};
+
+export type ImportReviewPublishBatchVerifyResponse = {
+    batch_id: string;
+    verification_status: "passed" | "warning" | "failed";
+    publish_items: {
+        success: number;
+        failed: number;
+        pending: number;
+        skipped: number;
+        success_missing_target_id: number;
+    };
+    core_rows_missing: number;
+    core_rows_inactive: number;
+    candidates_promoted_missing_core_id: number;
+    lineage_warnings: number;
+    geometry_warnings: number;
+    issues: { code: string; message: string; severity: "error" | "warning" }[];
+};
+
+export type PostImportReviewPromotionBatchPromoteBody = {
+    confirmation_text: "PROMOTE";
+    chunk_size?: number;
+};
+
+export type ImportReviewStartPublishBatchPromotionResponse = {
+    batch_id: string;
+    status: string;
+    message: string;
+};
+
+export type ImportReviewPublishStageLogItem = {
+    id: string;
+    stage_key: string;
+    stage_label: string;
+    stage_status: string;
+    message: string | null;
+    progress_percent: number;
+    details: unknown;
+    started_at: string;
+    finished_at: string | null;
+};
+
+export type ImportReviewPublishBatchLogsResponse = {
+    batch_id: string;
+    items: ImportReviewPublishStageLogItem[];
+};
+
+export type ImportReviewStartPublishBatchValidationResponse = {
+    batch_id: string;
+    status: string;
+    message: string;
+};
+
+const VALIDATABLE_BATCH_STATUSES = new Set(["draft", "blocked", "failed", "ready"]);
+
+export function canValidateImportReviewPublishBatch(status: string): boolean {
+    return VALIDATABLE_BATCH_STATUSES.has(status);
+}
+
+export function postImportReviewPromotionBatchValidate(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewStartPublishBatchValidationResponse>(
+        `/api/import-review/promotion/batches/${id}/validate`,
+        { method: "POST", ...fetchInit }
+    );
+}
+
+export function getImportReviewPromotionBatchProgress(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewPublishBatchProgressResponse>(
+        `/api/import-review/promotion/batches/${id}/progress`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export function getImportReviewPromotionBatchLogs(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewPublishBatchLogsResponse>(
+        `/api/import-review/promotion/batches/${id}/logs`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export function postImportReviewPromotionBatchPromote(
+    id: string,
+    body: PostImportReviewPromotionBatchPromoteBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewStartPublishBatchPromotionResponse>(
+        `/api/import-review/promotion/batches/${id}/promote`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function getImportReviewPromotionBatchVerify(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewPublishBatchVerifyResponse>(
+        `/api/import-review/promotion/batches/${id}/verify`,
+        { method: "GET", ...fetchInit }
+    );
 }
 
 export function getRoadClasses(fetchInit?: Pick<RequestInit, "signal">) {

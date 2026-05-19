@@ -12,6 +12,7 @@ export const Tags = {
     Stats: "Stats",
     Transit: "Transit",
     Search: "Search",
+    ImportReview: "Import Review",
 } as const;
 
 export const bearerAuth = [{ bearerAuth: [] }] as const;

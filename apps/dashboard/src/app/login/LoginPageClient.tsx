@@ -4,6 +4,13 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import {
+    consumeImportReviewApiAuthFailed,
+    isImportReviewDevRouteBypassActive,
+    logImportReviewAuthDecision,
+    readImportReviewAuthDebugState,
+} from "@/src/lib/importReviewDevAccess";
+
 type LoginResponse = {
     accessToken: string;
     user?: {
@@ -82,14 +89,47 @@ export default function LoginPageClient() {
     const [password, setPassword] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [authChecked, setAuthChecked] = useState(false);
 
     useEffect(() => {
-        const accessToken = window.localStorage.getItem("accessToken");
+        const pathname = window.location.pathname;
+        const state = readImportReviewAuthDebugState(pathname, true);
 
-        if (accessToken) {
-            router.replace("/dashboard");
+        if (consumeImportReviewApiAuthFailed()) {
+            logImportReviewAuthDecision(
+                "LoginPageClient",
+                "stay-on-login-after-import-review-api-401",
+                { ...state, authLoading: false, importReviewApiAuthFailedFlag: true }
+            );
+            setAuthChecked(true);
+            return;
         }
+
+        const accessToken = window.localStorage.getItem("accessToken")?.trim();
+
+        if (!accessToken) {
+            logImportReviewAuthDecision("LoginPageClient", "show-login-form", {
+                ...state,
+                authLoading: false,
+            });
+            setAuthChecked(true);
+            return;
+        }
+
+        logImportReviewAuthDecision("LoginPageClient", "redirect-dashboard", {
+            ...readImportReviewAuthDebugState(pathname, false),
+            hasAccessToken: true,
+        });
+        router.replace("/dashboard");
     }, [router]);
+
+    if (!authChecked) {
+        return (
+            <main className="flex min-h-screen items-center justify-center bg-gray-100 px-4">
+                <p className="text-sm text-gray-600">Checking authentication…</p>
+            </main>
+        );
+    }
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -186,6 +226,18 @@ export default function LoginPageClient() {
                 </button>
 
                 {error ? <p className="mt-2 text-sm text-red-500">{error}</p> : null}
+
+                {isImportReviewDevRouteBypassActive("/import-review") ? (
+                    <p className="mt-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        Development: you can open{" "}
+                        <Link href="/import-review" className="font-medium underline">
+                            Import review
+                        </Link>{" "}
+                        without signing in when{" "}
+                        <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_IMPORT_REVIEW_ADMIN_TOKEN</code> is
+                        set.
+                    </p>
+                ) : null}
 
                 <p className="mt-4 text-center text-sm text-gray-600">
                     <Link href="/signup" className="text-gray-900 underline">

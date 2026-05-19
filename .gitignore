@@ -51,7 +51,7 @@ build
 # ========================
 # Database dumps / temp files
 # ========================
-*.sql
+
 *.dump
 
 # ========================
@@ -93,7 +93,43 @@ out/
 # Allow deployed MapLibre glyph files
 !public/fonts/**/*.pbf
 
-# database backups
+# ========================
+# Database dumps, backups, generated exports (NOT migrations/seeds)
+# ========================
 backups/
-*.dump
-*.sql
+infrastructure/database/backups/
+infrastructure/database/generated/
+infrastructure/database/snapshots/
+infrastructure/database/introspection/**/schema/
+
+*.sql.gz
+*.sql.bz2
+**/*.sql.backup
+**/*.sql.bak
+**/*_backup.sql
+**/*_dump.sql
+**/*_checkpoint*.sql
+
+# Ad-hoc SQL outside managed infrastructure paths
+database/**/*.sql
+geo-database/**/*.sql
+
+# Temporary / scratch SQL
+**/*.tmp.sql
+**/*._temp.sql
+**/tmp/**/*.sql
+
+# ========================
+# Local OSM pipeline import env (secrets)
+# ========================
+tools/data-pipeline/local-osm/imports/*.env
+!tools/data-pipeline/local-osm/imports/template.full.env
+
+# Local Supabase prod mirror env (secrets)
+tools/data-pipeline/prod-mirror/00_env.sh
+
+# Martin: optional local override with a hardcoded connection string (never commit)
+infrastructure/tiles/martin/config.local.yaml
+
+# DB introspection exports (schema metadata, not source)
+infrastructure/database/introspection/**/snapshots/

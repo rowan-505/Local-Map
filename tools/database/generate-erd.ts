@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { Client } from "pg";
 
-const inspectedSchemas = ["ref", "core", "tiles", "app_auth"];
+const defaultInspectedSchemas = ["ref", "core", "tiles", "app_auth"];
 const missingDatabaseUrlMessage = "Missing DATABASE_URL. Add it to root .env.";
 const connectionFailureMessage = "Failed to connect to database. Check DATABASE_URL.";
 
@@ -54,9 +54,28 @@ type Relationship = {
 
 const currentFile = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(currentFile), "../..");
-const outputPath = path.join(repoRoot, "docs/database/current-erd.md");
 
 dotenv.config({ path: path.join(repoRoot, ".env"), quiet: true });
+
+function parseSchemaList(raw: string | undefined, fallback: string[]): string[] {
+  if (!raw?.trim()) {
+    return fallback;
+  }
+
+  const parsed = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  return parsed.length > 0 ? parsed : fallback;
+}
+
+const inspectedSchemas = parseSchemaList(process.env.ERD_SCHEMAS, defaultInspectedSchemas);
+const outputPath = process.env.ERD_OUTPUT_PATH?.trim()
+  ? path.resolve(repoRoot, process.env.ERD_OUTPUT_PATH.trim())
+  : path.join(repoRoot, "docs/database/current-erd.md");
+const erdSourceLabel = process.env.ERD_SOURCE_LABEL?.trim() || "configured DATABASE_URL";
+const mermaidFileOnly = outputPath.endsWith(".mmd");
 
 function entityName(schema: string, name: string): string {
   return `${schema}_${name}`.replace(/[^A-Za-z0-9_]/g, "_");
@@ -287,9 +306,11 @@ async function main(): Promise<void> {
     const viewCount = objects.filter((object) => object.table_type === "VIEW").length;
     const relationships = groupRelationships(foreignKeys);
     const mermaid = renderMermaid(objects, columns, primaryKeys, foreignKeys);
-    const markdown = `# Current Database ERD
+    const body = mermaidFileOnly
+      ? `${mermaid}\n`
+      : `# Current Database ERD
 
-Generated from live Supabase database.
+Generated from: ${erdSourceLabel}
 
 Generated at: ${new Date().toISOString()}
 
@@ -299,7 +320,7 @@ ${mermaid}
 `;
 
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, markdown, "utf8");
+    await fs.writeFile(outputPath, body, "utf8");
 
     console.log(`inspected schemas: ${inspectedSchemas.join(", ")}`);
     console.log(`table count: ${tableCount}`);

@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, type LucideIcon } from "lucide-react";
+import { BarChart3, ClipboardList, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -17,6 +17,7 @@ const NAV: NavItem[] = [
     { href: "/streets", label: "Streets", match: "prefix" },
     { href: "/buildings", label: "Buildings", match: "prefix" },
     { href: "/stats", label: "Stats", match: "exact", Icon: BarChart3 },
+    { href: "/import-review", label: "Import review", match: "prefix", Icon: ClipboardList },
     { href: "/categories", label: "Categories", match: "prefix" },
     { href: "/admin-areas", label: "Admin Areas", match: "prefix" },
 ];

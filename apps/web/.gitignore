@@ -35,8 +35,6 @@ tiles/
 *.osm.pbf
 *.mbtiles
 *.pmtiles
-*.sql
-
 
 # Allow deployed MapLibre glyph files
 !public/fonts/**/*.pbf
