@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { PromotionStatusBadge } from "@/src/app/(admin)/import-review/_components/importReviewPromotionUi";
+import ImportReviewInlineSpinner from "@/src/features/import-review/components/ImportReviewInlineSpinner";
+import ImportReviewOperationLogPanel from "@/src/features/import-review/components/ImportReviewOperationLogPanel";
+import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
+import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import {
     canValidateImportReviewPublishBatch,
     getImportReviewPromotionBatchById,
@@ -11,6 +15,7 @@ import {
     isAbortError,
     postImportReviewPromotionBatchValidate,
     type ImportReviewPublishBatchDetail,
+    type ImportReviewPublishBatchEntityValidationCounts,
     type ImportReviewPublishBatchLogsResponse,
     type ImportReviewPublishBatchProgressResponse,
     type ImportReviewPublishStageLogItem,
@@ -21,13 +26,14 @@ const POLL_MS = 1500;
 const STAGE_ORDER = [
     "load_batch",
     "load_items",
-    "candidate_integrity",
-    "geometry_validation",
-    "required_field_validation",
-    "reference_validation",
-    "duplicate_validation",
-    "action_validation",
-    "validation_summary",
+    "group_by_entity",
+    "validate_candidate_state",
+    "validate_geometry",
+    "validate_required_fields",
+    "validate_references",
+    "validate_duplicates",
+    "validate_entity_specific_rules",
+    "write_validation_summary",
 ] as const;
 
 function stageStatusColor(status: string): string {
@@ -57,6 +63,25 @@ function sortLogs(items: ImportReviewPublishStageLogItem[]): ImportReviewPublish
         }
         return a.started_at.localeCompare(b.started_at);
     });
+}
+
+function formatStageLogDetails(details: unknown): string | null {
+    if (!details || typeof details !== "object" || Array.isArray(details)) {
+        return null;
+    }
+    const d = details as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof d.entity_family === "string") {
+        parts.push(d.entity_family);
+    }
+    const counts = d.counts;
+    if (counts && typeof counts === "object" && !Array.isArray(counts)) {
+        const c = counts as Record<string, unknown>;
+        parts.push(
+            `valid ${Number(c.valid ?? 0)}, warning ${Number(c.warning ?? 0)}, blocked ${Number(c.blocked ?? 0)}`
+        );
+    }
+    return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 type Props = {
@@ -119,9 +144,30 @@ export default function ImportReviewPromotionValidationPanel({
         }, POLL_MS);
     }, [pollOnce, stopPolling, formatError]);
 
+    const hydrateProgress = useCallback(async (signal?: AbortSignal) => {
+        try {
+            const [p, l] = await Promise.all([
+                getImportReviewPromotionBatchProgress(batchId, signal ? { signal } : undefined),
+                getImportReviewPromotionBatchLogs(batchId, signal ? { signal } : undefined),
+            ]);
+            setProgress(p);
+            setLogs(l);
+        } catch (err) {
+            if (!isAbortError(err)) {
+                setError(formatError(err));
+            }
+        }
+    }, [batchId, formatError]);
+
     useEffect(() => {
         setStatus(batchStatus);
     }, [batchStatus]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        void hydrateProgress(controller.signal);
+        return () => controller.abort();
+    }, [hydrateProgress]);
 
     useEffect(() => {
         if (status === "validating") {
@@ -149,6 +195,7 @@ export default function ImportReviewPromotionValidationPanel({
     const percent = progress?.validation_percent ?? 0;
     const result = progress?.validation_result;
     const summaryMessage = progress?.validation_logs_summary ?? progress?.current_message;
+    const entityRows = result?.by_entity ? Object.entries(result.by_entity).sort(([a], [b]) => a.localeCompare(b)) : [];
 
     return (
         <div className="mt-6 space-y-4 border-t border-gray-100 pt-6">
@@ -159,20 +206,24 @@ export default function ImportReviewPromotionValidationPanel({
                     disabled={!canValidate || isValidating}
                     className="rounded-md bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
                 >
-                    {isValidating ? "Validating…" : "Validate batch"}
+                    {isValidating ? IMPORT_REVIEW_LOADING.validating : "Validate batch"}
                 </button>
                 <PromotionStatusBadge value={status} />
+                {isValidating ? (
+                    <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.validating} />
+                ) : null}
             </div>
 
-            {error ? (
-                <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
-            ) : null}
+            {error ? <ImportReviewStatusBanner message={error} tone="error" compact /> : null}
 
             {(isValidating || progress) && (
                 <div className="space-y-2">
                     <div className="flex justify-between text-xs text-gray-600">
                         <span>
                             {progress?.current_stage_label ?? "Validation"}
+                            {progress?.current_entity_family
+                                ? ` · ${progress.current_entity_family}`
+                                : ""}
                             {progress?.current_message ? ` — ${progress.current_message}` : ""}
                         </span>
                         <span className="tabular-nums font-medium">{percent.toFixed(0)}%</span>
@@ -193,14 +244,27 @@ export default function ImportReviewPromotionValidationPanel({
             )}
 
             {result ? (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <CountCard label="Total items" value={result.total_items} />
-                    <CountCard label="Valid" value={result.valid_count} tone="success" />
-                    <CountCard label="Warnings" value={result.warning_count} tone="warning" />
-                    <CountCard label="Blocked / errors" value={result.blocked_count} tone="error" />
-                    <CountCard label="Buildings insert" value={result.by_publish_action.insert} />
-                    <CountCard label="Buildings update" value={result.by_publish_action.update} />
-                </div>
+                <>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                        <CountCard label="Total items" value={result.total_items} />
+                        <CountCard label="Valid" value={result.valid_count} tone="success" />
+                        <CountCard label="Warnings" value={result.warning_count} tone="warning" />
+                        <CountCard label="Blocked / errors" value={result.blocked_count} tone="error" />
+                        <CountCard label="Skipped" value={result.skipped_count} />
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                        <CountCard label="Insert" value={result.by_publish_action.insert} />
+                        <CountCard label="Update" value={result.by_publish_action.update} />
+                        <CountCard label="Merge" value={result.by_publish_action.merge} />
+                    </div>
+                </>
+            ) : null}
+
+            {result?.requires_warning_confirmation && !isValidating ? (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Validation passed with {result.warning_count.toLocaleString()} warning
+                    {result.warning_count === 1 ? "" : "s"}. Confirmation is required before promotion.
+                </p>
             ) : null}
 
             {summaryMessage && !isValidating ? (
@@ -215,35 +279,79 @@ export default function ImportReviewPromotionValidationPanel({
                 </p>
             ) : null}
 
-            {logs && logs.items.length > 0 ? (
-                <div>
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                        Validation stages
-                    </h4>
-                    <ol className="mt-2 space-y-2">
-                        {sortLogs(logs.items).map((item) => (
-                            <li
-                                key={item.id}
-                                className="flex flex-col gap-1 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
-                            >
-                                <div>
-                                    <span className="font-medium text-gray-900">{item.stage_label}</span>
-                                    {item.message ? (
-                                        <p className="mt-0.5 text-xs text-gray-600">{item.message}</p>
-                                    ) : null}
-                                </div>
-                                <span
-                                    className={`inline-flex w-fit items-center rounded px-2 py-0.5 text-xs font-medium ${stageStatusColor(item.stage_status)}`}
-                                >
-                                    {item.stage_status}
-                                    {item.progress_percent > 0 ? ` · ${item.progress_percent}%` : ""}
-                                </span>
-                            </li>
-                        ))}
-                    </ol>
+            {entityRows.length > 0 ? (
+                <div className="overflow-x-auto rounded-lg border border-gray-100">
+                    <table className="min-w-full text-sm">
+                        <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                            <tr>
+                                <th className="px-3 py-2 font-semibold">Entity family</th>
+                                <th className="px-3 py-2 font-semibold text-right">Total</th>
+                                <th className="px-3 py-2 font-semibold text-right">Valid</th>
+                                <th className="px-3 py-2 font-semibold text-right">Warning</th>
+                                <th className="px-3 py-2 font-semibold text-right">Blocked</th>
+                                <th className="px-3 py-2 font-semibold text-right">Skipped</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {entityRows.map(([family, counts]) => (
+                                <EntityBreakdownRow key={family} family={family} counts={counts} />
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             ) : null}
+
+            {logs && logs.items.length > 0 ? (
+                <ImportReviewOperationLogPanel
+                    title="Validation stages"
+                    loadingMessage={IMPORT_REVIEW_LOADING.loadingLogs}
+                    entries={sortLogs(logs.items).map((item) => {
+                        const detailLine = formatStageLogDetails(item.details);
+                        return {
+                            id: item.id,
+                            label: item.stage_label,
+                            message: [item.message, detailLine].filter(Boolean).join(" — ") || null,
+                            status: item.stage_status,
+                            at: item.started_at,
+                        };
+                    })}
+                />
+            ) : isValidating ? (
+                <ImportReviewOperationLogPanel
+                    title="Validation stages"
+                    entries={[]}
+                    isLoading
+                    loadingMessage={IMPORT_REVIEW_LOADING.loadingLogs}
+                />
+            ) : null}
         </div>
+    );
+}
+
+function EntityBreakdownRow({
+    family,
+    counts,
+}: {
+    family: string;
+    counts: ImportReviewPublishBatchEntityValidationCounts;
+}) {
+    return (
+        <tr>
+            <td className="px-3 py-2 font-medium text-gray-900">{family}</td>
+            <td className="px-3 py-2 text-right tabular-nums">{counts.total.toLocaleString()}</td>
+            <td className="px-3 py-2 text-right tabular-nums text-emerald-700">
+                {counts.valid.toLocaleString()}
+            </td>
+            <td className="px-3 py-2 text-right tabular-nums text-amber-700">
+                {counts.warning.toLocaleString()}
+            </td>
+            <td className="px-3 py-2 text-right tabular-nums text-red-700">
+                {counts.blocked.toLocaleString()}
+            </td>
+            <td className="px-3 py-2 text-right tabular-nums text-gray-600">
+                {counts.skipped.toLocaleString()}
+            </td>
+        </tr>
     );
 }
 

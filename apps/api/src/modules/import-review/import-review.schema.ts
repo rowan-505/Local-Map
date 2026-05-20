@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { IMPORT_REVIEW_ENTITY_FAMILIES } from "./import-review-config.js";
+
 /**
  * Normalize `snapshot_version` query/body alias into `source_snapshot_version`
  * before scope validation (`review_batch_id` XOR snapshot).
@@ -86,9 +88,32 @@ const optionalReviewBatchIdSchema = z.preprocess((value): bigint | undefined => 
     return undefined;
 }, z.bigint().optional());
 
+const optionalLatestQuerySchema = z.preprocess((value) => {
+    if (value === undefined || value === null || value === "") {
+        return false;
+    }
+    if (typeof value === "boolean") {
+        return value;
+    }
+    if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === "true" || normalized === "1") {
+            return true;
+        }
+        if (normalized === "false" || normalized === "0") {
+            return false;
+        }
+    }
+    if (typeof value === "number" && value === 1) {
+        return true;
+    }
+    return value;
+}, z.boolean().optional().default(false));
+
 const importReviewScopeObjectSchema = z.object({
     source_snapshot_version: optionalTrimmedStringSchema,
     review_batch_id: optionalReviewBatchIdSchema,
+    latest: optionalLatestQuerySchema,
 });
 
 export const importReviewScopeNormalizedSchema =
@@ -119,7 +144,7 @@ export const importReviewBuildingSortSchema = z.enum([
     "external_id_desc",
 ]);
 
-const includeGeometryQuerySchema = z.preprocess((value) => {
+const includeGeometryDetailQuerySchema = z.preprocess((value) => {
     if (value === undefined || value === null || value === "") {
         return true;
     }
@@ -137,6 +162,59 @@ const includeGeometryQuerySchema = z.preprocess((value) => {
     }
     return value;
 }, z.boolean());
+
+const includeGeometryListQuerySchema = z.preprocess((value) => {
+    if (value === undefined || value === null || value === "") {
+        return false;
+    }
+    if (typeof value === "boolean") {
+        return value;
+    }
+    if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === "true" || normalized === "1") {
+            return true;
+        }
+        if (normalized === "false" || normalized === "0") {
+            return false;
+        }
+    }
+    return value;
+}, z.boolean());
+
+/** @deprecated use includeGeometryListQuerySchema or includeGeometryDetailQuerySchema */
+const includeGeometryQuerySchema = includeGeometryListQuerySchema;
+
+export const importReviewEntityFamilyParamSchema = z.enum(IMPORT_REVIEW_ENTITY_FAMILIES);
+
+export type ImportReviewEntityFamilyParam = z.infer<typeof importReviewEntityFamilyParamSchema>;
+
+const importReviewCandidatesListQueryBaseInner = importReviewScopeObjectSchema
+    .extend({
+        match_status: optionalTrimmedStringSchema,
+        auto_action: optionalTrimmedStringSchema,
+        review_status: optionalTrimmedStringSchema,
+        review_decision: optionalTrimmedStringSchema,
+        class_code: optionalTrimmedStringSchema,
+        promotion_status: optionalTrimmedStringSchema,
+        include_promoted: z
+            .preprocess((v) => v === true || v === "true" || v === "1" || v === 1, z.boolean())
+            .optional()
+            .default(false),
+        q: optionalTrimmedStringSchema,
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+        offset: z.coerce.number().int().min(0).default(0),
+        sort: importReviewBuildingSortSchema.default("updated_at_desc"),
+        include_geometry: includeGeometryListQuerySchema.default(false),
+    })
+    .superRefine(refineImportReviewSnapshotBatchScope);
+
+export const importReviewCandidatesListQuerySchema = z.preprocess(
+    mergeImportReviewSnapshotAliases,
+    importReviewCandidatesListQueryBaseInner
+);
+
+export type ImportReviewCandidatesListQuery = z.infer<typeof importReviewCandidatesListQuerySchema>;
 
 const importReviewBuildingsQueryBaseInner = importReviewScopeObjectSchema.extend({
     match_status: optionalTrimmedStringSchema,
@@ -156,7 +234,7 @@ const importReviewBuildingsQueryBaseInner = importReviewScopeObjectSchema.extend
     limit: z.coerce.number().int().min(1).max(200).default(50),
     offset: z.coerce.number().int().min(0).default(0),
     sort: importReviewBuildingSortSchema.default("updated_at_desc"),
-    include_geometry: includeGeometryQuerySchema,
+    include_geometry: includeGeometryListQuerySchema.default(false),
 }).superRefine(refineImportReviewSnapshotBatchScope);
 
 export const importReviewBuildingsQuerySchema = z.preprocess(
@@ -175,7 +253,7 @@ const importReviewPlacesRoadsQueryBaseInner = importReviewScopeObjectSchema
         limit: z.coerce.number().int().min(1).max(200).default(50),
         offset: z.coerce.number().int().min(0).default(0),
         sort: importReviewBuildingSortSchema.default("updated_at_desc"),
-        include_geometry: includeGeometryQuerySchema,
+        include_geometry: includeGeometryListQuerySchema.default(false),
     })
     .superRefine(refineImportReviewSnapshotBatchScope);
 
@@ -198,7 +276,7 @@ export type ImportReviewBuildingSort = z.infer<typeof importReviewBuildingSortSc
 
 const importReviewScopedIncludeGeometryInner = importReviewScopeObjectSchema
     .extend({
-        include_geometry: includeGeometryQuerySchema.default(true),
+        include_geometry: includeGeometryDetailQuerySchema.default(true),
     })
     .superRefine(refineImportReviewSnapshotBatchScope);
 
@@ -407,6 +485,16 @@ export const importReviewBuildingIdParamsSchema = z.object({
         .regex(/^\d+$/, { message: "id must be a non-negative integer string" })
         .transform((s) => BigInt(s)),
 });
+
+export const importReviewFamilyCandidateParamsSchema = z.object({
+    family: importReviewEntityFamilyParamSchema,
+    id: z
+        .string({ message: "id is required" })
+        .regex(/^\d+$/, { message: "id must be a non-negative integer string" })
+        .transform((s) => BigInt(s)),
+});
+
+export type ImportReviewFamilyCandidateParams = z.infer<typeof importReviewFamilyCandidateParamsSchema>;
 
 export const importReviewBulkFiltersSchema = z
     .object({

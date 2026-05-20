@@ -8,8 +8,31 @@ import {
     type PromoteItemResult,
 } from "./import-review-promotion-promote.types.js";
 import { ImportReviewPromotionValidationRepository } from "./import-review-promotion-validation.repo.js";
+import { ImportReviewPromotionValidationRules } from "./import-review-promotion-validation-rules.js";
+import {
+    PROMOTABLE_PUBLISH_FAMILIES,
+    type PromotablePublishEntityFamily,
+} from "./import-review-promotion-config.js";
+import { requireValidPublishStageStatus } from "./import-review-promotion-stage-status.js";
+import {
+    CORE_PLACES_TABLE,
+    ImportReviewPromotionPromotePlacesRepository,
+    PLACE_CANDIDATE_TABLE,
+} from "./import-review-promotion-promote-places.repo.js";
+import {
+    type ImportReviewPublishItemValidationStageKey,
+} from "./import-review-promotion-validation.types.js";
+
+const PROMOTE_PREFLIGHT_VALIDATION_STAGES: ImportReviewPublishItemValidationStageKey[] = [
+    "validate_candidate_state",
+    "validate_geometry",
+    "validate_required_fields",
+    "validate_references",
+    "validate_entity_specific_rules",
+];
 
 const BUILDING_CANDIDATE_TABLE = "import_review.building_candidates";
+
 const CORE_TABLE = "core.core_map_buildings";
 
 export const DEFAULT_PROMOTE_CHUNK_SIZE = 100;
@@ -17,6 +40,8 @@ export const MAX_PROMOTE_CHUNK_SIZE = 500;
 
 export type PromotableItemRow = {
     publish_item_id: bigint;
+    entity_family: PromotablePublishEntityFamily;
+    target_table: string;
     publish_action: string;
     publish_status: string;
     target_id: bigint | null;
@@ -174,10 +199,14 @@ function normalizedDataMergeExpr(alias: string, batchId: bigint): Prisma.Sql {
 }
 
 export class ImportReviewPromotionPromoteRepository {
+    private readonly placesRepo: ImportReviewPromotionPromotePlacesRepository;
+
     constructor(
         private readonly prisma: PrismaClient,
         private readonly validationRepo: ImportReviewPromotionValidationRepository
-    ) {}
+    ) {
+        this.placesRepo = new ImportReviewPromotionPromotePlacesRepository(prisma);
+    }
 
     async fetchBatchProgress(batchId: bigint): Promise<ImportReviewPublishBatchProgressRow | null> {
         return this.validationRepo.fetchBatchProgress(batchId);
@@ -211,11 +240,12 @@ export class ImportReviewPromotionPromoteRepository {
         details?: Record<string, unknown>;
         finished?: boolean;
     }): Promise<void> {
+        const stageStatus = requireValidPublishStageStatus(args.stageStatus);
         const detailsJson = JSON.stringify(args.details ?? {});
         if (args.finished) {
             await this.prisma.$executeRaw`
                 UPDATE system.system_publish_stage_logs
-                SET stage_status = ${args.stageStatus},
+                SET stage_status = ${stageStatus},
                     message = ${args.message ?? null},
                     progress_percent = ${args.progressPercent},
                     details = ${detailsJson}::jsonb,
@@ -225,7 +255,7 @@ export class ImportReviewPromotionPromoteRepository {
         } else {
             await this.prisma.$executeRaw`
                 UPDATE system.system_publish_stage_logs
-                SET stage_status = ${args.stageStatus},
+                SET stage_status = ${stageStatus},
                     message = ${args.message ?? null},
                     progress_percent = ${args.progressPercent},
                     details = ${detailsJson}::jsonb,
@@ -261,30 +291,88 @@ export class ImportReviewPromotionPromoteRepository {
         return { claimed: false, status: current?.status ?? null };
     }
 
+    async countReservedNonPromotableItems(batchId: bigint): Promise<number> {
+        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
+            SELECT count(*)::bigint AS count
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+              AND entity_family NOT IN (${Prisma.join(PROMOTABLE_PUBLISH_FAMILIES)})
+        `;
+        return Number(rows[0]?.count ?? 0n);
+    }
+
+    /** @deprecated Use countReservedNonPromotableItems */
     async countNonBuildingItems(batchId: bigint): Promise<number> {
-        return this.validationRepo.countNonBuildingItems(batchId);
+        return this.countReservedNonPromotableItems(batchId);
+    }
+
+    async countPendingByEntityFamily(
+        batchId: bigint
+    ): Promise<Record<PromotablePublishEntityFamily, number>> {
+        const rows = await this.prisma.$queryRaw<{ entity_family: string; count: bigint }[]>`
+            SELECT entity_family, count(*)::bigint AS count
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+              AND entity_family IN (${Prisma.join(PROMOTABLE_PUBLISH_FAMILIES)})
+              AND publish_status = 'pending'
+            GROUP BY entity_family
+        `;
+        const out: Record<PromotablePublishEntityFamily, number> = {
+            buildings: 0,
+            places: 0,
+        };
+        for (const row of rows) {
+            if (row.entity_family === "buildings" || row.entity_family === "places") {
+                out[row.entity_family] = Number(row.count);
+            }
+        }
+        return out;
     }
 
     async listPromotableItems(batchId: bigint): Promise<PromotableItemRow[]> {
         return this.prisma.$queryRaw<PromotableItemRow[]>`
-            SELECT
-                spi.id AS publish_item_id,
-                spi.publish_action,
-                spi.publish_status,
-                spi.target_id,
-                spi.review_candidate_id,
-                b.review_batch_id,
-                b.source_snapshot_version,
-                b.promotion_status,
-                b.promoted_core_id,
-                b.matched_core_id
-            FROM system.system_publish_items AS spi
-            INNER JOIN import_review.building_candidates AS b
-                ON b.id = spi.review_candidate_id
-               AND spi.review_candidate_table = ${BUILDING_CANDIDATE_TABLE}
-            WHERE spi.publish_batch_id = ${batchId}
-              AND spi.entity_family = 'buildings'
-            ORDER BY spi.id ASC
+            SELECT * FROM (
+                SELECT
+                    spi.id AS publish_item_id,
+                    'buildings'::text AS entity_family,
+                    ${CORE_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    b.review_batch_id,
+                    b.source_snapshot_version,
+                    b.promotion_status,
+                    b.promoted_core_id,
+                    b.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.building_candidates AS b
+                    ON b.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${BUILDING_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'buildings'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
+                    'places'::text AS entity_family,
+                    ${CORE_PLACES_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    p.review_batch_id,
+                    p.source_snapshot_version,
+                    p.promotion_status,
+                    p.promoted_core_id,
+                    p.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.place_candidates AS p
+                    ON p.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${PLACE_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'places'
+            ) AS items
+            ORDER BY entity_family ASC, publish_item_id ASC
         `;
     }
 
@@ -293,20 +381,23 @@ export class ImportReviewPromotionPromoteRepository {
             SELECT count(*)::bigint AS count
             FROM system.system_publish_items
             WHERE publish_batch_id = ${batchId}
-              AND entity_family = 'buildings'
+              AND entity_family IN (${Prisma.join(PROMOTABLE_PUBLISH_FAMILIES)})
               AND publish_status = 'pending'
         `;
         return Number(rows[0]?.count ?? 0n);
     }
 
-    async countByPublishAction(batchId: bigint): Promise<{ insert: number; update: number; merge: number }> {
+    async countByPublishAction(
+        batchId: bigint
+    ): Promise<{ insert: number; update: number; merge: number }> {
         const rows = await this.prisma.$queryRaw<{ insert: bigint; update: bigint; merge: bigint }[]>`
             SELECT
                 count(*) FILTER (WHERE publish_action = 'insert')::bigint AS insert,
                 count(*) FILTER (WHERE publish_action = 'update')::bigint AS update,
                 count(*) FILTER (WHERE publish_action = 'merge')::bigint AS merge
             FROM system.system_publish_items
-            WHERE publish_batch_id = ${batchId} AND entity_family = 'buildings'
+            WHERE publish_batch_id = ${batchId}
+              AND entity_family IN (${Prisma.join(PROMOTABLE_PUBLISH_FAMILIES)})
         `;
         const r = rows[0];
         return {
@@ -320,17 +411,30 @@ export class ImportReviewPromotionPromoteRepository {
         if (itemIds.length === 0) {
             return 0;
         }
-        const chunks = [
-            this.validationRepo.validateCandidateIntegrity(itemIds),
-            this.validationRepo.validateGeometry(itemIds),
-            this.validationRepo.validateRequiredFields(itemIds),
-            this.validationRepo.validateReferences(itemIds),
-            this.validationRepo.validateActions(itemIds),
-        ];
-        const results = await Promise.all(chunks);
+        const familyRows = await this.prisma.$queryRaw<{ id: bigint; entity_family: string }[]>`
+            SELECT id, entity_family
+            FROM system.system_publish_items
+            WHERE id IN (${Prisma.join(itemIds)})
+              AND entity_family IN (${Prisma.join(PROMOTABLE_PUBLISH_FAMILIES)})
+        `;
+        const byFamily = new Map<string, bigint[]>();
+        for (const row of familyRows) {
+            const list = byFamily.get(row.entity_family) ?? [];
+            list.push(row.id);
+            byFamily.set(row.entity_family, list);
+        }
+
+        const rules = new ImportReviewPromotionValidationRules(this.prisma);
         let errors = 0;
-        for (const rows of results) {
-            errors += rows.filter((r) => r.severity === "error").length;
+        for (const [family, ids] of byFamily) {
+            for (const stage of PROMOTE_PREFLIGHT_VALIDATION_STAGES) {
+                const rows = await rules.validateStage(
+                    stage,
+                    family as PromotablePublishEntityFamily,
+                    ids
+                );
+                errors += rows.filter((r) => r.severity === "error").length;
+            }
         }
         const pendingCheck = await this.prisma.$queryRaw<{ count: bigint }[]>`
             SELECT count(*)::bigint AS count
@@ -365,13 +469,18 @@ export class ImportReviewPromotionPromoteRepository {
         }
 
         if (item.publish_status === "success" && item.target_id != null) {
-            const exists = await this.prisma.$queryRaw<{ id: bigint }[]>`
-                SELECT id FROM core.core_map_buildings
-                WHERE id = ${item.target_id}
-                  AND coalesce(is_active, true) AND deleted_at IS NULL
-                LIMIT 1
-            `;
-            if (exists.length > 0) {
+            const coreExists =
+                item.entity_family === "places"
+                    ? await this.placesRepo.checkPlaceCoreExists(item.target_id)
+                    : (
+                          await this.prisma.$queryRaw<{ id: bigint }[]>`
+                              SELECT id FROM core.core_map_buildings
+                              WHERE id = ${item.target_id}
+                                AND coalesce(is_active, true) AND deleted_at IS NULL
+                              LIMIT 1
+                          `
+                      ).length > 0;
+            if (coreExists) {
                 return {
                     publish_item_id: args.publishItemId,
                     outcome: "skipped",
@@ -406,10 +515,16 @@ export class ImportReviewPromotionPromoteRepository {
         }
 
         if (item.publish_action === "insert") {
+            if (item.entity_family === "places") {
+                return this.placesRepo.insertPlace(args.batchId, args.publishItemId, args.promotedBy);
+            }
             return this.insertBuilding(args.batchId, args.publishItemId, args.promotedBy);
         }
 
         if (item.publish_action === "update") {
+            if (item.entity_family === "places") {
+                return this.placesRepo.updatePlace(args.batchId, args.publishItemId, args.promotedBy);
+            }
             return this.updateBuilding(args.batchId, args.publishItemId, args.promotedBy);
         }
 
@@ -692,6 +807,7 @@ export class ImportReviewPromotionPromoteRepository {
     async applyItemSuccess(args: {
         publishItemId: bigint;
         targetId: bigint;
+        targetTable: string;
         beforeData: unknown | null;
         afterData: unknown;
     }): Promise<void> {
@@ -702,7 +818,7 @@ export class ImportReviewPromotionPromoteRepository {
             SET publish_status = 'success',
                 target_id = ${args.targetId},
                 target_schema = 'core',
-                target_table = ${CORE_TABLE},
+                target_table = ${args.targetTable},
                 before_data = ${beforeJson}::jsonb,
                 after_data = ${afterJson}::jsonb,
                 error_message = NULL,
@@ -727,10 +843,15 @@ export class ImportReviewPromotionPromoteRepository {
     }
 
     async markCandidatePromoted(args: {
+        entityFamily: PromotablePublishEntityFamily;
         reviewCandidateId: bigint;
         promotedCoreId: bigint;
         promotedBy: bigint | null;
     }): Promise<void> {
+        if (args.entityFamily === "places") {
+            await this.markPlaceCandidatePromoted(args);
+            return;
+        }
         await this.prisma.$executeRaw`
             UPDATE import_review.building_candidates
             SET promotion_status = 'promoted',
@@ -743,7 +864,31 @@ export class ImportReviewPromotionPromoteRepository {
         `;
     }
 
-    async markCandidateFailed(reviewCandidateId: bigint): Promise<void> {
+    async markPlaceCandidatePromoted(args: {
+        reviewCandidateId: bigint;
+        promotedCoreId: bigint;
+        promotedBy: bigint | null;
+    }): Promise<void> {
+        await this.prisma.$executeRaw`
+            UPDATE import_review.place_candidates
+            SET promotion_status = 'promoted',
+                promoted_core_id = ${args.promotedCoreId},
+                promoted_at = now(),
+                promoted_by = ${args.promotedBy},
+                review_status = 'promoted',
+                updated_at = now()
+            WHERE id = ${args.reviewCandidateId}
+        `;
+    }
+
+    async markCandidateFailed(
+        entityFamily: PromotablePublishEntityFamily,
+        reviewCandidateId: bigint
+    ): Promise<void> {
+        if (entityFamily === "places") {
+            await this.markPlaceCandidateFailed(reviewCandidateId);
+            return;
+        }
         await this.prisma.$executeRaw`
             UPDATE import_review.building_candidates
             SET promotion_status = 'failed',
@@ -753,8 +898,20 @@ export class ImportReviewPromotionPromoteRepository {
         `;
     }
 
-    async verifyCoreRows(batchId: bigint): Promise<{ missing: number; invalid_geom: number }> {
-        const rows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint }[]>`
+    async markPlaceCandidateFailed(reviewCandidateId: bigint): Promise<void> {
+        await this.prisma.$executeRaw`
+            UPDATE import_review.place_candidates
+            SET promotion_status = 'failed',
+                review_status = 'promotion_failed',
+                updated_at = now()
+            WHERE id = ${reviewCandidateId}
+        `;
+    }
+
+    async verifyCoreRows(
+        batchId: bigint
+    ): Promise<{ missing: number; invalid_geom: number; missing_names: number }> {
+        const buildingRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint }[]>`
             SELECT
                 count(*) FILTER (
                     WHERE spi.publish_status = 'success'
@@ -775,23 +932,69 @@ export class ImportReviewPromotionPromoteRepository {
             WHERE spi.publish_batch_id = ${batchId}
               AND spi.entity_family = 'buildings'
         `;
+        const placeRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint; missing_names: bigint }[]>`
+            SELECT
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND (
+                          spi.target_id IS NULL
+                          OR p.id IS NULL
+                          OR p.deleted_at IS NOT NULL
+                      )
+                )::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND p.id IS NOT NULL
+                      AND (
+                          p.point_geom IS NULL
+                          OR NOT ST_IsValid(p.point_geom)
+                          OR ST_SRID(p.point_geom) <> 4326
+                      )
+                )::bigint AS invalid_geom,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND p.id IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_place_names AS pn WHERE pn.place_id = p.id
+                      )
+                )::bigint AS missing_names
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_places AS p ON p.id = spi.target_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'places'
+        `;
         return {
-            missing: Number(rows[0]?.missing ?? 0n),
-            invalid_geom: Number(rows[0]?.invalid_geom ?? 0n),
+            missing: Number(buildingRows[0]?.missing ?? 0n) + Number(placeRows[0]?.missing ?? 0n),
+            invalid_geom:
+                Number(buildingRows[0]?.invalid_geom ?? 0n) + Number(placeRows[0]?.invalid_geom ?? 0n),
+            missing_names: Number(placeRows[0]?.missing_names ?? 0n),
         };
     }
 
     async countMarkedPromoted(batchId: bigint): Promise<number> {
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
             SELECT count(*)::bigint AS count
-            FROM system.system_publish_items AS spi
-            INNER JOIN import_review.building_candidates AS b
-                ON b.id = spi.review_candidate_id
-               AND spi.review_candidate_table = ${BUILDING_CANDIDATE_TABLE}
-            WHERE spi.publish_batch_id = ${batchId}
-              AND spi.publish_status = 'success'
-              AND b.promotion_status = 'promoted'
-              AND b.promoted_core_id IS NOT NULL
+            FROM (
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.building_candidates AS b
+                    ON b.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${BUILDING_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND b.promotion_status = 'promoted'
+                  AND b.promoted_core_id IS NOT NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.place_candidates AS p
+                    ON p.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${PLACE_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND p.promotion_status = 'promoted'
+                  AND p.promoted_core_id IS NOT NULL
+            ) AS marked
         `;
         return Number(rows[0]?.count ?? 0n);
     }
@@ -851,7 +1054,7 @@ export class ImportReviewPromotionPromoteRepository {
             success_missing_target: 0n,
         };
 
-        const coreIssues = await this.prisma.$queryRaw<
+        const buildingCoreIssues = await this.prisma.$queryRaw<
             { missing: bigint; inactive: bigint; lineage: bigint; geom: bigint }[]
         >`
             SELECT
@@ -878,23 +1081,80 @@ export class ImportReviewPromotionPromoteRepository {
             LEFT JOIN core.core_map_buildings AS c ON c.id = spi.target_id
             WHERE spi.publish_batch_id = ${batchId} AND spi.entity_family = 'buildings'
         `;
-        const ci = coreIssues[0] ?? { missing: 0n, inactive: 0n, lineage: 0n, geom: 0n };
+        const placeCoreIssues = await this.prisma.$queryRaw<
+            { missing: bigint; inactive: bigint; lineage: bigint; geom: bigint; missing_names: bigint }[]
+        >`
+            SELECT
+                count(*) FILTER (WHERE spi.publish_status = 'success' AND p.id IS NULL)::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND p.id IS NOT NULL
+                      AND p.deleted_at IS NOT NULL
+                )::bigint AS inactive,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND p.id IS NOT NULL
+                      AND (
+                          p.source_refs->>'review_candidate_id' IS NULL
+                          OR p.source_refs->>'publish_batch_id' IS NULL
+                      )
+                )::bigint AS lineage,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND p.id IS NOT NULL
+                      AND (
+                          p.point_geom IS NULL
+                          OR NOT ST_IsValid(p.point_geom)
+                          OR ST_SRID(p.point_geom) <> 4326
+                      )
+                )::bigint AS geom,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND p.id IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_place_names AS pn WHERE pn.place_id = p.id
+                      )
+                )::bigint AS missing_names
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_places AS p ON p.id = spi.target_id
+            WHERE spi.publish_batch_id = ${batchId} AND spi.entity_family = 'places'
+        `;
+        const bi = buildingCoreIssues[0] ?? { missing: 0n, inactive: 0n, lineage: 0n, geom: 0n };
+        const pi = placeCoreIssues[0] ?? {
+            missing: 0n,
+            inactive: 0n,
+            lineage: 0n,
+            geom: 0n,
+            missing_names: 0n,
+        };
 
         const candMissing = await this.prisma.$queryRaw<{ count: bigint }[]>`
             SELECT count(*)::bigint AS count
-            FROM system.system_publish_items AS spi
-            INNER JOIN import_review.building_candidates AS b ON b.id = spi.review_candidate_id
-            WHERE spi.publish_batch_id = ${batchId}
-              AND spi.publish_status = 'success'
-              AND b.promotion_status = 'promoted'
-              AND b.promoted_core_id IS NULL
+            FROM (
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.building_candidates AS b ON b.id = spi.review_candidate_id
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND b.promotion_status = 'promoted'
+                  AND b.promoted_core_id IS NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.place_candidates AS p ON p.id = spi.review_candidate_id
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND p.promotion_status = 'promoted'
+                  AND p.promoted_core_id IS NULL
+            ) AS missing_candidates
         `;
 
         const issues: ImportReviewPublishBatchVerifyResponse["issues"] = [];
-        const missingCore = Number(ci.missing ?? 0n);
+        const missingCore = Number(bi.missing ?? 0n) + Number(pi.missing ?? 0n);
         const missingTarget = Number(ic.success_missing_target ?? 0n);
-        const lineage = Number(ci.lineage ?? 0n);
-        const geom = Number(ci.geom ?? 0n);
+        const lineage = Number(bi.lineage ?? 0n) + Number(pi.lineage ?? 0n);
+        const geom = Number(bi.geom ?? 0n) + Number(pi.geom ?? 0n);
+        const missingNames = Number(pi.missing_names ?? 0n);
         const cand = Number(candMissing[0]?.count ?? 0n);
 
         if (missingTarget > 0) {
@@ -932,6 +1192,13 @@ export class ImportReviewPromotionPromoteRepository {
                 severity: "warning",
             });
         }
+        if (missingNames > 0) {
+            issues.push({
+                code: "place_names_missing",
+                message: `${missingNames} promoted place(s) missing core_place_names rows.`,
+                severity: "error",
+            });
+        }
 
         const hasError = issues.some((i) => i.severity === "error");
         const hasWarning = issues.some((i) => i.severity === "warning");
@@ -948,7 +1215,7 @@ export class ImportReviewPromotionPromoteRepository {
                 success_missing_target_id: missingTarget,
             },
             core_rows_missing: missingCore,
-            core_rows_inactive: Number(ci.inactive ?? 0n),
+            core_rows_inactive: Number(bi.inactive ?? 0n) + Number(pi.inactive ?? 0n),
             candidates_promoted_missing_core_id: cand,
             lineage_warnings: lineage,
             geometry_warnings: geom,

@@ -53,3 +53,43 @@ if [[ -n "${TOKEN:-}" ]] && [[ -z "${IMPORT_REVIEW_ADMIN_TOKEN:-}" ]]; then
 else
   echo "Skip JWT demo: TOKEN set + IMPORT_REVIEW_ADMIN_TOKEN unset on BOTH client env and API env."
 fi
+
+if [[ -n "${IMPORT_REVIEW_ADMIN_TOKEN:-}" ]]; then
+  AUTH=(-H "${HDR}: ${IMPORT_REVIEW_ADMIN_TOKEN}")
+
+  echo ""
+  echo "=== Batch resolution (multiple non-archived batches for same snapshot) ==="
+
+  echo ""
+  echo "--- Expect 409 + batches[] (snapshot only, no latest) ---"
+  curl -sS -o /tmp/ir-places-409.json -w "HTTP %{http_code}\n" \
+    "$API/api/import-review/places?source_snapshot_version=$SNAP&limit=5" "${AUTH[@]}"
+  if command -v jq >/dev/null 2>&1; then
+    jq '{message, source_snapshot_version, batch_count: (.batches | length), first_batch: .batches[0].id, selected_by: null}' /tmp/ir-places-409.json 2>/dev/null || cat /tmp/ir-places-409.json
+  fi
+
+  echo ""
+  echo "--- Expect 200 latest batch (newest uploaded_at) ---"
+  curl -sS -o /tmp/ir-places-latest.json -w "HTTP %{http_code}\n" \
+    "$API/api/import-review/places?source_snapshot_version=$SNAP&latest=true&limit=5" "${AUTH[@]}"
+  if command -v jq >/dev/null 2>&1; then
+    jq '{review_batch_id, selected_by, batch_name, total: .total}' /tmp/ir-places-latest.json 2>/dev/null || cat /tmp/ir-places-latest.json
+  fi
+
+  REVIEW_BATCH_ID="${REVIEW_BATCH_ID:-2}"
+  echo ""
+  echo "--- Expect 200 explicit review_batch_id=$REVIEW_BATCH_ID ---"
+  curl -sS -o /tmp/ir-places-batch.json -w "HTTP %{http_code}\n" \
+    "$API/api/import-review/places?review_batch_id=$REVIEW_BATCH_ID&limit=5" "${AUTH[@]}"
+  if command -v jq >/dev/null 2>&1; then
+    jq '{review_batch_id, selected_by, batch_name, total: .total}' /tmp/ir-places-batch.json 2>/dev/null || cat /tmp/ir-places-batch.json
+  fi
+
+  echo ""
+  echo "--- Expect 404 invalid review_batch_id ---"
+  curl -sS -o /tmp/ir-places-404.json -w "HTTP %{http_code}\n" \
+    "$API/api/import-review/places?review_batch_id=999999&limit=5" "${AUTH[@]}"
+  if command -v jq >/dev/null 2>&1; then
+    jq '.' /tmp/ir-places-404.json 2>/dev/null || cat /tmp/ir-places-404.json
+  fi
+fi

@@ -3,6 +3,8 @@ import type { JwtUser } from "../../plugins/auth.js";
 import { StreetsRepository } from "../streets/streets.repo.js";
 import type {
     BuildingListRowDb,
+    CandidateReviewGuardContext,
+    CandidateReviewRoadDecisionContext,
     ImportReviewDataRepository,
     ImportReviewScopeQuery,
     ImportReviewScopeResolved,
@@ -12,6 +14,7 @@ import {
     ImportReviewBatchAmbiguousError,
     ImportReviewBatchNotFoundError,
     ImportReviewBuildingNotFoundError,
+    ImportReviewCandidateNotFoundError,
     ImportReviewDecisionRuleError,
     ImportReviewInvalidScopeError,
     ImportReviewPlaceNotFoundError,
@@ -19,9 +22,12 @@ import {
     ImportReviewRoadOverridesValidationFailedError,
     ImportReviewRoadOverridesWarningsPendingError,
 } from "./import-review-errors.js";
+import { getImportReviewEntityConfig, IMPORT_REVIEW_ENTITY_FAMILIES, type ImportReviewEntityFamilySlug } from "./import-review-config.js";
+import { ImportReviewReferenceOptionsRepository } from "./import-review-reference-options.repo.js";
 import type {
     BulkImportReviewBuildingDecisionBody,
     ImportReviewBuildingsQuery,
+    ImportReviewCandidatesListQuery,
     ImportReviewDecisionValue,
     ImportReviewPlacesQuery,
     ImportReviewRoadsQuery,
@@ -35,6 +41,7 @@ import type {
     ImportReviewBuildingsFilterOptionsResponse,
     ImportReviewBuildingsListResponse,
     ImportReviewBulkDecisionResponse,
+    ImportReviewFilterOptionsResponse,
     ImportReviewGeoJson,
     ImportReviewSummaryEnvelope,
     ImportReviewSummaryResponse,
@@ -46,6 +53,11 @@ import {
     runImportReviewRoadRoutingValidation,
 } from "./import-review-road-routing-validation.js";
 import type { ImportReviewRoadRoutingValidationResult } from "./import-review-road-routing-validation.types.js";
+import {
+    mapFamilySummaryMetricsDb,
+    rollupFamilySummaries,
+    type ImportReviewFamilySummaryMetrics,
+} from "./import-review-summary-counts.js";
 
 export {
     ImportReviewBatchAmbiguousError,
@@ -175,6 +187,7 @@ function scopeQueryFromBuildings(q: ImportReviewBuildingsQuery): ImportReviewSco
     return {
         source_snapshot_version: q.source_snapshot_version,
         review_batch_id: q.review_batch_id,
+        latest: q.latest,
     };
 }
 
@@ -182,6 +195,7 @@ function scopeQueryFromPlaces(q: ImportReviewPlacesQuery): ImportReviewScopeQuer
     return {
         source_snapshot_version: q.source_snapshot_version,
         review_batch_id: q.review_batch_id,
+        latest: q.latest,
     };
 }
 
@@ -189,6 +203,7 @@ function scopeQueryFromRoads(q: ImportReviewRoadsQuery): ImportReviewScopeQuery 
     return {
         source_snapshot_version: q.source_snapshot_version,
         review_batch_id: q.review_batch_id,
+        latest: q.latest,
     };
 }
 
@@ -266,6 +281,134 @@ function scopeHintFromResolved(scope: ImportReviewScopeResolved): string {
     return `source_snapshot_version=${scope.snapshotVersion} review_batch_id=${scope.reviewBatchId}`;
 }
 
+function mapCandidateRow(row: BuildingListRowDb): ImportReviewBuildingListItem {
+    return mapBuildingRow(row);
+}
+
+function scopeQueryFromCandidatesList(q: ImportReviewCandidatesListQuery): ImportReviewScopeQuery {
+    return {
+        source_snapshot_version: q.source_snapshot_version,
+        review_batch_id: q.review_batch_id,
+        latest: q.latest,
+    };
+}
+
+function throwCandidateNotFound(
+    family: ImportReviewEntityFamilySlug,
+    id: bigint,
+    scope: ImportReviewScopeResolved
+): never {
+    const hint = scopeHintFromResolved(scope);
+    const idStr = id.toString();
+    if (family === "buildings") {
+        throw new ImportReviewBuildingNotFoundError(idStr, hint);
+    }
+    if (family === "places") {
+        throw new ImportReviewPlaceNotFoundError(idStr, hint);
+    }
+    if (family === "roads") {
+        throw new ImportReviewRoadNotFoundError(idStr, hint);
+    }
+    throw new ImportReviewCandidateNotFoundError(family, idStr, hint);
+}
+
+function assertGenericCandidateDecisionAllowed(args: {
+    family: ImportReviewEntityFamilySlug;
+    body: PatchImportReviewBuildingDecisionBody;
+    existing: CandidateReviewGuardContext;
+    roadContext?: CandidateReviewRoadDecisionContext | null;
+}): void {
+    const matchStatus = args.existing.match_status ?? "";
+    const autoAction = args.existing.auto_action ?? "";
+    const promotionStatus = args.existing.promotion_status ?? "";
+
+    if (promotionStatus === "promoted") {
+        const note = args.body.review_note;
+        const hasNote = note !== undefined && note !== null && note.trim() !== "";
+        if (!args.body.force || !hasNote) {
+            throw new ImportReviewDecisionRuleError(
+                "Cannot change review decision while promotion_status is promoted without force=true and a non-empty review_note"
+            );
+        }
+    }
+
+    if (
+        matchStatus === "duplicate_candidate" &&
+        args.body.review_decision === "approved" &&
+        !args.body.force &&
+        !args.body.confirm_duplicate_reviewed
+    ) {
+        throw new ImportReviewDecisionRuleError(
+            "Cannot approve a duplicate_candidate without force=true or confirm_duplicate_reviewed=true"
+        );
+    }
+
+    if (
+        args.body.review_decision === "approved" &&
+        (matchStatus === "manual_protected" || autoAction === "protect_manual")
+    ) {
+        const note = args.body.review_note;
+        const hasNote = note !== undefined && note !== null && note.trim() !== "";
+        if (!args.body.force || !hasNote) {
+            throw new ImportReviewDecisionRuleError(
+                "Cannot approve a manual_protected / protect_manual candidate without force=true and a non-empty review_note"
+            );
+        }
+    }
+
+    if (args.body.review_decision === "approved" && args.roadContext) {
+        if (
+            matchStatus === "matched_auto_update" &&
+            !args.body.force &&
+            !args.body.confirm_matched_auto_update
+        ) {
+            throw new ImportReviewDecisionRuleError(
+                "Cannot approve a matched_auto_update road without force=true or confirm_matched_auto_update=true"
+            );
+        }
+
+        const valErr = stringsFromStoredJsonArray(args.roadContext.validation_errors);
+        if (valErr.length > 0 && !args.body.force) {
+            throw new ImportReviewDecisionRuleError(
+                "Cannot approve while validation_errors persist on this road candidate — resolve overrides geometry/attributes first."
+            );
+        }
+
+        const valWarn = stringsFromStoredJsonArray(args.roadContext.validation_warnings);
+        if (valWarn.length > 0 && !args.body.force && !args.body.confirm_routing_warnings) {
+            throw new ImportReviewDecisionRuleError(
+                "Unresolved routing_validation warnings on this candidate; send confirm_routing_warnings=true (or force=true) after review."
+            );
+        }
+    }
+
+    if (args.body.review_decision === "approved" && !args.body.force && args.roadContext === undefined) {
+        const config = getImportReviewEntityConfig(args.family);
+        if (config.validationRequiredBeforePromotion) {
+            const ctx = args.existing as CandidateReviewGuardContext & {
+                validation_errors?: unknown;
+                validation_warnings?: unknown;
+            };
+            const valErr = stringsFromStoredJsonArray(ctx.validation_errors);
+            if (valErr.length > 0) {
+                throw new ImportReviewDecisionRuleError(
+                    `Cannot approve while validation_errors persist on this ${args.family} candidate without force=true`
+                );
+            }
+            const valWarn = stringsFromStoredJsonArray(ctx.validation_warnings);
+            if (valWarn.length > 0) {
+                const note = args.body.review_note;
+                const hasNote = note !== undefined && note !== null && note.trim() !== "";
+                if (!hasNote) {
+                    throw new ImportReviewDecisionRuleError(
+                        "Cannot approve while validation_warnings persist without a non-empty review_note"
+                    );
+                }
+            }
+        }
+    }
+}
+
 export class ImportReviewService {
     private readonly routingStreets = new StreetsRepository(getImportReviewPrisma());
 
@@ -292,6 +435,12 @@ export class ImportReviewService {
             review_batch_id: scope.reviewBatchId.toString(),
             source_snapshot_id_local:
                 scope.sourceSnapshotIdLocal != null ? scope.sourceSnapshotIdLocal.toString() : null,
+            batch_name: scope.batchName,
+            selected_by: scope.selectedBy,
+            status: scope.status,
+            uploaded_at: scope.uploadedAt.toISOString(),
+            total_candidate_count: scope.totalCandidateCount,
+            entity_families: [...scope.entityFamilies],
         };
     }
 
@@ -301,44 +450,30 @@ export class ImportReviewService {
 
     async getSummary(q: ImportReviewScopeQuery): Promise<ImportReviewSummaryResponse> {
         const scope = await this.resolveScopeChecked(q);
-        const { rows: buckets, warnings } = await this.repo.fetchSummaryBuckets(scope);
+        const [{ rows: buckets, warnings: bucketWarnings }, { rows: familyRows, warnings: familyWarnings }] =
+            await Promise.all([
+                this.repo.fetchSummaryBuckets(scope),
+                this.repo.fetchFamilySummaryMetrics(scope),
+            ]);
 
-        let totalPending = 0;
-        let totalApproved = 0;
-        let totalRejected = 0;
+        const warnings = [...bucketWarnings, ...familyWarnings];
 
-        const entitySummaries = buckets.map((row) => {
-            const count = n(row.row_count);
+        const entitySummaries = buckets.map((row) => ({
+            entity_family: row.entity_family,
+            review_batch_id: row.review_batch_id.toString(),
+            source_snapshot_version: row.source_snapshot_version,
+            match_status: row.match_status,
+            auto_action: row.auto_action,
+            review_status: row.review_status,
+            review_decision: row.review_decision,
+            promotion_status: row.promotion_status,
+            row_count: n(row.row_count),
+        }));
 
-            if (row.review_status === "pending") {
-                totalPending += count;
-            }
-
-            if (row.review_decision === "approved") {
-                totalApproved += count;
-            }
-
-            if (row.review_decision === "rejected") {
-                totalRejected += count;
-            }
-
-            return {
-                entity_family: row.entity_family,
-                review_batch_id: row.review_batch_id.toString(),
-                source_snapshot_version: row.source_snapshot_version,
-                match_status: row.match_status,
-                auto_action: row.auto_action,
-                review_status: row.review_status,
-                review_decision: row.review_decision,
-                promotion_status: row.promotion_status,
-                row_count: count,
-            };
-        });
-
-        const familyOrder = ["buildings", "places", "roads"];
+        const familyOrder = [...IMPORT_REVIEW_ENTITY_FAMILIES];
         entitySummaries.sort((a, b) => {
-            const fa = familyOrder.indexOf(a.entity_family);
-            const fb = familyOrder.indexOf(b.entity_family);
+            const fa = familyOrder.indexOf(a.entity_family as (typeof familyOrder)[number]);
+            const fb = familyOrder.indexOf(b.entity_family as (typeof familyOrder)[number]);
             if (fa !== fb) {
                 return (fa === -1 ? 99 : fa) - (fb === -1 ? 99 : fb);
             }
@@ -354,13 +489,26 @@ export class ImportReviewService {
             );
         });
 
+        const familySummaries: ImportReviewFamilySummaryMetrics[] = familyRows
+            .map(mapFamilySummaryMetricsDb)
+            .filter((row) => row.batch_total > 0)
+            .sort((a, b) => {
+                const fa = familyOrder.indexOf(a.entity_family as (typeof familyOrder)[number]);
+                const fb = familyOrder.indexOf(b.entity_family as (typeof familyOrder)[number]);
+                return (fa === -1 ? 99 : fa) - (fb === -1 ? 99 : fb);
+            });
+
+        const rollup = rollupFamilySummaries(familySummaries);
+
         return {
             ...this.envelopeSummary(scope),
             ...(warnings.length > 0 ? { warnings } : {}),
             entity_summaries: entitySummaries,
-            total_pending_review_count: totalPending,
-            total_approved_count: totalApproved,
-            total_rejected_count: totalRejected,
+            family_summaries: familySummaries,
+            rollup,
+            total_pending_review_count: rollup.pending_review_candidates,
+            total_approved_count: rollup.approved_candidates,
+            total_rejected_count: rollup.rejected_candidates,
         };
     }
 
@@ -1004,5 +1152,197 @@ export class ImportReviewService {
         });
 
         return { ...this.envelopeLists(scope), ...res };
+    }
+
+    async listCandidates(
+        family: ImportReviewEntityFamilySlug,
+        query: ImportReviewCandidatesListQuery
+    ): Promise<ImportReviewBuildingsListResponse> {
+        const scope = await this.resolveScopeChecked(scopeQueryFromCandidatesList(query));
+
+        const filterSlice = {
+            match_status: query.match_status,
+            auto_action: query.auto_action,
+            review_status: query.review_status,
+            review_decision: query.review_decision,
+            class_code: query.class_code,
+            promotion_status: query.promotion_status,
+            include_promoted: query.include_promoted,
+            q: query.q,
+        };
+
+        const listFilters = {
+            ...filterSlice,
+            limit: query.limit,
+            offset: query.offset,
+            sort: query.sort,
+            include_geometry: query.include_geometry,
+        };
+
+        const [total, rows] = await Promise.all([
+            this.repo.countCandidates(family, scope, filterSlice),
+            this.repo.listCandidates(family, scope, listFilters),
+        ]);
+
+        return {
+            ...this.envelopeLists(scope),
+            items: rows.map(mapCandidateRow),
+            total: Number(total),
+            limit: query.limit,
+            offset: query.offset,
+        };
+    }
+
+    async getCandidateById(
+        family: ImportReviewEntityFamilySlug,
+        params: {
+            id: bigint;
+            source_snapshot_version?: string | undefined;
+            review_batch_id?: bigint | undefined;
+            include_geometry: boolean;
+        }
+    ): Promise<ImportReviewBuildingListItem> {
+        const scope = await this.resolveScopeChecked({
+            source_snapshot_version: params.source_snapshot_version,
+            review_batch_id: params.review_batch_id,
+        });
+
+        const row = await this.repo.getCandidateById(family, scope, params.id, params.include_geometry);
+        if (row === null) {
+            throwCandidateNotFound(family, params.id, scope);
+        }
+        return mapCandidateRow(row);
+    }
+
+    async getFilterOptions(
+        family: ImportReviewEntityFamilySlug,
+        q: ImportReviewScopeQuery
+    ): Promise<ImportReviewFilterOptionsResponse> {
+        const scope = await this.resolveScopeChecked(q);
+        const opts = await this.repo.fetchCandidateFilterOptions(family, scope);
+        return {
+            ...this.envelopeSummary(scope),
+            ...opts,
+        };
+    }
+
+    async patchCandidateDecision(
+        family: ImportReviewEntityFamilySlug,
+        candidateId: bigint,
+        body: PatchImportReviewBuildingDecisionBody,
+        user: JwtUser
+    ): Promise<ImportReviewBuildingListItem> {
+        const scope = await this.resolveScopeChecked(scopeQueryFromDecisionBody(body));
+
+        if (family === "roads") {
+            return this.patchRoadDecision(candidateId, body, user);
+        }
+
+        const existing = await this.repo.findCandidateReviewContext(family, scope, candidateId);
+        if (existing === null) {
+            throwCandidateNotFound(family, candidateId, scope);
+        }
+
+        assertGenericCandidateDecisionAllowed({ family, body, existing });
+
+        const updated = await this.repo.updateCandidateReviewDecision({
+            family,
+            scope,
+            id: candidateId,
+            reviewDecision: body.review_decision,
+            reviewStatus: reviewStatusForDecision(body.review_decision),
+            actor: buildActor(user),
+            reviewNote: body.review_note,
+        });
+
+        if (updated === null) {
+            throwCandidateNotFound(family, candidateId, scope);
+        }
+
+        return mapCandidateRow(updated);
+    }
+
+    async bulkCandidateDecision(
+        family: ImportReviewEntityFamilySlug,
+        body: BulkImportReviewBuildingDecisionBody,
+        user: JwtUser
+    ): Promise<ImportReviewBulkDecisionResponse> {
+        const config = getImportReviewEntityConfig(family);
+        if (!config.bulkApprovalAllowed) {
+            throw new ImportReviewDecisionRuleError(
+                `Bulk review decisions are not allowed for entity family ${family}`
+            );
+        }
+
+        const scope = await this.resolveScopeChecked(scopeQueryFromBulkBody(body));
+        const mode = body.ids !== undefined ? "ids" : "filters";
+
+        const res = await this.repo.bulkCandidateDecisions({
+            family,
+            scope,
+            mode,
+            ids: body.ids,
+            filters: body.filters,
+            reviewDecision: body.review_decision,
+            reviewStatus: reviewStatusForDecision(body.review_decision),
+            actor: buildActor(user),
+            reviewNote: body.review_note,
+            force: body.force,
+            dryRun: body.dry_run,
+        });
+
+        return { ...this.envelopeLists(scope), ...res };
+    }
+
+    async patchCandidateOverrides(
+        family: ImportReviewEntityFamilySlug,
+        candidateId: bigint,
+        body: PatchImportReviewBuildingOverridesBody,
+        user: JwtUser
+    ): Promise<ImportReviewBuildingListItem> {
+        const config = getImportReviewEntityConfig(family);
+        if (!config.supportsOverrides) {
+            throw new ImportReviewDecisionRuleError(
+                `Review overrides are not supported for entity family ${family}`
+            );
+        }
+
+        if (family === "roads") {
+            throw new ImportReviewDecisionRuleError(
+                "Use PATCH /api/import-review/roads/:id/overrides for road candidates"
+            );
+        }
+
+        const scope = await this.resolveScopeChecked(scopeQueryFromOverridesBody(body));
+        const ctx = await this.repo.findCandidateReviewContext(family, scope, candidateId);
+        if (ctx === null) {
+            throwCandidateNotFound(family, candidateId, scope);
+        }
+
+        if ((ctx.promotion_status ?? "") === "promoted") {
+            throw new ImportReviewDecisionRuleError(
+                "Cannot update review_overrides once promotion_status is promoted"
+            );
+        }
+
+        const row = await this.repo.patchCandidateReviewOverrides({
+            family,
+            scope,
+            id: candidateId,
+            overridesPatch: body.review_overrides,
+            editedByUserId: reviewedByUserId(user),
+            reviewNote: body.review_note,
+        });
+
+        if (row === null) {
+            throwCandidateNotFound(family, candidateId, scope);
+        }
+
+        return family === "buildings" ? mapBuildingRow(row) : mapCandidateRow(row);
+    }
+
+    async getReferenceOptions() {
+        const repo = new ImportReviewReferenceOptionsRepository(getImportReviewPrisma());
+        return repo.fetchAll();
     }
 }

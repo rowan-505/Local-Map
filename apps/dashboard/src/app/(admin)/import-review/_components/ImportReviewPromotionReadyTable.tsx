@@ -9,6 +9,9 @@ import {
     importReviewStickyActionsThClass,
 } from "@/src/app/(admin)/import-review/_components/importReviewTableUi";
 import { PromotionStatusBadge } from "@/src/app/(admin)/import-review/_components/importReviewPromotionUi";
+import ImportReviewSkeletonTable from "@/src/features/import-review/components/ImportReviewSkeletonTable";
+import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
+import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import type { ImportReviewPromotionReadyCandidateItem } from "@/src/lib/api";
 import { applyImportReviewScopeSearchParams } from "@/src/lib/importReviewSnapshot";
 
@@ -66,12 +69,17 @@ export default function ImportReviewPromotionReadyTable({
         return null;
     }, [scope, total]);
 
-    if (emptyMessage && !isLoading) {
+    if (isLoading && items.length === 0) {
         return (
-            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-8 text-center text-sm text-gray-600">
-                {emptyMessage}
-            </div>
+            <ImportReviewSkeletonTable
+                columnCount={13}
+                message={IMPORT_REVIEW_LOADING.loadingCandidates}
+            />
         );
+    }
+
+    if (emptyMessage) {
+        return <ImportReviewStatusBanner message={emptyMessage} tone="info" compact />;
     }
 
     return (
@@ -113,13 +121,6 @@ export default function ImportReviewPromotionReadyTable({
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 bg-white">
-                        {isLoading && items.length === 0 ? (
-                            <tr>
-                                <td colSpan={13} className="px-4 py-8 text-center text-gray-500">
-                                    Loading candidates…
-                                </td>
-                            </tr>
-                        ) : null}
                         {items.map((row) => (
                             <tr key={row.id} className="hover:bg-gray-50/80">
                                 <td className="px-3 py-2 font-mono text-xs text-gray-800">{row.id}</td>

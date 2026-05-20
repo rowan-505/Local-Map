@@ -1,5 +1,8 @@
 import { Suspense } from "react";
 
+import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
+import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
+
 import ImportReviewPromotionBatchDetailClient from "../../_components/ImportReviewPromotionBatchDetailClient";
 
 export default function ImportReviewPromotionBatchDetailPage() {
@@ -7,7 +10,7 @@ export default function ImportReviewPromotionBatchDetailPage() {
         <Suspense
             fallback={
                 <main className="p-6">
-                    <p className="text-sm text-gray-600">Loading batch…</p>
+                    <ImportReviewLoadingBannerWithSpinner message={IMPORT_REVIEW_LOADING.loadingPromotionBatch} />
                 </main>
             }
         >

@@ -52,10 +52,91 @@ export type ImportReviewPublishBatchDetail = ImportReviewPublishBatchSummary & {
     };
 };
 
+export type ImportReviewPromotionSkippedReasonCount = {
+    reason: string;
+    count: number;
+};
+
+export type ImportReviewPromotionFamilyEligibilityCounts = {
+    entity_family: string;
+    table_name: string;
+    approved_ready: number;
+    with_warnings: number;
+    blocked: number;
+    already_promoted: number;
+    excluded: number;
+    skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
+};
+
+export type ImportReviewPromotionBatchEligibilityResponse = {
+    review_batch_id: string;
+    source_snapshot_version: string;
+    entity_families: string[];
+    by_family: ImportReviewPromotionFamilyEligibilityCounts[];
+    totals: {
+        approved_ready: number;
+        with_warnings: number;
+        blocked: number;
+        already_promoted: number;
+    };
+};
+
+export type ImportReviewPromotionCreateBatchFamilyResult = {
+    entity_family: string;
+    items_added: number;
+    marked_batched: number;
+    skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
+};
+
+export type ImportReviewPromotionCreateBatchStage = {
+    stage_key: string;
+    stage_label: string;
+    message: string;
+    counts: Record<string, number>;
+};
+
+export type ImportReviewCreatePublishBatchTimingMs = {
+    resolve_ms: number;
+    eligibility_ms: number;
+    payload_ms: number;
+    transaction_ms: number;
+    total_ms: number;
+};
+
+export type ImportReviewCreatePublishBatchDryRunResult = {
+    dry_run: true;
+    batch_name: string;
+    entity_families: string[];
+    totals: { included: number; excluded: number; skipped: number };
+    by_family: Array<{
+        entity_family: string;
+        included: number;
+        excluded: number;
+        skipped: number;
+        skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
+    }>;
+    stages: ImportReviewPromotionCreateBatchStage[];
+    message: string;
+    total_selected: number;
+    by_entity: Record<string, number>;
+    skipped: number;
+    timing_ms: ImportReviewCreatePublishBatchTimingMs;
+};
+
 export type ImportReviewCreatePublishBatchResult = {
+    dry_run?: false;
     message: string;
     batch: ImportReviewPublishBatchDetail;
+    batch_id: string;
+    status: string;
     items_added: number;
+    total_selected: number;
+    candidates_marked_batched: number;
+    by_family: ImportReviewPromotionCreateBatchFamilyResult[];
+    by_entity: Record<string, number>;
+    skipped: number;
+    timing_ms: ImportReviewCreatePublishBatchTimingMs;
+    /** @deprecated Use candidates_marked_batched / by_family for buildings slice */
     building_candidates_marked_batched: number;
 };
 
@@ -85,14 +166,28 @@ export type ImportReviewPromotionReadyCandidateItem = {
     geometry: Record<string, unknown> | null;
 };
 
+export type ImportReviewPublishBatchEntityValidationCounts = {
+    total: number;
+    valid: number;
+    warning: number;
+    blocked: number;
+    skipped: number;
+};
+
 export type ImportReviewPublishBatchValidationResultSummary = {
     outcome: "passed" | "blocked";
+    can_promote: boolean;
+    requires_warning_confirmation: boolean;
     valid_count: number;
     warning_count: number;
     blocked_count: number;
+    skipped_count: number;
     total_items: number;
     by_publish_action: { insert: number; update: number; merge: number };
+    by_entity: Record<string, ImportReviewPublishBatchEntityValidationCounts>;
+    /** @deprecated Use by_entity */
     entity_family: { buildings: number };
+    promotable_entity_families: string[];
 };
 
 export type ImportReviewPublishBatchPromotionResultSummary = {
@@ -119,10 +214,17 @@ export type ImportReviewPublishBatchProgressResponse = {
     validation_total: number;
     validation_done: number;
     validation_percent: number;
+    /** Total publish items included in validation progress. */
+    total_item_count: number;
+    /** Items that completed all validation substages (never exceeds total_item_count). */
+    item_processed_count: number;
+    /** Number of per-item validation substages. */
+    stage_count: number;
     validated_at: string | null;
     current_stage_key: string | null;
     current_stage_label: string | null;
     current_stage_status: string | null;
+    current_entity_family: string | null;
     current_message: string | null;
     validation_result: ImportReviewPublishBatchValidationResultSummary | null;
     validation_logs_summary: string | null;
@@ -154,11 +256,13 @@ export type ImportReviewPublishBatchVerifyResponse = {
     issues: { code: string; message: string; severity: "error" | "warning" }[];
 };
 
+import type { PublishStageStatus } from "./import-review-promotion-stage-status.js";
+
 export type ImportReviewPublishStageLogItem = {
     id: string;
     stage_key: string;
     stage_label: string;
-    stage_status: string;
+    stage_status: PublishStageStatus;
     message: string | null;
     progress_percent: number;
     details: unknown;

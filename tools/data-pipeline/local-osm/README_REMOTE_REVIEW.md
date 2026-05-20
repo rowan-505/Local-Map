@@ -16,7 +16,7 @@ This document describes how **local staging**, the **local outbound package** (`
 |------|------|----------|
 | **J** | `11_prepare_remote_review_package.sql` | Local only — `system.system_remote_review_packages` + `_items` |
 | **K** | `12_upload_remote_review_package.ts` | Supabase only — `import_review.review_batches` + `*_candidates` |
-| **L** | `13_verify_remote_review_upload.sql` | Local — package + item upload stats |
+| **L** | `13_verify_remote_review_upload.sql` | Local or Supabase — Part A local package; Part B `import_review`; Part C coverage report |
 | **14** (optional) | `14_verify_lineage_alignment.sql` | Local — staging ↔ package + payload mirrors; optional after L via `REMOTE_LINEAGE_ALIGNMENT_VERIFY` |
 
 Orchestration: `run_local_osm_pipeline.sh`.
@@ -32,7 +32,7 @@ Canonical names below match **Supabase `import_review` candidate columns** and t
 | `source_snapshot_version` | On **package** (`snapshot_version`); duplicated on each Supabase row | `source_snapshot_version NOT NULL` | Stage K copies from package `snapshot_version`. |
 | `source_snapshot_id_local` | On **package** (`source_snapshot_id` → `system.system_source_snapshots.id`) | `source_snapshot_id_local` (nullable DDL; **set by K**) | Local package row is the source of truth for the bigint id used in staging FKs. |
 | `local_staging_id` | `local_staging_id` | `local_staging_id NOT NULL` | Join key to `staging_*_candidates.id`. |
-| `entity_family` | `entity_family`, `source_table` | `entity_family NOT NULL` | Pipeline uses `buildings` \| `places` \| `roads`. |
+| `entity_family` | `entity_family`, `source_table` | `entity_family NOT NULL` | Ten families: `buildings`, `places`, `roads`, `bus_stops`, `landuse`, `water_lines`, `water_polygons`, `addresses`, `admin_areas`, `routing_barriers`. |
 | `external_id` | `external_id` | `external_id` | OSM / natural id; may be null for edge cases (**WARN** in Stage 14, not FAIL). |
 | `source_refs` | `source_refs` (jsonb, default `{}`) | `source_refs NOT NULL` default `{}` | |
 | `normalized_data` | `normalized_data` (jsonb, default `{}`) | `normalized_data NOT NULL` default `{}` | |
@@ -55,9 +55,33 @@ Stage J also writes **redundant mirrors** into each item **`payload`** JSON for 
 
 | Concept | Staging (local) | Local package | Supabase `import_review` | Intended `core.*` target(s) |
 |---------|-----------------|---------------|--------------------------|-------------------------------|
-| Buildings | `staging.staging_building_candidates` | `_items` where `entity_family = 'buildings'` | `import_review.building_candidates` | **`core.core_map_buildings`** (and linking tables such as `core.core_place_buildings` when promoting) |
-| Places | `staging.staging_place_candidates` | `_items` (`places`) | `import_review.place_candidates` | **`core.core_places`** (+ names/sources: **`core.core_place_names`**, **`core.core_place_sources`**) |
-| Roads | `staging.staging_road_candidates` | `_items` (`roads`) | `import_review.road_candidates` | **`core.core_streets`** (+ naming/versions: **`core.core_street_names`**, **`core.core_street_versions`**) |
+| Buildings | `staging.staging_building_candidates` | `_items` (`buildings`) | `import_review.building_candidates` | `core.core_map_buildings` |
+| Places | `staging.staging_place_candidates` | `_items` (`places`) | `import_review.place_candidates` | `core.core_places` (+ child names in `normalized_data`) |
+| Roads | `staging.staging_road_candidates` | `_items` (`roads`) | `import_review.road_candidates` | `core.core_streets` |
+| Bus stops | `staging.staging_bus_stop_candidates` | `_items` (`bus_stops`) | `import_review.bus_stop_candidates` | `core.core_bus_stops` |
+| Landuse | `staging.staging_landuse_candidates` | `_items` (`landuse`) | `import_review.landuse_candidates` | `core.core_map_landuse` |
+| Water lines | `staging.staging_water_line_candidates` | `_items` (`water_lines`) | `import_review.water_line_candidates` | `core.core_map_water_lines` |
+| Water polygons | `staging.staging_water_polygon_candidates` | `_items` (`water_polygons`) | `import_review.water_polygon_candidates` | `core.core_map_water_polygons` |
+| Addresses | `staging.staging_address_candidates` | `_items` (`addresses`) | `import_review.address_candidates` | `core.core_addresses` (+ `address_components` in `normalized_data`) |
+| Admin areas | `staging.staging_admin_area_candidates` | `_items` (`admin_areas`) | `import_review.admin_area_candidates` | `core.core_admin_areas` (+ `names` in `normalized_data`) |
+| Routing barriers | `staging.staging_routing_barrier_candidates` | `_items` (`routing_barriers`) | `import_review.routing_barrier_candidates` | (no core DDL yet) |
+
+**Not in this phase:** `bus_routes`, `bus_route_variants`, `bus_route_stops` (deferred — graph/sequence risk).
+
+Stage K upload entity mapping: `remote-review-entity-config.ts`.
+
+**Stage K filters (CLI or env):**
+
+```bash
+# all families in package (default)
+REMOTE_REVIEW_ENTITY_FAMILY=all
+
+# subset
+npx tsx ./12_upload_remote_review_package.ts --entity-family=buildings,places
+
+# safe test cap per family
+npx tsx ./12_upload_remote_review_package.ts --entity-family=buildings --max-rows-per-family=10
+```
 
 Promotion is **future work**; preserve at minimum:
 
@@ -68,7 +92,103 @@ Promotion is **future work**; preserve at minimum:
 
 ---
 
+## Stage J eligibility (relaxed)
+
+Stage J exports review-ready staging rows for the current `source_snapshot_id` when:
+
+- `review_status` is null or in the allowed review set, and
+- row is not `promotion_status = 'promoted'`, and
+- either **`match_status` and `auto_action` are both set**, or the row has useful data (geometry, non-empty `normalized_data`/`source_refs`, or `external_id`).
+
+Rows with null `match_status` / `auto_action` are packaged with defaults: `match_status = 'needs_review'`, `auto_action = 'needs_review'`, `review_status = 'pending'`.
+
+Package `summary.staging_eligible_counts` compares staging eligibility vs `counts_by_entity_family` after each Stage J run.
+
+---
+
+## Expected counts (Kyauktan v2 snapshot example)
+
+After a full 10-family Stage J + K run for `osm_myanmar_2026_05_15_kyauktan_v2`:
+
+| Entity family | Expected rows |
+|---------------|---------------|
+| buildings | 1402 |
+| places | 232 |
+| roads | 1400 |
+| bus_stops | 52 |
+| landuse | 68 |
+| water_lines | 27 |
+| water_polygons | 23 |
+| addresses | 45 |
+| admin_areas | 21 |
+| routing_barriers | 15 |
+| **Total** | **3285** |
+
+Stage **13** Part C `coverage_report` compares `staging_eligible`, `package_items`, and `remote_uploaded` per family. Set `-v fail_on_coverage_gap=false` to report without raising.
+
+---
+
 ## Commands (operators)
+
+### 1. Prepare package (Stage J — local)
+
+```bash
+cd tools/data-pipeline/local-osm
+source imports/kyauktan_2026_05_15_v2.env   # or your import env
+
+PAGER=cat psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -v snapshot_version="$SNAPSHOT_VERSION" \
+  -v region_code="$REGION_CODE" \
+  -f ./11_prepare_remote_review_package.sql
+
+# Capture package_name from output → export REMOTE_REVIEW_PACKAGE_NAME=...
+```
+
+Replace an existing package name safely:
+
+```bash
+PAGER=cat psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -v snapshot_version="$SNAPSHOT_VERSION" \
+  -v package_name="$REMOTE_REVIEW_PACKAGE_NAME" \
+  -v replace_package=true \
+  -f ./11_prepare_remote_review_package.sql
+```
+
+### 2. Upload all families (Stage K)
+
+```bash
+export REMOTE_REVIEW_UPLOAD_ENABLED=true
+npx tsx ./12_upload_remote_review_package.ts --entity-family=all
+```
+
+Upload only the seven newly supported families:
+
+```bash
+npx tsx ./12_upload_remote_review_package.ts \
+  --entity-family=bus_stops,landuse,water_lines,water_polygons,addresses,admin_areas,routing_barriers
+```
+
+Dry-run cap: `--max-rows-per-family=5`
+
+### 3. Verify (Stage L)
+
+Part A + coverage (local):
+
+```bash
+PAGER=cat psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -v package_name="$REMOTE_REVIEW_PACKAGE_NAME" \
+  -f ./13_verify_remote_review_upload.sql
+```
+
+Part B + coverage (Supabase):
+
+```bash
+PAGER=cat psql "$SUPABASE_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -v package_name="$REMOTE_REVIEW_PACKAGE_NAME" \
+  -f ./13_verify_remote_review_upload.sql
+```
+
+Run both connections and compare `coverage_report` sections for a full picture.
 
 ### Local — Stage 14 (lineage QA)
 
@@ -94,17 +214,7 @@ export REMOTE_LINEAGE_ALIGNMENT_VERIFY='true'
 
 Runs **automatically after Stage L** whenever Stages **11–13** run (`REMOTE_REVIEW_UPLOAD_ENABLED` **or** `REMOTE_REVIEW_PREPARE_VERIFY_ONLY`).
 
-### Local — Stages 13 / 11-only
-
-Stage **L**:
-
-```bash
-PAGER=cat psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -v package_name="$REMOTE_REVIEW_PACKAGE_NAME" \
-  -f ./13_verify_remote_review_upload.sql
-```
-
-Stage **J** is normally invoked via the runner; see header comments inside `11_prepare_remote_review_package.sql`.
+Stage **13** is also run on Supabase for Part B remote counts; see commands above.
 
 ### Supabase — manual **`import_review`** checks
 

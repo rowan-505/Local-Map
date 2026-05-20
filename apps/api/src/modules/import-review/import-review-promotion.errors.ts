@@ -16,12 +16,24 @@ export class ImportReviewPublishBatchNameConflictError extends Error {
     }
 }
 
+export type ImportReviewPromotionSkippedReasonCount = {
+    reason: string;
+    count: number;
+};
+
+export type ImportReviewPromotionFamilySkipSummary = {
+    entity_family: string;
+    included: number;
+    skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
+};
+
 export class ImportReviewPromotionNoEligibleCandidatesError extends Error {
     readonly statusCode = 400;
 
     constructor(
         public readonly readyCount: number,
-        public readonly messageDetail: string
+        public readonly messageDetail: string,
+        public readonly byFamily?: ImportReviewPromotionFamilySkipSummary[]
     ) {
         super(messageDetail);
         this.name = "ImportReviewPromotionNoEligibleCandidatesError";
@@ -74,5 +86,27 @@ export class ImportReviewPublishBatchPromotionConfirmationError extends Error {
     ) {
         super(messageDetail);
         this.name = "ImportReviewPublishBatchPromotionConfirmationError";
+    }
+}
+
+export class ImportReviewPublishBatchCreationTimeoutError extends Error {
+    readonly statusCode = 504;
+
+    constructor() {
+        super(
+            "Publish batch creation timed out. Try fewer entity families or smaller chunk size."
+        );
+        this.name = "ImportReviewPublishBatchCreationTimeoutError";
+    }
+}
+
+export class ImportReviewPublishInvalidStageStatusError extends Error {
+    readonly statusCode = 500;
+
+    constructor(public readonly stageStatus: string) {
+        super(
+            `Invalid publish stage_status "${stageStatus}". Allowed values: pending, running, success, warning, failed, skipped.`
+        );
+        this.name = "ImportReviewPublishInvalidStageStatusError";
     }
 }

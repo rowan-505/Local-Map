@@ -1,3 +1,8 @@
+/**
+ * Legacy import-review client for roads (and unused places paths).
+ * `/import-review/roads` and `/data-review/roads` only — places use `ImportReviewEntityPageShell`.
+ * TODO: port road routing-validation drawer to `ImportReviewDetailDrawer`, then delete this file.
+ */
 "use client";
 
 import Link from "next/link";
@@ -5,25 +10,27 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import DataReviewCandidateMap from "@/src/components/map/DataReviewCandidateMap";
+import ImportReviewSelectedActionBar from "@/src/features/import-review/components/ImportReviewSelectedActionBar";
+import { useClearSelectionOnListQueryChange } from "@/src/features/import-review/hooks/useClearSelectionOnListQueryChange";
+import { useImportReviewBulkActions } from "@/src/features/import-review/hooks/useImportReviewBulkActions";
+import { buildImportReviewListQueryKey } from "@/src/features/import-review/utils/entityPageUtils";
 import { Card, CardContent } from "@/src/components/ui/card";
 import {
     getImportReviewPlaces,
     getImportReviewRoads,
     getImportReviewSummary,
     isAbortError,
+    isImportReviewBatchAmbiguousError,
     patchImportReviewPlaceDecision,
     patchImportReviewRoadDecision,
-    postImportReviewPlacesBulkDecision,
-    postImportReviewRoadsBulkDecision,
+    type ImportReviewBatchChoice,
     type ImportReviewBuildingListItem,
     type ImportReviewBuildingsFilterOptionsResponse,
     type ImportReviewBuildingsListResponse,
-    type ImportReviewBulkDecisionResponse,
     type ImportReviewDecision,
     type ImportReviewGeoJson,
     type ImportReviewRoadRoutingValidationResponse,
     type ImportReviewSummaryResponse,
-    type PostImportReviewBuildingsBulkBody,
 } from "@/src/lib/api";
 import {
     ApprovalGuidanceNote,
@@ -34,9 +41,18 @@ import {
     ValidationSummaryBanner,
 } from "@/src/lib/importReviewRoadDrawerValidation";
 import {
+    applyImportReviewScopeSearchParams,
+    importReviewScopeQueryForApi,
+    importReviewScopeQueryFromSearch,
+    preserveImportReviewScopeInParams,
+    reviewBatchIdFromImportReviewSearch,
     setImportReviewSnapshotSearchParam,
     snapshotVersionFromImportReviewSearch,
+    syncImportReviewUrlToResolvedBatch,
+    type ImportReviewScopeQueryParams,
 } from "@/src/lib/importReviewSnapshot";
+import { formatImportReviewScopeFetchError } from "@/src/lib/importReviewScopeUi";
+import ImportReviewBatchPicker from "@/src/app/(admin)/import-review/_components/ImportReviewBatchPicker";
 import { validationMessagesFromReviewJson } from "@/src/lib/importReviewValidationMessages";
 import ImportReviewRoadOverridesPanel from "@/src/app/(admin)/import-review/_components/ImportReviewRoadOverridesPanel";
 import {
@@ -58,6 +74,22 @@ import {
 import { deriveImportReviewEditorUxCanMutate } from "@/src/lib/importReviewEditorUx";
 
 const ENV_SNAPSHOT_DEFAULT = process.env.NEXT_PUBLIC_IMPORT_REVIEW_SNAPSHOT_VERSION?.trim() ?? "";
+
+function importReviewMutationScope(
+    list: ImportReviewBuildingsListResponse | null,
+    scope: ImportReviewScopeQueryParams | null
+): { review_batch_id?: string; source_snapshot_version?: string } {
+    if (list?.review_batch_id?.trim()) {
+        return { review_batch_id: list.review_batch_id };
+    }
+    if (!scope) {
+        return {};
+    }
+    if ("review_batch_id" in scope) {
+        return { review_batch_id: scope.review_batch_id };
+    }
+    return { source_snapshot_version: scope.source_snapshot_version };
+}
 
 /** Must match API: filters NULL/empty review fields on list endpoint. */
 const UNREVIEWED = "__unreviewed__";
@@ -282,8 +314,12 @@ export function ImportReviewCandidatesClient({
     const searchParams = useSearchParams();
 
     const snapshotUrl = snapshotVersionFromImportReviewSearch(searchParams);
+    const batchUrl = reviewBatchIdFromImportReviewSearch(searchParams);
 
-    const [snapshotInput, setSnapshotInput] = useState(() => snapshotUrl || ENV_SNAPSHOT_DEFAULT);
+    const [snapshotInput, setSnapshotInput] = useState(
+        () => (batchUrl ? "" : snapshotUrl || ENV_SNAPSHOT_DEFAULT)
+    );
+    const [batchInput, setBatchInput] = useState(() => batchUrl || "");
     const [filters, setFilters] = useState<ListFilters>(() => readListFilters(searchParams));
     const [qDraft, setQDraft] = useState(searchParams.get("q")?.trim() ?? "");
     const [qApplied, setQApplied] = useState(searchParams.get("q")?.trim() ?? "");
@@ -303,12 +339,10 @@ export function ImportReviewCandidatesClient({
     const [list, setList] = useState<ImportReviewBuildingsListResponse | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState("");
+    const [ambiguousBatches, setAmbiguousBatches] = useState<ImportReviewBatchChoice[] | null>(null);
+    const [ambiguousSnapshot, setAmbiguousSnapshot] = useState("");
 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-    const [bulkNote, setBulkNote] = useState("");
-    const [bulkForce, setBulkForce] = useState(false);
-    const [bulkBusy, setBulkBusy] = useState(false);
-    const [bulkPreview, setBulkPreview] = useState<ImportReviewBulkDecisionResponse | null>(null);
     const [rowActionBusyId, setRowActionBusyId] = useState<string | null>(null);
     const [canEditImportReview, setCanEditImportReview] = useState(false);
 
@@ -334,8 +368,40 @@ export function ImportReviewCandidatesClient({
     );
 
     useEffect(() => {
-        setSnapshotInput(snapshotUrl || ENV_SNAPSHOT_DEFAULT);
-    }, [snapshotUrl]);
+        if (batchUrl.trim()) {
+            setBatchInput(batchUrl);
+            setSnapshotInput("");
+        } else {
+            setBatchInput("");
+            setSnapshotInput(snapshotUrl || ENV_SNAPSHOT_DEFAULT);
+        }
+    }, [batchUrl, snapshotUrl]);
+
+    const scopeQuery = useMemo((): ImportReviewScopeQueryParams | null => {
+        return importReviewScopeQueryFromSearch(searchParams, ENV_SNAPSHOT_DEFAULT, {
+            useEnvDefault: false,
+        });
+    }, [searchParams]);
+
+    const apiScopeQuery = useMemo(() => importReviewScopeQueryForApi(scopeQuery), [scopeQuery]);
+
+    const listQueryKey = useMemo(
+        () =>
+            buildImportReviewListQueryKey({
+                apiScopeQuery,
+                limit,
+                offset,
+                sort,
+                filters,
+                qApplied,
+                apiFamily: family,
+            }),
+        [apiScopeQuery, limit, offset, sort, filters, qApplied, family]
+    );
+
+    useClearSelectionOnListQueryChange(listQueryKey, setSelectedIds);
+
+    const hasValidScope = apiScopeQuery !== null;
 
     useEffect(() => {
         setFilters(readListFilters(searchParams));
@@ -349,21 +415,27 @@ export function ImportReviewCandidatesClient({
         setOffset(Number.isFinite(off) && off >= 0 ? off : 0);
     }, [searchParams]);
 
-    const snapshotForFetch = (snapshotUrl || ENV_SNAPSHOT_DEFAULT).trim();
-
     useEffect(() => {
-        if (!snapshotForFetch) {
+        if (!hasValidScope || !apiScopeQuery) {
             setFilterOptions(null);
             return;
         }
         const c = new AbortController();
         setFilterOptionsLoading(true);
-        getImportReviewSummary({ source_snapshot_version: snapshotForFetch }, { signal: c.signal })
+        getImportReviewSummary({ ...apiScopeQuery }, { signal: c.signal })
             .then((s) => setFilterOptions(filterOptionsFromSummary(s, family)))
             .catch((err) => {
-                if (!isAbortError(err)) {
-                    setFilterOptions(null);
+                if (isAbortError(err)) {
+                    return;
                 }
+                if (isImportReviewBatchAmbiguousError(err)) {
+                    setAmbiguousBatches(err.batches);
+                    setAmbiguousSnapshot(err.sourceSnapshotVersion);
+                    setFilterOptions(null);
+                    setError("");
+                    return;
+                }
+                setFilterOptions(null);
             })
             .finally(() => {
                 if (!c.signal.aborted) {
@@ -371,12 +443,11 @@ export function ImportReviewCandidatesClient({
                 }
             });
         return () => c.abort();
-    }, [snapshotForFetch, family]);
+    }, [hasValidScope, apiScopeQuery, family]);
 
     const fetchList = useCallback(
         async (signal?: AbortSignal) => {
-            const snap = snapshotForFetch;
-            if (!snap) {
+            if (!hasValidScope || !apiScopeQuery) {
                 setList(null);
                 setError("");
                 setIsLoading(false);
@@ -385,10 +456,12 @@ export function ImportReviewCandidatesClient({
 
             setIsLoading(true);
             setError("");
+            setAmbiguousBatches(null);
+            setAmbiguousSnapshot("");
 
             try {
                 const params = {
-                    source_snapshot_version: snap,
+                    ...apiScopeQuery,
                     limit,
                     offset,
                     sort,
@@ -422,31 +495,59 @@ export function ImportReviewCandidatesClient({
                         ? await getImportReviewPlaces(rest, signal ? { signal } : undefined)
                         : await getImportReviewRoads(rest, signal ? { signal } : undefined);
                 setList(res);
-                setSelectedIds(new Set());
+                if (res.review_batch_id && !batchUrl.trim()) {
+                    replaceQuery((p) => {
+                        syncImportReviewUrlToResolvedBatch(p, res.review_batch_id);
+                    });
+                }
             } catch (err) {
                 if (isAbortError(err)) {
                     return;
                 }
+                if (isImportReviewBatchAmbiguousError(err)) {
+                    setAmbiguousBatches(err.batches);
+                    setAmbiguousSnapshot(err.sourceSnapshotVersion);
+                    setList(null);
+                    setError("");
+                    return;
+                }
                 setList(null);
                 setError(
-                    err instanceof Error ? err.message : `Failed to load ${importReviewCandidateTitle(family)}.`,
+                    formatImportReviewScopeFetchError(
+                        err,
+                        `Failed to load ${importReviewCandidateTitle(family)}.`
+                    )
                 );
             } finally {
                 setIsLoading(false);
             }
         },
-        [snapshotForFetch, limit, offset, sort, filters, qApplied, family],
+        [hasValidScope, apiScopeQuery, limit, offset, sort, filters, qApplied, family, batchUrl, replaceQuery],
     );
 
     useEffect(() => {
-        if (!snapshotForFetch) {
+        if (!hasValidScope) {
             setList(null);
             return;
         }
         const c = new AbortController();
         void fetchList(c.signal);
         return () => c.abort();
-    }, [fetchList, snapshotForFetch]);
+    }, [fetchList, hasValidScope]);
+
+    const bulk = useImportReviewBulkActions({
+        items: list?.items ?? [],
+        selectedIds,
+        setSelectedIds,
+        list,
+        apiScopeQuery,
+        apiFamily: family,
+        supportsBulkActions: family === "places",
+        canEdit: canEditImportReview,
+        onListRefresh: () => {
+            void fetchList();
+        },
+    });
 
     useEffect(() => {
         if (!drawerRow) {
@@ -470,8 +571,7 @@ export function ImportReviewCandidatesClient({
 
     const applyFiltersToUrl = () => {
         replaceQuery((p) => {
-            const snap = snapshotInput.trim();
-            setImportReviewSnapshotSearchParam(p, snap);
+            applyImportReviewScopeSearchParams(p, snapshotInput.trim(), batchInput.trim());
             for (const [key, val] of Object.entries(filters)) {
                 if (val.trim()) {
                     p.set(key, val.trim());
@@ -510,6 +610,7 @@ export function ImportReviewCandidatesClient({
 
     const goPage = (nextOffset: number) => {
         replaceQuery((p) => {
+            preserveImportReviewScopeInParams(p, searchParams);
             p.set("offset", String(Math.max(0, nextOffset)));
         });
     };
@@ -567,8 +668,8 @@ export function ImportReviewCandidatesClient({
             note?: string | null;
         },
     ) => {
-        const snap = snapshotForFetch;
-        if (!snap) {
+        const scopeBody = importReviewMutationScope(list, apiScopeQuery);
+        if (!scopeBody.review_batch_id && !scopeBody.source_snapshot_version) {
             return;
         }
 
@@ -603,7 +704,7 @@ export function ImportReviewCandidatesClient({
 
         const note = opts?.note !== undefined ? opts.note : row.review_note;
         const body = {
-            source_snapshot_version: snap,
+            ...scopeBody,
             review_decision: decision,
             review_note: note ?? null,
             force: opts?.force ?? false,
@@ -706,8 +807,8 @@ export function ImportReviewCandidatesClient({
         if (!canEditImportReview) {
             return;
         }
-        const snap = snapshotForFetch;
-        if (!snap) {
+        const scopeBody = importReviewMutationScope(list, apiScopeQuery);
+        if (!scopeBody.review_batch_id && !scopeBody.source_snapshot_version) {
             return;
         }
 
@@ -743,12 +844,12 @@ export function ImportReviewCandidatesClient({
             const updated =
                 family === "places"
                     ? await patchImportReviewPlaceDecision(drawerRow.id, {
-                          source_snapshot_version: snap,
+                          ...scopeBody,
                           review_decision: drawerDecision,
                           review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                       })
                     : await patchImportReviewRoadDecision(drawerRow.id, {
-                          source_snapshot_version: snap,
+                          ...scopeBody,
                           review_decision: drawerDecision,
                           review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                           confirm_routing_warnings: drawerRoutingAck,
@@ -762,13 +863,13 @@ export function ImportReviewCandidatesClient({
                     const updated =
                         family === "places"
                             ? await patchImportReviewPlaceDecision(drawerRow.id, {
-                                  source_snapshot_version: snap,
+                                  ...scopeBody,
                                   review_decision: drawerDecision,
                                   review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                                   force: true,
                               })
                             : await patchImportReviewRoadDecision(drawerRow.id, {
-                                  source_snapshot_version: snap,
+                                  ...scopeBody,
                                   review_decision: drawerDecision,
                                   review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                                   force: true,
@@ -782,13 +883,13 @@ export function ImportReviewCandidatesClient({
                     const updated =
                         family === "places"
                             ? await patchImportReviewPlaceDecision(drawerRow.id, {
-                                  source_snapshot_version: snap,
+                                  ...scopeBody,
                                   review_decision: drawerDecision,
                                   review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                                   confirm_duplicate_reviewed: true,
                               })
                             : await patchImportReviewRoadDecision(drawerRow.id, {
-                                  source_snapshot_version: snap,
+                                  ...scopeBody,
                                   review_decision: drawerDecision,
                                   review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                                   confirm_duplicate_reviewed: true,
@@ -804,7 +905,7 @@ export function ImportReviewCandidatesClient({
                 const ok = window.confirm(`${msg}\n\nRetry with confirm_matched_auto_update=true?`);
                 if (ok) {
                     const updated = await patchImportReviewRoadDecision(drawerRow.id, {
-                        source_snapshot_version: snap,
+                        ...scopeBody,
                         review_decision: drawerDecision,
                         review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                         confirm_matched_auto_update: true,
@@ -818,7 +919,7 @@ export function ImportReviewCandidatesClient({
                 msg.includes("confirm_routing_warnings")
             ) {
                 const updated = await patchImportReviewRoadDecision(drawerRow.id, {
-                    source_snapshot_version: snap,
+                    ...scopeBody,
                     review_decision: drawerDecision,
                     review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                     confirm_routing_warnings: true,
@@ -830,102 +931,6 @@ export function ImportReviewCandidatesClient({
         } finally {
             setDrawerSaving(false);
         }
-    };
-
-    const selectedHasDuplicate = useMemo(() => {
-        if (!list) {
-            return false;
-        }
-        const map = new Map(list.items.map((r) => [r.id, r]));
-        for (const id of selectedIds) {
-            if (map.get(id)?.match_status === "duplicate_candidate") {
-                return true;
-            }
-        }
-        return false;
-    }, [list, selectedIds]);
-
-    const runBulk = async (
-        body: Omit<PostImportReviewBuildingsBulkBody, "source_snapshot_version"> & {
-            source_snapshot_version?: string;
-        },
-    ) => {
-        const snap = snapshotForFetch;
-        if (!snap) {
-            return;
-        }
-
-        setBulkBusy(true);
-        setBulkPreview(null);
-        try {
-            const payload = { ...body, source_snapshot_version: snap };
-            const res =
-                family === "places"
-                    ? await postImportReviewPlacesBulkDecision(payload)
-                    : await postImportReviewRoadsBulkDecision(payload);
-            setBulkPreview(res);
-            if (!body.dry_run) {
-                void fetchList();
-            }
-        } catch (err) {
-            window.alert(err instanceof Error ? err.message : "Bulk action failed");
-        } finally {
-            setBulkBusy(false);
-        }
-    };
-
-    const bulkApproveSelected = async () => {
-        if (selectedIds.size === 0) {
-            return;
-        }
-        if (selectedHasDuplicate && !bulkForce) {
-            window.alert(
-                "Selection includes duplicate_candidate rows. Enable “Danger: force bulk override” to include them, or clear those rows from the selection.",
-            );
-            return;
-        }
-
-        const ids = [...selectedIds];
-        const note = bulkNote.trim() === "" ? undefined : bulkNote.trim();
-        const ok = window.confirm(
-            `Approve ${ids.length} selected row(s)?${bulkForce ? " (force=true)" : ""}`,
-        );
-        if (!ok) {
-            return;
-        }
-
-        await runBulk({
-            review_decision: "approved",
-            dry_run: false,
-            ids,
-            force: bulkForce,
-            review_note: note ?? null,
-        });
-    };
-
-    const bulkNewAutoDryRun = async () => {
-        await runBulk({
-            review_decision: "approved",
-            dry_run: true,
-            filters: { match_status: "new_auto", auto_action: "insert_candidate" },
-            force: false,
-        });
-    };
-
-    const bulkNewAutoReal = async () => {
-        const ok = window.confirm(
-            "Run real bulk APPROVED for all rows with match_status=new_auto and auto_action=insert_candidate? This updates Supabase import_review only (no core promotion).",
-        );
-        if (!ok) {
-            return;
-        }
-        await runBulk({
-            review_decision: "approved",
-            dry_run: false,
-            filters: { match_status: "new_auto", auto_action: "insert_candidate" },
-            force: bulkForce,
-            review_note: bulkNote.trim() === "" ? null : bulkNote.trim(),
-        });
     };
 
     const total = list?.total ?? 0;
@@ -991,7 +996,10 @@ export function ImportReviewCandidatesClient({
         const chips: { key: string; label: string; value: string }[] = [];
         const sp = searchParams;
         const snap = snapshotVersionFromImportReviewSearch(sp);
-        if (snap) {
+        const rb = reviewBatchIdFromImportReviewSearch(sp);
+        if (rb) {
+            chips.push({ key: "review_batch", label: "Review batch", value: rb });
+        } else if (snap) {
             chips.push({ key: "snapshot", label: "Source snapshot", value: snap });
         }
         const ms = sp.get("match_status")?.trim();
@@ -1072,11 +1080,20 @@ export function ImportReviewCandidatesClient({
                         </p>
                     </div>
                     <Link
-                        href={
-                            snapshotForFetch
-                                ? `${showMapPreview ? "/data-review" : "/import-review"}?source_snapshot_version=${encodeURIComponent(snapshotForFetch)}`
-                                : showMapPreview ? "/data-review" : "/import-review"
-                        }
+                        href={(() => {
+                            const base = showMapPreview ? "/data-review" : "/import-review";
+                            if (!apiScopeQuery) {
+                                return base;
+                            }
+                            const p = new URLSearchParams();
+                            if ("review_batch_id" in apiScopeQuery) {
+                                p.set("review_batch_id", apiScopeQuery.review_batch_id);
+                            } else {
+                                setImportReviewSnapshotSearchParam(p, apiScopeQuery.source_snapshot_version);
+                            }
+                            const qs = p.toString();
+                            return qs ? `${base}?${qs}` : base;
+                        })()}
                         className="inline-flex shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50"
                     >
                         Back to summary
@@ -1086,7 +1103,7 @@ export function ImportReviewCandidatesClient({
                 <Card className="border-gray-200 shadow-sm">
                     <CardContent className="space-y-5 p-5">
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                            <div className="min-w-0 flex-1 space-y-2">
+                            <div className="min-w-0 flex-1 grid gap-3 sm:grid-cols-2">
                                 <label className="block">
                                     <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                                         Source snapshot version
@@ -1094,22 +1111,51 @@ export function ImportReviewCandidatesClient({
                                     <input
                                         value={snapshotInput}
                                         onChange={(e) => setSnapshotInput(e.target.value)}
-                                        className="mt-1 w-full max-w-xl rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-medium text-gray-900 shadow-sm focus:border-gray-800 focus:outline-none focus:ring-1 focus:ring-gray-800"
-                                        placeholder="e.g. osm_myanmar_…"
+                                        disabled={Boolean(batchInput.trim())}
+                                        className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-medium text-gray-900 shadow-sm focus:border-gray-800 focus:outline-none focus:ring-1 focus:ring-gray-800 disabled:bg-gray-100"
+                                        placeholder="Xor with review_batch_id"
                                         autoComplete="off"
                                     />
                                 </label>
-                                <p className="text-xs text-gray-500">
-                                    Applied to the URL when you click &quot;Apply filters&quot;. Match / auto / review
-                                    values are derived from the summary API buckets for this entity family.
+                                <label className="block">
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                        Review batch ID
+                                    </span>
+                                    <input
+                                        value={batchInput}
+                                        onChange={(e) => setBatchInput(e.target.value)}
+                                        disabled={Boolean(snapshotInput.trim())}
+                                        inputMode="numeric"
+                                        className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 font-mono text-sm font-medium text-gray-900 shadow-sm focus:border-gray-800 focus:outline-none focus:ring-1 focus:ring-gray-800 disabled:bg-gray-100"
+                                        placeholder="Xor with snapshot"
+                                        autoComplete="off"
+                                    />
+                                </label>
+                                <p className="text-xs text-gray-500 sm:col-span-2">
+                                    Applied to the URL when you click &quot;Apply filters&quot;. Prefer{" "}
+                                    <code className="rounded bg-gray-100 px-1 text-[11px]">review_batch_id</code> when
+                                    multiple batches share a snapshot.
                                 </p>
                             </div>
                             {filterOptionsLoading ? (
                                 <span className="text-xs text-gray-500">Loading filter options…</span>
                             ) : filterOptions ? (
                                 <span className="text-xs text-gray-500">
-                                    Options derived for source snapshot{" "}
-                                    <span className="font-mono text-gray-700">{filterOptions.source_snapshot_version}</span>
+                                    Scope{" "}
+                                    {filterOptions.review_batch_id ? (
+                                        <>
+                                            batch{" "}
+                                            <span className="font-mono text-gray-700">{filterOptions.review_batch_id}</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            snapshot{" "}
+                                            <span className="font-mono text-gray-700">{filterOptions.source_snapshot_version}</span>
+                                        </>
+                                    )}
+                                    {filterOptions.selected_by ? (
+                                        <> · {filterOptions.selected_by}</>
+                                    ) : null}
                                 </span>
                             ) : null}
                         </div>
@@ -1241,7 +1287,7 @@ export function ImportReviewCandidatesClient({
                                 Clear filters
                             </button>
                             <span className="text-sm text-gray-600">
-                                {snapshotForFetch ? (
+                                {hasValidScope ? (
                                     <>
                                         <strong className="text-gray-900">{total.toLocaleString()}</strong>{" "}
                                         candidates
@@ -1254,6 +1300,23 @@ export function ImportReviewCandidatesClient({
                         </div>
                     </CardContent>
                 </Card>
+
+                {ambiguousBatches && ambiguousBatches.length > 0 ? (
+                    <ImportReviewBatchPicker
+                        sourceSnapshotVersion={ambiguousSnapshot}
+                        batches={ambiguousBatches}
+                        onUseLatest={() => {
+                            replaceQuery((p) => {
+                                const snap =
+                                    ambiguousSnapshot ||
+                                    snapshotVersionFromImportReviewSearch(p) ||
+                                    snapshotInput.trim();
+                                applyImportReviewScopeSearchParams(p, snap, "");
+                                p.set("latest", "true");
+                            });
+                        }}
+                    />
+                ) : null}
 
                 {error ? (
                     <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm whitespace-pre-wrap text-red-900">
@@ -1280,101 +1343,33 @@ export function ImportReviewCandidatesClient({
                     </div>
                 ) : null}
 
-                <Card className="border-gray-200 shadow-sm">
-                    <CardContent className="space-y-4 p-5">
-                        <div className="flex flex-col gap-1 border-b border-gray-100 pb-3">
-                            <h2 className="text-sm font-semibold text-gray-900">Bulk actions</h2>
-                            <p className="text-xs text-gray-600">
-                                Safe bulk approve only affects rows with{" "}
-                                <code className="rounded bg-gray-100 px-1">match_status=new_auto</code> and{" "}
-                                <code className="rounded bg-gray-100 px-1">auto_action=insert_candidate</code>.
-                                Supabase import_review only — no core promotion.
-                            </p>
-                            {!canEditImportReview ? (
-                                <p className="text-[11px] font-medium text-amber-900">
-                                    Read-only UI — JWT roles lacked <span className="font-mono">admin</span> (unless dev
-                                    token header matched). Bulk controls disabled.
-                                </p>
-                            ) : null}
-                        </div>
-                        <div className="text-sm font-medium text-gray-800">
-                            Selected: <strong>{selectedIds.size}</strong> row{selectedIds.size === 1 ? "" : "s"}
-                        </div>
-                        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
-                            <button
-                                type="button"
-                                disabled={bulkBusy || selectedIds.size === 0 || !canEditImportReview}
-                                onClick={() => void bulkApproveSelected()}
-                                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                                Approve selected
-                            </button>
-                            <button
-                                type="button"
-                                disabled={bulkBusy || !snapshotForFetch || !canEditImportReview}
-                                onClick={() => void bulkNewAutoDryRun()}
-                                className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100/80 disabled:opacity-50"
-                            >
-                                Dry-run safe bulk approve
-                            </button>
-                            <button
-                                type="button"
-                                disabled={bulkBusy || !snapshotForFetch || !canEditImportReview}
-                                onClick={() => void bulkNewAutoReal()}
-                                className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
-                            >
-                                Real safe bulk approve
-                            </button>
-                        </div>
-                        <div className="rounded-lg border border-red-200 bg-red-50/50 p-3">
-                            <label className="flex cursor-pointer items-start gap-2 text-sm text-red-950">
-                                <input
-                                    type="checkbox"
-                                    checked={bulkForce}
-                                    disabled={!canEditImportReview}
-                                    onChange={(e) => setBulkForce(e.target.checked)}
-                                    className="mt-0.5"
-                                />
-                                <span>
-                                    <span className="font-semibold">Danger — admin force override</span>
-                                    <span className="block text-xs font-normal text-red-900/90">
-                                        Sends <code className="rounded bg-white/70 px-1">force=true</code> on bulk and
-                                        selected approve. Bypasses safe eligibility (manual_protected,
-                                        duplicate_candidate, etc.).
-                                    </span>
-                                </span>
-                            </label>
-                        </div>
-                        <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold text-gray-600">Optional note (bulk)</span>
-                            <input
-                                value={bulkNote}
-                                onChange={(e) => setBulkNote(e.target.value)}
-                                disabled={!canEditImportReview}
-                                className={selectCls}
-                            />
-                        </label>
-                        {bulkPreview ? (
-                            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
-                                <div className="font-semibold text-gray-900">
-                                    Bulk result {bulkPreview.dry_run ? "(dry run)" : ""}
-                                </div>
-                                <div className="mt-1 text-gray-700">
-                                    Updated: {bulkPreview.updated_count} · Skipped: {bulkPreview.skipped_count}
-                                </div>
-                                {bulkPreview.skipped_reasons.length > 0 ? (
-                                    <ul className="mt-2 list-inside list-disc text-gray-600">
-                                        {bulkPreview.skipped_reasons.map((r) => (
-                                            <li key={r.reason}>
-                                                {r.reason}: {r.count}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                ) : null}
-                            </div>
-                        ) : null}
-                    </CardContent>
-                </Card>
+                {family === "places" ? (
+                    <ImportReviewSelectedActionBar
+                        selectedCount={selectedIds.size}
+                        analysis={bulk.analysis}
+                        bulkNote={bulk.bulkNote}
+                        bulkBusy={bulk.isBulkActionRunning}
+                        bulkPhase={bulk.bulkPhase}
+                        bulkMessage={bulk.bulkMessage}
+                        canEdit={canEditImportReview}
+                        hasValidScope={hasValidScope}
+                        approveBlockedReason={bulk.approveBlockedReason}
+                        bulkPreview={bulk.bulkPreview}
+                        dangerForce={bulk.dangerForce}
+                        overrideManualProtected={bulk.overrideManualProtected}
+                        overrideDuplicate={bulk.overrideDuplicate}
+                        onBulkNoteChange={bulk.setBulkNote}
+                        onDangerForceChange={bulk.setDangerForce}
+                        onOverrideManualProtectedChange={bulk.setOverrideManualProtected}
+                        onOverrideDuplicateChange={bulk.setOverrideDuplicate}
+                        onClearSelection={bulk.clearSelection}
+                        onPreviewApprove={() => void bulk.bulkPreviewApprove()}
+                        onApproveSelected={() => void bulk.bulkApproveSelected()}
+                        onRejectSelected={() => void bulk.bulkRejectSelected()}
+                        onNeedsMoreReviewSelected={() => void bulk.bulkNeedsMoreReviewSelected()}
+                        onIgnoreSelected={() => void bulk.bulkIgnoreSelected()}
+                    />
+                ) : null}
 
                 <ImportReviewTableFrame>
                     <table className={`${IMPORT_REVIEW_TABLE_MIN_WIDTH_CLASS} divide-y divide-gray-200 text-left text-sm`}>
@@ -1416,7 +1411,7 @@ export function ImportReviewCandidatesClient({
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {!snapshotForFetch ? (
+                            {!hasValidScope ? (
                                 <tr>
                                     <td colSpan={emptyColSpan} className="px-4 py-10 text-center text-gray-500">
                                         Set snapshot version to load rows.
@@ -1450,14 +1445,16 @@ export function ImportReviewCandidatesClient({
                                               ? "no"
                                               : "—";
 
-                                    const rowSurface = importReviewRowSurface(row);
+                                    const rowSurface = importReviewRowSurface(row, {
+                                        selected: selectedIds.has(row.id),
+                                    });
                                     return (
                                         <tr key={row.id} className={rowSurface.rowClass}>
                                             <td className={importReviewStickyCheckboxTdClass(rowSurface.stickyCellClass)}>
                                                 <input
                                                     type="checkbox"
                                                     checked={selectedIds.has(row.id)}
-                                                    disabled={!canEditImportReview || !snapshotForFetch}
+                                                    disabled={!canEditImportReview || !hasValidScope}
                                                     onChange={(e) => toggleSelect(row.id, e.target.checked)}
                                                 />
                                             </td>
@@ -1566,6 +1563,11 @@ export function ImportReviewCandidatesClient({
                             Rows <span className="font-medium text-gray-900">{pageStart}</span>–
                             <span className="font-medium text-gray-900">{pageEnd}</span> of{" "}
                             <span className="font-medium text-gray-900">{total.toLocaleString()}</span>
+                            {selectedIds.size > 0 ? (
+                                <span className="mt-1 block text-xs text-gray-500">
+                                    Selection is cleared when you change pages.
+                                </span>
+                            ) : null}
                         </p>
                         <div className="flex flex-wrap gap-2">
                             <button
@@ -1869,10 +1871,15 @@ export function ImportReviewCandidatesClient({
                                             {drawerMapInput.fallbackNote}
                                         </p>
                                     ) : null}
-                                    {snapshotForFetch ? (
+                                    {hasValidScope ? (
                                         <ImportReviewRoadOverridesPanel
                                             row={drawerRow}
-                                            sourceSnapshotVersion={snapshotForFetch}
+                                            sourceSnapshotVersion={
+                                                list?.source_snapshot_version ??
+                                                (scopeQuery && "source_snapshot_version" in scopeQuery
+                                                    ? scopeQuery.source_snapshot_version
+                                                    : "")
+                                            }
                                             canEdit={canEditImportReview}
                                             selectCls={selectCls}
                                             onSaved={mergeRow}

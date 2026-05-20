@@ -16,12 +16,21 @@ import type {
     ImportReviewSummaryBucketDb,
     ReviewActor,
 } from "./import-review-data-repository.js";
+import { resolveImportReviewBatchScope } from "./import-review-batch-resolver.js";
 import {
-    ImportReviewBatchAmbiguousError,
-    ImportReviewBatchNotFoundError,
-    ImportReviewInvalidScopeError,
-} from "./import-review-errors.js";
-import { logImportReviewBatchResolveHintsDev } from "./import-review-database-url.js";
+    IMPORT_REVIEW_ENTITY_FAMILIES,
+    getImportReviewEntityConfig,
+    type ImportReviewEntityFamilySlug,
+} from "./import-review-config.js";
+import type { CandidateListFilters } from "./import-review-candidate-sql.js";
+import {
+    GenericImportReviewCandidateRepository,
+    buildSummaryAggregationSql,
+} from "./import-review-generic-candidate.repo.js";
+import {
+    buildFamilySummaryMetricsSql,
+    type ImportReviewFamilySummaryMetricsDb,
+} from "./import-review-summary-counts.js";
 
 export type { BuildingListRowDb } from "./import-review-data-repository.js";
 
@@ -88,70 +97,123 @@ function sqlBigintArray(ids: bigint[]): Prisma.Sql {
  * Reads/writes Supabase `import_review.*` candidates scoped by `review_batch_id`.
  */
 export class RemoteImportReviewRepositoryCore {
-    constructor(private readonly prisma: PrismaClient) {}
+    private readonly genericCandidates: GenericImportReviewCandidateRepository;
+
+    constructor(private readonly prisma: PrismaClient) {
+        this.genericCandidates = new GenericImportReviewCandidateRepository(prisma);
+    }
 
     private async pgRegclassExists(fullyQualifiedName: string): Promise<boolean> {
-        const rows = await this.prisma.$queryRaw<{ ok: boolean }[]>`
-            SELECT to_regclass(${fullyQualifiedName}) IS NOT NULL AS ok
-        `;
-        return rows[0]?.ok === true;
+        return this.genericCandidates.pgRegclassExists(fullyQualifiedName);
+    }
+
+    countCandidates(
+        family: ImportReviewEntityFamilySlug,
+        reviewBatchId: bigint,
+        filters: CandidateListFilters
+    ): Promise<bigint> {
+        return this.genericCandidates.countCandidates(family, reviewBatchId, filters);
+    }
+
+    listCandidates(
+        family: ImportReviewEntityFamilySlug,
+        reviewBatchId: bigint,
+        filters: CandidateListFilters
+    ): Promise<BuildingListRowDb[]> {
+        return this.genericCandidates.listCandidates(family, reviewBatchId, filters);
+    }
+
+    getCandidateById(
+        family: ImportReviewEntityFamilySlug,
+        id: bigint,
+        reviewBatchId: bigint,
+        includeGeometry: boolean
+    ): Promise<BuildingListRowDb | null> {
+        return this.genericCandidates.getCandidateById(family, reviewBatchId, id, includeGeometry);
+    }
+
+    fetchCandidateFilterOptions(family: ImportReviewEntityFamilySlug, reviewBatchId: bigint) {
+        return this.genericCandidates.fetchCandidateFilterOptions(family, reviewBatchId);
+    }
+
+    findCandidateReviewContext(
+        family: ImportReviewEntityFamilySlug,
+        id: bigint,
+        reviewBatchId: bigint
+    ) {
+        return this.genericCandidates.findCandidateReviewContext(family, reviewBatchId, id);
+    }
+
+    updateCandidateReviewDecision(args: {
+        family: ImportReviewEntityFamilySlug;
+        id: bigint;
+        reviewBatchId: bigint;
+        reviewDecision: string;
+        reviewStatus: string;
+        actor: ReviewActor;
+        reviewNote: string | null | undefined;
+    }): Promise<BuildingListRowDb | null> {
+        return this.genericCandidates.updateCandidateReviewDecision(args);
+    }
+
+    patchCandidateReviewOverrides(args: {
+        family: ImportReviewEntityFamilySlug;
+        id: bigint;
+        reviewBatchId: bigint;
+        overridesPatch: Record<string, unknown>;
+        editedByUserId: bigint | null;
+        reviewNote: string | null | undefined;
+    }): Promise<BuildingListRowDb | null> {
+        if (args.family === "buildings") {
+            return this.patchBuildingReviewOverrides({
+                id: args.id,
+                reviewBatchId: args.reviewBatchId,
+                overridesPatch: args.overridesPatch,
+                editedByUserId: args.editedByUserId,
+                reviewNote: args.reviewNote,
+            });
+        }
+        return this.genericCandidates.patchCandidateReviewOverrides({
+            family: args.family,
+            reviewBatchId: args.reviewBatchId,
+            id: args.id,
+            overridesPatch: args.overridesPatch,
+            editedByUserId: args.editedByUserId,
+            reviewNote: args.reviewNote,
+        });
+    }
+
+    bulkCandidateDecisions(args: {
+        family: ImportReviewEntityFamilySlug;
+        reviewBatchId: bigint;
+        mode: "ids" | "filters";
+        ids?: bigint[];
+        filters?: ImportReviewBulkFilters;
+        reviewDecision: string;
+        reviewStatus: string;
+        actor: ReviewActor;
+        reviewNote: string | null | undefined;
+        force: boolean;
+        dryRun: boolean;
+    }): Promise<ImportReviewBulkDecisionRepoResult> {
+        return this.genericCandidates.bulkCandidateDecisions({
+            family: args.family,
+            reviewBatchId: args.reviewBatchId,
+            mode: args.mode,
+            ids: args.ids,
+            filters: args.filters,
+            reviewDecision: args.reviewDecision,
+            reviewStatus: args.reviewStatus,
+            reviewedByUserId: args.actor.reviewedByUserId,
+            reviewNote: args.reviewNote,
+            force: args.force,
+            dryRun: args.dryRun,
+        });
     }
 
 
     async resolveScope(query: ImportReviewScopeQuery): Promise<ImportReviewScopeResolved> {
-        if (query.review_batch_id != null) {
-            const rows = await this.prisma.$queryRaw<
-                { id: bigint; source_snapshot_version: string; source_snapshot_id_local: bigint | null }[]
-            >`
-                SELECT id, source_snapshot_version, source_snapshot_id_local
-                FROM import_review.review_batches
-                WHERE id = ${query.review_batch_id}
-                LIMIT 2
-            `;
-            if (rows.length === 0) {
-                throw new ImportReviewBatchNotFoundError(query.review_batch_id.toString());
-            }
-            if (rows.length > 1) {
-                throw new ImportReviewInvalidScopeError("review_batch_id resolution was ambiguous");
-            }
-            const row = rows[0]!;
-            return {
-                reviewBatchId: row.id,
-                snapshotVersion: row.source_snapshot_version,
-                sourceSnapshotIdLocal: row.source_snapshot_id_local,
-            };
-        }
-
-        const v = query.source_snapshot_version?.trim();
-        if (!v) {
-            throw new ImportReviewInvalidScopeError(
-                "Provide source_snapshot_version (alias: snapshot_version) or review_batch_id"
-            );
-        }
-
-        const rows = await this.prisma.$queryRaw<
-            { id: bigint; source_snapshot_version: string; source_snapshot_id_local: bigint | null }[]
-        >`
-            SELECT id, source_snapshot_version, source_snapshot_id_local
-            FROM import_review.review_batches
-            WHERE source_snapshot_version = ${v}
-            ORDER BY id DESC
-            LIMIT 2
-        `;
-
-        if (rows.length === 0) {
-            await logImportReviewBatchResolveHintsDev(this.prisma, v);
-            throw new ImportReviewBatchNotFoundError(v);
-        }
-        if (rows.length > 1) {
-            throw new ImportReviewBatchAmbiguousError(v);
-        }
-        const row = rows[0]!;
-        return {
-            reviewBatchId: row.id,
-            snapshotVersion: row.source_snapshot_version,
-            sourceSnapshotIdLocal: row.source_snapshot_id_local,
-        };
+        return resolveImportReviewBatchScope(this.prisma, query);
     }
 
     async fetchSummaryBuckets(scope: ImportReviewScopeResolved): Promise<{
@@ -162,89 +224,58 @@ export class RemoteImportReviewRepositoryCore {
         const parts: Prisma.Sql[] = [];
         const reviewBatchId = scope.reviewBatchId;
 
-        const buildingsAgg = Prisma.sql`
-            SELECT
-                'buildings'::text AS entity_family,
-                c.review_batch_id,
-                c.source_snapshot_version,
-                c.match_status,
-                c.auto_action,
-                c.review_status,
-                c.review_decision,
-                c.promotion_status,
-                count(*)::bigint AS row_count
-            FROM import_review.building_candidates AS c
-            WHERE c.review_batch_id = ${reviewBatchId} AND c.entity_family = 'buildings'
-            GROUP BY
-                c.review_batch_id,
-                c.source_snapshot_version,
-                c.match_status,
-                c.auto_action,
-                c.review_status,
-                c.review_decision,
-                c.promotion_status
-        `;
-        parts.push(buildingsAgg);
-
-        if (await this.pgRegclassExists("import_review.place_candidates")) {
-            parts.push(Prisma.sql`
-                SELECT
-                    'places'::text AS entity_family,
-                    c.review_batch_id,
-                    c.source_snapshot_version,
-                    c.match_status,
-                    c.auto_action,
-                    c.review_status,
-                    c.review_decision,
-                    c.promotion_status,
-                    count(*)::bigint AS row_count
-                FROM import_review.place_candidates AS c
-                WHERE c.review_batch_id = ${reviewBatchId} AND c.entity_family = 'places'
-                GROUP BY
-                    c.review_batch_id,
-                    c.source_snapshot_version,
-                    c.match_status,
-                    c.auto_action,
-                    c.review_status,
-                    c.review_decision,
-                    c.promotion_status
-            `);
-        } else {
-            warnings.push("Summary skipped optional family places: table import_review.place_candidates not found.");
+        for (const family of IMPORT_REVIEW_ENTITY_FAMILIES) {
+            const config = getImportReviewEntityConfig(family);
+            const tableName = `import_review.${config.importReviewTable}`;
+            if (await this.pgRegclassExists(tableName)) {
+                parts.push(buildSummaryAggregationSql(config, reviewBatchId));
+            } else {
+                warnings.push(
+                    `Summary skipped optional family ${family}: table ${tableName} not found.`
+                );
+            }
         }
 
-        if (await this.pgRegclassExists("import_review.road_candidates")) {
-            parts.push(Prisma.sql`
-                SELECT
-                    'roads'::text AS entity_family,
-                    c.review_batch_id,
-                    c.source_snapshot_version,
-                    c.match_status,
-                    c.auto_action,
-                    c.review_status,
-                    c.review_decision,
-                    c.promotion_status,
-                    count(*)::bigint AS row_count
-                FROM import_review.road_candidates AS c
-                WHERE c.review_batch_id = ${reviewBatchId} AND c.entity_family = 'roads'
-                GROUP BY
-                    c.review_batch_id,
-                    c.source_snapshot_version,
-                    c.match_status,
-                    c.auto_action,
-                    c.review_status,
-                    c.review_decision,
-                    c.promotion_status
-            `);
-        } else {
-            warnings.push("Summary skipped optional family roads: table import_review.road_candidates not found.");
+        if (parts.length === 0) {
+            return { rows: [], warnings };
         }
 
-        const rows = await this.prisma.$queryRaw<ImportReviewSummaryBucketDb[]>(Prisma.join(parts, " UNION ALL "));
+        const rows = await this.prisma.$queryRaw<ImportReviewSummaryBucketDb[]>(
+            Prisma.join(parts, " UNION ALL ")
+        );
         return { rows, warnings };
     }
 
-    /** Distinct non-empty values per column for filter dropdowns (read-only). */
+    async fetchFamilySummaryMetrics(scope: ImportReviewScopeResolved): Promise<{
+        rows: ImportReviewFamilySummaryMetricsDb[];
+        warnings: string[];
+    }> {
+        const warnings: string[] = [];
+        const parts: Prisma.Sql[] = [];
+        const reviewBatchId = scope.reviewBatchId;
+
+        for (const family of IMPORT_REVIEW_ENTITY_FAMILIES) {
+            const config = getImportReviewEntityConfig(family);
+            const tableName = `import_review.${config.importReviewTable}`;
+            if (await this.pgRegclassExists(tableName)) {
+                parts.push(buildFamilySummaryMetricsSql(config, reviewBatchId));
+            } else {
+                warnings.push(
+                    `Family metrics skipped optional family ${family}: table ${tableName} not found.`
+                );
+            }
+        }
+
+        if (parts.length === 0) {
+            return { rows: [], warnings };
+        }
+
+        const rows = await this.prisma.$queryRaw<ImportReviewFamilySummaryMetricsDb[]>(
+            Prisma.join(parts, " UNION ALL ")
+        );
+        return { rows, warnings };
+    }
+
     async fetchBuildingFilterOptions(reviewBatchId: bigint): Promise<{
         match_status: string[];
         auto_action: string[];
@@ -253,32 +284,15 @@ export class RemoteImportReviewRepositoryCore {
         class_code: string[];
         promotion_status: string[];
     }> {
-        const distinctStrings = async (
-            columnSql: Prisma.Sql
-        ): Promise<string[]> => {
-            const rows = await this.prisma.$queryRaw<{ v: string }[]>`
-                SELECT DISTINCT ${columnSql} AS v
-                FROM import_review.building_candidates AS b
-                WHERE b.review_batch_id = ${reviewBatchId}
-                  AND b.entity_family = 'buildings'
-                  AND ${columnSql} IS NOT NULL
-                  AND trim(${columnSql}) <> ''
-                ORDER BY 1
-            `;
-            return rows.map((r) => r.v);
+        const opts = await this.fetchCandidateFilterOptions("buildings", reviewBatchId);
+        return {
+            match_status: opts.match_status ?? [],
+            auto_action: opts.auto_action ?? [],
+            review_status: opts.review_status ?? [],
+            review_decision: opts.review_decision ?? [],
+            class_code: opts.class_code ?? [],
+            promotion_status: opts.promotion_status ?? [],
         };
-
-        const [match_status, auto_action, review_status, review_decision, class_code, promotion_status] =
-            await Promise.all([
-                distinctStrings(Prisma.sql`b.match_status`),
-                distinctStrings(Prisma.sql`b.auto_action`),
-                distinctStrings(Prisma.sql`b.review_status`),
-                distinctStrings(Prisma.sql`b.review_decision`),
-                distinctStrings(Prisma.sql`b.class_code`),
-                distinctStrings(Prisma.sql`b.promotion_status`),
-            ]);
-
-        return { match_status, auto_action, review_status, review_decision, class_code, promotion_status };
     }
 
     private buildingListWhereClause(
@@ -475,14 +489,7 @@ export class RemoteImportReviewRepositoryCore {
             | "q"
         >
     ): Promise<bigint> {
-        const where = this.buildingListWhereClause(reviewBatchId, filters);
-        const rows = await this.prisma.$queryRaw<[{ count: bigint }]>`
-            SELECT count(*)::bigint AS count
-            FROM import_review.building_candidates AS b
-            WHERE ${where}
-        `;
-        const row = rows[0];
-        return row?.count ?? 0n;
+        return this.countCandidates("buildings", reviewBatchId, filters);
     }
 
     async listBuildingCandidates(
@@ -503,62 +510,7 @@ export class RemoteImportReviewRepositoryCore {
             | "include_geometry"
         >
     ): Promise<BuildingListRowDb[]> {
-        const where = this.buildingListWhereClause(reviewBatchId, filters);
-        const orderBy = BUILDING_ORDER_BY[filters.sort];
-        const includeGeometry = filters.include_geometry;
-
-        return this.prisma.$queryRaw<BuildingListRowDb[]>`
-            SELECT
-                b.id,
-                b.public_id::text AS public_id,
-                b.review_batch_id,
-                b.source_snapshot_version,
-                b.local_staging_id,
-                b.source_snapshot_id_local,
-                b.external_id,
-                b.canonical_name,
-                b.name,
-                b.class_code,
-                b.building_type,
-                b.building_type_id,
-                b.admin_area_id,
-                b.levels,
-                b.height_m,
-                b.area_m2,
-                b.confidence_score,
-                b.match_status,
-                b.auto_action,
-                b.review_status,
-                b.review_decision,
-                b.reviewed_by::text AS reviewed_by,
-                b.reviewed_at,
-                b.review_note,
-                b.normalized_data,
-                b.source_refs,
-                COALESCE(to_jsonb(b.review_overrides), '{}'::jsonb) AS review_overrides,
-                b.matched_core_id,
-                b.matched_core_table,
-                b.matched_core_data,
-                b.f2_comparison,
-                b.validation_warnings,
-                b.validation_errors,
-                b.promotion_status,
-                b.promoted_core_id,
-                b.created_at,
-                b.updated_at,
-                CASE
-                    WHEN ${includeGeometry} THEN ST_AsGeoJSON(b.geom)::json
-                    ELSE NULL::json
-                END AS geometry,
-                CASE
-                    WHEN ${includeGeometry} THEN ST_AsGeoJSON(b.centroid)::json
-                    ELSE NULL::json
-                END AS centroid
-            FROM import_review.building_candidates AS b
-            WHERE ${where}
-            ORDER BY ${orderBy}
-            LIMIT ${filters.limit} OFFSET ${filters.offset}
-        `;
+        return this.listCandidates("buildings", reviewBatchId, filters);
     }
 
     async getBuildingCandidateById(
@@ -566,84 +518,16 @@ export class RemoteImportReviewRepositoryCore {
         reviewBatchId: bigint,
         includeGeometry: boolean
     ): Promise<BuildingListRowDb | null> {
-        const rows = await this.prisma.$queryRaw<BuildingListRowDb[]>`
-            SELECT
-                b.id,
-                b.public_id::text AS public_id,
-                b.review_batch_id,
-                b.source_snapshot_version,
-                b.local_staging_id,
-                b.source_snapshot_id_local,
-                b.external_id,
-                b.canonical_name,
-                b.name,
-                b.class_code,
-                b.building_type,
-                b.building_type_id,
-                b.admin_area_id,
-                b.levels,
-                b.height_m,
-                b.area_m2,
-                b.confidence_score,
-                b.match_status,
-                b.auto_action,
-                b.review_status,
-                b.review_decision,
-                b.reviewed_by::text AS reviewed_by,
-                b.reviewed_at,
-                b.review_note,
-                b.normalized_data,
-                b.source_refs,
-                COALESCE(to_jsonb(b.review_overrides), '{}'::jsonb) AS review_overrides,
-                b.matched_core_id,
-                b.matched_core_table,
-                b.matched_core_data,
-                b.f2_comparison,
-                b.validation_warnings,
-                b.validation_errors,
-                b.promotion_status,
-                b.promoted_core_id,
-                b.created_at,
-                b.updated_at,
-                CASE
-                    WHEN ${includeGeometry} THEN ST_AsGeoJSON(b.geom)::json
-                    ELSE NULL::json
-                END AS geometry,
-                CASE
-                    WHEN ${includeGeometry} THEN ST_AsGeoJSON(b.centroid)::json
-                    ELSE NULL::json
-                END AS centroid
-            FROM import_review.building_candidates AS b
-            WHERE b.id = ${id} AND (b.review_batch_id = ${reviewBatchId} AND b.entity_family = 'buildings')
-            LIMIT 1
-        `;
-        const row = rows[0];
-        return row === undefined ? null : row;
+        return this.getCandidateById("buildings", id, reviewBatchId, includeGeometry);
     }
 
     async findBuildingCandidateReviewContext(
         id: bigint,
         reviewBatchId: bigint
     ): Promise<{ match_status: string | null; auto_action: string | null; promotion_status: string | null } | null> {
-        const rows = await this.prisma.$queryRaw<
-            {
-                match_status: string | null;
-                auto_action: string | null;
-                promotion_status: string | null;
-            }[]
-        >`
-            SELECT b.match_status, b.auto_action, b.promotion_status
-            FROM import_review.building_candidates AS b
-            WHERE b.id = ${id} AND (b.review_batch_id = ${reviewBatchId} AND b.entity_family = 'buildings')
-            LIMIT 1
-        `;
-        const row = rows[0];
-        return row === undefined ? null : row;
+        return this.findCandidateReviewContext("buildings", id, reviewBatchId);
     }
 
-    /**
-     * Updates review fields for one building row. `reviewNote === undefined` leaves review_note unchanged.
-     */
     async updateBuildingReviewDecision(args: {
         id: bigint;
         reviewBatchId: bigint;
@@ -652,73 +536,7 @@ export class RemoteImportReviewRepositoryCore {
         actor: ReviewActor;
         reviewNote: string | null | undefined;
     }): Promise<BuildingListRowDb | null> {
-        const sets: Prisma.Sql[] = [
-            Prisma.sql`review_decision = ${args.reviewDecision}`,
-            Prisma.sql`review_status = ${args.reviewStatus}`,
-            Prisma.sql`reviewed_at = now()`,
-            Prisma.sql`updated_at = now()`,
-        ];
-
-        if (args.actor.reviewedByUserId !== null) {
-            sets.push(Prisma.sql`reviewed_by = ${args.actor.reviewedByUserId}`);
-        } else {
-            sets.push(Prisma.sql`reviewed_by = NULL`);
-        }
-
-        if (args.reviewNote !== undefined) {
-            sets.push(Prisma.sql`review_note = ${args.reviewNote}`);
-        }
-
-        const setClause = Prisma.join(sets, ", ");
-
-        const rows = await this.prisma.$queryRaw<BuildingListRowDb[]>`
-            UPDATE import_review.building_candidates AS b
-            SET ${setClause}
-            WHERE b.id = ${args.id} AND b.review_batch_id = ${args.reviewBatchId} AND b.entity_family = 'buildings'
-            RETURNING
-                b.id,
-                b.public_id::text AS public_id,
-                b.review_batch_id,
-                b.source_snapshot_version,
-                b.local_staging_id,
-                b.source_snapshot_id_local,
-                b.external_id,
-                b.canonical_name,
-                b.name,
-                b.class_code,
-                b.building_type,
-                b.building_type_id,
-                b.admin_area_id,
-                b.levels,
-                b.height_m,
-                b.area_m2,
-                b.confidence_score,
-                b.match_status,
-                b.auto_action,
-                b.review_status,
-                b.review_decision,
-                b.reviewed_by::text AS reviewed_by,
-                b.reviewed_at,
-                b.review_note,
-                b.normalized_data,
-                b.source_refs,
-                COALESCE(to_jsonb(b.review_overrides), '{}'::jsonb) AS review_overrides,
-                b.matched_core_id,
-                b.matched_core_table,
-                b.matched_core_data,
-                b.f2_comparison,
-                b.validation_warnings,
-                b.validation_errors,
-                b.promotion_status,
-                b.promoted_core_id,
-                b.created_at,
-                b.updated_at,
-                ST_AsGeoJSON(b.geom)::json AS geometry,
-                ST_AsGeoJSON(b.centroid)::json AS centroid
-        `;
-
-        const row = rows[0];
-        return row === undefined ? null : row;
+        return this.updateCandidateReviewDecision({ family: "buildings", ...args });
     }
 
     async countPlaceCandidates(
@@ -728,14 +546,7 @@ export class RemoteImportReviewRepositoryCore {
             "match_status" | "auto_action" | "review_status" | "review_decision" | "q"
         >
     ): Promise<bigint> {
-        const where = this.placeListWhereClause(reviewBatchId, filters);
-        const rows = await this.prisma.$queryRaw<[{ count: bigint }]>`
-            SELECT count(*)::bigint AS count
-            FROM import_review.place_candidates AS p
-            WHERE ${where}
-        `;
-        const row = rows[0];
-        return row?.count ?? 0n;
+        return this.countCandidates("places", reviewBatchId, filters);
     }
 
     async listPlaceCandidates(
@@ -753,82 +564,14 @@ export class RemoteImportReviewRepositoryCore {
             | "include_geometry"
         >
     ): Promise<BuildingListRowDb[]> {
-        const where = this.placeListWhereClause(reviewBatchId, filters);
-        const orderBy = PLACE_ORDER_BY[filters.sort];
-        const includeGeometry = filters.include_geometry;
-
-        return this.prisma.$queryRaw<BuildingListRowDb[]>`
-            SELECT
-                p.id,
-                p.public_id::text AS public_id,
-                p.review_batch_id,
-                p.source_snapshot_version,
-                p.local_staging_id,
-                p.source_snapshot_id_local,
-                p.external_id,
-                p.canonical_name,
-                NULL::text AS name,
-                NULL::text AS class_code,
-                NULL::text AS building_type,
-                NULL::bigint AS building_type_id,
-                p.admin_area_id,
-                NULL::int AS levels,
-                NULL::numeric AS height_m,
-                NULL::numeric AS area_m2,
-                p.confidence_score,
-                p.match_status,
-                p.auto_action,
-                p.review_status,
-                p.review_decision,
-                p.reviewed_by::text AS reviewed_by,
-                p.reviewed_at,
-                p.review_note,
-                p.normalized_data,
-                p.source_refs,
-                COALESCE(to_jsonb(p.review_overrides), '{}'::jsonb) AS review_overrides,
-                p.matched_core_id,
-                p.matched_core_table,
-                p.matched_core_data,
-                p.f2_comparison,
-                p.validation_warnings,
-                p.validation_errors,
-                p.promotion_status,
-                p.promoted_core_id,
-                p.created_at,
-                p.updated_at,
-                CASE
-                    WHEN ${includeGeometry} THEN ST_AsGeoJSON(p.point_geom)::json
-                    ELSE NULL::json
-                END AS geometry,
-                CASE
-                    WHEN ${includeGeometry} THEN ST_AsGeoJSON(p.point_geom)::json
-                    ELSE NULL::json
-                END AS centroid
-            FROM import_review.place_candidates AS p
-            WHERE ${where}
-            ORDER BY ${orderBy}
-            LIMIT ${filters.limit} OFFSET ${filters.offset}
-        `;
+        return this.listCandidates("places", reviewBatchId, filters);
     }
 
     async findPlaceCandidateReviewContext(
         id: bigint,
         reviewBatchId: bigint
     ): Promise<{ match_status: string | null; auto_action: string | null; promotion_status: string | null } | null> {
-        const rows = await this.prisma.$queryRaw<
-            {
-                match_status: string | null;
-                auto_action: string | null;
-                promotion_status: string | null;
-            }[]
-        >`
-            SELECT p.match_status, p.auto_action, p.promotion_status
-            FROM import_review.place_candidates AS p
-            WHERE p.id = ${id} AND (p.review_batch_id = ${reviewBatchId} AND p.entity_family = 'places')
-            LIMIT 1
-        `;
-        const row = rows[0];
-        return row === undefined ? null : row;
+        return this.findCandidateReviewContext("places", id, reviewBatchId);
     }
 
     async updatePlaceReviewDecision(args: {
@@ -839,73 +582,7 @@ export class RemoteImportReviewRepositoryCore {
         actor: ReviewActor;
         reviewNote: string | null | undefined;
     }): Promise<BuildingListRowDb | null> {
-        const sets: Prisma.Sql[] = [
-            Prisma.sql`review_decision = ${args.reviewDecision}`,
-            Prisma.sql`review_status = ${args.reviewStatus}`,
-            Prisma.sql`reviewed_at = now()`,
-            Prisma.sql`updated_at = now()`,
-        ];
-
-        if (args.actor.reviewedByUserId !== null) {
-            sets.push(Prisma.sql`reviewed_by = ${args.actor.reviewedByUserId}`);
-        } else {
-            sets.push(Prisma.sql`reviewed_by = NULL`);
-        }
-
-        if (args.reviewNote !== undefined) {
-            sets.push(Prisma.sql`review_note = ${args.reviewNote}`);
-        }
-
-        const setClause = Prisma.join(sets, ", ");
-
-        const rows = await this.prisma.$queryRaw<BuildingListRowDb[]>`
-            UPDATE import_review.place_candidates AS p
-            SET ${setClause}
-            WHERE p.id = ${args.id} AND p.review_batch_id = ${args.reviewBatchId} AND p.entity_family = 'places'
-            RETURNING
-                p.id,
-                p.public_id::text AS public_id,
-                p.review_batch_id,
-                p.source_snapshot_version,
-                p.local_staging_id,
-                p.source_snapshot_id_local,
-                p.external_id,
-                p.canonical_name,
-                NULL::text AS name,
-                NULL::text AS class_code,
-                NULL::text AS building_type,
-                NULL::bigint AS building_type_id,
-                p.admin_area_id,
-                NULL::int AS levels,
-                NULL::numeric AS height_m,
-                NULL::numeric AS area_m2,
-                p.confidence_score,
-                p.match_status,
-                p.auto_action,
-                p.review_status,
-                p.review_decision,
-                p.reviewed_by::text AS reviewed_by,
-                p.reviewed_at,
-                p.review_note,
-                p.normalized_data,
-                p.source_refs,
-                COALESCE(to_jsonb(p.review_overrides), '{}'::jsonb) AS review_overrides,
-                p.matched_core_id,
-                p.matched_core_table,
-                p.matched_core_data,
-                p.f2_comparison,
-                p.validation_warnings,
-                p.validation_errors,
-                p.promotion_status,
-                p.promoted_core_id,
-                p.created_at,
-                p.updated_at,
-                ST_AsGeoJSON(p.point_geom)::json AS geometry,
-                ST_AsGeoJSON(p.point_geom)::json AS centroid
-        `;
-
-        const row = rows[0];
-        return row === undefined ? null : row;
+        return this.updateCandidateReviewDecision({ family: "places", ...args });
     }
 
     async countRoadCandidates(
@@ -915,14 +592,7 @@ export class RemoteImportReviewRepositoryCore {
             "match_status" | "auto_action" | "review_status" | "review_decision" | "q"
         >
     ): Promise<bigint> {
-        const where = this.roadListWhereClause(reviewBatchId, filters);
-        const rows = await this.prisma.$queryRaw<[{ count: bigint }]>`
-            SELECT count(*)::bigint AS count
-            FROM import_review.road_candidates AS r
-            WHERE ${where}
-        `;
-        const row = rows[0];
-        return row?.count ?? 0n;
+        return this.countCandidates("roads", reviewBatchId, filters);
     }
 
     async listRoadCandidates(
@@ -940,68 +610,7 @@ export class RemoteImportReviewRepositoryCore {
             | "include_geometry"
         >
     ): Promise<BuildingListRowDb[]> {
-        const where = this.roadListWhereClause(reviewBatchId, filters);
-        const orderBy = ROAD_ORDER_BY[filters.sort];
-        const includeGeometry = filters.include_geometry;
-
-        return this.prisma.$queryRaw<BuildingListRowDb[]>`
-            SELECT
-                r.id,
-                r.public_id::text AS public_id,
-                r.review_batch_id,
-                r.source_snapshot_version,
-                r.local_staging_id,
-                r.source_snapshot_id_local,
-                r.external_id,
-                r.canonical_name,
-                NULL::text AS name,
-                r.class_code,
-                NULL::text AS building_type,
-                NULL::bigint AS building_type_id,
-                NULL::bigint AS admin_area_id,
-                NULL::int AS levels,
-                NULL::numeric AS height_m,
-                NULL::numeric AS area_m2,
-                r.confidence_score,
-                r.match_status,
-                r.auto_action,
-                r.review_status,
-                r.review_decision,
-                r.reviewed_by::text AS reviewed_by,
-                r.reviewed_at,
-                r.review_note,
-                r.normalized_data,
-                r.source_refs,
-                COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb) AS review_overrides,
-                r.matched_core_id,
-                r.matched_core_table,
-                r.matched_core_data,
-                r.f2_comparison,
-                r.validation_warnings,
-                r.validation_errors,
-                r.promotion_status,
-                r.promoted_core_id,
-                r.created_at,
-                r.updated_at,
-                CASE
-                    WHEN ${includeGeometry} THEN ST_AsGeoJSON(r.geom)::json
-                    ELSE NULL::json
-                END AS geometry,
-                CASE
-                    WHEN ${includeGeometry} AND r.geom IS NOT NULL THEN
-                        ST_AsGeoJSON(ST_SetSRID(ST_Centroid(r.geom), 4326))::json
-                    ELSE NULL::json
-                END AS centroid,
-                r.road_class_id AS road_candidate_road_class_id,
-                r.surface AS road_candidate_surface,
-                r.is_oneway AS road_candidate_is_oneway,
-                COALESCE(rc.code, r.road_class) AS road_candidate_class_label
-            FROM import_review.road_candidates AS r
-            LEFT JOIN ref.ref_road_classes AS rc ON rc.id = r.road_class_id
-            WHERE ${where}
-            ORDER BY ${orderBy}
-            LIMIT ${filters.limit} OFFSET ${filters.offset}
-        `;
+        return this.listCandidates("roads", reviewBatchId, filters);
     }
 
     async findRoadCandidateReviewContext(
@@ -1346,85 +955,7 @@ export class RemoteImportReviewRepositoryCore {
         actor: ReviewActor;
         reviewNote: string | null | undefined;
     }): Promise<BuildingListRowDb | null> {
-        const sets: Prisma.Sql[] = [
-            Prisma.sql`review_decision = ${args.reviewDecision}`,
-            Prisma.sql`review_status = ${args.reviewStatus}`,
-            Prisma.sql`reviewed_at = now()`,
-            Prisma.sql`updated_at = now()`,
-        ];
-
-        if (args.actor.reviewedByUserId !== null) {
-            sets.push(Prisma.sql`reviewed_by = ${args.actor.reviewedByUserId}`);
-        } else {
-            sets.push(Prisma.sql`reviewed_by = NULL`);
-        }
-
-        if (args.reviewNote !== undefined) {
-            sets.push(Prisma.sql`review_note = ${args.reviewNote}`);
-        }
-
-        const setClause = Prisma.join(sets, ", ");
-
-        const rows = await this.prisma.$queryRaw<BuildingListRowDb[]>`
-            UPDATE import_review.road_candidates AS r
-            SET ${setClause}
-            WHERE r.id = ${args.id} AND r.review_batch_id = ${args.reviewBatchId} AND r.entity_family = 'roads'
-            RETURNING
-                r.id,
-                r.public_id::text AS public_id,
-                r.review_batch_id,
-                r.source_snapshot_version,
-                r.local_staging_id,
-                r.source_snapshot_id_local,
-                r.external_id,
-                r.canonical_name,
-                NULL::text AS name,
-                r.class_code,
-                NULL::text AS building_type,
-                NULL::bigint AS building_type_id,
-                NULL::bigint AS admin_area_id,
-                NULL::int AS levels,
-                NULL::numeric AS height_m,
-                NULL::numeric AS area_m2,
-                r.confidence_score,
-                r.match_status,
-                r.auto_action,
-                r.review_status,
-                r.review_decision,
-                r.reviewed_by::text AS reviewed_by,
-                r.reviewed_at,
-                r.review_note,
-                r.normalized_data,
-                r.source_refs,
-                COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb) AS review_overrides,
-                r.matched_core_id,
-                r.matched_core_table,
-                r.matched_core_data,
-                r.f2_comparison,
-                r.validation_warnings,
-                r.validation_errors,
-                r.promotion_status,
-                r.promoted_core_id,
-                r.created_at,
-                r.updated_at,
-                ST_AsGeoJSON(r.geom)::json AS geometry,
-                CASE
-                    WHEN r.geom IS NOT NULL THEN ST_AsGeoJSON(ST_SetSRID(ST_Centroid(r.geom), 4326))::json
-                    ELSE NULL::json
-                END AS centroid,
-                r.road_class_id AS road_candidate_road_class_id,
-                r.surface AS road_candidate_surface,
-                r.is_oneway AS road_candidate_is_oneway,
-                (
-                    SELECT COALESCE(rc.code, r.road_class)
-                      FROM ref.ref_road_classes AS rc
-                     WHERE rc.id = r.road_class_id
-                     LIMIT 1
-                ) AS road_candidate_class_label
-        `;
-
-        const row = rows[0];
-        return row === undefined ? null : row;
+        return this.updateCandidateReviewDecision({ family: "roads", ...args });
     }
 
     async lookupRefRoadClassById(id: bigint): Promise<{ id: bigint; code: string } | null> {
@@ -1732,66 +1263,18 @@ export class RemoteImportReviewRepositoryCore {
         force: boolean;
         dryRun: boolean;
     }): Promise<ImportReviewBulkDecisionRepoResult> {
-        return this.prisma.$transaction(async (tx) => {
-            const buckets =
-                args.mode === "ids"
-                    ? await this.bulkClassifyByIds(
-                          tx,
-                          args.reviewBatchId,
-                          args.ids!,
-                          args.reviewDecision,
-                          args.force
-                      )
-                    : await this.bulkClassifyByFilters(
-                          tx,
-                          args.reviewBatchId,
-                          args.filters!,
-                          args.reviewDecision,
-                          args.force
-                      );
-
-            const eligible = buckets.get("eligible") ?? 0n;
-            const skippedReasons = this.bucketsToSkippedReasons(buckets);
-            const skippedCount = skippedReasons.reduce((sum, r) => sum + r.count, 0);
-
-            if (args.dryRun) {
-                return {
-                    updated_count: Number(eligible),
-                    skipped_count: skippedCount,
-                    skipped_reasons: skippedReasons,
-                    dry_run: true,
-                };
-            }
-
-            const updated =
-                args.mode === "ids"
-                    ? await this.bulkApplyByIds(
-                          tx,
-                          args.reviewBatchId,
-                          args.ids!,
-                          args.reviewDecision,
-                          args.reviewStatus,
-                          args.reviewedByUserId,
-                          args.reviewNote,
-                          args.force
-                      )
-                    : await this.bulkApplyByFilters(
-                          tx,
-                          args.reviewBatchId,
-                          args.filters!,
-                          args.reviewDecision,
-                          args.reviewStatus,
-                          args.reviewedByUserId,
-                          args.reviewNote,
-                          args.force
-                      );
-
-            return {
-                updated_count: updated,
-                skipped_count: skippedCount,
-                skipped_reasons: skippedReasons,
-                dry_run: false,
-            };
+        return this.genericCandidates.bulkCandidateDecisions({
+            family: "buildings",
+            reviewBatchId: args.reviewBatchId,
+            mode: args.mode,
+            ids: args.ids,
+            filters: args.filters,
+            reviewDecision: args.reviewDecision,
+            reviewStatus: args.reviewStatus,
+            reviewedByUserId: args.reviewedByUserId,
+            reviewNote: args.reviewNote,
+            force: args.force,
+            dryRun: args.dryRun,
         });
     }
 
@@ -2268,66 +1751,18 @@ export class RemoteImportReviewRepositoryCore {
         force: boolean;
         dryRun: boolean;
     }): Promise<ImportReviewBulkDecisionRepoResult> {
-        return this.prisma.$transaction(async (tx) => {
-            const buckets =
-                args.mode === "ids"
-                    ? await this.bulkClassifyByIdsPlaces(
-                          tx,
-                          args.reviewBatchId,
-                          args.ids!,
-                          args.reviewDecision,
-                          args.force
-                      )
-                    : await this.bulkClassifyByFiltersPlaces(
-                          tx,
-                          args.reviewBatchId,
-                          args.filters!,
-                          args.reviewDecision,
-                          args.force
-                      );
-
-            const eligible = buckets.get("eligible") ?? 0n;
-            const skippedReasons = this.bucketsToSkippedReasons(buckets);
-            const skippedCount = skippedReasons.reduce((sum, r) => sum + r.count, 0);
-
-            if (args.dryRun) {
-                return {
-                    updated_count: Number(eligible),
-                    skipped_count: skippedCount,
-                    skipped_reasons: skippedReasons,
-                    dry_run: true,
-                };
-            }
-
-            const updated =
-                args.mode === "ids"
-                    ? await this.bulkApplyByIdsPlaces(
-                          tx,
-                          args.reviewBatchId,
-                          args.ids!,
-                          args.reviewDecision,
-                          args.reviewStatus,
-                          args.reviewedByUserId,
-                          args.reviewNote,
-                          args.force
-                      )
-                    : await this.bulkApplyByFiltersPlaces(
-                          tx,
-                          args.reviewBatchId,
-                          args.filters!,
-                          args.reviewDecision,
-                          args.reviewStatus,
-                          args.reviewedByUserId,
-                          args.reviewNote,
-                          args.force
-                      );
-
-            return {
-                updated_count: updated,
-                skipped_count: skippedCount,
-                skipped_reasons: skippedReasons,
-                dry_run: false,
-            };
+        return this.genericCandidates.bulkCandidateDecisions({
+            family: "places",
+            reviewBatchId: args.reviewBatchId,
+            mode: args.mode,
+            ids: args.ids,
+            filters: args.filters,
+            reviewDecision: args.reviewDecision,
+            reviewStatus: args.reviewStatus,
+            reviewedByUserId: args.reviewedByUserId,
+            reviewNote: args.reviewNote,
+            force: args.force,
+            dryRun: args.dryRun,
         });
     }
 
@@ -2343,66 +1778,18 @@ export class RemoteImportReviewRepositoryCore {
         force: boolean;
         dryRun: boolean;
     }): Promise<ImportReviewBulkDecisionRepoResult> {
-        return this.prisma.$transaction(async (tx) => {
-            const buckets =
-                args.mode === "ids"
-                    ? await this.bulkClassifyByIdsRoads(
-                          tx,
-                          args.reviewBatchId,
-                          args.ids!,
-                          args.reviewDecision,
-                          args.force
-                      )
-                    : await this.bulkClassifyByFiltersRoads(
-                          tx,
-                          args.reviewBatchId,
-                          args.filters!,
-                          args.reviewDecision,
-                          args.force
-                      );
-
-            const eligible = buckets.get("eligible") ?? 0n;
-            const skippedReasons = this.bucketsToSkippedReasons(buckets);
-            const skippedCount = skippedReasons.reduce((sum, r) => sum + r.count, 0);
-
-            if (args.dryRun) {
-                return {
-                    updated_count: Number(eligible),
-                    skipped_count: skippedCount,
-                    skipped_reasons: skippedReasons,
-                    dry_run: true,
-                };
-            }
-
-            const updated =
-                args.mode === "ids"
-                    ? await this.bulkApplyByIdsRoads(
-                          tx,
-                          args.reviewBatchId,
-                          args.ids!,
-                          args.reviewDecision,
-                          args.reviewStatus,
-                          args.reviewedByUserId,
-                          args.reviewNote,
-                          args.force
-                      )
-                    : await this.bulkApplyByFiltersRoads(
-                          tx,
-                          args.reviewBatchId,
-                          args.filters!,
-                          args.reviewDecision,
-                          args.reviewStatus,
-                          args.reviewedByUserId,
-                          args.reviewNote,
-                          args.force
-                      );
-
-            return {
-                updated_count: updated,
-                skipped_count: skippedCount,
-                skipped_reasons: skippedReasons,
-                dry_run: false,
-            };
+        return this.genericCandidates.bulkCandidateDecisions({
+            family: "roads",
+            reviewBatchId: args.reviewBatchId,
+            mode: args.mode,
+            ids: args.ids,
+            filters: args.filters,
+            reviewDecision: args.reviewDecision,
+            reviewStatus: args.reviewStatus,
+            reviewedByUserId: args.reviewedByUserId,
+            reviewNote: args.reviewNote,
+            force: args.force,
+            dryRun: args.dryRun,
         });
     }
 }

@@ -4,7 +4,16 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import ImportReviewPromotionCreateBatchPanel, {
+    DEFAULT_PUBLISH_FAMILIES,
+} from "@/src/app/(admin)/import-review/_components/ImportReviewPromotionCreateBatchPanel";
 import ImportReviewPromotionReadyTable from "@/src/app/(admin)/import-review/_components/ImportReviewPromotionReadyTable";
+import ImportReviewBatchPicker from "@/src/app/(admin)/import-review/_components/ImportReviewBatchPicker";
+import ImportReviewInlineSpinner from "@/src/features/import-review/components/ImportReviewInlineSpinner";
+import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
+import ImportReviewSkeletonCards from "@/src/features/import-review/components/ImportReviewSkeletonCards";
+import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
+import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import {
     PromotionCardBody,
     PromotionSectionHeading,
@@ -15,7 +24,8 @@ import {
     getImportReviewPromotionBatches,
     getImportReviewPromotionReadyCandidates,
     isAbortError,
-    postImportReviewPromotionBatch,
+    isImportReviewBatchAmbiguousError,
+    type ImportReviewBatchChoice,
     type ImportReviewCreatePublishBatchResult,
     type ImportReviewPromotionReadyCandidateItem,
     type ImportReviewPromotionReadyCandidatesCounts,
@@ -26,6 +36,7 @@ import {
     applyImportReviewScopeSearchParams,
     reviewBatchIdFromImportReviewSearch,
     snapshotVersionFromImportReviewSearch,
+    syncImportReviewUrlToResolvedBatch,
 } from "@/src/lib/importReviewSnapshot";
 
 const CANDIDATE_PAGE_SIZE = 50;
@@ -55,15 +66,6 @@ function formatPromotionError(err: unknown): string {
         return "Forbidden — import review requires admin access.";
     }
     return m;
-}
-
-function defaultBatchName(scope: LoadedScope): string {
-    const stamp = new Date().toISOString().slice(0, 16).replace("T", "-").replace(":", "");
-    const tag =
-        scope.kind === "review_batch"
-            ? `batch-${scope.value}`
-            : scope.value.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 48);
-    return `buildings-publish-${tag}-${stamp}`;
 }
 
 function CandidateDetailModal({
@@ -135,7 +137,6 @@ export default function ImportReviewPromotionClient() {
         () => (urlBatch ? "" : urlVersion || envDefault || "")
     );
     const [batchInput, setBatchInput] = useState(() => urlBatch || "");
-    const [includeMerged, setIncludeMerged] = useState(false);
     const [counts, setCounts] = useState<ImportReviewPromotionReadyCandidatesCounts | null>(null);
     const [candidates, setCandidates] = useState<ImportReviewPromotionReadyCandidateItem[]>([]);
     const [candidatesTotal, setCandidatesTotal] = useState(0);
@@ -143,16 +144,12 @@ export default function ImportReviewPromotionClient() {
     const [batches, setBatches] = useState<ImportReviewPublishBatchSummary[]>([]);
     const [batchesTotal, setBatchesTotal] = useState(0);
     const [detailCandidate, setDetailCandidate] = useState<ImportReviewPromotionReadyCandidateItem | null>(null);
-    const [confirmCreateOpen, setConfirmCreateOpen] = useState(false);
-    const [batchName, setBatchName] = useState("");
-    const [batchNote, setBatchNote] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const [isCreating, setIsCreating] = useState(false);
     const [error, setError] = useState("");
+    const [ambiguousBatches, setAmbiguousBatches] = useState<ImportReviewBatchChoice[] | null>(null);
+    const [ambiguousSnapshot, setAmbiguousSnapshot] = useState("");
     const [successMessage, setSuccessMessage] = useState("");
     const [lastLoaded, setLastLoaded] = useState<LoadedScope | null>(null);
-
-    const readyCount = counts?.ready ?? 0;
 
     useEffect(() => {
         setVersionInput(urlBatch ? "" : urlVersion || envDefault || "");
@@ -166,8 +163,8 @@ export default function ImportReviewPromotionClient() {
         async (opts: {
             snapshotVersion: string;
             reviewBatchId: string;
-            includeMerged: boolean;
             candidateOffset: number;
+            latest?: boolean;
             signal?: AbortSignal;
             syncUrl: boolean;
         }): Promise<boolean> => {
@@ -198,11 +195,13 @@ export default function ImportReviewPromotionClient() {
                 : { kind: "review_batch", value: batch };
             const query = {
                 ...scopeQuery(scope),
-                include_merged: opts.includeMerged,
+                ...(opts.latest ? { latest: true } : {}),
             };
 
             setIsLoading(true);
             setError("");
+            setAmbiguousBatches(null);
+            setAmbiguousSnapshot("");
             setSuccessMessage("");
 
             try {
@@ -228,10 +227,17 @@ export default function ImportReviewPromotionClient() {
                 setBatches(listRes.items);
                 setBatchesTotal(listRes.total);
                 setLastLoaded(scope);
-                setBatchName((prev) => (prev.trim() ? prev : defaultBatchName(scope)));
                 if (opts.syncUrl) {
                     const params = new URLSearchParams(searchParams.toString());
-                    applyImportReviewScopeSearchParams(params, snap, batch);
+                    const resolvedBatch =
+                        batch ||
+                        candidatesRes.items[0]?.review_batch_id?.trim() ||
+                        "";
+                    if (snap && resolvedBatch) {
+                        syncImportReviewUrlToResolvedBatch(params, resolvedBatch);
+                    } else {
+                        applyImportReviewScopeSearchParams(params, snap, batch);
+                    }
                     router.replace(`/import-review/promotion?${params.toString()}`, { scroll: false });
                 }
                 return true;
@@ -239,6 +245,20 @@ export default function ImportReviewPromotionClient() {
                 if (isAbortError(err)) {
                     return false;
                 }
+                if (isImportReviewBatchAmbiguousError(err)) {
+                    setAmbiguousBatches(err.batches);
+                    setAmbiguousSnapshot(err.sourceSnapshotVersion || snap);
+                    setError("");
+                    setCounts(null);
+                    setCandidates([]);
+                    setCandidatesTotal(0);
+                    setBatches([]);
+                    setBatchesTotal(0);
+                    setLastLoaded(null);
+                    return false;
+                }
+                setAmbiguousBatches(null);
+                setAmbiguousSnapshot("");
                 setError(formatPromotionError(err));
                 setCounts(null);
                 setCandidates([]);
@@ -266,7 +286,6 @@ export default function ImportReviewPromotionClient() {
             void loadRef.current({
                 snapshotVersion: "",
                 reviewBatchId: chosenBatch,
-                includeMerged,
                 candidateOffset: 0,
                 signal: controller.signal,
                 syncUrl: false,
@@ -281,20 +300,18 @@ export default function ImportReviewPromotionClient() {
         void loadRef.current({
             snapshotVersion: v,
             reviewBatchId: "",
-            includeMerged,
             candidateOffset: 0,
             signal: controller.signal,
             syncUrl: false,
         });
         return () => controller.abort();
-    }, [chosenBatch, chosenSnapshot, includeMerged]);
+    }, [chosenBatch, chosenSnapshot]);
 
     async function handleApplyScope() {
         setCandidateOffset(0);
         await loadAll({
             snapshotVersion: versionInput,
             reviewBatchId: batchInput,
-            includeMerged,
             candidateOffset: 0,
             syncUrl: true,
         });
@@ -307,55 +324,27 @@ export default function ImportReviewPromotionClient() {
         await loadAll({
             snapshotVersion: lastLoaded.kind === "source_snapshot" ? lastLoaded.value : "",
             reviewBatchId: lastLoaded.kind === "review_batch" ? lastLoaded.value : "",
-            includeMerged,
             candidateOffset: nextOffset,
             syncUrl: false,
         });
     }
 
-    async function handleCreateBatchConfirmed() {
+    function handleBatchCreated(result: ImportReviewCreatePublishBatchResult) {
+        setSuccessMessage(result.message);
+        setError("");
         if (!lastLoaded) {
             return;
         }
-        const name = batchName.trim();
-        if (!name) {
-            setError("Batch name is required.");
-            return;
-        }
-
-        setConfirmCreateOpen(false);
-        setIsCreating(true);
-        setError("");
-        setSuccessMessage("");
-
-        try {
-            const result: ImportReviewCreatePublishBatchResult = await postImportReviewPromotionBatch({
-                ...scopeQuery(lastLoaded),
-                batch_name: name,
-                note: batchNote.trim() || undefined,
-                include_merged: includeMerged,
-            });
-            setSuccessMessage(result.message);
-            setBatchName(defaultBatchName(lastLoaded));
-            setBatchNote("");
-            setCandidateOffset(0);
-            await loadAll({
-                snapshotVersion:
-                    lastLoaded.kind === "source_snapshot" ? lastLoaded.value : "",
-                reviewBatchId: lastLoaded.kind === "review_batch" ? lastLoaded.value : "",
-                includeMerged,
-                candidateOffset: 0,
-                syncUrl: false,
-            });
-            const detailQuery = searchParams.toString();
-            router.push(
-                `/import-review/promotion/${result.batch.id}${detailQuery ? `?${detailQuery}` : ""}`
-            );
-        } catch (err) {
-            setError(formatPromotionError(err));
-        } finally {
-            setIsCreating(false);
-        }
+        void loadAll({
+            snapshotVersion: lastLoaded.kind === "source_snapshot" ? lastLoaded.value : "",
+            reviewBatchId: lastLoaded.kind === "review_batch" ? lastLoaded.value : "",
+            candidateOffset: 0,
+            syncUrl: false,
+        });
+        const detailQuery = searchParams.toString();
+        router.push(
+            `/import-review/promotion/${result.batch.id}${detailQuery ? `?${detailQuery}` : ""}`
+        );
     }
 
     const scopeLabel = useMemo(() => {
@@ -431,38 +420,60 @@ export default function ImportReviewPromotionClient() {
                                 />
                             </label>
                         </div>
-                        <label className="mt-4 flex items-center gap-2 text-sm text-gray-700">
-                            <input
-                                type="checkbox"
-                                checked={includeMerged}
-                                onChange={(e) => setIncludeMerged(e.target.checked)}
-                            />
-                            Include merged duplicate candidates (review_decision=merged)
-                        </label>
                         <button
                             type="button"
                             onClick={() => void handleApplyScope()}
                             disabled={isLoading}
                             className="mt-4 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                         >
-                            {isLoading ? "Loading…" : "Apply scope"}
+                            {isLoading ? IMPORT_REVIEW_LOADING.loadingPromotionBatch : "Apply scope"}
                         </button>
                     </PromotionCardBody>
                 </section>
 
-                {error ? (
-                    <PromotionBanner variant="error" message={error} />
+                {ambiguousBatches && ambiguousBatches.length > 0 ? (
+                    <>
+                        <ImportReviewStatusBanner
+                            message={IMPORT_REVIEW_LOADING.multipleBatchesFound}
+                            tone="warning"
+                        />
+                        <ImportReviewBatchPicker
+                        sourceSnapshotVersion={ambiguousSnapshot}
+                        batches={ambiguousBatches}
+                        onUseLatest={() => {
+                            void loadAll({
+                                snapshotVersion: ambiguousSnapshot || versionInput.trim(),
+                                reviewBatchId: "",
+                                candidateOffset: 0,
+                                latest: true,
+                                syncUrl: true,
+                            });
+                        }}
+                    />
+                    </>
                 ) : null}
+
+                {isLoading && !lastLoaded ? (
+                    <ImportReviewLoadingBannerWithSpinner message={IMPORT_REVIEW_LOADING.loadingPromotionBatch} />
+                ) : null}
+                {isLoading && lastLoaded ? (
+                    <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.refreshingCandidates} />
+                ) : null}
+
+                {error ? <ImportReviewStatusBanner message={error} tone="error" /> : null}
                 {successMessage ? (
-                    <PromotionBanner variant="success" message={successMessage} />
+                    <ImportReviewStatusBanner message={successMessage} tone="success" />
                 ) : null}
 
                 <section className="space-y-3">
                     <PromotionSectionHeading
                         id="promotion-readiness"
-                        title="Readiness"
-                        subtitle="Server-side counts for this scope (buildings only)."
+                        title="Readiness (buildings preview)"
+                        subtitle={`Buildings-only quick counts. Default families for batch creation: ${DEFAULT_PUBLISH_FAMILIES.join(", ")}.`}
                     />
+                    {isLoading && !counts ? (
+                        <ImportReviewSkeletonCards count={4} columns={4} message={IMPORT_REVIEW_LOADING.loadingEligibility} />
+                    ) : (
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <StatsCard
                             title="Ready"
@@ -487,6 +498,7 @@ export default function ImportReviewPromotionClient() {
                             statusColor="warning"
                         />
                     </div>
+                    )}
                 </section>
 
                 <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -494,7 +506,7 @@ export default function ImportReviewPromotionClient() {
                         <PromotionSectionHeading
                             id="promotion-preview"
                             title="Ready candidates preview"
-                            subtitle="These rows match publish-batch eligibility rules and are not in an active batch."
+                            subtitle="Buildings-only list. Use the entity selector and dry-run below for multi-family counts."
                         />
                         <div className="mt-4">
                             <ImportReviewPromotionReadyTable
@@ -511,49 +523,11 @@ export default function ImportReviewPromotionClient() {
                     </PromotionCardBody>
                 </section>
 
-                <section className="rounded-xl border border-amber-200 bg-amber-50/40 shadow-sm">
-                    <PromotionCardBody>
-                        <PromotionSectionHeading
-                            id="promotion-create"
-                            title="Create publish batch"
-                            subtitle={`${readyCount.toLocaleString()} building candidate(s) will be added if you proceed.`}
-                        />
-                        <p className="mt-2 text-sm text-amber-900">
-                            Creating a batch does not write to core. It only reserves these candidates for
-                            validation/promotion.
-                        </p>
-                        <div className="mt-4 space-y-4">
-                            <label className="block text-sm">
-                                <span className="font-medium text-gray-700">batch_name</span>
-                                <input
-                                    type="text"
-                                    value={batchName}
-                                    onChange={(e) => setBatchName(e.target.value)}
-                                    maxLength={200}
-                                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm"
-                                />
-                            </label>
-                            <label className="block text-sm">
-                                <span className="font-medium text-gray-700">note (optional)</span>
-                                <textarea
-                                    value={batchNote}
-                                    onChange={(e) => setBatchNote(e.target.value)}
-                                    rows={2}
-                                    maxLength={4000}
-                                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm"
-                                />
-                            </label>
-                            <button
-                                type="button"
-                                onClick={() => setConfirmCreateOpen(true)}
-                                disabled={isCreating || isLoading || !lastLoaded || readyCount === 0}
-                                className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
-                            >
-                                {isCreating ? "Creating…" : "Create publish batch…"}
-                            </button>
-                        </div>
-                    </PromotionCardBody>
-                </section>
+                <ImportReviewPromotionCreateBatchPanel
+                    scope={lastLoaded}
+                    onCreated={handleBatchCreated}
+                    onError={(message) => setError(message ? formatPromotionError(new Error(message)) : "")}
+                />
 
                 <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
                     <PromotionCardBody>
@@ -566,8 +540,16 @@ export default function ImportReviewPromotionClient() {
                                     : "No batches created for this scope yet."
                             }
                         />
-                        {batches.length === 0 ? (
-                            <p className="mt-4 text-sm text-gray-500">No publish batches yet.</p>
+                        {isLoading && batches.length === 0 ? (
+                            <div className="mt-4">
+                                <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.loadingPromotionBatch} />
+                            </div>
+                        ) : batches.length === 0 ? (
+                            <ImportReviewStatusBanner
+                                message="No publish batches yet."
+                                tone="info"
+                                compact
+                            />
                         ) : (
                             <div className="mt-4 overflow-x-auto rounded-md border border-gray-200">
                                 <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
@@ -620,78 +602,7 @@ export default function ImportReviewPromotionClient() {
             {detailCandidate ? (
                 <CandidateDetailModal row={detailCandidate} onClose={() => setDetailCandidate(null)} />
             ) : null}
-
-            {confirmCreateOpen ? (
-                <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-                    role="dialog"
-                    aria-modal="true"
-                >
-                    <CreateBatchConfirmDialog
-                        readyCount={readyCount}
-                        batchName={batchName}
-                        isCreating={isCreating}
-                        onCancel={() => setConfirmCreateOpen(false)}
-                        onConfirm={() => void handleCreateBatchConfirmed()}
-                    />
-                </div>
-            ) : null}
         </main>
     );
 }
 
-function PromotionBanner({ variant, message }: { variant: "error" | "success"; message: string }) {
-    const cls =
-        variant === "error"
-            ? "border-red-200 bg-red-50 text-red-800"
-            : "border-green-200 bg-green-50 text-green-900";
-    return (
-        <div className={`rounded-md border px-4 py-3 text-sm whitespace-pre-wrap ${cls}`}>{message}</div>
-    );
-}
-
-function CreateBatchConfirmDialog({
-    readyCount,
-    batchName,
-    isCreating,
-    onCancel,
-    onConfirm,
-}: {
-    readyCount: number;
-    batchName: string;
-    isCreating: boolean;
-    onCancel: () => void;
-    onConfirm: () => void;
-}) {
-    return (
-        <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-900">Create publish batch?</h3>
-            <p className="mt-2 text-sm text-gray-600">
-                Create publish batch from <strong>{readyCount.toLocaleString()}</strong> ready building candidate
-                {readyCount === 1 ? "" : "s"}?
-            </p>
-            <p className="mt-2 text-sm text-gray-500">
-                Batch name: <strong>{batchName.trim() || "(empty)"}</strong>
-            </p>
-            <p className="mt-2 text-xs text-amber-800">No core writes. Candidates will be marked promotion_status=batched.</p>
-            <div className="mt-6 flex justify-end gap-2">
-                <button
-                    type="button"
-                    onClick={onCancel}
-                    disabled={isCreating}
-                    className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-800 hover:bg-gray-50"
-                >
-                    Cancel
-                </button>
-                <button
-                    type="button"
-                    onClick={onConfirm}
-                    disabled={isCreating}
-                    className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
-                >
-                    {isCreating ? "Creating…" : "Create batch"}
-                </button>
-            </div>
-        </div>
-    );
-}

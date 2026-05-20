@@ -1,18 +1,28 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
-import type { ImportReviewScopeResolved } from "./import-review-data-repository.js";
-import {
-    ImportReviewBatchAmbiguousError,
-    ImportReviewBatchNotFoundError,
-    ImportReviewInvalidScopeError,
-} from "./import-review-errors.js";
+import type { ImportReviewScopeQuery, ImportReviewScopeResolved } from "./import-review-data-repository.js";
+import { resolveImportReviewBatchScope } from "./import-review-batch-resolver.js";
 import {
     ImportReviewPublishBatchNameConflictError,
     ImportReviewPublishBatchNotFoundError,
+    ImportReviewPublishBatchCreationTimeoutError,
     ImportReviewPromotionNoEligibleCandidatesError,
+    type ImportReviewPromotionFamilySkipSummary,
+    type ImportReviewPromotionSkippedReasonCount,
 } from "./import-review-promotion.errors.js";
-import type { ImportReviewPromotionScopeQuery } from "./import-review-promotion.schema.js";
-import { logImportReviewBatchResolveHintsDev } from "./import-review-database-url.js";
+import type { ImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
+import {
+    getImportReviewPublishFamilyConfig,
+} from "./import-review-promotion-config.js";
+import {
+    buildFamilyEligibilityCountSql,
+    buildInsertPublishItemsByIdsSql,
+    buildMarkBatchedByIdsSql,
+    buildSelectEligibleCandidateIdsSql,
+    type FamilyEligibilityCountDb,
+    type PublishEligibilityOptions,
+} from "./import-review-promotion-eligibility.js";
+import { requireValidPublishStageStatus } from "./import-review-promotion-stage-status.js";
 
 const BUILDING_CANDIDATE_TABLE = "import_review.building_candidates";
 const TARGET_TABLE = "core.core_map_buildings";
@@ -123,6 +133,59 @@ export type ReadyBuildingCandidateRowDb = {
     geometry: unknown;
 };
 
+const CREATION_STAGE_DEFS = [
+    { key: "resolve_scope", label: "Resolve scope" },
+    { key: "count_eligible", label: "Count eligible candidates" },
+    { key: "create_batch", label: "Create publish batch" },
+    { key: "insert_items", label: "Insert publish items" },
+    { key: "mark_batched", label: "Mark candidates batched" },
+    { key: "write_summary", label: "Write creation summary" },
+] as const;
+
+const PUBLISH_ITEM_INSERT_CHUNK_SIZE = 500;
+
+const CREATE_BATCH_TX_OPTIONS = {
+    timeout: 15_000,
+    maxWait: 5_000,
+} as const;
+
+export type CreateBatchTimingMs = {
+    resolve_ms: number;
+    eligibility_ms: number;
+    payload_ms: number;
+    transaction_ms: number;
+    total_ms: number;
+};
+
+function mapSkippedReasons(row: FamilyEligibilityCountDb): ImportReviewPromotionSkippedReasonCount[] {
+    const out: ImportReviewPromotionSkippedReasonCount[] = [];
+    const push = (reason: string, count: bigint) => {
+        const n = Number(count);
+        if (n > 0) {
+            out.push({ reason, count: n });
+        }
+    };
+    push("has_validation_errors", row.has_validation_errors);
+    push("manual_protected", row.manual_protected);
+    push("duplicate_unconfirmed", row.duplicate_unconfirmed);
+    push("rejected_decision", row.rejected_decision);
+    return out;
+}
+
+export type MultiFamilyBatchCreateResult = {
+    batch: PublishBatchRowDb;
+    itemsAdded: number;
+    candidatesMarked: number;
+    byFamily: Array<{
+        entity_family: string;
+        items_added: number;
+        marked_batched: number;
+        skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
+    }>;
+    timing: CreateBatchTimingMs;
+    totalSelected: number;
+};
+
 function publishActionExpr(): Prisma.Sql {
     return Prisma.sql`
         CASE
@@ -136,70 +199,8 @@ function publishActionExpr(): Prisma.Sql {
 export class ImportReviewPromotionRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
-    async resolveScope(query: ImportReviewPromotionScopeQuery): Promise<ImportReviewScopeResolved> {
-        if (query.review_batch_id != null) {
-            const rows = await this.prisma.$queryRaw<
-                {
-                    id: bigint;
-                    source_snapshot_version: string;
-                    source_snapshot_id_local: bigint | null;
-                    region_code: string | null;
-                }[]
-            >`
-                SELECT id, source_snapshot_version, source_snapshot_id_local, region_code
-                FROM import_review.review_batches
-                WHERE id = ${query.review_batch_id}
-                LIMIT 2
-            `;
-            if (rows.length === 0) {
-                throw new ImportReviewBatchNotFoundError(query.review_batch_id.toString());
-            }
-            if (rows.length > 1) {
-                throw new ImportReviewInvalidScopeError("review_batch_id resolution was ambiguous");
-            }
-            const row = rows[0]!;
-            return {
-                reviewBatchId: row.id,
-                snapshotVersion: row.source_snapshot_version,
-                sourceSnapshotIdLocal: row.source_snapshot_id_local,
-            };
-        }
-
-        const v = query.source_snapshot_version?.trim();
-        if (!v) {
-            throw new ImportReviewInvalidScopeError(
-                "Provide source_snapshot_version (alias: snapshot_version) or review_batch_id"
-            );
-        }
-
-        const rows = await this.prisma.$queryRaw<
-            {
-                id: bigint;
-                source_snapshot_version: string;
-                source_snapshot_id_local: bigint | null;
-                region_code: string | null;
-            }[]
-        >`
-            SELECT id, source_snapshot_version, source_snapshot_id_local, region_code
-            FROM import_review.review_batches
-            WHERE source_snapshot_version = ${v}
-            ORDER BY id DESC
-            LIMIT 2
-        `;
-
-        if (rows.length === 0) {
-            await logImportReviewBatchResolveHintsDev(this.prisma, v);
-            throw new ImportReviewBatchNotFoundError(v);
-        }
-        if (rows.length > 1) {
-            throw new ImportReviewBatchAmbiguousError(v);
-        }
-        const row = rows[0]!;
-        return {
-            reviewBatchId: row.id,
-            snapshotVersion: row.source_snapshot_version,
-            sourceSnapshotIdLocal: row.source_snapshot_id_local,
-        };
+    async resolveScope(query: ImportReviewScopeQuery): Promise<ImportReviewScopeResolved> {
+        return resolveImportReviewBatchScope(this.prisma, query);
     }
 
     private async fetchReviewBatchRegion(reviewBatchId: bigint): Promise<string | null> {
@@ -478,6 +479,462 @@ export class ImportReviewPromotionRepository {
         );
     }
 
+    async pgRegclassExists(fullyQualifiedName: string): Promise<boolean> {
+        const rows = await this.prisma.$queryRaw<{ ok: boolean }[]>`
+            SELECT to_regclass(${fullyQualifiedName}) IS NOT NULL AS ok
+        `;
+        return rows[0]?.ok === true;
+    }
+
+    async countFamilyEligibility(
+        config: ImportReviewPublishFamilyConfig,
+        reviewBatchId: bigint,
+        options: PublishEligibilityOptions
+    ): Promise<FamilyEligibilityCountDb | null> {
+        if (!(await this.pgRegclassExists(config.candidateTable))) {
+            return null;
+        }
+        const sql = buildFamilyEligibilityCountSql(config, reviewBatchId, options);
+        const rows = await this.prisma.$queryRaw<FamilyEligibilityCountDb[]>`${sql}`;
+        return rows[0] ?? null;
+    }
+
+    async countBatchEligibilityByFamilies(args: {
+        scope: ImportReviewScopeResolved;
+        families: ImportReviewPublishFamilyConfig[];
+        options: PublishEligibilityOptions;
+    }): Promise<FamilyEligibilityCountDb[]> {
+        const out: FamilyEligibilityCountDb[] = [];
+        for (const config of args.families) {
+            const row = await this.countFamilyEligibility(config, args.scope.reviewBatchId, args.options);
+            if (row) {
+                out.push(row);
+            }
+        }
+        return out;
+    }
+
+    async dryRunPublishBatchMultiFamily(args: {
+        scope: ImportReviewScopeResolved;
+        batchName: string;
+        families: ImportReviewPublishFamilyConfig[];
+        options: PublishEligibilityOptions;
+    }): Promise<{
+        batchName: string;
+        entityFamilies: string[];
+        totals: { included: number; excluded: number; skipped: number };
+        byFamily: Array<{
+            entity_family: string;
+            included: number;
+            excluded: number;
+            skipped: number;
+            skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
+        }>;
+    }> {
+        const counts = await this.countBatchEligibilityByFamilies({
+            scope: args.scope,
+            families: args.families,
+            options: args.options,
+        });
+
+        let included = 0;
+        let excluded = 0;
+        let skipped = 0;
+        const byFamily = counts.map((row) => {
+            const inc = Number(row.approved_ready);
+            const exc = Number(row.excluded);
+            const sk =
+                Number(row.blocked) +
+                Number(row.already_promoted) +
+                Number(row.with_warnings);
+            included += inc;
+            excluded += exc;
+            skipped += sk;
+            return {
+                entity_family: row.entity_family,
+                included: inc,
+                excluded: exc,
+                skipped: sk,
+                skipped_reasons: mapSkippedReasons(row),
+            };
+        });
+
+        return {
+            batchName: args.batchName,
+            entityFamilies: args.families.map((f) => f.entityFamily),
+            totals: { included, excluded, skipped },
+            byFamily,
+        };
+    }
+
+    private buildNoEligibleError(
+        counts: FamilyEligibilityCountDb[]
+    ): ImportReviewPromotionNoEligibleCandidatesError {
+        const byFamily: ImportReviewPromotionFamilySkipSummary[] = counts.map((row) => ({
+            entity_family: row.entity_family,
+            included: Number(row.approved_ready),
+            skipped_reasons: mapSkippedReasons(row),
+        }));
+        const readyCount = byFamily.reduce((sum, f) => sum + f.included, 0);
+        return new ImportReviewPromotionNoEligibleCandidatesError(
+            readyCount,
+            "No eligible candidates for publish batch creation. Review per-family skipped reasons.",
+            byFamily
+        );
+    }
+
+    async batchNameExists(batchName: string): Promise<boolean> {
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id FROM system.system_publish_batches WHERE batch_name = ${batchName} LIMIT 1
+        `;
+        return rows.length > 0;
+    }
+
+    async selectEligibleCandidateIds(
+        config: ImportReviewPublishFamilyConfig,
+        reviewBatchId: bigint,
+        options: PublishEligibilityOptions
+    ): Promise<bigint[]> {
+        if (!(await this.pgRegclassExists(config.candidateTable))) {
+            return [];
+        }
+        const sql = buildSelectEligibleCandidateIdsSql(config, reviewBatchId, options);
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`${sql}`;
+        return rows.map((r) => r.id);
+    }
+
+    private async insertPublishItemsByIdsChunked(
+        tx: Prisma.TransactionClient,
+        config: ImportReviewPublishFamilyConfig,
+        batchId: bigint,
+        candidateIds: bigint[]
+    ): Promise<number> {
+        if (candidateIds.length === 0) {
+            return 0;
+        }
+        let inserted = 0;
+        for (let i = 0; i < candidateIds.length; i += PUBLISH_ITEM_INSERT_CHUNK_SIZE) {
+            const chunk = candidateIds.slice(i, i + PUBLISH_ITEM_INSERT_CHUNK_SIZE);
+            const rows = await tx.$queryRaw<{ id: bigint }[]>`
+                ${buildInsertPublishItemsByIdsSql(config, batchId, chunk)}
+                RETURNING id
+            `;
+            inserted += rows.length;
+        }
+        return inserted;
+    }
+
+    private async markCandidatesBatchedByIdsChunked(
+        tx: Prisma.TransactionClient,
+        config: ImportReviewPublishFamilyConfig,
+        candidateIds: bigint[]
+    ): Promise<number> {
+        if (candidateIds.length === 0) {
+            return 0;
+        }
+        let marked = 0;
+        for (let i = 0; i < candidateIds.length; i += PUBLISH_ITEM_INSERT_CHUNK_SIZE) {
+            const chunk = candidateIds.slice(i, i + PUBLISH_ITEM_INSERT_CHUNK_SIZE);
+            const count = await tx.$executeRaw`${buildMarkBatchedByIdsSql(config, chunk)}`;
+            marked += Number(count);
+        }
+        return marked;
+    }
+
+    async createPublishBatchMultiFamily(args: {
+        scope: ImportReviewScopeResolved;
+        batchName: string;
+        note: string | null;
+        families: ImportReviewPublishFamilyConfig[];
+        options: PublishEligibilityOptions;
+        createdByUserId: bigint | null;
+    }): Promise<MultiFamilyBatchCreateResult> {
+        const totalStart = Date.now();
+        let resolveMs = 0;
+        let eligibilityMs = 0;
+        let payloadMs = 0;
+
+        const resolveStart = Date.now();
+        const regionCode = await this.fetchReviewBatchRegion(args.scope.reviewBatchId);
+        if (await this.batchNameExists(args.batchName)) {
+            throw new ImportReviewPublishBatchNameConflictError(args.batchName);
+        }
+        resolveMs = Date.now() - resolveStart;
+
+        const eligibilityStart = Date.now();
+        const preCounts = await this.countBatchEligibilityByFamilies({
+            scope: args.scope,
+            families: args.families,
+            options: args.options,
+        });
+        const readyCount = preCounts.reduce((sum, row) => sum + Number(row.approved_ready), 0);
+        if (readyCount === 0) {
+            throw this.buildNoEligibleError(preCounts);
+        }
+
+        const countsByFamily = new Map(preCounts.map((row) => [row.entity_family, row]));
+        const familyCandidateIds: Array<{
+            config: ImportReviewPublishFamilyConfig;
+            candidateIds: bigint[];
+            skippedReasons: ImportReviewPromotionSkippedReasonCount[];
+        }> = [];
+
+        for (const config of args.families) {
+            const countRow = countsByFamily.get(config.entityFamily);
+            if (!countRow || Number(countRow.approved_ready) === 0) {
+                continue;
+            }
+            const candidateIds = await this.selectEligibleCandidateIds(
+                config,
+                args.scope.reviewBatchId,
+                args.options
+            );
+            familyCandidateIds.push({
+                config,
+                candidateIds,
+                skippedReasons: mapSkippedReasons(countRow),
+            });
+        }
+        eligibilityMs = Date.now() - eligibilityStart;
+
+        const payloadStart = Date.now();
+        const totalSelected = familyCandidateIds.reduce((sum, f) => sum + f.candidateIds.length, 0);
+        if (totalSelected === 0) {
+            throw this.buildNoEligibleError(preCounts);
+        }
+
+        const preByFamily = familyCandidateIds.map((f) => ({
+            entity_family: f.config.entityFamily,
+            items_added: f.candidateIds.length,
+            marked_batched: f.candidateIds.length,
+            skipped_reasons: f.skippedReasons,
+        }));
+
+        const creationSummary = {
+            entity_families: args.families.map((f) => f.entityFamily),
+            totals: {
+                included: totalSelected,
+                marked_batched: totalSelected,
+            },
+            by_family: preByFamily,
+        };
+        payloadMs = Date.now() - payloadStart;
+
+        const transactionStart = Date.now();
+        let transactionMs = 0;
+
+        try {
+            const writeResult = await this.prisma.$transaction(async (tx) => {
+                const nameConflict = await tx.$queryRaw<{ id: bigint }[]>`
+                    SELECT id FROM system.system_publish_batches WHERE batch_name = ${args.batchName} LIMIT 1
+                `;
+                if (nameConflict.length > 0) {
+                    throw new ImportReviewPublishBatchNameConflictError(args.batchName);
+                }
+
+                const batchRows = await tx.$queryRaw<PublishBatchRowDb[]>`
+                    INSERT INTO system.system_publish_batches (
+                        batch_name,
+                        created_by,
+                        approved_by,
+                        status,
+                        note,
+                        source_review_batch_id,
+                        source_snapshot_version,
+                        region_code,
+                        total_item_count,
+                        success_count,
+                        failed_count,
+                        skipped_count,
+                        created_at
+                    )
+                    VALUES (
+                        ${args.batchName},
+                        ${args.createdByUserId},
+                        NULL,
+                        'draft',
+                        ${args.note},
+                        ${args.scope.reviewBatchId},
+                        ${args.scope.snapshotVersion},
+                        ${regionCode},
+                        0,
+                        0,
+                        0,
+                        0,
+                        now()
+                    )
+                    RETURNING
+                        id,
+                        public_id::text AS public_id,
+                        batch_name,
+                        status,
+                        source_review_batch_id,
+                        source_snapshot_version,
+                        region_code,
+                        total_item_count,
+                        success_count,
+                        failed_count,
+                        skipped_count,
+                        note,
+                        created_at,
+                        published_at,
+                        promoted_at
+                `;
+                const batch = batchRows[0];
+                if (!batch) {
+                    throw new Error("Publish batch insert did not return a row");
+                }
+
+                let itemsAdded = 0;
+                let candidatesMarked = 0;
+                const byFamily: MultiFamilyBatchCreateResult["byFamily"] = [];
+
+                for (const { config, candidateIds, skippedReasons } of familyCandidateIds) {
+                    const familyItems = await this.insertPublishItemsByIdsChunked(
+                        tx,
+                        config,
+                        batch.id,
+                        candidateIds
+                    );
+                    const marked = await this.markCandidatesBatchedByIdsChunked(
+                        tx,
+                        config,
+                        candidateIds
+                    );
+
+                    itemsAdded += familyItems;
+                    candidatesMarked += marked;
+                    byFamily.push({
+                        entity_family: config.entityFamily,
+                        items_added: familyItems,
+                        marked_batched: marked,
+                        skipped_reasons: skippedReasons,
+                    });
+                }
+
+                if (itemsAdded === 0) {
+                    throw new ImportReviewPromotionNoEligibleCandidatesError(
+                        readyCount,
+                        "Eligible candidates changed during batch creation (concurrent publish). Retry.",
+                        byFamily.map((f) => ({
+                            entity_family: f.entity_family,
+                            included: f.items_added,
+                            skipped_reasons: f.skipped_reasons,
+                        }))
+                    );
+                }
+
+                await tx.$executeRaw`
+                    UPDATE system.system_publish_batches
+                    SET
+                        total_item_count = ${itemsAdded},
+                        summary = jsonb_set(
+                            coalesce(summary, '{}'::jsonb),
+                            '{creation_result}',
+                            ${JSON.stringify(creationSummary)}::jsonb,
+                            true
+                        )
+                    WHERE id = ${batch.id}
+                `;
+
+                const creationStageStatus = requireValidPublishStageStatus("success");
+
+                for (const stage of CREATION_STAGE_DEFS) {
+                    await tx.$executeRaw`
+                        INSERT INTO system.system_publish_stage_logs (
+                            publish_batch_id,
+                            stage_key,
+                            stage_label,
+                            stage_status,
+                            message,
+                            progress_percent,
+                            details,
+                            started_at,
+                            finished_at
+                        )
+                        VALUES (
+                            ${batch.id},
+                            ${stage.key},
+                            ${stage.label},
+                            ${creationStageStatus},
+                            ${stage.key === "write_summary" ? "Publish batch creation summary written." : null},
+                            100,
+                            ${JSON.stringify(
+                                stage.key === "insert_items" || stage.key === "mark_batched"
+                                    ? { by_family: byFamily }
+                                    : stage.key === "count_eligible"
+                                      ? { ready_count: readyCount, total_selected: totalSelected }
+                                      : {}
+                            )}::jsonb,
+                            now(),
+                            now()
+                        )
+                    `;
+                }
+
+                await tx.$executeRaw`
+                    UPDATE import_review.review_batches
+                    SET
+                        status = 'publish_batch_created',
+                        updated_at = now()
+                    WHERE id = ${args.scope.reviewBatchId}
+                      AND status IN ('uploaded', 'reviewing', 'review_completed')
+                `;
+
+                const refreshed = await tx.$queryRaw<PublishBatchRowDb[]>`
+                    SELECT
+                        pb.id,
+                        pb.public_id::text AS public_id,
+                        pb.batch_name,
+                        pb.status,
+                        pb.source_review_batch_id,
+                        pb.source_snapshot_version,
+                        pb.region_code,
+                        pb.total_item_count,
+                        pb.success_count,
+                        pb.failed_count,
+                        pb.skipped_count,
+                        pb.note,
+                        pb.created_at,
+                        pb.published_at,
+                        pb.promoted_at
+                    FROM system.system_publish_batches AS pb
+                    WHERE pb.id = ${batch.id}
+                    LIMIT 1
+                `;
+
+                return {
+                    batch: refreshed[0] ?? batch,
+                    itemsAdded,
+                    candidatesMarked,
+                    byFamily,
+                };
+            }, CREATE_BATCH_TX_OPTIONS);
+
+            transactionMs = Date.now() - transactionStart;
+
+            return {
+                ...writeResult,
+                totalSelected,
+                timing: {
+                    resolve_ms: resolveMs,
+                    eligibility_ms: eligibilityMs,
+                    payload_ms: payloadMs,
+                    transaction_ms: transactionMs,
+                    total_ms: Date.now() - totalStart,
+                },
+            };
+        } catch (err) {
+            if (
+                err instanceof Prisma.PrismaClientKnownRequestError &&
+                err.code === "P2028"
+            ) {
+                throw new ImportReviewPublishBatchCreationTimeoutError();
+            }
+            throw err;
+        }
+    }
+
     async createPublishBatchFromBuildings(args: {
         scope: ImportReviewScopeResolved;
         batchName: string;
@@ -485,172 +942,23 @@ export class ImportReviewPromotionRepository {
         includeMerged: boolean;
         createdByUserId: bigint | null;
     }): Promise<{ batch: PublishBatchRowDb; itemsAdded: number; buildingsMarked: number }> {
-        const regionCode = await this.fetchReviewBatchRegion(args.scope.reviewBatchId);
-        const eligible = buildingEligibilitySql(args.scope.reviewBatchId, args.includeMerged);
-
-        return this.prisma.$transaction(async (tx) => {
-            const nameConflict = await tx.$queryRaw<{ id: bigint }[]>`
-                SELECT id FROM system.system_publish_batches WHERE batch_name = ${args.batchName} LIMIT 1
-            `;
-            if (nameConflict.length > 0) {
-                throw new ImportReviewPublishBatchNameConflictError(args.batchName);
-            }
-
-            const readyRows = await tx.$queryRaw<{ count: bigint }[]>`
-                SELECT count(*)::bigint AS count
-                FROM import_review.building_candidates AS b
-                WHERE ${eligible}
-            `;
-            const readyCount = Number(readyRows[0]?.count ?? 0n);
-            if (readyCount === 0) {
-                throw new ImportReviewPromotionNoEligibleCandidatesError(
-                    0,
-                    "No approved building candidates are ready for publish batching. Check review decisions, promotion_status, and active publish batches."
-                );
-            }
-
-            const batchRows = await tx.$queryRaw<PublishBatchRowDb[]>`
-                INSERT INTO system.system_publish_batches (
-                    batch_name,
-                    created_by,
-                    approved_by,
-                    status,
-                    note,
-                    source_review_batch_id,
-                    source_snapshot_version,
-                    region_code,
-                    total_item_count,
-                    success_count,
-                    failed_count,
-                    skipped_count,
-                    created_at
-                )
-                VALUES (
-                    ${args.batchName},
-                    ${args.createdByUserId},
-                    NULL,
-                    'draft',
-                    ${args.note},
-                    ${args.scope.reviewBatchId},
-                    ${args.scope.snapshotVersion},
-                    ${regionCode},
-                    0,
-                    0,
-                    0,
-                    0,
-                    now()
-                )
-                RETURNING
-                    id,
-                    public_id::text AS public_id,
-                    batch_name,
-                    status,
-                    source_review_batch_id,
-                    source_snapshot_version,
-                    region_code,
-                    total_item_count,
-                    success_count,
-                    failed_count,
-                    skipped_count,
-                    note,
-                    created_at,
-                    published_at,
-                    promoted_at
-            `;
-            const batch = batchRows[0];
-            if (!batch) {
-                throw new Error("Publish batch insert did not return a row");
-            }
-
-            const inserted = await tx.$queryRaw<{ id: bigint }[]>`
-                INSERT INTO system.system_publish_items (
-                    publish_batch_id,
-                    entity_family,
-                    entity_id,
-                    review_candidate_table,
-                    review_candidate_id,
-                    external_id,
-                    target_schema,
-                    target_table,
-                    publish_action,
-                    publish_status,
-                    created_at
-                )
-                SELECT
-                    ${batch.id},
-                    'buildings',
-                    b.id,
-                    ${BUILDING_CANDIDATE_TABLE},
-                    b.id,
-                    b.external_id,
-                    'core',
-                    ${TARGET_TABLE},
-                    ${publishActionExpr()},
-                    'pending',
-                    now()
-                FROM import_review.building_candidates AS b
-                WHERE ${eligible}
-                RETURNING id
-            `;
-
-            const itemsAdded = inserted.length;
-            if (itemsAdded === 0) {
-                throw new ImportReviewPromotionNoEligibleCandidatesError(
-                    readyCount,
-                    "Eligible candidates changed during batch creation (concurrent publish). Retry."
-                );
-            }
-
-            const marked = await tx.$executeRaw`
-                UPDATE import_review.building_candidates AS b
-                SET
-                    promotion_status = 'batched',
-                    updated_at = now()
-                WHERE ${eligible}
-            `;
-
-            await tx.$executeRaw`
-                UPDATE system.system_publish_batches
-                SET total_item_count = ${itemsAdded}
-                WHERE id = ${batch.id}
-            `;
-
-            await tx.$executeRaw`
-                UPDATE import_review.review_batches
-                SET
-                    status = 'publish_batch_created',
-                    updated_at = now()
-                WHERE id = ${args.scope.reviewBatchId}
-                  AND status IN ('uploaded', 'reviewing', 'review_completed')
-            `;
-
-            const refreshed = await tx.$queryRaw<PublishBatchRowDb[]>`
-                SELECT
-                    pb.id,
-                    pb.public_id::text AS public_id,
-                    pb.batch_name,
-                    pb.status,
-                    pb.source_review_batch_id,
-                    pb.source_snapshot_version,
-                    pb.region_code,
-                    pb.total_item_count,
-                    pb.success_count,
-                    pb.failed_count,
-                    pb.skipped_count,
-                    pb.note,
-                    pb.created_at,
-                    pb.published_at,
-                    pb.promoted_at
-                FROM system.system_publish_batches AS pb
-                WHERE pb.id = ${batch.id}
-                LIMIT 1
-            `;
-
-            return {
-                batch: refreshed[0] ?? batch,
-                itemsAdded,
-                buildingsMarked: Number(marked),
-            };
+        const buildings = getImportReviewPublishFamilyConfig("buildings");
+        if (!buildings) {
+            throw new Error("Buildings publish config missing");
+        }
+        const result = await this.createPublishBatchMultiFamily({
+            scope: args.scope,
+            batchName: args.batchName,
+            note: args.note,
+            families: [buildings],
+            options: { includeWarnings: false, includeMerged: args.includeMerged },
+            createdByUserId: args.createdByUserId,
         });
+        const buildingsSlice = result.byFamily.find((f) => f.entity_family === "buildings");
+        return {
+            batch: result.batch,
+            itemsAdded: result.itemsAdded,
+            buildingsMarked: buildingsSlice?.marked_batched ?? result.candidatesMarked,
+        };
     }
 }

@@ -110,6 +110,39 @@ VALUES (
     trim(:'package_name')
 );
 
+DROP TABLE IF EXISTS stage14_family_manifest;
+CREATE TEMP TABLE stage14_family_manifest (
+    entity_family text PRIMARY KEY,
+    staging_table text NOT NULL,
+    matched_core_table text
+);
+
+INSERT INTO stage14_family_manifest (entity_family, staging_table, matched_core_table)
+VALUES
+    ('buildings', 'staging_building_candidates', 'core_map_buildings'),
+    ('places', 'staging_place_candidates', 'core_places'),
+    ('roads', 'staging_road_candidates', 'core_streets'),
+    ('bus_stops', 'staging_bus_stop_candidates', 'core_bus_stops'),
+    ('landuse', 'staging_landuse_candidates', 'core_map_landuse'),
+    ('water_lines', 'staging_water_line_candidates', 'core_map_water_lines'),
+    ('water_polygons', 'staging_water_polygon_candidates', 'core_map_water_polygons'),
+    ('addresses', 'staging_address_candidates', 'core_addresses'),
+    ('admin_areas', 'staging_admin_area_candidates', 'core_admin_areas'),
+    ('routing_barriers', 'staging_routing_barrier_candidates', NULL);
+
+DROP TABLE IF EXISTS stage14_per_entity;
+CREATE TEMP TABLE stage14_per_entity (
+    entity_family text PRIMARY KEY,
+    staging_rows bigint NOT NULL DEFAULT 0,
+    package_items bigint NOT NULL DEFAULT 0,
+    with_remote_candidate_id bigint NOT NULL DEFAULT 0,
+    missing_source_refs bigint NOT NULL DEFAULT 0,
+    missing_normalized_data bigint NOT NULL DEFAULT 0,
+    external_id_mismatch bigint NOT NULL DEFAULT 0
+);
+
+INSERT INTO stage14_per_entity (entity_family)
+SELECT entity_family FROM stage14_family_manifest;
 -- ---------------------------------------------------------------------------
 -- Consolidated lineage checks on package + items (+ dynamic staging joins)
 -- ---------------------------------------------------------------------------
@@ -122,19 +155,32 @@ DECLARE
     v_sver    text;
     v_env_sv  text;
     sql       text;
+    r         stage14_family_manifest%ROWTYPE;
 
-    miss_staging bigint;
-    bad_expected_table bigint;
-    bad_core_hint bigint;
+    miss_staging bigint := 0;
+    bad_expected_table bigint := 0;
+    bad_core_hint bigint := 0;
     bad_conf bigint;
     miss_payload_mirror bigint;
+    fail_empty_source_refs bigint := 0;
+    fail_empty_normalized_data bigint := 0;
 
     warn_ext_blank bigint := 0;
+    warn_ext_mismatch bigint := 0;
     warn_f2_blank bigint := 0;
     warn_matched_xor bigint := 0;
 
     post_upload_miss bigint := 0;
     post_review_batch bigint;
+    v_miss_part bigint;
+    v_tbl_part bigint;
+    v_core_part bigint;
+    v_staging_rows bigint;
+    v_pkg_items bigint;
+    v_miss_sr bigint;
+    v_miss_nd bigint;
+    v_with_remote bigint;
+    v_ext_mismatch bigint;
 BEGIN
     SELECT lower(btrim(trim(staging_schema_raw))),
            NULLIF(btrim(trim(snapshot_version_raw)), ''),
@@ -165,66 +211,120 @@ BEGIN
             v_sver, v_env_sv;
     END IF;
 
-    -- Item row must resolve to the expected staging_* row for THIS snapshot FK.
-    sql := format(
-        $dq$
-WITH items AS (
-    SELECT entity_family, local_staging_id, package_id
-      FROM system.system_remote_review_package_items
-     WHERE package_id = %s::bigint
-)
+    -- Item rows must resolve to expected staging table for THIS snapshot FK (all families).
+    FOR r IN SELECT * FROM stage14_family_manifest ORDER BY entity_family LOOP
+        IF to_regclass(format('%I.%I', v_schema, r.staging_table)) IS NULL THEN
+            RAISE NOTICE 'stage14_skip family=% missing staging table %.%', r.entity_family, v_schema, r.staging_table;
+            CONTINUE;
+        END IF;
+
+        sql := format(
+            $dq$
 SELECT count(*)
-  FROM items i
- WHERE (
-           i.entity_family = 'buildings'
-       AND NOT EXISTS (
-               SELECT 1
-                 FROM %I.staging_building_candidates sb
-                WHERE sb.id = i.local_staging_id AND sb.source_snapshot_id = %s::bigint)
-       )
-       OR (
-           i.entity_family = 'places'
-       AND NOT EXISTS (
-               SELECT 1
-                 FROM %I.staging_place_candidates sp
-                WHERE sp.id = i.local_staging_id AND sp.source_snapshot_id = %s::bigint)
-       )
-       OR (
-           i.entity_family = 'roads'
-       AND NOT EXISTS (
-               SELECT 1
-                 FROM %I.staging_road_candidates sr
-                WHERE sr.id = i.local_staging_id AND sr.source_snapshot_id = %s::bigint)
-       )
-       OR i.entity_family NOT IN ('buildings', 'places', 'roads')
+  FROM system.system_remote_review_package_items i
+ WHERE i.package_id = %s::bigint
+   AND i.entity_family = %L
+   AND NOT EXISTS (
+       SELECT 1 FROM %I.%I sb
+        WHERE sb.id = i.local_staging_id AND sb.source_snapshot_id = %s::bigint)
 $dq$,
-        v_pkg_id, v_schema, v_ssid, v_schema, v_ssid, v_schema, v_ssid);
+            v_pkg_id, r.entity_family, v_schema, r.staging_table, v_ssid
+        );
+        EXECUTE sql INTO v_miss_part;
+        miss_staging := miss_staging + coalesce(v_miss_part, 0);
 
-    EXECUTE sql INTO miss_staging;
+        sql := format(
+            $dq$
+SELECT count(*)
+  FROM system.system_remote_review_package_items i
+ WHERE i.package_id = %s::bigint
+   AND i.entity_family = %L
+   AND i.source_table <> %L
+$dq$,
+            v_pkg_id, r.entity_family, r.staging_table
+        );
+        EXECUTE sql INTO v_tbl_part;
+        bad_expected_table := bad_expected_table + coalesce(v_tbl_part, 0);
 
-    SELECT count(*) INTO bad_expected_table
+        IF r.matched_core_table IS NOT NULL THEN
+            sql := format(
+                $dq$
+SELECT count(*)
+  FROM system.system_remote_review_package_items i
+ WHERE i.package_id = %s::bigint
+   AND i.entity_family = %L
+   AND coalesce(trim(i.matched_core_table), '') <> ''
+   AND trim(i.matched_core_table) <> %L
+$dq$,
+                v_pkg_id, r.entity_family, r.matched_core_table
+            );
+            EXECUTE sql INTO v_core_part;
+            bad_core_hint := bad_core_hint + coalesce(v_core_part, 0);
+        END IF;
+
+        sql := format(
+            $dq$
+SELECT count(*) FROM %I.%I sb WHERE sb.source_snapshot_id = %s::bigint
+$dq$,
+            v_schema, r.staging_table, v_ssid
+        );
+        EXECUTE sql INTO v_staging_rows;
+
+        sql := format(
+            $dq$
+SELECT count(*),
+       count(*) FILTER (WHERE i.source_refs IS NULL OR i.source_refs = '{}'::jsonb),
+       count(*) FILTER (WHERE i.normalized_data IS NULL OR i.normalized_data = '{}'::jsonb),
+       count(*) FILTER (WHERE i.remote_candidate_id IS NOT NULL)
+  FROM system.system_remote_review_package_items i
+ WHERE i.package_id = %s::bigint AND i.entity_family = %L
+$dq$,
+            v_pkg_id, r.entity_family
+        );
+        EXECUTE sql INTO v_pkg_items, v_miss_sr, v_miss_nd, v_with_remote;
+
+        sql := format(
+            $dq$
+SELECT count(*)
+  FROM system.system_remote_review_package_items i
+ INNER JOIN %I.%I sb
+    ON sb.id = i.local_staging_id AND sb.source_snapshot_id = %s::bigint
+ WHERE i.package_id = %s::bigint
+   AND i.entity_family = %L
+   AND nullif(trim(coalesce(i.external_id, '')), '') IS NOT NULL
+   AND nullif(trim(coalesce(sb.external_id::text, '')), '') IS NOT NULL
+   AND trim(i.external_id) <> trim(sb.external_id::text)
+$dq$,
+            v_schema, r.staging_table, v_ssid, v_pkg_id, r.entity_family
+        );
+        EXECUTE sql INTO v_ext_mismatch;
+
+        UPDATE stage14_per_entity
+        SET staging_rows = coalesce(v_staging_rows, 0),
+            package_items = coalesce(v_pkg_items, 0),
+            missing_source_refs = coalesce(v_miss_sr, 0),
+            missing_normalized_data = coalesce(v_miss_nd, 0),
+            with_remote_candidate_id = coalesce(v_with_remote, 0),
+            external_id_mismatch = coalesce(v_ext_mismatch, 0)
+        WHERE entity_family = r.entity_family;
+    END LOOP;
+
+    -- Unknown entity families in package (not in manifest)
+    SELECT count(*) INTO v_miss_part
       FROM system.system_remote_review_package_items i
      WHERE i.package_id = v_pkg_id
-       AND (
-            (i.entity_family = 'buildings' AND i.source_table <> 'staging_building_candidates')
-         OR (i.entity_family = 'places' AND i.source_table <> 'staging_place_candidates')
-         OR (i.entity_family = 'roads' AND i.source_table <> 'staging_road_candidates')
-       );
+       AND i.entity_family NOT IN (SELECT entity_family FROM stage14_family_manifest);
+    miss_staging := miss_staging + coalesce(v_miss_part, 0);
 
-    SELECT count(*) INTO bad_core_hint
+    SELECT count(*) FILTER (WHERE i.source_refs IS NULL OR i.source_refs = '{}'::jsonb),
+           count(*) FILTER (WHERE i.normalized_data IS NULL OR i.normalized_data = '{}'::jsonb)
+      INTO fail_empty_source_refs, fail_empty_normalized_data
       FROM system.system_remote_review_package_items i
-     WHERE i.package_id = v_pkg_id
-       AND (
-            (i.entity_family = 'buildings'
-             AND coalesce(trim(i.matched_core_table), '') <> ''
-             AND trim(i.matched_core_table) <> 'core_map_buildings')
-         OR (i.entity_family = 'places'
-             AND coalesce(trim(i.matched_core_table), '') <> ''
-             AND trim(i.matched_core_table) <> 'core_places')
-         OR (i.entity_family = 'roads'
-             AND coalesce(trim(i.matched_core_table), '') <> ''
-             AND trim(i.matched_core_table) <> 'core_streets')
-       );
+     WHERE i.package_id = v_pkg_id;
+
+    SELECT coalesce(sum(pe.external_id_mismatch), 0)::bigint
+      INTO warn_ext_mismatch
+      FROM stage14_per_entity pe;
 
     SELECT count(*) INTO bad_conf
       FROM system.system_remote_review_package_items i
@@ -285,10 +385,13 @@ $dq$,
       ('matched_core_table_unexpected_slug', 'FAIL', bad_core_hint),
       ('confidence_score_outside_0_100', 'FAIL', bad_conf),
       ('payload_lineage_mirror_missing_or_drifts', 'FAIL', miss_payload_mirror),
+      ('package_items_missing_source_refs', 'FAIL', fail_empty_source_refs),
+      ('package_items_missing_normalized_data', 'FAIL', fail_empty_normalized_data),
       ('post_upload_missing_remote_candidate_id', 'FAIL', post_upload_miss);
 
     INSERT INTO _lineage_chk_14 VALUES
       ('WARN_external_id_blank', 'WARN', warn_ext_blank),
+      ('WARN_external_id_staging_mismatch', 'WARN', warn_ext_mismatch),
       ('WARN_f2_comparison_null', 'WARN', warn_f2_blank),
       ('WARN_matched_core_id_vs_table_incoherent', 'WARN', warn_matched_xor);
 
@@ -300,6 +403,15 @@ END $_14$;
 DROP TABLE IF EXISTS _lineage_psql_ctx;
 
 SELECT * FROM _lineage_chk_14 ORDER BY (CASE severity WHEN 'FAIL' THEN 0 WHEN 'WARN' THEN 1 ELSE 2 END), kind;
+
+\echo ''
+\echo Per-entity staging alignment (package items → staging row for snapshot):
+
+SELECT
+    'lineage_per_entity'::text AS slice,
+    pe.*
+FROM stage14_per_entity pe
+ORDER BY pe.entity_family;
 
 \echo ''
 

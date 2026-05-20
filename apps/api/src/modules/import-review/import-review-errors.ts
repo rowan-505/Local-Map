@@ -10,8 +10,11 @@ export class ImportReviewBatchNotFoundError extends Error {
 export class ImportReviewBatchAmbiguousError extends Error {
     readonly statusCode = 409;
 
-    constructor(public readonly sourceSnapshotVersion: string) {
-        super(`Multiple import_review.review_batches matched source_snapshot_version=${sourceSnapshotVersion}`);
+    constructor(
+        public readonly sourceSnapshotVersion: string,
+        public readonly batches: import("./import-review-batch-resolver.js").ImportReviewBatchChoice[]
+    ) {
+        super(`Multiple review batches matched source_snapshot_version=${sourceSnapshotVersion}`);
         this.name = "ImportReviewBatchAmbiguousError";
     }
 }
@@ -25,38 +28,45 @@ export class ImportReviewInvalidScopeError extends Error {
     }
 }
 
-export class ImportReviewBuildingNotFoundError extends Error {
+export class ImportReviewCandidateNotFoundError extends Error {
     readonly statusCode = 404;
 
     constructor(
-        public readonly buildingId: string,
+        public readonly family: string,
+        public readonly candidateId: string,
         public readonly scopeHint: string
     ) {
-        super(`Building candidate not found for id=${buildingId} (scope=${scopeHint})`);
+        super(`${family} candidate not found for id=${candidateId} (scope=${scopeHint})`);
+        this.name = "ImportReviewCandidateNotFoundError";
+    }
+}
+
+export class ImportReviewBuildingNotFoundError extends ImportReviewCandidateNotFoundError {
+    constructor(
+        public readonly buildingId: string,
+        scopeHint: string
+    ) {
+        super("buildings", buildingId, scopeHint);
         this.name = "ImportReviewBuildingNotFoundError";
     }
 }
 
-export class ImportReviewPlaceNotFoundError extends Error {
-    readonly statusCode = 404;
-
+export class ImportReviewPlaceNotFoundError extends ImportReviewCandidateNotFoundError {
     constructor(
         public readonly placeId: string,
-        public readonly scopeHint: string
+        scopeHint: string
     ) {
-        super(`Place candidate not found for id=${placeId} (scope=${scopeHint})`);
+        super("places", placeId, scopeHint);
         this.name = "ImportReviewPlaceNotFoundError";
     }
 }
 
-export class ImportReviewRoadNotFoundError extends Error {
-    readonly statusCode = 404;
-
+export class ImportReviewRoadNotFoundError extends ImportReviewCandidateNotFoundError {
     constructor(
         public readonly roadId: string,
-        public readonly scopeHint: string
+        scopeHint: string
     ) {
-        super(`Road candidate not found for id=${roadId} (scope=${scopeHint})`);
+        super("roads", roadId, scopeHint);
         this.name = "ImportReviewRoadNotFoundError";
     }
 }

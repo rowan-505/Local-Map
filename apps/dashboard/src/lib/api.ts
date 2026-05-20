@@ -398,13 +398,51 @@ export type ImportReviewEnvelopeFields = {
     source_snapshot_version: string;
     review_batch_id: string | null;
     source_snapshot_id_local: string | null;
+    batch_name?: string | null;
+    selected_by?:
+        | "review_batch_id"
+        | "source_snapshot_version_unique"
+        | "source_snapshot_version_latest"
+        | null;
+    status?: string;
+    uploaded_at?: string;
+    total_candidate_count?: number;
+    entity_families?: string[];
 };
 
-/** Query/body selectors accepted by `/api/import-review/*` — prefer `source_snapshot_version`. */
+export type ImportReviewBatchChoice = {
+    id: string;
+    batch_name: string;
+    status: string;
+    uploaded_at: string;
+    total_candidate_count: number;
+    entity_families: string[];
+};
+
+/** Thrown when multiple non-archived review batches share a source_snapshot_version. */
+export class ImportReviewBatchAmbiguousError extends Error {
+    readonly status = 409;
+
+    constructor(
+        public readonly sourceSnapshotVersion: string,
+        public readonly batches: ImportReviewBatchChoice[],
+        message?: string
+    ) {
+        super(message ?? "Multiple review batches matched source_snapshot_version");
+        this.name = "ImportReviewBatchAmbiguousError";
+    }
+}
+
+export function isImportReviewBatchAmbiguousError(err: unknown): err is ImportReviewBatchAmbiguousError {
+    return err instanceof ImportReviewBatchAmbiguousError;
+}
+
+/** Query/body selectors accepted by `/api/import-review/*` — prefer `review_batch_id` when set. */
 export type ImportReviewEnvelopeQuery = {
     source_snapshot_version?: string;
     snapshot_version?: string;
     review_batch_id?: string;
+    latest?: boolean;
 };
 
 function normalizedImportReviewUrlParams(params?: Record<string, QueryValue>): Record<string, QueryValue> | undefined {
@@ -413,10 +451,23 @@ function normalizedImportReviewUrlParams(params?: Record<string, QueryValue>): R
     }
 
     const next: Record<string, QueryValue> = { ...params };
-    const snapshotAlias = next.snapshot_version;
-    const snapshotCanon = next.source_snapshot_version;
+    const batchRaw = next.review_batch_id;
+    const batchId =
+        batchRaw !== undefined && batchRaw !== null && String(batchRaw).trim() !== ""
+            ? String(batchRaw).trim()
+            : "";
 
+    const snapshotAlias = next.snapshot_version;
     delete next.snapshot_version;
+
+    if (batchId) {
+        next.review_batch_id = batchId;
+        delete next.source_snapshot_version;
+        delete next.latest;
+        return next;
+    }
+
+    const snapshotCanon = next.source_snapshot_version;
 
     const ssv =
         snapshotCanon !== undefined &&
@@ -435,19 +486,31 @@ function normalizedImportReviewUrlParams(params?: Record<string, QueryValue>): R
         delete next.source_snapshot_version;
     }
 
+    delete next.review_batch_id;
+
     return next;
 }
 
 function wireImportReviewJsonBody(body: Record<string, unknown>): Record<string, unknown> {
     const next = { ...body };
-    const raw = next.source_snapshot_version ?? next.snapshot_version;
     delete next.snapshot_version;
 
+    const batchRaw = next.review_batch_id;
+    const batchId = typeof batchRaw === "string" || typeof batchRaw === "number" ? String(batchRaw).trim() : "";
+    if (batchId) {
+        next.review_batch_id = batchId;
+        delete next.source_snapshot_version;
+        delete next.latest;
+        return next;
+    }
+
+    const raw = next.source_snapshot_version;
     if (typeof raw === "string" && raw.trim()) {
         next.source_snapshot_version = raw.trim();
     } else {
         delete next.source_snapshot_version;
     }
+    delete next.review_batch_id;
 
     return next;
 }
@@ -464,14 +527,48 @@ export type ImportReviewSummaryBucketRow = {
     row_count: number;
 };
 
-export type ImportReviewSummaryResponse = {
-    source_snapshot_version: string;
-    review_batch_id: string | null;
-    source_snapshot_id_local: string | null;
+export type ImportReviewFamilySummaryMetrics = {
+    entity_family: string;
+    table_name: string;
+    batch_total: number;
+    active: number;
+    pending_review: number;
+    approved: number;
+    rejected: number;
+    needs_review: number;
+    ignored: number;
+    merged: number;
+    ready_for_publish: number;
+    promoted: number;
+    promotion_failed: number;
+    validation_error_count: number;
+    validation_warning_count: number;
+};
+
+export type ImportReviewSummaryRollupMetrics = {
+    batch_total_candidates: number;
+    active_candidates: number;
+    pending_review_candidates: number;
+    approved_candidates: number;
+    rejected_candidates: number;
+    needs_review_candidates: number;
+    ignored_candidates: number;
+    merged_candidates: number;
+    ready_for_publish_candidates: number;
+    promoted_candidates: number;
+    promotion_failed_candidates: number;
+};
+
+export type ImportReviewSummaryResponse = ImportReviewEnvelopeFields & {
     entity_summaries: ImportReviewSummaryBucketRow[];
+    family_summaries: ImportReviewFamilySummaryMetrics[];
+    rollup: ImportReviewSummaryRollupMetrics;
     warnings?: string[];
+    /** @deprecated Prefer rollup.pending_review_candidates */
     total_pending_review_count: number;
+    /** @deprecated Prefer rollup.approved_candidates */
     total_approved_count: number;
+    /** @deprecated Prefer rollup.rejected_candidates */
     total_rejected_count: number;
 };
 
@@ -563,6 +660,20 @@ export type ImportReviewBuildingsListParams = ImportReviewEnvelopeQuery & {
     offset?: number;
     sort?: string;
     include_geometry?: boolean;
+    include_promoted?: boolean;
+};
+
+/** Generic entity family list (underscore apiFamily in URL path). */
+export type ImportReviewFamilyListParams = Omit<ImportReviewBuildingsListParams, "class_code">;
+
+export type ImportReviewFamilyFilterOptionsResponse = ImportReviewEnvelopeFields & {
+    match_status: string[];
+    auto_action: string[];
+    review_status: string[];
+    review_decision: string[];
+    promotion_status: string[];
+    class_code?: string[];
+    [key: string]: string[] | string | number | null | undefined;
 };
 
 /** Places/roads list — same as buildings but no `class_code` filter. */
@@ -978,6 +1089,37 @@ export async function apiFetch<T>(
     }
 
     if (!response.ok) {
+        const contentType = response.headers.get("content-type") ?? "";
+
+        if (
+            response.status === 409 &&
+            isImportReviewApiPath(path) &&
+            contentType.includes("application/json")
+        ) {
+            let data: Record<string, unknown>;
+            try {
+                data = (await response.json()) as Record<string, unknown>;
+            } catch {
+                throw new Error(`Request failed with status ${response.status}`);
+            }
+
+            if (Array.isArray(data.batches) && data.batches.length > 0) {
+                const batches = data.batches as ImportReviewBatchChoice[];
+                const snap =
+                    typeof data.source_snapshot_version === "string"
+                        ? data.source_snapshot_version
+                        : "";
+                const msg = typeof data.message === "string" ? data.message : undefined;
+                throw new ImportReviewBatchAmbiguousError(snap, batches, msg);
+            }
+
+            const headline: string[] = [];
+            if (typeof data.message === "string" && data.message.trim()) {
+                headline.push(data.message.trim());
+            }
+            throw new Error(headline.length > 0 ? headline.join(" — ") : `Request failed with status 409`);
+        }
+
         const message = await getErrorMessage(response);
         throw new Error(message);
     }
@@ -1087,6 +1229,44 @@ export function patchImportReviewBuildingDecision(
 
 export function patchImportReviewBuildingOverrides(id: string, body: PatchImportReviewBuildingOverridesBody) {
     return apiFetch<ImportReviewBuildingListItem>(`/api/import-review/buildings/${id}/overrides`, {
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+    });
+}
+
+export type ImportReviewReferenceOptionDto = {
+    id: string;
+    code: string | null;
+    name: string | null;
+};
+
+export type ImportReviewReferenceOptionsResponse = {
+    ref_poi_categories: ImportReviewReferenceOptionDto[];
+    ref_road_classes: ImportReviewReferenceOptionDto[];
+    ref_building_types: ImportReviewReferenceOptionDto[];
+    ref_admin_levels: ImportReviewReferenceOptionDto[];
+    ref_address_component_types: ImportReviewReferenceOptionDto[];
+    ref_source_types: ImportReviewReferenceOptionDto[];
+    core_admin_areas: ImportReviewReferenceOptionDto[];
+};
+
+export function getImportReviewReferenceOptions(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<ImportReviewReferenceOptionsResponse>("/api/import-review/reference-options", {
+        method: "GET",
+        ...fetchInit,
+    });
+}
+
+export function patchImportReviewFamilyOverrides(
+    family: string,
+    id: string,
+    body: PatchImportReviewBuildingOverridesBody
+) {
+    const familyPath = encodeURIComponent(family.trim());
+    return apiFetch<ImportReviewBuildingListItem>(`/api/import-review/${familyPath}/${id}/overrides`, {
         method: "PATCH",
         headers: {
             "Content-Type": "application/json",
@@ -1237,6 +1417,79 @@ export function postImportReviewRoadsBulkDecision(body: PostImportReviewBuilding
     });
 }
 
+function importReviewFamilyPath(apiFamily: string): string {
+    return `/api/import-review/${encodeURIComponent(apiFamily)}`;
+}
+
+export function getImportReviewFamilyFilterOptions(
+    apiFamily: string,
+    params: ImportReviewEnvelopeQuery,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewFamilyFilterOptionsResponse>(
+        `${importReviewFamilyPath(apiFamily)}/filter-options`,
+        { method: "GET", ...fetchInit },
+        normalizedImportReviewUrlParams(params as Record<string, QueryValue>)
+    );
+}
+
+export function getImportReviewFamilyCandidates(
+    apiFamily: string,
+    params: ImportReviewFamilyListParams,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const { include_geometry = false, ...rest } = params;
+    return apiFetch<ImportReviewBuildingsListResponse>(
+        importReviewFamilyPath(apiFamily),
+        { method: "GET", ...fetchInit },
+        normalizedImportReviewUrlParams({ ...rest, include_geometry } as Record<string, QueryValue>)
+    );
+}
+
+export function getImportReviewFamilyCandidateById(
+    apiFamily: string,
+    id: string,
+    params: ImportReviewEnvelopeQuery & { include_geometry?: boolean },
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const { include_geometry = true, ...scope } = params;
+    return apiFetch<ImportReviewBuildingListItem>(
+        `${importReviewFamilyPath(apiFamily)}/${encodeURIComponent(id)}`,
+        { method: "GET", ...fetchInit },
+        normalizedImportReviewUrlParams({ ...scope, include_geometry } as Record<string, QueryValue>)
+    );
+}
+
+export function patchImportReviewFamilyDecision(
+    apiFamily: string,
+    id: string,
+    body: PatchImportReviewBuildingDecisionBody
+) {
+    return apiFetch<ImportReviewBuildingListItem>(
+        `${importReviewFamilyPath(apiFamily)}/${encodeURIComponent(id)}/decision`,
+        {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+        }
+    );
+}
+
+export function postImportReviewFamilyBulkDecision(apiFamily: string, body: PostImportReviewBuildingsBulkBody) {
+    return apiFetch<ImportReviewBulkDecisionResponse>(
+        `${importReviewFamilyPath(apiFamily)}/bulk-decision`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+        }
+    );
+}
+
 export type ImportReviewPromotionReadyCounts = {
     entity_family: "buildings";
     review_batch_id: string;
@@ -1279,15 +1532,80 @@ export type ImportReviewPublishBatchDetail = ImportReviewPublishBatchSummary & {
     building_item_counts: ImportReviewPublishBatchItemCounts;
 };
 
+export type ImportReviewPromotionSkippedReasonCount = {
+    reason: string;
+    count: number;
+};
+
+export type ImportReviewPromotionFamilyEligibilityCounts = {
+    entity_family: string;
+    table_name: string;
+    approved_ready: number;
+    with_warnings: number;
+    blocked: number;
+    already_promoted: number;
+    excluded: number;
+    skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
+};
+
+export type ImportReviewPromotionBatchEligibilityResponse = {
+    review_batch_id: string;
+    source_snapshot_version: string;
+    entity_families: string[];
+    by_family: ImportReviewPromotionFamilyEligibilityCounts[];
+    totals: {
+        approved_ready: number;
+        with_warnings: number;
+        blocked: number;
+        already_promoted: number;
+    };
+};
+
+export type ImportReviewPromotionCreateBatchFamilyResult = {
+    entity_family: string;
+    items_added: number;
+    marked_batched: number;
+    skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
+};
+
+export type ImportReviewCreatePublishBatchDryRunResult = {
+    dry_run: true;
+    batch_name: string;
+    entity_families: string[];
+    totals: { included: number; excluded: number; skipped: number };
+    by_family: Array<{
+        entity_family: string;
+        included: number;
+        excluded: number;
+        skipped: number;
+        skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
+    }>;
+    stages: Array<{
+        stage_key: string;
+        stage_label: string;
+        message: string;
+        counts: Record<string, number>;
+    }>;
+    message: string;
+};
+
 export type ImportReviewCreatePublishBatchResult = {
     message: string;
     batch: ImportReviewPublishBatchDetail;
     items_added: number;
+    candidates_marked_batched: number;
+    by_family: ImportReviewPromotionCreateBatchFamilyResult[];
     building_candidates_marked_batched: number;
 };
 
 export type ImportReviewPromotionScopeParams = ImportReviewEnvelopeQuery & {
     include_merged?: boolean;
+};
+
+export type ImportReviewPromotionBatchEligibilityParams = ImportReviewPromotionScopeParams & {
+    entity_families?: string[];
+    include_warnings?: boolean;
+    mode?: "approved_only";
 };
 
 export type ImportReviewPromotionBatchesListParams = ImportReviewPromotionScopeParams & {
@@ -1296,8 +1614,14 @@ export type ImportReviewPromotionBatchesListParams = ImportReviewPromotionScopeP
 };
 
 export type PostImportReviewPromotionBatchBody = ImportReviewEnvelopeQuery & {
-    batch_name: string;
+    batch_name?: string;
     note?: string;
+    entity_families?: string[];
+    mode?: "approved_only";
+    include_warnings?: boolean;
+    warning_confirmation_note?: string;
+    dry_run?: boolean;
+    allow_high_risk_families?: boolean;
     include_merged?: boolean;
 };
 
@@ -1426,6 +1750,33 @@ export function getImportReviewPromotionBatches(
     );
 }
 
+export function getImportReviewPromotionBatchEligibility(
+    params: ImportReviewPromotionBatchEligibilityParams,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const { entity_families, include_warnings, mode, ...scope } = params;
+    const url = new URL("/api/import-review/promotion/batch-eligibility", `${getApiBaseUrl()}/`);
+    const base = importReviewPromotionQueryParams(scope);
+    for (const [key, value] of Object.entries(base)) {
+        if (value !== undefined && value !== null && value !== "") {
+            url.searchParams.set(key, String(value));
+        }
+    }
+    if (include_warnings) {
+        url.searchParams.set("include_warnings", "true");
+    }
+    if (mode) {
+        url.searchParams.set("mode", mode);
+    }
+    for (const family of entity_families ?? []) {
+        url.searchParams.append("entity_families", family);
+    }
+    return apiFetch<ImportReviewPromotionBatchEligibilityResponse>(url.pathname + url.search, {
+        method: "GET",
+        ...fetchInit,
+    });
+}
+
 export function getImportReviewPromotionBatchById(
     id: string,
     fetchInit?: Pick<RequestInit, "signal">
@@ -1437,23 +1788,40 @@ export function getImportReviewPromotionBatchById(
 }
 
 export function postImportReviewPromotionBatch(body: PostImportReviewPromotionBatchBody) {
-    return apiFetch<ImportReviewCreatePublishBatchResult>("/api/import-review/promotion/batches", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
-    });
+    return apiFetch<ImportReviewCreatePublishBatchResult | ImportReviewCreatePublishBatchDryRunResult>(
+        "/api/import-review/promotion/batches",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
+        }
+    );
 }
+
+export type ImportReviewPublishBatchEntityValidationCounts = {
+    total: number;
+    valid: number;
+    warning: number;
+    blocked: number;
+    skipped: number;
+};
 
 export type ImportReviewPublishBatchValidationResultSummary = {
     outcome: "passed" | "blocked";
+    can_promote: boolean;
+    requires_warning_confirmation: boolean;
     valid_count: number;
     warning_count: number;
     blocked_count: number;
+    skipped_count: number;
     total_items: number;
     by_publish_action: { insert: number; update: number; merge: number };
-    entity_family: { buildings: number };
+    by_entity: Record<string, ImportReviewPublishBatchEntityValidationCounts>;
+    /** @deprecated Use by_entity */
+    entity_family?: { buildings: number };
+    promotable_entity_families: string[];
 };
 
 export type ImportReviewPublishBatchPromotionResultSummary = {
@@ -1484,6 +1852,7 @@ export type ImportReviewPublishBatchProgressResponse = {
     current_stage_key: string | null;
     current_stage_label: string | null;
     current_stage_status: string | null;
+    current_entity_family: string | null;
     current_message: string | null;
     validation_result: ImportReviewPublishBatchValidationResultSummary | null;
     validation_logs_summary: string | null;
@@ -1512,6 +1881,8 @@ export type ImportReviewPublishBatchVerifyResponse = {
 export type PostImportReviewPromotionBatchPromoteBody = {
     confirmation_text: "PROMOTE";
     chunk_size?: number;
+    confirm_warnings?: boolean;
+    warning_confirmation_note?: string;
 };
 
 export type ImportReviewStartPublishBatchPromotionResponse = {
@@ -1768,6 +2139,247 @@ export function unlinkBuildingFromPlace(placePublicId: string, buildingPublicId:
         `/places/${placePublicId}/buildings/${buildingPublicId}`,
         { method: "DELETE" }
     );
+}
+
+// --- Import review history (read-only) ---
+
+export type ImportReviewHistoryReviewBatchCounts = {
+    batch_total_candidates: number;
+    active_candidates: number;
+    pending_review_candidates: number;
+    approved_candidates: number;
+    rejected_candidates: number;
+    promoted_candidates: number;
+    promotion_failed_candidates: number;
+};
+
+export type ImportReviewHistoryReviewBatchListItem = {
+    id: string;
+    public_id: string;
+    batch_name: string;
+    source_snapshot_version: string;
+    source_snapshot_id_local: string | null;
+    status: string;
+    created_at: string;
+    uploaded_at: string;
+    validated_at: string | null;
+    promoted_at: string | null;
+    total_candidate_count: number;
+    entity_families: string[];
+    counts: ImportReviewHistoryReviewBatchCounts;
+    counts_by_entity_family: ImportReviewFamilySummaryMetrics[];
+    publish_batches: {
+        publish_batch_count: number;
+        validated_at: string | null;
+        promoted_at: string | null;
+        validation_success_count: number;
+        validation_fail_count: number;
+        promotion_success_count: number;
+        promotion_fail_count: number;
+    };
+};
+
+export type ImportReviewHistoryReviewBatchDetail = ImportReviewHistoryReviewBatchListItem & {
+    region_code: string | null;
+    upload_mode: string;
+    uploaded_candidate_count: number;
+    preserved_reviewed_count: number;
+    skipped_count: number;
+    summary: unknown;
+    publish_batch_summaries: ImportReviewHistoryPublishBatchListItem[];
+};
+
+export type ImportReviewHistoryPublishBatchListItem = {
+    id: string;
+    public_id: string;
+    batch_name: string;
+    status: string;
+    source_review_batch_id: string | null;
+    source_snapshot_version: string | null;
+    region_code: string | null;
+    total_item_count: number;
+    success_count: number;
+    failed_count: number;
+    skipped_count: number;
+    validation_total: number;
+    validation_done: number;
+    validation_percent: number;
+    validated_at: string | null;
+    created_at: string;
+    published_at: string | null;
+    promoted_at: string | null;
+    validation_success_count: number;
+    validation_fail_count: number;
+};
+
+export type ImportReviewHistoryPublishBatchDetail = ImportReviewHistoryPublishBatchListItem & {
+    note: string | null;
+    item_counts: {
+        pending: number;
+        success: number;
+        failed: number;
+        skipped: number;
+        rolled_back: number;
+        total: number;
+    };
+    item_counts_by_entity_family: Record<
+        string,
+        { pending: number; success: number; failed: number; skipped: number; total: number }
+    >;
+    validation_summary: unknown;
+    promotion_summary: unknown;
+    validation_logs_summary: string | null;
+    promotion_logs_summary: string | null;
+    process_state_logs: ImportReviewPublishStageLogItem[];
+    data_state_summary: {
+        failed_items: number;
+        skipped_items: number;
+        success_with_target_id: number;
+        success_missing_target_id: number;
+    };
+    source_review_batch: {
+        id: string;
+        batch_name: string;
+        source_snapshot_version: string;
+        status: string;
+    } | null;
+};
+
+export type ImportReviewHistoryPublishBatchItem = {
+    id: string;
+    entity_family: string;
+    entity_id: string | null;
+    publish_action: string | null;
+    publish_status: string;
+    review_candidate_table: string | null;
+    review_candidate_id: string | null;
+    external_id: string | null;
+    target_schema: string | null;
+    target_table: string | null;
+    target_id: string | null;
+    error_message: string | null;
+    validation_result: unknown;
+    published_at: string | null;
+    created_at: string;
+};
+
+export type ImportReviewHistoryListResponse<T> = {
+    items: T[];
+    total: number;
+    limit: number;
+    offset: number;
+};
+
+export type ImportReviewHistoryReviewBatchesListParams = {
+    status?: string;
+    source_snapshot_version?: string;
+    entity_family?: string;
+    uploaded_after?: string;
+    uploaded_before?: string;
+    limit?: number;
+    offset?: number;
+};
+
+export type ImportReviewHistoryPublishBatchesListParams = {
+    status?: string;
+    source_review_batch_id?: string;
+    source_snapshot_version?: string;
+    entity_family?: string;
+    created_after?: string;
+    created_before?: string;
+    limit?: number;
+    offset?: number;
+};
+
+export type ImportReviewHistoryPublishBatchItemsParams = {
+    publish_status?: string;
+    entity_family?: string;
+    limit?: number;
+    offset?: number;
+};
+
+export function getImportReviewHistoryReviewBatches(
+    params: ImportReviewHistoryReviewBatchesListParams = {},
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const q: Record<string, QueryValue> = {};
+    for (const [key, val] of Object.entries(params)) {
+        if (val !== undefined && val !== "") {
+            q[key] = val;
+        }
+    }
+    return apiFetch<ImportReviewHistoryListResponse<ImportReviewHistoryReviewBatchListItem>>(
+        "/api/import-review/history/review-batches",
+        { method: "GET", ...fetchInit },
+        q
+    );
+}
+
+export function getImportReviewHistoryReviewBatchById(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewHistoryReviewBatchDetail>(
+        `/api/import-review/history/review-batches/${id}`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export function getImportReviewHistoryPublishBatches(
+    params: ImportReviewHistoryPublishBatchesListParams = {},
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const q: Record<string, QueryValue> = {};
+    for (const [key, val] of Object.entries(params)) {
+        if (val !== undefined && val !== "") {
+            q[key] = val;
+        }
+    }
+    return apiFetch<ImportReviewHistoryListResponse<ImportReviewHistoryPublishBatchListItem>>(
+        "/api/import-review/history/publish-batches",
+        { method: "GET", ...fetchInit },
+        q
+    );
+}
+
+export function getImportReviewHistoryPublishBatchById(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewHistoryPublishBatchDetail>(
+        `/api/import-review/history/publish-batches/${id}`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export function getImportReviewHistoryPublishBatchItems(
+    id: string,
+    params: ImportReviewHistoryPublishBatchItemsParams = {},
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const q: Record<string, QueryValue> = {};
+    for (const [key, val] of Object.entries(params)) {
+        if (val !== undefined && val !== "") {
+            q[key] = val;
+        }
+    }
+    return apiFetch<ImportReviewHistoryListResponse<ImportReviewHistoryPublishBatchItem>>(
+        `/api/import-review/history/publish-batches/${id}/items`,
+        { method: "GET", ...fetchInit },
+        q
+    );
+}
+
+export function getImportReviewHistoryPublishBatchLogs(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<{
+        batch_id: string;
+        process_state_logs: ImportReviewPublishStageLogItem[];
+        validation_logs_summary: string | null;
+        promotion_logs_summary: string | null;
+    }>(`/api/import-review/history/publish-batches/${id}/logs`, { method: "GET", ...fetchInit });
 }
 
 export function getLinkedPlacesForBuilding(buildingPublicId: string) {

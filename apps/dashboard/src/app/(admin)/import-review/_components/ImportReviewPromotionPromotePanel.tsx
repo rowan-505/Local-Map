@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { PromotionStatusBadge } from "@/src/app/(admin)/import-review/_components/importReviewPromotionUi";
+import ImportReviewInlineSpinner from "@/src/features/import-review/components/ImportReviewInlineSpinner";
+import ImportReviewOperationLogPanel from "@/src/features/import-review/components/ImportReviewOperationLogPanel";
+import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
+import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import {
     getImportReviewPromotionBatchById,
     getImportReviewPromotionBatchLogs,
@@ -82,6 +86,7 @@ export default function ImportReviewPromotionPromotePanel({
     const [error, setError] = useState<string | null>(null);
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [confirmText, setConfirmText] = useState("");
+    const [warningNote, setWarningNote] = useState("");
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const stopPolling = useCallback(() => {
@@ -154,9 +159,16 @@ export default function ImportReviewPromotionPromotePanel({
             await postImportReviewPromotionBatchPromote(batchId, {
                 confirmation_text: "PROMOTE",
                 chunk_size: 100,
+                ...(validationForModal?.requires_warning_confirmation && warningNote.trim()
+                    ? {
+                          confirm_warnings: true,
+                          warning_confirmation_note: warningNote.trim(),
+                      }
+                    : {}),
             });
             setConfirmOpen(false);
             setConfirmText("");
+            setWarningNote("");
             setStatus("promoting");
             startPolling();
         } catch (err) {
@@ -179,11 +191,16 @@ export default function ImportReviewPromotionPromotePanel({
         }
     }
 
-    const canPromote = status === "ready";
     const isPromoting = status === "promoting" || isStarting;
     const percent = progress?.validation_percent ?? 0;
     const promotionResult = progress?.promotion_result;
     const validationForModal = progress?.validation_result;
+    const requiresWarningNote = validationForModal?.requires_warning_confirmation === true;
+    const canPromote = status === "ready" && validationForModal?.can_promote !== false;
+    const canConfirmPromote =
+        confirmText === "PROMOTE" &&
+        !isStarting &&
+        (!requiresWarningNote || warningNote.trim().length > 0);
     const summaryMessage = progress?.promotion_logs_summary ?? progress?.current_message;
     const showPromotionLogs =
         logs &&
@@ -199,7 +216,7 @@ export default function ImportReviewPromotionPromotePanel({
                     disabled={!canPromote || isPromoting}
                     className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
                 >
-                    {isPromoting ? "Promoting…" : "Promote to core"}
+                    {isPromoting ? IMPORT_REVIEW_LOADING.promoting : "Promote to core"}
                 </button>
                 <button
                     type="button"
@@ -207,20 +224,27 @@ export default function ImportReviewPromotionPromotePanel({
                     disabled={isVerifying || status === "draft" || status === "validating"}
                     className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
                 >
-                    {isVerifying ? "Verifying…" : "Verify promotion"}
+                    {isVerifying ? IMPORT_REVIEW_LOADING.verifying : "Verify promotion"}
                 </button>
                 <PromotionStatusBadge value={status} />
+                {isPromoting ? (
+                    <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.promoting} />
+                ) : null}
+                {isVerifying ? (
+                    <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.verifying} />
+                ) : null}
             </div>
 
-            {error ? (
-                <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
-            ) : null}
+            {error ? <ImportReviewStatusBanner message={error} tone="error" compact /> : null}
 
             {(isPromoting || (progress?.workflow === "promotion" && percent > 0)) && (
                 <div className="space-y-2">
                     <div className="flex justify-between text-xs text-gray-600">
                         <span>
                             {progress?.current_stage_label ?? "Promotion"}
+                            {progress?.current_entity_family
+                                ? ` · ${progress.current_entity_family}`
+                                : ""}
                             {progress?.current_message ? ` — ${progress.current_message}` : ""}
                         </span>
                         <span className="tabular-nums font-medium">{percent.toFixed(0)}%</span>
@@ -251,6 +275,14 @@ export default function ImportReviewPromotionPromotePanel({
                         label="Import review marked"
                         value={promotionResult.import_review_marked_promoted_count}
                     />
+                    {promotionResult.promoted_entity_families.length > 0 ? (
+                        <div className="rounded-lg border border-gray-100 bg-white px-3 py-2 sm:col-span-2">
+                            <p className="text-xs text-gray-500">Promoted families</p>
+                            <p className="text-sm font-medium text-gray-900">
+                                {promotionResult.promoted_entity_families.join(", ")}
+                            </p>
+                        </div>
+                    ) : null}
                 </div>
             ) : null}
 
@@ -267,32 +299,24 @@ export default function ImportReviewPromotionPromotePanel({
             ) : null}
 
             {showPromotionLogs ? (
-                <div>
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                        Promotion stages
-                    </h4>
-                    <ol className="mt-2 space-y-2">
-                        {sortLogs(logs!.items).map((item) => (
-                            <li
-                                key={item.id}
-                                className="flex flex-col gap-1 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
-                            >
-                                <div>
-                                    <span className="font-medium text-gray-900">{item.stage_label}</span>
-                                    {item.message ? (
-                                        <p className="mt-0.5 text-xs text-gray-600">{item.message}</p>
-                                    ) : null}
-                                </div>
-                                <span
-                                    className={`inline-flex w-fit items-center rounded px-2 py-0.5 text-xs font-medium ${stageStatusColor(item.stage_status)}`}
-                                >
-                                    {item.stage_status}
-                                    {item.progress_percent > 0 ? ` · ${item.progress_percent}%` : ""}
-                                </span>
-                            </li>
-                        ))}
-                    </ol>
-                </div>
+                <ImportReviewOperationLogPanel
+                    title="Promotion stages"
+                    loadingMessage={IMPORT_REVIEW_LOADING.loadingLogs}
+                    entries={sortLogs(logs!.items).map((item) => ({
+                        id: item.id,
+                        label: item.stage_label,
+                        message: item.message,
+                        status: item.stage_status,
+                        at: item.started_at,
+                    }))}
+                />
+            ) : isPromoting ? (
+                <ImportReviewOperationLogPanel
+                    title="Promotion stages"
+                    entries={[]}
+                    isLoading
+                    loadingMessage={IMPORT_REVIEW_LOADING.loadingLogs}
+                />
             ) : null}
 
             {verify ? (
@@ -331,15 +355,43 @@ export default function ImportReviewPromotionPromotePanel({
                     <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
                         <h3 className="text-lg font-semibold text-gray-900">Promote to core</h3>
                         <p className="mt-2 text-sm text-gray-600">
-                            This will write to production core.core_map_buildings. This action is not
-                            automatically reversible.
+                            This will write approved building items to core.core_map_buildings and place items to
+                            core.core_places (with names and sources). Other validated entity families remain
+                            reserved.
                         </p>
                         {validationForModal ? (
                             <ul className="mt-3 space-y-1 text-sm text-gray-700">
                                 <li>Total items: {validationForModal.total_items}</li>
                                 <li>Insert: {validationForModal.by_publish_action.insert}</li>
                                 <li>Update: {validationForModal.by_publish_action.update}</li>
+                                {validationForModal.promotable_entity_families.length > 0 ? (
+                                    <li>
+                                        Promotable families:{" "}
+                                        {validationForModal.promotable_entity_families.join(", ")}
+                                    </li>
+                                ) : null}
+                                {validationForModal.warning_count > 0 ? (
+                                    <li className="text-amber-800">
+                                        Warnings: {validationForModal.warning_count}
+                                    </li>
+                                ) : null}
                             </ul>
+                        ) : null}
+                        {requiresWarningNote ? (
+                            <>
+                                <p className="mt-4 text-sm text-amber-900">
+                                    This batch has validation warnings. Enter a confirmation note explaining why
+                                    promotion should proceed. CATEGORY_UNMAPPED means class_code or category_code
+                                    could not be mapped to ref.ref_poi_categories.code.
+                                </p>
+                                <textarea
+                                    value={warningNote}
+                                    onChange={(e) => setWarningNote(e.target.value)}
+                                    rows={3}
+                                    className="mt-2 w-full rounded-md border border-amber-300 px-3 py-2 text-sm"
+                                    placeholder="Confirmation note (required)"
+                                />
+                            </>
                         ) : null}
                         <p className="mt-4 text-sm text-gray-600">
                             Type <span className="font-mono font-semibold">PROMOTE</span> to confirm.
@@ -358,6 +410,7 @@ export default function ImportReviewPromotionPromotePanel({
                                 onClick={() => {
                                     setConfirmOpen(false);
                                     setConfirmText("");
+                                    setWarningNote("");
                                 }}
                                 className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                             >
@@ -365,7 +418,7 @@ export default function ImportReviewPromotionPromotePanel({
                             </button>
                             <button
                                 type="button"
-                                disabled={confirmText !== "PROMOTE" || isStarting}
+                                disabled={!canConfirmPromote}
                                 onClick={() => void handlePromote()}
                                 className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
                             >

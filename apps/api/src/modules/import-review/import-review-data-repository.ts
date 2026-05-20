@@ -1,10 +1,14 @@
 import type {
     ImportReviewBuildingsQuery,
     ImportReviewBulkFilters,
+    ImportReviewCandidatesListQuery,
     ImportReviewPlacesQuery,
     ImportReviewRoadsQuery,
 } from "./import-review.schema.js";
+import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
+import type { CandidateListFilters } from "./import-review-candidate-sql.js";
 import type { ImportReviewBulkDecisionRepoResult } from "./import-review.types.js";
+import type { ImportReviewFamilySummaryMetricsDb } from "./import-review-summary-counts.js";
 
 export type SnapshotIdRow = { id: bigint };
 
@@ -69,17 +73,8 @@ export type BuildingListRowDb = {
     road_candidate_class_label?: string | null;
 };
 
-export type ImportReviewScopeQuery = {
-    source_snapshot_version?: string | undefined;
-    review_batch_id?: bigint | undefined;
-};
-
-/** Fully resolved workspace scope targeting one `import_review.review_batches` row. */
-export type ImportReviewScopeResolved = {
-    snapshotVersion: string;
-    reviewBatchId: bigint;
-    sourceSnapshotIdLocal: bigint | null;
-};
+import type { ImportReviewScopeQuery, ImportReviewScopeResolved } from "./import-review-batch-resolver.js";
+export type { ImportReviewScopeQuery, ImportReviewScopeResolved } from "./import-review-batch-resolver.js";
 
 export type ReviewActor = {
     /** Human-readable reviewer label retained for dashboards / tooling. */
@@ -122,6 +117,11 @@ export interface ImportReviewDataRepository {
 
     fetchSummaryBuckets(scope: ImportReviewScopeResolved): Promise<{
         rows: ImportReviewSummaryBucketDb[];
+        warnings: string[];
+    }>;
+
+    fetchFamilySummaryMetrics(scope: ImportReviewScopeResolved): Promise<{
+        rows: ImportReviewFamilySummaryMetricsDb[];
         warnings: string[];
     }>;
 
@@ -349,4 +349,67 @@ export interface ImportReviewDataRepository {
         force: boolean;
         dryRun: boolean;
     }): Promise<ImportReviewBulkDecisionRepoResult>;
+
+    countCandidates(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved,
+        filters: CandidateListFilters
+    ): Promise<bigint>;
+
+    listCandidates(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved,
+        filters: CandidateListFilters
+    ): Promise<BuildingListRowDb[]>;
+
+    getCandidateById(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved,
+        id: bigint,
+        includeGeometry: boolean
+    ): Promise<BuildingListRowDb | null>;
+
+    fetchCandidateFilterOptions(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved
+    ): Promise<Record<string, string[]>>;
+
+    findCandidateReviewContext(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved,
+        id: bigint
+    ): Promise<CandidateReviewGuardContext | null>;
+
+    updateCandidateReviewDecision(args: {
+        family: ImportReviewEntityFamilySlug;
+        scope: ImportReviewScopeResolved;
+        id: bigint;
+        reviewDecision: string;
+        reviewStatus: string;
+        actor: ReviewActor;
+        reviewNote: string | null | undefined;
+    }): Promise<BuildingListRowDb | null>;
+
+    bulkCandidateDecisions(args: {
+        family: ImportReviewEntityFamilySlug;
+        scope: ImportReviewScopeResolved;
+        mode: "ids" | "filters";
+        ids?: bigint[];
+        filters?: ImportReviewBulkFilters;
+        reviewDecision: string;
+        reviewStatus: string;
+        actor: ReviewActor;
+        reviewNote: string | null | undefined;
+        force: boolean;
+        dryRun: boolean;
+    }): Promise<ImportReviewBulkDecisionRepoResult>;
+
+    patchCandidateReviewOverrides(args: {
+        family: ImportReviewEntityFamilySlug;
+        scope: ImportReviewScopeResolved;
+        id: bigint;
+        overridesPatch: Record<string, unknown>;
+        editedByUserId: bigint | null;
+        reviewNote: string | null | undefined;
+    }): Promise<BuildingListRowDb | null>;
 }

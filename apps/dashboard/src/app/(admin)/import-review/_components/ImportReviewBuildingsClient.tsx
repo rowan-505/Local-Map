@@ -1,31 +1,51 @@
+/**
+ * @deprecated Import-review `/import-review/buildings` uses `ImportReviewEntityPageShell`.
+ * This client remains for reference and optional local experiments only; prefer the shared shell.
+ * Data-review `/data-review/buildings` also uses the entity shell with `showMapPreview`.
+ */
 "use client";
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import DataReviewCandidateMap from "@/src/components/map/DataReviewCandidateMap";
+import ImportReviewErrorState from "@/src/features/import-review/components/ImportReviewErrorState";
+import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
+import ImportReviewInlineSpinner from "@/src/features/import-review/components/ImportReviewInlineSpinner";
+import ImportReviewMapPreview from "@/src/features/import-review/components/ImportReviewMapPreview";
+import ImportReviewSelectedActionBar from "@/src/features/import-review/components/ImportReviewSelectedActionBar";
+import ImportReviewSkeletonTable from "@/src/features/import-review/components/ImportReviewSkeletonTable";
+import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
+import { useClearSelectionOnListQueryChange } from "@/src/features/import-review/hooks/useClearSelectionOnListQueryChange";
+import { useImportReviewBulkActions } from "@/src/features/import-review/hooks/useImportReviewBulkActions";
+import { buildImportReviewListQueryKey } from "@/src/features/import-review/utils/entityPageUtils";
+import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import { Card, CardContent } from "@/src/components/ui/card";
 import {
     getImportReviewBuildings,
     getImportReviewBuildingsFilterOptions,
     isAbortError,
+    isImportReviewBatchAmbiguousError,
     patchImportReviewBuildingDecision,
     patchImportReviewBuildingOverrides,
-    postImportReviewBuildingsBulkDecision,
+    type ImportReviewBatchChoice,
     type ImportReviewBuildingListItem,
     type ImportReviewBuildingsFilterOptionsResponse,
     type ImportReviewBuildingsListResponse,
-    type ImportReviewBulkDecisionResponse,
     type ImportReviewDecision,
-    type PostImportReviewBuildingsBulkBody,
 } from "@/src/lib/api";
 import {
     applyImportReviewScopeSearchParams,
+    importReviewScopeQueryForApi,
+    importReviewScopeQueryFromSearch,
+    preserveImportReviewScopeInParams,
     reviewBatchIdFromImportReviewSearch,
     setImportReviewSnapshotSearchParam,
     snapshotVersionFromImportReviewSearch,
+    syncImportReviewUrlToResolvedBatch,
 } from "@/src/lib/importReviewSnapshot";
+import { formatImportReviewScopeFetchError } from "@/src/lib/importReviewScopeUi";
+import ImportReviewBatchPicker from "@/src/app/(admin)/import-review/_components/ImportReviewBatchPicker";
 import { buildingDrawerMapInput } from "@/src/lib/importReviewDrawerMapGeometry";
 import ImportReviewReviewActionsMenu from "@/src/app/(admin)/import-review/_components/ImportReviewReviewActionsMenu";
 import {
@@ -122,17 +142,7 @@ function importReviewSummaryHref(
 }
 
 function formatImportReviewApiError(err: unknown): string {
-    if (!(err instanceof Error)) {
-        return "Unknown error";
-    }
-    const m = err.message;
-    if (m.includes("401") || m.toLowerCase().includes("authentication")) {
-        return "Unauthorized — sign in with an admin-capable account (API enforces access).";
-    }
-    if (m.includes("403") || m.toLowerCase().includes("admin")) {
-        return "Forbidden — import review endpoints require admin.";
-    }
-    return m;
+    return formatImportReviewScopeFetchError(err, "Unknown error");
 }
 
 function asOverrideRecord(review_overrides: unknown): Record<string, unknown> {
@@ -214,16 +224,20 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
 
     const [filterOptions, setFilterOptions] = useState<ImportReviewBuildingsFilterOptionsResponse | null>(null);
     const [filterOptionsLoading, setFilterOptionsLoading] = useState(false);
+    const [isApplyingFilters, setIsApplyingFilters] = useState(false);
 
     const [list, setList] = useState<ImportReviewBuildingsListResponse | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(() => {
+        const scope = importReviewScopeQueryFromSearch(searchParams, ENV_SNAPSHOT_DEFAULT, {
+            useEnvDefault: false,
+        });
+        return importReviewScopeQueryForApi(scope) !== null;
+    });
     const [error, setError] = useState("");
+    const [ambiguousBatches, setAmbiguousBatches] = useState<ImportReviewBatchChoice[] | null>(null);
+    const [ambiguousSnapshot, setAmbiguousSnapshot] = useState("");
 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-    const [bulkNote, setBulkNote] = useState("");
-    const [bulkForce, setBulkForce] = useState(false);
-    const [bulkBusy, setBulkBusy] = useState(false);
-    const [bulkPreview, setBulkPreview] = useState<ImportReviewBulkDecisionResponse | null>(null);
     const [rowActionBusyId, setRowActionBusyId] = useState<string | null>(null);
 
     const [drawerRow, setDrawerRow] = useState<ImportReviewBuildingListItem | null>(null);
@@ -256,19 +270,33 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
         setCanEditImportReview(deriveImportReviewEditorUxCanMutate());
     }, []);
 
-    const scopeQuery = useMemo(() => {
-        const b = (batchInput.trim() || batchUrl.trim()).trim();
-        const snap = (snapshotInput.trim() || snapshotUrl.trim() || ENV_SNAPSHOT_DEFAULT).trim();
-        if (b) {
-            return { review_batch_id: b } as const;
-        }
-        if (snap) {
-            return { source_snapshot_version: snap } as const;
-        }
-        return null;
-    }, [batchInput, batchUrl, snapshotInput, snapshotUrl]);
+    const scopeQuery = useMemo(
+        () =>
+            importReviewScopeQueryFromSearch(searchParams, ENV_SNAPSHOT_DEFAULT, {
+                useEnvDefault: false,
+            }),
+        [searchParams]
+    );
 
-    const hasValidScope = scopeQuery !== null;
+    const apiScopeQuery = useMemo(() => importReviewScopeQueryForApi(scopeQuery), [scopeQuery]);
+
+    const listQueryKey = useMemo(
+        () =>
+            buildImportReviewListQueryKey({
+                apiScopeQuery,
+                limit,
+                offset,
+                sort,
+                filters,
+                qApplied,
+                apiFamily: "buildings",
+            }),
+        [apiScopeQuery, limit, offset, sort, filters, qApplied]
+    );
+
+    useClearSelectionOnListQueryChange(listQueryKey, setSelectedIds);
+
+    const hasValidScope = apiScopeQuery !== null;
 
     useEffect(() => {
         if (batchUrl.trim()) {
@@ -293,18 +321,26 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
     }, [searchParams]);
 
     useEffect(() => {
-        if (!hasValidScope || !scopeQuery) {
+        if (!hasValidScope || !apiScopeQuery) {
             setFilterOptions(null);
             return;
         }
         const c = new AbortController();
         setFilterOptionsLoading(true);
-        getImportReviewBuildingsFilterOptions({ ...scopeQuery }, { signal: c.signal })
+        getImportReviewBuildingsFilterOptions({ ...apiScopeQuery }, { signal: c.signal })
             .then((o) => setFilterOptions(o))
             .catch((err) => {
-                if (!isAbortError(err)) {
-                    setFilterOptions(null);
+                if (isAbortError(err)) {
+                    return;
                 }
+                if (isImportReviewBatchAmbiguousError(err)) {
+                    setAmbiguousBatches(err.batches);
+                    setAmbiguousSnapshot(err.sourceSnapshotVersion);
+                    setFilterOptions(null);
+                    setError("");
+                    return;
+                }
+                setFilterOptions(null);
             })
             .finally(() => {
                 if (!c.signal.aborted) {
@@ -312,23 +348,26 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                 }
             });
         return () => c.abort();
-    }, [hasValidScope, scopeQuery]);
+    }, [hasValidScope, apiScopeQuery]);
 
     const fetchList = useCallback(
         async (signal?: AbortSignal) => {
-            if (!hasValidScope || !scopeQuery) {
+            if (!hasValidScope || !apiScopeQuery) {
                 setList(null);
                 setError("");
                 setIsLoading(false);
+                setIsApplyingFilters(false);
                 return;
             }
 
             setIsLoading(true);
             setError("");
+            setAmbiguousBatches(null);
+            setAmbiguousSnapshot("");
 
             try {
                 const params: Parameters<typeof getImportReviewBuildings>[0] = {
-                    ...scopeQuery,
+                    ...apiScopeQuery,
                     limit,
                     offset,
                     sort,
@@ -358,29 +397,68 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
 
                 const res = await getImportReviewBuildings(params, signal ? { signal } : undefined);
                 setList(res);
-                setSelectedIds(new Set());
+                if (res.review_batch_id && !batchUrl.trim()) {
+                    replaceQuery((p) => {
+                        syncImportReviewUrlToResolvedBatch(p, res.review_batch_id);
+                    });
+                }
             } catch (err) {
                 if (isAbortError(err)) {
+                    return;
+                }
+                if (isImportReviewBatchAmbiguousError(err)) {
+                    setAmbiguousBatches(err.batches);
+                    setAmbiguousSnapshot(err.sourceSnapshotVersion);
+                    setList(null);
+                    setError("");
                     return;
                 }
                 setList(null);
                 setError(formatImportReviewApiError(err));
             } finally {
-                setIsLoading(false);
+                if (!signal?.aborted) {
+                    setIsLoading(false);
+                    setIsApplyingFilters(false);
+                }
             }
         },
-        [hasValidScope, scopeQuery, limit, offset, sort, filters, qApplied]
+        [hasValidScope, apiScopeQuery, limit, offset, sort, filters, qApplied, batchUrl, replaceQuery]
     );
+
+    const showCandidatesSkeleton =
+        hasValidScope &&
+        list === null &&
+        !error &&
+        !(ambiguousBatches?.length) &&
+        isLoading;
+    const isRefreshingCandidates =
+        hasValidScope && isLoading && list !== null && (list.items.length ?? 0) > 0;
 
     useEffect(() => {
         if (!hasValidScope) {
             setList(null);
+            setIsLoading(false);
             return;
         }
+        setIsLoading(true);
         const c = new AbortController();
         void fetchList(c.signal);
         return () => c.abort();
     }, [fetchList, hasValidScope]);
+
+    const bulk = useImportReviewBulkActions({
+        items: list?.items ?? [],
+        selectedIds,
+        setSelectedIds,
+        list,
+        apiScopeQuery,
+        apiFamily: "buildings",
+        supportsBulkActions: true,
+        canEdit: canEditImportReview,
+        onListRefresh: () => {
+            void fetchList();
+        },
+    });
 
     useEffect(() => {
         if (!drawerRow) {
@@ -435,6 +513,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
     }, [drawerRow]);
 
     const applyFiltersToUrl = () => {
+        setIsApplyingFilters(true);
         replaceQuery((p) => {
             applyImportReviewScopeSearchParams(p, snapshotInput.trim(), batchInput.trim());
             for (const [key, val] of Object.entries(filters)) {
@@ -467,6 +546,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
         });
         setQDraft("");
         replaceQuery((p) => {
+            preserveImportReviewScopeInParams(p, searchParams);
             for (const key of [
                 "match_status",
                 "auto_action",
@@ -485,6 +565,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
 
     const goPage = (nextOffset: number) => {
         replaceQuery((p) => {
+            preserveImportReviewScopeInParams(p, searchParams);
             p.set("offset", String(Math.max(0, nextOffset)));
         });
     };
@@ -536,13 +617,13 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
         decision: ImportReviewDecision,
         opts?: { force?: boolean; confirmDuplicate?: boolean; note?: string | null }
     ) => {
-        if (!scopeQuery) {
+        if (!apiScopeQuery) {
             return;
         }
 
         const note = opts?.note !== undefined ? opts.note : row.review_note;
         const updated = await patchImportReviewBuildingDecision(row.id, {
-            ...scopeQuery,
+            ...apiScopeQuery,
             review_decision: decision,
             review_note: note ?? null,
             force: opts?.force ?? false,
@@ -612,7 +693,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
         if (!drawerRow) {
             return;
         }
-        if (!scopeQuery) {
+        if (!apiScopeQuery) {
             return;
         }
         if (!canEditImportReview) {
@@ -622,7 +703,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
         setDrawerSaving(true);
         try {
             const updated = await patchImportReviewBuildingDecision(drawerRow.id, {
-                ...scopeQuery,
+                ...apiScopeQuery,
                 review_decision: drawerDecision,
                 review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
             });
@@ -636,7 +717,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                 const ok = window.confirm(`${msg}\n\nRetry with force=true?`);
                 if (ok) {
                     const updated = await patchImportReviewBuildingDecision(drawerRow.id, {
-                        ...scopeQuery,
+                        ...apiScopeQuery,
                         review_decision: drawerDecision,
                         review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                         force: true,
@@ -647,7 +728,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                 const ok = window.confirm(`${msg}\n\nRetry with confirm_duplicate_reviewed=true?`);
                 if (ok) {
                     const updated = await patchImportReviewBuildingDecision(drawerRow.id, {
-                        ...scopeQuery,
+                        ...apiScopeQuery,
                         review_decision: drawerDecision,
                         review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                         confirm_duplicate_reviewed: true,
@@ -663,7 +744,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
     };
 
     const handleDrawerOverridesSave = async () => {
-        if (!drawerRow || !scopeQuery) {
+        if (!drawerRow || !apiScopeQuery) {
             return;
         }
         if (!canEditImportReview) {
@@ -701,7 +782,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
             }
 
             const updated = await patchImportReviewBuildingOverrides(drawerRow.id, {
-                ...scopeQuery,
+                ...apiScopeQuery,
                 review_overrides,
                 review_note: ovReviewNote.trim() === "" ? null : ovReviewNote.trim(),
             });
@@ -711,184 +792,6 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
         } finally {
             setDrawerOverridesSaving(false);
         }
-    };
-
-    const selectedHasDuplicate = useMemo(() => {
-        if (!list) {
-            return false;
-        }
-        const map = new Map(list.items.map((r) => [r.id, r]));
-        for (const id of selectedIds) {
-            if (map.get(id)?.match_status === "duplicate_candidate") {
-                return true;
-            }
-        }
-        return false;
-    }, [list, selectedIds]);
-
-    const selectedNeedsForceForApprove = useMemo(() => {
-        if (!list) {
-            return false;
-        }
-        const map = new Map(list.items.map((r) => [r.id, r]));
-        for (const id of selectedIds) {
-            const r = map.get(id);
-            if (!r) {
-                continue;
-            }
-            if (r.match_status === "manual_protected" || r.auto_action === "protect_manual") {
-                return true;
-            }
-        }
-        return false;
-    }, [list, selectedIds]);
-
-    const selectedHasPromoted = useMemo(() => {
-        if (!list) {
-            return false;
-        }
-        const map = new Map(list.items.map((r) => [r.id, r]));
-        for (const id of selectedIds) {
-            if ((map.get(id)?.promotion_status ?? "").toLowerCase() === "promoted") {
-                return true;
-            }
-        }
-        return false;
-    }, [list, selectedIds]);
-
-    const runBulk = async (
-        body: Omit<PostImportReviewBuildingsBulkBody, "source_snapshot_version" | "review_batch_id" | "snapshot_version">,
-    ) => {
-        if (!scopeQuery) {
-            return;
-        }
-
-        setBulkBusy(true);
-        setBulkPreview(null);
-        try {
-            const res = await postImportReviewBuildingsBulkDecision({
-                ...body,
-                ...scopeQuery,
-            });
-            setBulkPreview(res);
-            if (!body.dry_run) {
-                void fetchList();
-            }
-        } catch (err) {
-            window.alert(formatImportReviewApiError(err));
-        } finally {
-            setBulkBusy(false);
-        }
-    };
-
-    const bulkApproveSelected = async () => {
-        if (selectedIds.size === 0) {
-            return;
-        }
-        if (selectedHasPromoted) {
-            window.alert(
-                "Selection includes promoted rows. The API will not bulk-update them; remove promoted rows from the selection first."
-            );
-            return;
-        }
-        if (selectedNeedsForceForApprove && !bulkForce) {
-            window.alert(
-                "Selection includes manual_protected or protect_manual candidates. Enable “Danger: force bulk override” and confirm to bulk approve — or shrink the selection."
-            );
-            return;
-        }
-        if (selectedNeedsForceForApprove && bulkForce) {
-            const cf = window.confirm(
-                `${selectedIds.size} selected row(s) include manual_protected / protect_manual. Bulk approve sends force=true. Continue?`
-            );
-            if (!cf) {
-                return;
-            }
-        }
-        if (selectedHasDuplicate && !bulkForce) {
-            window.alert(
-                "Selection includes duplicate_candidate rows. Enable “Danger: force bulk override” to include them, or clear those rows from the selection."
-            );
-            return;
-        }
-
-        const ids = [...selectedIds];
-        const note = bulkNote.trim() === "" ? undefined : bulkNote.trim();
-        const ok = window.confirm(
-            `Approve ${ids.length} selected review candidate(s)?${bulkForce ? " (force=true)" : ""} This updates Supabase import_review only (future publish batch / core promotion is separate).`
-        );
-        if (!ok) {
-            return;
-        }
-
-        await runBulk({
-            review_decision: "approved",
-            dry_run: false,
-            ids,
-            force: bulkForce,
-            review_note: note ?? null,
-        });
-    };
-
-    const bulkDecisionSelected = async (decision: ImportReviewDecision, label: string) => {
-        if (selectedIds.size === 0) {
-            return;
-        }
-        if (selectedHasPromoted) {
-            window.alert(
-                "Selection includes promoted rows. Clear promoted rows from the selection — bulk updates skip promoted candidates."
-            );
-            return;
-        }
-        if (
-            decision === "approved" &&
-            selectedHasDuplicate &&
-            !bulkForce
-        ) {
-            window.alert(
-                "Approve on duplicate_candidate rows requires force or per-row confirmation. Enable force override or shrink the selection.",
-            );
-            return;
-        }
-        const ids = [...selectedIds];
-        const ok = window.confirm(
-            `${label} for ${ids.length} selected row(s)? This updates import_review candidates only.`,
-        );
-        if (!ok) {
-            return;
-        }
-        await runBulk({
-            review_decision: decision,
-            dry_run: false,
-            ids,
-            force: bulkForce,
-            review_note: bulkNote.trim() === "" ? null : bulkNote.trim(),
-        });
-    };
-
-    const bulkNewAutoDryRun = async () => {
-        await runBulk({
-            review_decision: "approved",
-            dry_run: true,
-            filters: { match_status: "new_auto", auto_action: "insert_candidate" },
-            force: false,
-        });
-    };
-
-    const bulkNewAutoReal = async () => {
-        const ok = window.confirm(
-            "Run real bulk APPROVED for all rows with match_status=new_auto and auto_action=insert_candidate? This updates Supabase import_review only (no core promotion)."
-        );
-        if (!ok) {
-            return;
-        }
-        await runBulk({
-            review_decision: "approved",
-            dry_run: false,
-            filters: { match_status: "new_auto", auto_action: "insert_candidate" },
-            force: bulkForce,
-            review_note: bulkNote.trim() === "" ? null : bulkNote.trim(),
-        });
     };
 
     const total = list?.total ?? 0;
@@ -1011,10 +914,10 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                     </div>
                     <Link
                         href={
-                            hasValidScope && scopeQuery
+                            hasValidScope && apiScopeQuery
                                 ? importReviewSummaryHref(
                                       showMapPreview ? "/data-review" : "/import-review",
-                                      scopeQuery,
+                                      apiScopeQuery,
                                   )
                                 : showMapPreview
                                   ? "/data-review"
@@ -1060,7 +963,9 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                             <code className="text-[11px]">snapshot_version</code> URLs are rewritten on Apply.
                         </p>
                         <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-3 text-xs text-gray-500">
-                            {filterOptionsLoading ? <span>Loading filter options…</span> : null}
+                            {filterOptionsLoading ? (
+                                <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.loadingFilterOptions} />
+                            ) : null}
                             {!filterOptionsLoading && filterOptions ? (
                                 <span>
                                     Filter-option distinct values loaded for snapshot{" "}
@@ -1246,7 +1151,11 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                                 {hasValidScope ? (
                                     <>
                                         <strong className="text-gray-900">{total.toLocaleString()}</strong> candidates
-                                        {isLoading ? " · Loading…" : null}
+                                        {isRefreshingCandidates ? (
+                                            <span className="ml-2">
+                                                · {IMPORT_REVIEW_LOADING.refreshingCandidates}
+                                            </span>
+                                        ) : null}
                                     </>
                                 ) : (
                                     "Set snapshot version or review batch ID (or NEXT_PUBLIC_IMPORT_REVIEW_SNAPSHOT_VERSION), then Apply."
@@ -1256,11 +1165,30 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                     </CardContent>
                 </Card>
 
-                {error ? (
-                    <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 whitespace-pre-wrap">
-                        {error}
-                    </div>
+                {ambiguousBatches && ambiguousBatches.length > 0 ? (
+                    <>
+                        <ImportReviewStatusBanner
+                            message={IMPORT_REVIEW_LOADING.multipleBatchesFound}
+                            tone="warning"
+                        />
+                        <ImportReviewBatchPicker
+                            sourceSnapshotVersion={ambiguousSnapshot}
+                            batches={ambiguousBatches}
+                            onUseLatest={() => {
+                                replaceQuery((p) => {
+                                    const snap =
+                                        ambiguousSnapshot ||
+                                        snapshotVersionFromImportReviewSearch(p) ||
+                                        snapshotInput.trim();
+                                    applyImportReviewScopeSearchParams(p, snap, "");
+                                    p.set("latest", "true");
+                                });
+                            }}
+                        />
+                    </>
                 ) : null}
+
+                {error ? <ImportReviewErrorState message={error} /> : null}
 
                 {activeChips.length > 0 ? (
                     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
@@ -1279,150 +1207,56 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                     </div>
                 ) : null}
 
-                <Card className="border-gray-200 shadow-sm">
-                    <CardContent className="space-y-4 p-5">
-                        <div className="flex flex-col gap-1 border-b border-gray-100 pb-3">
-                            <h2 className="text-sm font-semibold text-gray-900">Bulk actions</h2>
-                            <p className="text-xs text-gray-600">
-                                Applies <code className="rounded bg-gray-100 px-1">review_decision</code> patches to Supabase{" "}
-                                <code className="rounded bg-gray-100 px-1">import_review.building_candidates</code> via the
-                                bulk API — not core. Rows that are{" "}
-                                <span className="font-medium text-violet-900">already promoted</span> are skipped or blocked;
-                                approving <span className="font-medium text-violet-900">manual_protected</span> /{" "}
-                                <span className="font-medium text-violet-900">protect_manual</span> or{" "}
-                                <span className="font-medium text-orange-900">duplicate_candidate</span> in bulk typically
-                                needs the hazard checkbox below plus confirmation prompts.
-                            </p>
-                            {!canEditImportReview ? (
-                                <p className="text-[11px] font-medium text-amber-900">
-                                    Read-only: no admin roles detected in the stored token — controls stay disabled here; the API
-                                    is the enforcement layer.
-                                </p>
-                            ) : null}
-                        </div>
-                        <div className="text-sm font-medium text-gray-800">
-                            Selected:{" "}
-                            <strong>{selectedIds.size}</strong> row{selectedIds.size === 1 ? "" : "s"}
-                        </div>
-                        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
-                            <button
-                                type="button"
-                                disabled={
-                                    bulkBusy ||
-                                    selectedIds.size === 0 ||
-                                    !hasValidScope ||
-                                    !canEditImportReview
-                                }
-                                onClick={() => void bulkApproveSelected()}
-                                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                                Approve selected
-                            </button>
-                            <button
-                                type="button"
-                                disabled={
-                                    bulkBusy ||
-                                    selectedIds.size === 0 ||
-                                    !hasValidScope ||
-                                    !canEditImportReview
-                                }
-                                onClick={() => void bulkDecisionSelected("rejected", "Reject")}
-                                className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-950 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                                Reject selected
-                            </button>
-                            <button
-                                type="button"
-                                disabled={
-                                    bulkBusy ||
-                                    selectedIds.size === 0 ||
-                                    !hasValidScope ||
-                                    !canEditImportReview
-                                }
-                                onClick={() => void bulkDecisionSelected("needs_more_review", "Needs more review")}
-                                className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                                Needs more review (selected)
-                            </button>
-                            <button
-                                type="button"
-                                disabled={
-                                    bulkBusy ||
-                                    selectedIds.size === 0 ||
-                                    !hasValidScope ||
-                                    !canEditImportReview
-                                }
-                                onClick={() => void bulkDecisionSelected("ignored", "Ignore")}
-                                className="rounded-lg border border-gray-300 bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                                Ignore selected
-                            </button>
-                            <button
-                                type="button"
-                                disabled={bulkBusy || !hasValidScope || !canEditImportReview}
-                                onClick={() => void bulkNewAutoDryRun()}
-                                className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100/80 disabled:opacity-50"
-                            >
-                                Dry-run safe bulk approve
-                            </button>
-                            <button
-                                type="button"
-                                disabled={bulkBusy || !hasValidScope || !canEditImportReview}
-                                onClick={() => void bulkNewAutoReal()}
-                                className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
-                            >
-                                Real safe bulk approve
-                            </button>
-                        </div>
-                        <div className="rounded-lg border border-red-200 bg-red-50/50 p-3">
-                            <label className="flex cursor-pointer items-start gap-2 text-sm text-red-950">
-                                <input
-                                    type="checkbox"
-                                    checked={bulkForce}
-                                    disabled={!canEditImportReview}
-                                    onChange={(e) => setBulkForce(e.target.checked)}
-                                    className="mt-0.5"
-                                />
-                                <span>
-                                    <span className="font-semibold">Danger — admin force override</span>
-                                    <span className="block text-xs font-normal text-red-900/90">
-                                        Sends <code className="rounded bg-white/70 px-1">force=true</code> on bulk and selected
-                                        approve. Bypasses safe eligibility (manual_protected, duplicate_candidate, etc.).
-                                    </span>
-                                </span>
-                            </label>
-                        </div>
-                        <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold text-gray-600">Optional note (bulk)</span>
-                            <input
-                                value={bulkNote}
-                                onChange={(e) => setBulkNote(e.target.value)}
-                                disabled={!canEditImportReview}
-                                className={selectCls}
-                            />
-                        </label>
-                        {bulkPreview ? (
-                            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
-                                <div className="font-semibold text-gray-900">
-                                    Bulk result {bulkPreview.dry_run ? "(dry run)" : ""}
-                                </div>
-                                <div className="mt-1 text-gray-700">
-                                    Updated: {bulkPreview.updated_count} · Skipped: {bulkPreview.skipped_count}
-                                </div>
-                                {bulkPreview.skipped_reasons.length > 0 ? (
-                                    <ul className="mt-2 list-inside list-disc text-gray-600">
-                                        {bulkPreview.skipped_reasons.map((r) => (
-                                            <li key={r.reason}>
-                                                {r.reason}: {r.count}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                ) : null}
-                            </div>
-                        ) : null}
-                    </CardContent>
-                </Card>
+                {isApplyingFilters ? (
+                    <ImportReviewStatusBanner message={IMPORT_REVIEW_LOADING.applyingFilters} tone="info" compact />
+                ) : null}
 
+                <ImportReviewSelectedActionBar
+                    selectedCount={selectedIds.size}
+                    analysis={bulk.analysis}
+                    bulkNote={bulk.bulkNote}
+                    bulkBusy={bulk.isBulkActionRunning}
+                    bulkPhase={bulk.bulkPhase}
+                    bulkMessage={bulk.bulkMessage}
+                    canEdit={canEditImportReview}
+                    hasValidScope={hasValidScope}
+                    approveBlockedReason={bulk.approveBlockedReason}
+                    bulkPreview={bulk.bulkPreview}
+                    dangerForce={bulk.dangerForce}
+                    overrideManualProtected={bulk.overrideManualProtected}
+                    overrideDuplicate={bulk.overrideDuplicate}
+                    showFilterBulkActions
+                    onBulkNoteChange={bulk.setBulkNote}
+                    onDangerForceChange={bulk.setDangerForce}
+                    onOverrideManualProtectedChange={bulk.setOverrideManualProtected}
+                    onOverrideDuplicateChange={bulk.setOverrideDuplicate}
+                    onClearSelection={bulk.clearSelection}
+                    onPreviewApprove={() => void bulk.bulkPreviewApprove()}
+                    onApproveSelected={() => void bulk.bulkApproveSelected()}
+                    onRejectSelected={() => void bulk.bulkRejectSelected()}
+                    onNeedsMoreReviewSelected={() => void bulk.bulkNeedsMoreReviewSelected()}
+                    onIgnoreSelected={() => void bulk.bulkIgnoreSelected()}
+                    onDryRunSafeBulkApprove={() => void bulk.bulkSafeFilterDryRun()}
+                    onRealSafeBulkApprove={() => void bulk.bulkSafeFilterApply()}
+                />
+
+                {isRefreshingCandidates ? (
+                    <div className="flex justify-end">
+                        <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.refreshingCandidates} />
+                    </div>
+                ) : null}
+
+                {showCandidatesSkeleton ? (
+                    <>
+                        <ImportReviewLoadingBannerWithSpinner
+                            message={IMPORT_REVIEW_LOADING.loadingCandidates}
+                        />
+                        <ImportReviewSkeletonTable
+                            columnCount={14}
+                            message={IMPORT_REVIEW_LOADING.loadingCandidates}
+                        />
+                    </>
+                ) : (
                 <ImportReviewTableFrame>
                     <table className={`${IMPORT_REVIEW_TABLE_MIN_WIDTH_CLASS} divide-y divide-gray-200 text-left text-sm`}>
                         <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -1461,16 +1295,10 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                                         for GET /buildings / filter-options.
                                     </td>
                                 </tr>
-                            ) : isLoading && !list ? (
-                                <tr>
-                                    <td colSpan={14} className="px-4 py-10 text-center text-gray-500">
-                                        Loading candidates from Supabase import_review cache…
-                                    </td>
-                                </tr>
                             ) : list && list.items.length === 0 ? (
                                 <tr>
                                     <td colSpan={14} className="px-4 py-10 text-center text-gray-500">
-                                        No matching review candidates — adjust filters or change scope inputs.
+                                        {IMPORT_REVIEW_LOADING.noCandidatesFound}
                                     </td>
                                 </tr>
                             ) : (
@@ -1480,7 +1308,9 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                                         row.name?.trim() ||
                                         null;
                                     const nt = [row.canonical_name, row.name].filter(Boolean).join(" • ");
-                                    const rowSurface = importReviewRowSurface(row);
+                                    const rowSurface = importReviewRowSurface(row, {
+                                        selected: selectedIds.has(row.id),
+                                    });
                                     return (
                                     <tr key={row.id} className={rowSurface.rowClass}>
                                         <td className={importReviewStickyCheckboxTdClass(rowSurface.stickyCellClass)}>
@@ -1559,6 +1389,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                         </tbody>
                     </table>
                 </ImportReviewTableFrame>
+                )}
 
                 {list && total > 0 ? (
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1566,6 +1397,11 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                             Rows <span className="font-medium text-gray-900">{pageStart}</span>–
                             <span className="font-medium text-gray-900">{pageEnd}</span> of{" "}
                             <span className="font-medium text-gray-900">{total.toLocaleString()}</span>
+                            {selectedIds.size > 0 ? (
+                                <span className="mt-1 block text-xs text-gray-500">
+                                    Selection is cleared when you change pages.
+                                </span>
+                            ) : null}
                         </p>
                         <div className="flex flex-wrap gap-2">
                             <button
@@ -1591,18 +1427,16 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
 
                 {showMapPreview ? (
                     <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:w-[min(420px,40vw)]">
-                        <DataReviewCandidateMap
+                        <ImportReviewMapPreview
+                            enabled={Boolean(mapSourceRow)}
                             geometry={sidebarMapInput.geometry}
                             geometryKind={sidebarMapInput.geometryKind}
                             entityType="building"
                             externalId={mapSourceRow?.external_id ?? null}
                             title="Building footprint"
+                            fallbackNote={sidebarMapInput.fallbackNote}
+                            size="default"
                         />
-                        {sidebarMapInput.fallbackNote ? (
-                            <p className="mt-2 rounded-md border border-amber-200 bg-amber-50/80 px-2 py-1.5 text-center text-[11px] text-amber-950">
-                                {sidebarMapInput.fallbackNote}
-                            </p>
-                        ) : null}
                         {!mapSourceRow ? (
                             <p className="mt-2 text-center text-xs text-gray-500">
                                 Open a row or select exactly one candidate to preview on the map.
@@ -1754,21 +1588,15 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                                 </div>
                             ) : null}
 
-                            {drawerMapInput?.fallbackNote ? (
-                                <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-950">
-                                    {drawerMapInput.fallbackNote}
-                                </p>
-                            ) : null}
-
-                            <DataReviewCandidateMap
-                                key={drawerRow.id}
+                            <ImportReviewMapPreview
+                                enabled
                                 geometry={drawerMapInput?.geometry ?? null}
                                 geometryKind={drawerMapInput?.geometryKind ?? "polygon"}
                                 entityType="building"
                                 externalId={drawerRow.external_id ?? null}
                                 title="Location / footprint"
+                                fallbackNote={drawerMapInput?.fallbackNote}
                                 size="drawer"
-                                className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm"
                             />
 
                             <div>

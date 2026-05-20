@@ -2,7 +2,7 @@ export const IMPORT_REVIEW_PUBLISH_PROMOTION_STAGES = [
     { key: "promote_preflight", label: "Preflight", progressEnd: 5 },
     { key: "load_promotable_items", label: "Load items", progressEnd: 10 },
     { key: "final_validation_before_write", label: "Final validation", progressEnd: 20 },
-    { key: "promote_buildings_to_core", label: "Promote buildings", progressEnd: 60 },
+    { key: "promote_buildings_to_core", label: "Promote to core", progressEnd: 60 },
     { key: "write_publish_item_results", label: "Write item results", progressEnd: 70 },
     { key: "verify_core_rows", label: "Verify core rows", progressEnd: 80 },
     { key: "mark_import_review_promoted", label: "Mark import review", progressEnd: 90 },

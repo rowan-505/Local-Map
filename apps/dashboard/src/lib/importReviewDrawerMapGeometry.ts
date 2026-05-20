@@ -192,6 +192,16 @@ export function placeDrawerMapInput(row: ImportReviewBuildingListItem): {
     geometryKind: DataReviewGeometryKind;
     fallbackNote: string | null;
 } {
+    for (const candidate of [row.geometry, row.geom]) {
+        const poly = normalizeImportReviewGeoJson(candidate);
+        if (poly?.type === "Polygon" || poly?.type === "MultiPolygon") {
+            return {
+                geometry: poly as unknown as ImportReviewGeoJson,
+                geometryKind: "polygon",
+                fallbackNote: null,
+            };
+        }
+    }
     const g = normalizeImportReviewGeoJson(row.geometry);
     if (g?.type === "Point" || g?.type === "MultiPoint") {
         return { geometry: g as unknown as ImportReviewGeoJson, geometryKind: "point", fallbackNote: null };
@@ -229,4 +239,44 @@ export function roadDrawerMapInput(row: ImportReviewBuildingListItem): {
         }
     }
     return { geometry: null, geometryKind: "line", fallbackNote: null };
+}
+
+/** Config-driven map input for generic import-review entity drawer. */
+export function entityDrawerMapInput(
+    row: ImportReviewBuildingListItem,
+    geometryType: DataReviewGeometryKind
+): {
+    geometry: ImportReviewGeoJson | null;
+    geometryKind: DataReviewGeometryKind;
+    fallbackNote: string | null;
+} {
+    if (geometryType === "line") {
+        return roadDrawerMapInput(row);
+    }
+    if (geometryType === "point") {
+        return placeDrawerMapInput(row);
+    }
+    const sources = [row.geometry, row.geom, row.centroid];
+    for (const raw of sources) {
+        const g = normalizeImportReviewGeoJson(raw);
+        if (g) {
+            return {
+                geometry: g as unknown as ImportReviewGeoJson,
+                geometryKind: "polygon",
+                fallbackNote: null,
+            };
+        }
+    }
+    const wkt = pickCentroidWktFromNormalized(row.normalized_data);
+    if (wkt) {
+        const pt = wktPointToGeoJson(wkt);
+        if (pt) {
+            return {
+                geometry: pt,
+                geometryKind: "point",
+                fallbackNote: "Showing centroid from normalized_data.",
+            };
+        }
+    }
+    return { geometry: null, geometryKind: geometryType, fallbackNote: null };
 }

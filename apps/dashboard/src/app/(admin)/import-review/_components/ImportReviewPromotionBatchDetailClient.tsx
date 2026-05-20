@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
+import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
+import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
+
 import ImportReviewPromotionPromotePanel from "@/src/app/(admin)/import-review/_components/ImportReviewPromotionPromotePanel";
 import ImportReviewPromotionValidationPanel from "@/src/app/(admin)/import-review/_components/ImportReviewPromotionValidationPanel";
 import {
@@ -103,14 +107,18 @@ export default function ImportReviewPromotionBatchDetailClient() {
             </p>
             <PromotionSectionHeading
                 title="Publish batch"
-                subtitle="Validate and promote a buildings publish batch to core."
+                subtitle="Validate publish items across entity families; promote buildings and places to core."
             />
 
-            {loading ? <p className="mt-4 text-sm text-gray-600">Loading batch…</p> : null}
+            {loading ? (
+                <div className="mt-4">
+                    <ImportReviewLoadingBannerWithSpinner message={IMPORT_REVIEW_LOADING.loadingPromotionBatch} />
+                </div>
+            ) : null}
             {error ? (
-                <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                    {error}
-                </p>
+                <div className="mt-4">
+                    <ImportReviewStatusBanner message={error} tone="error" />
+                </div>
             ) : null}
 
             {batchDetail ? (

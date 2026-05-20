@@ -9,9 +9,12 @@ import type {
 import type {
     ImportReviewBuildingsQuery,
     ImportReviewBulkFilters,
+    ImportReviewCandidatesListQuery,
     ImportReviewPlacesQuery,
     ImportReviewRoadsQuery,
 } from "./import-review.schema.js";
+import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
+import type { CandidateListFilters } from "./import-review-candidate-sql.js";
 import type { ImportReviewBulkDecisionRepoResult } from "./import-review.types.js";
 import { RemoteImportReviewRepositoryCore } from "./import-review-remote.repo.js";
 
@@ -25,6 +28,10 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
 
     fetchSummaryBuckets(scope: ImportReviewScopeResolved) {
         return this.core.fetchSummaryBuckets(scope);
+    }
+
+    fetchFamilySummaryMetrics(scope: ImportReviewScopeResolved) {
+        return this.core.fetchFamilySummaryMetrics(scope);
     }
 
     fetchBuildingFilterOptions(scope: ImportReviewScopeResolved) {
@@ -361,6 +368,109 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
             reviewNote: args.reviewNote,
             force: args.force,
             dryRun: args.dryRun,
+        });
+    }
+
+    countCandidates(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved,
+        filters: CandidateListFilters
+    ) {
+        return this.core.countCandidates(family, scope.reviewBatchId, filters);
+    }
+
+    listCandidates(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved,
+        filters: CandidateListFilters
+    ) {
+        return this.core.listCandidates(family, scope.reviewBatchId, filters);
+    }
+
+    getCandidateById(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved,
+        id: bigint,
+        includeGeometry: boolean
+    ) {
+        return this.core.getCandidateById(family, id, scope.reviewBatchId, includeGeometry);
+    }
+
+    fetchCandidateFilterOptions(family: ImportReviewEntityFamilySlug, scope: ImportReviewScopeResolved) {
+        return this.core.fetchCandidateFilterOptions(family, scope.reviewBatchId);
+    }
+
+    findCandidateReviewContext(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved,
+        id: bigint
+    ): Promise<CandidateReviewGuardContext | null> {
+        return this.core.findCandidateReviewContext(family, id, scope.reviewBatchId);
+    }
+
+    updateCandidateReviewDecision(args: {
+        family: ImportReviewEntityFamilySlug;
+        scope: ImportReviewScopeResolved;
+        id: bigint;
+        reviewDecision: string;
+        reviewStatus: string;
+        actor: ReviewActor;
+        reviewNote: string | null | undefined;
+    }) {
+        return this.core.updateCandidateReviewDecision({
+            family: args.family,
+            id: args.id,
+            reviewBatchId: args.scope.reviewBatchId,
+            reviewDecision: args.reviewDecision,
+            reviewStatus: args.reviewStatus,
+            actor: args.actor,
+            reviewNote: args.reviewNote,
+        });
+    }
+
+    bulkCandidateDecisions(args: {
+        family: ImportReviewEntityFamilySlug;
+        scope: ImportReviewScopeResolved;
+        mode: "ids" | "filters";
+        ids?: bigint[];
+        filters?: ImportReviewBulkFilters;
+        reviewDecision: string;
+        reviewStatus: string;
+        actor: ReviewActor;
+        reviewNote: string | null | undefined;
+        force: boolean;
+        dryRun: boolean;
+    }) {
+        return this.core.bulkCandidateDecisions({
+            family: args.family,
+            reviewBatchId: args.scope.reviewBatchId,
+            mode: args.mode,
+            ids: args.ids,
+            filters: args.filters,
+            reviewDecision: args.reviewDecision,
+            reviewStatus: args.reviewStatus,
+            actor: args.actor,
+            reviewNote: args.reviewNote,
+            force: args.force,
+            dryRun: args.dryRun,
+        });
+    }
+
+    patchCandidateReviewOverrides(args: {
+        family: ImportReviewEntityFamilySlug;
+        scope: ImportReviewScopeResolved;
+        id: bigint;
+        overridesPatch: Record<string, unknown>;
+        editedByUserId: bigint | null;
+        reviewNote: string | null | undefined;
+    }) {
+        return this.core.patchCandidateReviewOverrides({
+            family: args.family,
+            id: args.id,
+            reviewBatchId: args.scope.reviewBatchId,
+            overridesPatch: args.overridesPatch,
+            editedByUserId: args.editedByUserId,
+            reviewNote: args.reviewNote,
         });
     }
 }

@@ -9,93 +9,49 @@ import { Card, CardContent } from "@/src/components/ui/card";
 import {
     getImportReviewSummary,
     isAbortError,
-    type ImportReviewSummaryBucketRow,
+    isImportReviewBatchAmbiguousError,
+    type ImportReviewBatchChoice,
     type ImportReviewSummaryResponse,
 } from "@/src/lib/api";
+import ImportReviewBatchPicker from "@/src/app/(admin)/import-review/_components/ImportReviewBatchPicker";
+import ImportReviewErrorState from "@/src/features/import-review/components/ImportReviewErrorState";
+import ImportReviewInlineSpinner from "@/src/features/import-review/components/ImportReviewInlineSpinner";
+import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
+import ImportReviewSkeletonCards from "@/src/features/import-review/components/ImportReviewSkeletonCards";
+import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
+import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import {
     applyImportReviewScopeSearchParams,
     reviewBatchIdFromImportReviewSearch,
     snapshotVersionFromImportReviewSearch,
+    syncImportReviewUrlToResolvedBatch,
 } from "@/src/lib/importReviewSnapshot";
+import {
+    getImportReviewEntityByApiFamily,
+    importReviewEntityHref,
+} from "@/src/lib/importReviewEntityConfig";
+import { aggregateBy, familyBucketRows } from "@/src/lib/importReviewSummaryRollups";
+import type { ImportReviewFamilySummaryMetrics } from "@/src/lib/api";
 
-const FAMILIES = ["buildings", "places", "roads"] as const;
-type Family = (typeof FAMILIES)[number];
-
-const FAMILY_LABEL: Record<Family, string> = {
-    buildings: "Buildings",
-    places: "Places",
-    roads: "Roads",
+type FamilySummaryView = ImportReviewFamilySummaryMetrics & {
+    label: string;
+    slug: string | null;
 };
+
+function familySummariesForDisplay(families: ImportReviewFamilySummaryMetrics[]): FamilySummaryView[] {
+    return families.map((f) => {
+        const cfg = getImportReviewEntityByApiFamily(f.entity_family);
+        return {
+            ...f,
+            label: cfg?.pluralLabel ?? f.entity_family.replace(/_/g, " "),
+            slug: cfg?.slug ?? null,
+        };
+    });
+}
 
 type LoadedScope =
     | { kind: "source_snapshot"; value: string }
     | { kind: "review_batch"; value: string };
-
-function lc(s: string | null | undefined): string {
-    return (s ?? "").trim().toLowerCase();
-}
-
-function sumBucketWhere(
-    rows: ImportReviewSummaryBucketRow[],
-    pred: (r: ImportReviewSummaryBucketRow) => boolean
-): number {
-    let n = 0;
-    for (const r of rows) {
-        if (pred(r)) {
-            n += r.row_count;
-        }
-    }
-    return n;
-}
-
-function rollupFromSummaries(rows: ImportReviewSummaryBucketRow[]) {
-    const pending = rows.reduce((s, r) => s + r.row_count, 0); // API total_pending is authoritative; we'll show API field
-
-    const needsReview = sumBucketWhere(
-        rows,
-        (r) =>
-            lc(r.review_status) === "needs_review" ||
-            lc(r.review_status) === "needs_more_review" ||
-            lc(r.review_decision) === "needs_more_review"
-    );
-    const ignored = sumBucketWhere(
-        rows,
-        (r) => lc(r.review_decision) === "ignored" || lc(r.review_status) === "ignored"
-    );
-    const merged = sumBucketWhere(
-        rows,
-        (r) => lc(r.review_decision) === "merged" || lc(r.review_status) === "merged"
-    );
-    const promoted = sumBucketWhere(rows, (r) => lc(r.promotion_status) === "promoted");
-    const promotionFailed = sumBucketWhere(rows, (r) => lc(r.promotion_status) === "promotion_failed");
-    const readyForPublish = sumBucketWhere(
-        rows,
-        (r) =>
-            lc(r.review_decision) === "approved" &&
-            lc(r.review_status) === "approved" &&
-            lc(r.promotion_status) !== "promoted" &&
-            lc(r.promotion_status) !== "promotion_failed"
-    );
-
-    void pending;
-    const buildings = sumBucketWhere(rows, (r) => lc(r.entity_family) === "buildings");
-    const places = sumBucketWhere(rows, (r) => lc(r.entity_family) === "places");
-    const roads = sumBucketWhere(rows, (r) => lc(r.entity_family) === "roads");
-    const totalCandidates = buildings + places + roads;
-
-    return {
-        buildings,
-        places,
-        roads,
-        totalCandidates,
-        needsReview,
-        ignored,
-        merged,
-        promoted,
-        promotionFailed,
-        readyForPublish,
-    };
-}
 
 function SectionTitle({ title, subtitle, id }: { title: string; subtitle?: string; id?: string }) {
     return (
@@ -106,21 +62,6 @@ function SectionTitle({ title, subtitle, id }: { title: string; subtitle?: strin
             {subtitle ? <p className="mt-1 text-sm text-gray-600">{subtitle}</p> : null}
         </div>
     );
-}
-
-function aggregateBy(
-    rows: ImportReviewSummaryBucketRow[],
-    key: "match_status" | "auto_action" | "review_decision" | "promotion_status"
-): Record<string, number> {
-    const m: Record<string, number> = {};
-
-    for (const r of rows) {
-        const raw = r[key];
-        const label = raw === null || raw === undefined || raw === "" ? "(empty)" : raw;
-        m[label] = (m[label] ?? 0) + r.row_count;
-    }
-
-    return m;
 }
 
 function BreakdownBlock({
@@ -182,6 +123,8 @@ function ImportReviewSummaryInner() {
     const [data, setData] = useState<ImportReviewSummaryResponse | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState("");
+    const [ambiguousBatches, setAmbiguousBatches] = useState<ImportReviewBatchChoice[] | null>(null);
+    const [ambiguousSnapshot, setAmbiguousSnapshot] = useState("");
     const [lastLoaded, setLastLoaded] = useState<LoadedScope | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -198,6 +141,7 @@ function ImportReviewSummaryInner() {
             opts: {
                 snapshotVersion: string;
                 reviewBatchId: string;
+                latest?: boolean;
                 signal?: AbortSignal;
                 syncUrl: boolean;
             }
@@ -221,11 +165,13 @@ function ImportReviewSummaryInner() {
             }
 
             const query = snap
-                ? { source_snapshot_version: snap }
+                ? { source_snapshot_version: snap, ...(opts.latest ? { latest: true } : {}) }
                 : { review_batch_id: batch };
 
             setIsLoading(true);
             setError("");
+            setAmbiguousBatches(null);
+            setAmbiguousSnapshot("");
 
             try {
                 const response = await getImportReviewSummary(
@@ -233,13 +179,22 @@ function ImportReviewSummaryInner() {
                     opts.signal ? { signal: opts.signal } : undefined
                 );
                 setData(response);
+                const resolvedBatch = response.review_batch_id?.trim() ?? batch;
                 setLastLoaded(
-                    snap ? { kind: "source_snapshot", value: snap } : { kind: "review_batch", value: batch }
+                    resolvedBatch
+                        ? { kind: "review_batch", value: resolvedBatch }
+                        : snap
+                          ? { kind: "source_snapshot", value: snap }
+                          : null
                 );
                 setLastUpdated(new Date());
                 if (opts.syncUrl) {
                     const params = new URLSearchParams(searchParams.toString());
-                    applyImportReviewScopeSearchParams(params, snap, batch);
+                    if (snap && response.review_batch_id) {
+                        syncImportReviewUrlToResolvedBatch(params, response.review_batch_id);
+                    } else {
+                        applyImportReviewScopeSearchParams(params, snap, batch);
+                    }
                     router.replace(`/import-review?${params.toString()}`, { scroll: false });
                 }
                 return true;
@@ -247,6 +202,17 @@ function ImportReviewSummaryInner() {
                 if (isAbortError(err)) {
                     return false;
                 }
+                if (isImportReviewBatchAmbiguousError(err)) {
+                    setAmbiguousBatches(err.batches);
+                    setAmbiguousSnapshot(err.sourceSnapshotVersion || snap);
+                    setError("");
+                    setData(null);
+                    setLastLoaded(null);
+                    setLastUpdated(null);
+                    return false;
+                }
+                setAmbiguousBatches(null);
+                setAmbiguousSnapshot("");
                 setError(formatImportReviewUiError(err));
                 setData(null);
                 setLastLoaded(null);
@@ -279,6 +245,10 @@ function ImportReviewSummaryInner() {
     const firstPreset = presetOptions[0] ?? "";
     const chosenSnapshot = urlBatch ? "" : urlVersion || envDefault || firstPreset;
     const chosenBatch = urlBatch;
+    const latestFromUrl = (() => {
+        const raw = searchParams.get("latest")?.trim().toLowerCase();
+        return raw === "true" || raw === "1";
+    })();
 
     useEffect(() => {
         if (chosenBatch) {
@@ -299,45 +269,33 @@ function ImportReviewSummaryInner() {
         void loadRef.current({
             snapshotVersion: v,
             reviewBatchId: "",
+            latest: latestFromUrl,
             signal: controller.signal,
             syncUrl: false,
         });
         return () => controller.abort();
-    }, [chosenBatch, chosenSnapshot]);
+    }, [chosenBatch, chosenSnapshot, latestFromUrl]);
 
-    const rollups = useMemo(() => (data ? rollupFromSummaries(data.entity_summaries) : null), [data]);
+    useEffect(() => {
+        const resolvedBatch = data?.review_batch_id?.trim();
+        if (!resolvedBatch || urlBatch) {
+            return;
+        }
+        const params = new URLSearchParams(searchParams.toString());
+        if (syncImportReviewUrlToResolvedBatch(params, resolvedBatch)) {
+            router.replace(`/import-review?${params.toString()}`, { scroll: false });
+        }
+    }, [data?.review_batch_id, urlBatch, router, searchParams]);
 
-    const familyRows = useCallback(
-        (family: Family) => {
-            if (!data) {
-                return [];
-            }
-            return data.entity_summaries.filter((r) => lc(r.entity_family) === family);
-        },
+    const rollup = data?.rollup ?? null;
+    const familySummaries = useMemo(
+        () => (data?.family_summaries ? familySummariesForDisplay(data.family_summaries) : []),
         [data]
     );
 
-    const scopeForLinks =
-        lastLoaded ??
-        (batchInput.trim()
-            ? ({ kind: "review_batch", value: batchInput.trim() } satisfies LoadedScope)
-            : versionInput.trim()
-              ? ({ kind: "source_snapshot", value: versionInput.trim() } satisfies LoadedScope)
-              : null);
-
-    const reviewHref = (segment: "buildings" | "places" | "roads") => {
-        const p = new URLSearchParams();
-        if (!scopeForLinks) {
-            return `/import-review/${segment}`;
-        }
-        if (scopeForLinks.kind === "review_batch") {
-            p.set("review_batch_id", scopeForLinks.value);
-        } else {
-            p.set("source_snapshot_version", scopeForLinks.value);
-        }
-        const qs = p.toString();
-        return qs ? `/import-review/${segment}?${qs}` : `/import-review/${segment}`;
-    };
+    const resolvedReviewBatchId = data?.review_batch_id?.trim() || urlBatch || "";
+    const entityReviewHref = (slug: string) =>
+        importReviewEntityHref(slug, searchParams, resolvedReviewBatchId || null);
 
     return (
         <main className="p-6">
@@ -360,7 +318,24 @@ function ImportReviewSummaryInner() {
                         </div>
                         {lastUpdated && lastLoaded ? (
                             <div className="shrink-0 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
-                                {lastLoaded.kind === "source_snapshot" ? (
+                                {data?.batch_name ? (
+                                    <>
+                                        <span className="text-gray-500">Batch </span>
+                                        <span className="font-medium text-gray-900">{data.batch_name}</span>
+                                        {data.review_batch_id ? (
+                                            <>
+                                                <span className="mx-1 text-gray-400">·</span>
+                                                <span className="font-mono text-gray-700">#{data.review_batch_id}</span>
+                                            </>
+                                        ) : null}
+                                        {data.selected_by ? (
+                                            <>
+                                                <span className="mx-1 text-gray-400">·</span>
+                                                <span className="text-xs text-gray-500">{data.selected_by}</span>
+                                            </>
+                                        ) : null}
+                                    </>
+                                ) : lastLoaded.kind === "source_snapshot" ? (
                                     <>
                                         <span className="text-gray-500">Source snapshot </span>
                                         <span className="font-medium text-gray-900">{lastLoaded.value}</span>
@@ -461,128 +436,162 @@ function ImportReviewSummaryInner() {
                                 disabled={isLoading}
                                 className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-gray-800 disabled:opacity-50"
                             >
-                                {isLoading ? "Loading…" : "Load summary"}
+                                {isLoading ? IMPORT_REVIEW_LOADING.loadingOverviewSummary : "Load summary"}
                             </button>
                         </div>
                     </div>
                 </header>
 
-                {error ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 whitespace-pre-wrap">
-                        {error}
+                {ambiguousBatches && ambiguousBatches.length > 0 ? (
+                    <>
+                        <ImportReviewStatusBanner
+                            message={IMPORT_REVIEW_LOADING.multipleBatchesFound}
+                            tone="warning"
+                        />
+                        <ImportReviewBatchPicker
+                        sourceSnapshotVersion={ambiguousSnapshot}
+                        batches={ambiguousBatches}
+                        onUseLatest={() => {
+                            const snap =
+                                ambiguousSnapshot ||
+                                snapshotVersionFromImportReviewSearch(searchParams) ||
+                                versionInput.trim();
+                            void load({
+                                snapshotVersion: snap,
+                                reviewBatchId: "",
+                                latest: true,
+                                syncUrl: true,
+                            });
+                        }}
+                    />
+                    </>
+                ) : null}
+
+                {error ? <ImportReviewErrorState message={error} /> : null}
+
+                {isLoading && data ? (
+                    <div className="flex justify-end">
+                        <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.loadingOverviewSummary} />
                     </div>
                 ) : null}
 
                 {data?.warnings?.length ? (
-                    <div
-                        role="status"
-                        className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 whitespace-pre-wrap"
-                    >
-                        <div className="font-semibold">Summary warnings</div>
-                        <ul className="mt-2 list-disc space-y-1 pl-5">
-                            {(data.warnings ?? []).map((w) => (
-                                <li key={w}>{w}</li>
-                            ))}
-                        </ul>
-                    </div>
+                    <ImportReviewStatusBanner
+                        message={`Summary warnings: ${(data.warnings ?? []).join(" · ")}`}
+                        tone="warning"
+                    />
                 ) : null}
 
-                {data && rollups ? (
+                {data && rollup ? (
                     <>
-                        <section aria-labelledby="import-review-scope-counts">
-                            <SectionTitle
-                                id="import-review-scope-counts"
-                                title="By entity family"
-                                subtitle="Totals rolled up across match/auto/review buckets (disjoint partitions of candidates)."
-                            />
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                                <StatsCard title="Buildings candidates" value={rollups.buildings} />
-                                <StatsCard title="Places candidates" value={rollups.places} />
-                                <StatsCard title="Roads candidates" value={rollups.roads} />
-                                <StatsCard
-                                    title="All entities (sum)"
-                                    value={rollups.totalCandidates}
-                                    description="Should equal total candidates shown below when every family table exists."
-                                />
-                            </div>
-                        </section>
+                        {data.review_batch_id ? (
+                            <p className="text-xs text-gray-500">
+                                Counts are scoped to review_batch_id=
+                                <span className="font-mono font-medium text-gray-700">{data.review_batch_id}</span>.
+                                Batch total includes promoted rows. Active review excludes promoted rows.
+                            </p>
+                        ) : null}
 
                         <section aria-labelledby="import-review-totals">
                             <SectionTitle
                                 id="import-review-totals"
-                                title="Rollups"
-                                subtitle="Combined from grouped candidate buckets for this scope (API envelopes still expose aggregate pending/approved/rejected totals)."
+                                title="Batch rollups"
+                                subtitle="Precise counts from SQL aggregation for the selected review batch."
                             />
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                                <StatsCard title="Total candidates" value={rollups.totalCandidates} />
+                                <StatsCard title="Batch total candidates" value={rollup.batch_total_candidates} />
+                                <StatsCard
+                                    title="Active review candidates"
+                                    value={rollup.active_candidates}
+                                    description="Excludes promoted rows."
+                                />
                                 <StatsCard
                                     title="Pending review"
-                                    value={data.total_pending_review_count}
-                                    description="From API rollup (pipeline definition of pending)."
+                                    value={rollup.pending_review_candidates}
                                     statusColor="warning"
                                 />
                                 <StatsCard
-                                    title="Approved (decision)"
-                                    value={data.total_approved_count}
+                                    title="Ready for publish"
+                                    value={rollup.ready_for_publish_candidates}
                                     statusColor="success"
                                 />
-                                <StatsCard title="Rejected" value={data.total_rejected_count} statusColor="danger" />
-                                <StatsCard title="Needs review / needs_review" value={rollups.needsReview} />
-                                <StatsCard title="Ignored" value={rollups.ignored} />
-                                <StatsCard title="Merged" value={rollups.merged} />
+                                <StatsCard title="Approved" value={rollup.approved_candidates} statusColor="success" />
+                                <StatsCard title="Rejected" value={rollup.rejected_candidates} statusColor="danger" />
+                                <StatsCard title="Needs review" value={rollup.needs_review_candidates} />
+                                <StatsCard title="Ignored" value={rollup.ignored_candidates} />
+                                <StatsCard title="Merged" value={rollup.merged_candidates} />
+                                <StatsCard title="Promoted" value={rollup.promoted_candidates} />
                                 <StatsCard
-                                    title="Ready for publish batch"
-                                    value={rollups.readyForPublish}
-                                    description="Approved decision + approved review_status, excluding promoted/failed promotions."
-                                    statusColor="success"
+                                    title="Promotion failed"
+                                    value={rollup.promotion_failed_candidates}
+                                    statusColor="danger"
                                 />
-                                <StatsCard title="Promoted" value={rollups.promoted} />
-                                <StatsCard title="Promotion failed" value={rollups.promotionFailed} statusColor="danger" />
                             </div>
                         </section>
 
-                        <section aria-labelledby="import-review-nav">
+                        <section aria-labelledby="import-review-family-metrics">
                             <SectionTitle
-                                id="import-review-nav"
-                                title="Review queues"
-                                subtitle="Opens list UIs wired to Supabase-backed import_review via the API (no direct DB)."
+                                id="import-review-family-metrics"
+                                title="Per-family review metrics"
+                                subtitle="Each family sums into the batch rollups above."
                             />
-                            <div className="flex flex-wrap gap-3">
-                                <Link
-                                    href={reviewHref("buildings")}
-                                    className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50"
-                                >
-                                    Review buildings
-                                </Link>
-                                <Link
-                                    href={reviewHref("places")}
-                                    className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50"
-                                >
-                                    Review places
-                                </Link>
-                                <Link
-                                    href={reviewHref("roads")}
-                                    className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50"
-                                >
-                                    Review roads
-                                </Link>
-                                <Link
-                                    href={(() => {
-                                        const p = new URLSearchParams();
-                                        if (scopeForLinks?.kind === "review_batch") {
-                                            p.set("review_batch_id", scopeForLinks.value);
-                                        } else if (scopeForLinks?.kind === "source_snapshot") {
-                                            p.set("source_snapshot_version", scopeForLinks.value);
-                                        }
-                                        const qs = p.toString();
-                                        return qs
-                                            ? `/import-review/promotion?${qs}`
-                                            : "/import-review/promotion";
-                                    })()}
-                                    className="rounded-md border border-emerald-600 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 shadow-sm hover:bg-emerald-100"
-                                >
-                                    Publish batches
-                                </Link>
+                            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                                {familySummaries.map((f) => (
+                                    <Card key={`metrics-${f.entity_family}`}>
+                                        <CardContent className="space-y-3 p-5">
+                                            <div className="flex items-start justify-between gap-2 border-b border-gray-100 pb-3">
+                                                <div>
+                                                    <h3 className="text-base font-semibold text-gray-900">{f.label}</h3>
+                                                    <p className="text-sm text-gray-600">
+                                                        Batch total: {f.batch_total.toLocaleString()}
+                                                    </p>
+                                                </div>
+                                                {f.slug ? (
+                                                    <Link
+                                                        href={entityReviewHref(f.slug)}
+                                                        className="shrink-0 text-xs font-medium text-blue-700 underline"
+                                                    >
+                                                        Open queue
+                                                    </Link>
+                                                ) : null}
+                                            </div>
+                                            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                                <dt className="text-gray-500">Active</dt>
+                                                <dd className="tabular-nums font-medium">{f.active.toLocaleString()}</dd>
+                                                <dt className="text-gray-500">Promoted</dt>
+                                                <dd className="tabular-nums font-medium">{f.promoted.toLocaleString()}</dd>
+                                                <dt className="text-gray-500">Pending</dt>
+                                                <dd className="tabular-nums font-medium">{f.pending_review.toLocaleString()}</dd>
+                                                <dt className="text-gray-500">Ready for publish</dt>
+                                                <dd className="tabular-nums font-medium">
+                                                    {f.ready_for_publish.toLocaleString()}
+                                                </dd>
+                                                <dt className="text-gray-500">Approved</dt>
+                                                <dd className="tabular-nums font-medium">{f.approved.toLocaleString()}</dd>
+                                                <dt className="text-gray-500">Rejected</dt>
+                                                <dd className="tabular-nums font-medium">{f.rejected.toLocaleString()}</dd>
+                                                <dt className="text-gray-500">Needs review</dt>
+                                                <dd className="tabular-nums font-medium">{f.needs_review.toLocaleString()}</dd>
+                                                <dt className="text-gray-500">Promotion failed</dt>
+                                                <dd className="tabular-nums font-medium">
+                                                    {f.promotion_failed.toLocaleString()}
+                                                </dd>
+                                                {f.validation_error_count > 0 || f.validation_warning_count > 0 ? (
+                                                    <>
+                                                        <dt className="text-gray-500">Validation errors</dt>
+                                                        <dd className="tabular-nums font-medium">
+                                                            {f.validation_error_count.toLocaleString()}
+                                                        </dd>
+                                                        <dt className="text-gray-500">Validation warnings</dt>
+                                                        <dd className="tabular-nums font-medium">
+                                                            {f.validation_warning_count.toLocaleString()}
+                                                        </dd>
+                                                    </>
+                                                ) : null}
+                                            </dl>
+                                        </CardContent>
+                                    </Card>
+                                ))}
                             </div>
                         </section>
 
@@ -592,18 +601,18 @@ function ImportReviewSummaryInner() {
                                 title="By entity — breakdown"
                                 subtitle="Counts grouped across dimensions present in bucket rows."
                             />
-                            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                                {FAMILIES.map((family) => {
-                                    const rows = familyRows(family);
-                                    const total = rows.reduce((s, r) => s + r.row_count, 0);
+                            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+                                {familySummaries.map((f) => {
+                                    const rows = data ? familyBucketRows(data.entity_summaries, f.entity_family) : [];
                                     return (
-                                        <Card key={family}>
+                                        <Card key={`breakdown-${f.entity_family}`}>
                                             <CardContent className="space-y-4 p-5">
                                                 <div className="border-b border-gray-100 pb-3">
-                                                    <h3 className="text-base font-semibold text-gray-900">
-                                                        {FAMILY_LABEL[family]}
-                                                    </h3>
-                                                    <p className="text-sm text-gray-600">{total.toLocaleString()} candidates</p>
+                                                    <h3 className="text-base font-semibold text-gray-900">{f.label}</h3>
+                                                    <p className="text-sm text-gray-600">
+                                                        Batch total: {f.batch_total.toLocaleString()} · Active:{" "}
+                                                        {f.active.toLocaleString()}
+                                                    </p>
                                                 </div>
                                                 <div className="grid gap-4 sm:grid-cols-1">
                                                     <BreakdownBlock
@@ -638,10 +647,17 @@ function ImportReviewSummaryInner() {
                     </div>
                 ) : null}
 
-                {isLoading && !data ? (
-                    <div className="rounded-lg border border-gray-200 bg-white p-6 text-gray-700 shadow-sm">
-                        Loading import review summary…
-                    </div>
+                {isLoading && !data && !error ? (
+                    <>
+                        <ImportReviewLoadingBannerWithSpinner
+                            message={IMPORT_REVIEW_LOADING.loadingOverviewSummary}
+                        />
+                        <ImportReviewSkeletonCards
+                            count={10}
+                            columns={4}
+                            message={IMPORT_REVIEW_LOADING.loadingOverviewSummary}
+                        />
+                    </>
                 ) : null}
             </div>
         </main>
@@ -653,8 +669,10 @@ export default function ImportReviewPage() {
         <Suspense
             fallback={
                 <main className="p-6">
-                    <div className="mx-auto max-w-7xl rounded-lg border border-gray-200 bg-white p-6 text-gray-700 shadow-sm">
-                        Loading…
+                    <div className="mx-auto max-w-7xl">
+                        <ImportReviewLoadingBannerWithSpinner
+                            message={IMPORT_REVIEW_LOADING.loadingOverviewSummary}
+                        />
                     </div>
                 </main>
             }

@@ -8,11 +8,14 @@ import { ImportReviewPromotionPromoteRepository } from "./import-review-promotio
 import { ImportReviewPromotionValidationRunner } from "./import-review-promotion-validation.js";
 import { ImportReviewPromotionValidationRepository } from "./import-review-promotion-validation.repo.js";
 import type {
+    ImportReviewCreatePublishBatchDryRunResult,
     ImportReviewCreatePublishBatchResult,
+    ImportReviewPromotionBatchEligibilityResponse,
     ImportReviewPromotionReadyCandidateItem,
     ImportReviewPromotionReadyCandidatesResponse,
     ImportReviewPromotionReadyCounts,
     ImportReviewPublishBatchDetail,
+    ImportReviewPublishBatchEntityValidationCounts,
     ImportReviewPublishBatchLogsResponse,
     ImportReviewPublishBatchProgressResponse,
     ImportReviewPublishBatchPromotionResultSummary,
@@ -24,14 +27,17 @@ import type {
     ImportReviewStartPublishBatchValidationResponse,
 } from "./import-review-promotion.types.js";
 import type {
+    ImportReviewPromotionBatchEligibilityQuery,
     ImportReviewPromotionBatchesListQuery,
     ImportReviewPromotionReadyCandidatesQuery,
     ImportReviewPromotionReadyQuery,
     PostImportReviewPromotionBatchBody,
     PostImportReviewPromotionBatchPromoteBody,
 } from "./import-review-promotion.schema.js";
-import { ImportReviewPublishBatchNotFoundError } from "./import-review-promotion.errors.js";
+import { DEFAULT_PUBLISH_ENTITY_FAMILIES, resolvePublishEntityFamilies } from "./import-review-promotion-config.js";
+import { IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES } from "./import-review-promotion-validation.types.js";
 import { ImportReviewInvalidScopeError } from "./import-review-errors.js";
+import { ImportReviewPublishBatchNotFoundError } from "./import-review-promotion.errors.js";
 
 function reviewedByUserId(user: JwtUser): bigint | null {
     const sub = user.sub?.trim();
@@ -129,11 +135,36 @@ function parseValidationResult(summary: unknown): ImportReviewPublishBatchValida
     const o = vr as Record<string, unknown>;
     const byAction = o.by_publish_action;
     const entityFamily = o.entity_family;
+    const byEntityRaw = o.by_entity;
+
+    const byEntity: Record<string, ImportReviewPublishBatchEntityValidationCounts> = {};
+    if (byEntityRaw && typeof byEntityRaw === "object" && !Array.isArray(byEntityRaw)) {
+        for (const [key, val] of Object.entries(byEntityRaw as Record<string, unknown>)) {
+            if (val && typeof val === "object" && !Array.isArray(val)) {
+                const b = val as Record<string, unknown>;
+                byEntity[key] = {
+                    total: Number(b.total ?? 0),
+                    valid: Number(b.valid ?? 0),
+                    warning: Number(b.warning ?? 0),
+                    blocked: Number(b.blocked ?? 0),
+                    skipped: Number(b.skipped ?? 0),
+                };
+            }
+        }
+    }
+
+    const promotableFamilies = Array.isArray(o.promotable_entity_families)
+        ? (o.promotable_entity_families as string[])
+        : ["buildings"];
+
     return {
         outcome: o.outcome === "blocked" ? "blocked" : "passed",
+        can_promote: o.can_promote === false ? false : true,
+        requires_warning_confirmation: o.requires_warning_confirmation === true,
         valid_count: typeof o.valid_count === "number" ? o.valid_count : 0,
         warning_count: typeof o.warning_count === "number" ? o.warning_count : 0,
         blocked_count: typeof o.blocked_count === "number" ? o.blocked_count : 0,
+        skipped_count: typeof o.skipped_count === "number" ? o.skipped_count : 0,
         total_items: typeof o.total_items === "number" ? o.total_items : 0,
         by_publish_action:
             byAction && typeof byAction === "object" && !Array.isArray(byAction)
@@ -143,11 +174,21 @@ function parseValidationResult(summary: unknown): ImportReviewPublishBatchValida
                       merge: Number((byAction as Record<string, unknown>).merge ?? 0),
                   }
                 : { insert: 0, update: 0, merge: 0 },
+        by_entity: byEntity,
         entity_family:
             entityFamily && typeof entityFamily === "object" && !Array.isArray(entityFamily)
                 ? { buildings: Number((entityFamily as Record<string, unknown>).buildings ?? 0) }
                 : { buildings: 0 },
+        promotable_entity_families: promotableFamilies,
     };
+}
+
+function currentEntityFamilyFromLog(details: unknown): string | null {
+    if (!details || typeof details !== "object" || Array.isArray(details)) {
+        return null;
+    }
+    const ef = (details as Record<string, unknown>).entity_family;
+    return typeof ef === "string" ? ef : null;
 }
 
 function parseLogsSummary(summary: unknown, key: "validation_logs_summary" | "promotion_logs_summary"): string | null {
@@ -298,25 +339,205 @@ export class ImportReviewPromotionService {
         };
     }
 
-    async createBatch(
-        body: PostImportReviewPromotionBatchBody,
-        user: JwtUser
-    ): Promise<ImportReviewCreatePublishBatchResult> {
-        const scope = await this.repo.resolveScope(body);
-        const { batch, itemsAdded, buildingsMarked } = await this.repo.createPublishBatchFromBuildings({
+    async getBatchEligibility(
+        query: ImportReviewPromotionBatchEligibilityQuery
+    ): Promise<ImportReviewPromotionBatchEligibilityResponse> {
+        const scope = await this.repo.resolveScope(query);
+        let families;
+        try {
+            families = resolvePublishEntityFamilies(
+                query.entity_families ?? [...DEFAULT_PUBLISH_ENTITY_FAMILIES],
+                false
+            );
+        } catch (err) {
+            throw new ImportReviewInvalidScopeError(
+                err instanceof Error ? err.message : "Invalid entity_families"
+            );
+        }
+
+        const options = {
+            includeWarnings: query.include_warnings ?? false,
+            includeMerged: query.include_merged ?? false,
+        };
+        const rows = await this.repo.countBatchEligibilityByFamilies({
             scope,
-            batchName: body.batch_name,
-            note: body.note?.trim() || null,
-            includeMerged: body.include_merged ?? false,
-            createdByUserId: reviewedByUserId(user),
+            families,
+            options,
         });
 
-        const detail = await this.getBatchById(batch.id);
+        const byFamily = rows.map((row) => ({
+            entity_family: row.entity_family,
+            table_name: row.table_name,
+            approved_ready: n(row.approved_ready),
+            with_warnings: n(row.with_warnings),
+            blocked: n(row.blocked),
+            already_promoted: n(row.already_promoted),
+            excluded: n(row.excluded),
+            skipped_reasons: [
+                { reason: "has_validation_errors", count: n(row.has_validation_errors) },
+                { reason: "manual_protected", count: n(row.manual_protected) },
+                { reason: "duplicate_unconfirmed", count: n(row.duplicate_unconfirmed) },
+                { reason: "rejected_decision", count: n(row.rejected_decision) },
+            ].filter((r) => r.count > 0),
+        }));
+
+        const totals = byFamily.reduce(
+            (acc, f) => ({
+                approved_ready: acc.approved_ready + f.approved_ready,
+                with_warnings: acc.with_warnings + f.with_warnings,
+                blocked: acc.blocked + f.blocked,
+                already_promoted: acc.already_promoted + f.already_promoted,
+            }),
+            { approved_ready: 0, with_warnings: 0, blocked: 0, already_promoted: 0 }
+        );
 
         return {
-            message: `Created publish batch "${batch.batch_name}" with ${itemsAdded} building item(s). Candidates marked promotion_status=batched. No core writes were performed.`,
+            review_batch_id: scope.reviewBatchId.toString(),
+            source_snapshot_version: scope.snapshotVersion,
+            entity_families: families.map((f) => f.entityFamily),
+            by_family: byFamily,
+            totals,
+        };
+    }
+
+    async createBatch(
+        body: PostImportReviewPromotionBatchBody,
+        user: JwtUser,
+        log?: FastifyBaseLogger
+    ): Promise<ImportReviewCreatePublishBatchResult | ImportReviewCreatePublishBatchDryRunResult> {
+        const totalStart = Date.now();
+        let resolveMs = 0;
+
+        const resolveStart = Date.now();
+        const scope = await this.repo.resolveScope(body);
+        let families;
+        try {
+            families = resolvePublishEntityFamilies(
+                body.entity_families,
+                body.allow_high_risk_families ?? false
+            );
+        } catch (err) {
+            throw new ImportReviewInvalidScopeError(
+                err instanceof Error ? err.message : "Invalid entity_families"
+            );
+        }
+        resolveMs = Date.now() - resolveStart;
+
+        const options = {
+            includeWarnings: body.include_warnings ?? false,
+            includeMerged: body.include_merged ?? false,
+        };
+        const batchName =
+            body.batch_name?.trim() ||
+            `dry-run-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}`;
+
+        if (body.dry_run) {
+            const eligibilityStart = Date.now();
+            const preview = await this.repo.dryRunPublishBatchMultiFamily({
+                scope,
+                batchName,
+                families,
+                options,
+            });
+            const eligibilityMs = Date.now() - eligibilityStart;
+            const totalMs = Date.now() - totalStart;
+            const timing_ms = {
+                resolve_ms: resolveMs,
+                eligibility_ms: eligibilityMs,
+                payload_ms: 0,
+                transaction_ms: 0,
+                total_ms: totalMs,
+            };
+            const by_entity = Object.fromEntries(
+                preview.byFamily.map((f) => [f.entity_family, f.included])
+            );
+            log?.info(
+                {
+                    create_batch_timing: timing_ms,
+                    dry_run: true,
+                    review_batch_id: scope.reviewBatchId.toString(),
+                    total_selected: preview.totals.included,
+                },
+                `create_batch_timing eligibility_ms=${eligibilityMs} transaction_ms=0 total_ms=${totalMs}`
+            );
+            return {
+                dry_run: true,
+                batch_name: preview.batchName,
+                entity_families: preview.entityFamilies,
+                totals: preview.totals,
+                by_family: preview.byFamily,
+                total_selected: preview.totals.included,
+                by_entity,
+                skipped: preview.totals.skipped,
+                timing_ms,
+                stages: [
+                    {
+                        stage_key: "resolve_scope",
+                        stage_label: "Resolve scope",
+                        message: `Scope resolved for review_batch_id=${scope.reviewBatchId.toString()}.`,
+                        counts: {},
+                    },
+                    {
+                        stage_key: "count_eligible",
+                        stage_label: "Count eligible candidates",
+                        message: `${preview.totals.included} candidate(s) would be included.`,
+                        counts: preview.totals,
+                    },
+                ],
+                message: "Dry-run complete. No database rows were changed.",
+            };
+        }
+
+        const { batch, itemsAdded, candidatesMarked, byFamily, timing, totalSelected } =
+            await this.repo.createPublishBatchMultiFamily({
+                scope,
+                batchName: body.batch_name!.trim(),
+                note: body.note?.trim() || null,
+                families,
+                options,
+                createdByUserId: reviewedByUserId(user),
+            });
+
+        const detail = await this.getBatchById(batch.id);
+        const buildingsMarked =
+            byFamily.find((f) => f.entity_family === "buildings")?.marked_batched ?? 0;
+        const familyLabels = families.map((f) => f.entityFamily).join(", ");
+        const skipped = byFamily.reduce(
+            (sum, f) => sum + f.skipped_reasons.reduce((s, r) => s + r.count, 0),
+            0
+        );
+        const by_entity = Object.fromEntries(byFamily.map((f) => [f.entity_family, f.items_added]));
+        const timing_ms = {
+            resolve_ms: resolveMs + timing.resolve_ms,
+            eligibility_ms: timing.eligibility_ms,
+            payload_ms: timing.payload_ms,
+            transaction_ms: timing.transaction_ms,
+            total_ms: Date.now() - totalStart,
+        };
+
+        log?.info(
+            {
+                create_batch_timing: timing_ms,
+                dry_run: false,
+                batch_id: batch.id.toString(),
+                review_batch_id: scope.reviewBatchId.toString(),
+                total_selected: totalSelected,
+            },
+            `create_batch_timing eligibility_ms=${timing_ms.eligibility_ms} transaction_ms=${timing_ms.transaction_ms} total_ms=${timing_ms.total_ms}`
+        );
+
+        return {
+            message: `Created publish batch "${batch.batch_name}" with ${itemsAdded} item(s) across [${familyLabels}]. Candidates marked promotion_status=batched. No core writes were performed.`,
             batch: detail,
+            batch_id: batch.id.toString(),
+            status: batch.status,
             items_added: itemsAdded,
+            total_selected: totalSelected,
+            candidates_marked_batched: candidatesMarked,
+            by_family: byFamily,
+            by_entity,
+            skipped,
+            timing_ms,
             building_candidates_marked_batched: buildingsMarked,
         };
     }
@@ -344,18 +565,24 @@ export class ImportReviewPromotionService {
         const promotionSummary = parsePromotionResult(batch.summary);
         const validationSummary = parseLogsSummary(batch.summary, "validation_logs_summary");
         const promotionLogsSummary = parseLogsSummary(batch.summary, "promotion_logs_summary");
+        const totalItemCount = batch.validation_total;
+        const itemProcessedCount = Math.min(batch.validation_done, totalItemCount);
 
         return {
             batch_id: batchId.toString(),
             status: batch.status,
             workflow,
             validation_total: batch.validation_total,
-            validation_done: batch.validation_done,
+            validation_done: itemProcessedCount,
             validation_percent: batch.validation_percent,
+            total_item_count: totalItemCount,
+            item_processed_count: itemProcessedCount,
+            stage_count: IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES.length,
             validated_at: batch.validated_at ? batch.validated_at.toISOString() : null,
             current_stage_key: current?.stage_key ?? null,
             current_stage_label: current?.stage_label ?? null,
             current_stage_status: current?.stage_status ?? null,
+            current_entity_family: current ? currentEntityFamilyFromLog(current.details) : null,
             current_message:
                 current?.message ??
                 (workflow === "promotion" ? promotionLogsSummary : validationSummary),
@@ -375,6 +602,8 @@ export class ImportReviewPromotionService {
         return this.promoteRunner.startPromotion({
             batchId,
             confirmationText: body.confirmation_text,
+            confirmWarnings: body.confirm_warnings,
+            warningConfirmationNote: body.warning_confirmation_note,
             chunkSize: body.chunk_size,
             promotedBy: reviewedByUserId(user),
             log,

@@ -19,13 +19,20 @@ export type ImportReviewRowSurface = {
 };
 
 /** Row tint + solid sticky-cell background (avoids bleed-through when scrolling). */
-export function importReviewRowSurface(row: ImportReviewBuildingListItem): ImportReviewRowSurface {
+export function importReviewRowSurface(
+    row: ImportReviewBuildingListItem,
+    opts?: { selected?: boolean }
+): ImportReviewRowSurface {
     const rd = (row.review_decision ?? "").toLowerCase();
     const rs = (row.review_status ?? "").toLowerCase();
     const ms = row.match_status ?? "";
 
     const parts: string[] = [];
     let stickyCellClass = "bg-white";
+
+    if (opts?.selected) {
+        parts.push("ring-2 ring-inset ring-blue-400/50");
+    }
 
     if (ms === "manual_protected") {
         parts.push("ring-1 ring-inset ring-violet-300/70");

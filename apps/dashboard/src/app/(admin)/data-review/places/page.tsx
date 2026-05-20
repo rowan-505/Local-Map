@@ -1,5 +1,3 @@
-import { ImportReviewCandidatesPageShell } from "../../import-review/_components/ImportReviewCandidatesClient";
+import { createImportReviewEntityRoutePage } from "@/src/features/import-review/routes/importReviewEntityRoutePage";
 
-export default function DataReviewPlacesPage() {
-    return <ImportReviewCandidatesPageShell family="places" showMapPreview />;
-}
+export default createImportReviewEntityRoutePage("places", { showMapPreview: true });

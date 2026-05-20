@@ -1,6 +1,6 @@
 # Local Map API
 
-> **Generated:** 2026-05-08T15:01:37.964Z (UTC)  
+> **Generated:** 2026-05-19T19:08:42.118Z (UTC)  
 > **OpenAPI:** This file is produced from `buildApp().swagger()` in `scripts/generate-api-docs.ts` — the same JSON as `GET /openapi.json` when the server is running.
 
 ## Base URLs
@@ -21,7 +21,7 @@ HTTP API for Local Map (places, streets, buildings, public map). Routes marked w
 
 ### Bearer JWT (`bearerAuth`)
 
-JWT from POST /auth/login. Example: `Authorization: Bearer <accessToken>`
+When **`IMPORT_REVIEW_ADMIN_TOKEN` is unset**, Import Review requires `Authorization: Bearer <accessToken>` from `/auth/login` and JWT payload `roles` must include `"admin"` (**401** if missing or invalid JWT; **403** if not admin). When **`IMPORT_REVIEW_ADMIN_TOKEN` is set**, every Import Review request must send header **`x-import-review-admin-token: <exact token>`**; omitting/closing whitespace-only → **401**, wrong secret → **403** (Bearer JWT is **not needed** there — temporary shared-secret shim).
 
 Send the header: `Authorization: Bearer <accessToken>`
 
@@ -3056,6 +3056,2705 @@ Public text search for the map client.
   }
   ```
 
+### Import Review
+
+Admin-only Supabase `import_review` workspace. **`AUTH_BYPASS` is ignored.** Configure `IMPORT_REVIEW_ADMIN_TOKEN` to require header `x-import-review-admin-token` (401 missing, 403 mismatch; Bearer not required). Omit that env to require Bearer JWT whose payload includes `"roles": ["admin"]`.
+
+#### `GET` `/api/import-review/buildings`
+
+**Summary:** List import-review building candidates
+
+Paged list from `import_review.building_candidates` with GeoJSON `geom`/centroid when `include_geometry=true`. Scope matches summary endpoint rules.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| source_snapshot_version | Query | no | string |
+| snapshot_version | Query | no | string |
+| review_batch_id | Query | no | string |
+| match_status | Query | no | string |
+| auto_action | Query | no | string |
+| review_status | Query | no | string |
+| review_decision | Query | no | string |
+| class_code | Query | no | string |
+| promotion_status | Query | no | string |
+| q | Query | no | string |
+| limit | Query | no | integer |
+| offset | Query | no | integer |
+| sort | Query | no | string |
+| include_geometry | Query | no | boolean |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "source_snapshot_version": "string",
+    "review_batch_id": "string",
+    "source_snapshot_id_local": "string",
+    "items": [
+      {
+        "id": "string",
+        "public_id": "string",
+        "review_batch_id": "string",
+        "source_snapshot_version": "string",
+        "local_staging_id": "string",
+        "source_snapshot_id_local": "string",
+        "external_id": "string",
+        "canonical_name": "string",
+        "name": "string",
+        "class_code": "string",
+        "building_type": "string",
+        "building_type_id": "string",
+        "admin_area_id": "string",
+        "levels": 0,
+        "height_m": 0,
+        "area_m2": 0,
+        "confidence_score": 0,
+        "match_status": "string",
+        "auto_action": "string",
+        "review_status": "string",
+        "review_decision": "string",
+        "reviewed_by": "string",
+        "reviewed_at": "2026-01-01T00:00:00.000Z",
+        "review_note": "string",
+        "normalized_data": null,
+        "source_refs": null,
+        "review_overrides": {},
+        "matched_core_id": "string",
+        "…": "(more fields — see OpenAPI spec)"
+      }
+    ],
+    "total": 0,
+    "limit": 0,
+    "offset": 0
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/buildings/{id}`
+
+**Summary:** Get one import-review building candidate
+
+Returns a single candidate row with GeoJSON geometry when include_geometry=true.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| source_snapshot_version | Query | no | string |
+| snapshot_version | Query | no | string |
+| review_batch_id | Query | no | string |
+| include_geometry | Query | no | boolean |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "public_id": "string",
+    "review_batch_id": "string",
+    "source_snapshot_version": "string",
+    "local_staging_id": "string",
+    "source_snapshot_id_local": "string",
+    "external_id": "string",
+    "canonical_name": "string",
+    "name": "string",
+    "class_code": "string",
+    "building_type": "string",
+    "building_type_id": "string",
+    "admin_area_id": "string",
+    "levels": 0,
+    "height_m": 0,
+    "area_m2": 0,
+    "confidence_score": 0,
+    "match_status": "string",
+    "auto_action": "string",
+    "review_status": "string",
+    "review_decision": "string",
+    "reviewed_by": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "review_note": "string",
+    "normalized_data": null,
+    "source_refs": null,
+    "review_overrides": {},
+    "matched_core_id": "string",
+    "…": "(more fields — see OpenAPI spec)"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/api/import-review/buildings/{id}/decision`
+
+**Summary:** Set import-review building decision
+
+Updates `import_review.building_candidates` decisions (never core). Rows with promotion_status=promoted require force=true for any change; manual_protected/protect_manual and duplicate_candidate follow bulk safety rules documented in dashboards.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "review_decision": "approved",
+  "source_snapshot_version": "string",
+  "snapshot_version": "string",
+  "review_batch_id": "string",
+  "review_note": "string",
+  "force": false,
+  "confirm_duplicate_reviewed": false,
+  "confirm_matched_auto_update": false,
+  "confirm_routing_warnings": false
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "public_id": "string",
+    "review_batch_id": "string",
+    "source_snapshot_version": "string",
+    "local_staging_id": "string",
+    "source_snapshot_id_local": "string",
+    "external_id": "string",
+    "canonical_name": "string",
+    "name": "string",
+    "class_code": "string",
+    "building_type": "string",
+    "building_type_id": "string",
+    "admin_area_id": "string",
+    "levels": 0,
+    "height_m": 0,
+    "area_m2": 0,
+    "confidence_score": 0,
+    "match_status": "string",
+    "auto_action": "string",
+    "review_status": "string",
+    "review_decision": "string",
+    "reviewed_by": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "review_note": "string",
+    "normalized_data": null,
+    "source_refs": null,
+    "review_overrides": {},
+    "matched_core_id": "string",
+    "…": "(more fields — see OpenAPI spec)"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/api/import-review/buildings/{id}/overrides`
+
+**Summary:** Patch import_review building overrides
+
+Shallow-merge JSON into `review_overrides` plus optional audit row (`import_review.review_candidate_edits`) when migration 024 tables exist.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "review_overrides": {},
+  "source_snapshot_version": "string",
+  "snapshot_version": "string",
+  "review_batch_id": "string",
+  "review_note": "string"
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "public_id": "string",
+    "review_batch_id": "string",
+    "source_snapshot_version": "string",
+    "local_staging_id": "string",
+    "source_snapshot_id_local": "string",
+    "external_id": "string",
+    "canonical_name": "string",
+    "name": "string",
+    "class_code": "string",
+    "building_type": "string",
+    "building_type_id": "string",
+    "admin_area_id": "string",
+    "levels": 0,
+    "height_m": 0,
+    "area_m2": 0,
+    "confidence_score": 0,
+    "match_status": "string",
+    "auto_action": "string",
+    "review_status": "string",
+    "review_decision": "string",
+    "reviewed_by": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "review_note": "string",
+    "normalized_data": null,
+    "source_refs": null,
+    "review_overrides": {},
+    "matched_core_id": "string",
+    "…": "(more fields — see OpenAPI spec)"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/api/import-review/buildings/bulk-decision`
+
+**Summary:** Bulk import-review building decisions
+
+Bulk updates building candidates in one transaction (or dry_run for counts). Mode A: ids. Mode B: filters. Uses DATABASE_URL.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "review_decision": "approved",
+  "source_snapshot_version": "string",
+  "snapshot_version": "string",
+  "review_batch_id": "string",
+  "review_note": "string",
+  "force": false,
+  "dry_run": false,
+  "ids": [
+    0
+  ],
+  "filters": {
+    "match_status": "string",
+    "auto_action": "string",
+    "review_decision": "string"
+  }
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "source_snapshot_version": "string",
+    "review_batch_id": "string",
+    "source_snapshot_id_local": "string",
+    "updated_count": 0,
+    "skipped_count": 0,
+    "skipped_reasons": [
+      {
+        "reason": "string",
+        "count": 0
+      }
+    ],
+    "dry_run": false
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/buildings/filter-options`
+
+**Summary:** Distinct building candidate filter options
+
+Read-only DISTINCT dropdown values from `import_review.building_candidates` within the resolved review scope.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| source_snapshot_version | Query | no | string |
+| snapshot_version | Query | no | string |
+| review_batch_id | Query | no | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "source_snapshot_version": "string",
+    "review_batch_id": "string",
+    "source_snapshot_id_local": "string",
+    "match_status": [
+      "string"
+    ],
+    "auto_action": [
+      "string"
+    ],
+    "review_status": [
+      "string"
+    ],
+    "review_decision": [
+      "string"
+    ],
+    "class_code": [
+      "string"
+    ],
+    "promotion_status": [
+      "string"
+    ]
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/places`
+
+**Summary:** List import-review place candidates
+
+Paginated `import_review.place_candidates` within the resolved batch/source snapshot.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| source_snapshot_version | Query | no | string |
+| snapshot_version | Query | no | string |
+| review_batch_id | Query | no | string |
+| match_status | Query | no | string |
+| auto_action | Query | no | string |
+| review_status | Query | no | string |
+| review_decision | Query | no | string |
+| q | Query | no | string |
+| limit | Query | no | integer |
+| offset | Query | no | integer |
+| sort | Query | no | string |
+| include_geometry | Query | no | boolean |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "source_snapshot_version": "string",
+    "review_batch_id": "string",
+    "source_snapshot_id_local": "string",
+    "items": [
+      {
+        "id": "string",
+        "public_id": "string",
+        "review_batch_id": "string",
+        "source_snapshot_version": "string",
+        "local_staging_id": "string",
+        "source_snapshot_id_local": "string",
+        "external_id": "string",
+        "canonical_name": "string",
+        "name": "string",
+        "class_code": "string",
+        "building_type": "string",
+        "building_type_id": "string",
+        "admin_area_id": "string",
+        "levels": 0,
+        "height_m": 0,
+        "area_m2": 0,
+        "confidence_score": 0,
+        "match_status": "string",
+        "auto_action": "string",
+        "review_status": "string",
+        "review_decision": "string",
+        "reviewed_by": "string",
+        "reviewed_at": "2026-01-01T00:00:00.000Z",
+        "review_note": "string",
+        "normalized_data": null,
+        "source_refs": null,
+        "review_overrides": {},
+        "matched_core_id": "string",
+        "…": "(more fields — see OpenAPI spec)"
+      }
+    ],
+    "total": 0,
+    "limit": 0,
+    "offset": 0
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/api/import-review/places/{id}/decision`
+
+**Summary:** Set import-review place decision
+
+Updates place candidate review columns. Same rules as buildings for manual_protected and duplicate_candidate.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "review_decision": "approved",
+  "source_snapshot_version": "string",
+  "snapshot_version": "string",
+  "review_batch_id": "string",
+  "review_note": "string",
+  "force": false,
+  "confirm_duplicate_reviewed": false,
+  "confirm_matched_auto_update": false,
+  "confirm_routing_warnings": false
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "public_id": "string",
+    "review_batch_id": "string",
+    "source_snapshot_version": "string",
+    "local_staging_id": "string",
+    "source_snapshot_id_local": "string",
+    "external_id": "string",
+    "canonical_name": "string",
+    "name": "string",
+    "class_code": "string",
+    "building_type": "string",
+    "building_type_id": "string",
+    "admin_area_id": "string",
+    "levels": 0,
+    "height_m": 0,
+    "area_m2": 0,
+    "confidence_score": 0,
+    "match_status": "string",
+    "auto_action": "string",
+    "review_status": "string",
+    "review_decision": "string",
+    "reviewed_by": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "review_note": "string",
+    "normalized_data": null,
+    "source_refs": null,
+    "review_overrides": {},
+    "matched_core_id": "string",
+    "…": "(more fields — see OpenAPI spec)"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/api/import-review/places/bulk-decision`
+
+**Summary:** Bulk import-review place decisions
+
+Bulk updates place candidates (or dry_run). Same scope rules as buildings.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "review_decision": "approved",
+  "source_snapshot_version": "string",
+  "snapshot_version": "string",
+  "review_batch_id": "string",
+  "review_note": "string",
+  "force": false,
+  "dry_run": false,
+  "ids": [
+    0
+  ],
+  "filters": {
+    "match_status": "string",
+    "auto_action": "string",
+    "review_decision": "string"
+  }
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "source_snapshot_version": "string",
+    "review_batch_id": "string",
+    "source_snapshot_id_local": "string",
+    "updated_count": 0,
+    "skipped_count": 0,
+    "skipped_reasons": [
+      {
+        "reason": "string",
+        "count": 0
+      }
+    ],
+    "dry_run": false
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/promotion/batches`
+
+**Summary:** List publish batches for a review scope
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| source_snapshot_version | Query | no | string |
+| snapshot_version | Query | no | string |
+| review_batch_id | Query | no | string |
+| include_merged | Query | no | boolean |
+| limit | Query | no | integer |
+| offset | Query | no | integer |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "items": [
+      {
+        "id": "string",
+        "public_id": "string",
+        "batch_name": "string",
+        "status": "string",
+        "total_item_count": 0,
+        "success_count": 0,
+        "failed_count": 0,
+        "skipped_count": 0,
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "source_review_batch_id": "string",
+        "source_snapshot_version": "string",
+        "region_code": "string",
+        "note": "string",
+        "published_at": "2026-01-01T00:00:00.000Z",
+        "promoted_at": "2026-01-01T00:00:00.000Z"
+      }
+    ],
+    "total": 0,
+    "limit": 0,
+    "offset": 0
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/api/import-review/promotion/batches`
+
+**Summary:** Create publish batch from approved building candidates
+
+Transactional: inserts system.system_publish_batches + system.system_publish_items, marks building_candidates promotion_status=batched. No core promotion.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "batch_name": "string",
+  "source_snapshot_version": "string",
+  "snapshot_version": "string",
+  "review_batch_id": "string",
+  "note": "string",
+  "include_merged": false
+}
+```
+
+**Responses**
+
+- **`201`**
+
+  ```json
+  {
+    "message": "string",
+    "batch": {
+      "id": "string",
+      "public_id": "string",
+      "batch_name": "string",
+      "status": "string",
+      "total_item_count": 0,
+      "success_count": 0,
+      "failed_count": 0,
+      "skipped_count": 0,
+      "created_at": "2026-01-01T00:00:00.000Z",
+      "source_review_batch_id": "string",
+      "source_snapshot_version": "string",
+      "region_code": "string",
+      "note": "string",
+      "published_at": "2026-01-01T00:00:00.000Z",
+      "promoted_at": "2026-01-01T00:00:00.000Z",
+      "item_counts": {
+        "pending": 0,
+        "success": 0,
+        "failed": 0,
+        "skipped": 0,
+        "rolled_back": 0,
+        "total": 0
+      },
+      "building_item_counts": {
+        "pending": 0,
+        "success": 0,
+        "failed": 0,
+        "skipped": 0,
+        "rolled_back": 0,
+        "total": 0
+      }
+    },
+    "items_added": 0,
+    "building_candidates_marked_batched": 0
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/promotion/batches/{id}`
+
+**Summary:** Get one publish batch with item counts
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "public_id": "string",
+    "batch_name": "string",
+    "status": "string",
+    "total_item_count": 0,
+    "success_count": 0,
+    "failed_count": 0,
+    "skipped_count": 0,
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "source_review_batch_id": "string",
+    "source_snapshot_version": "string",
+    "region_code": "string",
+    "note": "string",
+    "published_at": "2026-01-01T00:00:00.000Z",
+    "promoted_at": "2026-01-01T00:00:00.000Z",
+    "item_counts": {
+      "pending": 0,
+      "success": 0,
+      "failed": 0,
+      "skipped": 0,
+      "rolled_back": 0,
+      "total": 0
+    },
+    "building_item_counts": {
+      "pending": 0,
+      "success": 0,
+      "failed": 0,
+      "skipped": 0,
+      "rolled_back": 0,
+      "total": 0
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/promotion/batches/{id}/logs`
+
+**Summary:** List publish batch validation or promotion stage logs
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "batch_id": "string",
+    "items": [
+      {
+        "id": "string",
+        "stage_key": "string",
+        "stage_label": "string",
+        "stage_status": "string",
+        "progress_percent": 0,
+        "started_at": "2026-01-01T00:00:00.000Z",
+        "message": "string",
+        "details": null,
+        "finished_at": "2026-01-01T00:00:00.000Z"
+      }
+    ]
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/promotion/batches/{id}/progress`
+
+**Summary:** Get publish batch validation or promotion progress
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "batch_id": "string",
+    "status": "string",
+    "workflow": "validation",
+    "validation_total": 0,
+    "validation_done": 0,
+    "validation_percent": 0,
+    "validated_at": "2026-01-01T00:00:00.000Z",
+    "current_stage_key": "string",
+    "current_stage_label": "string",
+    "current_stage_status": "string",
+    "current_message": "string",
+    "validation_result": {
+      "outcome": "passed",
+      "valid_count": 0,
+      "warning_count": 0,
+      "blocked_count": 0,
+      "total_items": 0,
+      "by_publish_action": {
+        "insert": 0,
+        "update": 0,
+        "merge": 0
+      },
+      "entity_family": {
+        "buildings": 0
+      }
+    },
+    "validation_logs_summary": "string",
+    "promotion_result": {
+      "status": "promoted",
+      "inserted_count": 0,
+      "updated_count": 0,
+      "success_count": 0,
+      "failed_count": 0,
+      "skipped_count": 0,
+      "total": 0,
+      "core_verified_count": 0,
+      "import_review_marked_promoted_count": 0,
+      "started_at": "2026-01-01T00:00:00.000Z",
+      "finished_at": "2026-01-01T00:00:00.000Z",
+      "duration_ms": 0,
+      "promoted_entity_families": [
+        "string"
+      ],
+      "partial_success": false
+    },
+    "promotion_logs_summary": "string"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/api/import-review/promotion/batches/{id}/promote`
+
+**Summary:** Promote validated publish batch to core (buildings)
+
+Writes approved building candidates to core.core_map_buildings. Returns 202 immediately; poll progress and logs endpoints.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "confirmation_text": "PROMOTE",
+  "chunk_size": 0
+}
+```
+
+**Responses**
+
+- **`202`**
+
+  ```json
+  {
+    "batch_id": "string",
+    "status": "string",
+    "message": "string"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/api/import-review/promotion/batches/{id}/validate`
+
+**Summary:** Start publish batch dry-run validation (buildings)
+
+Validates all publish items without writing to core. Returns 202 immediately; poll progress and logs endpoints.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`202`**
+
+  ```json
+  {
+    "batch_id": "string",
+    "status": "string",
+    "message": "string"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/promotion/batches/{id}/verify`
+
+**Summary:** Verify publish batch promotion results
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "batch_id": "string",
+    "verification_status": "passed",
+    "publish_items": {
+      "success": 0,
+      "failed": 0,
+      "pending": 0,
+      "skipped": 0,
+      "success_missing_target_id": 0
+    },
+    "core_rows_missing": 0,
+    "core_rows_inactive": 0,
+    "candidates_promoted_missing_core_id": 0,
+    "lineage_warnings": 0,
+    "geometry_warnings": 0,
+    "issues": [
+      {
+        "code": "string",
+        "message": "string",
+        "severity": "error"
+      }
+    ]
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/promotion/ready`
+
+**Summary:** Count building candidates ready for publish batching
+
+Server-side readiness counts for approved import_review.building_candidates. No core writes.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| source_snapshot_version | Query | no | string |
+| snapshot_version | Query | no | string |
+| review_batch_id | Query | no | string |
+| include_merged | Query | no | boolean |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "entity_family": "buildings",
+    "review_batch_id": "string",
+    "source_snapshot_version": "string",
+    "ready_count": 0,
+    "already_batched_count": 0,
+    "promoted_count": 0,
+    "blocked_in_active_publish_batch_count": 0
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/promotion/ready-candidates`
+
+**Summary:** List building candidates ready for publish batch preview
+
+Paginated preview of approved building candidates eligible for publish batching. No core writes.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| source_snapshot_version | Query | no | string |
+| snapshot_version | Query | no | string |
+| review_batch_id | Query | no | string |
+| include_merged | Query | no | boolean |
+| entity_family | Query | no | string |
+| limit | Query | no | integer |
+| offset | Query | no | integer |
+| sort | Query | no | string |
+| include_geometry | Query | no | boolean |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "items": [
+      {
+        "id": "string",
+        "public_id": "string",
+        "validation_warnings_count": 0,
+        "validation_errors_count": 0,
+        "updated_at": "2026-01-01T00:00:00.000Z",
+        "source_snapshot_version": "string",
+        "review_batch_id": "string",
+        "external_id": "string",
+        "name": "string",
+        "canonical_name": "string",
+        "class_code": "string",
+        "building_type": "string",
+        "building_type_id": "string",
+        "confidence_score": 0,
+        "match_status": "string",
+        "auto_action": "string",
+        "review_status": "string",
+        "review_decision": "string",
+        "promotion_status": "string",
+        "normalized_data": null,
+        "review_overrides": null,
+        "source_refs": null,
+        "geometry": {}
+      }
+    ],
+    "total": 0,
+    "limit": 0,
+    "offset": 0,
+    "counts": {
+      "ready": 0,
+      "already_batched": 0,
+      "promoted": 0,
+      "blocked_active_batch": 0
+    }
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/roads`
+
+**Summary:** List import-review road candidates
+
+Paginated `import_review.road_candidates` within the resolved batch/source snapshot.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| source_snapshot_version | Query | no | string |
+| snapshot_version | Query | no | string |
+| review_batch_id | Query | no | string |
+| match_status | Query | no | string |
+| auto_action | Query | no | string |
+| review_status | Query | no | string |
+| review_decision | Query | no | string |
+| q | Query | no | string |
+| limit | Query | no | integer |
+| offset | Query | no | integer |
+| sort | Query | no | string |
+| include_geometry | Query | no | boolean |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "source_snapshot_version": "string",
+    "review_batch_id": "string",
+    "source_snapshot_id_local": "string",
+    "items": [
+      {
+        "id": "string",
+        "public_id": "string",
+        "review_batch_id": "string",
+        "source_snapshot_version": "string",
+        "local_staging_id": "string",
+        "source_snapshot_id_local": "string",
+        "external_id": "string",
+        "canonical_name": "string",
+        "name": "string",
+        "class_code": "string",
+        "building_type": "string",
+        "building_type_id": "string",
+        "admin_area_id": "string",
+        "levels": 0,
+        "height_m": 0,
+        "area_m2": 0,
+        "confidence_score": 0,
+        "match_status": "string",
+        "auto_action": "string",
+        "review_status": "string",
+        "review_decision": "string",
+        "reviewed_by": "string",
+        "reviewed_at": "2026-01-01T00:00:00.000Z",
+        "review_note": "string",
+        "normalized_data": null,
+        "source_refs": null,
+        "review_overrides": {},
+        "matched_core_id": "string",
+        "…": "(more fields — see OpenAPI spec)"
+      }
+    ],
+    "total": 0,
+    "limit": 0,
+    "offset": 0
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/api/import-review/roads/{id}/decision`
+
+**Summary:** Set import-review road decision
+
+Updates road candidate review columns. manual_protected and duplicate_candidate follow building rules. match_status=matched_auto_update approve requires confirm_matched_auto_update=true or force=true.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "review_decision": "approved",
+  "source_snapshot_version": "string",
+  "snapshot_version": "string",
+  "review_batch_id": "string",
+  "review_note": "string",
+  "force": false,
+  "confirm_duplicate_reviewed": false,
+  "confirm_matched_auto_update": false,
+  "confirm_routing_warnings": false
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "public_id": "string",
+    "review_batch_id": "string",
+    "source_snapshot_version": "string",
+    "local_staging_id": "string",
+    "source_snapshot_id_local": "string",
+    "external_id": "string",
+    "canonical_name": "string",
+    "name": "string",
+    "class_code": "string",
+    "building_type": "string",
+    "building_type_id": "string",
+    "admin_area_id": "string",
+    "levels": 0,
+    "height_m": 0,
+    "area_m2": 0,
+    "confidence_score": 0,
+    "match_status": "string",
+    "auto_action": "string",
+    "review_status": "string",
+    "review_decision": "string",
+    "reviewed_by": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "review_note": "string",
+    "normalized_data": null,
+    "source_refs": null,
+    "review_overrides": {},
+    "matched_core_id": "string",
+    "…": "(more fields — see OpenAPI spec)"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `PATCH` `/api/import-review/roads/{id}/overrides`
+
+**Summary:** Patch import_review road overrides (routing-safe)
+
+Validates LineString/MultiLineString geometry, ref road class FK, surface text, and routing continuity warnings before merging `review_overrides` and updating typed columns on `import_review.road_candidates`.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "review_overrides": {
+    "canonical_name": "string",
+    "road_class_id": "string",
+    "road_class_code": "string",
+    "is_oneway": false,
+    "surface": "string",
+    "geom": {}
+  },
+  "source_snapshot_version": "string",
+  "snapshot_version": "string",
+  "review_batch_id": "string",
+  "review_note": "string",
+  "routing_validation_tolerance_meters": 0,
+  "confirm_acknowledge_routing_warnings": false
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "id": "string",
+    "public_id": "string",
+    "review_batch_id": "string",
+    "source_snapshot_version": "string",
+    "local_staging_id": "string",
+    "source_snapshot_id_local": "string",
+    "external_id": "string",
+    "canonical_name": "string",
+    "name": "string",
+    "class_code": "string",
+    "building_type": "string",
+    "building_type_id": "string",
+    "admin_area_id": "string",
+    "levels": 0,
+    "height_m": 0,
+    "area_m2": 0,
+    "confidence_score": 0,
+    "match_status": "string",
+    "auto_action": "string",
+    "review_status": "string",
+    "review_decision": "string",
+    "reviewed_by": "string",
+    "reviewed_at": "2026-01-01T00:00:00.000Z",
+    "review_note": "string",
+    "normalized_data": null,
+    "source_refs": null,
+    "review_overrides": {},
+    "matched_core_id": "string",
+    "…": "(more fields — see OpenAPI spec)"
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/api/import-review/roads/{id}/validate-routing`
+
+**Summary:** Validate import-review road for routing
+
+Runs geometry, attribute, connectivity, duplicate, and promotion-readiness checks. Persists validation_errors / validation_warnings on import_review.road_candidates only (no core promotion).
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| id | Path | yes | string |
+
+
+**Request body** (`application/json`)
+
+```json
+{
+  "source_snapshot_version": "string",
+  "snapshot_version": "string",
+  "review_batch_id": "string",
+  "use_review_overrides": false,
+  "connectivity_threshold_m": 0,
+  "duplicate_threshold_m": 0,
+  "confirm_warnings": false
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "candidate_id": "string",
+    "validation_mode": "existing_region",
+    "can_save": false,
+    "can_approve": false,
+    "errors": [
+      {
+        "code": "string",
+        "message": "string",
+        "severity": "error"
+      }
+    ],
+    "warnings": [
+      {
+        "code": "string",
+        "message": "string",
+        "severity": "error"
+      }
+    ],
+    "stats": {
+      "nearby_core_roads": 0,
+      "nearby_review_roads": 0,
+      "connected_endpoints": 0,
+      "isolated_endpoints": 0,
+      "possible_duplicates": 0,
+      "possible_unsplit_intersections": 0,
+      "length_m": 0
+    },
+    "info": [
+      {
+        "code": "string",
+        "message": "string",
+        "severity": "error"
+      }
+    ]
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `POST` `/api/import-review/roads/bulk-decision`
+
+**Summary:** Bulk import-review road decisions
+
+Bulk updates road candidates (or dry_run). Same scope rules as buildings.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+**Request body** (`application/json`)
+
+```json
+{
+  "review_decision": "approved",
+  "source_snapshot_version": "string",
+  "snapshot_version": "string",
+  "review_batch_id": "string",
+  "review_note": "string",
+  "force": false,
+  "dry_run": false,
+  "ids": [
+    0
+  ],
+  "filters": {
+    "match_status": "string",
+    "auto_action": "string",
+    "review_decision": "string"
+  }
+}
+```
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "source_snapshot_version": "string",
+    "review_batch_id": "string",
+    "source_snapshot_id_local": "string",
+    "updated_count": 0,
+    "skipped_count": 0,
+    "skipped_reasons": [
+      {
+        "reason": "string",
+        "count": 0
+      }
+    ],
+    "dry_run": false
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+#### `GET` `/api/import-review/summary`
+
+**Summary:** Import review candidate summary
+
+Grouped counts over `import_review.*` candidates for the resolved review batch (`DATABASE_URL`, optional `IMPORT_REVIEW_DATABASE_URL` override). Supply exactly one of `source_snapshot_version` (alias: `snapshot_version`) or `review_batch_id`.
+
+**Security:** Bearer JWT (`Authorization: Bearer …`)
+
+| Name | In | Required | Schema |
+| --- | --- | --- | --- |
+| source_snapshot_version | Query | no | string |
+| snapshot_version | Query | no | string |
+| review_batch_id | Query | no | string |
+
+
+**Responses**
+
+- **`200`**
+
+  ```json
+  {
+    "source_snapshot_version": "string",
+    "review_batch_id": "string",
+    "source_snapshot_id_local": "string",
+    "entity_summaries": [
+      {
+        "entity_family": "string",
+        "review_batch_id": "string",
+        "source_snapshot_version": "string",
+        "match_status": "string",
+        "auto_action": "string",
+        "review_status": "string",
+        "review_decision": "string",
+        "promotion_status": "string",
+        "row_count": 0
+      }
+    ],
+    "total_pending_review_count": 0,
+    "total_approved_count": 0,
+    "total_rejected_count": 0,
+    "warnings": [
+      "string"
+    ]
+  }
+  ```
+
+- **`400`**
+
+  ```json
+  {
+    "message": "string",
+    "issues": {
+      "formErrors": [
+        "string"
+      ],
+      "fieldErrors": {}
+    }
+  }
+  ```
+
+- **`401`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`403`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`404`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`409`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
+- **`500`**
+
+  ```json
+  {
+    "message": "string"
+  }
+  ```
+
 ## Common error responses
 
 Many routes return JSON error bodies for failed validation, auth, or missing resources. Shapes are defined per route in OpenAPI; representative **examples** (from the first matching response schema in the spec) are below.
@@ -3116,4 +5815,4 @@ Many routes return JSON error bodies for failed validation, auth, or missing res
 
 ---
 
-*OpenAPI version: 3.0.3 · API version: 0.1.0 · Operations: 41*
+*OpenAPI version: 3.0.3 · API version: 0.1.0 · Operations: 66*

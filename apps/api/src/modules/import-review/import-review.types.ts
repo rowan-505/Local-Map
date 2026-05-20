@@ -12,19 +12,44 @@ export type ImportReviewSummaryBucketRow = {
     row_count: number;
 };
 
+export type {
+    ImportReviewFamilySummaryMetrics,
+    ImportReviewSummaryRollupMetrics,
+} from "./import-review-summary-counts.js";
+
 export type ImportReviewSummaryEnvelope = {
     source_snapshot_version: string;
     review_batch_id: string | null;
     /** Mirrors `review_batches.source_snapshot_id_local`; optional pipeline link metadata. */
     source_snapshot_id_local: string | null;
+    batch_name: string | null;
+    selected_by:
+        | "review_batch_id"
+        | "source_snapshot_version_unique"
+        | "source_snapshot_version_latest"
+        | null;
+    status?: string;
+    uploaded_at?: string;
+    total_candidate_count?: number;
+    entity_families?: string[];
 };
 
+export type { ImportReviewBatchChoice } from "./import-review-batch-resolver.js";
+
 export type ImportReviewSummaryResponse = ImportReviewSummaryEnvelope & {
+    /** Dimension bucket rows for breakdown charts (match_status, review_decision, etc.). */
     entity_summaries: ImportReviewSummaryBucketRow[];
+    /** Per-family counts with explicit definitions (sums to `rollup`). */
+    family_summaries: import("./import-review-summary-counts.js").ImportReviewFamilySummaryMetrics[];
+    /** Batch-wide totals; equals sum of `family_summaries` fields. */
+    rollup: import("./import-review-summary-counts.js").ImportReviewSummaryRollupMetrics;
     /** Non-fatal rollup gaps (missing optional candidate tables). */
     warnings?: string[];
+    /** @deprecated Prefer `rollup.pending_review_candidates`. */
     total_pending_review_count: number;
+    /** @deprecated Prefer `rollup.approved_candidates`. */
     total_approved_count: number;
+    /** @deprecated Prefer `rollup.rejected_candidates`. */
     total_rejected_count: number;
 };
 
@@ -83,6 +108,8 @@ export type ImportReviewBuildingListItem = {
     road_candidate_is_oneway: boolean | null;
 };
 
+export type ImportReviewCandidateListItem = ImportReviewBuildingListItem;
+
 export type ImportReviewBuildingsListResponse = ImportReviewSummaryEnvelope & {
     items: ImportReviewBuildingListItem[];
     total: number;
@@ -98,6 +125,11 @@ export type ImportReviewBuildingsFilterOptionsResponse = ImportReviewSummaryEnve
     review_decision: string[];
     class_code: string[];
     promotion_status: string[];
+};
+
+/** GET /api/import-review/:family/filter-options */
+export type ImportReviewFilterOptionsResponse = ImportReviewSummaryEnvelope & {
+    [key: string]: string[] | string | number | null | undefined;
 };
 
 export type ImportReviewBulkSkippedReason = {
