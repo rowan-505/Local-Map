@@ -22,8 +22,18 @@ import {
     ImportReviewRoadOverridesValidationFailedError,
     ImportReviewRoadOverridesWarningsPendingError,
 } from "./import-review-errors.js";
-import { getImportReviewEntityConfig, IMPORT_REVIEW_ENTITY_FAMILIES, type ImportReviewEntityFamilySlug } from "./import-review-config.js";
+import {
+    applyImportReviewEffectiveFields,
+    type EffectiveValuesRawRow,
+} from "./import-review-effective-values.js";
+import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
+import { getImportReviewEntityConfig, IMPORT_REVIEW_ENTITY_FAMILIES } from "./import-review-config.js";
+import { AdminAreasRepository } from "../admin-areas/admin-areas.repo.js";
 import { ImportReviewReferenceOptionsRepository } from "./import-review-reference-options.repo.js";
+import type {
+    ImportReviewBuildingOverridesLeaf,
+    ImportReviewCandidateOverridesLeaf,
+} from "./import-review.schema.js";
 import type {
     BulkImportReviewBuildingDecisionBody,
     ImportReviewBuildingsQuery,
@@ -33,6 +43,7 @@ import type {
     ImportReviewRoadsQuery,
     PatchImportReviewBuildingDecisionBody,
     PatchImportReviewBuildingOverridesBody,
+    PatchImportReviewCandidateOverridesBody,
     PatchImportReviewRoadOverridesBody,
     PostImportReviewRoadValidateRoutingBody,
 } from "./import-review.schema.js";
@@ -91,11 +102,30 @@ function numOrNull(value: unknown): number | null {
     return Number.isFinite(n) ? n : null;
 }
 
-function mapBuildingRow(row: BuildingListRowDb): ImportReviewBuildingListItem {
+function toEffectiveRawRow(row: BuildingListRowDb): EffectiveValuesRawRow {
+    return {
+        name: row.name,
+        canonical_name: row.canonical_name,
+        class_code: row.class_code,
+        admin_area_id: row.admin_area_id,
+        levels: row.levels,
+        height_m: row.height_m,
+        normalized_data: row.normalized_data,
+        review_overrides: row.review_overrides,
+        effective_admin_area_name: row.effective_admin_area_name ?? null,
+        name_local: row.name_local ?? null,
+        stop_code: row.stop_code ?? null,
+    };
+}
+
+function mapBuildingRow(
+    row: BuildingListRowDb,
+    family: ImportReviewEntityFamilySlug = "buildings"
+): ImportReviewBuildingListItem {
     const geom = (row.geometry as ImportReviewGeoJson | null) ?? null;
     const centroid = (row.centroid as ImportReviewGeoJson | null) ?? null;
 
-    return {
+    const base: ImportReviewBuildingListItem = {
         id: row.id.toString(),
         public_id: row.public_id,
         review_batch_id: row.review_batch_id.toString(),
@@ -109,6 +139,8 @@ function mapBuildingRow(row: BuildingListRowDb): ImportReviewBuildingListItem {
         class_code: row.class_code,
         building_type: row.building_type,
         building_type_id: bigStr(row.building_type_id),
+        building_type_code: row.building_type_code ?? null,
+        building_type_name: row.building_type_name ?? null,
         admin_area_id: bigStr(row.admin_area_id),
         levels: row.levels,
         height_m: numOrNull(row.height_m),
@@ -145,6 +177,8 @@ function mapBuildingRow(row: BuildingListRowDb): ImportReviewBuildingListItem {
         road_candidate_surface: row.road_candidate_surface ?? null,
         road_candidate_is_oneway: row.road_candidate_is_oneway ?? null,
     };
+
+    return applyImportReviewEffectiveFields(family, base, toEffectiveRawRow(row));
 }
 
 function reviewStatusForDecision(decision: ImportReviewDecisionValue): string {
@@ -281,8 +315,11 @@ function scopeHintFromResolved(scope: ImportReviewScopeResolved): string {
     return `source_snapshot_version=${scope.snapshotVersion} review_batch_id=${scope.reviewBatchId}`;
 }
 
-function mapCandidateRow(row: BuildingListRowDb): ImportReviewBuildingListItem {
-    return mapBuildingRow(row);
+function mapCandidateRow(
+    row: BuildingListRowDb,
+    family: ImportReviewEntityFamilySlug
+): ImportReviewBuildingListItem {
+    return mapBuildingRow(row, family);
 }
 
 function scopeQueryFromCandidatesList(q: ImportReviewCandidatesListQuery): ImportReviewScopeQuery {
@@ -550,7 +587,7 @@ export class ImportReviewService {
 
         return {
             ...this.envelopeLists(scope),
-            items: rows.map(mapBuildingRow),
+            items: rows.map((r) => mapBuildingRow(r, "buildings")),
             total: Number(total),
             limit: query.limit,
             offset: query.offset,
@@ -572,7 +609,7 @@ export class ImportReviewService {
         if (row === null) {
             throw new ImportReviewBuildingNotFoundError(params.id.toString(), scopeHintFromResolved(scope));
         }
-        return mapBuildingRow(row);
+        return mapBuildingRow(row, "buildings");
     }
 
     async patchBuildingReviewOverrides(
@@ -594,10 +631,12 @@ export class ImportReviewService {
             );
         }
 
+        const overridesPatch = await this.prepareValidatedOverridesPatch(body.review_overrides);
+
         const row = await this.repo.patchBuildingReviewOverrides({
             scope,
             id: buildingId,
-            overridesPatch: body.review_overrides,
+            overridesPatch,
             editedByUserId: reviewedByUserId(user),
             reviewNote: body.review_note,
         });
@@ -606,7 +645,7 @@ export class ImportReviewService {
             throw new ImportReviewBuildingNotFoundError(buildingId.toString(), scopeHintFromResolved(scope));
         }
 
-        return mapBuildingRow(row);
+        return mapBuildingRow(row, "buildings");
     }
 
     async patchRoadReviewOverrides(
@@ -756,7 +795,7 @@ export class ImportReviewService {
             throw new ImportReviewRoadNotFoundError(roadId.toString(), scopeHintFromResolved(scope));
         }
 
-        return mapBuildingRow(row);
+        return mapBuildingRow(row, "roads");
     }
 
     async validateRoadRouting(
@@ -871,7 +910,7 @@ export class ImportReviewService {
             throw new ImportReviewBuildingNotFoundError(buildingId.toString(), scopeHintFromResolved(scope));
         }
 
-        return mapBuildingRow(updated);
+        return mapBuildingRow(updated, "buildings");
     }
 
     async bulkBuildingsDecision(
@@ -923,7 +962,7 @@ export class ImportReviewService {
 
         return {
             ...this.envelopeLists(scope),
-            items: rows.map(mapBuildingRow),
+            items: rows.map((r) => mapBuildingRow(r, "places")),
             total: Number(total),
             limit: query.limit,
             offset: query.offset,
@@ -956,7 +995,7 @@ export class ImportReviewService {
 
         return {
             ...this.envelopeLists(scope),
-            items: rows.map(mapBuildingRow),
+            items: rows.map((r) => mapBuildingRow(r, "roads")),
             total: Number(total),
             limit: query.limit,
             offset: query.offset,
@@ -1019,7 +1058,7 @@ export class ImportReviewService {
             throw new ImportReviewPlaceNotFoundError(placeId.toString(), scopeHintFromResolved(scope));
         }
 
-        return mapBuildingRow(updated);
+        return mapBuildingRow(updated, "places");
     }
 
     async patchRoadDecision(
@@ -1105,7 +1144,7 @@ export class ImportReviewService {
             throw new ImportReviewRoadNotFoundError(roadId.toString(), scopeHintFromResolved(scope));
         }
 
-        return mapBuildingRow(updated);
+        return mapBuildingRow(updated, "roads");
     }
 
     async bulkPlacesDecision(
@@ -1186,7 +1225,7 @@ export class ImportReviewService {
 
         return {
             ...this.envelopeLists(scope),
-            items: rows.map(mapCandidateRow),
+            items: rows.map((r) => mapCandidateRow(r, family)),
             total: Number(total),
             limit: query.limit,
             offset: query.offset,
@@ -1211,7 +1250,7 @@ export class ImportReviewService {
         if (row === null) {
             throwCandidateNotFound(family, params.id, scope);
         }
-        return mapCandidateRow(row);
+        return mapCandidateRow(row, family);
     }
 
     async getFilterOptions(
@@ -1259,7 +1298,7 @@ export class ImportReviewService {
             throwCandidateNotFound(family, candidateId, scope);
         }
 
-        return mapCandidateRow(updated);
+        return mapCandidateRow(updated, family);
     }
 
     async bulkCandidateDecision(
@@ -1294,10 +1333,56 @@ export class ImportReviewService {
         return { ...this.envelopeLists(scope), ...res };
     }
 
+    private async prepareValidatedOverridesPatch(
+        leaf: ImportReviewBuildingOverridesLeaf | ImportReviewCandidateOverridesLeaf
+    ): Promise<Record<string, unknown>> {
+        const prisma = getImportReviewPrisma();
+        const refRepo = new ImportReviewReferenceOptionsRepository(prisma);
+        const adminRepo = new AdminAreasRepository(prisma);
+
+        if (leaf.building_type_id !== undefined && leaf.building_type_id !== null) {
+            const refRow = await refRepo.getActiveBuildingTypeById(leaf.building_type_id);
+            if (refRow === null) {
+                throw new ImportReviewDecisionRuleError(
+                    `Unknown or inactive building_type_id=${leaf.building_type_id.toString()} (must match ref.ref_building_types where is_active = true).`
+                );
+            }
+        }
+
+        if (leaf.admin_area_id !== undefined && leaf.admin_area_id !== null) {
+            const has = await adminRepo.hasActiveAdminArea(leaf.admin_area_id);
+            if (!has) {
+                throw new ImportReviewDecisionRuleError(
+                    `Unknown or inactive admin_area_id=${leaf.admin_area_id.toString()} (must match core.core_admin_areas where is_active = true).`
+                );
+            }
+        }
+
+        const overridesPatch: Record<string, unknown> = { ...leaf };
+        if (leaf.building_type_id !== undefined) {
+            overridesPatch.building_type_id =
+                leaf.building_type_id === null ? null : leaf.building_type_id.toString();
+        }
+        if (leaf.admin_area_id !== undefined) {
+            overridesPatch.admin_area_id =
+                leaf.admin_area_id === null ? null : leaf.admin_area_id.toString();
+        }
+        const candidateLeaf = leaf as ImportReviewCandidateOverridesLeaf;
+        if (candidateLeaf.poi_category_id !== undefined) {
+            overridesPatch.poi_category_id =
+                candidateLeaf.poi_category_id === null ? null : candidateLeaf.poi_category_id.toString();
+        }
+        if (candidateLeaf.category_id !== undefined) {
+            overridesPatch.poi_category_id =
+                candidateLeaf.category_id === null ? null : candidateLeaf.category_id.toString();
+        }
+        return overridesPatch;
+    }
+
     async patchCandidateOverrides(
         family: ImportReviewEntityFamilySlug,
         candidateId: bigint,
-        body: PatchImportReviewBuildingOverridesBody,
+        body: PatchImportReviewCandidateOverridesBody,
         user: JwtUser
     ): Promise<ImportReviewBuildingListItem> {
         const config = getImportReviewEntityConfig(family);
@@ -1325,11 +1410,13 @@ export class ImportReviewService {
             );
         }
 
+        const overridesPatch = await this.prepareValidatedOverridesPatch(body.review_overrides);
+
         const row = await this.repo.patchCandidateReviewOverrides({
             family,
             scope,
             id: candidateId,
-            overridesPatch: body.review_overrides,
+            overridesPatch,
             editedByUserId: reviewedByUserId(user),
             reviewNote: body.review_note,
         });
@@ -1338,7 +1425,7 @@ export class ImportReviewService {
             throwCandidateNotFound(family, candidateId, scope);
         }
 
-        return family === "buildings" ? mapBuildingRow(row) : mapCandidateRow(row);
+        return family === "buildings" ? mapBuildingRow(row, "buildings") : mapCandidateRow(row, family);
     }
 
     async getReferenceOptions() {

@@ -162,6 +162,10 @@ const PUBLISH_BATCH_PUBLISH_ROLLUP = Prisma.sql`
 export class ImportReviewHistoryRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
+    getPrismaClient(): PrismaClient {
+        return this.prisma;
+    }
+
     private async pgRegclassExists(qualifiedName: string): Promise<boolean> {
         const rows = await this.prisma.$queryRaw<{ exists: boolean }[]>`
             SELECT to_regclass(${qualifiedName}) IS NOT NULL AS exists

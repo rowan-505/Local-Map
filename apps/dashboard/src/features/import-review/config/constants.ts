@@ -62,6 +62,8 @@ export const IMPORT_REVIEW_DEFAULT_STATUS_COLOR_RULES: ImportReviewStatusColorRu
     ],
 };
 
+import { importReviewPath } from "@/src/lib/dashboardPaths";
+
 export function importReviewRoutePath(slug: string): string {
-    return `/import-review/${slug}`;
+    return importReviewPath(slug);
 }

@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
+import type { Map as MaplibreMap } from "maplibre-gl";
 
 import { createPreviewBaseMap } from "./createPreviewBaseMap";
+import {
+    applyDataReviewBasemapMode,
+    ensureDataReviewSatelliteLayer,
+    type DataReviewBasemapMode,
+} from "./dataReviewBasemap";
 import { MAP_PREVIEW_VIEWPORT_FORM } from "./mapPreviewUi";
 import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
 import { useClientMounted } from "@/src/hooks/useClientMounted";
@@ -22,6 +28,10 @@ type PlacePointMapPickerProps = {
     onChange: (coords: { lat: number; lng: number }) => void;
     /** Optional labels for the API-backed `place-live-overlay` symbol layer */
     overlayNames?: PlaceLiveOverlayLabelProps | null;
+    basemapMode?: DataReviewBasemapMode;
+    onMapReady?: (map: MaplibreMap | null) => void;
+    mapSurfaceRef?: MutableRefObject<MaplibreMap | null>;
+    viewportClassName?: string;
 };
 
 const DEFAULT_ZOOM = 18;
@@ -47,6 +57,10 @@ export default function PlacePointMapPicker({
     lng,
     onChange,
     overlayNames = null,
+    basemapMode = "map",
+    onMapReady,
+    mapSurfaceRef,
+    viewportClassName = MAP_PREVIEW_VIEWPORT_FORM,
 }: PlacePointMapPickerProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -69,7 +83,13 @@ export default function PlacePointMapPicker({
                 map = await createPreviewBaseMap(root, {
                     zoom: DEFAULT_ZOOM,
                     onLoad: (loadedMap) => {
+                        ensureDataReviewSatelliteLayer(loadedMap);
+                        applyDataReviewBasemapMode(loadedMap, basemapMode);
                         loadedMap.resize();
+                        if (mapSurfaceRef) {
+                            mapSurfaceRef.current = loadedMap;
+                        }
+                        onMapReady?.(loadedMap);
                         setIsMapReady(true);
                     },
                 });
@@ -100,9 +120,21 @@ export default function PlacePointMapPicker({
             markerRef.current = null;
             mapRef.current?.remove();
             mapRef.current = null;
+            if (mapSurfaceRef) {
+                mapSurfaceRef.current = null;
+            }
+            onMapReady?.(null);
             lastCameraKeyRef.current = null;
         };
-    }, [clientMounted, onChange]);
+    }, [clientMounted, onChange, mapSurfaceRef, onMapReady]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !isMapReady) {
+            return;
+        }
+        applyDataReviewBasemapMode(map, basemapMode);
+    }, [basemapMode, isMapReady]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -191,8 +223,8 @@ export default function PlacePointMapPicker({
     }, [isMapReady, lat, lng, onChange]);
 
     return clientMounted ? (
-        <div ref={containerRef} className={MAP_PREVIEW_VIEWPORT_FORM} />
+        <div ref={containerRef} className={viewportClassName} />
     ) : (
-        <div className={MAP_PREVIEW_VIEWPORT_FORM} aria-hidden />
+        <div className={viewportClassName} aria-hidden />
     );
 }

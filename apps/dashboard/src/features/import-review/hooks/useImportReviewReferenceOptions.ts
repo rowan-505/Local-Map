@@ -26,23 +26,38 @@ export function useImportReviewReferenceOptions(enabled: boolean) {
             return;
         }
         const c = new AbortController();
-        setIsLoading(true);
-        setError("");
-        getImportReviewReferenceOptionsBundle({ signal: c.signal })
-            .then(setBundle)
+        let active = true;
+
+        void getImportReviewReferenceOptionsBundle({ signal: c.signal })
+            .then((data) => {
+                if (active) {
+                    setBundle(data);
+                    setError("");
+                }
+            })
             .catch((err) => {
-                if (isAbortError(err)) {
+                if (!active || isAbortError(err)) {
                     return;
                 }
                 setBundle(EMPTY_BUNDLE);
                 setError(formatImportReviewApiError(err, "Failed to load reference options."));
             })
             .finally(() => {
-                if (!c.signal.aborted) {
+                if (active) {
                     setIsLoading(false);
                 }
             });
-        return () => c.abort();
+
+        queueMicrotask(() => {
+            if (active) {
+                setIsLoading(true);
+            }
+        });
+
+        return () => {
+            active = false;
+            c.abort();
+        };
     }, [enabled]);
 
     return { bundle, isLoading, error };

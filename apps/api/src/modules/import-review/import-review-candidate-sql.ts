@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import type { ImportReviewEntityFamilyConfig } from "./import-review-config.js";
+import { effectiveAdminAreaIdExpr } from "./import-review-effective-values.js";
 import type { ImportReviewBuildingSort, ImportReviewBulkFilters } from "./import-review.schema.js";
 
 const UNREVIEWED = "__unreviewed__";
@@ -42,6 +43,18 @@ function shapeColumn(
         return Prisma.raw(`NULL::${sqlType}`);
     }
     return colRef(config, mapped);
+}
+
+/** Effective FK: review_overrides.building_type_id wins over candidate column. */
+export function effectiveBuildingTypeIdExpr(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
+    const ov = Prisma.sql`COALESCE(to_jsonb(${colRef(config, "review_overrides")}), '{}'::jsonb)`;
+    return Prisma.sql`
+        CASE
+            WHEN (${ov}->>'building_type_id') ~ '^[0-9]+$'
+            THEN (${ov}->>'building_type_id')::bigint
+            ELSE ${shapeColumn(config, "building_type_id", "bigint")}
+        END
+    `;
 }
 
 function buildSearchClause(config: ImportReviewEntityFamilyConfig, q: string): Prisma.Sql {
@@ -199,7 +212,9 @@ export function buildCandidateCommonSelect(
         Prisma.sql`${shapeColumn(config, "name", "text")} AS name,`,
         Prisma.sql`${qual(config, "class_code")},`,
         Prisma.sql`${shapeColumn(config, "building_type", "text")} AS building_type,`,
-        Prisma.sql`${shapeColumn(config, "building_type_id", "bigint")} AS building_type_id,`,
+        config.buildingTypeJoin
+            ? Prisma.sql`${effectiveBuildingTypeIdExpr(config)} AS building_type_id,`
+            : Prisma.sql`${shapeColumn(config, "building_type_id", "bigint")} AS building_type_id,`,
         Prisma.sql`${shapeColumn(config, "admin_area_id", "bigint")} AS admin_area_id,`,
         Prisma.sql`${shapeColumn(config, "levels", "int")} AS levels,`,
         Prisma.sql`${shapeColumn(config, "height_m", "numeric")} AS height_m,`,
@@ -256,17 +271,80 @@ export function buildCandidateCommonSelect(
         );
     }
 
+    if (config.buildingTypeJoin) {
+        selectParts.push(
+            Prisma.sql`,`,
+            Prisma.sql`bt.code AS building_type_code,`,
+            Prisma.sql`bt.name AS building_type_name`
+        );
+    }
+
+    if (config.routeFamily === "bus_stops") {
+        selectParts.push(
+            Prisma.sql`,`,
+            Prisma.sql`${colRef(config, "name_local")} AS name_local,`,
+            Prisma.sql`${colRef(config, "stop_code")} AS stop_code`
+        );
+    }
+
+    if (config.effectiveAdminAreaJoin) {
+        selectParts.push(
+            Prisma.sql`,`,
+            Prisma.sql`eff_aa.canonical_name AS effective_admin_area_name`
+        );
+    }
+
     return Prisma.join(selectParts, " ");
 }
 
 export function buildCandidateFromClause(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
+    const adminJoin = config.effectiveAdminAreaJoin
+        ? Prisma.sql`
+            LEFT JOIN core.core_admin_areas AS eff_aa
+                ON eff_aa.id = ${effectiveAdminAreaIdExpr(config.tableAlias)}
+        `
+        : Prisma.empty;
+
+    if (config.roadClassJoin && config.buildingTypeJoin) {
+        return Prisma.sql`
+            ${tableFrom(config)}
+            LEFT JOIN ref.ref_road_classes AS rc ON rc.id = ${colRef(config, "road_class_id")}
+            LEFT JOIN ref.ref_building_types AS bt ON bt.id = ${effectiveBuildingTypeIdExpr(config)}
+            ${adminJoin}
+        `;
+    }
     if (config.roadClassJoin) {
         return Prisma.sql`
             ${tableFrom(config)}
             LEFT JOIN ref.ref_road_classes AS rc ON rc.id = ${colRef(config, "road_class_id")}
+            ${adminJoin}
+        `;
+    }
+    if (config.buildingTypeJoin) {
+        return Prisma.sql`
+            ${tableFrom(config)}
+            LEFT JOIN ref.ref_building_types AS bt ON bt.id = ${effectiveBuildingTypeIdExpr(config)}
+            ${adminJoin}
+        `;
+    }
+    if (config.effectiveAdminAreaJoin) {
+        return Prisma.sql`
+            ${tableFrom(config)}
+            ${adminJoin}
         `;
     }
     return tableFrom(config);
+}
+
+/** SELECT list + FROM for rows returned after PATCH overrides (includes ref joins). */
+export function buildCandidateRowQueryParts(
+    config: ImportReviewEntityFamilyConfig,
+    includeGeometry: boolean
+): { select: Prisma.Sql; from: Prisma.Sql } {
+    return {
+        select: buildCandidateCommonSelect(config, includeGeometry),
+        from: buildCandidateFromClause(config),
+    };
 }
 
 export function buildCandidateListQueryParts(

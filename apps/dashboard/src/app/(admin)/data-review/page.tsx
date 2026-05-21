@@ -14,7 +14,7 @@ export default function DataReviewIndexPage() {
                         <code className="rounded bg-gray-100 px-1 text-xs">source_snapshot_version</code> in the URL
                         (legacy alias <code className="rounded bg-gray-100 px-1 text-xs">snapshot_version</code> is
                         still accepted). Aggregate counts:{" "}
-                        <Link href="/import-review" className="font-medium text-blue-700 underline">
+                        <Link href="/dashboard/import-review" className="font-medium text-blue-700 underline">
                             Import review
                         </Link>
                         .

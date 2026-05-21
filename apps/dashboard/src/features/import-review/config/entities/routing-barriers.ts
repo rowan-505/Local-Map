@@ -17,8 +17,8 @@ export const routingBarriersImportReviewEntityConfig = createImportReviewEntityC
     riskLevel: "medium",
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
-        { key: "barrier_type", label: "Barrier type", source: "normalized" },
-        { key: "class_code", label: "Class", source: "row" },
+        { key: "effective_barrier_type", label: "Barrier type", source: "row" },
+        { key: "effective_class_code", label: "Class", source: "row" },
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,
     ],
     searchableFields: ["barrier_type", "class_code", "external_id"],

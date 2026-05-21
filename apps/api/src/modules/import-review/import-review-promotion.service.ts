@@ -23,6 +23,7 @@ import type {
     ImportReviewPublishBatchValidationResultSummary,
     ImportReviewPublishBatchVerifyResponse,
     ImportReviewPublishStageLogItem,
+    ImportReviewRepairInvalidPromotedBatchesResponse,
     ImportReviewStartPublishBatchPromotionResponse,
     ImportReviewStartPublishBatchValidationResponse,
 } from "./import-review-promotion.types.js";
@@ -38,6 +39,18 @@ import { DEFAULT_PUBLISH_ENTITY_FAMILIES, resolvePublishEntityFamilies } from ".
 import { IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES } from "./import-review-promotion-validation.types.js";
 import { ImportReviewInvalidScopeError } from "./import-review-errors.js";
 import { ImportReviewPublishBatchNotFoundError } from "./import-review-promotion.errors.js";
+import {
+    ImportReviewPublishBatchSummaryRepository,
+    applyComputedCountsToBatchSummary,
+    type PublishBatchComputedSummary,
+} from "./import-review-publish-batch-summary.js";
+import { ImportReviewReviewBatchSummaryRepository } from "./import-review-review-batch-summary.js";
+import {
+    createImportReviewPromotionRoadDryRunService,
+    ImportReviewPromotionRoadDryRunService,
+} from "./import-review-promotion-road-dry-run.service.js";
+import type { ImportReviewPromotionRoadDryRunResult } from "./import-review-promotion-road-dry-run.types.js";
+import type { PostImportReviewPromotionRoadDryRunBody } from "./import-review-promotion-road-dry-run.schema.js";
 
 function reviewedByUserId(user: JwtUser): bigint | null {
     const sub = user.sub?.trim();
@@ -86,6 +99,8 @@ function mapReadyCandidateRow(
         class_code: row.class_code,
         building_type: row.building_type,
         building_type_id: bigStr(row.building_type_id),
+        building_type_code: row.building_type_code,
+        building_type_name: row.building_type_name,
         confidence_score: numOrNull(row.confidence_score),
         match_status: row.match_status,
         auto_action: row.auto_action,
@@ -104,8 +119,11 @@ function mapReadyCandidateRow(
     };
 }
 
-function mapBatchSummary(row: PublishBatchRowDb): ImportReviewPublishBatchSummary {
-    return {
+function mapBatchSummary(
+    row: PublishBatchRowDb,
+    computed: PublishBatchComputedSummary | null
+): ImportReviewPublishBatchSummary {
+    const base = {
         id: row.id.toString(),
         public_id: row.public_id,
         batch_name: row.batch_name,
@@ -121,6 +139,14 @@ function mapBatchSummary(row: PublishBatchRowDb): ImportReviewPublishBatchSummar
         created_at: row.created_at.toISOString(),
         published_at: toIso(row.published_at),
         promoted_at: toIso(row.promoted_at),
+    };
+    const enriched = applyComputedCountsToBatchSummary(base, computed);
+    return {
+        ...enriched,
+        derived_status: enriched.derived_status,
+        derived_status_reason: enriched.derived_status_reason,
+        stored_status_recommendation: enriched.stored_status_recommendation,
+        status_note: enriched.derived_status_reason,
     };
 }
 
@@ -218,6 +244,10 @@ function parsePromotionResult(summary: unknown): ImportReviewPublishBatchPromoti
         total: Number(o.total ?? 0),
         core_verified_count: Number(o.core_verified_count ?? 0),
         import_review_marked_promoted_count: Number(o.import_review_marked_promoted_count ?? 0),
+        verification_metadata_applied_count: Number(o.verification_metadata_applied_count ?? 0),
+        verification_metadata_skipped_already_verified_count: Number(
+            o.verification_metadata_skipped_already_verified_count ?? 0
+        ),
         partial_success: o.partial_success === true ? true : undefined,
         started_at: typeof o.started_at === "string" ? o.started_at : "",
         finished_at: typeof o.finished_at === "string" ? o.finished_at : "",
@@ -241,6 +271,9 @@ function workflowForStatus(status: string): "validation" | "promotion" | "idle" 
 export class ImportReviewPromotionService {
     private readonly validationRunner: ImportReviewPromotionValidationRunner;
     private readonly promoteRunner: ImportReviewPromotionPromoteRunner;
+    private readonly publishSummaryRepo: ImportReviewPublishBatchSummaryRepository;
+    private readonly reviewSummaryRepo: ImportReviewReviewBatchSummaryRepository;
+    private readonly roadDryRunService: ImportReviewPromotionRoadDryRunService;
 
     constructor(
         private readonly repo: ImportReviewPromotionRepository,
@@ -249,6 +282,14 @@ export class ImportReviewPromotionService {
     ) {
         this.validationRunner = new ImportReviewPromotionValidationRunner(this.validationRepo);
         this.promoteRunner = new ImportReviewPromotionPromoteRunner(this.promoteRepo);
+        const prisma = this.validationRepo.getPrismaClient();
+        this.publishSummaryRepo = new ImportReviewPublishBatchSummaryRepository(prisma);
+        this.reviewSummaryRepo = new ImportReviewReviewBatchSummaryRepository(prisma);
+        this.roadDryRunService = createImportReviewPromotionRoadDryRunService(prisma);
+    }
+
+    private async computeBatchSummary(batchId: bigint): Promise<PublishBatchComputedSummary | null> {
+        return this.publishSummaryRepo.computePublishBatchSummary(batchId);
     }
 
     async getReady(query: ImportReviewPromotionReadyQuery): Promise<ImportReviewPromotionReadyCounts> {
@@ -303,8 +344,11 @@ export class ImportReviewPromotionService {
             limit: query.limit ?? 50,
             offset: query.offset ?? 0,
         });
+        const summaries = await Promise.all(
+            rows.map((row) => this.computeBatchSummary(row.id))
+        );
         return {
-            items: rows.map(mapBatchSummary),
+            items: rows.map((row, i) => mapBatchSummary(row, summaries[i] ?? null)),
             total: n(total),
             limit: query.limit ?? 50,
             offset: query.offset ?? 0,
@@ -316,10 +360,30 @@ export class ImportReviewPromotionService {
         if (!row) {
             throw new ImportReviewPublishBatchNotFoundError(batchId.toString());
         }
+        const computed = await this.computeBatchSummary(batchId);
         const itemCounts = await this.repo.fetchPublishItemCounts(batchId);
         const buildingItemCounts = await this.repo.fetchBuildingPublishItemCounts(batchId);
+        const itemCountsByEntityFamily: Record<
+            string,
+            {
+                pending: number;
+                success: number;
+                failed: number;
+                skipped: number;
+                total: number;
+            }
+        > = {};
+        for (const row of computed?.by_entity_family ?? []) {
+            itemCountsByEntityFamily[row.entity_family] = {
+                pending: row.pending,
+                success: row.success,
+                failed: row.failed,
+                skipped: row.skipped,
+                total: row.total,
+            };
+        }
         return {
-            ...mapBatchSummary(row),
+            ...mapBatchSummary(row, computed),
             item_counts: {
                 pending: n(itemCounts.pending),
                 success: n(itemCounts.success),
@@ -336,6 +400,7 @@ export class ImportReviewPromotionService {
                 rolled_back: n(buildingItemCounts.rolled_back),
                 total: n(buildingItemCounts.total),
             },
+            item_counts_by_entity_family: itemCountsByEntityFamily,
         };
     }
 
@@ -555,6 +620,8 @@ export class ImportReviewPromotionService {
             throw new ImportReviewPublishBatchNotFoundError(batchId.toString());
         }
 
+        const computed = await this.publishSummaryRepo.computePublishBatchSummary(batchId);
+
         const logs = await this.validationRepo.listStageLogs(batchId);
         const running = logs.find((l) => l.stage_status === "running");
         const lastFinished = [...logs].reverse().find((l) => l.finished_at != null);
@@ -565,12 +632,16 @@ export class ImportReviewPromotionService {
         const promotionSummary = parsePromotionResult(batch.summary);
         const validationSummary = parseLogsSummary(batch.summary, "validation_logs_summary");
         const promotionLogsSummary = parseLogsSummary(batch.summary, "promotion_logs_summary");
-        const totalItemCount = batch.validation_total;
+        const totalItemCount = computed?.item_counts.total ?? batch.validation_total;
         const itemProcessedCount = Math.min(batch.validation_done, totalItemCount);
 
         return {
             batch_id: batchId.toString(),
             status: batch.status,
+            derived_status: computed?.derived_status ?? batch.status,
+            derived_status_reason: computed?.derived_status_reason ?? null,
+            stored_status_recommendation: computed?.stored_status_recommendation ?? null,
+            status_note: computed?.derived_status_reason ?? null,
             workflow,
             validation_total: batch.validation_total,
             validation_done: itemProcessedCount,
@@ -584,8 +655,11 @@ export class ImportReviewPromotionService {
             current_stage_status: current?.stage_status ?? null,
             current_entity_family: current ? currentEntityFamilyFromLog(current.details) : null,
             current_message:
-                current?.message ??
-                (workflow === "promotion" ? promotionLogsSummary : validationSummary),
+                computed?.derived_status === "invalid_empty_promoted"
+                    ? (computed.derived_status_reason ??
+                      "This batch was marked promoted but no items were promoted.")
+                    : (current?.message ??
+                      (workflow === "promotion" ? promotionLogsSummary : validationSummary)),
             validation_result: parseValidationResult(batch.summary),
             validation_logs_summary: validationSummary,
             promotion_result: promotionSummary,
@@ -610,12 +684,37 @@ export class ImportReviewPromotionService {
         });
     }
 
+    async repairInvalidEmptyPromotedBatches(options: {
+        batchId?: bigint;
+        reviewBatchId?: bigint;
+    } = {}): Promise<ImportReviewRepairInvalidPromotedBatchesResponse> {
+        const result = await this.publishSummaryRepo.repairInvalidEmptyPromotedBatches(options);
+        return {
+            ...result,
+            message:
+                result.repaired > 0
+                    ? `Repaired ${result.repaired} invalid promoted batch(es).`
+                    : "No invalid promoted batches required repair.",
+        };
+    }
+
     async getBatchVerify(batchId: bigint): Promise<ImportReviewPublishBatchVerifyResponse> {
         const batch = await this.validationRepo.fetchBatchProgress(batchId);
         if (!batch) {
             throw new ImportReviewPublishBatchNotFoundError(batchId.toString());
         }
         return this.promoteRepo.getBatchVerify(batchId);
+    }
+
+    async runRoadDryRun(
+        batchId: bigint,
+        body: PostImportReviewPromotionRoadDryRunBody
+    ): Promise<ImportReviewPromotionRoadDryRunResult> {
+        return this.roadDryRunService.runDryRun(batchId, body);
+    }
+
+    async getRoadDryRun(batchId: bigint): Promise<ImportReviewPromotionRoadDryRunResult> {
+        return this.roadDryRunService.getDryRunResult(batchId);
     }
 
     async getBatchLogs(batchId: bigint): Promise<ImportReviewPublishBatchLogsResponse> {

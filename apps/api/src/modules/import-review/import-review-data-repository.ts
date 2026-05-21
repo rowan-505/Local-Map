@@ -38,6 +38,8 @@ export type BuildingListRowDb = {
     class_code: string | null;
     building_type: string | null;
     building_type_id: bigint | null;
+    building_type_code?: string | null;
+    building_type_name?: string | null;
     admin_area_id: bigint | null;
     levels: number | null;
     height_m: unknown;
@@ -71,6 +73,11 @@ export type BuildingListRowDb = {
     road_candidate_surface?: string | null;
     road_candidate_is_oneway?: boolean | null;
     road_candidate_class_label?: string | null;
+    /** Bus stop candidates only */
+    name_local?: string | null;
+    stop_code?: string | null;
+    /** From core.core_admin_areas join when effectiveAdminAreaJoin is enabled */
+    effective_admin_area_name?: string | null;
 };
 
 import type { ImportReviewScopeQuery, ImportReviewScopeResolved } from "./import-review-batch-resolver.js";

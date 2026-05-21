@@ -28,7 +28,12 @@ import {
     getImportReviewPromotionBatchProgressSchema,
     getImportReviewPromotionBatchLogsSchema,
     postImportReviewPromotionBatchPromoteSchema,
+    postImportReviewRepairInvalidPromotedBatchesSchema,
     getImportReviewPromotionBatchVerifySchema,
+    postImportReviewPromotionRoadDryRunSchema,
+    getImportReviewPromotionRoadDryRunSchema,
+    postImportReviewCleanupPromotedDryRunSchema,
+    postImportReviewCleanupPromotedExecuteSchema,
     getImportReviewHistoryReviewBatchesSchema,
     getImportReviewHistoryReviewBatchByIdSchema,
     getImportReviewHistoryPublishBatchesSchema,
@@ -73,6 +78,7 @@ import {
     importReviewSummaryQuerySchema,
     patchImportReviewBuildingDecisionBodySchema,
     patchImportReviewBuildingOverridesBodySchema,
+    patchImportReviewCandidateOverridesBodySchema,
     patchImportReviewRoadOverridesBodySchema,
     postImportReviewRoadValidateRoutingBodySchema,
 } from "./import-review.schema.js";
@@ -92,7 +98,13 @@ import {
     ImportReviewPublishBatchPromotionConflictError,
     ImportReviewPublishBatchValidationConflictError,
     ImportReviewPromotionNoEligibleCandidatesError,
+    ImportReviewRoadPromotionDisabledError,
 } from "./import-review-promotion.errors.js";
+import {
+    ImportReviewPromotionRoadDryRunNoItemsError,
+    ImportReviewPromotionRoadDryRunNotFoundError,
+} from "./import-review-promotion-road-dry-run.errors.js";
+import { postImportReviewPromotionRoadDryRunBodySchema } from "./import-review-promotion-road-dry-run.schema.js";
 import { ImportReviewMissingPoiCategoriesTableError } from "./import-review-promotion-place-category.js";
 import {
     importReviewPromotionBatchEligibilityQuerySchema,
@@ -102,7 +114,20 @@ import {
     importReviewPromotionReadyQuerySchema,
     postImportReviewPromotionBatchBodySchema,
     postImportReviewPromotionBatchPromoteBodySchema,
+    postImportReviewRepairInvalidPromotedBatchesBodySchema,
 } from "./import-review-promotion.schema.js";
+import {
+    ImportReviewCleanupConfirmationError,
+    ImportReviewCleanupDisabledError,
+    ImportReviewCleanupNoEligibleRowsError,
+    ImportReviewCleanupPublishBatchNotFoundError,
+    ImportReviewCleanupReviewBatchNotFoundError,
+} from "./import-review-cleanup-promoted.errors.js";
+import {
+    postImportReviewCleanupPromotedDryRunBodySchema,
+    postImportReviewCleanupPromotedExecuteBodySchema,
+} from "./import-review-cleanup-promoted.schema.js";
+import { createImportReviewCleanupPromotedService } from "./import-review-cleanup-promoted.service.js";
 import { ImportReviewHistoryRepository } from "./import-review-history.repo.js";
 import { ImportReviewHistoryService } from "./import-review-history.service.js";
 import { ImportReviewHistoryReviewBatchNotFoundError } from "./import-review-history.errors.js";
@@ -217,6 +242,11 @@ function sendImportReviewError(reply: FastifyReply, error: unknown): boolean {
         return true;
     }
 
+    if (error instanceof ImportReviewRoadPromotionDisabledError) {
+        void reply.code(409).send({ message: error.message, batch_id: error.batchId });
+        return true;
+    }
+
     if (error instanceof ImportReviewPublishBatchPromotionConfirmationError) {
         void reply.code(400).send({ message: error.message, batch_id: error.batchId });
         return true;
@@ -228,6 +258,35 @@ function sendImportReviewError(reply: FastifyReply, error: unknown): boolean {
             batch_id: error.batchId,
             status: error.status,
         });
+        return true;
+    }
+
+    if (error instanceof ImportReviewCleanupDisabledError) {
+        void reply.code(403).send({ message: error.message });
+        return true;
+    }
+
+    if (
+        error instanceof ImportReviewCleanupConfirmationError ||
+        error instanceof ImportReviewCleanupNoEligibleRowsError
+    ) {
+        void reply.code(400).send({ message: error.message });
+        return true;
+    }
+
+    if (
+        error instanceof ImportReviewCleanupReviewBatchNotFoundError ||
+        error instanceof ImportReviewCleanupPublishBatchNotFoundError
+    ) {
+        void reply.code(404).send({ message: error.message });
+        return true;
+    }
+
+    if (
+        error instanceof ImportReviewPromotionRoadDryRunNotFoundError ||
+        error instanceof ImportReviewPromotionRoadDryRunNoItemsError
+    ) {
+        void reply.code(error.statusCode).send({ message: error.message, batch_id: error.batchId });
         return true;
     }
 
@@ -394,7 +453,7 @@ function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0]
         },
         async (request, reply) => {
             const paramsParsed = importReviewFamilyCandidateParamsSchema.safeParse(request.params);
-            const bodyParsed = patchImportReviewBuildingOverridesBodySchema.safeParse(request.body);
+            const bodyParsed = patchImportReviewCandidateOverridesBodySchema.safeParse(request.body);
 
             if (!paramsParsed.success) {
                 return reply.code(400).send({
@@ -485,6 +544,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
     );
     const historyRepo = new ImportReviewHistoryRepository(prisma);
     const historyService = new ImportReviewHistoryService(historyRepo);
+    const cleanupPromotedService = createImportReviewCleanupPromotedService(prisma);
 
     app.get(
         "/history/review-batches",
@@ -1459,6 +1519,108 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         }
     );
 
+    app.post(
+        "/promotion/batches/repair-invalid-promoted",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewRepairInvalidPromotedBatchesSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewRepairInvalidPromotedBatchesBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid body",
+                    issues: bodyParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(
+                    await promotionService.repairInvalidEmptyPromotedBatches({
+                        batchId: bodyParsed.data.batch_id
+                            ? BigInt(bodyParsed.data.batch_id)
+                            : undefined,
+                        reviewBatchId: bodyParsed.data.review_batch_id
+                            ? BigInt(bodyParsed.data.review_batch_id)
+                            : undefined,
+                    })
+                );
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/promotion/batches/:id/road-dry-run",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewPromotionRoadDryRunSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
+            if (!paramsParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid path parameters",
+                    issues: paramsParsed.error.flatten(),
+                });
+            }
+            const bodyParsed = postImportReviewPromotionRoadDryRunBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid body",
+                    issues: bodyParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(
+                    await promotionService.runRoadDryRun(
+                        BigInt(paramsParsed.data.id),
+                        bodyParsed.data
+                    )
+                );
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.get(
+        "/promotion/batches/:id/road-dry-run",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: getImportReviewPromotionRoadDryRunSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
+            if (!paramsParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid path parameters",
+                    issues: paramsParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(
+                    await promotionService.getRoadDryRun(BigInt(paramsParsed.data.id))
+                );
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
     app.get(
         "/promotion/batches/:id/verify",
         {
@@ -1477,6 +1639,60 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
                 return reply.send(
                     await promotionService.getBatchVerify(BigInt(paramsParsed.data.id))
                 );
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/cleanup/promoted/dry-run",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewCleanupPromotedDryRunSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewCleanupPromotedDryRunBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid body",
+                    issues: bodyParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(await cleanupPromotedService.dryRun(bodyParsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/cleanup/promoted/execute",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewCleanupPromotedExecuteSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewCleanupPromotedExecuteBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid body",
+                    issues: bodyParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(await cleanupPromotedService.execute(bodyParsed.data));
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {
                     return;

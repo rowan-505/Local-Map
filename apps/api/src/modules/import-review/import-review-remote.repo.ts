@@ -22,7 +22,7 @@ import {
     getImportReviewEntityConfig,
     type ImportReviewEntityFamilySlug,
 } from "./import-review-config.js";
-import type { CandidateListFilters } from "./import-review-candidate-sql.js";
+import { buildCandidateRowQueryParts, type CandidateListFilters } from "./import-review-candidate-sql.js";
 import {
     GenericImportReviewCandidateRepository,
     buildSummaryAggregationSql,
@@ -1655,52 +1655,20 @@ export class RemoteImportReviewRepositoryCore {
                 return null;
             }
 
+            const buildingConfig = getImportReviewEntityConfig("buildings");
+            const rowParts = buildCandidateRowQueryParts(buildingConfig, true);
             const rows = await tx.$queryRaw<BuildingListRowDb[]>`
-                UPDATE import_review.building_candidates AS b
-                   SET ${updateSetClause}
-                 WHERE b.id = ${args.id}
-                   AND b.review_batch_id = ${args.reviewBatchId}
-                   AND b.entity_family = 'buildings'
-                RETURNING
-                    b.id,
-                    b.public_id::text AS public_id,
-                    b.review_batch_id,
-                    b.source_snapshot_version,
-                    b.local_staging_id,
-                    b.source_snapshot_id_local,
-                    b.external_id,
-                    b.canonical_name,
-                    b.name,
-                    b.class_code,
-                    b.building_type,
-                    b.building_type_id,
-                    b.admin_area_id,
-                    b.levels,
-                    b.height_m,
-                    b.area_m2,
-                    b.confidence_score,
-                    b.match_status,
-                    b.auto_action,
-                    b.review_status,
-                    b.review_decision,
-                    b.reviewed_by::text AS reviewed_by,
-                    b.reviewed_at,
-                    b.review_note,
-                    b.normalized_data,
-                    b.source_refs,
-                    COALESCE(to_jsonb(b.review_overrides), '{}'::jsonb) AS review_overrides,
-                    b.matched_core_id,
-                    b.matched_core_table,
-                    b.matched_core_data,
-                    b.f2_comparison,
-                    b.validation_warnings,
-                    b.validation_errors,
-                    b.promotion_status,
-                    b.promoted_core_id,
-                    b.created_at,
-                    b.updated_at,
-                    ST_AsGeoJSON(b.geom)::json AS geometry,
-                    ST_AsGeoJSON(b.centroid)::json AS centroid
+                WITH updated AS (
+                    UPDATE import_review.building_candidates AS b
+                       SET ${updateSetClause}
+                     WHERE b.id = ${args.id}
+                       AND b.review_batch_id = ${args.reviewBatchId}
+                       AND b.entity_family = 'buildings'
+                    RETURNING b.id
+                )
+                SELECT ${rowParts.select}
+                FROM ${rowParts.from}
+                INNER JOIN updated AS u ON b.id = u.id
             `;
 
             const updated = rows[0];

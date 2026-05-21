@@ -42,8 +42,12 @@ export function resolveDrawerTitle(
     row: ImportReviewBuildingListItem,
     config: Pick<ImportReviewEntityConfig, "detailTitleField" | "label">
 ): string {
+    const effectiveName = rowFieldValue(row, "effective_name");
+    const effectiveCanonical = rowFieldValue(row, "effective_canonical_name");
     const primary = config.detailTitleField ? rowFieldValue(row, config.detailTitleField) : null;
     return (
+        effectiveName ??
+        effectiveCanonical ??
         primary ??
         rowFieldValue(row, "canonical_name") ??
         rowFieldValue(row, "name") ??

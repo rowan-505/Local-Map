@@ -1,7 +1,7 @@
 import type { RefSource } from "./refSources";
 import type { ImportReviewEntityConfig } from "./types";
 
-export type ImportReviewOverrideFieldType = "text" | "number" | "boolean" | "select" | "textarea";
+export type ImportReviewOverrideFieldType = "text" | "number" | "boolean" | "select" | "textarea" | "admin_area";
 
 export type ImportReviewOverrideFieldDef = {
     /** Key listed on entity config `overrideEditableFields`. */
@@ -46,7 +46,7 @@ export const IMPORT_REVIEW_OVERRIDE_FIELD_REGISTRY: Record<string, ImportReviewO
     building_type_id: FIELD({
         configKey: "building_type_id",
         patchKey: "building_type_id",
-        label: "building_type_id",
+        label: "Building type",
         type: "select",
         refSource: "ref_building_types",
         importedFrom: "row",
@@ -118,9 +118,8 @@ export const IMPORT_REVIEW_OVERRIDE_FIELD_REGISTRY: Record<string, ImportReviewO
     admin_area_id: FIELD({
         configKey: "admin_area_id",
         patchKey: "admin_area_id",
-        label: "admin_area_id",
-        type: "select",
-        refSource: "core_admin_areas",
+        label: "Admin area",
+        type: "admin_area",
         importedFrom: "row",
     }),
     road_class_id: FIELD({

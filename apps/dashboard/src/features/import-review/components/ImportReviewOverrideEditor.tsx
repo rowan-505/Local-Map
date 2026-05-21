@@ -18,6 +18,8 @@ import {
 } from "../utils/overrideEditorUtils";
 import { IMPORT_REVIEW_LOADING } from "../utils/loadingMessages";
 import { importReviewMessageTone } from "../utils/importReviewMessageTone";
+import AdminAreaCombobox from "@/src/components/admin-areas/AdminAreaCombobox";
+
 import ImportReviewInlineSpinner from "./ImportReviewInlineSpinner";
 import ImportReviewStatusBanner from "./ImportReviewStatusBanner";
 
@@ -180,7 +182,24 @@ export default function ImportReviewOverrideEditor({
                                         Imported: <span className="font-mono text-gray-700">{imported}</span>
                                     </span>
                                 ) : null}
-                                {def.type === "select" ? (
+                                {def.type === "admin_area" ? (
+                                    <AdminAreaCombobox
+                                        value={value.trim() === "" ? null : value}
+                                        disabled={!canEdit || promoted || isSaving}
+                                        placeholder="Search admin area…"
+                                        onChange={(id) => {
+                                            setForm((prev) => ({
+                                                ...prev,
+                                                [def.configKey]: id ?? "",
+                                            }));
+                                            setClearedKeys((prev) => {
+                                                const next = new Set(prev);
+                                                next.delete(def.configKey);
+                                                return next;
+                                            });
+                                        }}
+                                    />
+                                ) : def.type === "select" ? (
                                     <select
                                         value={value}
                                         disabled={!canEdit || promoted || isSaving || refsLoading}

@@ -9,12 +9,16 @@ export class StreetCrudValidationError extends Error {
     }
 }
 
-type ListStreetsParams = {
+export type ListStreetsParams = {
     limit: number;
+    offset?: number;
     q?: string;
     sortBy: "name" | "admin_area" | "created" | "updated" | "updated_at";
     sortOrder: "asc" | "desc";
     include_deleted: boolean;
+    is_verified?: boolean;
+    admin_area_id?: bigint;
+    road_class_id?: bigint;
 };
 
 /** GeoJSON LineString payload for dashboard CRUD only. */
@@ -56,6 +60,7 @@ export type StreetRow = {
     deleted_at: Date | null;
     last_edited_at: Date | null;
     is_active: boolean;
+    is_verified: boolean;
     created_at: Date;
     updated_at: Date;
     geometry: StreetGeometryJson;
@@ -177,6 +182,40 @@ function streetsListOrderBy(sortBy: ListStreetsParams["sortBy"], sortOrder: List
 
 function deletedFilter(includeDeleted: boolean): Prisma.Sql {
     return includeDeleted ? Prisma.sql`TRUE` : Prisma.sql`s.deleted_at IS NULL`;
+}
+
+function streetsListFilterClauses(
+    params: Pick<ListStreetsParams, "q" | "include_deleted" | "is_verified" | "admin_area_id" | "road_class_id">
+): Prisma.Sql[] {
+    const clauses: Prisma.Sql[] = [deletedFilter(params.include_deleted)];
+
+    if (params.q !== undefined) {
+        clauses.push(Prisma.sql`(
+                    COALESCE(s.canonical_name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(street_names.myanmar_name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(street_names.english_name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(aa.canonical_name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(rc.code, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(rc.name, '') ILIKE ${`%${params.q}%`}
+                    OR (CASE WHEN s.is_active THEN 'Yes' ELSE 'No' END) ILIKE ${`%${params.q}%`}
+                    OR (CASE WHEN s.is_verified THEN 'Yes' ELSE 'No' END) ILIKE ${`%${params.q}%`}
+                    OR s.updated_at::text ILIKE ${`%${params.q}%`}
+                )`);
+    }
+
+    if (params.is_verified !== undefined) {
+        clauses.push(Prisma.sql`s.is_verified = ${params.is_verified}`);
+    }
+
+    if (params.admin_area_id !== undefined) {
+        clauses.push(Prisma.sql`s.admin_area_id = ${params.admin_area_id}`);
+    }
+
+    if (params.road_class_id !== undefined) {
+        clauses.push(Prisma.sql`s.road_class_id = ${params.road_class_id}`);
+    }
+
+    return clauses;
 }
 
 async function applyStreetVersioningSession(
@@ -408,22 +447,9 @@ export class StreetsRepository {
     }
 
     async listStreets(params: ListStreetsParams): Promise<StreetRow[]> {
-        const searchClause =
-            params.q === undefined
-                ? Prisma.sql`TRUE`
-                : Prisma.sql`(
-                    COALESCE(s.canonical_name, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(street_names.myanmar_name, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(street_names.english_name, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(aa.canonical_name, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(rc.code, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(rc.name, '') ILIKE ${`%${params.q}%`}
-                    OR (CASE WHEN s.is_active THEN 'Yes' ELSE 'No' END) ILIKE ${`%${params.q}%`}
-                    OR s.updated_at::text ILIKE ${`%${params.q}%`}
-                )`;
-
+        const whereClause = Prisma.join(streetsListFilterClauses(params), " AND ");
         const orderByClause = streetsListOrderBy(params.sortBy, params.sortOrder);
-        const delFilter = deletedFilter(params.include_deleted);
+        const offset = params.offset ?? 0;
 
         return this.prisma.$queryRaw<StreetRow[]>(Prisma.sql`
             SELECT
@@ -445,6 +471,7 @@ export class StreetsRepository {
                 s.deleted_at,
                 s.last_edited_at,
                 s.is_active,
+                s.is_verified,
                 s.created_at,
                 s.updated_at,
                 CASE
@@ -460,11 +487,28 @@ export class StreetsRepository {
             LEFT JOIN ref.ref_road_classes AS rc
                 ON rc.id = s.road_class_id
             LEFT JOIN LATERAL (${streetNamesJsonSql()}) AS street_names ON true
-            WHERE ${delFilter}
-              AND ${searchClause}
+            WHERE ${whereClause}
             ORDER BY ${orderByClause}
             LIMIT ${params.limit}
+            OFFSET ${offset}
         `);
+    }
+
+    async countStreets(
+        params: Pick<ListStreetsParams, "q" | "include_deleted" | "is_verified" | "admin_area_id" | "road_class_id">
+    ): Promise<number> {
+        const whereClause = Prisma.join(streetsListFilterClauses(params), " AND ");
+        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+            SELECT COUNT(*)::bigint AS count
+            FROM core.core_streets AS s
+            LEFT JOIN core.core_admin_areas AS aa
+                ON aa.id = s.admin_area_id
+            LEFT JOIN ref.ref_road_classes AS rc
+                ON rc.id = s.road_class_id
+            LEFT JOIN LATERAL (${streetNamesJsonSql()}) AS street_names ON true
+            WHERE ${whereClause}
+        `);
+        return Number(rows[0]?.count ?? 0n);
     }
 
     /**
@@ -547,6 +591,7 @@ export class StreetsRepository {
                 s.deleted_at,
                 s.last_edited_at,
                 s.is_active,
+                s.is_verified,
                 s.created_at,
                 s.updated_at,
                 CASE

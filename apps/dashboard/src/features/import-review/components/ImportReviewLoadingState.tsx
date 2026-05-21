@@ -1,11 +1,11 @@
 "use client";
 
 import ImportReviewInlineSpinner from "./ImportReviewInlineSpinner";
-import ImportReviewStatusBanner from "./ImportReviewStatusBanner";
+import ReviewLoadingBanner from "@/src/components/review/ReviewLoadingState";
 
 /** Full-width info banner (initial / blocking loads). */
 export default function ImportReviewLoadingState({ message }: { message: string }) {
-    return <ImportReviewStatusBanner message={message} tone="info" />;
+    return <ReviewLoadingBanner message={message} />;
 }
 
 export function ImportReviewLoadingBannerWithSpinner({ message }: { message: string }) {

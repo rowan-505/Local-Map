@@ -110,3 +110,14 @@ export class ImportReviewPublishInvalidStageStatusError extends Error {
         this.name = "ImportReviewPublishInvalidStageStatusError";
     }
 }
+
+export class ImportReviewRoadPromotionDisabledError extends Error {
+    readonly statusCode = 409;
+
+    constructor(public readonly batchId: string) {
+        super(
+            "Road promotion is disabled. Run road dry-run and enable ENABLE_IMPORT_REVIEW_ROAD_PROMOTION only after routing validation is stable."
+        );
+        this.name = "ImportReviewRoadPromotionDisabledError";
+    }
+}

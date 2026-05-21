@@ -17,8 +17,8 @@ export const landuseImportReviewEntityConfig = createImportReviewEntityConfig({
     riskLevel: "low",
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
-        { key: "name", label: "Name", source: "row" },
-        { key: "class_code", label: "Class", source: "row" },
+        { key: "effective_name", label: "Name", source: "row" },
+        { key: "effective_class_code", label: "Class", source: "row" },
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,
     ],
     searchableFields: ["name", "external_id", "class_code"],

@@ -98,7 +98,23 @@ export function normPick(data: unknown, key: string): unknown {
     return undefined;
 }
 
+export function formatBuildingTypeLabel(row: ImportReviewBuildingListItem): string {
+    const code = row.building_type_code?.trim();
+    const name = row.building_type_name?.trim();
+    if (code && name) {
+        return `${code} — ${name}`;
+    }
+    return code || name || row.building_type?.trim() || "";
+}
+
+export function importReviewRowHasOverrides(row: ImportReviewBuildingListItem): boolean {
+    return row.has_overrides === true;
+}
+
 export function importReviewCellValue(row: ImportReviewBuildingListItem, col: ImportReviewTableColumn): string {
+    if (col.key === "building_type_display") {
+        return dash(formatBuildingTypeLabel(row));
+    }
     if (col.source === "normalized") {
         const v = normPick(row.normalized_data, col.key);
         if (v === null || v === undefined) {

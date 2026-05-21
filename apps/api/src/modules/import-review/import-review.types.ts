@@ -71,6 +71,9 @@ export type ImportReviewBuildingListItem = {
     class_code: string | null;
     building_type: string | null;
     building_type_id: string | null;
+    /** From ref.ref_building_types join (effective building_type_id). */
+    building_type_code?: string | null;
+    building_type_name?: string | null;
     admin_area_id: string | null;
     levels: number | null;
     height_m: number | null;
@@ -106,6 +109,27 @@ export type ImportReviewBuildingListItem = {
     road_candidate_class_label: string | null;
     road_candidate_surface: string | null;
     road_candidate_is_oneway: boolean | null;
+    /** Merged view: review_overrides[field] when present, else imported/normalized. */
+    effective_name?: string | null;
+    effective_name_local?: string | null;
+    effective_stop_code?: string | null;
+    effective_canonical_name?: string | null;
+    effective_class_code?: string | null;
+    effective_admin_area_id?: string | null;
+    effective_admin_area_name?: string | null;
+    effective_levels?: number | null;
+    effective_height_m?: number | null;
+    effective_full_address?: string | null;
+    effective_house_number?: string | null;
+    effective_street_name?: string | null;
+    effective_quarter?: string | null;
+    effective_township?: string | null;
+    effective_admin_level_id?: string | null;
+    effective_parent_id?: string | null;
+    effective_slug?: string | null;
+    effective_barrier_type?: string | null;
+    has_overrides?: boolean;
+    overridden_fields?: string[];
 };
 
 export type ImportReviewCandidateListItem = ImportReviewBuildingListItem;

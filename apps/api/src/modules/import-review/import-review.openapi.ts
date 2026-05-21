@@ -308,8 +308,14 @@ export const importReviewBuildingItemSchema = {
         canonical_name: { type: "string", nullable: true },
         name: { type: "string", nullable: true },
         class_code: { type: "string", nullable: true },
-        building_type: { type: "string", nullable: true },
+        building_type: {
+            type: "string",
+            nullable: true,
+            description: "Legacy imported staging text only; not used for edits. Prefer building_type_code/name from ref join.",
+        },
         building_type_id: { type: "string", nullable: true },
+        building_type_code: { type: "string", nullable: true },
+        building_type_name: { type: "string", nullable: true },
         admin_area_id: { type: "string", nullable: true },
         levels: { type: "integer", nullable: true },
         height_m: { type: "number", nullable: true },
@@ -364,6 +370,37 @@ export const importReviewBuildingItemSchema = {
         },
         road_candidate_surface: { type: "string", nullable: true },
         road_candidate_is_oneway: { type: "boolean", nullable: true },
+        effective_name: {
+            type: "string",
+            nullable: true,
+            description: "Display value: review_overrides.name when set, else imported/normalized name.",
+        },
+        effective_name_local: { type: "string", nullable: true },
+        effective_stop_code: { type: "string", nullable: true },
+        effective_canonical_name: { type: "string", nullable: true },
+        effective_class_code: { type: "string", nullable: true },
+        effective_admin_area_id: { type: "string", nullable: true },
+        effective_admin_area_name: { type: "string", nullable: true },
+        effective_levels: { type: "integer", nullable: true },
+        effective_height_m: { type: "number", nullable: true },
+        effective_full_address: { type: "string", nullable: true },
+        effective_house_number: { type: "string", nullable: true },
+        effective_street_name: { type: "string", nullable: true },
+        effective_quarter: { type: "string", nullable: true },
+        effective_township: { type: "string", nullable: true },
+        effective_admin_level_id: { type: "string", nullable: true },
+        effective_parent_id: { type: "string", nullable: true },
+        effective_slug: { type: "string", nullable: true },
+        effective_barrier_type: { type: "string", nullable: true },
+        has_overrides: {
+            type: "boolean",
+            description: "True when review_overrides contains at least one non-null key.",
+        },
+        overridden_fields: {
+            type: "array",
+            items: { type: "string" },
+            description: "Keys present in review_overrides with non-null values.",
+        },
     },
     additionalProperties: false,
 } as const;
@@ -685,15 +722,34 @@ export const patchImportReviewBuildingDecisionSchema = {
     },
 } satisfies FastifySchema;
 
+const patchImportReviewBuildingOverridesLeafOpenApi = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+        name: { oneOf: [{ type: "string", maxLength: 2048 }, { type: "null" }] },
+        canonical_name: { oneOf: [{ type: "string", maxLength: 2048 }, { type: "null" }] },
+        building_type_id: {
+            description: "ref.ref_building_types.id (active only); null clears override.",
+            oneOf: [{ type: "string", pattern: "^\\d+$" }, { type: "integer" }, { type: "null" }],
+        },
+        admin_area_id: {
+            description: "core.core_admin_areas.id (active only); null clears override.",
+            oneOf: [{ type: "string", pattern: "^\\d+$" }, { type: "integer" }, { type: "null" }],
+        },
+        levels: { oneOf: [{ type: "integer" }, { type: "null" }] },
+        height_m: { oneOf: [{ type: "number" }, { type: "null" }] },
+    },
+} as const;
+
 const patchImportReviewBuildingOverridesBodyOpenApi = {
     type: "object",
     required: ["review_overrides"],
     properties: {
         ...importReviewScopeQueryProperties,
         review_overrides: {
-            type: "object",
-            additionalProperties: true,
-            description: "Shallow JSON patch merged server-side into import_review.building_candidates.review_overrides.",
+            ...patchImportReviewBuildingOverridesLeafOpenApi,
+            description:
+                "Shallow JSON patch merged into review_overrides. building_type_id only — no class_code/building_type text.",
         },
         review_note: {
             type: "string",
@@ -1098,10 +1154,15 @@ const importReviewPublishBatchSummarySchema = {
         "public_id",
         "batch_name",
         "status",
+        "derived_status",
         "total_item_count",
         "success_count",
         "failed_count",
         "skipped_count",
+        "core_verified_count",
+        "import_review_marked_promoted_count",
+        "inserted_count",
+        "updated_count",
         "created_at",
     ],
     properties: {
@@ -1109,6 +1170,10 @@ const importReviewPublishBatchSummarySchema = {
         public_id: { type: "string" },
         batch_name: { type: "string" },
         status: { type: "string" },
+        derived_status: { type: "string" },
+        derived_status_reason: { type: "string", nullable: true },
+        stored_status_recommendation: { type: "string", nullable: true },
+        status_note: { type: "string", nullable: true },
         source_review_batch_id: { type: "string", nullable: true },
         source_snapshot_version: { type: "string", nullable: true },
         region_code: { type: "string", nullable: true },
@@ -1116,6 +1181,10 @@ const importReviewPublishBatchSummarySchema = {
         success_count: { type: "integer", minimum: 0 },
         failed_count: { type: "integer", minimum: 0 },
         skipped_count: { type: "integer", minimum: 0 },
+        core_verified_count: { type: "integer", minimum: 0 },
+        import_review_marked_promoted_count: { type: "integer", minimum: 0 },
+        inserted_count: { type: "integer", minimum: 0 },
+        updated_count: { type: "integer", minimum: 0 },
         note: { type: "string", nullable: true },
         created_at: { type: "string", format: "date-time" },
         published_at: { type: "string", format: "date-time", nullable: true },
@@ -1138,16 +1207,33 @@ const publishItemCountsSchema = {
     additionalProperties: false,
 } as const;
 
+const publishEntityItemCountsSchema = {
+    type: "object",
+    required: ["pending", "success", "failed", "skipped", "total"],
+    properties: {
+        pending: { type: "integer", minimum: 0 },
+        success: { type: "integer", minimum: 0 },
+        failed: { type: "integer", minimum: 0 },
+        skipped: { type: "integer", minimum: 0 },
+        total: { type: "integer", minimum: 0 },
+    },
+    additionalProperties: false,
+} as const;
+
 const importReviewPublishBatchDetailSchema = {
     type: "object",
     allOf: [
         importReviewPublishBatchSummarySchema,
         {
             type: "object",
-            required: ["item_counts", "building_item_counts"],
+            required: ["item_counts", "building_item_counts", "item_counts_by_entity_family"],
             properties: {
                 item_counts: publishItemCountsSchema,
                 building_item_counts: publishItemCountsSchema,
+                item_counts_by_entity_family: {
+                    type: "object",
+                    additionalProperties: publishEntityItemCountsSchema,
+                },
             },
             additionalProperties: false,
         },
@@ -1204,6 +1290,8 @@ const importReviewPromotionReadyCandidateSchema = {
         class_code: { type: "string", nullable: true },
         building_type: { type: "string", nullable: true },
         building_type_id: { type: "string", nullable: true },
+        building_type_code: { type: "string", nullable: true },
+        building_type_name: { type: "string", nullable: true },
         confidence_score: { type: "number", nullable: true },
         match_status: { type: "string", nullable: true },
         auto_action: { type: "string", nullable: true },
@@ -1672,6 +1760,8 @@ const importReviewPublishBatchPromotionResultSchema = {
         "total",
         "core_verified_count",
         "import_review_marked_promoted_count",
+        "verification_metadata_applied_count",
+        "verification_metadata_skipped_already_verified_count",
         "started_at",
         "finished_at",
         "duration_ms",
@@ -1687,6 +1777,8 @@ const importReviewPublishBatchPromotionResultSchema = {
         total: { type: "integer", minimum: 0 },
         core_verified_count: { type: "integer", minimum: 0 },
         import_review_marked_promoted_count: { type: "integer", minimum: 0 },
+        verification_metadata_applied_count: { type: "integer", minimum: 0 },
+        verification_metadata_skipped_already_verified_count: { type: "integer", minimum: 0 },
         partial_success: { type: "boolean" },
         started_at: { type: "string", format: "date-time" },
         finished_at: { type: "string", format: "date-time" },
@@ -1711,10 +1803,17 @@ export const getImportReviewPromotionBatchProgressSchema = {
             required: [
                 "batch_id",
                 "status",
+                "derived_status",
+                "derived_status_reason",
+                "stored_status_recommendation",
+                "status_note",
                 "workflow",
                 "validation_total",
                 "validation_done",
                 "validation_percent",
+                "total_item_count",
+                "item_processed_count",
+                "stage_count",
                 "validated_at",
                 "current_stage_key",
                 "current_stage_label",
@@ -1729,10 +1828,17 @@ export const getImportReviewPromotionBatchProgressSchema = {
             properties: {
                 batch_id: { type: "string" },
                 status: { type: "string" },
+                derived_status: { type: "string" },
+                derived_status_reason: { type: "string", nullable: true },
+                stored_status_recommendation: { type: "string", nullable: true },
+                status_note: { type: "string", nullable: true },
                 workflow: { type: "string", enum: ["validation", "promotion", "idle"] },
                 validation_total: { type: "integer", minimum: 0 },
                 validation_done: { type: "integer", minimum: 0 },
                 validation_percent: { type: "number", minimum: 0, maximum: 100 },
+                total_item_count: { type: "integer", minimum: 0 },
+                item_processed_count: { type: "integer", minimum: 0 },
+                stage_count: { type: "integer", minimum: 0 },
                 validated_at: { type: "string", format: "date-time", nullable: true },
                 current_stage_key: { type: "string", nullable: true },
                 current_stage_label: { type: "string", nullable: true },
@@ -1756,6 +1862,187 @@ export const getImportReviewPromotionBatchProgressSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: notFoundSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewRepairInvalidPromotedBatchesSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Repair invalid empty promoted publish batches",
+    description:
+        "Finds publish batches stored as promoted with no successful promotion/verification, downgrades status to failed/blocked, and persists derived_status metadata into summary JSONB.",
+    security: [...bearerAuth],
+    body: {
+        type: "object",
+        properties: {
+            batch_id: { type: "string", pattern: "^\\d+$" },
+            review_batch_id: { type: "string", pattern: "^\\d+$" },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["scanned", "repaired", "skipped", "batches", "message"],
+            properties: {
+                scanned: { type: "integer", minimum: 0 },
+                repaired: { type: "integer", minimum: 0 },
+                skipped: { type: "integer", minimum: 0 },
+                message: { type: "string" },
+                batches: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        required: ["id", "previous_status", "new_status", "derived_status"],
+                        properties: {
+                            id: { type: "string" },
+                            previous_status: { type: "string" },
+                            new_status: { type: "string" },
+                            derived_status: { type: "string" },
+                        },
+                        additionalProperties: false,
+                    },
+                },
+            },
+            additionalProperties: false,
+        },
+        400: messageSchema,
+        401: messageSchema,
+        403: messageSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
+const cleanupExampleRowSchema = {
+    type: "object",
+    required: ["candidate_id", "entity_family", "promoted_core_id", "promoted_at", "publish_batch_id"],
+    properties: {
+        candidate_id: { type: "string" },
+        entity_family: { type: "string" },
+        promoted_core_id: { type: "string", nullable: true },
+        promoted_at: { type: "string", nullable: true },
+        publish_batch_id: { type: "string", nullable: true },
+    },
+    additionalProperties: false,
+} as const;
+
+const cleanupScopeBodySchema = {
+    type: "object",
+    required: ["review_batch_id"],
+    properties: {
+        review_batch_id: { type: "string", pattern: "^\\d+$" },
+        entity_families: {
+            type: "array",
+            items: { type: "string" },
+        },
+        publish_batch_id: { type: "string", pattern: "^\\d+$" },
+        older_than_days: { type: "integer", minimum: 0 },
+    },
+    additionalProperties: false,
+} as const;
+
+export const postImportReviewCleanupPromotedDryRunSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Dry-run permanent cleanup of promoted import_review candidates",
+    description:
+        "Reports which soft-hidden promoted import_review candidate rows are eligible for permanent deletion. Does not mutate data. Core rows and system publish history are never deleted.",
+    security: [...bearerAuth],
+    body: cleanupScopeBodySchema,
+    response: {
+        200: {
+            type: "object",
+            required: [
+                "review_batch_id",
+                "publish_batch_id",
+                "selected_entity_families",
+                "eligible_counts_by_entity",
+                "not_eligible_counts_by_reason",
+                "estimated_rows_to_delete",
+                "estimated_geometry_rows_to_delete",
+                "example_eligible_rows",
+                "example_blocked_rows",
+                "execute_enabled",
+                "message",
+            ],
+            properties: {
+                review_batch_id: { type: "string" },
+                publish_batch_id: { type: "string", nullable: true },
+                selected_entity_families: { type: "array", items: { type: "string" } },
+                eligible_counts_by_entity: {
+                    type: "object",
+                    additionalProperties: { type: "integer", minimum: 0 },
+                },
+                not_eligible_counts_by_reason: {
+                    type: "object",
+                    additionalProperties: { type: "integer", minimum: 0 },
+                },
+                estimated_rows_to_delete: { type: "integer", minimum: 0 },
+                estimated_geometry_rows_to_delete: { type: "integer", minimum: 0 },
+                example_eligible_rows: { type: "array", items: cleanupExampleRowSchema },
+                example_blocked_rows: {
+                    type: "array",
+                    items: {
+                        ...cleanupExampleRowSchema,
+                        required: [...cleanupExampleRowSchema.required, "reason"],
+                        properties: {
+                            ...cleanupExampleRowSchema.properties,
+                            reason: { type: "string" },
+                        },
+                    },
+                },
+                execute_enabled: { type: "boolean" },
+                message: { type: "string" },
+            },
+            additionalProperties: false,
+        },
+        400: messageSchema,
+        401: messageSchema,
+        403: messageSchema,
+        404: messageSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewCleanupPromotedExecuteSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Execute permanent cleanup of promoted import_review candidates",
+    description:
+        "Permanently deletes eligible import_review candidate rows only when ENABLE_IMPORT_REVIEW_PERMANENT_CLEANUP=true and confirmation_text matches. Core and system publish history are preserved.",
+    security: [...bearerAuth],
+    body: {
+        ...cleanupScopeBodySchema,
+        required: ["review_batch_id", "confirmation_text"],
+        properties: {
+            ...cleanupScopeBodySchema.properties,
+            confirmation_text: { type: "string", enum: ["DELETE PROMOTED REVIEW DATA"] },
+        },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: [
+                "review_batch_id",
+                "publish_batch_id",
+                "deleted_count",
+                "deleted_by_entity",
+                "message",
+            ],
+            properties: {
+                review_batch_id: { type: "string" },
+                publish_batch_id: { type: "string", nullable: true },
+                deleted_count: { type: "integer", minimum: 0 },
+                deleted_by_entity: {
+                    type: "object",
+                    additionalProperties: { type: "integer", minimum: 0 },
+                },
+                message: { type: "string" },
+            },
+            additionalProperties: false,
+        },
+        400: messageSchema,
+        401: messageSchema,
+        403: messageSchema,
+        404: messageSchema,
         500: messageSchema,
     },
 } satisfies FastifySchema;
@@ -1797,6 +2084,125 @@ export const postImportReviewPromotionBatchPromoteSchema = {
         403: forbiddenSchema,
         404: notFoundSchema,
         409: importReviewScopeConflictResponse,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
+const roadDryRunItemSchema = {
+    type: "object",
+    required: [
+        "publish_item_id",
+        "review_candidate_id",
+        "external_id",
+        "publish_action",
+        "dry_run_status",
+        "blocking_reasons",
+        "warning_codes",
+        "matched_core_id",
+        "routing_validation_summary",
+        "geometry_summary",
+    ],
+    properties: {
+        publish_item_id: { type: "string" },
+        review_candidate_id: { type: "string" },
+        external_id: { type: "string", nullable: true },
+        publish_action: { type: "string" },
+        dry_run_status: {
+            type: "string",
+            enum: ["blocked", "warning", "eligible", "eligible_if_confirmed"],
+        },
+        blocking_reasons: { type: "array", items: { type: "string" } },
+        warning_codes: { type: "array", items: { type: "string" } },
+        matched_core_id: { type: "string", nullable: true },
+        routing_validation_summary: { type: "object", nullable: true, additionalProperties: true },
+        geometry_summary: { type: "object", nullable: true, additionalProperties: true },
+    },
+    additionalProperties: false,
+} as const;
+
+const roadDryRunResultSchema = {
+    type: "object",
+    required: [
+        "batch_id",
+        "review_batch_id",
+        "would_insert_count",
+        "would_update_count",
+        "blocked_count",
+        "warning_count",
+        "duplicate_risk_count",
+        "routing_warning_count",
+        "serious_warning_count",
+        "eligible_if_confirmed_count",
+        "disabled_because_env_flag_false",
+        "items",
+        "finished_at",
+        "message",
+    ],
+    properties: {
+        batch_id: { type: "string" },
+        review_batch_id: { type: "string", nullable: true },
+        would_insert_count: { type: "integer", minimum: 0 },
+        would_update_count: { type: "integer", minimum: 0 },
+        blocked_count: { type: "integer", minimum: 0 },
+        warning_count: { type: "integer", minimum: 0 },
+        duplicate_risk_count: { type: "integer", minimum: 0 },
+        routing_warning_count: { type: "integer", minimum: 0 },
+        serious_warning_count: { type: "integer", minimum: 0 },
+        eligible_if_confirmed_count: { type: "integer", minimum: 0 },
+        disabled_because_env_flag_false: { type: "boolean" },
+        items: { type: "array", items: roadDryRunItemSchema },
+        finished_at: { type: "string" },
+        message: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+export const postImportReviewPromotionRoadDryRunSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Run road promotion dry-run for a publish batch",
+    description:
+        "Evaluates road publish items with blocking checks and routing validation. Does not write to core.core_streets.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    body: {
+        type: "object",
+        properties: {
+            confirm_routing_warnings: { type: "boolean", default: false },
+            use_review_overrides: { type: "boolean", default: true },
+            connectivity_threshold_m: { type: "number", minimum: 5, maximum: 250, default: 35 },
+            duplicate_threshold_m: { type: "number", minimum: 1, maximum: 100, default: 15 },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: roadDryRunResultSchema,
+        400: messageSchema,
+        401: messageSchema,
+        403: messageSchema,
+        404: messageSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
+export const getImportReviewPromotionRoadDryRunSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Get cached road promotion dry-run result",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        200: roadDryRunResultSchema,
+        400: messageSchema,
+        401: messageSchema,
+        403: messageSchema,
+        404: messageSchema,
         500: messageSchema,
     },
 } satisfies FastifySchema;

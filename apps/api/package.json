@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
+    "test:entity-names": "node --import tsx --test src/lib/entity-names/entity-names.test.ts",
     "check:streets-names": "tsx scripts/check-street-name-normalization.ts",
     "docs:api": "tsx scripts/generate-api-docs.ts",
     "curl-examples:import-review-auth": "bash scripts/import-review-admin-curl-examples.sh",

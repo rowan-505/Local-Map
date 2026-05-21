@@ -4,10 +4,18 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Map as MaplibreMap } from "maplibre-gl";
 
+import AdminAreaCombobox from "@/src/components/admin-areas/AdminAreaCombobox";
 import BuildingEditorMap, {
     hasDrawableBuildingPolygon,
+    parsePolygonOrMultiPolygon,
     type BuildingEditorMapDrawOutput,
 } from "@/src/components/buildings/BuildingEditorMap";
+import DataReviewMapCard from "@/src/components/map/DataReviewMapCard";
+import {
+    fitMapToReviewCandidate,
+    type DataReviewBasemapMode,
+} from "@/src/components/map/dataReviewBasemap";
+import { coreReviewFitButtonLabel } from "@/src/components/core-review/coreReviewMapGeometry";
 import {
     getBuildingTypes,
     getPlaceFormOptions,
@@ -63,7 +71,9 @@ export default function BuildingEditorForm({
     onSubmit,
 }: BuildingEditorFormProps) {
     const [geometryJson, setGeometryJson] = useState("");
-    const [name, setName] = useState("");
+    const [nameMm, setNameMm] = useState("");
+    const [nameEn, setNameEn] = useState("");
+    const [fallbackName, setFallbackName] = useState("");
     const [buildingTypeId, setBuildingTypeId] = useState("");
     const [adminAreaId, setAdminAreaId] = useState("");
     const [refTypes, setRefTypes] = useState<RefBuildingType[]>([]);
@@ -77,12 +87,23 @@ export default function BuildingEditorForm({
     const [confidenceScore, setConfidenceScore] = useState("80");
     const [isVerified, setIsVerified] = useState(false);
     const [error, setError] = useState("");
-    /** Shown only in BuildingEditorMap debug panel after a failed `onSubmit` (not client-side validation). */
-    const [submitApiError, setSubmitApiError] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const submitLockRef = useRef(false);
     const editorMapSurfaceRef = useRef<MaplibreMap | null>(null);
+    const [basemapMode, setBasemapMode] = useState<DataReviewBasemapMode>("map");
+    const [showVertices, setShowVertices] = useState(false);
     const { bumpBuildingTileVersion } = useBuildingTileVersion();
+
+    const parsedFootprint = parsePolygonOrMultiPolygon(geometryJson.trim());
+    const hasRenderableFootprint = parsedFootprint !== null;
+
+    const handleFitGeometry = useCallback(() => {
+        const map = editorMapSurfaceRef.current;
+        if (!map || !parsedFootprint) {
+            return;
+        }
+        fitMapToReviewCandidate(map, parsedFootprint, "polygon");
+    }, [parsedFootprint]);
 
     const handleDrawOutput = useCallback((output: BuildingEditorMapDrawOutput) => {
         setGeometryJson(output.geometryJson);
@@ -138,7 +159,11 @@ export default function BuildingEditorForm({
                 ? JSON.stringify(initialBuilding.geometry, null, 2)
                 : ""
         );
-        setName(initialBuilding.name ?? "");
+        setNameMm(initialBuilding.name_mm ?? "");
+        setNameEn(initialBuilding.name_en ?? "");
+        setFallbackName(
+            initialBuilding.fallback_name ?? initialBuilding.name ?? ""
+        );
         const resolvedId =
             initialBuilding.building_type_id ??
             initialBuilding.building_type?.id ??
@@ -189,7 +214,9 @@ export default function BuildingEditorForm({
 
         const payload: CreateBuildingPayload = {
             geometry,
-            name: name.trim() === "" ? null : name.trim(),
+            name_mm: nameMm.trim() === "" ? null : nameMm.trim(),
+            name_en: nameEn.trim() === "" ? null : nameEn.trim(),
+            name: fallbackName.trim() === "" ? null : fallbackName.trim(),
         };
 
         const isEdit = initialBuilding != null;
@@ -254,7 +281,6 @@ export default function BuildingEditorForm({
 
         submitLockRef.current = true;
         setIsSubmitting(true);
-        setSubmitApiError("");
         onCommit?.();
 
         try {
@@ -268,10 +294,12 @@ export default function BuildingEditorForm({
                 } else {
                     setGeometryJson("");
                 }
+                setNameMm(b.name_mm ?? "");
+                setNameEn(b.name_en ?? "");
+                setFallbackName(b.fallback_name ?? b.name ?? "");
             }
 
             dashDevLog("building:map:live-overlay-form-geometry-synced-from-api");
-            setSubmitApiError("");
             const tileVersion = bumpBuildingTileVersion();
             scheduleBuildingTileRefresh(editorMapSurfaceRef.current, tileVersion);
         } catch (err) {
@@ -283,7 +311,6 @@ export default function BuildingEditorForm({
                 );
             const safe = looksTechnical ? "Saving the building failed. Please try again." : raw;
             setError(safe);
-            setSubmitApiError(safe);
         } finally {
             submitLockRef.current = false;
             setIsSubmitting(false);
@@ -308,14 +335,31 @@ export default function BuildingEditorForm({
                 ) : null}
 
                 <div className="space-y-2">
-                    <span className="block text-sm font-medium text-gray-700">Map preview</span>
-                    <BuildingEditorMap
-                        geometryJson={geometryJson}
-                        onDrawOutput={handleDrawOutput}
-                        editorMapSurfaceRef={editorMapSurfaceRef}
-                        showDebugPanel
-                        submissionError={submitApiError}
-                    />
+                    <span className="block text-sm font-medium text-slate-700">Building footprint</span>
+                    <DataReviewMapCard
+                        header={{
+                            title: "Building footprint",
+                            externalId: initialBuilding?.public_id ?? null,
+                            hasRenderable: hasRenderableFootprint,
+                            onFit: handleFitGeometry,
+                            fitButtonLabel: coreReviewFitButtonLabel("polygon"),
+                            basemapMode,
+                            onBasemapModeChange: setBasemapMode,
+                            showVerticesToggle: true,
+                            showVertices,
+                            onShowVerticesChange: setShowVertices,
+                            palette: "core",
+                        }}
+                        bodyClassName="p-0"
+                    >
+                        <BuildingEditorMap
+                            geometryJson={geometryJson}
+                            onDrawOutput={handleDrawOutput}
+                            editorMapSurfaceRef={editorMapSurfaceRef}
+                            basemapMode={basemapMode}
+                            showVertexPreview={showVertices}
+                        />
+                    </DataReviewMapCard>
                 </div>
 
                 <div>
@@ -339,15 +383,39 @@ export default function BuildingEditorForm({
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="sm:col-span-2">
-                        <label htmlFor="building-name" className="block text-sm font-medium text-gray-700">
-                            Name (optional)
+                    <div>
+                        <label htmlFor="building-name-mm" className="block text-sm font-medium text-gray-700">
+                            Myanmar name
                         </label>
                         <input
-                            id="building-name"
+                            id="building-name-mm"
                             type="text"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
+                            value={nameMm}
+                            onChange={(e) => setNameMm(e.target.value)}
+                            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="building-name-en" className="block text-sm font-medium text-gray-700">
+                            English name
+                        </label>
+                        <input
+                            id="building-name-en"
+                            type="text"
+                            value={nameEn}
+                            onChange={(e) => setNameEn(e.target.value)}
+                            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                        />
+                    </div>
+                    <div className="sm:col-span-2">
+                        <label htmlFor="building-fallback-name" className="block text-sm font-medium text-gray-700">
+                            Fallback/imported name
+                        </label>
+                        <input
+                            id="building-fallback-name"
+                            type="text"
+                            value={fallbackName}
+                            onChange={(e) => setFallbackName(e.target.value)}
                             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900"
                         />
                     </div>
@@ -404,20 +472,13 @@ export default function BuildingEditorForm({
                         {formOptionsLoading ? (
                             <p className="mb-2 text-sm text-gray-600">Loading admin areas...</p>
                         ) : null}
-                        <select
+                        <AdminAreaCombobox
                             id="building-admin-area"
-                            value={adminAreaId}
-                            onChange={(e) => setAdminAreaId(e.target.value)}
+                            value={adminAreaId.trim() === "" ? null : adminAreaId}
                             disabled={formOptionsLoading}
-                            className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900 disabled:cursor-not-allowed disabled:bg-gray-50"
-                        >
-                            <option value="">Select admin area</option>
-                            {(formOptions?.admin_areas ?? []).map((area) => (
-                                <option key={area.id} value={area.id}>
-                                    {area.label}
-                                </option>
-                            ))}
-                        </select>
+                            placeholder="Search admin area…"
+                            onChange={(id) => setAdminAreaId(id ?? "")}
+                        />
                     </label>
 
                     <div>

@@ -1,5 +1,8 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import { getImportReviewEntityConfig } from "./import-review-config.js";
+import { effectiveBuildingTypeIdExpr } from "./import-review-candidate-sql.js";
+
 import type { ImportReviewScopeQuery, ImportReviewScopeResolved } from "./import-review-data-repository.js";
 import { resolveImportReviewBatchScope } from "./import-review-batch-resolver.js";
 import {
@@ -116,6 +119,8 @@ export type ReadyBuildingCandidateRowDb = {
     class_code: string | null;
     building_type: string | null;
     building_type_id: bigint | null;
+    building_type_code: string | null;
+    building_type_name: string | null;
     confidence_score: unknown;
     match_status: string | null;
     auto_action: string | null;
@@ -296,6 +301,9 @@ export class ImportReviewPromotionRepository {
         `;
         const total = totalRows[0]?.count ?? 0n;
 
+        const buildingConfig = getImportReviewEntityConfig("buildings");
+        const effectiveBtId = effectiveBuildingTypeIdExpr(buildingConfig);
+
         const rows = await this.prisma.$queryRaw<ReadyBuildingCandidateRowDb[]>`
             SELECT
                 b.id,
@@ -305,7 +313,9 @@ export class ImportReviewPromotionRepository {
                 b.canonical_name,
                 b.class_code,
                 b.building_type,
-                b.building_type_id,
+                ${effectiveBtId} AS building_type_id,
+                bt.code AS building_type_code,
+                bt.name AS building_type_name,
                 b.confidence_score,
                 b.match_status,
                 b.auto_action,
@@ -325,6 +335,7 @@ export class ImportReviewPromotionRepository {
                     ELSE NULL::json
                 END AS geometry
             FROM import_review.building_candidates AS b
+            LEFT JOIN ref.ref_building_types AS bt ON bt.id = ${effectiveBtId}
             WHERE ${eligible}
             ORDER BY ${orderBy}
             LIMIT ${args.limit} OFFSET ${args.offset}

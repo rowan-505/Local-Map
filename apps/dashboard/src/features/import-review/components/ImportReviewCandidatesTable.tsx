@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 
-import ImportReviewReviewActionsMenu from "@/src/app/(admin)/import-review/_components/ImportReviewReviewActionsMenu";
+import ImportReviewReviewActionsMenu from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewReviewActionsMenu";
 import {
     IMPORT_REVIEW_TABLE_MIN_WIDTH_CLASS,
     ImportReviewTableFrame,
@@ -13,11 +13,11 @@ import {
     importReviewStickyCheckboxThClass,
     importReviewStickyIdTdClass,
     importReviewStickyIdThClass,
-} from "@/src/app/(admin)/import-review/_components/importReviewTableUi";
+} from "@/src/app/(admin)/dashboard/import-review/_components/importReviewTableUi";
 import type { ImportReviewBuildingListItem, ImportReviewDecision } from "@/src/lib/api";
 
 import type { ImportReviewTableColumn } from "../config/types";
-import { importReviewCellValue } from "../utils/entityPageUtils";
+import { importReviewCellValue, importReviewRowHasOverrides } from "../utils/entityPageUtils";
 import ImportReviewStatusBadge from "./ImportReviewStatusBadge";
 
 const STATUS_COLUMNS = new Set([
@@ -28,12 +28,38 @@ const STATUS_COLUMNS = new Set([
     "promotion_status",
 ]);
 
-function renderCell(row: ImportReviewBuildingListItem, col: ImportReviewTableColumn): ReactNode {
+function OverrideEditedBadge() {
+    return (
+        <span
+            className="inline-flex shrink-0 rounded-full border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-900"
+            title="Has review overrides"
+        >
+            Edited
+        </span>
+    );
+}
+
+function renderCell(
+    row: ImportReviewBuildingListItem,
+    col: ImportReviewTableColumn,
+    showOverrideBadge: boolean
+): ReactNode {
     const text = importReviewCellValue(row, col);
+    let content: ReactNode;
     if (STATUS_COLUMNS.has(col.key) && text !== "—") {
-        return <ImportReviewStatusBadge value={text} />;
+        content = <ImportReviewStatusBadge value={text} />;
+    } else {
+        content = text;
     }
-    return text;
+    if (showOverrideBadge && importReviewRowHasOverrides(row)) {
+        return (
+            <span className="inline-flex max-w-full items-center gap-1.5">
+                <span className="truncate">{content}</span>
+                <OverrideEditedBadge />
+            </span>
+        );
+    }
+    return content;
 }
 
 export default function ImportReviewCandidatesTable({
@@ -131,13 +157,13 @@ export default function ImportReviewCandidatesTable({
                                     >
                                         {row.id}
                                     </td>
-                                    {displayColumns.map((col) => (
+                                    {displayColumns.map((col, colIndex) => (
                                         <td
                                             key={col.key}
                                             className={`max-w-[220px] truncate px-3 py-2 ${col.mono ? "font-mono text-xs" : ""}`}
                                             title={importReviewCellValue(row, col)}
                                         >
-                                            {renderCell(row, col)}
+                                            {renderCell(row, col, colIndex === 0)}
                                         </td>
                                     ))}
                                     <td

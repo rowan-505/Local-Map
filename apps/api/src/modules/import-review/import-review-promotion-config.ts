@@ -17,8 +17,15 @@ export function isValidatablePublishFamily(family: string): family is Validatabl
     return (VALIDATABLE_PUBLISH_FAMILIES as readonly string[]).includes(family);
 }
 
-/** Families written to core by the publish batch promotion runner (v1). */
-export const PROMOTABLE_PUBLISH_FAMILIES = ["buildings", "places"] as const satisfies readonly ImportReviewEntityFamilySlug[];
+/** Families written to core by the publish batch promotion runner. */
+export const PROMOTABLE_PUBLISH_FAMILIES = [
+    "buildings",
+    "places",
+    "landuse",
+    "water_lines",
+    "water_polygons",
+    "bus_stops",
+] as const satisfies readonly ImportReviewEntityFamilySlug[];
 
 export type PromotablePublishEntityFamily = (typeof PROMOTABLE_PUBLISH_FAMILIES)[number];
 

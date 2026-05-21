@@ -5,18 +5,27 @@ import {
     ImportReviewPublishBatchNotFoundError,
     ImportReviewPublishBatchPromotionConflictError,
     ImportReviewPublishBatchPromotionConfirmationError,
+    ImportReviewRoadPromotionDisabledError,
 } from "./import-review-promotion.errors.js";
+import { isImportReviewRoadPromotionEnabled } from "./import-review-config.js";
 import {
     DEFAULT_PROMOTE_CHUNK_SIZE,
     ImportReviewPromotionPromoteRepository,
     MAX_PROMOTE_CHUNK_SIZE,
 } from "./import-review-promotion-promote.repo.js";
 import {
+    derivePublishBatchStatus,
+    parseCanPromoteFromSummary,
+    parseDryRunFromSummary,
+    parseValidationOutcomeFromSummary,
+} from "./import-review-publish-batch-summary.js";
+import {
     PROMOTABLE_PUBLISH_FAMILIES,
     type PromotablePublishEntityFamily,
 } from "./import-review-promotion-config.js";
 import {
     IMPORT_REVIEW_PUBLISH_PROMOTION_STAGES,
+    IMPORT_REVIEW_PUBLISH_PROMOTION_FAMILY_STAGES,
     type ImportReviewPublishBatchPromotionResult,
     type ImportReviewPublishPromotionStageKey,
 } from "./import-review-promotion-promote.types.js";
@@ -139,6 +148,11 @@ export class ImportReviewPromotionPromoteRunner {
             }
         }
 
+        const roadItemCount = await this.repo.countRoadPublishItems(args.batchId);
+        if (roadItemCount > 0 && !isImportReviewRoadPromotionEnabled()) {
+            throw new ImportReviewRoadPromotionDisabledError(args.batchId.toString());
+        }
+
         const claim = await this.repo.claimBatchForPromotion(args.batchId);
         if (!claim.claimed) {
             if (claim.status === "promoting") {
@@ -188,6 +202,8 @@ export class ImportReviewPromotionPromoteRunner {
         let skipped = 0;
         let coreVerified = 0;
         let markedPromoted = 0;
+        let verificationMetadataApplied = 0;
+        let verificationMetadataSkippedAlreadyVerified = 0;
         const promotedFamilies = new Set<PromotablePublishEntityFamily>();
 
         try {
@@ -239,6 +255,60 @@ export class ImportReviewPromotionPromoteRunner {
                 return;
             }
 
+            if (pendingIds.length === 0) {
+                const batch = await this.repo.fetchBatchProgress(batchId);
+                const logsSummary = "No promotable items were found.";
+                const finishedAt = Date.now();
+                const promotionResult: ImportReviewPublishBatchPromotionResult = {
+                    status: "failed",
+                    inserted_count: 0,
+                    updated_count: 0,
+                    success_count: 0,
+                    failed_count: 0,
+                    skipped_count: 0,
+                    total: 0,
+                    core_verified_count: 0,
+                    import_review_marked_promoted_count: 0,
+                    verification_metadata_applied_count: 0,
+                    verification_metadata_skipped_already_verified_count: 0,
+                    started_at: new Date(startedAt).toISOString(),
+                    finished_at: new Date(finishedAt).toISOString(),
+                    duration_ms: finishedAt - startedAt,
+                    promoted_entity_families: [],
+                };
+
+                await this.runStage(batchId, "update_batch_summary", async () => {
+                    await this.repo.finalizePromotionBatch({
+                        batchId,
+                        status: "failed",
+                        successCount: 0,
+                        failedCount: 0,
+                        skippedCount: 0,
+                        totalItemCount: 0,
+                        promotedBy,
+                        summary: {
+                            promotion_result: promotionResult,
+                            promotion_logs_summary: logsSummary,
+                        },
+                    });
+                    await this.repo.syncPublishBatchSummary(batchId);
+                    await this.repo.syncReviewBatchStatusForPublishBatch(batchId);
+                    return {
+                        message: "Batch summary updated.",
+                        details: promotionResult as unknown as Record<string, unknown>,
+                    };
+                });
+
+                await this.runStage(batchId, "promotion_final_response", async () => ({
+                    message: logsSummary,
+                    details: { counts: { total: 0, success: 0, failed: 0, skipped: 0 } },
+                    stageStatus: "failed",
+                }));
+                return;
+            }
+
+            const batchBeforePromote = await this.repo.fetchBatchProgress(batchId);
+
             const finalValOk = await this.runStage(batchId, "final_validation_before_write", async () => {
                 const errorCount = await this.repo.runFinalValidationBeforeWrite(pendingIds);
                 if (errorCount > 0) {
@@ -255,128 +325,166 @@ export class ImportReviewPromotionPromoteRunner {
                 return;
             }
 
-            const promoteStage = stageByKey("promote_buildings_to_core");
-            const prevStage = stageByKey("final_validation_before_write");
-            await this.repo.updateStageLog({
-                batchId,
-                stageKey: "promote_buildings_to_core",
-                stageStatus: "running",
-                message: "Promoting items to core…",
-                progressPercent: prevStage.progressEnd,
-            });
-
             const total = pendingIds.length;
-            let done = 0;
-            let currentEntityFamily: PromotablePublishEntityFamily | null = null;
+            let globalDone = 0;
 
-            for (let i = 0; i < pendingIds.length; i += chunkSize) {
-                const chunk = pendingIds.slice(i, i + chunkSize);
-                for (const publishItemId of chunk) {
-                    const itemRow = items.find((r) => r.publish_item_id === publishItemId);
-                    currentEntityFamily = itemRow?.entity_family ?? null;
+            for (const familyStage of IMPORT_REVIEW_PUBLISH_PROMOTION_FAMILY_STAGES) {
+                const familyPendingIds = pendingIds.filter((id) => {
+                    const row = items.find((r) => r.publish_item_id === id);
+                    return row?.entity_family === familyStage.entityFamily;
+                });
+                const promoteStage = stageByKey(familyStage.key);
+                const prevStage =
+                    IMPORT_REVIEW_PUBLISH_PROMOTION_STAGES[
+                        Math.max(0, IMPORT_REVIEW_PUBLISH_PROMOTION_STAGES.indexOf(promoteStage) - 1)
+                    ]!;
 
-                    const result = await this.repo.promoteItem({
+                if (familyPendingIds.length === 0) {
+                    await this.repo.updateStageLog({
                         batchId,
-                        publishItemId,
-                        promotedBy,
+                        stageKey: familyStage.key,
+                        stageStatus: "skipped",
+                        message: `No pending ${familyStage.entityFamily} item(s) to promote.`,
+                        progressPercent: promoteStage.progressEnd,
+                        details: { entity_family: familyStage.entityFamily, total: 0 },
+                        finished: true,
                     });
-
-                    if (result.outcome === "inserted" || result.outcome === "updated") {
-                        if (result.target_id && itemRow) {
-                            await this.repo.applyItemSuccess({
-                                publishItemId,
-                                targetId: result.target_id,
-                                targetTable: itemRow.target_table,
-                                beforeData: result.before_data,
-                                afterData: result.after_data ?? { id: result.target_id.toString() },
-                            });
-                            await this.repo.markCandidatePromoted({
-                                entityFamily: itemRow.entity_family,
-                                reviewCandidateId: itemRow.review_candidate_id,
-                                promotedCoreId: result.target_id,
-                                promotedBy,
-                            });
-                            markedPromoted += 1;
-                            promotedFamilies.add(itemRow.entity_family);
-                            if (result.outcome === "inserted") {
-                                inserted += 1;
-                            } else {
-                                updated += 1;
-                            }
-                            success += 1;
-                        }
-                    } else if (result.outcome === "skipped") {
-                        if (result.target_id && itemRow) {
-                            await this.repo.applyItemSuccess({
-                                publishItemId,
-                                targetId: result.target_id,
-                                targetTable: itemRow.target_table,
-                                beforeData: result.before_data,
-                                afterData: result.after_data ?? { skipped: true },
-                            });
-                            skipped += 1;
-                            success += 1;
-                        }
-                    } else {
-                        await this.repo.applyItemFailure({
-                            publishItemId,
-                            errorMessage: result.error_message ?? "Promotion failed.",
-                            afterData: result.after_data,
-                        });
-                        if (itemRow) {
-                            await this.repo.markCandidateFailed(
-                                itemRow.entity_family,
-                                itemRow.review_candidate_id
-                            );
-                        }
-                        failed += 1;
-                    }
+                    continue;
                 }
 
-                done += chunk.length;
-                const percent = progressBetween(prevStage.progressEnd, promoteStage.progressEnd, done, total);
-                await this.repo.updateBatchProgress({
-                    batchId,
-                    validationDone: Math.min(done, total),
-                    validationPercent: Math.round(percent * 100) / 100,
-                });
                 await this.repo.updateStageLog({
                     batchId,
-                    stageKey: "promote_buildings_to_core",
+                    stageKey: familyStage.key,
                     stageStatus: "running",
-                    message: currentEntityFamily
-                        ? `Promoting ${currentEntityFamily} to core…`
-                        : "Promoting items to core…",
-                    progressPercent: Math.round(percent * 100) / 100,
+                    message: `Promoting ${familyStage.entityFamily} to core…`,
+                    progressPercent: prevStage.progressEnd,
+                });
+
+                let familyDone = 0;
+                let familySuccess = 0;
+                let familyFailed = 0;
+                for (let i = 0; i < familyPendingIds.length; i += chunkSize) {
+                    const chunk = familyPendingIds.slice(i, i + chunkSize);
+                    for (const publishItemId of chunk) {
+                        const itemRow = items.find((r) => r.publish_item_id === publishItemId);
+
+                        const result = await this.repo.promoteItem({
+                            batchId,
+                            publishItemId,
+                            promotedBy,
+                        });
+
+                        if (result.outcome === "inserted" || result.outcome === "updated") {
+                            if (result.target_id && itemRow) {
+                                if (result.verification_metadata_applied) {
+                                    verificationMetadataApplied += 1;
+                                }
+                                if (result.verification_metadata_skipped_already_verified) {
+                                    verificationMetadataSkippedAlreadyVerified += 1;
+                                }
+                                await this.repo.applyItemSuccess({
+                                    publishItemId,
+                                    targetId: result.target_id,
+                                    targetTable: itemRow.target_table,
+                                    beforeData: result.before_data,
+                                    afterData: result.after_data ?? { id: result.target_id.toString() },
+                                });
+                                await this.repo.markCandidatePromoted({
+                                    entityFamily: itemRow.entity_family,
+                                    reviewCandidateId: itemRow.review_candidate_id,
+                                    promotedCoreId: result.target_id,
+                                    promotedBy,
+                                });
+                                markedPromoted += 1;
+                                promotedFamilies.add(itemRow.entity_family);
+                                if (result.outcome === "inserted") {
+                                    inserted += 1;
+                                } else {
+                                    updated += 1;
+                                }
+                                success += 1;
+                                familySuccess += 1;
+                            }
+                        } else if (result.outcome === "skipped") {
+                            if (result.target_id && itemRow) {
+                                await this.repo.applyItemSuccess({
+                                    publishItemId,
+                                    targetId: result.target_id,
+                                    targetTable: itemRow.target_table,
+                                    beforeData: result.before_data,
+                                    afterData: result.after_data ?? { skipped: true },
+                                });
+                                skipped += 1;
+                                success += 1;
+                                familySuccess += 1;
+                            }
+                        } else {
+                            await this.repo.applyItemFailure({
+                                publishItemId,
+                                errorMessage: result.error_message ?? "Promotion failed.",
+                                afterData: result.after_data,
+                            });
+                            if (itemRow) {
+                                await this.repo.markCandidateFailed(
+                                    itemRow.entity_family,
+                                    itemRow.review_candidate_id
+                                );
+                            }
+                            failed += 1;
+                            familyFailed += 1;
+                        }
+                    }
+
+                    familyDone += chunk.length;
+                    globalDone += chunk.length;
+                    const percent = progressBetween(
+                        prevStage.progressEnd,
+                        promoteStage.progressEnd,
+                        familyDone,
+                        familyPendingIds.length
+                    );
+                    await this.repo.updateBatchProgress({
+                        batchId,
+                        validationDone: Math.min(globalDone, total),
+                        validationPercent: Math.round(percent * 100) / 100,
+                    });
+                    await this.repo.updateStageLog({
+                        batchId,
+                        stageKey: familyStage.key,
+                        stageStatus: "running",
+                        message: `Promoting ${familyStage.entityFamily} to core…`,
+                        progressPercent: Math.round(percent * 100) / 100,
+                        details: {
+                            entity_family: familyStage.entityFamily,
+                            done: familyDone,
+                            total: familyPendingIds.length,
+                            inserted,
+                            updated,
+                            success,
+                            failed,
+                            skipped,
+                        },
+                    });
+                }
+
+                await this.repo.updateStageLog({
+                    batchId,
+                    stageKey: familyStage.key,
+                    stageStatus: familyFailed > 0 && familySuccess === 0 ? "failed" : "success",
+                    message: `Promoted ${familySuccess} ${familyStage.entityFamily} item(s) (${familyFailed} failed).`,
+                    progressPercent: promoteStage.progressEnd,
                     details: {
-                        entity_family: currentEntityFamily,
-                        done,
-                        total,
+                        entity_family: familyStage.entityFamily,
+                        success: familySuccess,
+                        failed: familyFailed,
+                        skipped,
                         inserted,
                         updated,
-                        success,
-                        failed,
-                        skipped,
+                        promoted_entity_families: [...promotedFamilies],
                     },
+                    finished: true,
                 });
             }
-
-            await this.repo.updateStageLog({
-                batchId,
-                stageKey: "promote_buildings_to_core",
-                stageStatus: failed > 0 && success === 0 ? "failed" : "success",
-                message: `Promoted ${success} item(s) to core (${inserted} inserted, ${updated} updated).`,
-                progressPercent: promoteStage.progressEnd,
-                details: {
-                    success,
-                    failed,
-                    skipped,
-                    inserted,
-                    updated,
-                    promoted_entity_families: [...promotedFamilies],
-                },
-                finished: true,
-            });
 
             await this.runStage(batchId, "write_publish_item_results", async () => ({
                 message: `Publish item results written (${success} success, ${failed} failed).`,
@@ -413,21 +521,44 @@ export class ImportReviewPromotionPromoteRunner {
             const finishedAt = Date.now();
             const durationMs = finishedAt - startedAt;
             const partialSuccess = success > 0 && failed > 0;
-            let batchStatus = "promoted";
-            let promotionStatus: ImportReviewPublishBatchPromotionResult["status"] = "promoted";
-            let logsSummary = "Promotion completed successfully.";
 
-            if (failed > 0 && success === 0) {
-                batchStatus = "failed";
-                promotionStatus = "failed";
-                logsSummary = "Promotion failed.";
-            } else if (verifyFailed || partialSuccess) {
-                batchStatus = "failed";
-                promotionStatus = "failed";
-                logsSummary = partialSuccess
-                    ? `Promotion completed with partial success. ${failed} item(s) failed.`
-                    : "Promotion failed during core verification.";
-            }
+            const derived = derivePublishBatchStatus({
+                stored_status: "promoted",
+                validated_at: batchBeforePromote?.validated_at ?? null,
+                promoted_at: new Date(finishedAt),
+                dry_run: parseDryRunFromSummary(batchBeforePromote?.summary),
+                validation_outcome: parseValidationOutcomeFromSummary(batchBeforePromote?.summary),
+                can_promote: parseCanPromoteFromSummary(batchBeforePromote?.summary),
+                item_counts: {
+                    pending: 0,
+                    success,
+                    failed,
+                    skipped,
+                    rolled_back: 0,
+                    total,
+                },
+                action_counts: { inserted, updated, merged: 0 },
+                core_verified_count: coreVerified,
+                import_review_marked_promoted_count: markedPromoted,
+                promotion_result_total: total,
+                promotion_result_success_count: success,
+                promotion_result_core_verified_count: coreVerified,
+                promotion_result_marked_promoted_count: markedPromoted,
+                evaluate_promotion_outcome: true,
+            });
+
+            const batchStatus = derived.stored_status_recommendation;
+            const promotionStatus: ImportReviewPublishBatchPromotionResult["status"] =
+                derived.derived_status === "promoted" ? "promoted" : "failed";
+            const logsSummary =
+                derived.derived_status_reason ??
+                (derived.derived_status === "promoted"
+                    ? "Promotion completed successfully."
+                    : verifyFailed
+                      ? "Promotion failed during core verification."
+                      : partialSuccess
+                        ? `Promotion completed with partial success. ${failed} item(s) failed.`
+                        : "Promotion failed.");
 
             const promotionResult: ImportReviewPublishBatchPromotionResult = {
                 status: promotionStatus,
@@ -439,6 +570,9 @@ export class ImportReviewPromotionPromoteRunner {
                 total: total,
                 core_verified_count: coreVerified,
                 import_review_marked_promoted_count: markedPromoted,
+                verification_metadata_applied_count: verificationMetadataApplied,
+                verification_metadata_skipped_already_verified_count:
+                    verificationMetadataSkippedAlreadyVerified,
                 partial_success: partialSuccess || undefined,
                 started_at: new Date(startedAt).toISOString(),
                 finished_at: new Date(finishedAt).toISOString(),
@@ -461,6 +595,8 @@ export class ImportReviewPromotionPromoteRunner {
                         partial_success: partialSuccess,
                     },
                 });
+                await this.repo.syncPublishBatchSummary(batchId);
+                await this.repo.syncReviewBatchStatusForPublishBatch(batchId);
                 return {
                     message: "Batch summary updated.",
                     details: promotionResult as unknown as Record<string, unknown>,
@@ -479,6 +615,9 @@ export class ImportReviewPromotionPromoteRunner {
                         skipped,
                         core_verified: coreVerified,
                         import_review_marked_promoted: markedPromoted,
+                        verification_metadata_applied: verificationMetadataApplied,
+                        verification_metadata_skipped_already_verified:
+                            verificationMetadataSkippedAlreadyVerified,
                     },
                 },
                 stageStatus: promotionStatus === "promoted" ? "success" : "failed",

@@ -20,6 +20,10 @@ export type ImportReviewPublishBatchSummary = {
     public_id: string;
     batch_name: string;
     status: string;
+    derived_status: string;
+    derived_status_reason: string | null;
+    stored_status_recommendation: string | null;
+    status_note: string | null;
     source_review_batch_id: string | null;
     source_snapshot_version: string | null;
     region_code: string | null;
@@ -27,10 +31,22 @@ export type ImportReviewPublishBatchSummary = {
     success_count: number;
     failed_count: number;
     skipped_count: number;
+    core_verified_count: number;
+    import_review_marked_promoted_count: number;
+    inserted_count: number;
+    updated_count: number;
     note: string | null;
     created_at: string;
     published_at: string | null;
     promoted_at: string | null;
+};
+
+export type ImportReviewPublishBatchEntityItemCounts = {
+    pending: number;
+    success: number;
+    failed: number;
+    skipped: number;
+    total: number;
 };
 
 export type ImportReviewPublishBatchDetail = ImportReviewPublishBatchSummary & {
@@ -42,6 +58,7 @@ export type ImportReviewPublishBatchDetail = ImportReviewPublishBatchSummary & {
         rolled_back: number;
         total: number;
     };
+    /** Buildings-only counts (legacy). */
     building_item_counts: {
         pending: number;
         success: number;
@@ -50,6 +67,7 @@ export type ImportReviewPublishBatchDetail = ImportReviewPublishBatchSummary & {
         rolled_back: number;
         total: number;
     };
+    item_counts_by_entity_family: Record<string, ImportReviewPublishBatchEntityItemCounts>;
 };
 
 export type ImportReviewPromotionSkippedReasonCount = {
@@ -149,6 +167,8 @@ export type ImportReviewPromotionReadyCandidateItem = {
     class_code: string | null;
     building_type: string | null;
     building_type_id: string | null;
+    building_type_code: string | null;
+    building_type_name: string | null;
     confidence_score: number | null;
     match_status: string | null;
     auto_action: string | null;
@@ -200,6 +220,8 @@ export type ImportReviewPublishBatchPromotionResultSummary = {
     total: number;
     core_verified_count: number;
     import_review_marked_promoted_count: number;
+    verification_metadata_applied_count: number;
+    verification_metadata_skipped_already_verified_count: number;
     partial_success?: boolean;
     started_at: string;
     finished_at: string;
@@ -210,6 +232,10 @@ export type ImportReviewPublishBatchPromotionResultSummary = {
 export type ImportReviewPublishBatchProgressResponse = {
     batch_id: string;
     status: string;
+    derived_status: string;
+    derived_status_reason: string | null;
+    stored_status_recommendation: string | null;
+    status_note: string | null;
     workflow: "validation" | "promotion" | "idle";
     validation_total: number;
     validation_done: number;
@@ -235,6 +261,19 @@ export type ImportReviewPublishBatchProgressResponse = {
 export type ImportReviewStartPublishBatchPromotionResponse = {
     batch_id: string;
     status: string;
+    message: string;
+};
+
+export type ImportReviewRepairInvalidPromotedBatchesResponse = {
+    scanned: number;
+    repaired: number;
+    skipped: number;
+    batches: Array<{
+        id: string;
+        previous_status: string;
+        new_status: string;
+        derived_status: string;
+    }>;
     message: string;
 };
 

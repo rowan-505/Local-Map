@@ -2,7 +2,12 @@ export const IMPORT_REVIEW_PUBLISH_PROMOTION_STAGES = [
     { key: "promote_preflight", label: "Preflight", progressEnd: 5 },
     { key: "load_promotable_items", label: "Load items", progressEnd: 10 },
     { key: "final_validation_before_write", label: "Final validation", progressEnd: 20 },
-    { key: "promote_buildings_to_core", label: "Promote to core", progressEnd: 60 },
+    { key: "promote_buildings_to_core", label: "Promote buildings", progressEnd: 32 },
+    { key: "promote_places_to_core", label: "Promote places", progressEnd: 40 },
+    { key: "promote_landuse_to_core", label: "Promote landuse", progressEnd: 48 },
+    { key: "promote_water_lines_to_core", label: "Promote water lines", progressEnd: 54 },
+    { key: "promote_water_polygons_to_core", label: "Promote water polygons", progressEnd: 60 },
+    { key: "promote_bus_stops_to_core", label: "Promote bus stops", progressEnd: 66 },
     { key: "write_publish_item_results", label: "Write item results", progressEnd: 70 },
     { key: "verify_core_rows", label: "Verify core rows", progressEnd: 80 },
     { key: "mark_import_review_promoted", label: "Mark import review", progressEnd: 90 },
@@ -12,6 +17,39 @@ export const IMPORT_REVIEW_PUBLISH_PROMOTION_STAGES = [
 
 export type ImportReviewPublishPromotionStageKey =
     (typeof IMPORT_REVIEW_PUBLISH_PROMOTION_STAGES)[number]["key"];
+
+export const IMPORT_REVIEW_PUBLISH_PROMOTION_FAMILY_STAGES = [
+    {
+        key: "promote_buildings_to_core" as const,
+        entityFamily: "buildings" as const,
+        label: "Promote buildings",
+    },
+    {
+        key: "promote_places_to_core" as const,
+        entityFamily: "places" as const,
+        label: "Promote places",
+    },
+    {
+        key: "promote_landuse_to_core" as const,
+        entityFamily: "landuse" as const,
+        label: "Promote landuse",
+    },
+    {
+        key: "promote_water_lines_to_core" as const,
+        entityFamily: "water_lines" as const,
+        label: "Promote water lines",
+    },
+    {
+        key: "promote_water_polygons_to_core" as const,
+        entityFamily: "water_polygons" as const,
+        label: "Promote water polygons",
+    },
+    {
+        key: "promote_bus_stops_to_core" as const,
+        entityFamily: "bus_stops" as const,
+        label: "Promote bus stops",
+    },
+];
 
 export type ImportReviewPublishBatchPromotionResult = {
     status: "promoted" | "failed";
@@ -23,6 +61,8 @@ export type ImportReviewPublishBatchPromotionResult = {
     total: number;
     core_verified_count: number;
     import_review_marked_promoted_count: number;
+    verification_metadata_applied_count: number;
+    verification_metadata_skipped_already_verified_count: number;
     partial_success?: boolean;
     started_at: string;
     finished_at: string;
@@ -39,6 +79,8 @@ export type PromoteItemResult = {
     error_message: string | null;
     before_data: unknown | null;
     after_data: unknown | null;
+    verification_metadata_applied?: boolean;
+    verification_metadata_skipped_already_verified?: boolean;
 };
 
 export type ImportReviewPublishBatchVerifyResponse = {

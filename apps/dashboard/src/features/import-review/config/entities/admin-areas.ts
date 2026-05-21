@@ -18,9 +18,9 @@ export const adminAreasImportReviewEntityConfig = createImportReviewEntityConfig
     riskLevel: "low",
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
-        { key: "canonical_name", label: "Name", source: "row" },
-        { key: "admin_level_id", label: "Admin level", source: "normalized" },
-        { key: "slug", label: "Slug", source: "normalized", mono: true },
+        { key: "effective_canonical_name", label: "Name", source: "row" },
+        { key: "effective_admin_level_id", label: "Admin level", source: "row" },
+        { key: "effective_slug", label: "Slug", source: "row", mono: true },
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,
     ],
     searchableFields: ["canonical_name", "slug", "external_id"],

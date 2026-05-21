@@ -3,7 +3,7 @@
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
 import type { ImportReviewEntityConfig } from "../../config/types";
-import { dash, formatImportReviewTs } from "../../utils/entityPageUtils";
+import { dash, formatBuildingTypeLabel, formatImportReviewTs, importReviewRowHasOverrides } from "../../utils/entityPageUtils";
 import { resolveDrawerSubtitle, resolveDrawerTitle } from "../../utils/detailDrawerUtils";
 
 export default function CandidateSummarySection({
@@ -18,7 +18,14 @@ export default function CandidateSummarySection({
     return (
         <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Summary</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Summary</h3>
+                    {importReviewRowHasOverrides(row) ? (
+                        <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-900">
+                            Overrides applied
+                        </span>
+                    ) : null}
+                </div>
                 <p className="mt-1 text-base font-semibold text-gray-900">{resolveDrawerTitle(row, config)}</p>
                 {subtitle ? (
                     <p className="text-sm text-gray-600">
@@ -36,10 +43,17 @@ export default function CandidateSummarySection({
                     <span className="font-medium text-gray-500">external_id</span>
                     <div className="font-mono text-xs text-gray-900">{dash(row.external_id)}</div>
                 </div>
-                <div>
-                    <span className="font-medium text-gray-500">class_code</span>
-                    <div className="font-mono text-gray-900">{dash(row.class_code)}</div>
-                </div>
+                {config.slug === "buildings" ? (
+                    <div>
+                        <span className="font-medium text-gray-500">Building type</span>
+                        <div className="text-gray-900">{dash(formatBuildingTypeLabel(row))}</div>
+                    </div>
+                ) : (
+                    <div>
+                        <span className="font-medium text-gray-500">class_code</span>
+                        <div className="font-mono text-gray-900">{dash(row.class_code)}</div>
+                    </div>
+                )}
                 <div>
                     <span className="font-medium text-gray-500">confidence_score</span>
                     <div className="tabular-nums text-gray-900">{dash(row.confidence_score)}</div>

@@ -1,5 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import { buildingClassCodeSelectSql } from "../../lib/entity-names/building-detail-select-sql.js";
+
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
 export type LinkedBuildingSummaryRow = {
@@ -107,7 +109,7 @@ export class PlaceBuildingsRepository {
                 bt.code AS building_type_code,
                 bt.name AS building_type_name,
                 bt.name_mm AS building_type_name_mm,
-                b.class_code,
+                ${buildingClassCodeSelectSql},
                 b.area_m2::double precision AS building_area_m2,
                 aa.id::text AS building_admin_area_row_id,
                 aa.canonical_name AS building_admin_area_canonical_name,
@@ -190,7 +192,7 @@ export class PlaceBuildingsRepository {
                     bt.code AS building_type_code,
                     bt.name AS building_type_name,
                     bt.name_mm AS building_type_name_mm,
-                    b.class_code,
+                    ${buildingClassCodeSelectSql},
                     b.area_m2::double precision AS building_area_m2,
                     aa.id::text AS building_admin_area_row_id,
                     aa.canonical_name AS building_admin_area_canonical_name,
@@ -303,7 +305,7 @@ export class PlaceBuildingsRepository {
                     bt.code AS building_type_code,
                     bt.name AS building_type_name,
                     bt.name_mm AS building_type_name_mm,
-                    b.class_code,
+                    ${buildingClassCodeSelectSql},
                     b.area_m2::double precision AS building_area_m2,
                     aa.id::text AS building_admin_area_row_id,
                     aa.canonical_name AS building_admin_area_canonical_name,

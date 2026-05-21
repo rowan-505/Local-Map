@@ -12,11 +12,12 @@ import type {
     MultiLineString,
     MultiPoint,
     MultiPolygon,
-    Point,
     Polygon,
 } from "geojson";
+import type { MutableRefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
+import type { Map as MaplibreMap } from "maplibre-gl";
 import type { FilterSpecification } from "maplibre-gl";
 
 import { createPreviewBaseMap } from "./createPreviewBaseMap";
@@ -27,7 +28,7 @@ import {
     fitMapToReviewCandidate,
     type DataReviewBasemapMode,
 } from "./dataReviewBasemap";
-import { MAP_PREVIEW_CARD_CLASS, MAP_PREVIEW_CARD_HEADER_CLASS } from "./mapPreviewUi";
+import { MAP_PREVIEW_CARD_CLASS } from "./mapPreviewUi";
 import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
 
 export type { DataReviewBasemapMode } from "./dataReviewBasemap";
@@ -35,6 +36,7 @@ import { useClientMounted } from "@/src/hooks/useClientMounted";
 import { addOrUpdateGeoJsonSource, clearLiveOverlay } from "@/src/lib/map/liveOverlays";
 import { normalizeImportReviewGeoJson } from "@/src/lib/importReviewDrawerMapGeometry";
 import type { ImportReviewGeoJson } from "@/src/lib/api";
+import { extractVerticesFromGeometry } from "./mapVertexPreview";
 
 export type DataReviewGeometryKind = "point" | "polygon" | "line";
 
@@ -48,8 +50,6 @@ export type ImportReviewEntityType =
     | "generic";
 
 const DEFAULT_ZOOM = 12;
-const POINT_ZOOM = 16;
-const LINE_MAX_ZOOM = 17;
 
 /** MapLibre expression filters — restrict layers by GeoJSON geometry type. */
 const FILTER_POLYGON: FilterSpecification = [
@@ -151,62 +151,6 @@ function pointFeatureCollection(lng: number, lat: number): FeatureCollection<Geo
         type: "FeatureCollection",
         features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [lng, lat] } }],
     };
-}
-
-/** Ring / line vertices for preview only (no polygon fill from lines). */
-function extractVerticesFromGeometry(g: Geometry): FeatureCollection<Geometry> {
-    const collected: [number, number][] = [];
-    const push = (lng: number, lat: number) => {
-        const prev = collected[collected.length - 1];
-        if (prev && prev[0] === lng && prev[1] === lat) {
-            return;
-        }
-        collected.push([lng, lat]);
-    };
-
-    if (g.type === "LineString") {
-        for (const c of g.coordinates) {
-            if (typeof c[0] === "number" && typeof c[1] === "number") {
-                push(c[0], c[1]);
-            }
-        }
-    } else if (g.type === "MultiLineString") {
-        for (const line of g.coordinates) {
-            for (const c of line) {
-                if (typeof c[0] === "number" && typeof c[1] === "number") {
-                    push(c[0], c[1]);
-                }
-            }
-        }
-    } else if (g.type === "Polygon") {
-        for (const ring of g.coordinates) {
-            for (const c of ring) {
-                if (typeof c[0] === "number" && typeof c[1] === "number") {
-                    push(c[0], c[1]);
-                }
-            }
-        }
-    } else if (g.type === "MultiPolygon") {
-        for (const poly of g.coordinates) {
-            for (const ring of poly) {
-                for (const c of ring) {
-                    if (typeof c[0] === "number" && typeof c[1] === "number") {
-                        push(c[0], c[1]);
-                    }
-                }
-            }
-        }
-    } else {
-        return emptyFc();
-    }
-
-    const features: Feature<Geometry>[] = collected.map(([lng, lat]) => ({
-        type: "Feature",
-        properties: {},
-        geometry: { type: "Point", coordinates: [lng, lat] },
-    }));
-
-    return { type: "FeatureCollection", features };
 }
 
 function clearImportReviewPreviewSources(map: maplibregl.Map) {
@@ -439,6 +383,9 @@ export type DataReviewCandidateMapProps = {
     subtitle?: string | null;
     className?: string;
     size?: "default" | "drawer";
+    fitButtonLabel?: string;
+    /** Parent can refresh PMTiles / clear overlays after mutations. */
+    mapSurfaceRef?: MutableRefObject<MaplibreMap | null>;
 };
 
 export default function DataReviewCandidateMap({
@@ -450,6 +397,8 @@ export default function DataReviewCandidateMap({
     subtitle,
     className,
     size = "default",
+    fitButtonLabel,
+    mapSurfaceRef,
 }: DataReviewCandidateMapProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -487,6 +436,9 @@ export default function DataReviewCandidateMap({
                         loadedMap.touchZoomRotate.disableRotation();
                         ensureDataReviewSatelliteLayer(loadedMap);
                         applyDataReviewBasemapMode(loadedMap, "map");
+                        if (mapSurfaceRef) {
+                            mapSurfaceRef.current = loadedMap;
+                        }
                         setIsMapReady(true);
                     },
                 });
@@ -506,12 +458,15 @@ export default function DataReviewCandidateMap({
         return () => {
             cancelled = true;
             setIsMapReady(false);
+            if (mapSurfaceRef?.current === mapRef.current) {
+                mapSurfaceRef.current = null;
+            }
             mapRef.current?.remove();
             mapRef.current = null;
             mapAutoFitSigRef.current = "";
             prevOverlayContentKeyRef.current = "";
         };
-    }, [clientMounted]);
+    }, [clientMounted, mapSurfaceRef]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -746,74 +701,21 @@ export default function DataReviewCandidateMap({
             ? "h-[220px] min-h-[200px] w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100"
             : "h-[min(70vh,560px)] min-h-[280px] w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100";
 
-    const headerSubtitle = subtitle?.trim() ? subtitle : null;
-    const idLine = externalId?.trim() ? externalId.trim() : null;
-
     return (
         <div className={className ?? MAP_PREVIEW_CARD_CLASS}>
-            <div
-                className={`${MAP_PREVIEW_CARD_HEADER_CLASS} flex flex-nowrap items-center gap-2 border-b border-gray-100 py-2 pl-2 pr-1`}
-            >
-                <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-xs font-semibold text-gray-900">{title}</h3>
-                    {idLine ? (
-                        <p className="truncate font-mono text-[10px] text-gray-500" title={idLine}>
-                            {idLine}
-                        </p>
-                    ) : null}
-                    {headerSubtitle && !idLine ? (
-                        <p className="truncate text-[10px] text-gray-500">{headerSubtitle}</p>
-                    ) : null}
-                </div>
-                <button
-                    type="button"
-                    disabled={!hasRenderable}
-                    onClick={handleFitGeometry}
-                    title="Fit map to geometry"
-                    className={`shrink-0 whitespace-nowrap rounded border px-2 py-0.5 text-[10px] font-semibold ${
-                        hasRenderable
-                            ? "border-blue-200 bg-blue-50 text-blue-900 hover:bg-blue-100"
-                            : "cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400"
-                    }`}
-                >
-                    Fit
-                </button>
-                <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-1.5 gap-y-0.5">
-                    {entityType !== "place" ? (
-                        <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-[10px] text-gray-600">
-                            <input
-                                type="checkbox"
-                                className="h-3 w-3 rounded border-gray-300"
-                                checked={showVertices}
-                                onChange={(e) => setShowVertices(e.target.checked)}
-                            />
-                            Show vertices
-                        </label>
-                    ) : null}
-                    <div className="flex items-center rounded border border-gray-200 bg-white p-0.5">
-                        {(
-                            [
-                                { id: "map" as const, label: "Map" },
-                                { id: "satellite" as const, label: "Sat" },
-                                { id: "hybrid" as const, label: "Hyb" },
-                            ] as const
-                        ).map((tab) => (
-                            <button
-                                key={tab.id}
-                                type="button"
-                                onClick={() => setBasemapMode(tab.id)}
-                                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                                    basemapMode === tab.id
-                                        ? "bg-gray-900 text-white"
-                                        : "text-gray-600 hover:bg-gray-50"
-                                }`}
-                            >
-                                {tab.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            </div>
+            <DataReviewMapHeaderControls
+                title={title}
+                externalId={externalId}
+                subtitle={subtitle}
+                hasRenderable={Boolean(hasRenderable)}
+                onFit={handleFitGeometry}
+                fitButtonLabel={fitButtonLabel}
+                basemapMode={basemapMode}
+                onBasemapModeChange={setBasemapMode}
+                showVerticesToggle={entityType !== "place"}
+                showVertices={showVertices}
+                onShowVerticesChange={setShowVertices}
+            />
             <div className="p-2">
                 {clientMounted ? (
                     <div ref={containerRef} className={viewportClass} />

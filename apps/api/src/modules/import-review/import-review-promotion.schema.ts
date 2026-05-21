@@ -176,3 +176,12 @@ export const postImportReviewPromotionBatchPromoteBodySchema = z.object({
 export type PostImportReviewPromotionBatchPromoteBody = z.infer<
     typeof postImportReviewPromotionBatchPromoteBodySchema
 >;
+
+export const postImportReviewRepairInvalidPromotedBatchesBodySchema = z.object({
+    batch_id: z.string().regex(/^\d+$/).optional(),
+    review_batch_id: z.string().regex(/^\d+$/).optional(),
+});
+
+export type PostImportReviewRepairInvalidPromotedBatchesBody = z.infer<
+    typeof postImportReviewRepairInvalidPromotedBatchesBodySchema
+>;

@@ -160,7 +160,10 @@ const optionalAdminAreaIdCreateSchema = z.preprocess((value) => {
 export const createBuildingBodySchema = z
     .object({
         geometry: buildingGeometrySchema,
+        /** Fallback/imported label stored on core_map_buildings.name. */
         name: optionalNameSchema,
+        name_mm: optionalNameSchema,
+        name_en: optionalNameSchema,
         building_type: optionalTrimmedStringSchema,
         building_type_id: optionalBuildingTypeIdSchema,
         admin_area_id: optionalAdminAreaIdCreateSchema,
@@ -175,6 +178,8 @@ export const updateBuildingBodySchema = z
     .object({
         geometry: buildingGeometrySchema.optional(),
         name: optionalNameSchema,
+        name_mm: optionalNameSchema,
+        name_en: optionalNameSchema,
         building_type: optionalTrimmedStringSchema,
         building_type_id: optionalBuildingTypeIdPatchSchema,
         admin_area_id: optionalAdminAreaIdPatchSchema,

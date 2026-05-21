@@ -23,6 +23,16 @@ export function isImportReviewDevDiagnosticsEnabled(): boolean {
     return process.env.NODE_ENV !== "production";
 }
 
+/** When false, cleanup dry-run is allowed but execute is blocked. */
+export function isImportReviewPermanentCleanupEnabled(): boolean {
+    return process.env.ENABLE_IMPORT_REVIEW_PERMANENT_CLEANUP === "true";
+}
+
+/** When false, road publish batches may dry-run but must not promote to core. */
+export function isImportReviewRoadPromotionEnabled(): boolean {
+    return process.env.ENABLE_IMPORT_REVIEW_ROAD_PROMOTION === "true";
+}
+
 /** Never logs passwords or raw URLs. */
 export function logImportReviewDatabaseStartup(logger: FastifyBaseLogger): void {
     const identity = parsePostgresUrlSanitized(getImportReviewDatabaseUrlBase());
@@ -101,6 +111,10 @@ export type ImportReviewEntityFamilyConfig = {
     listIncludeGeometryDefault: boolean;
     /** When true, list/detail SELECT joins ref.ref_road_classes for road class label. */
     roadClassJoin: boolean;
+    /** When true, list/detail SELECT joins ref.ref_building_types on effective building_type_id. */
+    buildingTypeJoin: boolean;
+    /** When true, list/detail SELECT joins core.core_admin_areas on effective admin_area_id. */
+    effectiveAdminAreaJoin: boolean;
     /** Maps BuildingListRowDb padding — null means NULL::type in SELECT. */
     listRowShape: {
         name: string | null;
@@ -159,6 +173,8 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         validationRequiredBeforePromotion: false,
         supportsOverrides: true,
         roadClassJoin: false,
+        buildingTypeJoin: true,
+        effectiveAdminAreaJoin: true,
         listRowShape: {
             name: "name",
             building_type: "building_type",
@@ -184,6 +200,8 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         validationRequiredBeforePromotion: false,
         supportsOverrides: true,
         roadClassJoin: false,
+        buildingTypeJoin: false,
+        effectiveAdminAreaJoin: true,
         listRowShape: {
             name: null,
             building_type: null,
@@ -209,6 +227,8 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         validationRequiredBeforePromotion: true,
         supportsOverrides: true,
         roadClassJoin: true,
+        buildingTypeJoin: false,
+        effectiveAdminAreaJoin: false,
         listRowShape: {
             name: null,
             building_type: null,
@@ -234,6 +254,8 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         validationRequiredBeforePromotion: false,
         supportsOverrides: true,
         roadClassJoin: false,
+        buildingTypeJoin: false,
+        effectiveAdminAreaJoin: true,
         listRowShape: {
             name: "name",
             building_type: null,
@@ -259,6 +281,8 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         validationRequiredBeforePromotion: false,
         supportsOverrides: true,
         roadClassJoin: false,
+        buildingTypeJoin: false,
+        effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "name",
             building_type: null,
@@ -284,6 +308,8 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         validationRequiredBeforePromotion: false,
         supportsOverrides: true,
         roadClassJoin: false,
+        buildingTypeJoin: false,
+        effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "name",
             building_type: null,
@@ -309,6 +335,8 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         validationRequiredBeforePromotion: false,
         supportsOverrides: true,
         roadClassJoin: false,
+        buildingTypeJoin: false,
+        effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "name",
             building_type: null,
@@ -349,6 +377,8 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         validationRequiredBeforePromotion: false,
         supportsOverrides: true,
         roadClassJoin: false,
+        buildingTypeJoin: false,
+        effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "full_address",
             building_type: null,
@@ -374,6 +404,8 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         validationRequiredBeforePromotion: false,
         supportsOverrides: true,
         roadClassJoin: false,
+        buildingTypeJoin: false,
+        effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "slug",
             building_type: null,
@@ -399,6 +431,8 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         validationRequiredBeforePromotion: true,
         supportsOverrides: true,
         roadClassJoin: false,
+        buildingTypeJoin: false,
+        effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "barrier_type",
             building_type: null,

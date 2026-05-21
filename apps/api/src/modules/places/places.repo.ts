@@ -2,16 +2,58 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
-type ListPlacesParams = {
+export type ListPlacesParams = {
     limit: number;
     offset: number;
     q?: string;
     category?: string;
+    category_id?: bigint;
+    admin_area_id?: bigint;
     is_public?: boolean;
     is_verified?: boolean;
     sortBy: "name" | "category" | "admin_area" | "created" | "updated" | "updated_at";
     sortOrder: "asc" | "desc";
 };
+
+function placesListConditions(params: ListPlacesParams): Prisma.Sql[] {
+    const conditions: Prisma.Sql[] = [Prisma.sql`p.deleted_at IS NULL`];
+
+    if (params.is_public !== undefined) {
+        conditions.push(Prisma.sql`p.is_public = ${params.is_public}`);
+    }
+
+    if (params.q) {
+        const searchTerm = `%${params.q}%`;
+        conditions.push(
+            Prisma.sql`(
+                    COALESCE(p.primary_name, '') ILIKE ${searchTerm}
+                    OR COALESCE(p.display_name, mm_name.name, en_name.name, p.primary_name) ILIKE ${searchTerm}
+                    OR COALESCE(mm_name.name, '') ILIKE ${searchTerm}
+                    OR COALESCE(en_name.name, '') ILIKE ${searchTerm}
+                    OR COALESCE(c.name, '') ILIKE ${searchTerm}
+                    OR COALESCE(aa.canonical_name, '') ILIKE ${searchTerm}
+                    OR p.lat::text ILIKE ${searchTerm}
+                    OR p.lng::text ILIKE ${searchTerm}
+                    OR (CASE WHEN p.is_verified THEN 'Yes' ELSE 'No' END) ILIKE ${searchTerm}
+                    OR (CASE WHEN p.is_public THEN 'Yes' ELSE 'No' END) ILIKE ${searchTerm}
+                )`
+        );
+    }
+
+    if (params.is_verified !== undefined) {
+        conditions.push(Prisma.sql`p.is_verified = ${params.is_verified}`);
+    }
+
+    if (params.admin_area_id !== undefined) {
+        conditions.push(Prisma.sql`p.admin_area_id = ${params.admin_area_id}`);
+    }
+
+    if (params.category_id !== undefined) {
+        conditions.push(Prisma.sql`p.category_id = ${params.category_id}`);
+    }
+
+    return conditions;
+}
 
 type EditablePlaceState = {
     public_id: string;
@@ -157,35 +199,11 @@ export class PlacesRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
     async listPlaces(params: ListPlacesParams): Promise<PlaceRow[]> {
-        const conditions: Prisma.Sql[] = [Prisma.sql`p.deleted_at IS NULL`];
-
-        if (params.is_public !== undefined) {
-            conditions.push(Prisma.sql`p.is_public = ${params.is_public}`);
-        }
-
-        if (params.q) {
-            const searchTerm = `%${params.q}%`;
-            conditions.push(
-                Prisma.sql`(
-                    COALESCE(p.primary_name, '') ILIKE ${searchTerm}
-                    OR COALESCE(p.display_name, mm_name.name, en_name.name, p.primary_name) ILIKE ${searchTerm}
-                    OR COALESCE(mm_name.name, '') ILIKE ${searchTerm}
-                    OR COALESCE(en_name.name, '') ILIKE ${searchTerm}
-                    OR COALESCE(c.name, '') ILIKE ${searchTerm}
-                    OR COALESCE(aa.canonical_name, '') ILIKE ${searchTerm}
-                    OR p.lat::text ILIKE ${searchTerm}
-                    OR p.lng::text ILIKE ${searchTerm}
-                    OR (CASE WHEN p.is_verified THEN 'Yes' ELSE 'No' END) ILIKE ${searchTerm}
-                    OR (CASE WHEN p.is_public THEN 'Yes' ELSE 'No' END) ILIKE ${searchTerm}
-                )`
-            );
-        }
-
-        if (params.is_verified !== undefined) {
-            conditions.push(Prisma.sql`p.is_verified = ${params.is_verified}`);
-        }
-
-        const categoryFilter = buildCategoryFilter(params.category);
+        const conditions = placesListConditions(params);
+        const categoryFilter =
+            params.category_id !== undefined
+                ? { cte: Prisma.empty, condition: Prisma.empty }
+                : buildCategoryFilter(params.category);
         const orderByClause = placesListOrderBy(params.sortBy, params.sortOrder);
 
         return this.prisma.$queryRaw<PlaceRow[]>(Prisma.sql`
@@ -227,6 +245,36 @@ export class PlacesRepository {
             LIMIT ${params.limit}
             OFFSET ${params.offset}
         `);
+    }
+
+    async countPlaces(
+        params: Pick<ListPlacesParams, "q" | "category" | "category_id" | "admin_area_id" | "is_public" | "is_verified">
+    ): Promise<number> {
+        const conditions = placesListConditions({
+            ...params,
+            limit: 0,
+            offset: 0,
+            sortBy: "updated_at",
+            sortOrder: "desc",
+        });
+        const categoryFilter =
+            params.category_id !== undefined
+                ? { cte: Prisma.empty, condition: Prisma.empty }
+                : buildCategoryFilter(params.category);
+        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+            ${categoryFilter.cte}
+            SELECT COUNT(*)::bigint AS count
+            FROM core.core_places AS p
+            LEFT JOIN ref.ref_poi_categories AS c
+                ON c.id = p.category_id
+            LEFT JOIN core.core_admin_areas AS aa
+                ON aa.id = p.admin_area_id
+            LEFT JOIN LATERAL (${mmNameLateralSql()}) mm_name ON true
+            LEFT JOIN LATERAL (${enNameLateralSql()}) en_name ON true
+            WHERE ${Prisma.join(conditions, " AND ")}
+              ${categoryFilter.condition}
+        `);
+        return Number(rows[0]?.count ?? 0n);
     }
 
     async getPlaceByPublicId(publicId: string): Promise<PlaceRow | null> {

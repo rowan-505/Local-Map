@@ -1,10 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import { type GeoJSONSource, type Map as MaplibreMap, type MapLayerMouseEvent } from "maplibre-gl";
 
-import { createPreviewBaseMap } from "@/src/components/map/createPreviewBaseMap";
-import { MAP_PREVIEW_VIEWPORT_BUILDING_PANEL } from "@/src/components/map/mapPreviewUi";
 import { useClientMounted } from "@/src/hooks/useClientMounted";
 import {
     BUILDINGS_LIST_LIMIT,
@@ -23,6 +21,8 @@ type PlaceLinkedBuildingsPanelProps = {
     placePublicId: string;
     placeLat: number;
     placeLng: number;
+    /** When provided, building picks and highlights use the main place map instead of a panel map. */
+    hostMapRef?: MutableRefObject<MaplibreMap | null>;
 };
 
 const RELATION_OPTIONS: PlaceBuildingRelationType[] = ["inside", "entrance", "nearby", "compound"];
@@ -30,8 +30,6 @@ const RELATION_OPTIONS: PlaceBuildingRelationType[] = ["inside", "entrance", "ne
 const HL_SOURCE = "place-linked-building-highlight";
 const HL_FILL = "place-linked-building-highlight-fill";
 const HL_LINE = "place-linked-building-highlight-line";
-
-const MAP_ZOOM = 16;
 
 /** Rough radius when search box is empty (sorted nearest first). */
 const NEARBY_KM = 12;
@@ -49,48 +47,36 @@ function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): nu
 
 function formatBuildingAdminCanonical(ref: Building["admin_area"]): string {
     const name = ref?.canonical_name?.trim();
+    return name || "—";
+}
 
-    if (!name) {
-        return "-";
-    }
-
-    return name;
+function buildingDisplayLabel(building: {
+    name?: string | null;
+    building_type?: Building["building_type"];
+    building_type_name?: string | null;
+    building_type_code?: string | null;
+    class_code?: string | null;
+    public_id?: string;
+}): string {
+    return (
+        building.name?.trim() ||
+        `${building.building_type?.name ?? building.building_type_name ?? building.building_type_code ?? building.class_code ?? "Building"}`
+    );
 }
 
 function buildingCentroid(
-    geom: Building["geometry"] | null | undefined
+    geom: Building["geometry"] | null | undefined,
 ): { lng: number; lat: number } | null {
     if (!geom) {
         return null;
     }
 
-    if (geom.type === "Polygon") {
-        const ring = geom.coordinates[0];
-        if (!ring?.length) {
-            return null;
-        }
+    const ring =
+        geom.type === "Polygon"
+            ? geom.coordinates[0]
+            : geom.coordinates[0]?.[0];
 
-        let sumLng = 0;
-        let sumLat = 0;
-        let n = 0;
-
-        for (const pair of ring) {
-            const lng = pair[0];
-            const lat = pair[1];
-
-            if (typeof lng === "number" && typeof lat === "number") {
-                sumLng += lng;
-                sumLat += lat;
-                n += 1;
-            }
-        }
-
-        return n ? { lng: sumLng / n, lat: sumLat / n } : null;
-    }
-
-    const poly = geom.coordinates[0]?.[0];
-
-    if (!poly?.length) {
+    if (!ring?.length) {
         return null;
     }
 
@@ -98,10 +84,9 @@ function buildingCentroid(
     let sumLat = 0;
     let n = 0;
 
-    for (const pair of poly) {
+    for (const pair of ring) {
         const lng = pair[0];
         const lat = pair[1];
-
         if (typeof lng === "number" && typeof lat === "number") {
             sumLng += lng;
             sumLat += lat;
@@ -131,7 +116,7 @@ function readPublicIdFromMvtProps(props: unknown): string | null {
     return null;
 }
 
-function ensureHighlightLayers(map: maplibregl.Map) {
+function ensureHighlightLayers(map: MaplibreMap) {
     if (!map.getSource(HL_SOURCE)) {
         map.addSource(HL_SOURCE, {
             type: "geojson",
@@ -164,10 +149,20 @@ function ensureHighlightLayers(map: maplibregl.Map) {
     }
 }
 
+function clearHighlightLayers(map: MaplibreMap | null) {
+    if (!map?.isStyleLoaded()) {
+        return;
+    }
+
+    const src = map.getSource(HL_SOURCE) as GeoJSONSource | undefined;
+    src?.setData({ type: "FeatureCollection", features: [] });
+}
+
 export default function PlaceLinkedBuildingsPanel({
     placePublicId,
     placeLat,
     placeLng,
+    hostMapRef,
 }: PlaceLinkedBuildingsPanelProps) {
     const [linked, setLinked] = useState<LinkedBuildingSummaryApi[]>([]);
     const [loadError, setLoadError] = useState("");
@@ -183,9 +178,6 @@ export default function PlaceLinkedBuildingsPanel({
     const [attachRelation, setAttachRelation] = useState<PlaceBuildingRelationType>("inside");
     const [attachAsPrimary, setAttachAsPrimary] = useState(false);
 
-    const mapContainerRef = useRef<HTMLDivElement | null>(null);
-    const mapRef = useRef<maplibregl.Map | null>(null);
-    const poiMarkerRef = useRef<maplibregl.Marker | null>(null);
     const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const placeCoordsRef = useRef({ lat: placeLat, lng: placeLng });
     const clientMounted = useClientMounted();
@@ -212,167 +204,111 @@ export default function PlaceLinkedBuildingsPanel({
 
     const linkedIds = linked.map((l) => l.building.public_id);
 
-    const setHighlightGeometry = useCallback((building: Building | null) => {
-        const map = mapRef.current;
+    const setHighlightGeometry = useCallback(
+        (building: Building | null) => {
+            const map = hostMapRef?.current ?? null;
 
-        if (!map?.isStyleLoaded()) {
-            return;
-        }
+            if (!map?.isStyleLoaded()) {
+                return;
+            }
 
-        const src = map.getSource(HL_SOURCE) as maplibregl.GeoJSONSource | undefined;
+            ensureHighlightLayers(map);
+            const src = map.getSource(HL_SOURCE) as GeoJSONSource | undefined;
 
-        if (!src) {
-            return;
-        }
+            if (!src) {
+                return;
+            }
 
-        if (!building?.geometry) {
-            src.setData({ type: "FeatureCollection", features: [] });
-            return;
-        }
+            if (!building?.geometry) {
+                src.setData({ type: "FeatureCollection", features: [] });
+                return;
+            }
 
-        src.setData({
-            type: "FeatureCollection",
-            features: [
-                {
-                    type: "Feature",
-                    properties: {},
-                    geometry: building.geometry as GeoJSON.Geometry,
-                },
-            ],
-        });
-    }, []);
+            src.setData({
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        properties: {},
+                        geometry: building.geometry as GeoJSON.Geometry,
+                    },
+                ],
+            });
+        },
+        [hostMapRef],
+    );
 
-    /** Map setup + MVT pick */
+    /** Attach MVT building picks to the host place map when available. */
     useEffect(() => {
-        const container = mapContainerRef.current;
-
-        if (!clientMounted || !container || mapRef.current) {
+        if (!hostMapRef) {
             return;
         }
 
-        let cancelled = false;
-        const pickHandlers: {
-            onBuildingLayerClick?: (event: maplibregl.MapLayerMouseEvent) => void;
-            onMouseEnterBuildings?: () => void;
-            onMouseLeaveBuildings?: () => void;
-        } = {};
+        let attachedMap: MaplibreMap | null = null;
+        let pickHandlersAttached = false;
 
-        void (async () => {
-            let map: maplibregl.Map;
-            try {
-                map = await createPreviewBaseMap(container, {
-                    zoom: MAP_ZOOM,
-                    onLoad: (m) => {
-                const coords = placeCoordsRef.current;
-                ensureHighlightLayers(m);
-                m.jumpTo({
-                    center: [coords.lng, coords.lat],
-                    zoom: MAP_ZOOM,
-                });
+        const onBuildingLayerClick = (event: MapLayerMouseEvent) => {
+            const feature = event.features?.[0];
+            const pid = readPublicIdFromMvtProps(feature?.properties);
 
-                if (!poiMarkerRef.current) {
-                    poiMarkerRef.current = new maplibregl.Marker({ color: "#7c3aed" });
-                }
-
-                poiMarkerRef.current.setLngLat([coords.lng, coords.lat]).addTo(m);
-
-                window.setTimeout(() => {
-                    m.resize();
-                }, 150);
-
-                pickHandlers.onBuildingLayerClick = (event: maplibregl.MapLayerMouseEvent) => {
-                    const feature = event.features?.[0];
-                    const pid = readPublicIdFromMvtProps(feature?.properties);
-
-                    if (!pid) {
-                        return;
-                    }
-
-                    setPickedPublicId(pid);
-                    setActionError("");
-                };
-
-                pickHandlers.onMouseEnterBuildings = () => {
-                    m.getCanvas().style.cursor = "pointer";
-                };
-
-                pickHandlers.onMouseLeaveBuildings = () => {
-                    m.getCanvas().style.cursor = "";
-                };
-
-                let pickHandlersAttached = false;
-
-                const attachWhenReady = () => {
-                    if (
-                        pickHandlersAttached ||
-                        !m.getLayer("basemap-buildings") ||
-                        !pickHandlers.onBuildingLayerClick ||
-                        !pickHandlers.onMouseEnterBuildings ||
-                        !pickHandlers.onMouseLeaveBuildings
-                    ) {
-                        return;
-                    }
-
-                    pickHandlersAttached = true;
-                    m.on("click", "basemap-buildings", pickHandlers.onBuildingLayerClick);
-                    m.on("mouseenter", "basemap-buildings", pickHandlers.onMouseEnterBuildings);
-                    m.on("mouseleave", "basemap-buildings", pickHandlers.onMouseLeaveBuildings);
-                };
-
-                m.once("idle", attachWhenReady);
-            },
-                });
-            } catch (err) {
-                console.error("PlaceLinkedBuildingsPanel map init failed:", err);
+            if (!pid) {
                 return;
             }
 
-            if (cancelled) {
-                map.remove();
+            setPickedPublicId(pid);
+            setActionError("");
+        };
+
+        const onMouseEnterBuildings = () => {
+            attachedMap?.getCanvas().style.setProperty("cursor", "pointer");
+        };
+
+        const onMouseLeaveBuildings = () => {
+            attachedMap?.getCanvas().style.setProperty("cursor", "");
+        };
+
+        const attachPickHandlers = (map: MaplibreMap) => {
+            if (pickHandlersAttached || !map.getLayer("basemap-buildings")) {
                 return;
             }
 
-            mapRef.current = map;
-        })();
+            pickHandlersAttached = true;
+            attachedMap = map;
+            map.on("click", "basemap-buildings", onBuildingLayerClick);
+            map.on("mouseenter", "basemap-buildings", onMouseEnterBuildings);
+            map.on("mouseleave", "basemap-buildings", onMouseLeaveBuildings);
+        };
+
+        const tryAttach = () => {
+            const map = hostMapRef.current;
+            if (!map) {
+                return;
+            }
+
+            if (map.isStyleLoaded() && map.getLayer("basemap-buildings")) {
+                attachPickHandlers(map);
+                return;
+            }
+
+            map.once("idle", () => attachPickHandlers(map));
+        };
+
+        tryAttach();
+        const interval = window.setInterval(tryAttach, 400);
+        const mapForCleanup = hostMapRef.current;
 
         return () => {
-            cancelled = true;
-            const map = mapRef.current;
-            if (pickHandlers.onBuildingLayerClick) {
-                map?.off("click", "basemap-buildings", pickHandlers.onBuildingLayerClick);
+            window.clearInterval(interval);
+
+            if (attachedMap) {
+                attachedMap.off("click", "basemap-buildings", onBuildingLayerClick);
+                attachedMap.off("mouseenter", "basemap-buildings", onMouseEnterBuildings);
+                attachedMap.off("mouseleave", "basemap-buildings", onMouseLeaveBuildings);
             }
 
-            if (pickHandlers.onMouseEnterBuildings) {
-                map?.off("mouseenter", "basemap-buildings", pickHandlers.onMouseEnterBuildings);
-            }
-
-            if (pickHandlers.onMouseLeaveBuildings) {
-                map?.off("mouseleave", "basemap-buildings", pickHandlers.onMouseLeaveBuildings);
-            }
-
-            poiMarkerRef.current?.remove();
-            poiMarkerRef.current = null;
-            map?.remove();
-            mapRef.current = null;
+            clearHighlightLayers(mapForCleanup);
         };
-    }, [clientMounted, placePublicId, setHighlightGeometry]);
-
-    /** POI marker + recenter */
-    useEffect(() => {
-        const map = mapRef.current;
-
-        if (!map?.isStyleLoaded()) {
-            return;
-        }
-
-        map.jumpTo({ center: [placeLng, placeLat], zoom: MAP_ZOOM });
-
-        if (!poiMarkerRef.current) {
-            poiMarkerRef.current = new maplibregl.Marker({ color: "#7c3aed" });
-        }
-
-        poiMarkerRef.current.setLngLat([placeLng, placeLat]).addTo(map);
-    }, [placeLat, placeLng]);
+    }, [hostMapRef, placePublicId]);
 
     /** Debounced search */
     useEffect(() => {
@@ -392,11 +328,9 @@ export default function PlaceLinkedBuildingsPanel({
                         const near = all
                             .map((b) => {
                                 const c = buildingCentroid(b.geometry);
-
                                 if (!c) {
                                     return null;
                                 }
-
                                 return {
                                     building: b,
                                     km: haversineKm(placeLat, placeLng, c.lat, c.lng),
@@ -404,11 +338,11 @@ export default function PlaceLinkedBuildingsPanel({
                             })
                             .filter(
                                 (
-                                    row
+                                    row,
                                 ): row is {
                                     building: Building;
                                     km: number;
-                                } => Boolean(row && row.km <= NEARBY_KM)
+                                } => Boolean(row && row.km <= NEARBY_KM),
                             )
                             .sort((a, b) => a.km - b.km)
                             .slice(0, 25)
@@ -418,10 +352,7 @@ export default function PlaceLinkedBuildingsPanel({
                         return;
                     }
 
-                    const hits = await getBuildings({
-                        q,
-                        limit: 50,
-                    });
+                    const hits = await getBuildings({ q, limit: 50 });
                     setSearchResults(hits);
                 } catch {
                     setSearchResults([]);
@@ -438,7 +369,7 @@ export default function PlaceLinkedBuildingsPanel({
         };
     }, [searchQ, placeLat, placeLng]);
 
-    /** Load full geometry when picking from search list */
+    /** Load full geometry when picking from search list or map */
     useEffect(() => {
         if (!pickedPublicId) {
             setPickedBuilding(null);
@@ -462,7 +393,11 @@ export default function PlaceLinkedBuildingsPanel({
 
     async function handleAttach() {
         if (!pickedPublicId) {
-            setActionError("Choose a building from search or tap one on the map.");
+            setActionError(
+                hostMapRef
+                    ? "Choose a building from the main map or search below."
+                    : "Choose a building from the search list below.",
+            );
             return;
         }
 
@@ -527,7 +462,7 @@ export default function PlaceLinkedBuildingsPanel({
 
     async function handleRelationChange(
         buildingPublicId: string,
-        relation: PlaceBuildingRelationType
+        relation: PlaceBuildingRelationType,
     ) {
         setBusy(true);
         setActionError("");
@@ -542,170 +477,190 @@ export default function PlaceLinkedBuildingsPanel({
         }
     }
 
+    if (!clientMounted) {
+        return null;
+    }
+
     return (
-        <div className="space-y-4 border-t border-gray-200 pt-8">
-            <div>
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                    Linked buildings
-                </h3>
-                <p className="mt-1 text-sm text-gray-600">
-                    Optional: link footprints to this place. Tap a beige building on the map, or search and
-                    pick from the list, then Attach. POIs never require a building.
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-4">
+                <h3 className="text-base font-semibold text-slate-900">Linked buildings</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                    Optional footprint links for this place. POIs never require a building.
                 </p>
             </div>
 
-            {loadError ? (
-                <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    {loadError}{" "}
-                    <button
-                        type="button"
-                        className="ml-2 underline"
-                        onClick={() => void loadLinked()}
-                    >
-                        Retry
-                    </button>
-                </div>
-            ) : null}
+            <div className="space-y-6 p-5">
+                {loadError ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                        {loadError}{" "}
+                        <button type="button" className="ml-1 font-medium underline" onClick={() => void loadLinked()}>
+                            Retry
+                        </button>
+                    </div>
+                ) : null}
 
-            {linked.length === 0 ? (
-                <p className="text-sm text-gray-500">No buildings linked yet.</p>
-            ) : (
-                <ul className="divide-y divide-gray-200 rounded border border-gray-200">
-                    {linked.map((row) => (
-                        <li
-                            key={row.building.public_id}
-                            className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between"
-                        >
-                            <div>
-                                <div className="font-medium text-gray-900">
-                                    {row.building.name?.trim()
-                                        ? row.building.name
-                                        : `${row.building.building_type?.name ?? row.building.building_type_name ?? row.building.building_type_code ?? row.building.class_code ?? "building"}`}
-                                    {row.is_primary ? (
-                                        <span className="ml-2 rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900">
-                                            Primary
-                                        </span>
-                                    ) : null}
-                                </div>
-                                <div className="mt-1 text-xs text-gray-600">
-                                    <span className="text-gray-500">Admin area: </span>
-                                    {formatBuildingAdminCanonical(row.building.admin_area)}
-                                </div>
-                                <div className="mt-1 text-xs text-gray-600">
-                                    {row.building.public_id}{" "}
-                                    {typeof row.building.area_m2 === "number"
-                                        ? `· ${Math.round(row.building.area_m2)} m²`
-                                        : null}
-                                </div>
-                                <label className="mt-2 flex items-center gap-2 text-sm text-gray-700">
-                                    <span>Relation:</span>
-                                    <select
-                                        value={row.relation_type as PlaceBuildingRelationType}
-                                        disabled={busy}
-                                        onChange={(event) =>
-                                            void handleRelationChange(
-                                                row.building.public_id,
-                                                event.target.value as PlaceBuildingRelationType
-                                            )
-                                        }
-                                        className="rounded border border-gray-300 px-2 py-1 text-sm"
-                                    >
-                                        {RELATION_OPTIONS.map((option) => (
-                                            <option key={option} value={option}>
-                                                {option}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {!row.is_primary ? (
-                                    <button
-                                        type="button"
-                                        disabled={busy}
-                                        className="rounded border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
-                                        onClick={() => void handleSetPrimary(row.building.public_id)}
-                                    >
-                                        Set primary
-                                    </button>
-                                ) : null}
-                                <button
-                                    type="button"
-                                    disabled={busy}
-                                    className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                                    onClick={() => void handleDetach(row.building.public_id)}
+                {actionError ? (
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                        {actionError}
+                    </div>
+                ) : null}
+
+                <section className="space-y-3">
+                    <h4 className="text-sm font-semibold text-slate-900">Currently linked</h4>
+                    {linked.length === 0 ? (
+                        <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center text-sm text-slate-600">
+                            No buildings linked yet.
+                        </p>
+                    ) : (
+                        <ul className="space-y-3">
+                            {linked.map((row) => (
+                                <li
+                                    key={row.building.public_id}
+                                    className="rounded-lg border border-slate-200 bg-slate-50/60 p-4"
                                 >
-                                    Detach
-                                </button>
-                            </div>
-                        </li>
-                    ))}
-                </ul>
-            )}
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                        <div className="min-w-0 flex-1 space-y-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <span className="font-medium text-slate-900">
+                                                    {buildingDisplayLabel(row.building)}
+                                                </span>
+                                                {row.is_primary ? (
+                                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900">
+                                                        Primary
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            <p className="text-xs text-slate-600">
+                                                Admin area: {formatBuildingAdminCanonical(row.building.admin_area)}
+                                            </p>
+                                            <p className="font-mono text-xs text-slate-500">
+                                                {row.building.public_id}
+                                                {typeof row.building.area_m2 === "number"
+                                                    ? ` · ${Math.round(row.building.area_m2)} m²`
+                                                    : null}
+                                            </p>
+                                        </div>
 
-            <div className="rounded border border-gray-200 bg-gray-50 p-4">
-                <h4 className="text-sm font-medium text-gray-900">Attach a building</h4>
+                                        <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                                            <label className="flex items-center gap-2 text-sm text-slate-700">
+                                                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                                                    Relation
+                                                </span>
+                                                <select
+                                                    value={row.relation_type as PlaceBuildingRelationType}
+                                                    disabled={busy}
+                                                    onChange={(event) =>
+                                                        void handleRelationChange(
+                                                            row.building.public_id,
+                                                            event.target.value as PlaceBuildingRelationType,
+                                                        )
+                                                    }
+                                                    className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                                                >
+                                                    {RELATION_OPTIONS.map((option) => (
+                                                        <option key={option} value={option}>
+                                                            {option}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </label>
 
-                <div className="mt-3 grid gap-3 lg:grid-cols-2 lg:gap-6">
+                                            <div className="flex flex-wrap gap-2">
+                                                {!row.is_primary ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={busy}
+                                                        className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                                                        onClick={() => void handleSetPrimary(row.building.public_id)}
+                                                    >
+                                                        Set primary
+                                                    </button>
+                                                ) : null}
+                                                <button
+                                                    type="button"
+                                                    disabled={busy}
+                                                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                                                    onClick={() => void handleDetach(row.building.public_id)}
+                                                >
+                                                    Detach
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </section>
+
+                <section className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
                     <div>
-                        <label className="block text-sm text-gray-700">
-                            Search (or leave empty for nearby footprints)
-                            <input
-                                type="search"
-                                value={searchQ}
-                                onChange={(event) => setSearchQ(event.target.value)}
-                                className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
-                                placeholder="Name or building type…"
-                                autoComplete="off"
-                            />
-                        </label>
-                        <div className="mt-2 max-h-48 overflow-auto rounded border border-gray-200 bg-white text-sm">
-                            {searchBusy ? (
-                                <div className="p-3 text-gray-600">Searching…</div>
-                            ) : (
-                                searchResults.map((building) => {
-                                    const linkedHere = linkedIds.includes(building.public_id);
-                                    const label =
-                                        building.name?.trim() ||
-                                        `${building.building_type?.name ?? building.building_type_name ?? building.building_type_code ?? building.class_code}` ||
-                                        building.public_id;
-
-                                    return (
-                                        <button
-                                            key={building.public_id}
-                                            type="button"
-                                            disabled={linkedHere}
-                                            className={`block w-full border-b border-gray-100 px-3 py-2 text-left last:border-b-0 ${
-                                                pickedPublicId === building.public_id
-                                                    ? "bg-amber-50"
-                                                    : "hover:bg-gray-50"
-                                            } disabled:cursor-not-allowed disabled:opacity-50`}
-                                            onClick={() => setPickedPublicId(building.public_id)}
-                                        >
-                                            <span className="block">{label}</span>
-                                            <span className="mt-0.5 block text-xs text-gray-600">
-                                                <span className="text-gray-500">Admin area: </span>
-                                                {formatBuildingAdminCanonical(building.admin_area)}
-                                            </span>
-                                            <span className="mt-0.5 block text-xs text-gray-500 font-mono">
-                                                {linkedHere ? "(linked)" : building.public_id.slice(0, 8)}
-                                            </span>
-                                        </button>
-                                    );
-                                })
-                            )}
-                        </div>
+                        <h4 className="text-sm font-semibold text-slate-900">Attach a building</h4>
+                        <p className="mt-1 text-sm text-slate-600">
+                            {hostMapRef
+                                ? "Select a building from the main map or search below."
+                                : "Search for a building below to attach."}
+                            {/* TODO: Unify building pick overlays on PlaceEditModal main map when that form is refactored. */}
+                        </p>
                     </div>
 
-                    <div>
-                        <label className="block text-sm text-gray-700">
-                            Relation type
+                    <label className="block text-sm text-slate-700">
+                        <span className="font-medium">Search buildings</span>
+                        <input
+                            type="search"
+                            value={searchQ}
+                            onChange={(event) => setSearchQ(event.target.value)}
+                            className="mt-1.5 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                            placeholder="Name or building type — leave empty for nearby"
+                            autoComplete="off"
+                        />
+                    </label>
+
+                    <div className="max-h-52 overflow-auto rounded-md border border-slate-200 bg-white">
+                        {searchBusy ? (
+                            <div className="px-4 py-3 text-sm text-slate-600">Searching…</div>
+                        ) : searchResults.length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-slate-500">No buildings found.</div>
+                        ) : (
+                            searchResults.map((building) => {
+                                const linkedHere = linkedIds.includes(building.public_id);
+                                const isSelected = pickedPublicId === building.public_id;
+
+                                return (
+                                    <button
+                                        key={building.public_id}
+                                        type="button"
+                                        disabled={linkedHere}
+                                        className={`block w-full border-b border-slate-100 px-4 py-3 text-left last:border-b-0 ${
+                                            isSelected ? "bg-amber-50" : "hover:bg-slate-50"
+                                        } disabled:cursor-not-allowed disabled:opacity-50`}
+                                        onClick={() => setPickedPublicId(building.public_id)}
+                                    >
+                                        <span className="block text-sm font-medium text-slate-900">
+                                            {buildingDisplayLabel(building)}
+                                        </span>
+                                        <span className="mt-0.5 block text-xs text-slate-600">
+                                            {formatBuildingAdminCanonical(building.admin_area)}
+                                        </span>
+                                        <span className="mt-0.5 block font-mono text-xs text-slate-500">
+                                            {linkedHere ? "(already linked)" : building.public_id.slice(0, 8)}
+                                        </span>
+                                    </button>
+                                );
+                            })
+                        )}
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="block text-sm text-slate-700">
+                            <span className="font-medium">Relation type</span>
                             <select
                                 value={attachRelation}
                                 onChange={(event) =>
                                     setAttachRelation(event.target.value as PlaceBuildingRelationType)
                                 }
-                                className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                                className="mt-1.5 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                             >
                                 {RELATION_OPTIONS.map((option) => (
                                     <option key={option} value={option}>
@@ -715,59 +670,38 @@ export default function PlaceLinkedBuildingsPanel({
                             </select>
                         </label>
 
-                        <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+                        <label className="flex items-end gap-2 pb-2 text-sm text-slate-700">
                             <input
                                 type="checkbox"
                                 checked={attachAsPrimary}
                                 onChange={(event) => setAttachAsPrimary(event.target.checked)}
+                                className="rounded border-slate-300"
                             />
-                            Attach as primary building for this POI
+                            Attach as primary building
                         </label>
-
-                        {pickedBuilding ? (
-                            <p className="mt-3 text-xs text-gray-600">
-                                Selected:{" "}
-                                <strong>
-                                    {pickedBuilding.name?.trim() ||
-                                        `${pickedBuilding.building_type?.name ?? pickedBuilding.building_type_name ?? pickedBuilding.building_type_code ?? pickedBuilding.class_code}`}
-                                </strong>
-                                <span className="mt-1 block">
-                                    Admin area: {formatBuildingAdminCanonical(pickedBuilding.admin_area)}
-                                </span>
-                            </p>
-                        ) : pickedPublicId ? (
-                            <p className="mt-3 text-xs text-gray-600">Loading building… ({pickedPublicId})</p>
-                        ) : (
-                            <p className="mt-3 text-xs text-gray-500">
-                                Tap a building footprint on the map (purple dot = POI).
-                            </p>
-                        )}
                     </div>
-                </div>
 
-                <div className="mt-4 flex flex-wrap items-center gap-3">
+                    {pickedBuilding ? (
+                        <p className="text-sm text-slate-700">
+                            Selected:{" "}
+                            <span className="font-medium text-slate-900">
+                                {buildingDisplayLabel(pickedBuilding)}
+                            </span>
+                        </p>
+                    ) : pickedPublicId ? (
+                        <p className="text-sm text-slate-600">Loading building…</p>
+                    ) : null}
+
                     <button
                         type="button"
-                        disabled={busy}
-                        className="rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+                        disabled={busy || !pickedPublicId}
+                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                         onClick={() => void handleAttach()}
                     >
                         Attach selected
                     </button>
-                </div>
+                </section>
             </div>
-
-            {clientMounted ? (
-                <div ref={mapContainerRef} className={MAP_PREVIEW_VIEWPORT_BUILDING_PANEL} />
-            ) : (
-                <div className={MAP_PREVIEW_VIEWPORT_BUILDING_PANEL} aria-hidden />
-            )}
-
-            {actionError ? (
-                <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                    {actionError}
-                </div>
-            ) : null}
         </div>
     );
 }

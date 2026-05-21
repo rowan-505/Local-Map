@@ -1,5 +1,6 @@
 import type { z } from "zod";
 
+import { mapBuildingNameFields } from "../../lib/entity-names/building-detail-select-sql.js";
 import type { BuildingValidationIssue } from "./buildings.schema.js";
 import {
     BuildingsRepository,
@@ -133,6 +134,7 @@ export class BuildingsService {
     }
 
     private serializeBuilding(row: BuildingDetailRow) {
+        const names = mapBuildingNameFields(row);
         const buildingType =
             row.ref_bt_id && row.ref_bt_code && row.ref_bt_name
                 ? {
@@ -149,7 +151,10 @@ export class BuildingsService {
             public_id: row.public_id,
             source_staging_id: row.source_staging_id,
             external_id: row.external_id,
-            name: row.name,
+            name_mm: names.name_mm,
+            name_en: names.name_en,
+            fallback_name: names.fallback_name,
+            name: names.name,
             building_type_id: row.building_type_id,
             building_type: buildingType,
             building_type_code: row.building_type_code,
@@ -207,6 +212,8 @@ export class BuildingsService {
 
             return {
                 name: body.name ?? null,
+                name_mm: body.name_mm,
+                name_en: body.name_en,
                 class_code: label,
                 building_type_column: label,
                 building_type_id: ref.id,
@@ -226,6 +233,8 @@ export class BuildingsService {
 
         return {
             name: body.name ?? null,
+            name_mm: body.name_mm,
+            name_en: body.name_en,
             class_code: label,
             building_type_column: label,
             building_type_id: matched?.id ?? null,
@@ -274,7 +283,11 @@ export class BuildingsService {
             resolvedType = coalesceBuildingTypeFromRow(existing.building_type_code, existing.class_code);
         }
 
-        const name = patch.name !== undefined ? patch.name : existing.name;
+        const name =
+            patch.name !== undefined ? patch.name : (existing.fallback_name ?? null);
+
+        const name_mm = patch.name_mm !== undefined ? patch.name_mm : undefined;
+        const name_en = patch.name_en !== undefined ? patch.name_en : undefined;
 
         const levels = patch.levels !== undefined ? patch.levels : existing.levels;
 
@@ -315,6 +328,8 @@ export class BuildingsService {
 
         return {
             name,
+            name_mm,
+            name_en,
             class_code: resolvedType,
             building_type_column: resolvedType,
             building_type_id,

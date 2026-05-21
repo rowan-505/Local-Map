@@ -67,7 +67,8 @@ export class ImportReviewReferenceOptionsRepository {
             const rows = await this.prisma.$queryRaw<{ id: bigint; code: string; name: string }[]>`
                 SELECT id, code, name
                 FROM ref.ref_building_types
-                ORDER BY name ASC
+                WHERE is_active IS TRUE
+                ORDER BY sort_order ASC NULLS LAST, name ASC
             `;
             empty.ref_building_types = mapIdLabel(rows);
         }
@@ -111,5 +112,19 @@ export class ImportReviewReferenceOptionsRepository {
         }
 
         return empty;
+    }
+
+    async getActiveBuildingTypeById(id: bigint): Promise<{ id: bigint; code: string; name: string } | null> {
+        if (!(await tableExists(this.prisma, "ref.ref_building_types"))) {
+            return null;
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint; code: string; name: string }[]>`
+            SELECT id, code, name
+            FROM ref.ref_building_types
+            WHERE id = ${id}
+              AND is_active IS TRUE
+            LIMIT 1
+        `;
+        return rows[0] ?? null;
     }
 }

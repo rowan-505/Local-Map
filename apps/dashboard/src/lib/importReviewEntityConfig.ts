@@ -2,6 +2,7 @@
  * Compatibility shim — source of truth is @/src/features/import-review/config.
  * Existing imports from this module keep working without changes.
  */
+import { importReviewPath } from "@/src/lib/dashboardPaths";
 import {
     applyImportReviewScopeSearchParams,
     reviewBatchIdFromImportReviewSearch,
@@ -63,9 +64,9 @@ export function getImportReviewEntityByApiFamily(apiFamily: string): ImportRevie
 export function importReviewEntityHrefForBatch(slug: string, reviewBatchId: string): string {
     const id = reviewBatchId.trim();
     if (!id) {
-        return `/import-review/${slug}`;
+        return importReviewPath(slug);
     }
-    return `/import-review/${slug}?review_batch_id=${encodeURIComponent(id)}`;
+    return `${importReviewPath(slug)}?review_batch_id=${encodeURIComponent(id)}`;
 }
 
 /** Build entity page href preserving review_batch_id or snapshot scope. */
@@ -82,7 +83,8 @@ export function importReviewEntityHref(
     const snap = snapshotVersionFromImportReviewSearch(params);
     applyImportReviewScopeSearchParams(params, snap, "");
     const qs = params.toString();
-    return qs ? `/import-review/${slug}?${qs}` : `/import-review/${slug}`;
+    const base = importReviewPath(slug);
+    return qs ? `${base}?${qs}` : base;
 }
 
 export function importReviewOverviewHref(sp: Pick<URLSearchParams, "get" | "toString">): string {
@@ -91,7 +93,8 @@ export function importReviewOverviewHref(sp: Pick<URLSearchParams, "get" | "toSt
     const snap = snapshotVersionFromImportReviewSearch(params);
     applyImportReviewScopeSearchParams(params, snap, batch);
     const qs = params.toString();
-    return qs ? `/import-review?${qs}` : "/import-review";
+    const base = importReviewPath();
+    return qs ? `${base}?${qs}` : base;
 }
 
 export function importReviewPromotionHref(sp: Pick<URLSearchParams, "get" | "toString">): string {
@@ -100,19 +103,20 @@ export function importReviewPromotionHref(sp: Pick<URLSearchParams, "get" | "toS
     const snap = snapshotVersionFromImportReviewSearch(params);
     applyImportReviewScopeSearchParams(params, snap, batch);
     const qs = params.toString();
-    return qs ? `/import-review/promotion?${qs}` : "/import-review/promotion";
+    const base = importReviewPath("promotion");
+    return qs ? `${base}?${qs}` : base;
 }
 
 export function importReviewHistoryHref(): string {
-    return "/import-review/history";
+    return importReviewPath("history");
 }
 
 export function importReviewHistoryReviewBatchHref(id: string): string {
-    return `/import-review/history/review-batches/${id}`;
+    return importReviewPath(`history/review-batches/${id}`);
 }
 
 export function importReviewHistoryPublishBatchHref(id: string): string {
-    return `/import-review/history/publish-batches/${id}`;
+    return importReviewPath(`history/publish-batches/${id}`);
 }
 
 /** Order families for display: config order, then unknown at end. */

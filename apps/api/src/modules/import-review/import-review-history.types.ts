@@ -28,6 +28,10 @@ export type ImportReviewHistoryReviewBatchListItem = {
     source_snapshot_version: string;
     source_snapshot_id_local: string | null;
     status: string;
+    derived_status: string;
+    derived_status_reason: string | null;
+    stored_status_recommendation: string | null;
+    status_note: string | null;
     created_at: string;
     uploaded_at: string;
     validated_at: string | null;
@@ -37,6 +41,21 @@ export type ImportReviewHistoryReviewBatchListItem = {
     counts: ImportReviewHistoryReviewBatchCounts;
     counts_by_entity_family: ImportReviewFamilySummaryMetrics[];
     publish_batches: ImportReviewHistoryPublishBatchRollup;
+    latest_publish_batch: ImportReviewHistoryPublishAttemptSummary | null;
+};
+
+export type ImportReviewHistoryPublishAttemptSummary = {
+    id: string;
+    batch_name: string;
+    stored_status: string;
+    derived_status: string;
+    created_at: string;
+    promoted_at: string | null;
+    total_item_count: number;
+    success_count: number;
+    failed_count: number;
+    core_verified_count: number;
+    import_review_marked_promoted_count: number;
 };
 
 export type ImportReviewHistoryReviewBatchDetail = ImportReviewHistoryReviewBatchListItem & {
@@ -47,6 +66,7 @@ export type ImportReviewHistoryReviewBatchDetail = ImportReviewHistoryReviewBatc
     skipped_count: number;
     summary: unknown;
     publish_batch_summaries: ImportReviewHistoryPublishBatchListItem[];
+    publish_batch_attempts: ImportReviewHistoryPublishAttemptSummary[];
 };
 
 export type ImportReviewHistoryPublishBatchListItem = {
@@ -54,6 +74,10 @@ export type ImportReviewHistoryPublishBatchListItem = {
     public_id: string;
     batch_name: string;
     status: string;
+    derived_status: string;
+    derived_status_reason: string | null;
+    stored_status_recommendation: string | null;
+    status_note: string | null;
     source_review_batch_id: string | null;
     source_snapshot_version: string | null;
     region_code: string | null;
@@ -61,6 +85,10 @@ export type ImportReviewHistoryPublishBatchListItem = {
     success_count: number;
     failed_count: number;
     skipped_count: number;
+    core_verified_count: number;
+    import_review_marked_promoted_count: number;
+    inserted_count: number;
+    updated_count: number;
     validation_total: number;
     validation_done: number;
     validation_percent: number;

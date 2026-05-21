@@ -19,7 +19,7 @@ export const placesImportReviewEntityConfig = createImportReviewEntityConfig({
     legacyDedicatedPage: false,
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
-        { key: "canonical_name", label: "Name", source: "row" },
+        { key: "effective_canonical_name", label: "Name", source: "row" },
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,
     ],
     searchableFields: ["canonical_name", "name", "external_id"],
@@ -27,6 +27,7 @@ export const placesImportReviewEntityConfig = createImportReviewEntityConfig({
     overrideEditableFields: [
         "name",
         "canonical_name",
+        "admin_area_id",
         "category_id",
         "poi_category_id",
         "class_code",

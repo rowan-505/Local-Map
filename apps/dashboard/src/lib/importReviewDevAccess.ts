@@ -1,5 +1,7 @@
 /** DEV ONLY — temporary import-review access without app_auth JWT (see AGENTS / import-review admin token). */
 
+import { IMPORT_REVIEW_PATH } from "@/src/lib/dashboardPaths";
+
 const ADMIN_HEADER = "x-import-review-admin-token";
 
 export function isImportReviewDevTokenConfigured(): boolean {
@@ -10,7 +12,12 @@ export function isImportReviewDevTokenConfigured(): boolean {
 }
 
 export function isImportReviewRoutePath(pathname: string): boolean {
-    return pathname === "/import-review" || pathname.startsWith("/import-review/");
+    return (
+        pathname === IMPORT_REVIEW_PATH ||
+        pathname.startsWith(`${IMPORT_REVIEW_PATH}/`) ||
+        pathname === "/import-review" ||
+        pathname.startsWith("/import-review/")
+    );
 }
 
 /**

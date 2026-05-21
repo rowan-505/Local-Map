@@ -17,6 +17,7 @@ export const roadsImportReviewEntityConfig = createImportReviewEntityConfig({
     mapEntityType: "road",
     riskLevel: "high",
     /** TODO: migrate to ImportReviewEntityPage after porting road routing-validation drawer UX. */
+    /** TODO: roads use dedicated effective-state path — table still shows raw columns until unified. */
     legacyDedicatedPage: true,
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,

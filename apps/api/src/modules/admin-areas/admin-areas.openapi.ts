@@ -16,6 +16,20 @@ const adminAreaRowSchema = {
     additionalProperties: false,
 } as const;
 
+const adminAreaOptionRowSchema = {
+    type: "object",
+    required: ["id", "canonical_name", "name_mm", "name_en", "admin_level_id", "parent_id"],
+    properties: {
+        id: { type: "string" },
+        canonical_name: { type: "string" },
+        name_mm: { type: "string", nullable: true },
+        name_en: { type: "string", nullable: true },
+        admin_level_id: { type: "string" },
+        parent_id: { type: "string", nullable: true },
+    },
+    additionalProperties: false,
+} as const;
+
 export const getAdminAreasSchema = {
     tags: [Tags.AdminAreas],
     summary: "List admin areas",
@@ -30,6 +44,27 @@ export const getAdminAreasSchema = {
     },
     response: {
         200: { type: "array", items: adminAreaRowSchema },
+        400: badRequestSchema,
+        401: messageSchema,
+    },
+} satisfies FastifySchema;
+
+export const getAdminAreaOptionsSchema = {
+    tags: [Tags.AdminAreas],
+    summary: "Admin area picker options",
+    description:
+        "Active rows from core.core_admin_areas with Myanmar/English labels from core.core_admin_area_names (language my/mm and en).",
+    security: [...bearerAuth],
+    querystring: {
+        type: "object",
+        properties: {
+            limit: { type: "integer", minimum: 1, maximum: 2000, default: 500 },
+            q: { type: "string", minLength: 1, maxLength: 200 },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: { type: "array", items: adminAreaOptionRowSchema },
         400: badRequestSchema,
         401: messageSchema,
     },

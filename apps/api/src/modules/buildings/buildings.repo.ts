@@ -1,5 +1,12 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import {
+    buildingClassCodeCoalesceSql,
+    buildingClassCodeSelectSql,
+    buildingNameLabelSelectSql,
+} from "../../lib/entity-names/building-detail-select-sql.js";
+import { syncBuildingPrimaryNames, type PrimaryNameSlots } from "../../lib/entity-names/sync-primary-names.js";
+
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
 const AREA_MIN_EXCLUSIVE = 3;
@@ -20,7 +27,9 @@ export type BuildingDetailRow = {
     public_id: string;
     source_staging_id: string | null;
     external_id: string | null;
-    name: string | null;
+    name_mm: string | null;
+    name_en: string | null;
+    fallback_name: string | null;
     class_code: string;
     building_type_id: string | null;
     ref_bt_id: string | null;
@@ -53,7 +62,11 @@ export type BuildingDetailRow = {
 
 /** Resolved column snapshot after dashboard merge (always explicit — supports clearing nullable fields). */
 export type BuildingPersistSnapshot = {
+    /** Legacy `core_map_buildings.name` (imported / fallback label). */
     name: string | null;
+    /** When set, upserts primary official rows in core_map_building_names. */
+    name_mm?: string | null | undefined;
+    name_en?: string | null | undefined;
     class_code: string;
     building_type_column: string;
     /** When set, must reference an active row in ref.ref_building_types. */
@@ -85,9 +98,35 @@ function buildingsListOrderBy(
 
     switch (sortBy) {
         case "name":
-            return Prisma.sql`LOWER(COALESCE(b.name, '')) ${dir} NULLS LAST, b.public_id ASC`;
+            return Prisma.sql`LOWER(COALESCE(
+                (
+                    SELECT n.name
+                    FROM core.core_map_building_names AS n
+                    WHERE n.building_id = b.id
+                      AND n.is_primary IS TRUE
+                      AND n.name_type = 'official'
+                      AND (
+                          lower(trim(n.language_code)) IN ('my', 'mm')
+                          OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
+                      )
+                    ORDER BY n.search_weight DESC, n.id ASC
+                    LIMIT 1
+                ),
+                (
+                    SELECT n.name
+                    FROM core.core_map_building_names AS n
+                    WHERE n.building_id = b.id
+                      AND n.is_primary IS TRUE
+                      AND n.name_type = 'official'
+                      AND lower(trim(n.language_code)) = 'en'
+                    ORDER BY n.search_weight DESC, n.id ASC
+                    LIMIT 1
+                ),
+                b.name,
+                ''
+            )) ${dir} NULLS LAST, b.public_id ASC`;
         case "building_type":
-            return Prisma.sql`LOWER(COALESCE(bt.name, bt.code, b.class_code, '')) ${dir} NULLS LAST, b.public_id ASC`;
+            return Prisma.sql`LOWER(COALESCE(bt.name, bt.code, ${buildingClassCodeCoalesceSql}, '')) ${dir} NULLS LAST, b.public_id ASC`;
         case "admin_area":
             return Prisma.sql`LOWER(COALESCE(aa.canonical_name, '')) ${dir} NULLS LAST, b.public_id ASC`;
         case "created":
@@ -100,8 +139,99 @@ function buildingsListOrderBy(
     }
 }
 
+export type ActiveBuildingsListParams = {
+    limit: number;
+    offset: number;
+    q?: string;
+    sortBy: "name" | "building_type" | "admin_area" | "created" | "updated" | "updated_at";
+    sortOrder: "asc" | "desc";
+    is_verified?: boolean;
+    admin_area_id?: bigint;
+    building_type_id?: bigint;
+};
+
+function activeBuildingsWhereClause(
+    params: Pick<ActiveBuildingsListParams, "q" | "is_verified" | "admin_area_id" | "building_type_id">
+): Prisma.Sql {
+    const parts: Prisma.Sql[] = [Prisma.sql`b.deleted_at IS NULL`, Prisma.sql`b.is_active IS TRUE`];
+
+    if (params.q !== undefined) {
+        parts.push(Prisma.sql`(
+                    COALESCE(b.name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(bt.name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(bt.code, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(${buildingClassCodeCoalesceSql}, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(aa.canonical_name, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(b.area_m2::text, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(b.levels::text, '') ILIKE ${`%${params.q}%`}
+                    OR COALESCE(b.confidence_score::text, '') ILIKE ${`%${params.q}%`}
+                    OR (CASE WHEN b.is_verified THEN 'Yes' ELSE 'No' END) ILIKE ${`%${params.q}%`}
+                    OR b.created_at::text ILIKE ${`%${params.q}%`}
+                    OR b.updated_at::text ILIKE ${`%${params.q}%`}
+                )`);
+    }
+
+    if (params.is_verified !== undefined) {
+        parts.push(Prisma.sql`b.is_verified = ${params.is_verified}`);
+    }
+
+    if (params.admin_area_id !== undefined) {
+        parts.push(Prisma.sql`b.admin_area_id = ${params.admin_area_id}`);
+    }
+
+    if (params.building_type_id !== undefined) {
+        parts.push(Prisma.sql`b.building_type_id = ${params.building_type_id}`);
+    }
+
+    return Prisma.join(parts, " AND ");
+}
+
 export class BuildingsRepository {
     constructor(private readonly prisma: PrismaClient) {}
+
+    private async syncDashboardBuildingNamesIfNeeded(
+        publicId: string,
+        snapshot: BuildingPersistSnapshot,
+        db: DbClient = this.prisma
+    ): Promise<void> {
+        if (snapshot.name_mm === undefined && snapshot.name_en === undefined) {
+            return;
+        }
+
+        const idRows = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
+            SELECT b.id::text AS id
+            FROM core.core_map_buildings AS b
+            WHERE b.public_id = CAST(${publicId} AS uuid)
+            LIMIT 1
+        `);
+
+        const internalId = idRows[0]?.id;
+
+        if (!internalId) {
+            return;
+        }
+
+        const slots: PrimaryNameSlots = {};
+
+        if (snapshot.name_mm !== undefined) {
+            slots.name_mm = snapshot.name_mm;
+        }
+
+        if (snapshot.name_en !== undefined) {
+            slots.name_en = snapshot.name_en;
+        }
+
+        await syncBuildingPrimaryNames(db, BigInt(internalId), slots);
+    }
+
+    private async refetchDashboardBuildingAfterWrite(
+        publicId: string,
+        snapshot: BuildingPersistSnapshot,
+        db: DbClient = this.prisma
+    ): Promise<BuildingDetailRow | null> {
+        await this.syncDashboardBuildingNamesIfNeeded(publicId, snapshot, db);
+        return this.getDashboardBuildingByPublicId(publicId, db);
+    }
 
     async analyzeBuildingGeometry(
         geojsonText: string,
@@ -190,30 +320,8 @@ export class BuildingsRepository {
     }
 
     /** Active, non-deleted buildings (imports + dashboard), no source filter. */
-    async listActiveBuildings(params: {
-        limit: number;
-        offset: number;
-        q?: string;
-        sortBy: "name" | "building_type" | "admin_area" | "created" | "updated" | "updated_at";
-        sortOrder: "asc" | "desc";
-    }): Promise<BuildingDetailRow[]> {
-        const searchClause =
-            params.q === undefined
-                ? Prisma.sql`TRUE`
-                : Prisma.sql`(
-                    COALESCE(b.name, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(bt.name, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(bt.code, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(b.class_code, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(aa.canonical_name, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(b.area_m2::text, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(b.levels::text, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(b.confidence_score::text, '') ILIKE ${`%${params.q}%`}
-                    OR (CASE WHEN b.is_verified THEN 'Yes' ELSE 'No' END) ILIKE ${`%${params.q}%`}
-                    OR b.created_at::text ILIKE ${`%${params.q}%`}
-                    OR b.updated_at::text ILIKE ${`%${params.q}%`}
-                )`;
-
+    async listActiveBuildings(params: ActiveBuildingsListParams): Promise<BuildingDetailRow[]> {
+        const whereClause = activeBuildingsWhereClause(params);
         const orderByClause = buildingsListOrderBy(params.sortBy, params.sortOrder);
 
         return this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
@@ -222,8 +330,8 @@ export class BuildingsRepository {
                 b.public_id::text AS public_id,
                 b.source_staging_id::text AS source_staging_id,
                 b.external_id,
-                b.name,
-                b.class_code,
+                ${buildingNameLabelSelectSql},
+                ${buildingClassCodeSelectSql},
                 b.building_type_id::text AS building_type_id,
                 bt.id::text AS ref_bt_id,
                 bt.code AS ref_bt_code,
@@ -252,25 +360,40 @@ export class BuildingsRepository {
             FROM core.core_map_buildings AS b
             LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
-            WHERE b.deleted_at IS NULL
-              AND b.is_active IS TRUE
-              AND ${searchClause}
+            WHERE ${whereClause}
             ORDER BY ${orderByClause}
             LIMIT ${params.limit}
             OFFSET ${params.offset}
         `);
     }
 
+    async countActiveBuildings(
+        params: Pick<ActiveBuildingsListParams, "q" | "is_verified" | "admin_area_id" | "building_type_id">
+    ): Promise<number> {
+        const whereClause = activeBuildingsWhereClause(params);
+        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+            SELECT COUNT(*)::bigint AS count
+            FROM core.core_map_buildings AS b
+            LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
+            LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
+            WHERE ${whereClause}
+        `);
+        return Number(rows[0]?.count ?? 0n);
+    }
+
     /** GET /buildings/:id — any active row (imports + dashboard). */
-    async getActiveBuildingByPublicId(publicId: string): Promise<BuildingDetailRow | null> {
-        const rows = await this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
+    async getActiveBuildingByPublicId(
+        publicId: string,
+        db: DbClient = this.prisma
+    ): Promise<BuildingDetailRow | null> {
+        const rows = await db.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
             SELECT
                 b.id::text AS id,
                 b.public_id::text AS public_id,
                 b.source_staging_id::text AS source_staging_id,
                 b.external_id,
-                b.name,
-                b.class_code,
+                ${buildingNameLabelSelectSql},
+                ${buildingClassCodeSelectSql},
                 b.building_type_id::text AS building_type_id,
                 bt.id::text AS ref_bt_id,
                 bt.code AS ref_bt_code,
@@ -308,15 +431,18 @@ export class BuildingsRepository {
         return rows[0] ?? null;
     }
 
-    async getDashboardBuildingByPublicId(publicId: string): Promise<BuildingDetailRow | null> {
-        const rows = await this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
+    async getDashboardBuildingByPublicId(
+        publicId: string,
+        db: DbClient = this.prisma
+    ): Promise<BuildingDetailRow | null> {
+        const rows = await db.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
             SELECT
                 b.id::text AS id,
                 b.public_id::text AS public_id,
                 b.source_staging_id::text AS source_staging_id,
                 b.external_id,
-                b.name,
-                b.class_code,
+                ${buildingNameLabelSelectSql},
+                ${buildingClassCodeSelectSql},
                 b.building_type_id::text AS building_type_id,
                 bt.id::text AS ref_bt_id,
                 bt.code AS ref_bt_code,
@@ -359,13 +485,14 @@ export class BuildingsRepository {
         geojsonText: string,
         snapshot: BuildingPersistSnapshot
     ): Promise<BuildingDetailRow | null> {
-        const normalizedJson = JSON.stringify(snapshot.normalized_data);
+        return this.prisma.$transaction(async (tx) => {
+            const normalizedJson = JSON.stringify(snapshot.normalized_data);
 
-        const persistedAdminFk = snapshot.admin_area_resolve_spatial
-            ? Prisma.sql`NULL::bigint`
-            : Prisma.sql`${snapshot.admin_area_id}`;
+            const persistedAdminFk = snapshot.admin_area_resolve_spatial
+                ? Prisma.sql`NULL::bigint`
+                : Prisma.sql`${snapshot.admin_area_id}`;
 
-        const rows = await this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
+            const rows = await tx.$queryRaw<{ public_id: string; id: string }[]>(Prisma.sql`
             WITH inp AS (
                 SELECT ST_SetSRID(ST_GeomFromGeoJSON(${geojsonText})::geometry, 4326) AS g_raw
             ),
@@ -409,7 +536,6 @@ export class BuildingsRepository {
                 source_staging_id,
                 external_id,
                 name,
-                class_code,
                 normalized_data,
                 source_refs,
                 geom,
@@ -430,7 +556,6 @@ export class BuildingsRepository {
                 NULL,
                 NULL,
                 ${snapshot.name},
-                lbl.resolved_label,
                 ${normalizedJson}::jsonb,
                 '{"source":"dashboard"}'::jsonb,
                 ready.geom,
@@ -449,50 +574,21 @@ export class BuildingsRepository {
             FROM ready, lbl
             RETURNING
                 id::text AS id,
-                public_id::text AS public_id,
-                source_staging_id::text AS source_staging_id,
-                external_id,
-                name,
-                class_code,
-                building_type_id::text AS building_type_id,
-                (SELECT bt.id::text FROM ref.ref_building_types AS bt WHERE bt.id = building_type_id LIMIT 1) AS ref_bt_id,
-                (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = building_type_id LIMIT 1) AS ref_bt_code,
-                (SELECT bt.name FROM ref.ref_building_types AS bt WHERE bt.id = building_type_id LIMIT 1) AS ref_bt_name,
-                (SELECT bt.name_mm FROM ref.ref_building_types AS bt WHERE bt.id = building_type_id LIMIT 1) AS ref_bt_name_mm,
-                (SELECT bt.parent_id::text FROM ref.ref_building_types AS bt WHERE bt.id = building_type_id LIMIT 1) AS ref_bt_parent_id,
-                (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = building_type_id LIMIT 1) AS building_type_code,
-                (SELECT bt.name FROM ref.ref_building_types AS bt WHERE bt.id = building_type_id LIMIT 1) AS building_type_name,
-                (SELECT bt.name_mm FROM ref.ref_building_types AS bt WHERE bt.id = building_type_id LIMIT 1) AS building_type_name_mm,
-                admin_area_id::text AS admin_area_id,
-                (SELECT aa.id::text FROM core.core_admin_areas AS aa WHERE aa.id = admin_area_id LIMIT 1)
-                    AS admin_area_row_id,
-                (SELECT aa.canonical_name FROM core.core_admin_areas AS aa WHERE aa.id = admin_area_id LIMIT 1)
-                    AS admin_area_canonical_name,
-                (SELECT aa.slug FROM core.core_admin_areas AS aa WHERE aa.id = admin_area_id LIMIT 1)
-                    AS admin_area_slug,
-                normalized_data,
-                source_refs,
-                levels,
-                height_m::double precision AS height_m,
-                area_m2::double precision AS area_m2,
-                confidence_score::double precision AS confidence_score,
-                is_verified,
-                is_active,
-                created_at,
-                updated_at,
-                deleted_at,
-                ST_AsGeoJSON(geom)::json AS geometry
+                public_id::text AS public_id
         `);
 
-        let row = rows[0] ?? null;
+            const inserted = rows[0] ?? null;
 
-        if (row && snapshot.admin_area_resolve_spatial) {
-            await this.tryInferDashboardBuildingAdminAreaFromGeometry(BigInt(row.id));
-            row =
-                (await this.getDashboardBuildingByPublicId(row.public_id)) ?? row;
-        }
+            if (!inserted) {
+                return null;
+            }
 
-        return row;
+            if (snapshot.admin_area_resolve_spatial) {
+                await this.tryInferDashboardBuildingAdminAreaFromGeometry(BigInt(inserted.id), tx);
+            }
+
+            return this.refetchDashboardBuildingAfterWrite(inserted.public_id, snapshot, tx);
+        });
     }
 
     async updateDashboardBuildingGeometry(
@@ -506,7 +602,7 @@ export class BuildingsRepository {
             ? Prisma.sql`NULL::bigint`
             : Prisma.sql`${snapshot.admin_area_id}`;
 
-        const rows = await this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
+        const rows = await this.prisma.$queryRaw<{ id: string; public_id: string }[]>(Prisma.sql`
             WITH inp AS (
                 SELECT ST_SetSRID(ST_GeomFromGeoJSON(${geojsonText})::geometry, 4326) AS g_raw
             ),
@@ -553,7 +649,6 @@ export class BuildingsRepository {
                     centroid = ready.centroid,
                     area_m2 = ready.area_m2,
                     name = ${snapshot.name},
-                    class_code = lbl.resolved_label,
                     building_type_id = ${snapshot.building_type_id},
                     admin_area_id = ${persistedAdminFk},
                     normalized_data = ${normalizedJson}::jsonb,
@@ -569,52 +664,22 @@ export class BuildingsRepository {
                   AND b.is_active IS TRUE
                 RETURNING
                     b.id::text AS id,
-                    b.public_id::text AS public_id,
-                    b.source_staging_id::text AS source_staging_id,
-                    b.external_id,
-                    b.name,
-                    b.class_code,
-                    b.building_type_id::text AS building_type_id,
-                    (SELECT bt.id::text FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_id,
-                    (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_code,
-                    (SELECT bt.name FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_name,
-                    (SELECT bt.name_mm FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_name_mm,
-                    (SELECT bt.parent_id::text FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_parent_id,
-                    (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_code,
-                    (SELECT bt.name FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_name,
-                    (SELECT bt.name_mm FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_name_mm,
-                    b.admin_area_id::text AS admin_area_id,
-                    (SELECT aa.id::text FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
-                        AS admin_area_row_id,
-                    (SELECT aa.canonical_name FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
-                        AS admin_area_canonical_name,
-                    (SELECT aa.slug FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
-                        AS admin_area_slug,
-                    b.normalized_data,
-                    b.source_refs,
-                    b.levels,
-                    b.height_m::double precision AS height_m,
-                    b.area_m2::double precision AS area_m2,
-                    b.confidence_score::double precision AS confidence_score,
-                    b.is_verified,
-                    b.is_active,
-                    b.created_at,
-                    b.updated_at,
-                    b.deleted_at,
-                    ST_AsGeoJSON(b.geom)::json AS geometry
+                    b.public_id::text AS public_id
             )
-            SELECT * FROM updated
+            SELECT id, public_id FROM updated
         `);
 
-        let row = rows[0] ?? null;
+        const updated = rows[0] ?? null;
 
-        if (row && snapshot.admin_area_resolve_spatial) {
-            await this.tryInferDashboardBuildingAdminAreaFromGeometry(BigInt(row.id));
-            row =
-                (await this.getDashboardBuildingByPublicId(publicId)) ?? row;
+        if (!updated) {
+            return null;
         }
 
-        return row;
+        if (snapshot.admin_area_resolve_spatial) {
+            await this.tryInferDashboardBuildingAdminAreaFromGeometry(BigInt(updated.id));
+        }
+
+        return this.refetchDashboardBuildingAfterWrite(publicId, snapshot);
     }
 
     async updateDashboardBuildingScalars(
@@ -627,18 +692,6 @@ export class BuildingsRepository {
             UPDATE core.core_map_buildings AS b
             SET
                 name = ${snapshot.name},
-                class_code = COALESCE(
-                    (
-                        SELECT bt.code
-                        FROM ref.ref_building_types AS bt
-                        WHERE bt.id = ${snapshot.building_type_id}
-                          AND bt.is_active IS TRUE
-                        LIMIT 1
-                    ),
-                    NULLIF(btrim(${snapshot.building_type_column}::text), ''),
-                    NULLIF(btrim(${snapshot.class_code}::text), ''),
-                    'yes'
-                ),
                 building_type_id = ${snapshot.building_type_id},
                 admin_area_id = ${snapshot.admin_area_id},
                 normalized_data = ${normalizedJson}::jsonb,
@@ -658,8 +711,8 @@ export class BuildingsRepository {
                 b.public_id::text AS public_id,
                 b.source_staging_id::text AS source_staging_id,
                 b.external_id,
-                b.name,
-                b.class_code,
+                ${buildingNameLabelSelectSql},
+                ${buildingClassCodeSelectSql},
                 b.building_type_id::text AS building_type_id,
                 (SELECT bt.id::text FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_id,
                 (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_code,
@@ -690,7 +743,11 @@ export class BuildingsRepository {
                 ST_AsGeoJSON(b.geom)::json AS geometry
         `);
 
-        return rows[0] ?? null;
+        if (!rows[0]) {
+            return null;
+        }
+
+        return this.refetchDashboardBuildingAfterWrite(publicId, snapshot);
     }
 
     /**
@@ -712,8 +769,8 @@ export class BuildingsRepository {
                 b.public_id::text AS public_id,
                 b.source_staging_id::text AS source_staging_id,
                 b.external_id,
-                b.name,
-                b.class_code,
+                ${buildingNameLabelSelectSql},
+                ${buildingClassCodeSelectSql},
                 b.building_type_id::text AS building_type_id,
                 (SELECT bt.id::text FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_id,
                 (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_code,

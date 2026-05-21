@@ -1,6 +1,6 @@
 "use client";
 
-import { ImportReviewTableFrame } from "@/src/app/(admin)/import-review/_components/importReviewTableUi";
+import { ImportReviewTableFrame } from "@/src/app/(admin)/dashboard/import-review/_components/importReviewTableUi";
 
 export default function ImportReviewSkeletonTable({
     columnCount = 8,

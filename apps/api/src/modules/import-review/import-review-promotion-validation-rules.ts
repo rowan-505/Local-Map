@@ -1,5 +1,11 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import {
+    busStopEffectiveAdminAreaIdRawExpr,
+    busStopNameLocalExpr,
+    busStopPrimaryRealNameExpr,
+    busStopStopCodeExpr,
+} from "./import-review-effective-values.js";
 import type { ImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 import { getImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 import {
@@ -39,6 +45,9 @@ function activeCorePlaceRowSql(alias: string): Prisma.Sql {
 function activeCoreRowForFamily(entityFamily: string, alias: string): Prisma.Sql {
     if (entityFamily === "places") {
         return activeCorePlaceRowSql(alias);
+    }
+    if (entityFamily === "bus_stops") {
+        return Prisma.sql`coalesce(${col(alias, "is_active")}, true)`;
     }
     return activeCoreRowSql(alias);
 }
@@ -435,7 +444,8 @@ export class ImportReviewPromotionValidationRules {
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND ${col(a, "id")} IS NOT NULL
-                      AND nullif(trim(coalesce(${col(a, "name")}, ${col(a, "stop_code")}, '')), '') IS NULL
+                      AND ${busStopPrimaryRealNameExpr(a)} IS NULL
+                      AND ${busStopStopCodeExpr(a)} IS NULL
                   `
                         : Prisma.empty;
 
@@ -496,7 +506,11 @@ export class ImportReviewPromotionValidationRules {
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND ${col(a, "building_type_id")} IS NOT NULL
-                      AND NOT EXISTS (SELECT 1 FROM ref.ref_building_types AS r WHERE r.id = ${col(a, "building_type_id")})
+                      AND NOT EXISTS (
+                          SELECT 1 FROM ref.ref_building_types AS r
+                          WHERE r.id = ${col(a, "building_type_id")}
+                            AND r.is_active IS TRUE
+                      )
 
                     UNION ALL
                     SELECT spi.id, 'invalid_admin_area_id',
@@ -504,7 +518,11 @@ export class ImportReviewPromotionValidationRules {
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND ${col(a, "admin_area_id")} IS NOT NULL
-                      AND NOT EXISTS (SELECT 1 FROM core.core_admin_areas AS ca WHERE ca.id = ${col(a, "admin_area_id")})
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_admin_areas AS ca
+                          WHERE ca.id = ${col(a, "admin_area_id")}
+                            AND ca.is_active IS TRUE
+                      )
 
                     UNION ALL
                     SELECT spi.id, 'missing_admin_area',
@@ -558,8 +576,12 @@ export class ImportReviewPromotionValidationRules {
                     'admin_area_id does not exist in core.core_admin_areas.'::text AS message, 'error'::text AS severity
                 ${join}
                 WHERE spi.id IN (${Prisma.join(itemIds)})
-                  AND ${col(a, "admin_area_id")} IS NOT NULL
-                  AND NOT EXISTS (SELECT 1 FROM core.core_admin_areas AS ca WHERE ca.id = ${col(a, "admin_area_id")})
+                  AND ${busStopEffectiveAdminAreaIdRawExpr(a)} IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM core.core_admin_areas AS ca
+                      WHERE ca.id = ${busStopEffectiveAdminAreaIdRawExpr(a)}
+                        AND ca.is_active IS TRUE
+                  )
             `;
         }
 
@@ -823,6 +845,44 @@ export class ImportReviewPromotionValidationRules {
                           WHERE ${activeCoreRowSql("s")} AND s.geom IS NOT NULL
                             AND s.geom && ST_Expand(${col(a, "geom")}, 0.0003)
                             AND ST_DWithin(s.geom::geography, ${col(a, "geom")}::geography, ${NEAR_ROAD_DWITHIN_M})
+                      )
+                    UNION ALL
+                    SELECT spi.id, 'missing_name',
+                        'stop_code is present but no real name is available.', 'warning'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${busStopStopCodeExpr(a)} IS NOT NULL
+                      AND ${busStopPrimaryRealNameExpr(a)} IS NULL
+                    UNION ALL
+                    SELECT spi.id, 'missing_stop_code',
+                        'name is present but stop_code is missing.', 'warning'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${busStopPrimaryRealNameExpr(a)} IS NOT NULL
+                      AND ${busStopStopCodeExpr(a)} IS NULL
+                    UNION ALL
+                    SELECT spi.id, 'missing_admin_area',
+                        'admin_area_id is not set on the bus stop candidate.', 'warning'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${busStopEffectiveAdminAreaIdRawExpr(a)} IS NULL
+                    UNION ALL
+                    SELECT spi.id, 'missing_local_name',
+                        'No name_local or local entry in normalized_data.names.', 'warning'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${busStopNameLocalExpr(a)} IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM jsonb_array_elements(
+                              CASE
+                                  WHEN jsonb_typeof(${col(a, "normalized_data")}->'names') = 'array'
+                                  THEN ${col(a, "normalized_data")}->'names'
+                                  ELSE '[]'::jsonb
+                              END
+                          ) AS entry(value)
+                          WHERE coalesce(entry.value->>'name_type', entry.value->>'type', '') = 'local'
+                             OR coalesce(entry.value->>'language_code', entry.value->>'lang', '') <> ''
                       )
                 ) AS issues
             `;

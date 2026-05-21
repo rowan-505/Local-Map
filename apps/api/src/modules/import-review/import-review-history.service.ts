@@ -24,6 +24,15 @@ import {
 import type { ImportReviewFamilySummaryMetrics } from "./import-review-summary-counts.js";
 import type { ImportReviewPublishStageLogRow } from "./import-review-promotion-validation.types.js";
 import { ImportReviewPublishBatchNotFoundError } from "./import-review-promotion.errors.js";
+import {
+    ImportReviewPublishBatchSummaryRepository,
+    applyComputedCountsToBatchSummary,
+    type PublishBatchComputedSummary,
+} from "./import-review-publish-batch-summary.js";
+import {
+    ImportReviewReviewBatchSummaryRepository,
+    type ReviewBatchComputedSummary,
+} from "./import-review-review-batch-summary.js";
 
 function n(v: bigint | number): number {
     return typeof v === "bigint" ? Number(v) : v;
@@ -52,7 +61,8 @@ function countsFromFamilies(families: ImportReviewFamilySummaryMetrics[]): Impor
 
 function mapReviewBatchListItem(
     row: ReviewBatchRowDb,
-    families: ImportReviewFamilySummaryMetrics[]
+    families: ImportReviewFamilySummaryMetrics[],
+    computed: ReviewBatchComputedSummary | null
 ): ImportReviewHistoryReviewBatchListItem {
     return {
         id: row.id.toString(),
@@ -60,7 +70,11 @@ function mapReviewBatchListItem(
         batch_name: row.batch_name,
         source_snapshot_version: row.source_snapshot_version,
         source_snapshot_id_local: bigStr(row.source_snapshot_id_local),
-        status: row.status,
+        status: computed?.stored_status ?? row.status,
+        derived_status: computed?.derived_status ?? row.status,
+        derived_status_reason: computed?.derived_status_reason ?? null,
+        stored_status_recommendation: computed?.stored_status_recommendation ?? null,
+        status_note: computed?.derived_status_reason ?? null,
         created_at: row.created_at.toISOString(),
         uploaded_at: row.uploaded_at.toISOString(),
         validated_at: toIso(row.latest_validated_at),
@@ -78,10 +92,14 @@ function mapReviewBatchListItem(
             promotion_success_count: n(row.promotion_success_count),
             promotion_fail_count: n(row.promotion_fail_count),
         },
+        latest_publish_batch: computed?.latest_publish_batch ?? null,
     };
 }
 
-function mapPublishBatchListItem(row: PublishBatchHistoryRowDb): ImportReviewHistoryPublishBatchListItem {
+function mapPublishBatchListItem(
+    row: PublishBatchHistoryRowDb,
+    computed: PublishBatchComputedSummary | null
+): ImportReviewHistoryPublishBatchListItem {
     const validationResult = parseValidationOutcome(row.summary);
     const validationSuccess =
         row.validated_at != null &&
@@ -93,7 +111,7 @@ function mapPublishBatchListItem(row: PublishBatchHistoryRowDb): ImportReviewHis
     const validationFail =
         row.status === "failed" || row.status === "blocked" || validationResult?.outcome === "blocked" ? 1 : 0;
 
-    return {
+    const base = {
         id: row.id.toString(),
         public_id: row.public_id,
         batch_name: row.batch_name,
@@ -112,6 +130,19 @@ function mapPublishBatchListItem(row: PublishBatchHistoryRowDb): ImportReviewHis
         created_at: row.created_at.toISOString(),
         published_at: toIso(row.published_at),
         promoted_at: toIso(row.promoted_at),
+        validation_success_count: validationSuccess,
+        validation_fail_count: validationFail,
+    };
+    const enriched = applyComputedCountsToBatchSummary(base, computed);
+    return {
+        ...enriched,
+        derived_status: enriched.derived_status,
+        derived_status_reason: enriched.derived_status_reason,
+        stored_status_recommendation: enriched.stored_status_recommendation,
+        status_note: enriched.derived_status_reason,
+        validation_total: row.validation_total,
+        validation_done: row.validation_done,
+        validation_percent: row.validation_percent,
         validation_success_count: validationSuccess,
         validation_fail_count: validationFail,
     };
@@ -189,7 +220,18 @@ function mapPublishItem(row: PublishBatchItemRowDb): ImportReviewHistoryPublishB
 }
 
 export class ImportReviewHistoryService {
-    constructor(private readonly repo: ImportReviewHistoryRepository) {}
+    private readonly publishSummaryRepo: ImportReviewPublishBatchSummaryRepository;
+    private readonly reviewSummaryRepo: ImportReviewReviewBatchSummaryRepository;
+
+    constructor(private readonly repo: ImportReviewHistoryRepository) {
+        const prisma = repo.getPrismaClient();
+        this.publishSummaryRepo = new ImportReviewPublishBatchSummaryRepository(prisma);
+        this.reviewSummaryRepo = new ImportReviewReviewBatchSummaryRepository(prisma);
+    }
+
+    private async computePublishSummary(batchId: bigint): Promise<PublishBatchComputedSummary | null> {
+        return this.publishSummaryRepo.computePublishBatchSummary(batchId);
+    }
 
     async listReviewBatches(query: ImportReviewHistoryReviewBatchesListQuery) {
         const { rows, total } = await this.repo.listReviewBatches(query);
@@ -208,8 +250,15 @@ export class ImportReviewHistoryService {
             familiesByBatch.set(key, list);
         }
 
-        const items = rows.map((row) =>
-            mapReviewBatchListItem(row, familiesByBatch.get(row.id.toString()) ?? [])
+        const items = await Promise.all(
+            rows.map(async (row) => {
+                const computed = await this.reviewSummaryRepo.computeReviewBatchSummary(row.id);
+                return mapReviewBatchListItem(
+                    row,
+                    familiesByBatch.get(row.id.toString()) ?? [],
+                    computed
+                );
+            })
         );
 
         return {
@@ -226,11 +275,15 @@ export class ImportReviewHistoryService {
             throw new ImportReviewHistoryReviewBatchNotFoundError(batchId.toString());
         }
 
+        const computed = await this.reviewSummaryRepo.computeReviewBatchSummary(batchId);
         const familyRows = await this.repo.fetchFamilyMetricsForBatch(batchId);
         const families = familyRows.map(mapFamilySummaryMetricsDb).filter((f) => f.batch_total > 0);
         const publishRows = await this.repo.listPublishBatchesForReviewBatch(batchId);
+        const publishSummaries = await Promise.all(
+            publishRows.map((pb) => this.computePublishSummary(pb.id))
+        );
 
-        const base = mapReviewBatchListItem(row, families);
+        const base = mapReviewBatchListItem(row, families, computed);
 
         return {
             ...base,
@@ -240,14 +293,18 @@ export class ImportReviewHistoryService {
             preserved_reviewed_count: row.preserved_reviewed_count,
             skipped_count: row.skipped_count,
             summary: row.summary,
-            publish_batch_summaries: publishRows.map(mapPublishBatchListItem),
+            publish_batch_summaries: publishRows.map((pb, i) =>
+                mapPublishBatchListItem(pb, publishSummaries[i] ?? null)
+            ),
+            publish_batch_attempts: computed?.publish_attempts ?? [],
         };
     }
 
     async listPublishBatches(query: ImportReviewHistoryPublishBatchesListQuery) {
         const { rows, total } = await this.repo.listPublishBatches(query);
+        const summaries = await Promise.all(rows.map((row) => this.computePublishSummary(row.id)));
         return {
-            items: rows.map(mapPublishBatchListItem),
+            items: rows.map((row, i) => mapPublishBatchListItem(row, summaries[i] ?? null)),
             total: n(total),
             limit: query.limit ?? 50,
             offset: query.offset ?? 0,
@@ -282,7 +339,7 @@ export class ImportReviewHistoryService {
             };
         }
 
-        const listItem = mapPublishBatchListItem(row);
+        const listItem = mapPublishBatchListItem(row, await this.computePublishSummary(batchId));
 
         return {
             ...listItem,

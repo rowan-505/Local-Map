@@ -5,6 +5,19 @@ import { type MutableRefObject, useCallback, useEffect, useLayoutEffect, useRef,
 import maplibregl, { type FilterSpecification } from "maplibre-gl";
 
 import {
+    applyDashboardMergedBasemapMode,
+    ensureDataReviewSatelliteLayer,
+    type DataReviewBasemapMode,
+} from "@/src/components/map/dataReviewBasemap";
+import {
+    MAP_EDITOR_TOOLBAR_CLASS,
+    MAP_EDITOR_VIEWPORT_BUILDING_CLASS,
+    mapEditorBtnDanger,
+    mapEditorBtnPrimary,
+    mapEditorBtnSuccess,
+} from "@/src/components/map/mapPreviewUi";
+import { syncVertexPreviewLayer } from "@/src/components/map/mapVertexPreview";
+import {
     PLACE_MAP_DEFAULT_CENTER,
     refreshBuildingTiles,
     refreshPlaceTiles,
@@ -34,39 +47,8 @@ type MultiPolygonGeom = {
     coordinates: number[][][][];
 };
 
-/** Must match basemap layer `id`s (PMTiles layers use `basemap-` prefix in dashboard merged style). */
-const BASE_MAP_LAYERS = [
-    "basemap-background",
-    "basemap-landuse",
-    "basemap-water-polygons",
-    "basemap-water-lines",
-] as const;
-
-/** Hidden in pure satellite mode only; keeps roads, POI, labels for hybrid/map. */
-const SATELLITE_HIDE_VECTOR_LAYERS = [
-    "basemap-admin-boundaries",
-    "basemap-road-casing",
-    "basemap-road-fill",
-    "basemap-buildings",
-    "bus-routes",
-    "streets-casing",
-    "streets-line",
-    "places-poi",
-    "bus-stops",
-    "road-labels",
-    "place-labels",
-] as const;
-
-const SATELLITE_SOURCE_ID = "building-editor-satellite";
-const SATELLITE_LAYER_ID = "building-editor-satellite";
-
-const SATELLITE_TILES = [
-    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-] as const;
-
-const SATELLITE_RASTER_SOURCE_MAX_ZOOM = 19;
-
-export type BuildingEditorBasemapMode = "map" | "satellite" | "hybrid";
+/** @deprecated Use {@link DataReviewBasemapMode}. */
+export type BuildingEditorBasemapMode = DataReviewBasemapMode;
 
 export type BuildingEditorMapDrawOutput = {
     geometryJson: string;
@@ -78,34 +60,10 @@ export type BuildingEditorMapProps = {
     geometryJson: string;
     onDrawOutput?: (output: BuildingEditorMapDrawOutput) => void;
     className?: string;
-    showDebugPanel?: boolean;
-    submissionError?: string;
     editorMapSurfaceRef?: MutableRefObject<maplibregl.Map | null>;
+    basemapMode: DataReviewBasemapMode;
+    showVertexPreview?: boolean;
 };
-
-function setLayerVisibility(map: maplibregl.Map, layerId: string, visible: boolean) {
-    if (!map.getLayer(layerId)) {
-        return;
-    }
-
-    map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
-}
-
-function applyBasemapMode(map: maplibregl.Map, mode: BuildingEditorBasemapMode) {
-    const imageryOn = mode !== "map";
-    const hideBaseMap = imageryOn;
-    const hideVectorOverlays = mode === "satellite";
-
-    setLayerVisibility(map, SATELLITE_LAYER_ID, imageryOn);
-
-    for (const id of BASE_MAP_LAYERS) {
-        setLayerVisibility(map, id, !hideBaseMap);
-    }
-
-    for (const id of SATELLITE_HIDE_VECTOR_LAYERS) {
-        setLayerVisibility(map, id, !hideVectorOverlays);
-    }
-}
 
 export function parsePolygonOrMultiPolygon(text: string): PolygonGeom | MultiPolygonGeom | null {
     const trimmed = text.trim();
@@ -418,6 +376,24 @@ function closedPolygonFromOpenRing(open: [number, number][]): PolygonGeom | null
 }
 
 /** Stack draft below saved footprint so finished geometry stays visible on top. */
+/** Small draggable handle — matches {@link syncVertexPreviewLayer} dots, not default MapLibre pins. */
+function createBuildingVertexHandleElement(): HTMLDivElement {
+    const el = document.createElement("div");
+    el.setAttribute("role", "button");
+    el.setAttribute("aria-label", "Polygon vertex");
+    el.style.boxSizing = "border-box";
+    el.style.width = "10px";
+    el.style.height = "10px";
+    el.style.borderRadius = "9999px";
+    el.style.background = "#1f2937";
+    el.style.opacity = "0.85";
+    el.style.border = "1px solid #ffffff";
+    el.style.cursor = "grab";
+    el.style.touchAction = "none";
+    el.style.boxShadow = "0 0 0 1px rgba(15, 23, 42, 0.12)";
+    return el;
+}
+
 function bringEditorOverlayLayersToFront(map: maplibregl.Map) {
     if (map.getLayer(DRAFT_LINE_LAYER_ID)) {
         map.moveLayer(DRAFT_LINE_LAYER_ID);
@@ -750,9 +726,9 @@ export default function BuildingEditorMap({
     geometryJson,
     onDrawOutput,
     className,
-    showDebugPanel = false,
-    submissionError = "",
     editorMapSurfaceRef,
+    basemapMode,
+    showVertexPreview = false,
 }: BuildingEditorMapProps) {
     const { buildingTileVersion, streetTileVersion, placeTileVersion, roadLabelTileVersion } =
         useDashboardTileVersions();
@@ -779,8 +755,6 @@ export default function BuildingEditorMap({
     const openRingEditRef = useRef<[number, number][] | null>(null);
 
     const [mapReady, setMapReady] = useState(false);
-    const [basemapMode, setBasemapMode] = useState<BuildingEditorBasemapMode>("map");
-    const [zoomDisplay, setZoomDisplay] = useState<string>("—");
     const [manualDrawing, setManualDrawing] = useState(false);
     const [draftPointsCount, setDraftPointsCount] = useState(0);
     const [vertexEditActive, setVertexEditActive] = useState(false);
@@ -837,7 +811,11 @@ export default function BuildingEditorMap({
             openRingEditRef.current = open.map((p) => [p[0], p[1]]);
 
             open.forEach((coord, index) => {
-                const marker = new maplibregl.Marker({ draggable: true, color: "#2563eb" })
+                const marker = new maplibregl.Marker({
+                    element: createBuildingVertexHandleElement(),
+                    draggable: true,
+                    anchor: "center",
+                })
                     .setLngLat(coord)
                     .addTo(map);
 
@@ -932,10 +910,6 @@ export default function BuildingEditorMap({
         }
     }, [emitGeometryToParent]);
 
-    const onBasemapMode = useCallback((mode: BuildingEditorBasemapMode) => {
-        setBasemapMode(mode);
-    }, []);
-
     useEffect(() => {
         if (!clientMounted || !containerRef.current || mapRef.current) {
             return;
@@ -996,32 +970,8 @@ export default function BuildingEditorMap({
 
                 attachMapLibreDevDebugMap(map);
 
-                if (!map.getSource(SATELLITE_SOURCE_ID)) {
-                    map.addSource(SATELLITE_SOURCE_ID, {
-                        type: "raster",
-                        tiles: [...SATELLITE_TILES],
-                        tileSize: 256,
-                        maxzoom: SATELLITE_RASTER_SOURCE_MAX_ZOOM,
-                        attribution:
-                            '<a href="https://www.esri.com/">© Esri</a> — Sources: Esri, Maxar, Earthstar Geographics',
-                    });
-                }
-
-                if (!map.getLayer(SATELLITE_LAYER_ID)) {
-                    map.addLayer(
-                        {
-                            id: SATELLITE_LAYER_ID,
-                            type: "raster",
-                            source: SATELLITE_SOURCE_ID,
-                            layout: { visibility: "none" },
-                            paint: {
-                                "raster-opacity": 1,
-                                "raster-resampling": "linear",
-                            },
-                        },
-                        "basemap-landuse"
-                    );
-                }
+                ensureDataReviewSatelliteLayer(map);
+                applyDashboardMergedBasemapMode(map, basemapMode);
 
                 ensureDraftBuildingLayers(map);
                 ensureCurrentBuildingGeometryLayers(map);
@@ -1033,18 +983,6 @@ export default function BuildingEditorMap({
                 if (editorMapSurfaceRef) {
                     editorMapSurfaceRef.current = map;
                 }
-
-                const syncZoomDisplay = () => {
-                    if (cancelled) {
-                        return;
-                    }
-
-                    setZoomDisplay(map.getZoom().toFixed(2));
-                };
-
-                syncZoomDisplay();
-                map.on("zoom", syncZoomDisplay);
-                map.on("moveend", syncZoomDisplay);
 
                 map.on("click", relayMapClick);
 
@@ -1081,7 +1019,6 @@ export default function BuildingEditorMap({
                 delete (window as unknown as { __buildingMap?: maplibregl.Map }).__buildingMap;
             }
 
-            setZoomDisplay("—");
             map?.remove();
             setMapReady(false);
             setStats({ areaSqM: null, vertexCount: 0 });
@@ -1095,8 +1032,21 @@ export default function BuildingEditorMap({
             return;
         }
 
-        applyBasemapMode(map, basemapMode);
+        applyDashboardMergedBasemapMode(map, basemapMode);
     }, [basemapMode, mapReady]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+
+        if (!mapReady || !map) {
+            return;
+        }
+
+        const showPreview =
+            showVertexPreview && !vertexEditActive && !manualDrawing && !drawModeRef.current;
+        const parsed = parsePolygonOrMultiPolygon(geometryJson.trim());
+        syncVertexPreviewLayer(map, showPreview && parsed ? parsed : null, showPreview);
+    }, [geometryJson, showVertexPreview, vertexEditActive, manualDrawing, mapReady]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -1379,51 +1329,6 @@ export default function BuildingEditorMap({
         devLog("draft geometry cleared");
     }, []);
 
-    const [copyFeedback, setCopyFeedback] = useState("");
-
-    const fitToPolygon = useCallback(() => {
-        const map = mapRef.current;
-        const parsed = parsePolygonOrMultiPolygon(geometryJson.trim());
-
-        if (!map || !parsed) {
-            return;
-        }
-
-        const b = getGeoJsonBounds(parsed);
-
-        if (!b) {
-            return;
-        }
-
-        requestAnimationFrame(() => {
-            map.resize();
-            map.fitBounds(b, {
-                padding: 80,
-                maxZoom: 19,
-                duration: 500,
-            });
-        });
-    }, [geometryJson]);
-
-    const copyGeoJson = useCallback(async () => {
-        const text = geometryJson.trim();
-
-        if (!text) {
-            setCopyFeedback("Nothing to copy");
-            window.setTimeout(() => setCopyFeedback(""), 2000);
-            return;
-        }
-
-        try {
-            await navigator.clipboard.writeText(text);
-            setCopyFeedback("Copied");
-        } catch {
-            setCopyFeedback("Copy failed");
-        }
-
-        window.setTimeout(() => setCopyFeedback(""), 2000);
-    }, [geometryJson]);
-
     useLayoutEffect(() => {
         handleMapClickRef.current = (e: maplibregl.MapMouseEvent) => {
             devLog("map click received");
@@ -1453,191 +1358,63 @@ export default function BuildingEditorMap({
         };
     });
 
-    const debugParsed = parsePolygonOrMultiPolygon(geometryJson.trim());
-    const debugCentroid = debugParsed ? centerLngLatFromParsed(debugParsed) : null;
     const hasGeometryForDelete = hasDrawableBuildingPolygon(geometryJson);
     const hasDraftToClear = draftPointsCount > 0;
 
-    const btnBasemap = (mode: BuildingEditorBasemapMode, label: string) => (
-        <button
-            key={mode}
-            type="button"
-            onClick={() => onBasemapMode(mode)}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                basemapMode === mode
-                    ? "bg-gray-900 text-white shadow"
-                    : "bg-white/90 text-gray-800 ring-1 ring-gray-300 hover:bg-gray-50"
-            }`}
-        >
-            {label}
-        </button>
-    );
-
     return (
         <div className={className ?? ""}>
-            <div className="relative h-[420px] w-full overflow-hidden rounded-lg border border-gray-300 bg-gray-200 shadow-inner">
+            <div className={MAP_EDITOR_TOOLBAR_CLASS}>
+                <button
+                    type="button"
+                    onClick={() => activateManualDraw()}
+                    className={mapEditorBtnPrimary(drawUiMode === DRAW_UI_LABEL_POLYGON)}
+                >
+                    Draw
+                </button>
+                <button
+                    type="button"
+                    onClick={() => activateEditMode()}
+                    className={mapEditorBtnPrimary(drawUiMode === "edit" && vertexEditActive)}
+                >
+                    Edit
+                </button>
+                {manualDrawing && draftPointsCount >= 3 ? (
+                    <button type="button" onClick={() => finishManualPolygon()} className={mapEditorBtnSuccess()}>
+                        Finish polygon
+                    </button>
+                ) : null}
+                <button
+                    type="button"
+                    onClick={deletePolygonFeatures}
+                    disabled={!hasGeometryForDelete}
+                    className={mapEditorBtnDanger(hasGeometryForDelete)}
+                >
+                    Delete
+                </button>
+                <button
+                    type="button"
+                    onClick={clearDraftOnly}
+                    disabled={!hasDraftToClear}
+                    className={mapEditorBtnDanger(hasDraftToClear)}
+                >
+                    Clear
+                </button>
+            </div>
+
+            <div className={MAP_EDITOR_VIEWPORT_BUILDING_CLASS}>
                 {clientMounted ? (
                     <div ref={containerRef} className="absolute inset-0 h-full w-full" />
                 ) : (
                     <div className="absolute inset-0 h-full w-full" aria-hidden />
                 )}
 
-                <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[min(100%-1.5rem,28rem)] flex-col gap-2">
-                    <div className="pointer-events-auto flex flex-wrap gap-1.5 rounded-lg bg-white/95 p-1.5 shadow-md ring-1 ring-gray-200">
-                        {btnBasemap("map", "Map")}
-                        {btnBasemap("satellite", "Satellite")}
-                        {btnBasemap("hybrid", "Hybrid")}
-                    </div>
-
-                    <div className="pointer-events-auto flex flex-wrap gap-1.5 rounded-lg bg-white/95 p-1.5 shadow-md ring-1 ring-gray-200">
-                        <button
-                            type="button"
-                            onClick={() => activateManualDraw()}
-                            className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                                drawUiMode === DRAW_UI_LABEL_POLYGON
-                                    ? "bg-blue-800 text-white shadow"
-                                    : "bg-white/90 text-gray-800 ring-1 ring-gray-300 hover:bg-gray-50"
-                            }`}
-                        >
-                            Draw
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => activateEditMode()}
-                            className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                                drawUiMode === "edit" && vertexEditActive
-                                    ? "bg-blue-800 text-white shadow"
-                                    : "bg-white/90 text-gray-800 ring-1 ring-gray-300 hover:bg-gray-50"
-                            }`}
-                        >
-                            Edit
-                        </button>
-                        {manualDrawing && draftPointsCount >= 3 ? (
-                            <button
-                                type="button"
-                                onClick={() => finishManualPolygon()}
-                                className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-emerald-800"
-                            >
-                                Finish polygon
-                            </button>
-                        ) : null}
-                        <button
-                            type="button"
-                            onClick={deletePolygonFeatures}
-                            disabled={!hasGeometryForDelete}
-                            className={`rounded-md px-3 py-1.5 text-xs font-medium ring-1 ring-gray-300 ${
-                                hasGeometryForDelete
-                                    ? "bg-white/90 text-gray-800 hover:bg-gray-50"
-                                    : "cursor-not-allowed bg-gray-100 text-gray-400"
-                            }`}
-                        >
-                            Delete
-                        </button>
-                        <button
-                            type="button"
-                            onClick={clearDraftOnly}
-                            disabled={!hasDraftToClear}
-                            className={`rounded-md px-3 py-1.5 text-xs font-medium ring-1 ring-gray-300 ${
-                                hasDraftToClear
-                                    ? "bg-white/90 text-gray-800 hover:bg-gray-50"
-                                    : "cursor-not-allowed bg-gray-100 text-gray-400"
-                            }`}
-                        >
-                            Clear
-                        </button>
-                    </div>
-                </div>
-
-                {!showDebugPanel ? (
-                    <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-md bg-black/65 px-2 py-1 font-mono text-[11px] tabular-nums text-white shadow">
-                        zoom {zoomDisplay}
-                    </div>
-                ) : null}
             </div>
-
-            {showDebugPanel ? (
-                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/90 p-3 font-mono text-[11px] text-gray-900 shadow-sm ring-1 ring-amber-100">
-                    <div className="mb-2 flex items-center justify-between gap-2 border-b border-amber-200/80 pb-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-amber-900">
-                            Debug (dashboard only)
-                        </span>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            <button
-                                type="button"
-                                onClick={() => void copyGeoJson()}
-                                className="rounded border border-amber-300 bg-white px-2 py-1 text-[11px] font-medium text-amber-950 hover:bg-amber-100/80"
-                            >
-                                Copy GeoJSON
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => fitToPolygon()}
-                                className="rounded border border-amber-300 bg-white px-2 py-1 text-[11px] font-medium text-amber-950 hover:bg-amber-100/80"
-                            >
-                                Fit to polygon
-                            </button>
-                            {copyFeedback ? (
-                                <span className="text-[10px] font-normal text-amber-800">{copyFeedback}</span>
-                            ) : null}
-                        </div>
-                    </div>
-                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
-                        <dt className="text-amber-800/90">zoom</dt>
-                        <dd className="tabular-nums">{zoomDisplay}</dd>
-                        <dt className="text-amber-800/90">area_m2</dt>
-                        <dd className="tabular-nums">
-                            {stats.areaSqM != null ? stats.areaSqM.toFixed(2) : "—"}
-                        </dd>
-                        <dt className="text-amber-800/90">vertex_count</dt>
-                        <dd className="tabular-nums">{stats.vertexCount}</dd>
-                        <dt className="text-amber-800/90">centroid</dt>
-                        <dd className="tabular-nums break-all">
-                            {debugCentroid
-                                ? `${debugCentroid[1].toFixed(6)}, ${debugCentroid[0].toFixed(6)} (lat, lng)`
-                                : "—"}
-                        </dd>
-                        <dt className="text-amber-800/90">geometry.type</dt>
-                        <dd>{debugParsed ? debugParsed.type : "—"}</dd>
-                    </dl>
-                    {submissionError.trim() ? (
-                        <div className="mt-3 border-t border-amber-200/80 pt-2">
-                            <div className="text-[10px] font-semibold uppercase tracking-wide text-red-800">
-                                API / submit error
-                            </div>
-                            <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap wrap-break-word text-[11px] text-red-900">
-                                {submissionError}
-                            </pre>
-                        </div>
-                    ) : null}
-                </div>
-            ) : (
-                <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-700">
-                    <span>
-                        Area (approx.):{" "}
-                        <strong className="tabular-nums">
-                            {stats.areaSqM != null ? `${stats.areaSqM.toFixed(1)} m²` : "—"}
-                        </strong>
-                    </span>
-                    <span>
-                        Exterior vertices:{" "}
-                        <strong className="tabular-nums">{stats.vertexCount}</strong>
-                    </span>
-                </div>
-            )}
 
             {vertexEditMessage ? (
                 <p className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
                     {vertexEditMessage}
                 </p>
             ) : null}
-
-            <p className="mt-1.5 text-xs text-gray-500">
-                PMTiles/Martin layers are basemap context only; this bright overlay comes from the building API.{" "}
-                <strong>Draw</strong>: click corners, then{" "}
-                <strong>Finish polygon</strong>. <strong>Edit</strong>: drag vertices on a single Polygon — MultiPolygon
-                footprints use Draw (confirm) or the JSON field. <strong>Delete</strong> clears the saved footprint from
-                this form only. <strong>Clear</strong> removes in-progress clicks only.
-            </p>
         </div>
     );
 }

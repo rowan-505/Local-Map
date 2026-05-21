@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type maplibregl from "maplibre-gl";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
 import {
@@ -13,8 +14,15 @@ import {
     type PlaceFormOptions,
     type UpdatePlacePayload,
 } from "@/src/lib/api";
+import AdminAreaCombobox from "@/src/components/admin-areas/AdminAreaCombobox";
 import PlacePointMapPicker from "@/src/components/map/PlacePointMapPicker";
-import MapPreviewCard from "@/src/components/map/MapPreviewCard";
+import DataReviewMapCard from "@/src/components/map/DataReviewMapCard";
+import {
+    fitMapToReviewCandidate,
+    type DataReviewBasemapMode,
+} from "@/src/components/map/dataReviewBasemap";
+import { MAP_EDITOR_VIEWPORT_CLASS } from "@/src/components/map/mapPreviewUi";
+import { coreReviewFitButtonLabel, placeCoordinatesToGeoJson } from "@/src/components/core-review/coreReviewMapGeometry";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 import PlaceLinkedBuildingsPanel from "./PlaceLinkedBuildingsPanel";
 
@@ -121,9 +129,12 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState("");
     const [saveSuccess, setSaveSuccess] = useState("");
+    const [basemapMode, setBasemapMode] = useState<DataReviewBasemapMode>("map");
+    const mapInstanceRef = useRef<maplibregl.Map | null>(null);
 
     const {
         register,
+        control,
         handleSubmit,
         reset,
         watch,
@@ -173,6 +184,23 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
         setValue("lat", coords.lat, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
         setValue("lng", coords.lng, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
     }
+
+    const pickerLat = typeof watchedLat === "number" ? watchedLat : detail?.lat ?? null;
+    const pickerLng = typeof watchedLng === "number" ? watchedLng : detail?.lng ?? null;
+    const placePointGeo = placeCoordinatesToGeoJson(pickerLat, pickerLng);
+    const hasRenderablePoint = placePointGeo !== null;
+
+    const handleFitGeometry = useCallback(() => {
+        const map = mapInstanceRef.current;
+        if (!map || !placePointGeo) {
+            return;
+        }
+        fitMapToReviewCandidate(map, placePointGeo, "point");
+    }, [placePointGeo]);
+
+    const handleMapInstance = useCallback((map: maplibregl.Map | null) => {
+        mapInstanceRef.current = map;
+    }, []);
 
     useEffect(() => {
         if (!open || !placeId) {
@@ -309,17 +337,32 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
                     {!isLoading && !loadError && detail && options ? (
                         <>
                             <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
-                            <MapPreviewCard
-                                title="Point location"
-                                description="Drag the marker or edit latitude/longitude fields to update the saved point."
+                            <DataReviewMapCard
+                                header={{
+                                    title: "Point location",
+                                    externalId: detail.public_id,
+                                    subtitle:
+                                        "Drag the marker or edit latitude/longitude fields to update the saved point.",
+                                    hasRenderable: hasRenderablePoint,
+                                    onFit: handleFitGeometry,
+                                    fitButtonLabel: coreReviewFitButtonLabel("point"),
+                                    basemapMode,
+                                    onBasemapModeChange: setBasemapMode,
+                                    palette: "core",
+                                }}
+                                bodyClassName="p-0"
                             >
                                 <PlacePointMapPicker
-                                    lat={typeof watchedLat === "number" ? watchedLat : detail.lat}
-                                    lng={typeof watchedLng === "number" ? watchedLng : detail.lng}
+                                    lat={pickerLat}
+                                    lng={pickerLng}
                                     onChange={handleMapChange}
                                     overlayNames={mapOverlayNames}
+                                    basemapMode={basemapMode}
+                                    onMapReady={handleMapInstance}
+                                    mapSurfaceRef={mapInstanceRef}
+                                    viewportClassName={MAP_EDITOR_VIEWPORT_CLASS}
                                 />
-                            </MapPreviewCard>
+                            </DataReviewMapCard>
 
                             <div className="grid gap-6 lg:grid-cols-2">
                                 <div className="space-y-4">
@@ -376,17 +419,17 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
                                         <span className="mb-1 block text-sm text-gray-700">
                                             Admin Area
                                         </span>
-                                        <select
-                                            {...register("adminAreaId")}
-                                            className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
-                                        >
-                                            <option value="">No admin area</option>
-                                            {options.admin_areas.map((option) => (
-                                                <option key={option.id} value={option.id}>
-                                                    {option.label}
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <Controller
+                                            name="adminAreaId"
+                                            control={control}
+                                            render={({ field }) => (
+                                                <AdminAreaCombobox
+                                                    value={field.value?.trim() ? field.value : null}
+                                                    placeholder="Search admin area…"
+                                                    onChange={(id) => field.onChange(id ?? "")}
+                                                />
+                                            )}
+                                        />
                                     </label>
 
                                     <div className="grid gap-4 sm:grid-cols-2">

@@ -2,7 +2,7 @@
 
 import { Suspense } from "react";
 
-import ImportReviewBatchPicker from "@/src/app/(admin)/import-review/_components/ImportReviewBatchPicker";
+import ImportReviewBatchPicker from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewBatchPicker";
 import { useImportReviewEntityPage } from "@/src/features/import-review/hooks/useImportReviewEntityPage";
 import { toDataReviewGeometryKind } from "@/src/features/import-review/config";
 import { preserveImportReviewScopeInParams } from "@/src/lib/importReviewSnapshot";

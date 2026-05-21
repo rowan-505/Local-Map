@@ -1,3 +1,4 @@
+import { importReviewPath } from "@/src/lib/dashboardPaths";
 import { applyImportReviewScopeSearchParams } from "@/src/lib/importReviewSnapshot";
 
 import type { ImportReviewEntitySlug } from "../config/types";
@@ -71,5 +72,6 @@ export function buildImportReviewEntityUrl(
     }
 
     const qs = params.toString();
-    return qs ? `/import-review/${pathSlug}?${qs}` : `/import-review/${pathSlug}`;
+    const base = importReviewPath(pathSlug);
+    return qs ? `${base}?${qs}` : base;
 }

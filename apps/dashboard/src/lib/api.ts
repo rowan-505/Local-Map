@@ -305,6 +305,10 @@ export type Building = {
     public_id: string;
     source_staging_id: string | null;
     external_id: string | null;
+    name_mm?: string | null;
+    name_en?: string | null;
+    fallback_name?: string | null;
+    /** Coalesced display label (mm → en → fallback). */
     name: string | null;
     /** FK to ref.ref_building_types (when exposed by API). */
     building_type_id?: string | null;
@@ -588,6 +592,8 @@ export type ImportReviewBuildingListItem = {
     class_code: string | null;
     building_type: string | null;
     building_type_id: string | null;
+    building_type_code?: string | null;
+    building_type_name?: string | null;
     admin_area_id: string | null;
     levels: number | null;
     height_m: number | null;
@@ -621,6 +627,26 @@ export type ImportReviewBuildingListItem = {
     road_candidate_class_label?: string | null;
     road_candidate_surface?: string | null;
     road_candidate_is_oneway?: boolean | null;
+    effective_name?: string | null;
+    effective_name_local?: string | null;
+    effective_stop_code?: string | null;
+    effective_canonical_name?: string | null;
+    effective_class_code?: string | null;
+    effective_admin_area_id?: string | null;
+    effective_admin_area_name?: string | null;
+    effective_levels?: number | null;
+    effective_height_m?: number | null;
+    effective_full_address?: string | null;
+    effective_house_number?: string | null;
+    effective_street_name?: string | null;
+    effective_quarter?: string | null;
+    effective_township?: string | null;
+    effective_admin_level_id?: string | null;
+    effective_parent_id?: string | null;
+    effective_slug?: string | null;
+    effective_barrier_type?: string | null;
+    has_overrides?: boolean;
+    overridden_fields?: string[];
 };
 
 export type ImportReviewBuildingsListResponse = ImportReviewEnvelopeFields & {
@@ -809,7 +835,10 @@ export type PatchPlaceBuildingResponse = LinkPlaceBuildingResponse;
 /** POST/PATCH bodies — snake_case matches API JSON */
 export type CreateBuildingPayload = {
     geometry: BuildingGeometry;
+    /** Fallback/imported label (core_map_buildings.name). */
     name?: string | null;
+    name_mm?: string | null;
+    name_en?: string | null;
     /** Prefer {@link building_type_id} when both are set (API resolves ref codes). */
     building_type?: string;
     /** Omit or null: create omits; PATCH may send null to clear FK. */
@@ -1173,6 +1202,27 @@ export function getAdminAreas() {
     return apiFetch<AdminArea[]>("/admin-areas", { method: "GET" });
 }
 
+export type AdminAreaOption = {
+    id: string;
+    canonical_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    admin_level_id: string;
+    parent_id: string | null;
+};
+
+export function getAdminAreaOptions(params?: { limit?: number; q?: string }) {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) {
+        search.set("limit", String(params.limit));
+    }
+    if (params?.q?.trim()) {
+        search.set("q", params.q.trim());
+    }
+    const qs = search.toString();
+    return apiFetch<AdminAreaOption[]>(`/admin-areas/options${qs ? `?${qs}` : ""}`, { method: "GET" });
+}
+
 export function getDashboardStats(fetchInit?: Pick<RequestInit, "signal">) {
     return apiFetch<DashboardStatsResponse>("/dashboard/stats", {
         method: "GET",
@@ -1505,6 +1555,10 @@ export type ImportReviewPublishBatchSummary = {
     public_id: string;
     batch_name: string;
     status: string;
+    derived_status: string;
+    derived_status_reason: string | null;
+    stored_status_recommendation: string | null;
+    status_note: string | null;
     source_review_batch_id: string | null;
     source_snapshot_version: string | null;
     region_code: string | null;
@@ -1512,6 +1566,10 @@ export type ImportReviewPublishBatchSummary = {
     success_count: number;
     failed_count: number;
     skipped_count: number;
+    core_verified_count: number;
+    import_review_marked_promoted_count: number;
+    inserted_count: number;
+    updated_count: number;
     note: string | null;
     created_at: string;
     published_at: string | null;
@@ -1527,9 +1585,18 @@ export type ImportReviewPublishBatchItemCounts = {
     total: number;
 };
 
+export type ImportReviewPublishBatchEntityItemCounts = {
+    pending: number;
+    success: number;
+    failed: number;
+    skipped: number;
+    total: number;
+};
+
 export type ImportReviewPublishBatchDetail = ImportReviewPublishBatchSummary & {
     item_counts: ImportReviewPublishBatchItemCounts;
     building_item_counts: ImportReviewPublishBatchItemCounts;
+    item_counts_by_entity_family: Record<string, ImportReviewPublishBatchEntityItemCounts>;
 };
 
 export type ImportReviewPromotionSkippedReasonCount = {
@@ -1641,6 +1708,8 @@ export type ImportReviewPromotionReadyCandidateItem = {
     class_code: string | null;
     building_type: string | null;
     building_type_id: string | null;
+    building_type_code?: string | null;
+    building_type_name?: string | null;
     confidence_score: number | null;
     match_status: string | null;
     auto_action: string | null;
@@ -1834,6 +1903,8 @@ export type ImportReviewPublishBatchPromotionResultSummary = {
     total: number;
     core_verified_count: number;
     import_review_marked_promoted_count: number;
+    verification_metadata_applied_count: number;
+    verification_metadata_skipped_already_verified_count: number;
     partial_success?: boolean;
     started_at: string;
     finished_at: string;
@@ -1844,10 +1915,17 @@ export type ImportReviewPublishBatchPromotionResultSummary = {
 export type ImportReviewPublishBatchProgressResponse = {
     batch_id: string;
     status: string;
+    derived_status: string;
+    derived_status_reason: string | null;
+    stored_status_recommendation: string | null;
+    status_note: string | null;
     workflow: "validation" | "promotion" | "idle";
     validation_total: number;
     validation_done: number;
     validation_percent: number;
+    total_item_count: number;
+    item_processed_count: number;
+    stage_count: number;
     validated_at: string | null;
     current_stage_key: string | null;
     current_stage_label: string | null;
@@ -1973,6 +2051,161 @@ export function getImportReviewPromotionBatchVerify(
     return apiFetch<ImportReviewPublishBatchVerifyResponse>(
         `/api/import-review/promotion/batches/${id}/verify`,
         { method: "GET", ...fetchInit }
+    );
+}
+
+export type RoadDryRunItemStatus = "blocked" | "warning" | "eligible" | "eligible_if_confirmed";
+
+export type RoadDryRunGeometrySummary = {
+    srid: number | null;
+    geom_type: string | null;
+    length_m: number | null;
+    is_valid: boolean | null;
+};
+
+export type RoadDryRunRoutingValidationSummary = {
+    validation_mode: string;
+    can_approve: boolean;
+    stats: {
+        nearby_core_roads: number;
+        nearby_review_roads: number;
+        connected_endpoints: number;
+        isolated_endpoints: number;
+        possible_duplicates: number;
+        possible_unsplit_intersections: number;
+        length_m: number;
+    };
+    error_count: number;
+    warning_count: number;
+};
+
+export type RoadDryRunItemResult = {
+    publish_item_id: string;
+    review_candidate_id: string;
+    external_id: string | null;
+    publish_action: string;
+    dry_run_status: RoadDryRunItemStatus;
+    blocking_reasons: string[];
+    warning_codes: string[];
+    matched_core_id: string | null;
+    routing_validation_summary: RoadDryRunRoutingValidationSummary | null;
+    geometry_summary: RoadDryRunGeometrySummary | null;
+};
+
+export type ImportReviewPromotionRoadDryRunResult = {
+    batch_id: string;
+    review_batch_id: string | null;
+    would_insert_count: number;
+    would_update_count: number;
+    blocked_count: number;
+    warning_count: number;
+    duplicate_risk_count: number;
+    routing_warning_count: number;
+    serious_warning_count: number;
+    eligible_if_confirmed_count: number;
+    disabled_because_env_flag_false: boolean;
+    items: RoadDryRunItemResult[];
+    finished_at: string;
+    message: string;
+};
+
+export type PostImportReviewPromotionRoadDryRunBody = {
+    confirm_routing_warnings?: boolean;
+    use_review_overrides?: boolean;
+    connectivity_threshold_m?: number;
+    duplicate_threshold_m?: number;
+};
+
+export function postImportReviewPromotionBatchRoadDryRun(
+    id: string,
+    body: PostImportReviewPromotionRoadDryRunBody = {},
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewPromotionRoadDryRunResult>(
+        `/api/import-review/promotion/batches/${id}/road-dry-run`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function getImportReviewPromotionBatchRoadDryRun(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewPromotionRoadDryRunResult>(
+        `/api/import-review/promotion/batches/${id}/road-dry-run`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export type PostImportReviewCleanupPromotedBody = {
+    review_batch_id: string;
+    entity_families?: string[];
+    publish_batch_id?: string;
+    older_than_days?: number;
+};
+
+export type ImportReviewCleanupPromotedExampleRow = {
+    candidate_id: string;
+    entity_family: string;
+    promoted_core_id: string | null;
+    promoted_at: string | null;
+    publish_batch_id: string | null;
+};
+
+export type ImportReviewCleanupPromotedBlockedExampleRow = ImportReviewCleanupPromotedExampleRow & {
+    reason: string;
+};
+
+export type ImportReviewCleanupPromotedDryRunResult = {
+    review_batch_id: string;
+    publish_batch_id: string | null;
+    selected_entity_families: string[];
+    eligible_counts_by_entity: Record<string, number>;
+    not_eligible_counts_by_reason: Record<string, number>;
+    estimated_rows_to_delete: number;
+    estimated_geometry_rows_to_delete: number;
+    example_eligible_rows: ImportReviewCleanupPromotedExampleRow[];
+    example_blocked_rows: ImportReviewCleanupPromotedBlockedExampleRow[];
+    execute_enabled: boolean;
+    message: string;
+};
+
+export type ImportReviewCleanupPromotedExecuteResult = {
+    review_batch_id: string;
+    publish_batch_id: string | null;
+    deleted_count: number;
+    deleted_by_entity: Record<string, number>;
+    message: string;
+};
+
+export type PostImportReviewCleanupPromotedExecuteBody = PostImportReviewCleanupPromotedBody & {
+    confirmation_text: "DELETE PROMOTED REVIEW DATA";
+};
+
+export function postImportReviewCleanupPromotedDryRun(body: PostImportReviewCleanupPromotedBody) {
+    return apiFetch<ImportReviewCleanupPromotedDryRunResult>(
+        "/api/import-review/cleanup/promoted/dry-run",
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        }
+    );
+}
+
+export function postImportReviewCleanupPromotedExecute(body: PostImportReviewCleanupPromotedExecuteBody) {
+    return apiFetch<ImportReviewCleanupPromotedExecuteResult>(
+        "/api/import-review/cleanup/promoted/execute",
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        }
     );
 }
 
@@ -2153,6 +2386,20 @@ export type ImportReviewHistoryReviewBatchCounts = {
     promotion_failed_candidates: number;
 };
 
+export type ImportReviewHistoryPublishAttemptSummary = {
+    id: string;
+    batch_name: string;
+    stored_status: string;
+    derived_status: string;
+    created_at: string;
+    promoted_at: string | null;
+    total_item_count: number;
+    success_count: number;
+    failed_count: number;
+    core_verified_count: number;
+    import_review_marked_promoted_count: number;
+};
+
 export type ImportReviewHistoryReviewBatchListItem = {
     id: string;
     public_id: string;
@@ -2160,6 +2407,10 @@ export type ImportReviewHistoryReviewBatchListItem = {
     source_snapshot_version: string;
     source_snapshot_id_local: string | null;
     status: string;
+    derived_status: string;
+    derived_status_reason: string | null;
+    stored_status_recommendation: string | null;
+    status_note: string | null;
     created_at: string;
     uploaded_at: string;
     validated_at: string | null;
@@ -2177,6 +2428,7 @@ export type ImportReviewHistoryReviewBatchListItem = {
         promotion_success_count: number;
         promotion_fail_count: number;
     };
+    latest_publish_batch: ImportReviewHistoryPublishAttemptSummary | null;
 };
 
 export type ImportReviewHistoryReviewBatchDetail = ImportReviewHistoryReviewBatchListItem & {
@@ -2187,6 +2439,7 @@ export type ImportReviewHistoryReviewBatchDetail = ImportReviewHistoryReviewBatc
     skipped_count: number;
     summary: unknown;
     publish_batch_summaries: ImportReviewHistoryPublishBatchListItem[];
+    publish_batch_attempts: ImportReviewHistoryPublishAttemptSummary[];
 };
 
 export type ImportReviewHistoryPublishBatchListItem = {
@@ -2194,6 +2447,10 @@ export type ImportReviewHistoryPublishBatchListItem = {
     public_id: string;
     batch_name: string;
     status: string;
+    derived_status: string;
+    derived_status_reason: string | null;
+    stored_status_recommendation: string | null;
+    status_note: string | null;
     source_review_batch_id: string | null;
     source_snapshot_version: string | null;
     region_code: string | null;
@@ -2201,6 +2458,10 @@ export type ImportReviewHistoryPublishBatchListItem = {
     success_count: number;
     failed_count: number;
     skipped_count: number;
+    core_verified_count: number;
+    import_review_marked_promoted_count: number;
+    inserted_count: number;
+    updated_count: number;
     validation_total: number;
     validation_done: number;
     validation_percent: number;
@@ -2401,4 +2662,109 @@ export function patchPlaceBuildingLink(
             body: JSON.stringify(payload),
         }
     );
+}
+
+// --- Core review (paginated list + detail; camelCase DTOs) ---
+
+export type CoreReviewEntitySlug =
+    | "buildings"
+    | "places"
+    | "streets"
+    | "bus-stops"
+    | "bus-routes"
+    | "bus-route-variants"
+    | "landuse"
+    | "water-lines"
+    | "water-polygons"
+    | "addresses"
+    | "admin-areas";
+
+export type CoreReviewPagination = {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+};
+
+export type CoreReviewListResponse<T> = {
+    data: T[];
+    pagination: CoreReviewPagination;
+    filters?: Record<string, unknown>;
+    meta?: Record<string, unknown>;
+};
+
+export type CoreReviewDetailResponse<T> = {
+    data: T;
+};
+
+/** Query params for GET /core-review/:entity (camelCase; matches API Zod schema). */
+export type CoreReviewListParams = {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: "asc" | "desc";
+    isVerified?: boolean;
+    adminAreaId?: string;
+    categoryId?: string;
+    buildingTypeId?: string;
+    roadClassId?: string;
+    isPublic?: boolean;
+    includeDeleted?: boolean;
+    routeId?: string;
+};
+
+export function getCoreReviewList<T = Record<string, unknown>>(
+    entity: CoreReviewEntitySlug,
+    params?: CoreReviewListParams,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<CoreReviewListResponse<T>>(
+        `/core-review/${entity}`,
+        { method: "GET", ...fetchInit },
+        params as Record<string, QueryValue> | undefined
+    );
+}
+
+export function getCoreReviewDetail<T = Record<string, unknown>>(
+    entity: CoreReviewEntitySlug,
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<CoreReviewDetailResponse<T>>(
+        `/core-review/${entity}/${encodeURIComponent(id)}`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+/** Alias for {@link getCoreReviewList}. */
+export const getCoreReviewEntities = getCoreReviewList;
+
+/** Alias for {@link getCoreReviewDetail}. */
+export const getCoreReviewEntityById = getCoreReviewDetail;
+
+export function createCoreReviewEntity<T = Record<string, unknown>>(
+    entity: CoreReviewEntitySlug,
+    body: unknown,
+) {
+    return apiFetch<CoreReviewDetailResponse<T>>(`/core-review/${entity}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    }).then((response) => response.data);
+}
+
+export function updateCoreReviewEntity<T = Record<string, unknown>>(
+    entity: CoreReviewEntitySlug,
+    id: string,
+    body: unknown,
+) {
+    return apiFetch<CoreReviewDetailResponse<T>>(
+        `/core-review/${entity}/${encodeURIComponent(id)}`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        },
+    ).then((response) => response.data);
 }

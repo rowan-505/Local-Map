@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import ImportReviewBulkDecisionResultPanel from "@/src/app/(admin)/import-review/_components/ImportReviewBulkDecisionResultPanel";
+import ImportReviewBulkDecisionResultPanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewBulkDecisionResultPanel";
 import type { ImportReviewBulkDecisionResponse } from "@/src/lib/api";
 
 import type { BulkSelectionAnalysis } from "../utils/bulkSelectionAnalysis";

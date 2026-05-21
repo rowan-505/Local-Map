@@ -1,7 +1,7 @@
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
 import type { ImportReviewOverrideFieldDef } from "../config/overrideFieldDefs";
-import { normPick } from "./entityPageUtils";
+import { formatBuildingTypeLabel, normPick } from "./entityPageUtils";
 
 export function asOverrideRecord(review_overrides: unknown): Record<string, unknown> {
     if (review_overrides && typeof review_overrides === "object" && !Array.isArray(review_overrides)) {
@@ -11,6 +11,16 @@ export function asOverrideRecord(review_overrides: unknown): Record<string, unkn
 }
 
 export function readImportedValue(row: ImportReviewBuildingListItem, def: ImportReviewOverrideFieldDef): string {
+    if (def.configKey === "building_type_id") {
+        const effective = formatBuildingTypeLabel(row);
+        if (effective) {
+            return effective;
+        }
+        if (row.building_type_id) {
+            return row.building_type_id;
+        }
+        return "";
+    }
     const key = def.importedKey ?? def.configKey;
     if (def.importedFrom === "normalized") {
         const v = normPick(row.normalized_data, key);

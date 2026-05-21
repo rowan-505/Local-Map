@@ -2,12 +2,24 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 
 import type { PromoteItemResult } from "./import-review-promotion-promote.types.js";
 import {
+    buildVerificationMetadataTracking,
+    coreVerificationInsertColumnsSql,
+    coreVerificationInsertValuesSql,
+    coreVerificationUpdateSetClauseSql,
+    getCoreVerificationColumnsForEntity,
+} from "./import-review-promotion-core-verification.js";
+import {
     assertPoiCategoriesTableExists,
     placeResolvedCategoryIdExprForPromotion,
 } from "./import-review-promotion-place-category.js";
+import {
+    normalizedDataMergeExpr,
+    sourceRefsMergeExpr,
+} from "./import-review-promotion-promote-sql.js";
 
 const PLACE_CANDIDATE_TABLE = "import_review.place_candidates";
 const CORE_PLACES_TABLE = "core.core_places";
+const PLACE_VERIFICATION_COLUMNS = getCoreVerificationColumnsForEntity("places");
 /** Alias for import_review.place_candidates in promotion SQL (not the src publish-item projection). */
 const PLACE_CANDIDATE_SQL_ALIAS = "pc";
 
@@ -168,34 +180,6 @@ function placeIsPublicExpr(alias: string): Prisma.Sql {
     `;
 }
 
-function sourceRefsMergeExpr(alias: string, batchId: bigint): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        coalesce(${a}.source_refs, '{}'::jsonb)
-        || jsonb_strip_nulls(jsonb_build_object(
-            'review_candidate_id', ${a}.id::text,
-            'review_batch_id', ${a}.review_batch_id::text,
-            'source_snapshot_version', ${a}.source_snapshot_version,
-            'local_staging_id', ${a}.local_staging_id::text,
-            'publish_batch_id', ${batchId}::text
-        ))
-    `;
-}
-
-function normalizedDataMergeExpr(alias: string, batchId: bigint): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        coalesce(${a}.normalized_data, '{}'::jsonb)
-        || coalesce(${a}.review_overrides, '{}'::jsonb)
-        || jsonb_build_object(
-            'promotion', jsonb_build_object(
-                'publish_batch_id', ${batchId}::text,
-                'promoted_at', to_jsonb(now())
-            )
-        )
-    `;
-}
-
 /** Candidate-field expressions for ready/valid CTEs — alias must be place_candidates (pc), not src (s). */
 function placeCandidateReadyExprs(batchId: bigint): Prisma.Sql {
     const pc = PLACE_CANDIDATE_SQL_ALIAS;
@@ -206,7 +190,7 @@ function placeCandidateReadyExprs(batchId: bigint): Prisma.Sql {
         ${placeCategoryIdExpr(pc)} AS category_id_ready,
         ${placeAdminAreaIdExpr(pc)} AS admin_area_id_ready,
         ${placeSourceTypeIdExpr(pc)} AS source_type_id_ready,
-        ${sourceRefsMergeExpr(pc, batchId)} AS merged_source_refs,
+        ${sourceRefsMergeExpr(pc, batchId, "places")} AS merged_source_refs,
         ${normalizedDataMergeExpr(pc, batchId)} AS merged_normalized_data
     `;
 }
@@ -289,7 +273,8 @@ export class ImportReviewPromotionPromotePlacesRepository {
                         primary_name, display_name, category_id, admin_area_id,
                         point_geom, lat, lng, plus_code,
                         importance_score, popularity_score, confidence_score,
-                        is_public, is_verified, source_type_id,
+                        is_public${coreVerificationInsertColumnsSql(PLACE_VERIFICATION_COLUMNS)},
+                        source_type_id,
                         external_id, source_refs, normalized_data,
                         created_at, updated_at, deleted_at
                     )
@@ -310,8 +295,7 @@ export class ImportReviewPromotionPromotePlacesRepository {
                         coalesce(g.importance_score, 0),
                         coalesce(g.popularity_score, 0),
                         least(100, greatest(0, coalesce(g.confidence_score, 80))),
-                        ${placeIsPublicExpr("g")},
-                        (g.review_decision = 'approved'),
+                        ${placeIsPublicExpr("g")}${coreVerificationInsertValuesSql(PLACE_VERIFICATION_COLUMNS)},
                         g.source_type_id_ready,
                         nullif(trim(g.external_id), ''),
                         g.merged_source_refs,
@@ -352,6 +336,11 @@ export class ImportReviewPromotionPromotePlacesRepository {
                         display_name: row.display_name,
                         entity_family: "places",
                     },
+                    ...buildVerificationMetadataTracking({
+                        outcome: "inserted",
+                        beforeData: null,
+                        entityKey: "places",
+                    }),
                 };
             });
         } catch (err) {
@@ -460,8 +449,7 @@ export class ImportReviewPromotionPromotePlacesRepository {
                     importance_score = coalesce(v.importance_score, c.importance_score),
                     popularity_score = coalesce(v.popularity_score, c.popularity_score),
                     confidence_score = least(100, greatest(0, coalesce(v.confidence_score, c.confidence_score))),
-                    is_public = ${placeIsPublicExpr("v")},
-                    is_verified = (v.review_decision = 'approved'),
+                    is_public = ${placeIsPublicExpr("v")}${coreVerificationUpdateSetClauseSql("c", PLACE_VERIFICATION_COLUMNS)},
                     source_type_id = v.source_type_id_ready,
                     external_id = coalesce(nullif(trim(v.external_id), ''), c.external_id),
                     source_refs = v.merged_source_refs,
@@ -504,6 +492,11 @@ export class ImportReviewPromotionPromotePlacesRepository {
                     display_name: row.display_name,
                     entity_family: "places",
                 },
+                ...buildVerificationMetadataTracking({
+                    outcome: "updated",
+                    beforeData,
+                    entityKey: "places",
+                }),
             };
             });
         } catch (err) {

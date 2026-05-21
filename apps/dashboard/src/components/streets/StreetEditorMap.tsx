@@ -40,10 +40,15 @@ import {
     type StreetLineStringGeoJson,
 } from "@/src/lib/api";
 import {
-    applyDataReviewBasemapMode,
+    applyDashboardMergedBasemapMode,
     ensureDataReviewSatelliteLayer,
     type DataReviewBasemapMode,
 } from "@/src/components/map/dataReviewBasemap";
+import {
+    MAP_EDITOR_TOOLBAR_CLASS,
+    mapEditorBtnBase,
+    mapEditorBtnDanger,
+} from "@/src/components/map/mapPreviewUi";
 import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 import {
@@ -432,6 +437,10 @@ export type StreetEditorMapProps = {
     onMapInstance?: (map: maplibregl.Map | null) => void;
     /** Override map viewport height class (default street editor sizing). */
     mapViewportClassName?: string;
+    /** Initial snap-to-roads checkbox state (default true). */
+    defaultSnapToRoad?: boolean;
+    /** Hide the snap-to-roads control (e.g. when parent manages snapping via {@link defaultSnapToRoad}). */
+    hideSnapControl?: boolean;
 };
 
 type SnapCtl = {
@@ -459,6 +468,8 @@ export default function StreetEditorMap({
     dataReviewBasemapMode,
     onMapInstance,
     mapViewportClassName,
+    defaultSnapToRoad = true,
+    hideSnapControl = false,
 }: StreetEditorMapProps) {
     const { streetTileVersion, placeTileVersion, roadLabelTileVersion } = useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -472,7 +483,7 @@ export default function StreetEditorMap({
     const lastEmittedCoordsKey = useRef<string>("");
 
     const [mapReady, setMapReady] = useState(false);
-    const [snapToRoad, setSnapToRoad] = useState(true);
+    const [snapToRoad, setSnapToRoad] = useState(defaultSnapToRoad);
     const dataReviewBasemapModeRef = useRef(dataReviewBasemapMode);
     dataReviewBasemapModeRef.current = dataReviewBasemapMode;
 
@@ -487,7 +498,7 @@ export default function StreetEditorMap({
 
     const snapRoadDebounceTimerRef = useRef<number | null>(null);
 
-    const snapEnabledRef = useRef(true);
+    const snapEnabledRef = useRef(defaultSnapToRoad);
 
     const snapRadiusRef = useRef(DEFAULT_SNAP_RADIUS_M);
 
@@ -1061,7 +1072,7 @@ export default function StreetEditorMap({
 
             if (dataReviewBasemapModeRef.current !== undefined) {
                 ensureDataReviewSatelliteLayer(map);
-                applyDataReviewBasemapMode(map, dataReviewBasemapModeRef.current);
+                applyDashboardMergedBasemapMode(map, dataReviewBasemapModeRef.current);
             }
             onMapInstance?.(map);
 
@@ -1304,7 +1315,7 @@ export default function StreetEditorMap({
         if (!mapReady || !map || !map.isStyleLoaded() || dataReviewBasemapMode === undefined) {
             return;
         }
-        applyDataReviewBasemapMode(map, dataReviewBasemapMode);
+        applyDashboardMergedBasemapMode(map, dataReviewBasemapMode);
     }, [mapReady, dataReviewBasemapMode]);
 
     useEffect(() => {
@@ -1663,27 +1674,27 @@ export default function StreetEditorMap({
 
     return (
         <div className={className}>
-            <div className="mb-3 space-y-2">
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className={`${MAP_EDITOR_TOOLBAR_CLASS} mb-0 space-y-2`}>
+                <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                         <button
                             type="button"
                             onClick={() => handleDrawMode()}
-                            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-800 hover:bg-gray-50"
+                            className={mapEditorBtnBase(false)}
                         >
                             Draw line
                         </button>
                         <button
                             type="button"
                             onClick={() => handleSelectMode()}
-                            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-800 hover:bg-gray-50"
+                            className={mapEditorBtnBase(false)}
                         >
                             Edit vertices
                         </button>
                         <button
                             type="button"
                             onClick={() => handleClearGeometry()}
-                            className="rounded border border-red-200 bg-white px-3 py-1.5 text-sm text-red-700 hover:bg-red-50"
+                            className={mapEditorBtnDanger(true)}
                         >
                             Clear geometry
                         </button>
@@ -1712,34 +1723,38 @@ export default function StreetEditorMap({
                                     setVertexHandleLine(nextLine);
                                     setSelectedVertexIndex(null);
                                 }}
-                                className="rounded border border-amber-300 bg-white px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 Remove vertex
                             </button>
                         ) : null}
                         {toolbarExtra}
                     </div>
-                    <label className="flex cursor-pointer items-center gap-2 border-l border-gray-200 pl-4 text-sm text-gray-800">
-                        <input
-                            type="checkbox"
-                            checked={snapToRoad}
-                            onChange={(event) => {
-                                const next = event.target.checked;
-                                if (!next) {
-                                    clearSnapFeedbackTimer();
-                                    setSnapFeedback("idle");
-                                }
-                                setSnapToRoad(next);
-                            }}
-                            className="rounded border-gray-300"
-                        />
-                        <span>Snap to roads ({DEFAULT_SNAP_RADIUS_M} m)</span>
-                    </label>
+                    {!hideSnapControl ? (
+                        <label className="flex cursor-pointer items-center gap-2 border-l border-slate-200 pl-4 text-xs text-slate-700">
+                            <input
+                                type="checkbox"
+                                checked={snapToRoad}
+                                onChange={(event) => {
+                                    const next = event.target.checked;
+                                    if (!next) {
+                                        clearSnapFeedbackTimer();
+                                        setSnapFeedback("idle");
+                                    }
+                                    setSnapToRoad(next);
+                                }}
+                                className="rounded border-slate-300"
+                            />
+                            <span>Snap to roads ({DEFAULT_SNAP_RADIUS_M} m)</span>
+                        </label>
+                    ) : null}
                 </div>
-                <p className="max-w-3xl text-xs leading-relaxed text-gray-600">
-                    When enabled, moved/drawn vertices snap to nearby existing road geometry within {DEFAULT_SNAP_RADIUS_M}{" "}
-                    meters. This helps avoid tiny gaps that break future routing.
-                </p>
+                {!hideSnapControl ? (
+                    <p className="max-w-3xl text-xs leading-relaxed text-slate-600">
+                        When enabled, moved/drawn vertices snap to nearby existing road geometry within{" "}
+                        {DEFAULT_SNAP_RADIUS_M} meters. This helps avoid tiny gaps that break future routing.
+                    </p>
+                ) : null}
                 {snapToRoad && snapFeedback !== "idle" ? (
                     <p
                         className={

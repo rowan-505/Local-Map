@@ -227,10 +227,10 @@ export default function LoginPageClient() {
 
                 {error ? <p className="mt-2 text-sm text-red-500">{error}</p> : null}
 
-                {isImportReviewDevRouteBypassActive("/import-review") ? (
+                {isImportReviewDevRouteBypassActive("/dashboard/import-review") ? (
                     <p className="mt-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                         Development: you can open{" "}
-                        <Link href="/import-review" className="font-medium underline">
+                        <Link href="/dashboard/import-review" className="font-medium underline">
                             Import review
                         </Link>{" "}
                         without signing in when{" "}

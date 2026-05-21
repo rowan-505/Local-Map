@@ -11,6 +11,7 @@ import { ImportReviewPromotionValidationRepository } from "./import-review-promo
 import { ImportReviewPromotionValidationRules } from "./import-review-promotion-validation-rules.js";
 import {
     PROMOTABLE_PUBLISH_FAMILIES,
+    IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG,
     type PromotablePublishEntityFamily,
 } from "./import-review-promotion-config.js";
 import { requireValidPublishStageStatus } from "./import-review-promotion-stage-status.js";
@@ -20,8 +21,41 @@ import {
     PLACE_CANDIDATE_TABLE,
 } from "./import-review-promotion-promote-places.repo.js";
 import {
+    ImportReviewPublishBatchSummaryRepository,
+} from "./import-review-publish-batch-summary.js";
+import { ImportReviewReviewBatchSummaryRepository } from "./import-review-review-batch-summary.js";
+import {
+    buildVerificationMetadataTracking,
+    coreVerificationInsertColumnsSql,
+    coreVerificationInsertValuesSql,
+    coreVerificationUpdateSetClauseSql,
+    getCoreVerificationColumnsForEntity,
+} from "./import-review-promotion-core-verification.js";
+import {
     type ImportReviewPublishItemValidationStageKey,
 } from "./import-review-promotion-validation.types.js";
+import {
+    ImportReviewPromotionPromoteMapRepository,
+    CORE_LANDUSE_TABLE,
+    CORE_WATER_LINES_TABLE,
+    CORE_WATER_POLYGONS_TABLE,
+    LANDUSE_CANDIDATE_TABLE,
+    WATER_LINE_CANDIDATE_TABLE,
+    WATER_POLYGON_CANDIDATE_TABLE,
+} from "./import-review-promotion-promote-map.repo.js";
+import {
+    ImportReviewPromotionPromoteBusStopsRepository,
+    BUS_STOP_CANDIDATE_TABLE,
+    CORE_BUS_STOPS_TABLE,
+} from "./import-review-promotion-promote-bus-stops.repo.js";
+import {
+    buildingClassCodeExpr,
+    geomSourceExpr,
+    nameExpr,
+    normalizedDataMergeExpr,
+    polygonToMultiPolygonSql,
+    sourceRefsMergeExpr,
+} from "./import-review-promotion-promote-sql.js";
 
 const PROMOTE_PREFLIGHT_VALIDATION_STAGES: ImportReviewPublishItemValidationStageKey[] = [
     "validate_candidate_state",
@@ -34,6 +68,7 @@ const PROMOTE_PREFLIGHT_VALIDATION_STAGES: ImportReviewPublishItemValidationStag
 const BUILDING_CANDIDATE_TABLE = "import_review.building_candidates";
 
 const CORE_TABLE = "core.core_map_buildings";
+const BUILDING_VERIFICATION_COLUMNS = getCoreVerificationColumnsForEntity("buildings");
 
 export const DEFAULT_PROMOTE_CHUNK_SIZE = 100;
 export const MAX_PROMOTE_CHUNK_SIZE = 500;
@@ -52,49 +87,6 @@ export type PromotableItemRow = {
     promoted_core_id: bigint | null;
     matched_core_id: bigint | null;
 };
-
-function classCodeExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${a}.review_overrides->>'class_code',
-            ${a}.review_overrides->>'building_type',
-            ${a}.class_code,
-            ${a}.building_type,
-            ${a}.normalized_data->>'class_code',
-            ${a}.normalized_data->>'building_type',
-            'yes'
-        )), '')
-    `;
-}
-
-function nameExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${a}.review_overrides->>'name',
-            ${a}.review_overrides->>'canonical_name',
-            ${a}.name,
-            ${a}.canonical_name,
-            ${a}.normalized_data->>'name',
-            ''
-        )), '')
-    `;
-}
-
-function geomSourceExpr(alias: string, geomColumn = "candidate_geom"): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    const geomCol = Prisma.raw(geomColumn);
-    return Prisma.sql`
-        CASE
-            WHEN ${a}.review_overrides ? 'geom'
-                 AND ${a}.review_overrides->'geom' IS NOT NULL
-                 AND jsonb_typeof(${a}.review_overrides->'geom') = 'object'
-            THEN ST_SetSRID(ST_GeomFromGeoJSON(${a}.review_overrides->'geom'), 4326)
-            ELSE ${a}.${geomCol}
-        END
-    `;
-}
 
 /** Building candidate columns used for core INSERT/UPDATE (excludes geom to avoid ambiguous aliases). */
 const PROMOTE_BUILDING_SRC_COLUMNS = Prisma.sql`
@@ -170,46 +162,36 @@ const PROMOTE_READY_ROW = Prisma.sql`
     coalesce(p.candidate_area_m2, ST_Area(p.geom::geography)) AS area_m2
 `;
 
-function sourceRefsMergeExpr(alias: string, batchId: bigint): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        coalesce(${a}.source_refs, '{}'::jsonb)
-        || jsonb_strip_nulls(jsonb_build_object(
-            'review_candidate_id', ${a}.id::text,
-            'review_batch_id', ${a}.review_batch_id::text,
-            'source_snapshot_version', ${a}.source_snapshot_version,
-            'local_staging_id', ${a}.local_staging_id::text,
-            'publish_batch_id', ${batchId}::text
-        ))
-    `;
-}
-
-function normalizedDataMergeExpr(alias: string, batchId: bigint): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        coalesce(${a}.normalized_data, '{}'::jsonb)
-        || coalesce(${a}.review_overrides, '{}'::jsonb)
-        || jsonb_build_object(
-            'promotion', jsonb_build_object(
-                'publish_batch_id', ${batchId}::text,
-                'promoted_at', to_jsonb(now())
-            )
-        )
-    `;
-}
-
 export class ImportReviewPromotionPromoteRepository {
     private readonly placesRepo: ImportReviewPromotionPromotePlacesRepository;
+    private readonly mapRepo: ImportReviewPromotionPromoteMapRepository;
+    private readonly busStopsRepo: ImportReviewPromotionPromoteBusStopsRepository;
+    private readonly publishSummaryRepo: ImportReviewPublishBatchSummaryRepository;
+    private readonly reviewSummaryRepo: ImportReviewReviewBatchSummaryRepository;
 
     constructor(
         private readonly prisma: PrismaClient,
         private readonly validationRepo: ImportReviewPromotionValidationRepository
     ) {
         this.placesRepo = new ImportReviewPromotionPromotePlacesRepository(prisma);
+        this.mapRepo = new ImportReviewPromotionPromoteMapRepository(prisma);
+        this.busStopsRepo = new ImportReviewPromotionPromoteBusStopsRepository(prisma);
+        this.publishSummaryRepo = new ImportReviewPublishBatchSummaryRepository(prisma);
+        this.reviewSummaryRepo = new ImportReviewReviewBatchSummaryRepository(prisma);
     }
 
     async fetchBatchProgress(batchId: bigint): Promise<ImportReviewPublishBatchProgressRow | null> {
         return this.validationRepo.fetchBatchProgress(batchId);
+    }
+
+    async countRoadPublishItems(batchId: bigint): Promise<number> {
+        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
+            SELECT count(*)::bigint AS count
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+              AND entity_family = 'roads'
+        `;
+        return Number(rows[0]?.count ?? 0n);
     }
 
     async clearStageLogs(batchId: bigint): Promise<void> {
@@ -317,13 +299,12 @@ export class ImportReviewPromotionPromoteRepository {
               AND publish_status = 'pending'
             GROUP BY entity_family
         `;
-        const out: Record<PromotablePublishEntityFamily, number> = {
-            buildings: 0,
-            places: 0,
-        };
+        const out = Object.fromEntries(
+            PROMOTABLE_PUBLISH_FAMILIES.map((f) => [f, 0])
+        ) as Record<PromotablePublishEntityFamily, number>;
         for (const row of rows) {
-            if (row.entity_family === "buildings" || row.entity_family === "places") {
-                out[row.entity_family] = Number(row.count);
+            if ((PROMOTABLE_PUBLISH_FAMILIES as readonly string[]).includes(row.entity_family)) {
+                out[row.entity_family as PromotablePublishEntityFamily] = Number(row.count);
             }
         }
         return out;
@@ -371,6 +352,86 @@ export class ImportReviewPromotionPromoteRepository {
                    AND spi.review_candidate_table = ${PLACE_CANDIDATE_TABLE}
                 WHERE spi.publish_batch_id = ${batchId}
                   AND spi.entity_family = 'places'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
+                    'landuse'::text AS entity_family,
+                    ${CORE_LANDUSE_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    lu.review_batch_id,
+                    lu.source_snapshot_version,
+                    lu.promotion_status,
+                    lu.promoted_core_id,
+                    lu.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.landuse_candidates AS lu
+                    ON lu.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${LANDUSE_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'landuse'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
+                    'water_lines'::text AS entity_family,
+                    ${CORE_WATER_LINES_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    wl.review_batch_id,
+                    wl.source_snapshot_version,
+                    wl.promotion_status,
+                    wl.promoted_core_id,
+                    wl.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.water_line_candidates AS wl
+                    ON wl.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${WATER_LINE_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'water_lines'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
+                    'water_polygons'::text AS entity_family,
+                    ${CORE_WATER_POLYGONS_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    wp.review_batch_id,
+                    wp.source_snapshot_version,
+                    wp.promotion_status,
+                    wp.promoted_core_id,
+                    wp.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.water_polygon_candidates AS wp
+                    ON wp.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${WATER_POLYGON_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'water_polygons'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
+                    'bus_stops'::text AS entity_family,
+                    ${CORE_BUS_STOPS_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    bs.review_batch_id,
+                    bs.source_snapshot_version,
+                    bs.promotion_status,
+                    bs.promoted_core_id,
+                    bs.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.bus_stop_candidates AS bs
+                    ON bs.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${BUS_STOP_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'bus_stops'
             ) AS items
             ORDER BY entity_family ASC, publish_item_id ASC
         `;
@@ -469,17 +530,7 @@ export class ImportReviewPromotionPromoteRepository {
         }
 
         if (item.publish_status === "success" && item.target_id != null) {
-            const coreExists =
-                item.entity_family === "places"
-                    ? await this.placesRepo.checkPlaceCoreExists(item.target_id)
-                    : (
-                          await this.prisma.$queryRaw<{ id: bigint }[]>`
-                              SELECT id FROM core.core_map_buildings
-                              WHERE id = ${item.target_id}
-                                AND coalesce(is_active, true) AND deleted_at IS NULL
-                              LIMIT 1
-                          `
-                      ).length > 0;
+            const coreExists = await this.checkCoreRowExists(item.entity_family, item.target_id);
             if (coreExists) {
                 return {
                     publish_item_id: args.publishItemId,
@@ -518,12 +569,24 @@ export class ImportReviewPromotionPromoteRepository {
             if (item.entity_family === "places") {
                 return this.placesRepo.insertPlace(args.batchId, args.publishItemId, args.promotedBy);
             }
+            if (item.entity_family === "bus_stops") {
+                return this.busStopsRepo.insertBusStop(args.batchId, args.publishItemId);
+            }
+            if (this.mapRepo.isMapEntityFamily(item.entity_family)) {
+                return this.mapRepo.insertMapEntity(item.entity_family, args.batchId, args.publishItemId);
+            }
             return this.insertBuilding(args.batchId, args.publishItemId, args.promotedBy);
         }
 
         if (item.publish_action === "update") {
             if (item.entity_family === "places") {
                 return this.placesRepo.updatePlace(args.batchId, args.publishItemId, args.promotedBy);
+            }
+            if (item.entity_family === "bus_stops") {
+                return this.busStopsRepo.updateBusStop(args.batchId, args.publishItemId);
+            }
+            if (this.mapRepo.isMapEntityFamily(item.entity_family)) {
+                return this.mapRepo.updateMapEntity(item.entity_family, args.batchId, args.publishItemId);
             }
             return this.updateBuilding(args.batchId, args.publishItemId, args.promotedBy);
         }
@@ -536,6 +599,28 @@ export class ImportReviewPromotionPromoteRepository {
             before_data: null,
             after_data: null,
         };
+    }
+
+    private async checkCoreRowExists(
+        entityFamily: PromotablePublishEntityFamily,
+        targetId: bigint
+    ): Promise<boolean> {
+        if (entityFamily === "places") {
+            return this.placesRepo.checkPlaceCoreExists(targetId);
+        }
+        if (entityFamily === "bus_stops") {
+            return this.busStopsRepo.checkBusStopCoreExists(targetId);
+        }
+        if (this.mapRepo.isMapEntityFamily(entityFamily)) {
+            return this.mapRepo.checkMapCoreExists(entityFamily, targetId);
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id FROM core.core_map_buildings
+            WHERE id = ${targetId}
+              AND coalesce(is_active, true) AND deleted_at IS NULL
+            LIMIT 1
+        `;
+        return rows.length > 0;
     }
 
     private async insertBuilding(
@@ -565,16 +650,7 @@ export class ImportReviewPromotionPromoteRepository {
                 SELECT s.*, ${geomSourceExpr("s")} AS g_raw FROM src AS s
             ),
             prep AS (
-                SELECT ${PROMOTE_PREP_ROW(Prisma.sql`
-                    CASE
-                        WHEN r.g_raw IS NULL THEN NULL::geometry(MultiPolygon, 4326)
-                        WHEN ST_GeometryType(r.g_raw) = 'ST_Polygon'
-                            THEN ST_Multi(r.g_raw)::geometry(MultiPolygon, 4326)
-                        WHEN ST_GeometryType(r.g_raw) = 'ST_MultiPolygon'
-                            THEN r.g_raw::geometry(MultiPolygon, 4326)
-                        ELSE NULL::geometry(MultiPolygon, 4326)
-                    END
-                `)}
+                SELECT ${PROMOTE_PREP_ROW(polygonToMultiPolygonSql("r"))}
                 FROM raw_geom AS r
             ),
             ready AS (
@@ -600,16 +676,16 @@ export class ImportReviewPromotionPromoteRepository {
             INSERT INTO core.core_map_buildings (
                 source_staging_id, external_id, name, class_code, normalized_data, source_refs,
                 geom, building_type_id, admin_area_id, levels, height_m,
-                centroid, area_m2, confidence_score, is_verified, is_active,
+                centroid, area_m2, confidence_score${coreVerificationInsertColumnsSql(BUILDING_VERIFICATION_COLUMNS)}, is_active,
                 created_at, updated_at, deleted_at
             )
             SELECT
                 g.local_staging_id,
                 nullif(trim(g.external_id), ''),
                 ${nameExpr("g")},
-                ${classCodeExpr("g")},
+                ${buildingClassCodeExpr("g")},
                 ${normalizedDataMergeExpr("g", batchId)},
-                ${sourceRefsMergeExpr("g", batchId)},
+                ${sourceRefsMergeExpr("g", batchId, "buildings")},
                 g.geom,
                 coalesce(
                     CASE WHEN (g.review_overrides->>'building_type_id') ~ '^[0-9]+$'
@@ -633,8 +709,7 @@ export class ImportReviewPromotionPromoteRepository {
                 ),
                 g.centroid,
                 g.area_m2,
-                coalesce(g.confidence_score, 80),
-                false,
+                coalesce(g.confidence_score, 80)${coreVerificationInsertValuesSql(BUILDING_VERIFICATION_COLUMNS)},
                 true,
                 now(),
                 now(),
@@ -655,6 +730,11 @@ export class ImportReviewPromotionPromoteRepository {
         }
 
         const row = rows[0]!;
+        const verificationMeta = buildVerificationMetadataTracking({
+            outcome: "inserted",
+            beforeData: null,
+            entityKey: "buildings",
+        });
         return {
             publish_item_id: publishItemId,
             outcome: "inserted",
@@ -668,6 +748,7 @@ export class ImportReviewPromotionPromoteRepository {
                 name: row.name,
                 class_code: row.class_code,
             },
+            ...verificationMeta,
         };
     }
 
@@ -718,16 +799,7 @@ export class ImportReviewPromotionPromoteRepository {
                 SELECT s.*, ${geomSourceExpr("s")} AS g_raw FROM src AS s
             ),
             prep AS (
-                SELECT ${PROMOTE_PREP_ROW(Prisma.sql`
-                    CASE
-                        WHEN r.g_raw IS NULL THEN NULL::geometry(MultiPolygon, 4326)
-                        WHEN ST_GeometryType(r.g_raw) = 'ST_Polygon'
-                            THEN ST_Multi(r.g_raw)::geometry(MultiPolygon, 4326)
-                        WHEN ST_GeometryType(r.g_raw) = 'ST_MultiPolygon'
-                            THEN r.g_raw::geometry(MultiPolygon, 4326)
-                        ELSE NULL::geometry(MultiPolygon, 4326)
-                    END
-                `)}
+                SELECT ${PROMOTE_PREP_ROW(polygonToMultiPolygonSql("r"))}
                 FROM raw_geom AS r
             ),
             ready AS (
@@ -740,9 +812,9 @@ export class ImportReviewPromotionPromoteRepository {
                 source_staging_id = r.local_staging_id,
                 external_id = nullif(trim(r.external_id), ''),
                 name = ${nameExpr("r")},
-                class_code = ${classCodeExpr("r")},
+                class_code = ${buildingClassCodeExpr("r")},
                 normalized_data = ${normalizedDataMergeExpr("r", batchId)},
-                source_refs = ${sourceRefsMergeExpr("r", batchId)},
+                source_refs = ${sourceRefsMergeExpr("r", batchId, "buildings")},
                 geom = r.geom,
                 building_type_id = coalesce(
                     CASE WHEN (r.review_overrides->>'building_type_id') ~ '^[0-9]+$'
@@ -766,7 +838,7 @@ export class ImportReviewPromotionPromoteRepository {
                 ),
                 centroid = r.centroid,
                 area_m2 = r.area_m2,
-                confidence_score = coalesce(r.confidence_score, c.confidence_score),
+                confidence_score = coalesce(r.confidence_score, c.confidence_score)${coreVerificationUpdateSetClauseSql("c", BUILDING_VERIFICATION_COLUMNS)},
                 is_active = true,
                 deleted_at = NULL,
                 updated_at = now()
@@ -789,6 +861,11 @@ export class ImportReviewPromotionPromoteRepository {
         }
 
         const row = rows[0]!;
+        const verificationMeta = buildVerificationMetadataTracking({
+            outcome: "updated",
+            beforeData,
+            entityKey: "buildings",
+        });
         return {
             publish_item_id: publishItemId,
             outcome: "updated",
@@ -801,6 +878,7 @@ export class ImportReviewPromotionPromoteRepository {
                 name: row.name,
                 class_code: row.class_code,
             },
+            ...verificationMeta,
         };
     }
 
@@ -848,29 +926,9 @@ export class ImportReviewPromotionPromoteRepository {
         promotedCoreId: bigint;
         promotedBy: bigint | null;
     }): Promise<void> {
-        if (args.entityFamily === "places") {
-            await this.markPlaceCandidatePromoted(args);
-            return;
-        }
+        const config = IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG[args.entityFamily];
         await this.prisma.$executeRaw`
-            UPDATE import_review.building_candidates
-            SET promotion_status = 'promoted',
-                promoted_core_id = ${args.promotedCoreId},
-                promoted_at = now(),
-                promoted_by = ${args.promotedBy},
-                review_status = 'promoted',
-                updated_at = now()
-            WHERE id = ${args.reviewCandidateId}
-        `;
-    }
-
-    async markPlaceCandidatePromoted(args: {
-        reviewCandidateId: bigint;
-        promotedCoreId: bigint;
-        promotedBy: bigint | null;
-    }): Promise<void> {
-        await this.prisma.$executeRaw`
-            UPDATE import_review.place_candidates
+            UPDATE ${Prisma.raw(config.candidateTable)}
             SET promotion_status = 'promoted',
                 promoted_core_id = ${args.promotedCoreId},
                 promoted_at = now(),
@@ -885,22 +943,9 @@ export class ImportReviewPromotionPromoteRepository {
         entityFamily: PromotablePublishEntityFamily,
         reviewCandidateId: bigint
     ): Promise<void> {
-        if (entityFamily === "places") {
-            await this.markPlaceCandidateFailed(reviewCandidateId);
-            return;
-        }
+        const config = IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG[entityFamily];
         await this.prisma.$executeRaw`
-            UPDATE import_review.building_candidates
-            SET promotion_status = 'failed',
-                review_status = 'promotion_failed',
-                updated_at = now()
-            WHERE id = ${reviewCandidateId}
-        `;
-    }
-
-    async markPlaceCandidateFailed(reviewCandidateId: bigint): Promise<void> {
-        await this.prisma.$executeRaw`
-            UPDATE import_review.place_candidates
+            UPDATE ${Prisma.raw(config.candidateTable)}
             SET promotion_status = 'failed',
                 review_status = 'promotion_failed',
                 updated_at = now()
@@ -963,11 +1008,167 @@ export class ImportReviewPromotionPromoteRepository {
             WHERE spi.publish_batch_id = ${batchId}
               AND spi.entity_family = 'places'
         `;
+        const mapPolygonRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint }[]>`
+            SELECT
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND (
+                          spi.target_id IS NULL
+                          OR c.id IS NULL
+                          OR NOT coalesce(c.is_active, true)
+                          OR c.source_refs->>'review_candidate_id' IS NULL
+                          OR c.source_refs->>'publish_batch_id' IS NULL
+                      )
+                )::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND c.id IS NOT NULL
+                      AND (
+                          c.geom IS NULL
+                          OR NOT ST_IsValid(c.geom)
+                          OR ST_SRID(c.geom) <> 4326
+                          OR ST_GeometryType(c.geom) NOT IN ('ST_Polygon', 'ST_MultiPolygon')
+                      )
+                )::bigint AS invalid_geom
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_map_landuse AS c ON c.id = spi.target_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'landuse'
+        `;
+        const waterLineRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint }[]>`
+            SELECT
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND (
+                          spi.target_id IS NULL
+                          OR c.id IS NULL
+                          OR NOT coalesce(c.is_active, true)
+                          OR c.source_refs->>'review_candidate_id' IS NULL
+                          OR c.source_refs->>'publish_batch_id' IS NULL
+                      )
+                )::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND c.id IS NOT NULL
+                      AND (
+                          c.geom IS NULL
+                          OR NOT ST_IsValid(c.geom)
+                          OR ST_SRID(c.geom) <> 4326
+                          OR ST_GeometryType(c.geom) NOT IN ('ST_LineString', 'ST_MultiLineString')
+                      )
+                )::bigint AS invalid_geom
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_map_water_lines AS c ON c.id = spi.target_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'water_lines'
+        `;
+        const waterPolygonRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint }[]>`
+            SELECT
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND (
+                          spi.target_id IS NULL
+                          OR c.id IS NULL
+                          OR NOT coalesce(c.is_active, true)
+                          OR c.source_refs->>'review_candidate_id' IS NULL
+                          OR c.source_refs->>'publish_batch_id' IS NULL
+                      )
+                )::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND c.id IS NOT NULL
+                      AND (
+                          c.geom IS NULL
+                          OR NOT ST_IsValid(c.geom)
+                          OR ST_SRID(c.geom) <> 4326
+                          OR ST_GeometryType(c.geom) NOT IN ('ST_Polygon', 'ST_MultiPolygon')
+                      )
+                )::bigint AS invalid_geom
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_map_water_polygons AS c ON c.id = spi.target_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'water_polygons'
+        `;
+        const busStopRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint; missing_names: bigint }[]>`
+            SELECT
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND (
+                          spi.target_id IS NULL
+                          OR s.id IS NULL
+                          OR NOT coalesce(s.is_active, true)
+                          OR s.source_refs->>'review_candidate_id' IS NULL
+                          OR s.source_refs->>'publish_batch_id' IS NULL
+                      )
+                )::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND s.id IS NOT NULL
+                      AND (
+                          s.geom IS NULL
+                          OR NOT ST_IsValid(s.geom)
+                          OR ST_SRID(s.geom) <> 4326
+                          OR ST_GeometryType(s.geom) <> 'ST_Point'
+                      )
+                )::bigint AS invalid_geom,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND s.id IS NOT NULL
+                      AND bs.id IS NOT NULL
+                      AND nullif(trim(coalesce(
+                          bs.review_overrides->>'name',
+                          bs.review_overrides->>'name_local',
+                          bs.name,
+                          bs.name_local,
+                          bs.canonical_name,
+                          bs.normalized_data->>'name',
+                          bs.normalized_data->>'name_local',
+                          bs.normalized_data->>'canonical_name',
+                          ''
+                      )), '') IS NOT NULL
+                      AND nullif(trim(coalesce(
+                          bs.review_overrides->>'name',
+                          bs.review_overrides->>'name_local',
+                          bs.name,
+                          bs.name_local,
+                          bs.canonical_name,
+                          bs.normalized_data->>'name',
+                          bs.normalized_data->>'name_local',
+                          bs.normalized_data->>'canonical_name',
+                          ''
+                      )), '') <> nullif(trim(coalesce(
+                          bs.review_overrides->>'stop_code',
+                          bs.stop_code,
+                          bs.normalized_data->>'stop_code',
+                          ''
+                      )), '')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_bus_stop_names AS n WHERE n.stop_id = s.id
+                      )
+                )::bigint AS missing_names
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_bus_stops AS s ON s.id = spi.target_id
+            LEFT JOIN import_review.bus_stop_candidates AS bs ON bs.id = spi.review_candidate_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'bus_stops'
+        `;
         return {
-            missing: Number(buildingRows[0]?.missing ?? 0n) + Number(placeRows[0]?.missing ?? 0n),
+            missing:
+                Number(buildingRows[0]?.missing ?? 0n) +
+                Number(placeRows[0]?.missing ?? 0n) +
+                Number(mapPolygonRows[0]?.missing ?? 0n) +
+                Number(waterLineRows[0]?.missing ?? 0n) +
+                Number(waterPolygonRows[0]?.missing ?? 0n) +
+                Number(busStopRows[0]?.missing ?? 0n),
             invalid_geom:
-                Number(buildingRows[0]?.invalid_geom ?? 0n) + Number(placeRows[0]?.invalid_geom ?? 0n),
-            missing_names: Number(placeRows[0]?.missing_names ?? 0n),
+                Number(buildingRows[0]?.invalid_geom ?? 0n) +
+                Number(placeRows[0]?.invalid_geom ?? 0n) +
+                Number(mapPolygonRows[0]?.invalid_geom ?? 0n) +
+                Number(waterLineRows[0]?.invalid_geom ?? 0n) +
+                Number(waterPolygonRows[0]?.invalid_geom ?? 0n) +
+                Number(busStopRows[0]?.invalid_geom ?? 0n),
+            missing_names:
+                Number(placeRows[0]?.missing_names ?? 0n) + Number(busStopRows[0]?.missing_names ?? 0n),
         };
     }
 
@@ -994,6 +1195,46 @@ export class ImportReviewPromotionPromoteRepository {
                   AND spi.publish_status = 'success'
                   AND p.promotion_status = 'promoted'
                   AND p.promoted_core_id IS NOT NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.landuse_candidates AS lu
+                    ON lu.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${LANDUSE_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND lu.promotion_status = 'promoted'
+                  AND lu.promoted_core_id IS NOT NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.water_line_candidates AS wl
+                    ON wl.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${WATER_LINE_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND wl.promotion_status = 'promoted'
+                  AND wl.promoted_core_id IS NOT NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.water_polygon_candidates AS wp
+                    ON wp.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${WATER_POLYGON_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND wp.promotion_status = 'promoted'
+                  AND wp.promoted_core_id IS NOT NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.bus_stop_candidates AS bs
+                    ON bs.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${BUS_STOP_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND bs.promotion_status = 'promoted'
+                  AND bs.promoted_core_id IS NOT NULL
             ) AS marked
         `;
         return Number(rows[0]?.count ?? 0n);
@@ -1025,6 +1266,24 @@ export class ImportReviewPromotionPromoteRepository {
                 summary = coalesce(summary, '{}'::jsonb) || ${summaryJson}::jsonb
             WHERE id = ${args.batchId}
         `;
+    }
+
+    async syncPublishBatchSummary(batchId: bigint) {
+        return this.publishSummaryRepo.syncPublishBatchSummary(batchId);
+    }
+
+    async syncReviewBatchStatusForPublishBatch(batchId: bigint) {
+        const rows = await this.prisma.$queryRaw<{ source_review_batch_id: bigint | null }[]>`
+            SELECT source_review_batch_id
+            FROM system.system_publish_batches
+            WHERE id = ${batchId}
+            LIMIT 1
+        `;
+        const reviewBatchId = rows[0]?.source_review_batch_id;
+        if (reviewBatchId == null) {
+            return null;
+        }
+        return this.reviewSummaryRepo.syncReviewBatchStatus(reviewBatchId);
     }
 
     async getBatchVerify(batchId: bigint): Promise<ImportReviewPublishBatchVerifyResponse> {
@@ -1119,8 +1378,83 @@ export class ImportReviewPromotionPromoteRepository {
             LEFT JOIN core.core_places AS p ON p.id = spi.target_id
             WHERE spi.publish_batch_id = ${batchId} AND spi.entity_family = 'places'
         `;
+        const busStopCoreIssues = await this.prisma.$queryRaw<
+            { missing: bigint; inactive: bigint; lineage: bigint; geom: bigint; missing_names: bigint }[]
+        >`
+            SELECT
+                count(*) FILTER (WHERE spi.publish_status = 'success' AND s.id IS NULL)::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND s.id IS NOT NULL
+                      AND NOT coalesce(s.is_active, true)
+                )::bigint AS inactive,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND s.id IS NOT NULL
+                      AND (
+                          s.source_refs->>'review_candidate_id' IS NULL
+                          OR s.source_refs->>'publish_batch_id' IS NULL
+                      )
+                )::bigint AS lineage,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND s.id IS NOT NULL
+                      AND (
+                          s.geom IS NULL
+                          OR NOT ST_IsValid(s.geom)
+                          OR ST_SRID(s.geom) <> 4326
+                          OR ST_GeometryType(s.geom) <> 'ST_Point'
+                      )
+                )::bigint AS geom,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND s.id IS NOT NULL
+                      AND bs.id IS NOT NULL
+                      AND nullif(trim(coalesce(
+                          bs.review_overrides->>'name',
+                          bs.review_overrides->>'name_local',
+                          bs.name,
+                          bs.name_local,
+                          bs.canonical_name,
+                          bs.normalized_data->>'name',
+                          bs.normalized_data->>'name_local',
+                          bs.normalized_data->>'canonical_name',
+                          ''
+                      )), '') IS NOT NULL
+                      AND nullif(trim(coalesce(
+                          bs.review_overrides->>'name',
+                          bs.review_overrides->>'name_local',
+                          bs.name,
+                          bs.name_local,
+                          bs.canonical_name,
+                          bs.normalized_data->>'name',
+                          bs.normalized_data->>'name_local',
+                          bs.normalized_data->>'canonical_name',
+                          ''
+                      )), '') <> nullif(trim(coalesce(
+                          bs.review_overrides->>'stop_code',
+                          bs.stop_code,
+                          bs.normalized_data->>'stop_code',
+                          ''
+                      )), '')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_bus_stop_names AS n WHERE n.stop_id = s.id
+                      )
+                )::bigint AS missing_names
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_bus_stops AS s ON s.id = spi.target_id
+            LEFT JOIN import_review.bus_stop_candidates AS bs ON bs.id = spi.review_candidate_id
+            WHERE spi.publish_batch_id = ${batchId} AND spi.entity_family = 'bus_stops'
+        `;
         const bi = buildingCoreIssues[0] ?? { missing: 0n, inactive: 0n, lineage: 0n, geom: 0n };
         const pi = placeCoreIssues[0] ?? {
+            missing: 0n,
+            inactive: 0n,
+            lineage: 0n,
+            geom: 0n,
+            missing_names: 0n,
+        };
+        const bsi = busStopCoreIssues[0] ?? {
             missing: 0n,
             inactive: 0n,
             lineage: 0n,
@@ -1146,15 +1480,24 @@ export class ImportReviewPromotionPromoteRepository {
                   AND spi.publish_status = 'success'
                   AND p.promotion_status = 'promoted'
                   AND p.promoted_core_id IS NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.bus_stop_candidates AS bs ON bs.id = spi.review_candidate_id
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND bs.promotion_status = 'promoted'
+                  AND bs.promoted_core_id IS NULL
             ) AS missing_candidates
         `;
 
         const issues: ImportReviewPublishBatchVerifyResponse["issues"] = [];
-        const missingCore = Number(bi.missing ?? 0n) + Number(pi.missing ?? 0n);
+        const missingCore =
+            Number(bi.missing ?? 0n) + Number(pi.missing ?? 0n) + Number(bsi.missing ?? 0n);
         const missingTarget = Number(ic.success_missing_target ?? 0n);
-        const lineage = Number(bi.lineage ?? 0n) + Number(pi.lineage ?? 0n);
-        const geom = Number(bi.geom ?? 0n) + Number(pi.geom ?? 0n);
-        const missingNames = Number(pi.missing_names ?? 0n);
+        const lineage = Number(bi.lineage ?? 0n) + Number(pi.lineage ?? 0n) + Number(bsi.lineage ?? 0n);
+        const geom = Number(bi.geom ?? 0n) + Number(pi.geom ?? 0n) + Number(bsi.geom ?? 0n);
+        const missingNames = Number(pi.missing_names ?? 0n) + Number(bsi.missing_names ?? 0n);
         const cand = Number(candMissing[0]?.count ?? 0n);
 
         if (missingTarget > 0) {
@@ -1194,8 +1537,8 @@ export class ImportReviewPromotionPromoteRepository {
         }
         if (missingNames > 0) {
             issues.push({
-                code: "place_names_missing",
-                message: `${missingNames} promoted place(s) missing core_place_names rows.`,
+                code: "place_or_bus_stop_names_missing",
+                message: `${missingNames} promoted place(s) or bus stop(s) missing name rows in core.`,
                 severity: "error",
             });
         }
@@ -1215,7 +1558,8 @@ export class ImportReviewPromotionPromoteRepository {
                 success_missing_target_id: missingTarget,
             },
             core_rows_missing: missingCore,
-            core_rows_inactive: Number(bi.inactive ?? 0n) + Number(pi.inactive ?? 0n),
+            core_rows_inactive:
+                Number(bi.inactive ?? 0n) + Number(pi.inactive ?? 0n) + Number(bsi.inactive ?? 0n),
             candidates_promoted_missing_core_id: cand,
             lineage_warnings: lineage,
             geometry_warnings: geom,

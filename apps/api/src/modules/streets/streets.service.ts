@@ -88,6 +88,7 @@ type StreetResponse = {
     deleted_at: Date | string | null;
     last_edited_at: Date | string | null;
     is_active: boolean;
+    is_verified: boolean;
     created_at: Date | string;
     updated_at: Date | string;
     geometry: StreetLineStringGeometry | null;
@@ -159,10 +160,14 @@ export class StreetsService {
             deleted_at: street.deleted_at,
             last_edited_at: street.last_edited_at,
             is_active: street.is_active,
+            is_verified: street.is_verified,
             created_at: street.created_at,
             updated_at: street.updated_at,
             geometry: street.geometry as StreetLineStringGeometry | null,
             names: street.names,
+            name_mm: street.myanmar_name,
+            name_en: street.english_name,
+            fallback_name: street.canonical_name,
             myanmarName: street.myanmar_name,
             englishName: street.english_name,
         };
@@ -171,6 +176,7 @@ export class StreetsService {
     async listStreets(query: StreetsListQuery): Promise<StreetResponse[]> {
         const streets = await this.streetsRepo.listStreets({
             limit: query.limit,
+            offset: query.offset,
             q: query.q,
             sortBy: query.sortBy,
             sortOrder: query.sortOrder,

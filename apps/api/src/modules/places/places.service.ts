@@ -52,6 +52,10 @@ export class PlacesService {
             english_name: place.english_name,
             name_mm: place.myanmar_name,
             name_en: place.english_name,
+            fallback_name:
+                place.display_name?.trim() ||
+                place.primary_name?.trim() ||
+                null,
             display_name: place.display_name,
             category_id: place.category_id.toString(),
             category_name: place.category_name,

@@ -18,9 +18,10 @@ export const busStopsImportReviewEntityConfig = createImportReviewEntityConfig({
     riskLevel: "low",
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
-        { key: "name", label: "Name", source: "row" },
-        { key: "name_local", label: "Name (local)", source: "normalized" },
-        { key: "stop_code", label: "Stop code", source: "normalized", mono: true },
+        { key: "effective_name", label: "Name", source: "row" },
+        { key: "effective_name_local", label: "Name (local)", source: "row" },
+        { key: "effective_stop_code", label: "Stop code", source: "row", mono: true },
+        { key: "effective_admin_area_name", label: "Admin area", source: "row" },
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,
     ],
     searchableFields: ["name", "name_local", "stop_code", "external_id"],

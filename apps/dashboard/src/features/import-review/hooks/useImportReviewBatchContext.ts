@@ -156,69 +156,83 @@ export function useImportReviewBatchContext(
     );
 
     useEffect(() => {
-        setAmbiguousBatches(null);
-        setAmbiguousSnapshot("");
-        setError("");
-
-        if (!urlScopeQuery) {
-            setResolvedScope(null);
-            setIsLoadingBatchContext(false);
-            return;
-        }
-
-        if ("review_batch_id" in urlScopeQuery) {
-            setResolvedScope(urlScopeQuery);
-            setIsLoadingBatchContext(false);
-            return;
-        }
-
-        if (!resolveSnapshotScope) {
-            setResolvedScope(urlScopeQuery);
-            setIsLoadingBatchContext(false);
-            return;
-        }
-
-        const apiScope = importReviewScopeQueryForApi(urlScopeQuery);
-        if (!apiScope) {
-            setResolvedScope(null);
-            setIsLoadingBatchContext(false);
-            return;
-        }
-
         const controller = new AbortController();
-        setIsLoadingBatchContext(true);
+        let active = true;
 
-        void getImportReviewSummaryClient(apiScope, { signal: controller.signal })
-            .then((summary) => {
-                const batchId = summary.review_batch_id?.trim();
-                if (batchId) {
-                    setResolvedScope({ review_batch_id: batchId });
-                } else {
-                    setResolvedScope(urlScopeQuery);
-                }
-            })
-            .catch((err) => {
-                if (isAbortError(err)) {
-                    return;
-                }
-                const ambiguous = importReviewAmbiguousFromError(err);
-                if (ambiguous) {
-                    setAmbiguousBatches(ambiguous.batches);
-                    setAmbiguousSnapshot(ambiguous.sourceSnapshotVersion || urlSnapshot);
-                    setResolvedScope(null);
-                    setError("");
-                    return;
-                }
+        queueMicrotask(() => {
+            if (!active) {
+                return;
+            }
+
+            setAmbiguousBatches(null);
+            setAmbiguousSnapshot("");
+            setError("");
+
+            if (!urlScopeQuery) {
                 setResolvedScope(null);
-                setError(formatImportReviewApiError(err, "Failed to resolve review batch context."));
-            })
-            .finally(() => {
-                if (!controller.signal.aborted) {
-                    setIsLoadingBatchContext(false);
-                }
-            });
+                setIsLoadingBatchContext(false);
+                return;
+            }
 
-        return () => controller.abort();
+            if ("review_batch_id" in urlScopeQuery) {
+                setResolvedScope(urlScopeQuery);
+                setIsLoadingBatchContext(false);
+                return;
+            }
+
+            if (!resolveSnapshotScope) {
+                setResolvedScope(urlScopeQuery);
+                setIsLoadingBatchContext(false);
+                return;
+            }
+
+            const apiScope = importReviewScopeQueryForApi(urlScopeQuery);
+            if (!apiScope) {
+                setResolvedScope(null);
+                setIsLoadingBatchContext(false);
+                return;
+            }
+
+            setIsLoadingBatchContext(true);
+
+            void getImportReviewSummaryClient(apiScope, { signal: controller.signal })
+                .then((summary) => {
+                    if (!active) {
+                        return;
+                    }
+                    const batchId = summary.review_batch_id?.trim();
+                    if (batchId) {
+                        setResolvedScope({ review_batch_id: batchId });
+                    } else {
+                        setResolvedScope(urlScopeQuery);
+                    }
+                })
+                .catch((err) => {
+                    if (!active || isAbortError(err)) {
+                        return;
+                    }
+                    const ambiguous = importReviewAmbiguousFromError(err);
+                    if (ambiguous) {
+                        setAmbiguousBatches(ambiguous.batches);
+                        setAmbiguousSnapshot(ambiguous.sourceSnapshotVersion || urlSnapshot);
+                        setResolvedScope(null);
+                        setError("");
+                        return;
+                    }
+                    setResolvedScope(null);
+                    setError(formatImportReviewApiError(err, "Failed to resolve review batch context."));
+                })
+                .finally(() => {
+                    if (active && !controller.signal.aborted) {
+                        setIsLoadingBatchContext(false);
+                    }
+                });
+        });
+
+        return () => {
+            active = false;
+            controller.abort();
+        };
     }, [urlScopeQuery, urlSnapshot, resolveSnapshotScope]);
 
     const apiScopeQuery = useMemo(() => {

@@ -40,6 +40,36 @@ const HYBRID_OFF_LAYERS = new Set([
     "buildings",
 ]);
 
+/** PMTiles base layers in merged dashboard editor style (`fetchDashboardPlaceMapStyle`). */
+export const DASHBOARD_MERGED_BASE_MAP_LAYERS = [
+    "basemap-background",
+    "basemap-landuse",
+    "basemap-water-polygons",
+    "basemap-water-lines",
+] as const;
+
+/** Hidden in pure satellite on merged editor maps; roads/POI stay for hybrid/map. */
+export const DASHBOARD_MERGED_SATELLITE_HIDE_VECTOR_LAYERS = [
+    "basemap-admin-boundaries",
+    "basemap-road-casing",
+    "basemap-road-fill",
+    "basemap-buildings",
+    "bus-routes",
+    "streets-casing",
+    "streets-line",
+    "places-poi",
+    "bus-stops",
+    "road-labels",
+    "place-labels",
+] as const;
+
+const SATELLITE_INSERT_BEFORE_CANDIDATES = [
+    "landuse",
+    "basemap-landuse",
+    "basemap-background",
+    "basemap-water-polygons",
+] as const;
+
 function setLayerVisibility(map: maplibregl.Map, layerId: string, visible: boolean) {
     if (!map.getLayer(layerId)) {
         return;
@@ -75,6 +105,36 @@ export function applyDataReviewBasemapMode(map: maplibregl.Map, mode: DataReview
     }
 }
 
+/** Merged dashboard editor style (buildings, streets, place pickers with Martin layers). */
+export function applyDashboardMergedBasemapMode(map: maplibregl.Map, mode: DataReviewBasemapMode) {
+    if (!map.getLayer(DATA_REVIEW_SATELLITE_LAYER_ID)) {
+        return;
+    }
+
+    const imageryOn = mode !== "map";
+    const hideBaseMap = imageryOn;
+    const hideVectorOverlays = mode === "satellite";
+
+    setLayerVisibility(map, DATA_REVIEW_SATELLITE_LAYER_ID, imageryOn);
+
+    for (const id of DASHBOARD_MERGED_BASE_MAP_LAYERS) {
+        setLayerVisibility(map, id, !hideBaseMap);
+    }
+
+    for (const id of DASHBOARD_MERGED_SATELLITE_HIDE_VECTOR_LAYERS) {
+        setLayerVisibility(map, id, !hideVectorOverlays);
+    }
+}
+
+function satelliteInsertBeforeId(map: maplibregl.Map): string | undefined {
+    for (const id of SATELLITE_INSERT_BEFORE_CANDIDATES) {
+        if (map.getLayer(id)) {
+            return id;
+        }
+    }
+    return undefined;
+}
+
 export function ensureDataReviewSatelliteLayer(map: maplibregl.Map) {
     if (map.getSource(DATA_REVIEW_SATELLITE_SOURCE_ID)) {
         return;
@@ -90,7 +150,7 @@ export function ensureDataReviewSatelliteLayer(map: maplibregl.Map) {
     });
 
     if (!map.getLayer(DATA_REVIEW_SATELLITE_LAYER_ID)) {
-        const beforeId = map.getLayer("landuse") ? "landuse" : undefined;
+        const beforeId = satelliteInsertBeforeId(map);
         map.addLayer(
             {
                 id: DATA_REVIEW_SATELLITE_LAYER_ID,

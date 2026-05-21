@@ -50,7 +50,7 @@ export const REF_ADMIN_AREA_ID: RefDropdownFieldConfig = {
     refSource: "core_admin_areas",
     valueKey: "id",
     labelKey: "name",
-    notes: "Future endpoint; not wired in import-review UI yet.",
+    notes: "Uses GET /admin-areas/options via AdminAreaCombobox in override editor.",
 };
 
 export const REF_SOURCE_TYPE_ID: RefDropdownFieldConfig = {
