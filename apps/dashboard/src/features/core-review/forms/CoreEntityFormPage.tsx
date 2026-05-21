@@ -17,7 +17,6 @@ import {
     prepareLocalStreetGeometryForSave,
 } from "@/src/features/streets/streetSaveLocalChecks";
 import {
-    deleteStreet,
     getPlaceFormOptions,
     validateStreetGeometry,
     type PlaceDetail,
@@ -44,6 +43,8 @@ import CoreEntityWriteApiBanner from "./CoreEntityWriteApiBanner";
 import CoreFormActions from "./CoreFormActions";
 import CorePlaceCoordinatesField from "./CorePlaceCoordinatesField";
 import CoreReadonlyMetadata from "./CoreReadonlyMetadata";
+import CoreReviewEntityFormLifecycleActions from "../lifecycle/CoreReviewEntityFormLifecycleActions";
+import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
 import StreetEditExtras, { type StreetSplitMapProps } from "./StreetEditExtras";
 import { collectRefSources, useCoreEntityRefs } from "./useCoreEntityRefs";
 
@@ -109,8 +110,8 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
 
     const roadClassId = watch("road_class_id") as string | undefined;
     const editReason = watch("edit_reason") as string | undefined;
-    const isDeleted =
-        mode === "edit" && entityKey === "streets" && Boolean((detail as Street | null)?.deleted_at);
+    const isRecordDeleted =
+        mode === "edit" && detail ? isCoreReviewRowDeleted(detail) : false;
 
     const handleStreetSplitMapPropsChange = useCallback((props: StreetSplitMapProps) => {
         setStreetSplitMapProps(props);
@@ -163,28 +164,6 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
             mounted = false;
         };
     }, [entityKey, mode, setValue]);
-
-    const handleSoftDeleteStreet = useCallback(async () => {
-        if (entityKey !== "streets" || !id || !detail) {
-            return;
-        }
-        const reason = String(editReason ?? "").trim();
-        if (!window.confirm("Soft-delete this street? It will be hidden from default lists.")) {
-            return;
-        }
-
-        setIsSaving(true);
-        setSaveError(null);
-        try {
-            await deleteStreet(id, reason ? { edit_reason: reason } : undefined);
-            await reloadDetail();
-            setSaveSuccess("Street soft-deleted.");
-        } catch (err) {
-            setSaveError(sanitizeSaveError(err));
-        } finally {
-            setIsSaving(false);
-        }
-    }, [detail, editReason, entityKey, id, reloadDetail]);
 
     const onSubmit = handleSubmit(async (values) => {
         if (!config.writeApiAvailable) {
@@ -352,7 +331,7 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
                   : null
             : null;
 
-    const formDisabled = !config.writeApiAvailable || isDeleted || isSaving;
+    const formDisabled = !config.writeApiAvailable || isRecordDeleted || isSaving;
     const showPointCoordinates = config.geometry?.geometryType === "point";
 
     const selectedStreetName =
@@ -420,10 +399,34 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
             backHref={config.listRoute}
             backLabel={`Back to ${config.labelPlural.toLowerCase()}`}
             onSubmit={config.writeApiAvailable ? (e) => void onSubmit(e) : undefined}
+            headerActions={
+                mode === "edit" && id ? (
+                    <CoreReviewEntityFormLifecycleActions
+                        entityKey={entityKey}
+                        recordId={id}
+                        detail={detail}
+                        listRoute={config.listRoute}
+                        onReload={reloadDetail}
+                        onSuccess={(message) => {
+                            setSaveError(null);
+                            setSaveSuccess(message);
+                        }}
+                        onError={(message) => {
+                            setSaveSuccess(null);
+                            setSaveError(message);
+                        }}
+                    />
+                ) : undefined
+            }
             headerNotice={
                 <>
                     {!config.writeApiAvailable ? <CoreEntityWriteApiBanner /> : null}
                     {config.formNotice ?? null}
+                    {isRecordDeleted ? (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                            This record is soft-deleted. Restore it to edit fields or save changes again.
+                        </div>
+                    ) : null}
                 </>
             }
             mapSection={mapSection}
@@ -483,14 +486,13 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
                             streetId={id}
                             isSaving={isSaving}
                             editReason={String(editReason ?? "")}
-                            onSoftDelete={() => void handleSoftDeleteStreet()}
                             onSplitMapPropsChange={handleStreetSplitMapPropsChange}
                             onReload={reloadDetail}
                         />
                     ) : null}
                 </>
             }
-            fullWidthSection={
+            leftColumnBelowMapSection={
                 mode === "edit" && entityKey === "places" && placeDetail ? (
                     <PlaceLinkedBuildingsPanel
                         placePublicId={placeDetail.public_id}

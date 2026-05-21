@@ -1,5 +1,10 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import {
+    coreReviewListStatusClause,
+    type CoreReviewListStatus,
+} from "../core-review/core-review-list-status.js";
+
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
 export type ListPlacesParams = {
@@ -11,12 +16,18 @@ export type ListPlacesParams = {
     admin_area_id?: bigint;
     is_public?: boolean;
     is_verified?: boolean;
+    status?: CoreReviewListStatus;
     sortBy: "name" | "category" | "admin_area" | "created" | "updated" | "updated_at";
     sortOrder: "asc" | "desc";
 };
 
 function placesListConditions(params: ListPlacesParams): Prisma.Sql[] {
-    const conditions: Prisma.Sql[] = [Prisma.sql`p.deleted_at IS NULL`];
+    const conditions: Prisma.Sql[] = [
+        coreReviewListStatusClause("p", params.status ?? "active", {
+            hasDeletedAt: true,
+            hasIsActive: false,
+        }),
+    ];
 
     if (params.is_public !== undefined) {
         conditions.push(Prisma.sql`p.is_public = ${params.is_public}`);
@@ -248,7 +259,10 @@ export class PlacesRepository {
     }
 
     async countPlaces(
-        params: Pick<ListPlacesParams, "q" | "category" | "category_id" | "admin_area_id" | "is_public" | "is_verified">
+        params: Pick<
+            ListPlacesParams,
+            "q" | "category" | "category_id" | "admin_area_id" | "is_public" | "is_verified" | "status"
+        >
     ): Promise<number> {
         const conditions = placesListConditions({
             ...params,
@@ -335,8 +349,13 @@ export class PlacesRepository {
 
     async getPlaceDetailByPublicId(
         publicId: string,
-        db: DbClient = this.prisma
+        db: DbClient = this.prisma,
+        options: { anyStatus?: boolean } = {}
     ): Promise<PlaceDetailRow | null> {
+        const statusClause = options.anyStatus
+            ? Prisma.sql`TRUE`
+            : Prisma.sql`p.deleted_at IS NULL`;
+
         const rows = await db.$queryRaw<PlaceDetailRow[]>(Prisma.sql`
             SELECT
                 p.id,
@@ -373,11 +392,23 @@ export class PlacesRepository {
             LEFT JOIN LATERAL (${enNameLateralSql()}) en_name ON true
             LEFT JOIN LATERAL (${placeNamesJsonAggSql()}) place_names ON true
             WHERE p.public_id = CAST(${publicId} AS uuid)
-              AND p.deleted_at IS NULL
+              AND ${statusClause}
             LIMIT 1
         `);
 
         return rows[0] ?? null;
+    }
+
+    async restorePlaceByPublicId(publicId: string): Promise<boolean> {
+        const updated = await this.prisma.$executeRaw(Prisma.sql`
+            UPDATE core.core_places
+            SET
+                deleted_at = NULL,
+                updated_at = now()
+            WHERE public_id = CAST(${publicId} AS uuid)
+              AND deleted_at IS NOT NULL
+        `);
+        return Number(updated) > 0;
     }
 
     async getPlaceFormOptions(): Promise<PlaceFormOptionsRow> {

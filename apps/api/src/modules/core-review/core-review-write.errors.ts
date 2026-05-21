@@ -16,3 +16,10 @@ export class CoreReviewNotFoundError extends Error {
         this.name = "CoreReviewNotFoundError";
     }
 }
+
+export class CoreReviewLifecycleNotSupportedError extends Error {
+    constructor(message = "Soft delete is not supported for this entity") {
+        super(message);
+        this.name = "CoreReviewLifecycleNotSupportedError";
+    }
+}

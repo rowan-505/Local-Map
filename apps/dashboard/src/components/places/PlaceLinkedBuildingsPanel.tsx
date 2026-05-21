@@ -1,8 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
-import { type GeoJSONSource, type Map as MaplibreMap, type MapLayerMouseEvent } from "maplibre-gl";
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type MutableRefObject,
+} from "react";
+import type { FeatureCollection, Geometry } from "geojson";
+import type { Map as MaplibreMap } from "maplibre-gl";
 
+import { getGeometryBounds } from "@/src/components/core-review/geometry";
+import { fitMapToReviewCandidate } from "@/src/components/map/dataReviewBasemap";
 import { useClientMounted } from "@/src/hooks/useClientMounted";
 import {
     BUILDINGS_LIST_LIMIT,
@@ -13,9 +23,16 @@ import {
     patchPlaceBuildingLink,
     unlinkBuildingFromPlace,
     type Building,
+    type BuildingGeometry,
     type LinkedBuildingSummaryApi,
     type PlaceBuildingRelationType,
 } from "@/src/lib/api";
+import {
+    clearPlaceLinkOverlays,
+    ensurePlaceLinkMapLayers,
+    setPlaceLinkSelected,
+    type PlaceLinkSelectedProperties,
+} from "@/src/lib/map/placeLinkedBuildingOverlays";
 
 type PlaceLinkedBuildingsPanelProps = {
     placePublicId: string;
@@ -26,10 +43,6 @@ type PlaceLinkedBuildingsPanelProps = {
 };
 
 const RELATION_OPTIONS: PlaceBuildingRelationType[] = ["inside", "entrance", "nearby", "compound"];
-
-const HL_SOURCE = "place-linked-building-highlight";
-const HL_FILL = "place-linked-building-highlight-fill";
-const HL_LINE = "place-linked-building-highlight-line";
 
 /** Rough radius when search box is empty (sorted nearest first). */
 const NEARBY_KM = 12;
@@ -97,65 +110,77 @@ function buildingCentroid(
     return n ? { lng: sumLng / n, lat: sumLat / n } : null;
 }
 
-function readPublicIdFromMvtProps(props: unknown): string | null {
-    if (!props || typeof props !== "object") {
+function formatDistanceKm(km: number): string {
+    if (km < 1) {
+        return `${Math.round(km * 1000)} m`;
+    }
+    return `${km.toFixed(1)} km`;
+}
+
+function isBoundsOutsideViewport(
+    map: MaplibreMap,
+    bounds: [[number, number], [number, number]],
+): boolean {
+    const [[west, south], [east, north]] = bounds;
+    const viewport = map.getBounds();
+    return !viewport.contains([west, south]) || !viewport.contains([east, north]);
+}
+
+function emptySelectedFeatureCollection(): FeatureCollection<Geometry, PlaceLinkSelectedProperties> {
+    return { type: "FeatureCollection", features: [] };
+}
+
+function resolveSelectedGeometry(
+    pickedPublicId: string | null,
+    pickedBuilding: Building | null,
+    searchResults: Building[],
+    linkedGeometries: Record<string, BuildingGeometry>,
+): BuildingGeometry | null {
+    if (!pickedPublicId) {
         return null;
     }
 
-    const o = props as Record<string, unknown>;
-    const raw = o.public_id ?? o.PUBLIC_ID ?? o.Public_id;
-
-    if (typeof raw === "string" && raw.length > 0) {
-        return raw;
-    }
-
-    if (typeof raw === "number") {
-        return String(raw);
-    }
-
-    return null;
+    return (
+        pickedBuilding?.geometry ??
+        searchResults.find((building) => building.public_id === pickedPublicId)?.geometry ??
+        linkedGeometries[pickedPublicId] ??
+        null
+    );
 }
 
-function ensureHighlightLayers(map: MaplibreMap) {
-    if (!map.getSource(HL_SOURCE)) {
-        map.addSource(HL_SOURCE, {
-            type: "geojson",
-            data: { type: "FeatureCollection", features: [] },
-        });
-    }
-
-    if (!map.getLayer(HL_FILL)) {
-        map.addLayer({
-            id: HL_FILL,
-            type: "fill",
-            source: HL_SOURCE,
-            paint: {
-                "fill-color": "#f59e0b",
-                "fill-opacity": 0.35,
+function selectedBuildingToFeatureCollection(building: {
+    public_id: string;
+    geometry: BuildingGeometry;
+}): FeatureCollection<Geometry, PlaceLinkSelectedProperties> {
+    return {
+        type: "FeatureCollection",
+        features: [
+            {
+                type: "Feature",
+                properties: { public_id: building.public_id },
+                geometry: building.geometry as Geometry,
             },
-        });
-    }
-
-    if (!map.getLayer(HL_LINE)) {
-        map.addLayer({
-            id: HL_LINE,
-            type: "line",
-            source: HL_SOURCE,
-            paint: {
-                "line-color": "#b45309",
-                "line-width": 2,
-            },
-        });
-    }
+        ],
+    };
 }
 
-function clearHighlightLayers(map: MaplibreMap | null) {
-    if (!map?.isStyleLoaded()) {
+function runWhenPlaceLinkMapReady(map: MaplibreMap, run: () => void): void {
+    const execute = () => {
+        if (!map.isStyleLoaded()) {
+            return;
+        }
+        if (!ensurePlaceLinkMapLayers(map)) {
+            return;
+        }
+        run();
+    };
+
+    if (map.isStyleLoaded()) {
+        execute();
         return;
     }
 
-    const src = map.getSource(HL_SOURCE) as GeoJSONSource | undefined;
-    src?.setData({ type: "FeatureCollection", features: [] });
+    map.once("load", execute);
 }
 
 export default function PlaceLinkedBuildingsPanel({
@@ -165,6 +190,7 @@ export default function PlaceLinkedBuildingsPanel({
     hostMapRef,
 }: PlaceLinkedBuildingsPanelProps) {
     const [linked, setLinked] = useState<LinkedBuildingSummaryApi[]>([]);
+    const [linkedGeometries, setLinkedGeometries] = useState<Record<string, BuildingGeometry>>({});
     const [loadError, setLoadError] = useState("");
     const [busy, setBusy] = useState(false);
     const [actionError, setActionError] = useState("");
@@ -180,6 +206,8 @@ export default function PlaceLinkedBuildingsPanel({
 
     const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const placeCoordsRef = useRef({ lat: placeLat, lng: placeLng });
+    const linkedGeometriesRef = useRef<Record<string, BuildingGeometry>>({});
+    const candidateRowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
     const clientMounted = useClientMounted();
 
     useEffect(() => {
@@ -202,111 +230,141 @@ export default function PlaceLinkedBuildingsPanel({
         void loadLinked();
     }, [loadLinked]);
 
-    const linkedIds = linked.map((l) => l.building.public_id);
+    const linkedIds = useMemo(() => linked.map((l) => l.building.public_id), [linked]);
 
-    const setHighlightGeometry = useCallback(
-        (building: Building | null) => {
-            const map = hostMapRef?.current ?? null;
+    const candidateDistances = useMemo(() => {
+        const map = new Map<string, number>();
+        for (const building of searchResults) {
+            const centroid = buildingCentroid(building.geometry);
+            if (!centroid) {
+                continue;
+            }
+            map.set(
+                building.public_id,
+                haversineKm(placeLat, placeLng, centroid.lat, centroid.lng),
+            );
+        }
+        return map;
+    }, [placeLat, placeLng, searchResults]);
 
-            if (!map?.isStyleLoaded()) {
+    useEffect(() => {
+        linkedGeometriesRef.current = linkedGeometries;
+    }, [linkedGeometries]);
+
+    useEffect(() => {
+        if (linked.length === 0) {
+            setLinkedGeometries({});
+            return;
+        }
+
+        let cancelled = false;
+        const linkedPublicIds = linked.map((row) => row.building.public_id);
+
+        void (async () => {
+            const missing = linkedPublicIds.filter(
+                (publicId) => !linkedGeometriesRef.current[publicId],
+            );
+            if (missing.length === 0) {
+                setLinkedGeometries((prev) => {
+                    const next: Record<string, BuildingGeometry> = {};
+                    for (const publicId of linkedPublicIds) {
+                        if (prev[publicId]) {
+                            next[publicId] = prev[publicId];
+                        }
+                    }
+                    return next;
+                });
                 return;
             }
 
-            ensureHighlightLayers(map);
-            const src = map.getSource(HL_SOURCE) as GeoJSONSource | undefined;
+            const fetched = await Promise.all(
+                missing.map(async (publicId) => {
+                    try {
+                        const building = await getBuilding(publicId);
+                        return building.geometry
+                            ? ({ publicId, geometry: building.geometry } as const)
+                            : null;
+                    } catch {
+                        return null;
+                    }
+                }),
+            );
 
-            if (!src) {
+            if (cancelled) {
                 return;
             }
 
-            if (!building?.geometry) {
-                src.setData({ type: "FeatureCollection", features: [] });
-                return;
-            }
-
-            src.setData({
-                type: "FeatureCollection",
-                features: [
-                    {
-                        type: "Feature",
-                        properties: {},
-                        geometry: building.geometry as GeoJSON.Geometry,
-                    },
-                ],
+            setLinkedGeometries((prev) => {
+                const next: Record<string, BuildingGeometry> = {};
+                for (const publicId of linkedPublicIds) {
+                    if (prev[publicId]) {
+                        next[publicId] = prev[publicId];
+                    }
+                }
+                for (const row of fetched) {
+                    if (row) {
+                        next[row.publicId] = row.geometry;
+                    }
+                }
+                return next;
             });
-        },
-        [hostMapRef],
-    );
+        })();
 
-    /** Attach MVT building picks to the host place map when available. */
+        return () => {
+            cancelled = true;
+        };
+    }, [linked]);
+
+    const syncMapOverlays = useCallback(() => {
+        const map = hostMapRef?.current ?? null;
+        if (!map) {
+            return;
+        }
+
+        runWhenPlaceLinkMapReady(map, () => {
+            const selectedGeometry = resolveSelectedGeometry(
+                pickedPublicId,
+                pickedBuilding,
+                searchResults,
+                linkedGeometries,
+            );
+
+            if (pickedPublicId && selectedGeometry) {
+                setPlaceLinkSelected(
+                    map,
+                    selectedBuildingToFeatureCollection({
+                        public_id: pickedPublicId,
+                        geometry: selectedGeometry,
+                    }),
+                );
+            } else {
+                setPlaceLinkSelected(map, emptySelectedFeatureCollection());
+            }
+        });
+    }, [
+        hostMapRef,
+        linkedGeometries,
+        pickedBuilding,
+        pickedPublicId,
+        searchResults,
+    ]);
+
+    useEffect(() => {
+        if (!hostMapRef) {
+            return;
+        }
+        syncMapOverlays();
+    }, [hostMapRef, syncMapOverlays]);
+
     useEffect(() => {
         if (!hostMapRef) {
             return;
         }
 
-        let attachedMap: MaplibreMap | null = null;
-        let pickHandlersAttached = false;
-
-        const onBuildingLayerClick = (event: MapLayerMouseEvent) => {
-            const feature = event.features?.[0];
-            const pid = readPublicIdFromMvtProps(feature?.properties);
-
-            if (!pid) {
-                return;
-            }
-
-            setPickedPublicId(pid);
-            setActionError("");
-        };
-
-        const onMouseEnterBuildings = () => {
-            attachedMap?.getCanvas().style.setProperty("cursor", "pointer");
-        };
-
-        const onMouseLeaveBuildings = () => {
-            attachedMap?.getCanvas().style.setProperty("cursor", "");
-        };
-
-        const attachPickHandlers = (map: MaplibreMap) => {
-            if (pickHandlersAttached || !map.getLayer("basemap-buildings")) {
-                return;
-            }
-
-            pickHandlersAttached = true;
-            attachedMap = map;
-            map.on("click", "basemap-buildings", onBuildingLayerClick);
-            map.on("mouseenter", "basemap-buildings", onMouseEnterBuildings);
-            map.on("mouseleave", "basemap-buildings", onMouseLeaveBuildings);
-        };
-
-        const tryAttach = () => {
-            const map = hostMapRef.current;
-            if (!map) {
-                return;
-            }
-
-            if (map.isStyleLoaded() && map.getLayer("basemap-buildings")) {
-                attachPickHandlers(map);
-                return;
-            }
-
-            map.once("idle", () => attachPickHandlers(map));
-        };
-
-        tryAttach();
-        const interval = window.setInterval(tryAttach, 400);
-        const mapForCleanup = hostMapRef.current;
+        const map = hostMapRef.current;
 
         return () => {
-            window.clearInterval(interval);
-
-            if (attachedMap) {
-                attachedMap.off("click", "basemap-buildings", onBuildingLayerClick);
-                attachedMap.off("mouseenter", "basemap-buildings", onMouseEnterBuildings);
-                attachedMap.off("mouseleave", "basemap-buildings", onMouseLeaveBuildings);
-            }
-
-            clearHighlightLayers(mapForCleanup);
+            clearPlaceLinkOverlays(map);
         };
     }, [hostMapRef, placePublicId]);
 
@@ -373,7 +431,6 @@ export default function PlaceLinkedBuildingsPanel({
     useEffect(() => {
         if (!pickedPublicId) {
             setPickedBuilding(null);
-            setHighlightGeometry(null);
             return;
         }
 
@@ -382,14 +439,48 @@ export default function PlaceLinkedBuildingsPanel({
         void getBuilding(pickedPublicId).then((b) => {
             if (!cancelled) {
                 setPickedBuilding(b);
-                setHighlightGeometry(b);
             }
         });
 
         return () => {
             cancelled = true;
         };
-    }, [pickedPublicId, setHighlightGeometry]);
+    }, [pickedPublicId]);
+
+    useEffect(() => {
+        if (!pickedPublicId) {
+            return;
+        }
+
+        const row = candidateRowRefs.current.get(pickedPublicId);
+        row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, [pickedPublicId]);
+
+    const handleCandidateRowClick = useCallback(
+        (building: Building) => {
+            setPickedPublicId(building.public_id);
+            setActionError("");
+
+            const map = hostMapRef?.current ?? null;
+            if (!map || !building.geometry) {
+                return;
+            }
+
+            const bounds = getGeometryBounds(building.geometry);
+            if (bounds && isBoundsOutsideViewport(map, bounds)) {
+                fitMapToReviewCandidate(map, building.geometry, "polygon", { duration: 550 });
+            }
+        },
+        [hostMapRef],
+    );
+
+    const handleFitSelectedBuilding = useCallback(() => {
+        const map = hostMapRef?.current ?? null;
+        if (!map || !pickedBuilding?.geometry) {
+            return;
+        }
+        fitMapToReviewCandidate(map, pickedBuilding.geometry, "polygon", { duration: 550 });
+    }, [hostMapRef, pickedBuilding]);
 
     async function handleAttach() {
         if (!pickedPublicId) {
@@ -419,7 +510,6 @@ export default function PlaceLinkedBuildingsPanel({
             setPickedPublicId(null);
             setPickedBuilding(null);
             setAttachAsPrimary(false);
-            setHighlightGeometry(null);
         } catch (error) {
             setActionError(error instanceof Error ? error.message : "Failed to attach");
         } finally {
@@ -437,7 +527,6 @@ export default function PlaceLinkedBuildingsPanel({
 
             if (pickedPublicId === buildingPublicId) {
                 setPickedPublicId(null);
-                setHighlightGeometry(null);
             }
         } catch (error) {
             setActionError(error instanceof Error ? error.message : "Failed to detach");
@@ -483,16 +572,16 @@ export default function PlaceLinkedBuildingsPanel({
 
     return (
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-5 py-4">
+            <div className="border-b border-slate-100 px-4 py-3">
                 <h3 className="text-base font-semibold text-slate-900">Linked buildings</h3>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-0.5 text-sm text-slate-600">
                     Optional footprint links for this place. POIs never require a building.
                 </p>
             </div>
 
-            <div className="space-y-6 p-5">
+            <div className="space-y-5 p-4">
                 {loadError ? (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                         {loadError}{" "}
                         <button type="button" className="ml-1 font-medium underline" onClick={() => void loadLinked()}>
                             Retry
@@ -501,52 +590,53 @@ export default function PlaceLinkedBuildingsPanel({
                 ) : null}
 
                 {actionError ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                         {actionError}
                     </div>
                 ) : null}
 
-                <section className="space-y-3">
+                <section className="space-y-2">
                     <h4 className="text-sm font-semibold text-slate-900">Currently linked</h4>
                     {linked.length === 0 ? (
-                        <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center text-sm text-slate-600">
+                        <p className="rounded-md border border-dashed border-slate-200 bg-slate-50/80 px-3 py-4 text-center text-sm text-slate-600">
                             No buildings linked yet.
                         </p>
                     ) : (
-                        <ul className="space-y-3">
+                        <ul className="space-y-2">
                             {linked.map((row) => (
                                 <li
                                     key={row.building.public_id}
-                                    className="rounded-lg border border-slate-200 bg-slate-50/60 p-4"
+                                    className="rounded-md border border-slate-200 bg-slate-50/60 p-3"
                                 >
-                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                        <div className="min-w-0 flex-1 space-y-1">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <span className="font-medium text-slate-900">
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                        <div className="min-w-0 flex-1 space-y-0.5">
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                <span className="text-sm font-medium text-slate-900">
                                                     {buildingDisplayLabel(row.building)}
                                                 </span>
                                                 {row.is_primary ? (
-                                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900">
+                                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
                                                         Primary
                                                     </span>
                                                 ) : null}
+                                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium capitalize text-slate-700">
+                                                    {row.relation_type}
+                                                </span>
                                             </div>
                                             <p className="text-xs text-slate-600">
-                                                Admin area: {formatBuildingAdminCanonical(row.building.admin_area)}
+                                                {formatBuildingAdminCanonical(row.building.admin_area)}
                                             </p>
-                                            <p className="font-mono text-xs text-slate-500">
-                                                {row.building.public_id}
+                                            <p className="font-mono text-[11px] text-slate-500">
+                                                {row.building.public_id.slice(0, 8)}
                                                 {typeof row.building.area_m2 === "number"
                                                     ? ` · ${Math.round(row.building.area_m2)} m²`
                                                     : null}
                                             </p>
                                         </div>
 
-                                        <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-                                            <label className="flex items-center gap-2 text-sm text-slate-700">
-                                                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                                                    Relation
-                                                </span>
+                                        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+                                            <label className="flex items-center gap-1.5 text-xs text-slate-700">
+                                                <span className="font-medium text-slate-500">Relation</span>
                                                 <select
                                                     value={row.relation_type as PlaceBuildingRelationType}
                                                     disabled={busy}
@@ -556,7 +646,7 @@ export default function PlaceLinkedBuildingsPanel({
                                                             event.target.value as PlaceBuildingRelationType,
                                                         )
                                                     }
-                                                    className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                                                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900"
                                                 >
                                                     {RELATION_OPTIONS.map((option) => (
                                                         <option key={option} value={option}>
@@ -566,26 +656,24 @@ export default function PlaceLinkedBuildingsPanel({
                                                 </select>
                                             </label>
 
-                                            <div className="flex flex-wrap gap-2">
-                                                {!row.is_primary ? (
-                                                    <button
-                                                        type="button"
-                                                        disabled={busy}
-                                                        className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
-                                                        onClick={() => void handleSetPrimary(row.building.public_id)}
-                                                    >
-                                                        Set primary
-                                                    </button>
-                                                ) : null}
+                                            {!row.is_primary ? (
                                                 <button
                                                     type="button"
                                                     disabled={busy}
-                                                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                                                    onClick={() => void handleDetach(row.building.public_id)}
+                                                    className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                                                    onClick={() => void handleSetPrimary(row.building.public_id)}
                                                 >
-                                                    Detach
+                                                    Set primary
                                                 </button>
-                                            </div>
+                                            ) : null}
+                                            <button
+                                                type="button"
+                                                disabled={busy}
+                                                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                                                onClick={() => void handleDetach(row.building.public_id)}
+                                            >
+                                                Detach
+                                            </button>
                                         </div>
                                     </div>
                                 </li>
@@ -594,24 +682,23 @@ export default function PlaceLinkedBuildingsPanel({
                     )}
                 </section>
 
-                <section className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+                <section className="space-y-3 border-t border-slate-100 pt-4">
                     <div>
                         <h4 className="text-sm font-semibold text-slate-900">Attach a building</h4>
-                        <p className="mt-1 text-sm text-slate-600">
+                        <p className="mt-0.5 text-sm text-slate-600">
                             {hostMapRef
                                 ? "Select a building from the main map or search below."
                                 : "Search for a building below to attach."}
-                            {/* TODO: Unify building pick overlays on PlaceEditModal main map when that form is refactored. */}
                         </p>
                     </div>
 
                     <label className="block text-sm text-slate-700">
-                        <span className="font-medium">Search buildings</span>
+                        <span className="text-xs font-medium text-slate-600">Search buildings</span>
                         <input
                             type="search"
                             value={searchQ}
                             onChange={(event) => setSearchQ(event.target.value)}
-                            className="mt-1.5 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+                            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm"
                             placeholder="Name or building type — leave empty for nearby"
                             autoComplete="off"
                         />
@@ -619,32 +706,57 @@ export default function PlaceLinkedBuildingsPanel({
 
                     <div className="max-h-52 overflow-auto rounded-md border border-slate-200 bg-white">
                         {searchBusy ? (
-                            <div className="px-4 py-3 text-sm text-slate-600">Searching…</div>
+                            <div className="px-3 py-2 text-sm text-slate-600">Searching…</div>
                         ) : searchResults.length === 0 ? (
-                            <div className="px-4 py-3 text-sm text-slate-500">No buildings found.</div>
+                            <div className="px-3 py-2 text-sm text-slate-500">No buildings found.</div>
                         ) : (
                             searchResults.map((building) => {
                                 const linkedHere = linkedIds.includes(building.public_id);
                                 const isSelected = pickedPublicId === building.public_id;
+                                const distanceKm = candidateDistances.get(building.public_id);
 
                                 return (
                                     <button
                                         key={building.public_id}
+                                        ref={(element) => {
+                                            if (element) {
+                                                candidateRowRefs.current.set(building.public_id, element);
+                                            } else {
+                                                candidateRowRefs.current.delete(building.public_id);
+                                            }
+                                        }}
                                         type="button"
                                         disabled={linkedHere}
-                                        className={`block w-full border-b border-slate-100 px-4 py-3 text-left last:border-b-0 ${
-                                            isSelected ? "bg-amber-50" : "hover:bg-slate-50"
+                                        className={`block w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 ${
+                                            isSelected
+                                                ? "bg-indigo-50 ring-1 ring-inset ring-indigo-300"
+                                                : "hover:bg-slate-50"
                                         } disabled:cursor-not-allowed disabled:opacity-50`}
-                                        onClick={() => setPickedPublicId(building.public_id)}
+                                        onClick={() => handleCandidateRowClick(building)}
                                     >
-                                        <span className="block text-sm font-medium text-slate-900">
-                                            {buildingDisplayLabel(building)}
-                                        </span>
+                                        <div className="flex items-start justify-between gap-2">
+                                            <span className="text-sm font-medium text-slate-900">
+                                                {buildingDisplayLabel(building)}
+                                            </span>
+                                            {isSelected ? (
+                                                <span className="shrink-0 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-900">
+                                                    Selected
+                                                </span>
+                                            ) : null}
+                                        </div>
                                         <span className="mt-0.5 block text-xs text-slate-600">
                                             {formatBuildingAdminCanonical(building.admin_area)}
+                                            {typeof distanceKm === "number"
+                                                ? ` · ${formatDistanceKm(distanceKm)}`
+                                                : null}
+                                            {typeof building.area_m2 === "number"
+                                                ? ` · ${Math.round(building.area_m2)} m²`
+                                                : null}
                                         </span>
-                                        <span className="mt-0.5 block font-mono text-xs text-slate-500">
-                                            {linkedHere ? "(already linked)" : building.public_id.slice(0, 8)}
+                                        <span className="mt-0.5 block font-mono text-[11px] text-slate-500">
+                                            {linkedHere
+                                                ? "(already linked)"
+                                                : building.public_id.slice(0, 8)}
                                         </span>
                                     </button>
                                 );
@@ -652,15 +764,15 @@ export default function PlaceLinkedBuildingsPanel({
                         )}
                     </div>
 
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-3 sm:grid-cols-2">
                         <label className="block text-sm text-slate-700">
-                            <span className="font-medium">Relation type</span>
+                            <span className="text-xs font-medium text-slate-600">Relation type</span>
                             <select
                                 value={attachRelation}
                                 onChange={(event) =>
                                     setAttachRelation(event.target.value as PlaceBuildingRelationType)
                                 }
-                                className="mt-1.5 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900"
                             >
                                 {RELATION_OPTIONS.map((option) => (
                                     <option key={option} value={option}>
@@ -670,7 +782,7 @@ export default function PlaceLinkedBuildingsPanel({
                             </select>
                         </label>
 
-                        <label className="flex items-end gap-2 pb-2 text-sm text-slate-700">
+                        <label className="flex items-end gap-2 pb-1 text-sm text-slate-700">
                             <input
                                 type="checkbox"
                                 checked={attachAsPrimary}
@@ -682,12 +794,28 @@ export default function PlaceLinkedBuildingsPanel({
                     </div>
 
                     {pickedBuilding ? (
-                        <p className="text-sm text-slate-700">
-                            Selected:{" "}
-                            <span className="font-medium text-slate-900">
-                                {buildingDisplayLabel(pickedBuilding)}
+                        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                            <span>
+                                Selected:{" "}
+                                <span className="font-medium text-slate-900">
+                                    {buildingDisplayLabel(pickedBuilding)}
+                                </span>
+                                {linkedIds.includes(pickedBuilding.public_id) ? (
+                                    <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
+                                        Linked
+                                    </span>
+                                ) : null}
                             </span>
-                        </p>
+                            {hostMapRef && pickedBuilding.geometry ? (
+                                <button
+                                    type="button"
+                                    onClick={handleFitSelectedBuilding}
+                                    className="rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-900 hover:bg-sky-100"
+                                >
+                                    Fit selected building
+                                </button>
+                            ) : null}
+                        </div>
                     ) : pickedPublicId ? (
                         <p className="text-sm text-slate-600">Loading building…</p>
                     ) : null}

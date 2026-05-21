@@ -12,6 +12,8 @@ import {
     getCoreReviewListSchema,
     postCoreReviewEntitySchema,
     patchCoreReviewEntitySchema,
+    patchCoreReviewSoftDeleteSchema,
+    patchCoreReviewRestoreSchema,
 } from "./core-review.openapi.js";
 import {
     EDIT_CORE_REVIEW_ROLES,
@@ -21,6 +23,7 @@ import {
     normalizeGeometryAliases,
 } from "./core-review-write.schema.js";
 import {
+    CoreReviewLifecycleNotSupportedError,
     CoreReviewNotFoundError,
     CoreReviewValidationError,
 } from "./core-review-write.errors.js";
@@ -51,6 +54,68 @@ function replyCoreReviewWriteError(
 
 function canEditCoreReview(request: FastifyRequest): boolean {
     return request.user.roles.some((role) => EDIT_CORE_REVIEW_ROLES.has(role));
+}
+
+async function handleCoreReviewLifecycle(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    service: CoreReviewService,
+    operation: "soft-delete" | "restore",
+) {
+    const paramsParsed = coreReviewEntityIdParamSchema.safeParse(request.params);
+    if (!paramsParsed.success) {
+        return reply.code(400).send({
+            message: "Invalid path parameters",
+            issues: paramsParsed.error.flatten(),
+        });
+    }
+
+    const def = getCoreReviewEntityByPath(paramsParsed.data.entity);
+    if (!def) {
+        return reply.code(404).send({ message: "Unknown core-review entity" });
+    }
+
+    if (!canEditCoreReview(request)) {
+        return reply.code(403).send({ message: "Admin or editor role required" });
+    }
+
+    try {
+        const result =
+            operation === "soft-delete"
+                ? await service.softDelete(def.path, paramsParsed.data.id, request.user)
+                : await service.restore(def.path, paramsParsed.data.id, request.user);
+
+        request.log.info(
+            { entity: def.slug, operation, id: paramsParsed.data.id },
+            `core-review ${operation}`,
+        );
+        return reply.send(result);
+    } catch (error) {
+        if (error instanceof CoreReviewNotFoundError) {
+            return reply.code(404).send({ message: error.message });
+        }
+        if (error instanceof CoreReviewLifecycleNotSupportedError) {
+            return reply.code(400).send({ message: error.message });
+        }
+        if (error instanceof CoreReviewValidationError) {
+            request.log.info(
+                {
+                    entity: def.slug,
+                    operation,
+                    id: paramsParsed.data.id,
+                    validationIssues: error.issues,
+                },
+                `core-review ${operation} rejected`,
+            );
+            return reply.code(400).send({ message: error.message, issues: error.issues });
+        }
+        return replyCoreReviewWriteError(
+            request,
+            reply,
+            error,
+            `core-review ${operation} failed`,
+        );
+    }
 }
 
 const coreReviewRoutes: FastifyPluginAsync = async (app) => {
@@ -289,6 +354,24 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
                 return replyCoreReviewWriteError(request, reply, error, "core-review update failed");
             }
         },
+    );
+
+    app.patch(
+        "/:entity/:id/soft-delete",
+        {
+            preHandler: app.authenticate,
+            schema: patchCoreReviewSoftDeleteSchema,
+        },
+        async (request, reply) => handleCoreReviewLifecycle(request, reply, service, "soft-delete"),
+    );
+
+    app.patch(
+        "/:entity/:id/restore",
+        {
+            preHandler: app.authenticate,
+            schema: patchCoreReviewRestoreSchema,
+        },
+        async (request, reply) => handleCoreReviewLifecycle(request, reply, service, "restore"),
     );
 };
 

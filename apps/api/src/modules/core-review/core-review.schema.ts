@@ -50,12 +50,15 @@ export const coreReviewEntityIdParamSchema = z.object({
     id: z.string().trim().min(1),
 });
 
+export const coreReviewListStatusSchema = z.enum(["active", "deleted", "all"]);
+
 export const coreReviewListQuerySchema = z.object({
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(50),
     search: optionalSearchSchema,
     sortBy: z.string().trim().min(1).optional(),
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
+    status: coreReviewListStatusSchema.optional(),
     isVerified: optionalBooleanSchema,
     adminAreaId: optionalBigintIdSchema,
     categoryId: optionalBigintIdSchema,

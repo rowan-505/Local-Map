@@ -54,7 +54,7 @@ const FILTER_STREETS: CoreReviewFilterSupport = {
     buildingTypeId: false,
     roadClassId: true,
     isPublic: false,
-    includeDeleted: true,
+    includeDeleted: false,
     routeId: false,
 };
 

@@ -14,6 +14,10 @@ import {
 import { listApiSortOrder } from "@/src/lib/listToolbarSortOrder";
 
 import type { CoreReviewFilterSupport } from "../config/entity-config-types";
+import {
+    parseCoreReviewStatusFilter,
+    type CoreReviewLifecycleStatusFilter,
+} from "../lifecycle/coreReviewLifecycleUtils";
 
 export type CoreReviewVerifiedFilter = "all" | "verified" | "unverified";
 
@@ -23,12 +27,12 @@ export type CoreReviewListDraft = {
     arrange: DataTableArrange;
     pageSize: number;
     verifiedFilter: CoreReviewVerifiedFilter;
+    statusFilter: CoreReviewLifecycleStatusFilter;
     adminAreaId: string;
     categoryId: string;
     buildingTypeId: string;
     roadClassId: string;
     isPublic: string;
-    includeDeleted: boolean;
     routeId: string;
 };
 
@@ -88,7 +92,10 @@ function readDraftFromSearchParams(
         buildingTypeId: searchParams.get("buildingTypeId")?.trim() ?? "",
         roadClassId: searchParams.get("roadClassId")?.trim() ?? "",
         isPublic: searchParams.get("isPublic")?.trim() ?? "",
-        includeDeleted: searchParams.get("includeDeleted") === "true",
+        statusFilter: parseCoreReviewStatusFilter(
+            searchParams.get("status"),
+            searchParams.get("includeDeleted") === "true"
+        ),
         routeId: searchParams.get("routeId")?.trim() ?? "",
     };
 }
@@ -129,8 +136,8 @@ export function buildListParamsFromDraft(
     if (filterSupport.isPublic && draft.isPublic !== "") {
         params.isPublic = draft.isPublic === "true";
     }
-    if (filterSupport.includeDeleted && draft.includeDeleted) {
-        params.includeDeleted = true;
+    if (draft.statusFilter !== "active") {
+        params.status = draft.statusFilter;
     }
     if (filterSupport.routeId && draft.routeId) {
         params.routeId = draft.routeId;
@@ -168,8 +175,8 @@ function draftToUrlParams(draft: CoreReviewListDraft, page: number): Record<stri
     if (draft.isPublic !== "") {
         p.isPublic = draft.isPublic;
     }
-    if (draft.includeDeleted) {
-        p.includeDeleted = "true";
+    if (draft.statusFilter !== "active") {
+        p.status = draft.statusFilter;
     }
     if (draft.routeId) {
         p.routeId = draft.routeId;

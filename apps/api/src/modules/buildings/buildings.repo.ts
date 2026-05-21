@@ -1,6 +1,10 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import {
+    coreReviewListStatusClause,
+    type CoreReviewListStatus,
+} from "../core-review/core-review-list-status.js";
+import {
     buildingClassCodeCoalesceSql,
     buildingClassCodeSelectSql,
     buildingNameLabelSelectSql,
@@ -148,12 +152,21 @@ export type ActiveBuildingsListParams = {
     is_verified?: boolean;
     admin_area_id?: bigint;
     building_type_id?: bigint;
+    status?: CoreReviewListStatus;
 };
 
 function activeBuildingsWhereClause(
-    params: Pick<ActiveBuildingsListParams, "q" | "is_verified" | "admin_area_id" | "building_type_id">
+    params: Pick<
+        ActiveBuildingsListParams,
+        "q" | "is_verified" | "admin_area_id" | "building_type_id" | "status"
+    >
 ): Prisma.Sql {
-    const parts: Prisma.Sql[] = [Prisma.sql`b.deleted_at IS NULL`, Prisma.sql`b.is_active IS TRUE`];
+    const parts: Prisma.Sql[] = [
+        coreReviewListStatusClause("b", params.status ?? "active", {
+            hasDeletedAt: true,
+            hasIsActive: true,
+        }),
+    ];
 
     if (params.q !== undefined) {
         parts.push(Prisma.sql`(
@@ -384,8 +397,16 @@ export class BuildingsRepository {
     /** GET /buildings/:id — any active row (imports + dashboard). */
     async getActiveBuildingByPublicId(
         publicId: string,
-        db: DbClient = this.prisma
+        db: DbClient = this.prisma,
+        options: { anyStatus?: boolean } = {}
     ): Promise<BuildingDetailRow | null> {
+        const lifecycleClause = options.anyStatus
+            ? Prisma.sql`TRUE`
+            : coreReviewListStatusClause("b", "active", {
+                  hasDeletedAt: true,
+                  hasIsActive: true,
+              });
+
         const rows = await db.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
             SELECT
                 b.id::text AS id,
@@ -423,12 +444,24 @@ export class BuildingsRepository {
             LEFT JOIN ref.ref_building_types AS bt ON bt.id = b.building_type_id
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
             WHERE b.public_id = CAST(${publicId} AS uuid)
-              AND b.deleted_at IS NULL
-              AND b.is_active IS TRUE
+              AND (${lifecycleClause})
             LIMIT 1
         `);
 
         return rows[0] ?? null;
+    }
+
+    async restoreBuildingByPublicId(publicId: string): Promise<boolean> {
+        const updated = await this.prisma.$executeRaw(Prisma.sql`
+            UPDATE core.core_map_buildings AS b
+            SET
+                deleted_at = NULL,
+                is_active = TRUE,
+                updated_at = NOW()
+            WHERE b.public_id = CAST(${publicId} AS uuid)
+              AND (b.deleted_at IS NOT NULL OR b.is_active IS FALSE)
+        `);
+        return Number(updated) > 0;
     }
 
     async getDashboardBuildingByPublicId(

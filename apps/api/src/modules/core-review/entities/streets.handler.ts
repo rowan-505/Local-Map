@@ -1,5 +1,6 @@
 import { StreetsRepository, type ListStreetsParams } from "../../streets/streets.repo.js";
 import { buildDetailResponse, buildListResponse, pageToOffset } from "../core-review.pagination.js";
+import { resolveCoreReviewListStatus } from "../core-review-list-status.js";
 import { serializeCoreReviewStreet } from "../core-review-serializers.js";
 import type { CoreReviewListQueryParsed } from "../core-review.schema.js";
 import { resolveCoreReviewSortBy, type CoreReviewEntityDefinition } from "../core-review.entity-registry.js";
@@ -11,9 +12,11 @@ export async function listCoreReviewStreets(
 ) {
     const offset = pageToOffset(query.page, query.pageSize);
     const sortBy = resolveCoreReviewSortBy(def, query.sortBy) as ListStreetsParams["sortBy"];
+    const listStatus = resolveCoreReviewListStatus(query);
     const filterParams = {
         q: query.search,
-        include_deleted: query.includeDeleted ?? false,
+        include_deleted: listStatus === "all",
+        status: listStatus,
         is_verified: query.isVerified,
         admin_area_id: query.adminAreaId ? BigInt(query.adminAreaId) : undefined,
         road_class_id: query.roadClassId ? BigInt(query.roadClassId) : undefined,
@@ -41,13 +44,18 @@ export async function listCoreReviewStreets(
             adminAreaId: query.adminAreaId,
             roadClassId: query.roadClassId,
             includeDeleted: query.includeDeleted,
+            status: listStatus,
         },
         meta: { entity: "streets", sortBy, sortOrder: query.sortOrder },
     });
 }
 
-export async function getCoreReviewStreetDetail(repo: StreetsRepository, id: string) {
-    const row = await repo.getStreetByPublicId(id);
+export async function getCoreReviewStreetDetail(
+    repo: StreetsRepository,
+    id: string,
+    options: { anyStatus?: boolean } = {}
+) {
+    const row = await repo.getStreetByPublicId(id, undefined, options);
     if (!row) {
         return null;
     }

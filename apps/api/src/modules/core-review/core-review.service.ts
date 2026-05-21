@@ -25,6 +25,8 @@ import { CoreReviewGenericWriteService } from "./core-review-generic-write.servi
 import { createCoreReviewBuilding, updateCoreReviewBuilding } from "./entities/buildings-write.handler.js";
 import { createCoreReviewPlace, updateCoreReviewPlace } from "./entities/places-write.handler.js";
 import { createCoreReviewStreet, updateCoreReviewStreet } from "./entities/streets-write.handler.js";
+import { CoreReviewLifecycleService } from "./core-review-lifecycle.service.js";
+import { resolveCoreReviewListStatus } from "./core-review-list-status.js";
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
 
 function toListParams(
@@ -45,12 +47,14 @@ function toListParams(
         routeId: query.routeId ? BigInt(query.routeId) : undefined,
         isPublic: query.isPublic,
         parentAdminAreaId: query.adminAreaId ? BigInt(query.adminAreaId) : undefined,
+        status: resolveCoreReviewListStatus(query),
     };
 }
 
 function filterEcho(query: CoreReviewListQueryParsed): Record<string, unknown> {
     return {
         search: query.search,
+        status: resolveCoreReviewListStatus(query),
         isVerified: query.isVerified,
         adminAreaId: query.adminAreaId,
         categoryId: query.categoryId,
@@ -94,6 +98,7 @@ export class CoreReviewService {
     private readonly streetsService: StreetsService;
     private readonly entitiesRepo: CoreReviewEntitiesRepository;
     private readonly genericWriteService: CoreReviewGenericWriteService;
+    private readonly lifecycleService: CoreReviewLifecycleService;
 
     constructor(prisma: PrismaClient) {
         this.buildingsRepo = new BuildingsRepository(prisma);
@@ -104,6 +109,15 @@ export class CoreReviewService {
         this.streetsService = new StreetsService(this.streetsRepo);
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
         this.genericWriteService = new CoreReviewGenericWriteService(prisma);
+        this.lifecycleService = new CoreReviewLifecycleService(prisma);
+    }
+
+    softDelete(entityPath: string, id: string, user?: JwtUser) {
+        return this.lifecycleService.softDelete(entityPath, id, user);
+    }
+
+    restore(entityPath: string, id: string, user?: JwtUser) {
+        return this.lifecycleService.restore(entityPath, id, user);
     }
 
     list(entityPath: string, query: CoreReviewListQueryParsed) {

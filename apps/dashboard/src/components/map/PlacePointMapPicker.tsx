@@ -21,6 +21,7 @@ import {
     placeLatLngToLiveFeatureCollection,
     type PlaceLiveOverlayLabelProps,
 } from "@/src/lib/map/liveOverlays";
+import { isPlaceLinkOverlayHit } from "@/src/lib/map/placeLinkedBuildingOverlays";
 
 type PlacePointMapPickerProps = {
     lat: number | null;
@@ -104,6 +105,9 @@ export default function PlacePointMapPicker({
             }
 
             map.on("click", (event) => {
+                if (isPlaceLinkOverlayHit(map, event.point)) {
+                    return;
+                }
                 onChange({
                     lat: roundCoord(event.lngLat.lat),
                     lng: roundCoord(event.lngLat.lng),

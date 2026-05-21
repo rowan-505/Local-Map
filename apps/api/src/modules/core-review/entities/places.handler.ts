@@ -1,5 +1,6 @@
 import { PlacesRepository, type ListPlacesParams } from "../../places/places.repo.js";
 import { buildDetailResponse, buildListResponse, pageToOffset } from "../core-review.pagination.js";
+import { resolveCoreReviewListStatus } from "../core-review-list-status.js";
 import { serializeCoreReviewPlace } from "../core-review-serializers.js";
 import type { CoreReviewListQueryParsed } from "../core-review.schema.js";
 import { resolveCoreReviewSortBy, type CoreReviewEntityDefinition } from "../core-review.entity-registry.js";
@@ -17,6 +18,7 @@ export async function listCoreReviewPlaces(
         admin_area_id: query.adminAreaId ? BigInt(query.adminAreaId) : undefined,
         is_public: query.isPublic,
         is_verified: query.isVerified,
+        status: resolveCoreReviewListStatus(query),
     };
 
     const [rows, total] = await Promise.all([
@@ -41,13 +43,18 @@ export async function listCoreReviewPlaces(
             adminAreaId: query.adminAreaId,
             categoryId: query.categoryId,
             isPublic: query.isPublic,
+            status: resolveCoreReviewListStatus(query),
         },
         meta: { entity: "places", sortBy, sortOrder: query.sortOrder },
     });
 }
 
-export async function getCoreReviewPlaceDetail(repo: PlacesRepository, id: string) {
-    const row = await repo.getPlaceDetailByPublicId(id);
+export async function getCoreReviewPlaceDetail(
+    repo: PlacesRepository,
+    id: string,
+    options: { anyStatus?: boolean } = {}
+) {
+    const row = await repo.getPlaceDetailByPublicId(id, undefined, options);
     if (!row) {
         return null;
     }

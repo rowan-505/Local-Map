@@ -8,18 +8,14 @@ import { CoreReviewLoadingCard, CoreReviewSuccessBanner } from "@/src/components
 import CoreReviewPageShell from "@/src/components/core-review/CoreReviewPageShell";
 import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
-import { deletePlace } from "@/src/lib/api";
-import { dashDevLog } from "@/src/lib/dashDevLog";
 
 import CoreReviewEntityPage from "../components/CoreReviewEntityPage";
 import { CORE_REVIEW_PLACES_CONFIG } from "../config/entity-configs";
-import type { CoreReviewPlaceRow } from "../config/types";
 
 function CoreReviewPlacesPageInner() {
     const searchParams = useSearchParams();
     const { bumpPlaceTileVersion } = useDashboardTileVersions();
     const [successMessage, setSuccessMessage] = useState("");
-    const [isDeleting, setIsDeleting] = useState(false);
     const editPlaceOpenId = searchParams.get("editPlace");
 
     useEffect(() => {
@@ -48,44 +44,6 @@ function CoreReviewPlacesPageInner() {
                 >
                     Add Place
                 </Link>
-            ),
-            renderDrawerActions: ({
-                row,
-                close,
-                reloadList,
-            }: {
-                row: CoreReviewPlaceRow;
-                close: () => void;
-                reloadList: () => void;
-            }) => (
-                <>
-                    <button
-                        type="button"
-                        disabled={isDeleting}
-                        onClick={async () => {
-                            if (!window.confirm(`Delete "${row.displayName}"?`)) {
-                                return;
-                            }
-                            setIsDeleting(true);
-                            try {
-                                await deletePlace(row.publicId);
-                                dashDevLog("place:list:delete-success", { public_id: row.publicId });
-                                bumpPlaceTileVersion();
-                                close();
-                                reloadList();
-                                setSuccessMessage("Place deleted successfully.");
-                            } catch (err) {
-                                setSuccessMessage("");
-                                alert(err instanceof Error ? err.message : "Failed to delete place");
-                            } finally {
-                                setIsDeleting(false);
-                            }
-                        }}
-                        className="rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-                    >
-                        {isDeleting ? "Deleting…" : "Delete"}
-                    </button>
-                </>
             ),
             wrapPage: (content: ReactNode) => (
                 <>

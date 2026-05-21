@@ -1,5 +1,10 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import {
+    coreReviewListStatusClause,
+    type CoreReviewListStatus,
+} from "../core-review/core-review-list-status.js";
+
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
 export class StreetCrudValidationError extends Error {
@@ -15,11 +20,22 @@ export type ListStreetsParams = {
     q?: string;
     sortBy: "name" | "admin_area" | "created" | "updated" | "updated_at";
     sortOrder: "asc" | "desc";
+    /** @deprecated Prefer status; true maps to status=all */
     include_deleted: boolean;
+    status?: CoreReviewListStatus;
     is_verified?: boolean;
     admin_area_id?: bigint;
     road_class_id?: bigint;
 };
+
+export function resolveStreetsListStatus(
+    params: Pick<ListStreetsParams, "status" | "include_deleted">
+): CoreReviewListStatus {
+    if (params.status !== undefined) {
+        return params.status;
+    }
+    return params.include_deleted ? "all" : "active";
+}
 
 /** GeoJSON LineString payload for dashboard CRUD only. */
 export type StreetCenterlineGeoJson =
@@ -180,14 +196,15 @@ function streetsListOrderBy(sortBy: ListStreetsParams["sortBy"], sortOrder: List
     }
 }
 
-function deletedFilter(includeDeleted: boolean): Prisma.Sql {
-    return includeDeleted ? Prisma.sql`TRUE` : Prisma.sql`s.deleted_at IS NULL`;
-}
-
 function streetsListFilterClauses(
-    params: Pick<ListStreetsParams, "q" | "include_deleted" | "is_verified" | "admin_area_id" | "road_class_id">
+    params: Pick<ListStreetsParams, "q" | "include_deleted" | "status" | "is_verified" | "admin_area_id" | "road_class_id">
 ): Prisma.Sql[] {
-    const clauses: Prisma.Sql[] = [deletedFilter(params.include_deleted)];
+    const clauses: Prisma.Sql[] = [
+        coreReviewListStatusClause("s", resolveStreetsListStatus(params), {
+            hasDeletedAt: true,
+            hasIsActive: true,
+        }),
+    ];
 
     if (params.q !== undefined) {
         clauses.push(Prisma.sql`(
@@ -566,10 +583,15 @@ export class StreetsRepository {
     async getStreetByPublicId(
         publicId: string,
         db: DbClient = this.prisma,
-        options: { includeDeleted?: boolean } = {},
+        options: { includeDeleted?: boolean; anyStatus?: boolean } = {},
     ): Promise<StreetRow | null> {
-        const delClause =
-            options.includeDeleted === true ? Prisma.sql`TRUE` : Prisma.sql`s.deleted_at IS NULL`;
+        const lifecycleClause =
+            options.anyStatus === true || options.includeDeleted === true
+                ? Prisma.sql`TRUE`
+                : coreReviewListStatusClause("s", "active", {
+                      hasDeletedAt: true,
+                      hasIsActive: true,
+                  });
 
         const rows = await db.$queryRaw<StreetRow[]>(Prisma.sql`
             SELECT
@@ -608,7 +630,7 @@ export class StreetsRepository {
                 ON rc.id = s.road_class_id
             LEFT JOIN LATERAL (${streetNamesJsonSql()}) AS street_names ON true
             WHERE s.public_id = CAST(${publicId} AS uuid)
-              AND ${delClause}
+              AND (${lifecycleClause})
             LIMIT 1
         `);
 
@@ -839,7 +861,37 @@ export class StreetsRepository {
                 return null;
             }
 
-            return this.getStreetByPublicId(publicId, tx, { includeDeleted: true });
+            return this.getStreetByPublicId(publicId, tx, { anyStatus: true });
+        });
+    }
+
+    async restoreStreet(publicId: string, context?: StreetMutationContext): Promise<StreetRow | null> {
+        const existing = await this.getStreetByPublicId(publicId, this.prisma, { anyStatus: true });
+        if (!existing || (existing.deleted_at === null && existing.is_active)) {
+            return null;
+        }
+
+        return this.prisma.$transaction(async (tx) => {
+            await applyStreetVersioningSession(tx, context);
+
+            const updatedCount = await tx.$executeRaw(Prisma.sql`
+                UPDATE core.core_streets
+                SET
+                    is_active = true,
+                    deleted_at = null,
+                    updated_at = now(),
+                    last_edited_at = now(),
+                    manual_override = true,
+                    routing_status = 'needs_rebuild'
+                WHERE public_id = CAST(${publicId} AS uuid)
+                  AND (deleted_at IS NOT NULL OR is_active IS FALSE)
+            `);
+
+            if (Number(updatedCount) === 0) {
+                return null;
+            }
+
+            return this.getStreetByPublicId(publicId, tx, { anyStatus: true });
         });
     }
 

@@ -18,8 +18,11 @@ export type CoreEntityFormShellProps = {
     fieldsSection: ReactNode;
     metadataSection?: ReactNode;
     extrasSection?: ReactNode;
-    /** Spans full width below the map/attributes grid (e.g. linked buildings on place edit). */
+    /** Renders directly below the map in the left column (e.g. linked buildings on place edit). */
+    leftColumnBelowMapSection?: ReactNode;
+    /** Spans full width below the map/attributes grid. */
     fullWidthSection?: ReactNode;
+    headerActions?: ReactNode;
     actions: ReactNode;
 };
 
@@ -35,7 +38,9 @@ export default function CoreEntityFormShell({
     fieldsSection,
     metadataSection,
     extrasSection,
+    leftColumnBelowMapSection,
     fullWidthSection,
+    headerActions,
     actions,
 }: CoreEntityFormShellProps) {
     const hasMap = Boolean(mapSection);
@@ -50,21 +55,30 @@ export default function CoreEntityFormShell({
                     >
                         ← {backLabel}
                     </Link>
-                    <h1 className="mt-3 text-2xl font-bold text-slate-900">{title}</h1>
-                    {description ? <p className="mt-1 text-sm text-slate-600">{description}</p> : null}
+                    <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
+                            {description ? (
+                                <p className="mt-1 text-sm text-slate-600">{description}</p>
+                            ) : null}
+                        </div>
+                        {headerActions ? (
+                            <div className="flex shrink-0 flex-wrap items-center gap-2">{headerActions}</div>
+                        ) : null}
+                    </div>
                     {headerNotice ? <div className="mt-4">{headerNotice}</div> : null}
                 </div>
 
-                <form className="space-y-6" onSubmit={onSubmit}>
+                <form className="space-y-5 pb-24 lg:space-y-6" onSubmit={onSubmit}>
                     {hasMap ? (
-                        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:items-start">
-                            <div className="min-w-0 space-y-4">
-                                <h2 className="text-lg font-semibold text-slate-900">Map</h2>
+                        <div className="grid gap-5 lg:grid-cols-12 lg:items-start lg:gap-6">
+                            <div className="min-w-0 space-y-5 lg:col-span-7 lg:space-y-6">
                                 {mapSection}
+                                {leftColumnBelowMapSection}
                                 {validationSection}
                             </div>
 
-                            <div className="min-w-0 space-y-4">
+                            <div className="min-w-0 space-y-5 lg:col-span-5 lg:space-y-6">
                                 <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                                     <h2 className="mb-4 text-lg font-semibold text-slate-900">Attributes</h2>
                                     <div className="space-y-4">{fieldsSection}</div>

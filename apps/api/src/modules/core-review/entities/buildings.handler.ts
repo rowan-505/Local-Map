@@ -3,6 +3,7 @@ import {
     type ActiveBuildingsListParams,
 } from "../../buildings/buildings.repo.js";
 import { buildDetailResponse, buildListResponse, pageToOffset } from "../core-review.pagination.js";
+import { resolveCoreReviewListStatus } from "../core-review-list-status.js";
 import { serializeCoreReviewBuilding } from "../core-review-serializers.js";
 import type { CoreReviewListQueryParsed } from "../core-review.schema.js";
 import { resolveCoreReviewSortBy, type CoreReviewEntityDefinition } from "../core-review.entity-registry.js";
@@ -19,6 +20,7 @@ export async function listCoreReviewBuildings(
         is_verified: query.isVerified,
         admin_area_id: query.adminAreaId ? BigInt(query.adminAreaId) : undefined,
         building_type_id: query.buildingTypeId ? BigInt(query.buildingTypeId) : undefined,
+        status: resolveCoreReviewListStatus(query),
     };
 
     const [rows, total] = await Promise.all([
@@ -42,13 +44,18 @@ export async function listCoreReviewBuildings(
             isVerified: query.isVerified,
             adminAreaId: query.adminAreaId,
             buildingTypeId: query.buildingTypeId,
+            status: resolveCoreReviewListStatus(query),
         },
         meta: { entity: "buildings", sortBy, sortOrder: query.sortOrder },
     });
 }
 
-export async function getCoreReviewBuildingDetail(repo: BuildingsRepository, id: string) {
-    const row = await repo.getActiveBuildingByPublicId(id);
+export async function getCoreReviewBuildingDetail(
+    repo: BuildingsRepository,
+    id: string,
+    options: { anyStatus?: boolean } = {}
+) {
+    const row = await repo.getActiveBuildingByPublicId(id, undefined, options);
     if (!row) {
         return null;
     }

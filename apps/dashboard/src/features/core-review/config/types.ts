@@ -30,6 +30,7 @@ export type CoreReviewBuildingRow = {
     confidenceScore: number | null;
     isVerified: boolean;
     isActive: boolean;
+    deletedAt?: string | null;
     createdAt: string | null;
     updatedAt: string | null;
     geometry: ImportReviewGeoJson | null;
@@ -93,6 +94,7 @@ export type CoreReviewBusStopRow = {
     adminAreaName: string | null;
     isActive: boolean;
     isVerified: boolean;
+    deletedAt?: string | null;
     createdAt: string | null;
     updatedAt: string | null;
     geometry: ImportReviewGeoJson | null;
@@ -108,6 +110,7 @@ export type CoreReviewBusRouteRow = {
     variantCount?: number;
     isActive: boolean;
     isVerified: boolean;
+    deletedAt?: string | null;
     createdAt: string | null;
     updatedAt: string | null;
 };
@@ -124,6 +127,7 @@ export type CoreReviewBusRouteVariantRow = {
     distanceM: number | null;
     isActive: boolean;
     isVerified: boolean;
+    deletedAt?: string | null;
     geometry: ImportReviewGeoJson | null;
 };
 
@@ -134,6 +138,7 @@ export type CoreReviewLanduseRow = {
     classCode: string | null;
     isActive: boolean;
     isVerified: boolean;
+    deletedAt?: string | null;
     createdAt: string | null;
     updatedAt: string | null;
     geometry: ImportReviewGeoJson | null;
@@ -151,6 +156,7 @@ export type CoreReviewAddressRow = {
     adminAreaName: string | null;
     isPublic: boolean;
     isVerified: boolean;
+    deletedAt?: string | null;
     createdAt: string | null;
     updatedAt: string | null;
     geometry: ImportReviewGeoJson | null;
@@ -166,6 +172,7 @@ export type CoreReviewAdminAreaRow = {
     adminLevelId: string | null;
     isActive: boolean;
     isVerified: boolean;
+    deletedAt?: string | null;
     createdAt: string | null;
     updatedAt: string | null;
     geometry: ImportReviewGeoJson | null;

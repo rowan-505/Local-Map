@@ -2697,6 +2697,8 @@ export type CoreReviewDetailResponse<T> = {
     data: T;
 };
 
+export type CoreReviewListStatus = "active" | "deleted" | "all";
+
 /** Query params for GET /core-review/:entity (camelCase; matches API Zod schema). */
 export type CoreReviewListParams = {
     page?: number;
@@ -2710,7 +2712,9 @@ export type CoreReviewListParams = {
     buildingTypeId?: string;
     roadClassId?: string;
     isPublic?: boolean;
+    /** @deprecated Prefer `status`. When true, maps to `status=all` in list state. */
     includeDeleted?: boolean;
+    status?: CoreReviewListStatus;
     routeId?: string;
 };
 
@@ -2766,5 +2770,25 @@ export function updateCoreReviewEntity<T = Record<string, unknown>>(
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
         },
+    ).then((response) => response.data);
+}
+
+export function softDeleteCoreReviewEntity<T = Record<string, unknown>>(
+    entity: CoreReviewEntitySlug,
+    id: string,
+) {
+    return apiFetch<CoreReviewDetailResponse<T>>(
+        `/core-review/${entity}/${encodeURIComponent(id)}/soft-delete`,
+        { method: "PATCH" },
+    ).then((response) => response.data);
+}
+
+export function restoreCoreReviewEntity<T = Record<string, unknown>>(
+    entity: CoreReviewEntitySlug,
+    id: string,
+) {
+    return apiFetch<CoreReviewDetailResponse<T>>(
+        `/core-review/${entity}/${encodeURIComponent(id)}/restore`,
+        { method: "PATCH" },
     ).then((response) => response.data);
 }

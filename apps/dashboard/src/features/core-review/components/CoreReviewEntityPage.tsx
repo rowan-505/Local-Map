@@ -9,6 +9,7 @@ import CoreReviewPageShell from "@/src/components/core-review/CoreReviewPageShel
 import {
     CoreReviewErrorCard,
     CoreReviewLoadingCard,
+    CoreReviewSuccessBanner,
 } from "@/src/components/core-review/CoreReviewStateCard";
 import ReviewEmptyState from "@/src/components/review/ReviewEmptyState";
 import ReviewPagination from "@/src/components/review/ReviewPagination";
@@ -21,6 +22,8 @@ import { formatCoreReviewHeaderMeta } from "../utils/listHeaderMeta";
 import { coreReviewCreateButtonLabel } from "../utils/createButtonLabel";
 import CoreReviewEntityDetailDrawer from "./CoreReviewEntityDetailDrawer";
 import CoreReviewEntityFilters from "./CoreReviewEntityFilters";
+import CoreReviewLifecycleDrawerActions from "../lifecycle/CoreReviewLifecycleDrawerActions";
+import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
 
 function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
     config,
@@ -34,6 +37,8 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
     });
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [lifecycleMessage, setLifecycleMessage] = useState("");
+    const [lifecycleError, setLifecycleError] = useState("");
 
     const selectedRow = useMemo(
         () => list.rows.find((r) => config.getRowId(r) === selectedId) ?? null,
@@ -52,10 +57,25 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
             buildingTypeId: "",
             roadClassId: "",
             isPublic: "",
-            includeDeleted: false,
+            statusFilter: "active",
             routeId: "",
         });
     }, [config.defaultSortBy, list]);
+
+    const handleLifecycleSuccess = useCallback(
+        (message: string) => {
+            setLifecycleError("");
+            setLifecycleMessage(message);
+            list.reload();
+            setSelectedId(null);
+        },
+        [list]
+    );
+
+    const handleLifecycleError = useCallback((message: string) => {
+        setLifecycleMessage("");
+        setLifecycleError(message);
+    }, []);
 
     const handleApply = useCallback(() => {
         list.applyFilters();
@@ -118,6 +138,13 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
             ) : null}
 
             {!list.isLoading && list.error ? <CoreReviewErrorCard message={list.error} /> : null}
+
+            {lifecycleMessage ? <CoreReviewSuccessBanner message={lifecycleMessage} /> : null}
+            {lifecycleError ? (
+                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    {lifecycleError}
+                </div>
+            ) : null}
 
             {!list.isLoading && !list.error ? (
                 <>
@@ -182,10 +209,17 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                                         const id = config.getRowId(row);
                                         const isSelected = selectedId === id;
                                         const q = list.appliedDraft.searchDraft;
+                                        const rowDeleted = isCoreReviewRowDeleted(
+                                            row as Record<string, unknown>
+                                        );
                                         return (
                                             <tr
                                                 key={id}
-                                                className={reviewTableRowClass("core", isSelected)}
+                                                className={reviewTableRowClass(
+                                                    "core",
+                                                    isSelected,
+                                                    rowDeleted ? "opacity-60" : undefined
+                                                )}
                                                 onClick={() => setSelectedId(id)}
                                             >
                                                 {config.columns.map((col) => (
@@ -232,14 +266,24 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                         : undefined
                 }
                 drawerActions={
-                    selectedRow
-                        ? config.extensions?.renderDrawerActions?.({
-                              row: selectedRow,
-                              detail: selectedRow,
-                              close: () => setSelectedId(null),
-                              reloadList: list.reload,
-                          })
-                        : undefined
+                    selectedRow ? (
+                        <>
+                            <CoreReviewLifecycleDrawerActions
+                                apiSlug={config.apiSlug}
+                                row={selectedRow as Record<string, unknown>}
+                                recordId={config.getRowId(selectedRow)}
+                                onSuccess={handleLifecycleSuccess}
+                                onError={handleLifecycleError}
+                                onAfterLifecycle={() => setSelectedId(null)}
+                            />
+                            {config.extensions?.renderDrawerActions?.({
+                                row: selectedRow,
+                                detail: selectedRow,
+                                close: () => setSelectedId(null),
+                                reloadList: list.reload,
+                            })}
+                        </>
+                    ) : undefined
                 }
                 onClose={() => setSelectedId(null)}
             />

@@ -1,5 +1,12 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import {
+    coreReviewListStatusClause,
+    type CoreReviewListStatus,
+} from "./core-review-list-status.js";
+import { getCoreReviewLifecycleConfig } from "./core-review-lifecycle.config.js";
+import type { CoreReviewEntitySlug } from "./core-review.types.js";
+
 export type CoreReviewEntityListParams = {
     limit: number;
     offset: number;
@@ -11,7 +18,13 @@ export type CoreReviewEntityListParams = {
     routeId?: bigint;
     isPublic?: boolean;
     parentAdminAreaId?: bigint;
+    status?: CoreReviewListStatus;
 };
+
+function genericListStatusClause(slug: CoreReviewEntitySlug, alias: string, status?: CoreReviewListStatus) {
+    const config = getCoreReviewLifecycleConfig(slug);
+    return coreReviewListStatusClause(alias, status ?? "active", config);
+}
 
 function sortDir(order: "asc" | "desc"): Prisma.Sql {
     return order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
@@ -66,7 +79,7 @@ export class CoreReviewEntitiesRepository {
                 ST_AsGeoJSON(bs.geom)::json AS geometry
             FROM core.core_bus_stops AS bs
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = bs.admin_area_id
-            WHERE bs.is_active IS TRUE
+            WHERE ${genericListStatusClause("bus-stops", "bs", params.status)}
               ${search}
               ${verifiedClause("bs", params.isVerified)}
               ${adminAreaClause("bs", params.adminAreaId)}
@@ -87,7 +100,7 @@ export class CoreReviewEntitiesRepository {
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count
             FROM core.core_bus_stops AS bs
-            WHERE bs.is_active IS TRUE
+            WHERE ${genericListStatusClause("bus-stops", "bs", params.status)}
               ${search}
               ${verifiedClause("bs", params.isVerified)}
               ${adminAreaClause("bs", params.adminAreaId)}
@@ -95,7 +108,7 @@ export class CoreReviewEntitiesRepository {
         return Number(rows[0]?.count ?? 0n);
     }
 
-    async getBusStopByPublicId(publicId: string) {
+    async getBusStopByPublicId(publicId: string, options: { anyStatus?: boolean } = {}) {
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 bs.id::text AS id,
@@ -126,7 +139,11 @@ export class CoreReviewEntitiesRepository {
             FROM core.core_bus_stops AS bs
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = bs.admin_area_id
             WHERE bs.public_id = CAST(${publicId} AS uuid)
-              AND bs.is_active IS TRUE
+              AND ${
+                  options.anyStatus
+                      ? Prisma.sql`TRUE`
+                      : genericListStatusClause("bus-stops", "bs", "active")
+              }
             LIMIT 1
         `);
         return rows[0] ?? null;
@@ -158,7 +175,7 @@ export class CoreReviewEntitiesRepository {
                 CASE WHEN a.point_geom IS NULL THEN NULL ELSE ST_AsGeoJSON(a.point_geom)::json END AS geometry
             FROM core.core_addresses AS a
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = a.admin_area_id
-            WHERE TRUE
+            WHERE ${genericListStatusClause("addresses", "a", params.status)}
               ${search}
               ${verifiedClause("a", params.isVerified)}
               ${adminAreaClause("a", params.adminAreaId)}
@@ -175,14 +192,14 @@ export class CoreReviewEntitiesRepository {
             : Prisma.empty;
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count FROM core.core_addresses AS a
-            WHERE TRUE ${search}
+            WHERE ${genericListStatusClause("addresses", "a", params.status)} ${search}
               ${verifiedClause("a", params.isVerified)}
               ${adminAreaClause("a", params.adminAreaId)}
         `);
         return Number(rows[0]?.count ?? 0n);
     }
 
-    async getAddressByPublicId(publicId: string) {
+    async getAddressByPublicId(publicId: string, options: { anyStatus?: boolean } = {}) {
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 a.id::text AS id,
@@ -204,6 +221,11 @@ export class CoreReviewEntitiesRepository {
             FROM core.core_addresses AS a
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = a.admin_area_id
             WHERE a.public_id = CAST(${publicId} AS uuid)
+              AND ${
+                  options.anyStatus
+                      ? Prisma.sql`TRUE`
+                      : genericListStatusClause("addresses", "a", "active")
+              }
             LIMIT 1
         `);
         return rows[0] ?? null;
@@ -241,7 +263,7 @@ export class CoreReviewEntitiesRepository {
                 ST_AsGeoJSON(a.geom)::json AS geometry,
                 ST_AsGeoJSON(a.centroid)::json AS centroid
             FROM core.core_admin_areas AS a
-            WHERE a.is_active IS TRUE
+            WHERE ${genericListStatusClause("admin-areas", "a", params.status)}
               ${search}
               ${verifiedClause("a", params.isVerified)}
               ${parent}
@@ -257,12 +279,13 @@ export class CoreReviewEntitiesRepository {
             : Prisma.empty;
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count FROM core.core_admin_areas AS a
-            WHERE a.is_active IS TRUE ${search} ${verifiedClause("a", params.isVerified)}
+            WHERE ${genericListStatusClause("admin-areas", "a", params.status)} ${search}
+              ${verifiedClause("a", params.isVerified)}
         `);
         return Number(rows[0]?.count ?? 0n);
     }
 
-    async getAdminAreaByPublicId(publicId: string) {
+    async getAdminAreaByPublicId(publicId: string, options: { anyStatus?: boolean } = {}) {
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 a.id::text AS id,
@@ -313,7 +336,11 @@ export class CoreReviewEntitiesRepository {
                 ${Prisma.raw(alias)}.updated_at AS "updatedAt",
                 ST_AsGeoJSON(${Prisma.raw(alias)}.geom)::json AS geometry
             FROM ${Prisma.raw(table)} AS ${Prisma.raw(alias)}
-            WHERE ${Prisma.raw(alias)}.is_active IS TRUE
+            WHERE ${genericListStatusClause(
+                  table === "core.core_map_landuse" ? "landuse" : "water-polygons",
+                  alias,
+                  params.status
+              )}
               ${search}
               ${verifiedClause(alias, params.isVerified)}
             ORDER BY ${order}, ${Prisma.raw(alias)}.id ASC
@@ -333,7 +360,11 @@ export class CoreReviewEntitiesRepository {
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count
             FROM ${Prisma.raw(table)} AS ${Prisma.raw(alias)}
-            WHERE ${Prisma.raw(alias)}.is_active IS TRUE ${search}
+            WHERE ${genericListStatusClause(
+                  table === "core.core_map_landuse" ? "landuse" : "water-polygons",
+                  alias,
+                  params.status
+              )} ${search}
               ${verifiedClause(alias, params.isVerified)}
         `);
         return Number(rows[0]?.count ?? 0n);
@@ -342,7 +373,8 @@ export class CoreReviewEntitiesRepository {
     private async getMapPolygonById(
         table: "core.core_map_landuse" | "core.core_map_water_polygons",
         alias: string,
-        id: string
+        id: string,
+        options: { anyStatus?: boolean } = {}
     ) {
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
@@ -360,6 +392,15 @@ export class CoreReviewEntitiesRepository {
                 ST_AsGeoJSON(${Prisma.raw(alias)}.geom)::json AS geometry
             FROM ${Prisma.raw(table)} AS ${Prisma.raw(alias)}
             WHERE ${Prisma.raw(alias)}.id = ${BigInt(id)}
+              AND ${
+                  options.anyStatus
+                      ? Prisma.sql`TRUE`
+                      : genericListStatusClause(
+                            table === "core.core_map_landuse" ? "landuse" : "water-polygons",
+                            alias,
+                            "active"
+                        )
+              }
             LIMIT 1
         `);
         return rows[0] ?? null;
@@ -371,8 +412,8 @@ export class CoreReviewEntitiesRepository {
     countLanduse(params: CoreReviewEntityListParams) {
         return this.countMapPolygons("core.core_map_landuse", "lu", params);
     }
-    getLanduseById(id: string) {
-        return this.getMapPolygonById("core.core_map_landuse", "lu", id);
+    getLanduseById(id: string, options: { anyStatus?: boolean } = {}) {
+        return this.getMapPolygonById("core.core_map_landuse", "lu", id, options);
     }
 
     listWaterPolygons(params: CoreReviewEntityListParams) {
@@ -381,8 +422,8 @@ export class CoreReviewEntitiesRepository {
     countWaterPolygons(params: CoreReviewEntityListParams) {
         return this.countMapPolygons("core.core_map_water_polygons", "wp", params);
     }
-    getWaterPolygonById(id: string) {
-        return this.getMapPolygonById("core.core_map_water_polygons", "wp", id);
+    getWaterPolygonById(id: string, options: { anyStatus?: boolean } = {}) {
+        return this.getMapPolygonById("core.core_map_water_polygons", "wp", id, options);
     }
 
     // ── Water lines ───────────────────────────────────────────────────────────
@@ -408,7 +449,7 @@ export class CoreReviewEntitiesRepository {
                 wl.updated_at AS "updatedAt",
                 ST_AsGeoJSON(wl.geom)::json AS geometry
             FROM core.core_map_water_lines AS wl
-            WHERE wl.is_active IS TRUE
+            WHERE ${genericListStatusClause("water-lines", "wl", params.status)}
               ${search}
               ${verifiedClause("wl", params.isVerified)}
             ORDER BY ${order}, wl.id ASC
@@ -420,12 +461,13 @@ export class CoreReviewEntitiesRepository {
     async countWaterLines(params: CoreReviewEntityListParams): Promise<number> {
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count FROM core.core_map_water_lines AS wl
-            WHERE wl.is_active IS TRUE ${verifiedClause("wl", params.isVerified)}
+            WHERE ${genericListStatusClause("water-lines", "wl", params.status)}
+              ${verifiedClause("wl", params.isVerified)}
         `);
         return Number(rows[0]?.count ?? 0n);
     }
 
-    async getWaterLineById(id: string) {
+    async getWaterLineById(id: string, options: { anyStatus?: boolean } = {}) {
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 wl.id::text AS id,
@@ -442,6 +484,11 @@ export class CoreReviewEntitiesRepository {
                 ST_AsGeoJSON(wl.geom)::json AS geometry
             FROM core.core_map_water_lines AS wl
             WHERE wl.id = ${BigInt(id)}
+              AND ${
+                  options.anyStatus
+                      ? Prisma.sql`TRUE`
+                      : genericListStatusClause("water-lines", "wl", "active")
+              }
             LIMIT 1
         `);
         return rows[0] ?? null;
@@ -474,7 +521,7 @@ export class CoreReviewEntitiesRepository {
                 (SELECT COUNT(*)::int FROM core.core_bus_route_variants AS v
                  WHERE v.route_id = br.id AND v.is_active IS TRUE) AS "variantCount"
             FROM core.core_bus_routes AS br
-            WHERE br.is_active IS TRUE
+            WHERE ${genericListStatusClause("bus-routes", "br", params.status)}
               ${search}
               ${verifiedClause("br", params.isVerified)}
             ORDER BY ${order}, br.id ASC
@@ -486,12 +533,13 @@ export class CoreReviewEntitiesRepository {
     async countBusRoutes(params: CoreReviewEntityListParams): Promise<number> {
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count FROM core.core_bus_routes AS br
-            WHERE br.is_active IS TRUE ${verifiedClause("br", params.isVerified)}
+            WHERE ${genericListStatusClause("bus-routes", "br", params.status)}
+              ${verifiedClause("br", params.isVerified)}
         `);
         return Number(rows[0]?.count ?? 0n);
     }
 
-    async getBusRouteById(id: string) {
+    async getBusRouteById(id: string, options: { anyStatus?: boolean } = {}) {
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 br.id::text AS id,
@@ -507,6 +555,11 @@ export class CoreReviewEntitiesRepository {
                 br.updated_at AS "updatedAt"
             FROM core.core_bus_routes AS br
             WHERE br.id = ${BigInt(id)}
+              AND ${
+                  options.anyStatus
+                      ? Prisma.sql`TRUE`
+                      : genericListStatusClause("bus-routes", "br", "active")
+              }
             LIMIT 1
         `);
         return rows[0] ?? null;
@@ -545,7 +598,7 @@ export class CoreReviewEntitiesRepository {
                 ST_AsGeoJSON(v.geom)::json AS geometry
             FROM core.core_bus_route_variants AS v
             INNER JOIN core.core_bus_routes AS br ON br.id = v.route_id
-            WHERE v.is_active IS TRUE
+            WHERE ${genericListStatusClause("bus-route-variants", "v", params.status)}
               ${search}
               ${verifiedClause("v", params.isVerified)}
               ${routeFilter}
@@ -562,12 +615,13 @@ export class CoreReviewEntitiesRepository {
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count
             FROM core.core_bus_route_variants AS v
-            WHERE v.is_active IS TRUE ${verifiedClause("v", params.isVerified)} ${routeFilter}
+            WHERE ${genericListStatusClause("bus-route-variants", "v", params.status)}
+              ${verifiedClause("v", params.isVerified)} ${routeFilter}
         `);
         return Number(rows[0]?.count ?? 0n);
     }
 
-    async getBusRouteVariantById(id: string) {
+    async getBusRouteVariantById(id: string, options: { anyStatus?: boolean } = {}) {
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 v.id::text AS id,
@@ -584,6 +638,11 @@ export class CoreReviewEntitiesRepository {
             FROM core.core_bus_route_variants AS v
             INNER JOIN core.core_bus_routes AS br ON br.id = v.route_id
             WHERE v.id = ${BigInt(id)}
+              AND ${
+                  options.anyStatus
+                      ? Prisma.sql`TRUE`
+                      : genericListStatusClause("bus-route-variants", "v", "active")
+              }
             LIMIT 1
         `);
         return rows[0] ?? null;

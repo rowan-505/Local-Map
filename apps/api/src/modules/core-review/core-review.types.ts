@@ -34,12 +34,15 @@ export type CoreReviewNameDto = {
     searchWeight?: number;
 };
 
+export type CoreReviewListStatus = "active" | "deleted" | "all";
+
 export type CoreReviewListQuery = {
     page: number;
     pageSize: number;
     search?: string;
     sortBy: string;
     sortOrder: "asc" | "desc";
+    status?: CoreReviewListStatus;
     isVerified?: boolean;
     adminAreaId?: string;
     categoryId?: string;

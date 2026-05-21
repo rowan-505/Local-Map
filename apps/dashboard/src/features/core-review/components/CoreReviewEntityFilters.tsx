@@ -16,6 +16,7 @@ import {
 import type { CoreReviewBusRouteRow } from "../config/types";
 
 import type { CoreReviewFilterSupport } from "../config/entity-config-types";
+import type { CoreReviewLifecycleStatusFilter } from "../lifecycle/coreReviewLifecycleUtils";
 import type { CoreReviewListDraft, CoreReviewVerifiedFilter } from "../hooks/useCoreReviewListState";
 
 const SELECT_CLASS =
@@ -163,6 +164,24 @@ export default function CoreReviewEntityFilters({
             />
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold text-slate-600">Status</span>
+                    <select
+                        className={SELECT_CLASS}
+                        value={draft.statusFilter}
+                        onChange={(e) =>
+                            setDraft((d) => ({
+                                ...d,
+                                statusFilter: e.target.value as CoreReviewLifecycleStatusFilter,
+                            }))
+                        }
+                    >
+                        <option value="active">Active</option>
+                        <option value="deleted">Deleted</option>
+                        <option value="all">All</option>
+                    </select>
+                </label>
+
                 {filterSupport.isVerified ? (
                     <label className="flex flex-col gap-1">
                         <span className="text-xs font-semibold text-slate-600">Verification</span>

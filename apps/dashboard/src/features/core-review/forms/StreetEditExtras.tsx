@@ -8,6 +8,7 @@ import { splitStreet, type Street } from "@/src/lib/api";
 import { getCoreEntityConfig } from "@/src/lib/core-review/entityConfigs";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 
+
 export type StreetSplitMapProps = {
     splitPickActive: boolean;
     splitPreviewLngLat: { lng: number; lat: number } | null;
@@ -21,7 +22,6 @@ export type StreetEditExtrasProps = {
     streetId: string;
     isSaving: boolean;
     editReason: string;
-    onSoftDelete: () => void;
     onSplitMapPropsChange: (props: StreetSplitMapProps) => void;
     onReload: () => Promise<void>;
 };
@@ -31,7 +31,6 @@ export default function StreetEditExtras({
     streetId,
     isSaving,
     editReason,
-    onSoftDelete,
     onSplitMapPropsChange,
     onReload,
 }: StreetEditExtrasProps) {
@@ -129,7 +128,7 @@ export default function StreetEditExtras({
     if (street.deleted_at) {
         return (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-                This street is soft-deleted. Restore via database/admin workflow if needed.
+                This street is soft-deleted. Use Restore in the page header to make it active again.
             </div>
         );
     }
@@ -206,21 +205,6 @@ export default function StreetEditExtras({
                 </div>
             </div>
 
-            <div className="rounded-lg border border-red-200 bg-red-50/50 p-4">
-                <h3 className="text-sm font-semibold text-red-900">Danger zone</h3>
-                <p className="mt-1 text-xs text-red-800/90">
-                    Soft-delete hides the street from default lists. Provide an edit reason if you want it
-                    recorded in the audit trail.
-                </p>
-                <button
-                    type="button"
-                    disabled={isSaving || splitBusy}
-                    onClick={onSoftDelete}
-                    className="mt-3 rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-50 disabled:opacity-50"
-                >
-                    Soft-delete street
-                </button>
-            </div>
         </div>
     );
 }

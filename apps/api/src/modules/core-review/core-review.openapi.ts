@@ -24,6 +24,7 @@ export const coreReviewListQuerySchemaOpenApi = {
         buildingTypeId: { type: "string" },
         roadClassId: { type: "string" },
         isPublic: { type: "boolean" },
+        status: { type: "string", enum: ["active", "deleted", "all"], default: "active" },
         includeDeleted: { type: "boolean" },
         routeId: { type: "string" },
     },
@@ -127,6 +128,48 @@ export const postCoreReviewEntitySchema = {
     },
     body: coreReviewWriteBodySchema,
     response: coreReviewWriteDetailResponse,
+};
+
+const coreReviewLifecycleDetailResponse = {
+    200: {
+        type: "object",
+        required: ["data"],
+        properties: {
+            data: { type: "object", additionalProperties: true },
+        },
+    },
+    400: badRequestSchema,
+    403: messageSchema,
+    404: notFoundSchema,
+    500: messageSchema,
+} as const;
+
+export const patchCoreReviewSoftDeleteSchema = {
+    tags: ["core-review"],
+    summary: "Soft-delete core schema entity",
+    params: {
+        type: "object",
+        required: ["entity", "id"],
+        properties: {
+            entity: { type: "string" },
+            id: { type: "string" },
+        },
+    },
+    response: coreReviewLifecycleDetailResponse,
+};
+
+export const patchCoreReviewRestoreSchema = {
+    tags: ["core-review"],
+    summary: "Restore soft-deleted core schema entity",
+    params: {
+        type: "object",
+        required: ["entity", "id"],
+        properties: {
+            entity: { type: "string" },
+            id: { type: "string" },
+        },
+    },
+    response: coreReviewLifecycleDetailResponse,
 };
 
 export const patchCoreReviewEntitySchema = {
