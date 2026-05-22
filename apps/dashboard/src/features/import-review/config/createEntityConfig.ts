@@ -19,7 +19,7 @@ export function createImportReviewEntityConfig(
         reviewEditableFields: input.reviewEditableFields ?? IMPORT_REVIEW_REVIEW_EDITABLE_FIELDS,
         supportsOverrideEditor,
         statusColorRules: input.statusColorRules ?? IMPORT_REVIEW_DEFAULT_STATUS_COLOR_RULES,
-        detailTitleField: input.detailTitleField ?? "canonical_name",
+        detailTitleField: input.detailTitleField ?? "effective_name_en",
         detailSubtitleField: input.detailSubtitleField ?? "external_id",
     };
 }

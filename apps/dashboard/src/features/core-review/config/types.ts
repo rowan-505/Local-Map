@@ -131,7 +131,7 @@ export type CoreReviewBusRouteVariantRow = {
     geometry: ImportReviewGeoJson | null;
 };
 
-export type CoreReviewLanduseRow = {
+export type CoreReviewMapFeatureRow = {
     id: string;
     externalId: string | null;
     name: string | null;
@@ -144,23 +144,95 @@ export type CoreReviewLanduseRow = {
     geometry: ImportReviewGeoJson | null;
 };
 
-export type CoreReviewWaterLineRow = CoreReviewLanduseRow;
-export type CoreReviewWaterPolygonRow = CoreReviewLanduseRow;
-
-export type CoreReviewAddressRow = {
+export type CoreReviewLanduseRow = {
     id: string;
     publicId: string;
-    fullAddress: string | null;
-    houseNumber: string | null;
+    externalId: string | null;
+    name: string | null;
+    nameMm: string | null;
+    nameEn: string | null;
+    nameUnd: string | null;
+    classCode: string | null;
+    landuseClassId: string | null;
+    landuseClassCode: string | null;
+    landuseClassNameEn: string | null;
+    landuseClassNameMm: string | null;
     adminAreaId: string | null;
     adminAreaName: string | null;
-    isPublic: boolean;
+    detailLevel: string | null;
+    cropCode: string | null;
+    irrigated: boolean | null;
+    seasonality: string | null;
+    areaM2: number | null;
+    confidenceScore: number | null;
+    manualOverride: boolean;
+    isActive: boolean;
     isVerified: boolean;
     deletedAt?: string | null;
     createdAt: string | null;
     updatedAt: string | null;
     geometry: ImportReviewGeoJson | null;
+    centroid?: ImportReviewGeoJson | null;
+    sourceTags?: unknown;
+    normalizedData?: unknown;
+    sourceRefs?: unknown;
+    sourceStagingId?: string | null;
+};
+
+export type CoreReviewWaterLineRow = CoreReviewMapFeatureRow;
+export type CoreReviewWaterPolygonRow = CoreReviewMapFeatureRow;
+
+export type CoreReviewAddressComponent = {
+    id: string;
+    componentTypeCode: string;
+    componentValue: string;
+    languageCode: string;
+    sortOrder: number | null;
+    confidenceScore: number | null;
+    matchType: string | null;
+    sourceAdminAreaId: string | null;
+    boundaryStatus: string | null;
+    addressUsage: string | null;
+    sourceRefs?: unknown;
+};
+
+export type CoreReviewAddressRow = {
+    id: string;
+    publicId: string;
+    cachedFullAddress?: string | null;
+    fullAddress: string | null;
+    generatedFullAddressEn: string | null;
+    generatedFullAddressMy: string | null;
+    displayFullAddress: string | null;
+    myanmarName?: string | null;
+    englishName?: string | null;
+    houseNumber: string | null;
+    unitNumber?: string | null;
+    postalCode?: string | null;
+    streetId?: string | null;
+    streetPublicId?: string | null;
+    streetNameEn?: string | null;
+    streetNameMy?: string | null;
+    adminAreaId: string | null;
+    adminAreaName: string | null;
+    adminAreaNameEn?: string | null;
+    adminAreaNameMy?: string | null;
+    isPublic: boolean;
+    isVerified: boolean;
+    confidenceScore?: number | null;
+    deletedAt?: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+    geometry: ImportReviewGeoJson | null;
     entranceGeometry?: ImportReviewGeoJson | null;
+    compositionWarnings?: string[];
+};
+
+export type CoreReviewAddressDetail = CoreReviewAddressRow & {
+    sourceTypeId?: string | null;
+    sourceRefs?: unknown;
+    normalizedData?: unknown;
+    components?: CoreReviewAddressComponent[];
 };
 
 export type CoreReviewAdminAreaRow = {
@@ -172,6 +244,17 @@ export type CoreReviewAdminAreaRow = {
     adminLevelId: string | null;
     isActive: boolean;
     isVerified: boolean;
+    boundaryStatus?: string | null;
+    boundaryStatusLabelEn?: string | null;
+    boundaryStatusLabelMm?: string | null;
+    boundaryStatusHelperEn?: string | null;
+    addressUsage?: string | null;
+    addressUsageLabelEn?: string | null;
+    addressUsageLabelMm?: string | null;
+    addressUsageHelperEn?: string | null;
+    isOfficialBoundary?: boolean | null;
+    boundaryConfidenceScore?: number | null;
+    boundaryNote?: string | null;
     deletedAt?: string | null;
     createdAt: string | null;
     updatedAt: string | null;

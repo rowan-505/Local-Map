@@ -63,7 +63,7 @@ const LIFECYCLE_BY_SLUG: Record<CoreReviewEntitySlug, CoreReviewLifecycleConfig>
     },
     landuse: {
         table: "core.core_map_landuse",
-        idKind: "numeric_id",
+        idKind: "public_id",
         hasDeletedAt: true,
         hasIsActive: true,
         supportsSoftDelete: true,

@@ -9,8 +9,8 @@ import {
     buildCandidateFromClause,
     buildCandidateListQueryParts,
     buildCandidateOrderBy,
+    buildCandidateRowQueryParts,
     buildCandidateScopeWhere,
-    buildCandidateUpdateReturningSelect,
     buildCandidateWhereClause,
     colRef,
     buildFilterOptionsColumnSql,
@@ -28,6 +28,7 @@ import type {
     ReviewActor,
 } from "./import-review-data-repository.js";
 import type { ImportReviewBulkFilters } from "./import-review.schema.js";
+import { buildReviewOverridesMergeExpr } from "./import-review-overrides-merge.js";
 import type { ImportReviewBulkDecisionRepoResult, ImportReviewBulkSkippedReason } from "./import-review.types.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
@@ -180,6 +181,7 @@ export class GenericImportReviewCandidateRepository {
                 match_status: string | null;
                 auto_action: string | null;
                 promotion_status: string | null;
+                review_overrides: unknown;
                 validation_warnings: unknown;
                 validation_errors: unknown;
             }[]
@@ -188,6 +190,7 @@ export class GenericImportReviewCandidateRepository {
                 ${Prisma.raw(`${config.tableAlias}.match_status`)},
                 ${Prisma.raw(`${config.tableAlias}.auto_action`)},
                 ${Prisma.raw(`${config.tableAlias}.promotion_status`)},
+                COALESCE(to_jsonb(${colRef(config, "review_overrides")}), '{}'::jsonb) AS review_overrides,
                 ${Prisma.raw(`${config.tableAlias}.validation_warnings`)},
                 ${Prisma.raw(`${config.tableAlias}.validation_errors`)}
             FROM ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(config.tableAlias)}
@@ -210,19 +213,19 @@ export class GenericImportReviewCandidateRepository {
             return null;
         }
 
-        const merge = JSON.stringify(args.overridesPatch);
         const auditSupported = await this.pgRegclassExists("import_review.review_candidate_edits");
         const alias = config.tableAlias;
+        const overridesMerge = buildReviewOverridesMergeExpr(config, args.overridesPatch);
 
         const setParts: Prisma.Sql[] = [
-            Prisma.sql`review_overrides = COALESCE(to_jsonb(${colRef(config, "review_overrides")}), '{}'::jsonb) || ${merge}::jsonb`,
+            Prisma.sql`review_overrides = ${overridesMerge}`,
             Prisma.sql`updated_at = now()`,
         ];
         if (args.reviewNote !== undefined) {
             setParts.push(Prisma.sql`review_note = ${args.reviewNote}`);
         }
         const updateSetClause = Prisma.join(setParts, ", ");
-        const returning = buildCandidateUpdateReturningSelect(config);
+        const rowParts = buildCandidateRowQueryParts(config, true);
         const where = buildCandidateScopeWhere(config, args.reviewBatchId, args.id);
 
         return this.prisma.$transaction(async (tx) => {
@@ -238,10 +241,15 @@ export class GenericImportReviewCandidateRepository {
             }
 
             const rows = await tx.$queryRaw<BuildingListRowDb[]>`
-                UPDATE ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(alias)}
-                   SET ${updateSetClause}
-                 WHERE ${where}
-                RETURNING ${returning}
+                WITH updated AS (
+                    UPDATE ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(alias)}
+                       SET ${updateSetClause}
+                     WHERE ${where}
+                    RETURNING ${colRef(config, "id")} AS id
+                )
+                SELECT ${rowParts.select}
+                FROM ${rowParts.from}
+                INNER JOIN updated AS u ON ${colRef(config, "id")} = u.id
             `;
 
             const updated = rows[0];
@@ -308,15 +316,20 @@ export class GenericImportReviewCandidateRepository {
         }
 
         const setClause = Prisma.join(sets, ", ");
-        const returning = buildCandidateUpdateReturningSelect(config);
+        const rowParts = buildCandidateRowQueryParts(config, true);
         const where = buildCandidateScopeWhere(config, args.reviewBatchId, args.id);
         const alias = config.tableAlias;
 
         const rows = await this.prisma.$queryRaw<BuildingListRowDb[]>`
-            UPDATE ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(alias)}
-            SET ${setClause}
-            WHERE ${where}
-            RETURNING ${returning}
+            WITH updated AS (
+                UPDATE ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(alias)}
+                SET ${setClause}
+                WHERE ${where}
+                RETURNING ${colRef(config, "id")} AS id
+            )
+            SELECT ${rowParts.select}
+            FROM ${rowParts.from}
+            INNER JOIN updated AS u ON ${colRef(config, "id")} = u.id
         `;
 
         return rows[0] ?? null;

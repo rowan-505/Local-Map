@@ -24,15 +24,13 @@ import {
     sourceRefsMergeExpr,
 } from "./import-review-promotion-promote-sql.js";
 
-const LANDUSE_CANDIDATE_TABLE = "import_review.landuse_candidates";
 const WATER_LINE_CANDIDATE_TABLE = "import_review.water_line_candidates";
 const WATER_POLYGON_CANDIDATE_TABLE = "import_review.water_polygon_candidates";
 
-const CORE_LANDUSE_TABLE = "core.core_map_landuse";
 const CORE_WATER_LINES_TABLE = "core.core_map_water_lines";
 const CORE_WATER_POLYGONS_TABLE = "core.core_map_water_polygons";
 
-type MapEntityFamily = "landuse" | "water_lines" | "water_polygons";
+type MapEntityFamily = "water_lines" | "water_polygons";
 
 type MapEntityConfig = {
     entityFamily: MapEntityFamily;
@@ -45,14 +43,6 @@ type MapEntityConfig = {
 };
 
 const MAP_ENTITY_CONFIG: Record<MapEntityFamily, MapEntityConfig> = {
-    landuse: {
-        entityFamily: "landuse",
-        entityKey: "landuse",
-        candidateTable: LANDUSE_CANDIDATE_TABLE,
-        candidateAlias: "lu",
-        coreTable: CORE_LANDUSE_TABLE,
-        geomKind: "polygon",
-    },
     water_lines: {
         entityFamily: "water_lines",
         entityKey: "water_lines",
@@ -334,15 +324,13 @@ export class ImportReviewPromotionPromoteMapRepository {
     }
 
     isMapEntityFamily(family: PromotablePublishEntityFamily): family is MapEntityFamily {
-        return family === "landuse" || family === "water_lines" || family === "water_polygons";
+        return family === "water_lines" || family === "water_polygons";
     }
 }
 
 export {
-    LANDUSE_CANDIDATE_TABLE,
     WATER_LINE_CANDIDATE_TABLE,
     WATER_POLYGON_CANDIDATE_TABLE,
-    CORE_LANDUSE_TABLE,
     CORE_WATER_LINES_TABLE,
     CORE_WATER_POLYGONS_TABLE,
 };

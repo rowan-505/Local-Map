@@ -9,6 +9,7 @@ import {
     getBuildingTypes,
     getCategories,
     getCoreReviewList,
+    getRefLanduseClasses,
     getRoadClasses,
     isAbortError,
 } from "@/src/lib/api";
@@ -56,6 +57,7 @@ export default function CoreReviewEntityFilters({
     const [roadClasses, setRoadClasses] = useState<Option[]>([]);
     const [adminAreas, setAdminAreas] = useState<Option[]>([]);
     const [routes, setRoutes] = useState<Option[]>([]);
+    const [landuseClasses, setLanduseClasses] = useState<Option[]>([]);
 
     useEffect(() => {
         const c = new AbortController();
@@ -135,6 +137,26 @@ export default function CoreReviewEntityFilters({
                         )
                     )
                     .catch(() => setRoutes([]))
+            );
+        }
+        if (filterSupport.landuseClassId) {
+            tasks.push(
+                getRefLanduseClasses({ signal: c.signal })
+                    .then((rows) =>
+                        setLanduseClasses(
+                            rows
+                                .filter((r) => r.is_active)
+                                .map((r) => ({
+                                    id: r.id,
+                                    label: r.name_mm ? `${r.name_en} — ${r.name_mm}` : r.name_en,
+                                }))
+                        )
+                    )
+                    .catch((e) => {
+                        if (!isAbortError(e)) {
+                            setLanduseClasses([]);
+                        }
+                    })
             );
         }
 
@@ -258,6 +280,40 @@ export default function CoreReviewEntityFilters({
                         options={[{ id: "", label: "All routes" }, ...routes]}
                         onChange={(v) => setDraft((d) => ({ ...d, routeId: v }))}
                     />
+                ) : null}
+
+                {filterSupport.landuseClassId ? (
+                    <FilterSelect
+                        label="Landuse class"
+                        value={draft.landuseClassId}
+                        options={landuseClasses}
+                        onChange={(v) => setDraft((d) => ({ ...d, landuseClassId: v }))}
+                    />
+                ) : null}
+
+                {filterSupport.detailLevel ? (
+                    <FilterSelect
+                        label="Detail level"
+                        value={draft.detailLevel}
+                        options={[
+                            { id: "zone", label: "Zone" },
+                            { id: "parcel", label: "Parcel" },
+                        ]}
+                        onChange={(v) => setDraft((d) => ({ ...d, detailLevel: v }))}
+                    />
+                ) : null}
+
+                {filterSupport.cropCode ? (
+                    <label className="flex flex-col gap-1">
+                        <span className="text-xs font-semibold text-slate-600">Crop code</span>
+                        <input
+                            type="text"
+                            className={SELECT_CLASS}
+                            value={draft.cropCode}
+                            placeholder="e.g. rice"
+                            onChange={(e) => setDraft((d) => ({ ...d, cropCode: e.target.value }))}
+                        />
+                    </label>
                 ) : null}
 
                 <label className="flex flex-col gap-1">

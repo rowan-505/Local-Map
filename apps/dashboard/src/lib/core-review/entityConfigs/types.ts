@@ -39,7 +39,8 @@ export type CoreRefSourceKind =
     | "reference-options:source_types"
     | "reference-options:admin_levels"
     | "core-review:bus-routes"
-    | "streets";
+    | "streets"
+    | "landuse-classes";
 
 export type CoreEntityFieldDef = {
     key: string;

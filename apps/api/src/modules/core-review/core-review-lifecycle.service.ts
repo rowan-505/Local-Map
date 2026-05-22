@@ -8,6 +8,8 @@ import { getCoreReviewEntityByPath } from "./core-review.entity-registry.js";
 import { getCoreReviewBuildingDetail } from "./entities/buildings.handler.js";
 import { getCoreReviewPlaceDetail } from "./entities/places.handler.js";
 import { getCoreReviewStreetDetail } from "./entities/streets.handler.js";
+import { CoreReviewLanduseRepository } from "./entities/landuse.repo.js";
+import { getCoreReviewLanduseDetail } from "./entities/landuse.handler.js";
 import { CoreReviewEntitiesRepository } from "./core-review-entities.repo.js";
 import { getCoreReviewLifecycleConfig } from "./core-review-lifecycle.config.js";
 import { CoreReviewLifecycleRepository } from "./core-review-lifecycle.repo.js";
@@ -27,6 +29,7 @@ export class CoreReviewLifecycleService {
     private readonly buildingsRepo: BuildingsRepository;
     private readonly streetsRepo: StreetsRepository;
     private readonly entitiesRepo: CoreReviewEntitiesRepository;
+    private readonly landuseRepo: CoreReviewLanduseRepository;
 
     constructor(prisma: PrismaClient) {
         this.lifecycleRepo = new CoreReviewLifecycleRepository(prisma);
@@ -34,6 +37,7 @@ export class CoreReviewLifecycleService {
         this.buildingsRepo = new BuildingsRepository(prisma);
         this.streetsRepo = new StreetsRepository(prisma);
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
+        this.landuseRepo = new CoreReviewLanduseRepository(prisma);
     }
 
     private validateIdFormat(slug: CoreReviewEntitySlug, id: string): void {
@@ -182,10 +186,8 @@ export class CoreReviewLifecycleService {
                 const row = await this.entitiesRepo.getBusRouteVariantById(id, { anyStatus: true });
                 return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
             }
-            case "landuse": {
-                const row = await this.entitiesRepo.getLanduseById(id, { anyStatus: true });
-                return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
-            }
+            case "landuse":
+                return getCoreReviewLanduseDetail(this.landuseRepo, id, { anyStatus: true });
             case "water-lines": {
                 const row = await this.entitiesRepo.getWaterLineById(id, { anyStatus: true });
                 return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;

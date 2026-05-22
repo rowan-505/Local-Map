@@ -40,6 +40,10 @@ export type BuildingListRowDb = {
     building_type_id: bigint | null;
     building_type_code?: string | null;
     building_type_name?: string | null;
+    landuse_class_id: bigint | null;
+    landuse_class_code?: string | null;
+    landuse_class_name?: string | null;
+    landuse_class_name_mm?: string | null;
     admin_area_id: bigint | null;
     levels: number | null;
     height_m: unknown;
@@ -73,11 +77,33 @@ export type BuildingListRowDb = {
     road_candidate_surface?: string | null;
     road_candidate_is_oneway?: boolean | null;
     road_candidate_class_label?: string | null;
+    /** Computed from effective road geometry (meters). */
+    length_m?: unknown;
     /** Bus stop candidates only */
+    name_mm?: string | null;
+    name_en?: string | null;
     name_local?: string | null;
     stop_code?: string | null;
     /** From core.core_admin_areas join when effectiveAdminAreaJoin is enabled */
     effective_admin_area_name?: string | null;
+    /** Roads: resolved override/normalized or geometry-inferred admin area label */
+    admin_area_name?: string | null;
+    /** Address candidates (042 repair columns) */
+    source_entity_type?: string | null;
+    source_tags?: unknown;
+    validation_status?: string | null;
+    promotion_blockers?: unknown;
+    promotion_warnings?: unknown;
+    validated_at?: Date | null;
+    matched_admin_area_id?: bigint | null;
+    matched_street_id?: bigint | null;
+    matched_building_id?: bigint | null;
+    matched_place_id?: bigint | null;
+    admin_match_type?: string | null;
+    street_match_type?: string | null;
+    admin_match_confidence?: unknown;
+    street_match_confidence?: unknown;
+    promoted_core_address_id?: bigint | null;
 };
 
 import type { ImportReviewScopeQuery, ImportReviewScopeResolved } from "./import-review-batch-resolver.js";
@@ -94,6 +120,7 @@ export type CandidateReviewGuardContext = {
     match_status: string | null;
     auto_action: string | null;
     promotion_status: string | null;
+    review_overrides?: unknown;
 };
 
 export type CandidateReviewRoadDecisionContext = CandidateReviewGuardContext & {
@@ -333,6 +360,7 @@ export interface ImportReviewDataRepository {
         validation_warnings_json: unknown;
         review_status: string;
         validation_summary: Record<string, unknown>;
+        length_m: number | null;
     }): Promise<BuildingListRowDb | null>;
 
     updateRoadReviewDecision(args: {

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
+import type { ImportReviewFormOptionsResponse } from "@/src/lib/api";
 import type { ImportReviewScopeQueryParams } from "@/src/lib/importReviewSnapshot";
 
 import type { ImportReviewEntityConfig } from "../../config/types";
@@ -14,6 +15,9 @@ export default function CandidateOverrideSection({
     isSavingOverrides,
     overrideSaveMessage,
     onSaveOverrides,
+    formOptions = null,
+    formOptionsLoading = false,
+    formOptionsError = "",
 }: {
     config: ImportReviewEntityConfig;
     row: ImportReviewBuildingListItem;
@@ -22,6 +26,9 @@ export default function CandidateOverrideSection({
     isSavingOverrides: boolean;
     overrideSaveMessage: string | null;
     onSaveOverrides: (patch: Record<string, unknown>, reviewNote: string | null) => Promise<void>;
+    formOptions?: ImportReviewFormOptionsResponse | null;
+    formOptionsLoading?: boolean;
+    formOptionsError?: string;
 }) {
     if (!config.supportsOverrideEditor && config.overrideEditableFields.length === 0) {
         return null;
@@ -36,6 +43,9 @@ export default function CandidateOverrideSection({
             isSaving={isSavingOverrides}
             saveMessage={overrideSaveMessage}
             onSave={onSaveOverrides}
+            formOptions={formOptions}
+            formOptionsLoading={formOptionsLoading}
+            formOptionsError={formOptionsError}
         />
     );
 }

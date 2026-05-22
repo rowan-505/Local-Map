@@ -18,6 +18,9 @@ export type CoreReviewEntityListParams = {
     routeId?: bigint;
     isPublic?: boolean;
     parentAdminAreaId?: bigint;
+    boundaryStatus?: string;
+    addressUsage?: string;
+    isOfficialBoundary?: boolean;
     status?: CoreReviewListStatus;
 };
 
@@ -42,6 +45,39 @@ function adminAreaClause(alias: string, adminAreaId?: bigint): Prisma.Sql {
         return Prisma.empty;
     }
     return Prisma.sql`AND ${Prisma.raw(alias)}.admin_area_id = ${adminAreaId}`;
+}
+
+const ADMIN_AREA_BOUNDARY_COLUMNS = Prisma.sql`
+    a.boundary_status AS "boundaryStatus",
+    bs.name_en AS "boundaryStatusLabelEn",
+    bs.name_mm AS "boundaryStatusLabelMm",
+    bs.helper_en AS "boundaryStatusHelperEn",
+    a.address_usage AS "addressUsage",
+    au.name_en AS "addressUsageLabelEn",
+    au.name_mm AS "addressUsageLabelMm",
+    au.helper_en AS "addressUsageHelperEn",
+    a.is_official_boundary AS "isOfficialBoundary",
+    a.boundary_confidence_score::float8 AS "boundaryConfidenceScore",
+    a.boundary_note AS "boundaryNote"
+`;
+
+const ADMIN_AREA_BOUNDARY_JOINS = Prisma.sql`
+    LEFT JOIN ref.ref_boundary_statuses AS bs ON bs.code = a.boundary_status
+    LEFT JOIN ref.ref_address_usage_types AS au ON au.code = a.address_usage
+`;
+
+function adminAreaBoundaryListFilters(params: CoreReviewEntityListParams): Prisma.Sql {
+    const parts: Prisma.Sql[] = [];
+    if (params.boundaryStatus !== undefined) {
+        parts.push(Prisma.sql`AND a.boundary_status = ${params.boundaryStatus}`);
+    }
+    if (params.addressUsage !== undefined) {
+        parts.push(Prisma.sql`AND a.address_usage = ${params.addressUsage}`);
+    }
+    if (params.isOfficialBoundary !== undefined) {
+        parts.push(Prisma.sql`AND a.is_official_boundary = ${params.isOfficialBoundary}`);
+    }
+    return parts.length > 0 ? Prisma.join(parts, " ") : Prisma.empty;
 }
 
 export class CoreReviewEntitiesRepository {
@@ -258,15 +294,18 @@ export class CoreReviewEntitiesRepository {
                 a.admin_level_id::text AS "adminLevelId",
                 a.is_active AS "isActive",
                 a.is_verified AS "isVerified",
+                ${ADMIN_AREA_BOUNDARY_COLUMNS},
                 a.created_at AS "createdAt",
                 a.updated_at AS "updatedAt",
                 ST_AsGeoJSON(a.geom)::json AS geometry,
                 ST_AsGeoJSON(a.centroid)::json AS centroid
             FROM core.core_admin_areas AS a
+            ${ADMIN_AREA_BOUNDARY_JOINS}
             WHERE ${genericListStatusClause("admin-areas", "a", params.status)}
               ${search}
               ${verifiedClause("a", params.isVerified)}
               ${parent}
+              ${adminAreaBoundaryListFilters(params)}
             ORDER BY ${order}, a.public_id ASC
             LIMIT ${params.limit}
             OFFSET ${params.offset}
@@ -281,6 +320,7 @@ export class CoreReviewEntitiesRepository {
             SELECT COUNT(*)::bigint AS count FROM core.core_admin_areas AS a
             WHERE ${genericListStatusClause("admin-areas", "a", params.status)} ${search}
               ${verifiedClause("a", params.isVerified)}
+              ${adminAreaBoundaryListFilters(params)}
         `);
         return Number(rows[0]?.count ?? 0n);
     }
@@ -297,11 +337,13 @@ export class CoreReviewEntitiesRepository {
                 a.source_type_id::text AS "sourceTypeId",
                 a.is_active AS "isActive",
                 a.is_verified AS "isVerified",
+                ${ADMIN_AREA_BOUNDARY_COLUMNS},
                 a.created_at AS "createdAt",
                 a.updated_at AS "updatedAt",
                 ST_AsGeoJSON(a.geom)::json AS geometry,
                 ST_AsGeoJSON(a.centroid)::json AS centroid
             FROM core.core_admin_areas AS a
+            ${ADMIN_AREA_BOUNDARY_JOINS}
             WHERE a.public_id = CAST(${publicId} AS uuid)
             LIMIT 1
         `);

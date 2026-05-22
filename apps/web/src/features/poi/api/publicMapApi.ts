@@ -60,7 +60,7 @@ export type SearchCameraTarget =
 export type PublicSearchResult = {
   readonly id: string;
   readonly publicId?: string;
-  readonly type: 'place' | 'street';
+  readonly type: 'place' | 'street' | 'admin_area';
   readonly myanmar_name?: string | null;
   readonly english_name?: string | null;
   readonly name_mm?: string | null;
@@ -249,7 +249,13 @@ function publicCategoryToPoiCategory(category: PublicCategoryDto): PoiCategory {
 }
 
 function publicSearchResultFromDto(result: PublicSearchResultDto): PublicSearchResult | null {
-  if (result.type !== 'place' && result.type !== 'street') return null;
+  if (
+    result.type !== 'place' &&
+    result.type !== 'street' &&
+    result.type !== 'admin_area'
+  ) {
+    return null;
+  }
 
   const publicId = trimOpt(result.publicId ?? result.placePublicId);
   const id = trimOpt(result.id) ?? publicId ?? `${result.type}:unknown`;

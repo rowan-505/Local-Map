@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import { IMPORT_REVIEW_ENTITY_FAMILIES } from "./import-review-config.js";
+import {
+    importReviewReviewOverridesPatchSchema,
+    type ImportReviewReviewOverridesPatch,
+} from "./import-review-overrides-sanitize.js";
 
 /**
  * Normalize `snapshot_version` query/body alias into `source_snapshot_version`
@@ -335,82 +339,36 @@ export type PatchImportReviewBuildingDecisionBody = z.infer<typeof patchImportRe
 /** Alias: same body for place/road PATCH decision endpoints. */
 export type PatchImportReviewCandidateDecisionBody = PatchImportReviewBuildingDecisionBody;
 
-const importReviewPositiveBigintIdSchema = z.preprocess((value) => {
-    if (value === undefined || value === "") {
+export type { ImportReviewReviewOverridesPatch };
+
+/** @deprecated Use ImportReviewReviewOverridesPatch. */
+export type ImportReviewBuildingOverridesLeaf = ImportReviewReviewOverridesPatch;
+
+/** @deprecated Use ImportReviewReviewOverridesPatch. */
+export type ImportReviewCandidateOverridesLeaf = ImportReviewReviewOverridesPatch;
+
+const importReviewOverrideReviewNoteSchema = z.preprocess((value) => {
+    if (value === undefined) {
         return undefined;
     }
     if (value === null) {
         return null;
     }
-    if (typeof value === "bigint") {
-        return value;
-    }
-    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-        return BigInt(value);
-    }
-    if (typeof value === "string" && /^\d+$/.test(value.trim())) {
-        return BigInt(value.trim());
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed === "" ? null : trimmed;
     }
     return value;
-}, z.union([z.bigint().positive(), z.null()]));
-
-/** PATCH `/buildings/:id/overrides` — editable keys only; no legacy text type fields. */
-export const importReviewBuildingOverridesLeafSchema = z
-    .object({
-        name: z.union([z.string().max(2048), z.null()]).optional(),
-        canonical_name: z.union([z.string().max(2048), z.null()]).optional(),
-        building_type_id: importReviewPositiveBigintIdSchema.optional(),
-        admin_area_id: importReviewPositiveBigintIdSchema.optional(),
-        levels: z.union([z.number().int(), z.null()]).optional(),
-        height_m: z.union([z.number(), z.null()]).optional(),
-    })
-    .strict();
-
-export type ImportReviewBuildingOverridesLeaf = z.infer<typeof importReviewBuildingOverridesLeafSchema>;
-
-/** Generic `/:family/:id/overrides` — union of dashboard override fields (strict; no display-name keys). */
-export const importReviewCandidateOverridesLeafSchema = importReviewBuildingOverridesLeafSchema.extend({
-    poi_category_id: importReviewPositiveBigintIdSchema.optional(),
-    category_id: importReviewPositiveBigintIdSchema.optional(),
-    class_code: z.union([z.string().max(2048), z.null()]).optional(),
-    importance_score: z.union([z.number(), z.null()]).optional(),
-    popularity_score: z.union([z.number(), z.null()]).optional(),
-    name_local: z.union([z.string().max(2048), z.null()]).optional(),
-    stop_code: z.union([z.string().max(256), z.null()]).optional(),
-}).strict();
-
-export type ImportReviewCandidateOverridesLeaf = z.infer<typeof importReviewCandidateOverridesLeafSchema>;
+}, z.union([z.string().max(20_000), z.null()]).optional());
 
 /** PATCH `/buildings/:id/overrides` merges into `review_overrides`; optional audit row into `review_candidate_edits`. */
 const patchOverridesBodyInner = importReviewScopeObjectSchema
     .extend({
-        /** Shallow-merge patch applied server-side onto existing `review_overrides` JSON. */
-        review_overrides: importReviewBuildingOverridesLeafSchema,
-        review_note: z.preprocess((value) => {
-            if (value === undefined) {
-                return undefined;
-            }
-            if (value === null) {
-                return null;
-            }
-            if (typeof value === "string") {
-                const trimmed = value.trim();
-                return trimmed === "" ? null : trimmed;
-            }
-            return value;
-        }, z.union([z.string().max(20_000), z.null()]).optional()),
+        /** Shallow-merge patch; `{}` clears all stored overrides; null removes individual keys. */
+        review_overrides: importReviewReviewOverridesPatchSchema,
+        review_note: importReviewOverrideReviewNoteSchema,
     })
-    .superRefine(refineImportReviewSnapshotBatchScope)
-    .superRefine((body, ctx) => {
-        if (Object.keys(body.review_overrides).length === 0) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["review_overrides"],
-                message:
-                    "Provide at least one known override field (name, canonical_name, building_type_id, admin_area_id, levels, height_m).",
-            });
-        }
-    });
+    .superRefine(refineImportReviewSnapshotBatchScope);
 
 export const patchImportReviewBuildingOverridesBodySchema = z.preprocess(
     mergeImportReviewSnapshotAliases,
@@ -421,31 +379,10 @@ export type PatchImportReviewBuildingOverridesBody = z.infer<typeof patchImportR
 
 const patchCandidateOverridesBodyInner = importReviewScopeObjectSchema
     .extend({
-        review_overrides: importReviewCandidateOverridesLeafSchema,
-        review_note: z.preprocess((value) => {
-            if (value === undefined) {
-                return undefined;
-            }
-            if (value === null) {
-                return null;
-            }
-            if (typeof value === "string") {
-                const trimmed = value.trim();
-                return trimmed === "" ? null : trimmed;
-            }
-            return value;
-        }, z.union([z.string().max(20_000), z.null()]).optional()),
+        review_overrides: importReviewReviewOverridesPatchSchema,
+        review_note: importReviewOverrideReviewNoteSchema,
     })
-    .superRefine(refineImportReviewSnapshotBatchScope)
-    .superRefine((body, ctx) => {
-        if (Object.keys(body.review_overrides).length === 0) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["review_overrides"],
-                message: "Provide at least one known override field.",
-            });
-        }
-    });
+    .superRefine(refineImportReviewSnapshotBatchScope);
 
 export const patchImportReviewCandidateOverridesBodySchema = z.preprocess(
     mergeImportReviewSnapshotAliases,
@@ -454,98 +391,14 @@ export const patchImportReviewCandidateOverridesBodySchema = z.preprocess(
 
 export type PatchImportReviewCandidateOverridesBody = z.infer<typeof patchImportReviewCandidateOverridesBodySchema>;
 
-const importReviewRoadLineStringGeomSchema = z
-    .object({
-        type: z.literal("LineString"),
-        coordinates: z.array(z.tuple([z.number(), z.number()])).min(2),
-    })
-    .strict();
-
-const importReviewRoadMultiLineStringGeomSchema = z
-    .object({
-        type: z.literal("MultiLineString"),
-        coordinates: z.array(z.array(z.tuple([z.number(), z.number()])).min(2)).min(1),
-    })
-    .strict();
-
-const importReviewRoadGeomUnionSchema = z.union([importReviewRoadLineStringGeomSchema, importReviewRoadMultiLineStringGeomSchema]);
-
-const importReviewRoadOverridesLeafSchema = z
-    .object({
-        canonical_name: z.union([z.string().max(2048), z.null()]).optional(),
-        road_class_id: z
-            .preprocess((value) => {
-                if (value === undefined || value === "") {
-                    return undefined;
-                }
-                if (value === null) {
-                    return null;
-                }
-                if (typeof value === "bigint") {
-                    return value;
-                }
-                if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-                    return BigInt(value);
-                }
-                if (typeof value === "string" && /^\d+$/.test(value.trim())) {
-                    return BigInt(value.trim());
-                }
-                return value;
-            }, z.union([z.bigint().positive(), z.null()]).optional()),
-        road_class_code: z.union([z.string().min(1).max(64), z.null()]).optional(),
-        is_oneway: z.boolean().nullable().optional(),
-        surface: z.union([z.string().max(2048), z.null()]).optional(),
-        geom: z.union([importReviewRoadGeomUnionSchema, z.null()]).optional(),
-    })
-    .strict();
-
 const patchRoadOverridesRoutingBodyInner = importReviewScopeObjectSchema
     .extend({
-        review_overrides: importReviewRoadOverridesLeafSchema,
-        review_note: z.preprocess((value) => {
-            if (value === undefined) {
-                return undefined;
-            }
-            if (value === null) {
-                return null;
-            }
-            if (typeof value === "string") {
-                const trimmed = value.trim();
-                return trimmed === "" ? null : trimmed;
-            }
-            return value;
-        }, z.union([z.string().max(20_000), z.null()]).optional()),
+        review_overrides: importReviewReviewOverridesPatchSchema,
+        review_note: importReviewOverrideReviewNoteSchema,
         routing_validation_tolerance_meters: z.coerce.number().finite().min(5).max(250).default(35),
         confirm_acknowledge_routing_warnings: z.boolean().optional().default(false),
     })
-    .superRefine(refineImportReviewSnapshotBatchScope)
-    .superRefine((body, ctx) => {
-        const ro = body.review_overrides as Record<string, unknown>;
-        const keys = Object.keys(ro);
-        if (keys.length === 0) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["review_overrides"],
-                message: "Provide at least one known override field (canonical_name, road_class_id, road_class_code, is_oneway, surface, geom).",
-            });
-        }
-
-        const hasId = ro.road_class_id !== undefined && ro.road_class_id !== null;
-        const hasCodeRaw = ro.road_class_code;
-        const hasCode =
-            hasCodeRaw !== undefined &&
-            hasCodeRaw !== null &&
-            typeof hasCodeRaw === "string" &&
-            hasCodeRaw.trim() !== "";
-
-        if (hasId && hasCode) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["review_overrides", "road_class_code"],
-                message: "Provide road_class_id or road_class_code, not both.",
-            });
-        }
-    });
+    .superRefine(refineImportReviewSnapshotBatchScope);
 
 export const patchImportReviewRoadOverridesBodySchema = z.preprocess(
     mergeImportReviewSnapshotAliases,

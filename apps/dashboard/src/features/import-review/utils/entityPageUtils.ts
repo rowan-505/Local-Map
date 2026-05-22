@@ -2,6 +2,10 @@ import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 import type { ImportReviewScopeQueryParams } from "@/src/lib/importReviewSnapshot";
 
 import type { ImportReviewTableColumn } from "../config/types";
+import {
+    formatLanduseClassTableCell,
+    formatLanduseSourceClassCell,
+} from "./importReviewLanduseListDisplay";
 
 export const IMPORT_REVIEW_UNREVIEWED_FILTER = "__unreviewed__";
 
@@ -114,6 +118,12 @@ export function importReviewRowHasOverrides(row: ImportReviewBuildingListItem): 
 export function importReviewCellValue(row: ImportReviewBuildingListItem, col: ImportReviewTableColumn): string {
     if (col.key === "building_type_display") {
         return dash(formatBuildingTypeLabel(row));
+    }
+    if (col.key === "landuse_class_display") {
+        return formatLanduseClassTableCell(row);
+    }
+    if (col.key === "imported_class_code") {
+        return formatLanduseSourceClassCell(row);
     }
     if (col.source === "normalized") {
         const v = normPick(row.normalized_data, col.key);

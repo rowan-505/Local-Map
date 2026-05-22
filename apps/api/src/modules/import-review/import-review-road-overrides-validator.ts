@@ -5,6 +5,7 @@ import type {
     ImportReviewRoadOverridesPatchNormalized,
     ImportReviewRoadOverrideValidationOutcome,
 } from "./import-review-road-overrides.types.js";
+import { pickEffectiveDisplayName } from "./import-review-name-fields.js";
 
 const SURFACE_MAX = 200;
 
@@ -290,6 +291,24 @@ export async function buildImportReviewRoadOverrideOutcome(args: {
 
     const normalizedPatchForJson: Record<string, unknown> = {};
 
+    if (args.patch.name_mm !== undefined) {
+        if (args.patch.name_mm === null) {
+            normalizedPatchForJson.name_mm = null;
+        } else if (typeof args.patch.name_mm === "string") {
+            const t = args.patch.name_mm.trim();
+            normalizedPatchForJson.name_mm = t === "" ? null : t;
+        }
+    }
+
+    if (args.patch.name_en !== undefined) {
+        if (args.patch.name_en === null) {
+            normalizedPatchForJson.name_en = null;
+        } else if (typeof args.patch.name_en === "string") {
+            const t = args.patch.name_en.trim();
+            normalizedPatchForJson.name_en = t === "" ? null : t;
+        }
+    }
+
     if (args.patch.canonical_name !== undefined) {
         if (args.patch.canonical_name === null) {
             normalizedPatchForJson.canonical_name = null;
@@ -303,7 +322,15 @@ export async function buildImportReviewRoadOverrideOutcome(args: {
         if (args.patch.road_class_id === null) {
             normalizedPatchForJson.road_class_id = null;
         } else {
-            normalizedPatchForJson.road_class_id = args.patch.road_class_id.toString();
+            normalizedPatchForJson.road_class_id = Number(args.patch.road_class_id);
+        }
+    }
+
+    if (args.patch.admin_area_id !== undefined) {
+        if (args.patch.admin_area_id === null) {
+            normalizedPatchForJson.admin_area_id = null;
+        } else {
+            normalizedPatchForJson.admin_area_id = Number(args.patch.admin_area_id);
         }
     }
 
@@ -358,13 +385,11 @@ export async function buildImportReviewRoadOverrideOutcome(args: {
 
     const mergedOverridesJson = jsonObjectFromMerged(existingOverridesRaw, normalizedPatchForJson);
 
-    let effectiveCanon: string | null =
-        normalizedPatchForJson.canonical_name === undefined
-            ? args.baseline_canonical_name
-            : (normalizedPatchForJson.canonical_name as string | null);
-    if (typeof effectiveCanon !== "string" && effectiveCanon !== null) {
-        effectiveCanon = args.baseline_canonical_name;
-    }
+    const effectiveCanon =
+        pickEffectiveDisplayName(mergedOverridesJson, {
+            canonical_name: args.baseline_canonical_name,
+            normalized_data: args.normalized_data,
+        }) ?? args.baseline_canonical_name;
 
     let effectiveSurface: string | null = args.baseline_surface;
     if (normalizedPatchForJson.surface !== undefined) {

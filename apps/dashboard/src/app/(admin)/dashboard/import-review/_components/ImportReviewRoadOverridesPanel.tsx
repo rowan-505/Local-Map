@@ -11,15 +11,13 @@ import {
     ensureRoadClassSelected,
     prepareLocalStreetGeometryForSave,
 } from "@/src/features/streets/streetSaveLocalChecks";
-import { isStreetSurfacePreset, STREET_SURFACE_PRESETS } from "@/src/features/streets/streetSurfaces";
+import { STREET_SURFACE_PRESETS } from "@/src/features/streets/streetSurfaces";
 import {
-    getRoadClasses,
     patchImportReviewRoadOverrides,
     postImportReviewRoadValidateRouting,
     type ImportReviewBuildingListItem,
     type ImportReviewGeoJson,
     type ImportReviewRoadRoutingValidationResponse,
-    type RoadClassOption,
     type StreetLineStringGeoJson,
 } from "@/src/lib/api";
 import {
@@ -34,15 +32,43 @@ import {
     roadEditorSeedFromRow,
     SAVE_IMPORT_REVIEW_ROAD_ROUTING_WARNINGS_CONFIRM,
 } from "@/src/lib/importReviewRoadEditorState";
+import {
+    deriveRoadDisplayStreetName,
+} from "@/src/features/import-review/utils/importReviewRoadListDisplay";
+import {
+    IMPORT_REVIEW_NAME_EN_HELPER,
+    IMPORT_REVIEW_NAME_MM_HELPER,
+} from "@/src/features/import-review/utils/importReviewNameFields";
+import { labelWithEssentialMarker } from "@/src/features/import-review/config/essentialFields";
+import { buildRoadReviewOverridesPatch } from "@/src/features/import-review/utils/importReviewRoadOverridesPayload";
+import {
+    roadClassOptionsFromFormOptions,
+    surfacePresetOptionsFromFormOptions,
+    toAdminAreaComboboxOptions,
+} from "@/src/features/import-review/utils/formOptionsUtils";
+import type { ImportReviewFormOptionsBundle } from "@/src/features/import-review/hooks/useImportReviewFormOptions";
+import AdminAreaCombobox from "@/src/components/admin-areas/AdminAreaCombobox";
+
+export type ImportReviewRoadMutationScope = {
+    review_batch_id?: string;
+    source_snapshot_version?: string;
+};
 
 type Props = {
     row: ImportReviewBuildingListItem;
-    sourceSnapshotVersion: string;
+    mutationScope: ImportReviewRoadMutationScope;
     canEdit: boolean;
     selectCls: string;
     onSaved: (row: ImportReviewBuildingListItem) => void;
     onValidated?: (result: ImportReviewRoadRoutingValidationResponse) => void;
+    formOptions?: ImportReviewFormOptionsBundle | null;
+    formOptionsLoading?: boolean;
+    formOptionsError?: string;
 };
+
+function hasMutationScope(scope: ImportReviewRoadMutationScope): boolean {
+    return Boolean(scope.review_batch_id?.trim() || scope.source_snapshot_version?.trim());
+}
 
 function InlineAlert({
     message,
@@ -60,21 +86,42 @@ function InlineAlert({
 
 export default function ImportReviewRoadOverridesPanel({
     row,
-    sourceSnapshotVersion,
+    mutationScope,
     canEdit,
     selectCls,
     onSaved,
     onValidated,
+    formOptions = null,
+    formOptionsLoading = false,
+    formOptionsError = "",
 }: Props) {
     const promoted = (row.promotion_status ?? "").toLowerCase() === "promoted";
     const disabled = !canEdit || promoted;
 
-    const [roadClasses, setRoadClasses] = useState<RoadClassOption[]>([]);
-    const [optionsError, setOptionsError] = useState("");
-    const [optionsLoading, setOptionsLoading] = useState(true);
+    const roadClasses = useMemo(
+        () => roadClassOptionsFromFormOptions(formOptions),
+        [formOptions]
+    );
+    const adminAreaOptions = useMemo(() => toAdminAreaComboboxOptions(formOptions), [formOptions]);
+    const surfacePresets = useMemo(() => {
+        const fromApi = surfacePresetOptionsFromFormOptions(formOptions);
+        if (fromApi.length > 0) {
+            return fromApi;
+        }
+        return STREET_SURFACE_PRESETS.filter((p) => p.value !== "");
+    }, [formOptions]);
+    const surfacePresetValues = useMemo(
+        () => new Set(surfacePresets.map((p) => p.value)),
+        [surfacePresets]
+    );
 
-    const [canonicalName, setCanonicalName] = useState("");
+    const optionsLoading = formOptionsLoading;
+    const optionsError = formOptionsError;
+
+    const [nameMm, setNameMm] = useState("");
+    const [nameEn, setNameEn] = useState("");
     const [roadClassId, setRoadClassId] = useState("");
+    const [adminAreaId, setAdminAreaId] = useState<string | null>(null);
     const [isOneway, setIsOneway] = useState(false);
     const [surface, setSurface] = useState("");
     const [overridesReviewNote, setOverridesReviewNote] = useState("");
@@ -88,6 +135,7 @@ export default function ImportReviewRoadOverridesPanel({
 
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState("");
+    const [saveSuccessMessage, setSaveSuccessMessage] = useState("");
     const [geometryError, setGeometryError] = useState("");
     const [validating, setValidating] = useState(false);
     const [validateError, setValidateError] = useState("");
@@ -111,8 +159,10 @@ export default function ImportReviewRoadOverridesPanel({
     const hydrateFromRow = useCallback(
         (target: ImportReviewBuildingListItem) => {
             const seed = roadEditorSeedFromRow(target, roadClassIdByCode);
-            setCanonicalName(seed.canonicalName);
+            setNameMm(seed.nameMm);
+            setNameEn(seed.nameEn);
             setRoadClassId(seed.roadClassId);
+            setAdminAreaId(seed.adminAreaId);
             setIsOneway(seed.isOneway);
             baselineOnewayRef.current = seed.isOneway;
             setSurface(seed.surface);
@@ -126,32 +176,13 @@ export default function ImportReviewRoadOverridesPanel({
             setMapHydrateEpoch((e) => e + 1);
             setGeometryError("");
             setSaveError("");
+            setSaveSuccessMessage("");
         },
         [roadClassIdByCode],
     );
 
     useEffect(() => {
-        const c = new AbortController();
-        setOptionsLoading(true);
-        setOptionsError("");
-        void getRoadClasses({ signal: c.signal })
-            .then((list) => {
-                setRoadClasses(list);
-            })
-            .catch((err) => {
-                if (err instanceof Error && err.name === "AbortError") {
-                    return;
-                }
-                setOptionsError(err instanceof Error ? err.message : "Failed to load road classes");
-            })
-            .finally(() => {
-                setOptionsLoading(false);
-            });
-        return () => c.abort();
-    }, []);
-
-    useEffect(() => {
-        if (roadClasses.length === 0 && optionsLoading) {
+        if (optionsLoading) {
             return;
         }
         hydrateFromRow(row);
@@ -166,6 +197,7 @@ export default function ImportReviewRoadOverridesPanel({
         () => (lastValidation ? bundleFromRoutingValidation(lastValidation) : rowValidationBundle),
         [lastValidation, rowValidationBundle],
     );
+    const displayStreetName = useMemo(() => deriveRoadDisplayStreetName(row), [row]);
 
     const handleLineChange = useCallback((line: StreetLineStringGeoJson | null) => {
         geometryDirtyRef.current = true;
@@ -176,7 +208,7 @@ export default function ImportReviewRoadOverridesPanel({
 
     const surfaceListId = `import-review-road-surface-${row.id}`;
     const presetSelectValue =
-        surface && isStreetSurfacePreset(surface) ? surface : surface !== "" ? "__custom__" : "";
+        surface && surfacePresetValues.has(surface) ? surface : surface !== "" ? "__custom__" : "";
 
     const snapExcludePublicId =
         (row.matched_core_table ?? "").toLowerCase().includes("street") && row.matched_core_id
@@ -217,15 +249,15 @@ export default function ImportReviewRoadOverridesPanel({
     }, [mapHydrateEpoch, hasRenderableLine, editableGeometry]);
 
     async function runValidateRouting(confirmWarnings: boolean) {
-        if (!sourceSnapshotVersion.trim()) {
-            setValidateError("Source snapshot version is required.");
+        if (!hasMutationScope(mutationScope)) {
+            setValidateError("Apply filters with review_batch_id or source snapshot version first.");
             return;
         }
         setValidating(true);
         setValidateError("");
         try {
             const result = await postImportReviewRoadValidateRouting(row.id, {
-                source_snapshot_version: sourceSnapshotVersion.trim(),
+                ...mutationScope,
                 use_review_overrides: true,
                 connectivity_threshold_m: 10,
                 duplicate_threshold_m: 5,
@@ -249,38 +281,50 @@ export default function ImportReviewRoadOverridesPanel({
     }
 
     async function submitOverrides(confirmRoutingWarnings: boolean) {
-        if (!sourceSnapshotVersion.trim()) {
-            setSaveError("Source snapshot version is required (apply filters first).");
+        if (!hasMutationScope(mutationScope)) {
+            setSaveError("Apply filters with review_batch_id or source snapshot version first.");
             return;
         }
 
-        const rcId = ensureRoadClassSelected(roadClassId);
-        if (!rcId) {
-            setGeometryError("Select a road class before saving overrides.");
+        const rcId = roadClassId.trim() === "" ? null : ensureRoadClassSelected(roadClassId);
+
+        let review_overrides: Record<string, unknown>;
+        let includeGeom = false;
+        let geomPayload: ImportReviewGeoJson | null = null;
+
+        try {
+            if (geometryDirtyRef.current) {
+                const prep = prepareLocalStreetGeometryForSave(editableGeometry);
+                if (!prep.ok) {
+                    setGeometryError(prep.message);
+                    return;
+                }
+                includeGeom = true;
+                geomPayload = prep.sanitized as ImportReviewGeoJson;
+            } else if (!initialHadGeometryRef.current) {
+                const prep = prepareLocalStreetGeometryForSave(editableGeometry);
+                if (!prep.ok) {
+                    setGeometryError("Draw a centerline on the map before saving.");
+                    return;
+                }
+                includeGeom = true;
+                geomPayload = prep.sanitized as ImportReviewGeoJson;
+            }
+
+            review_overrides = buildRoadReviewOverridesPatch({
+                nameMm,
+                nameEn,
+                roadClassId: rcId ?? roadClassId,
+                adminAreaId,
+                surface,
+                isOneway,
+                confidenceScore: row.confidence_score,
+                geom: geomPayload,
+                includeGeom,
+            });
+        } catch (err) {
+            setSaveError(err instanceof Error ? err.message : "Invalid override values.");
             return;
-        }
-
-        const review_overrides: Record<string, unknown> = {
-            canonical_name: canonicalName.trim() || null,
-            road_class_id: rcId,
-            is_oneway: isOneway,
-            surface: surface.trim() || null,
-        };
-
-        if (geometryDirtyRef.current) {
-            const prep = prepareLocalStreetGeometryForSave(editableGeometry);
-            if (!prep.ok) {
-                setGeometryError(prep.message);
-                return;
-            }
-            review_overrides.geom = prep.sanitized as ImportReviewGeoJson;
-        } else if (!initialHadGeometryRef.current) {
-            const prep = prepareLocalStreetGeometryForSave(editableGeometry);
-            if (!prep.ok) {
-                setGeometryError("Draw a centerline on the map before saving.");
-                return;
-            }
-            review_overrides.geom = prep.sanitized as ImportReviewGeoJson;
         }
 
         const noteTrimmed = overridesReviewNote.trim();
@@ -294,11 +338,12 @@ export default function ImportReviewRoadOverridesPanel({
 
         setSaving(true);
         setSaveError("");
+        setSaveSuccessMessage("");
         setGeometryError("");
 
         try {
             const updated = await patchImportReviewRoadOverrides(row.id, {
-                source_snapshot_version: sourceSnapshotVersion.trim(),
+                ...mutationScope,
                 review_overrides,
                 review_note,
                 confirm_acknowledge_routing_warnings: confirmRoutingWarnings,
@@ -306,6 +351,7 @@ export default function ImportReviewRoadOverridesPanel({
             onSaved(updated);
             hydrateFromRow(updated);
             setStreetMapRefreshKey((k) => k + 1);
+            setSaveSuccessMessage("Overrides saved.");
         } catch (err) {
             const msg = err instanceof Error ? err.message : "Failed to save road overrides";
 
@@ -365,9 +411,14 @@ export default function ImportReviewRoadOverridesPanel({
             {multiLineWarning ? <InlineAlert message={multiLineWarning} tone="amber" /> : null}
             {geometryLoadNotice ? <InlineAlert message={geometryLoadNotice} tone="amber" /> : null}
 
-            {(geometryError || saveError) && (
+            {(geometryError || saveError || saveSuccessMessage) && (
                 <div className="space-y-2">
                     {geometryError ? <InlineAlert message={geometryError} tone="amber" /> : null}
+                    {saveSuccessMessage ? (
+                        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-950">
+                            {saveSuccessMessage}
+                        </div>
+                    ) : null}
                     {saveError ? (
                         <div className="whitespace-pre-wrap rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-900">
                             {saveError}
@@ -426,21 +477,48 @@ export default function ImportReviewRoadOverridesPanel({
                 )}
             </section>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <section className="space-y-2 rounded-lg border border-teal-100 bg-white/90 p-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-800">Names</h4>
+                <p className="text-[11px] text-gray-600">
+                    Stored as <span className="font-mono">review_overrides.name_mm</span> /{" "}
+                    <span className="font-mono">name_en</span> — not road class or surface.
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 sm:col-span-2">
-                    Name (canonical_name)
+                    Myanmar name
+                    <span className="text-[10px] font-normal text-gray-500">{IMPORT_REVIEW_NAME_MM_HELPER}</span>
                     <input
-                        value={canonicalName}
+                        value={nameMm}
                         disabled={disabled || optionsLoading}
-                        onChange={(e) => setCanonicalName(e.target.value)}
+                        onChange={(e) => setNameMm(e.target.value)}
                         className={selectCls}
-                        placeholder="Street / road label for review"
+                        placeholder="Myanmar street / road label (optional)"
                         autoComplete="off"
                     />
                 </label>
 
                 <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 sm:col-span-2">
-                    Road class
+                    English name
+                    <span className="text-[10px] font-normal text-gray-500">{IMPORT_REVIEW_NAME_EN_HELPER}</span>
+                    <input
+                        value={nameEn}
+                        disabled={disabled || optionsLoading}
+                        onChange={(e) => setNameEn(e.target.value)}
+                        className={selectCls}
+                        placeholder="English street / road label (optional)"
+                        autoComplete="off"
+                    />
+                </label>
+                </div>
+            </section>
+
+            <section className="space-y-2 rounded-lg border border-gray-200 bg-white/90 p-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-800">
+                    Classification & routing attributes
+                </h4>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 sm:col-span-2">
+                    {labelWithEssentialMarker("Road class", true)}
                     <select
                         value={roadClassId}
                         disabled={disabled || optionsLoading}
@@ -457,6 +535,18 @@ export default function ImportReviewRoadOverridesPanel({
                 </label>
 
                 <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 sm:col-span-2">
+                    {labelWithEssentialMarker("Admin area", true)}
+                    <AdminAreaCombobox
+                        value={adminAreaId}
+                        disabled={disabled || optionsLoading}
+                        placeholder="Search admin area…"
+                        onChange={setAdminAreaId}
+                        options={adminAreaOptions}
+                        optionsLoading={optionsLoading}
+                    />
+                </label>
+
+                <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 sm:col-span-2">
                     Surface
                     <div className="flex flex-col gap-2 sm:flex-row">
                         <select
@@ -470,7 +560,7 @@ export default function ImportReviewRoadOverridesPanel({
                             className={`${selectCls} sm:max-w-[11rem]`}
                         >
                             <option value="">Preset…</option>
-                            {STREET_SURFACE_PRESETS.filter((p) => p.value !== "").map((p) => (
+                            {surfacePresets.map((p) => (
                                 <option key={p.value} value={p.value}>
                                     {p.label}
                                 </option>
@@ -486,7 +576,7 @@ export default function ImportReviewRoadOverridesPanel({
                             className={`${selectCls} min-w-0 flex-1`}
                         />
                         <datalist id={surfaceListId}>
-                            {STREET_SURFACE_PRESETS.filter((p) => p.value !== "").map((p) => (
+                            {surfacePresets.map((p) => (
                                 <option key={p.value} value={p.value} />
                             ))}
                         </datalist>
@@ -515,11 +605,12 @@ export default function ImportReviewRoadOverridesPanel({
                         placeholder="Note when changing one-way or acknowledging routing warnings"
                     />
                 </label>
-            </div>
+                </div>
+            </section>
 
             <div className={MAP_PREVIEW_CARD_CLASS}>
                 <DataReviewMapHeaderControls
-                    title="Road geometry"
+                    title="Road geometry *"
                     externalId={row.external_id}
                     hasRenderable={hasRenderableLine}
                     onFit={handleFitGeometry}
@@ -533,7 +624,7 @@ export default function ImportReviewRoadOverridesPanel({
                         onLineStringChange={handleLineChange}
                         snapExcludeStreetPublicId={snapExcludePublicId}
                         selectedStreetPublicId={row.external_id}
-                        selectedStreetName={canonicalName || row.external_id || row.id}
+                        selectedStreetName={displayStreetName}
                         streetSourceRefreshKey={streetMapRefreshKey}
                         streetVectorTileVersion={streetMapRefreshKey}
                         dataReviewBasemapMode={basemapMode}

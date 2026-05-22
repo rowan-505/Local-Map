@@ -3,8 +3,11 @@ export type ImportReviewRoadGeomJson = Record<string, unknown>;
 
 /** Normalized PATCH keys for `/api/import-review/roads/:id/overrides`. */
 export type ImportReviewRoadOverridesPatchNormalized = {
+    name_mm?: string | null | undefined;
+    name_en?: string | null | undefined;
     canonical_name?: string | null | undefined;
     road_class_id?: bigint | null | undefined;
+    admin_area_id?: number | null | undefined;
     /** Resolved from `road_class_code` before validation (not stored verbatim in overrides JSON unless also sent as id). */
     road_class_code?: string | null | undefined;
     is_oneway?: boolean | null | undefined;

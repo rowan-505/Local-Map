@@ -11,6 +11,7 @@ import ImportReviewBatchScopeBar from "./ImportReviewBatchScopeBar";
 import ImportReviewCandidatesTable from "./ImportReviewCandidatesTable";
 import ImportReviewMapPreview from "./ImportReviewMapPreview";
 import ImportReviewDetailDrawer from "./ImportReviewDetailDrawer";
+import ImportReviewAddressDetailDrawer from "./ImportReviewAddressDetailDrawer";
 import ImportReviewEmptyState from "./ImportReviewEmptyState";
 import ImportReviewErrorState from "./ImportReviewErrorState";
 import ImportReviewFiltersPanel from "./ImportReviewFiltersPanel";
@@ -305,31 +306,60 @@ function ImportReviewEntityPageInner({
             </div>
 
             {page.drawerRow ? (
-                <ImportReviewDetailDrawer
-                    config={config}
-                    row={page.drawerRow}
-                    mapEntityType={config.mapEntityType}
-                    geometryKind={page.drawerMap?.geometryKind ?? toDataReviewGeometryKind(config.geometryType)}
-                    geometry={page.drawerMap?.geometry ?? null}
-                    fallbackNote={page.drawerMap?.fallbackNote}
-                    isLoadingDetail={page.isLoadingDetail}
-                    isLoadingGeometry={page.isLoadingGeometry}
-                    detailError={page.detailError}
-                    detailNotFound={page.detailNotFound}
-                    isSaving={page.isSaving}
-                    isSavingOverrides={page.isSavingOverrides}
-                    overrideSaveMessage={page.overrideSaveMessage}
-                    decisionSaveMessage={page.decisionSaveMessage}
-                    apiScope={page.apiScopeQuery}
-                    onSaveOverrides={page.handleDrawerOverridesSave}
-                    drawerNote={page.drawerNote}
-                    drawerDecision={page.drawerDecision}
-                    canEdit={page.canEditImportReview}
-                    onClose={page.closeDrawer}
-                    onNoteChange={page.setDrawerNote}
-                    onDecisionChange={page.setDrawerDecision}
-                    onSave={() => void page.handleDrawerSave()}
-                />
+                config.slug === "addresses" ? (
+                    <ImportReviewAddressDetailDrawer
+                        config={config}
+                        row={page.drawerRow}
+                        mapEntityType={config.mapEntityType}
+                        geometryKind={page.drawerMap?.geometryKind ?? toDataReviewGeometryKind(config.geometryType)}
+                        geometry={page.drawerMap?.geometry ?? null}
+                        fallbackNote={page.drawerMap?.fallbackNote}
+                        isLoadingDetail={page.isLoadingDetail}
+                        isLoadingGeometry={page.isLoadingGeometry}
+                        detailError={page.detailError}
+                        detailNotFound={page.detailNotFound}
+                        isSaving={page.isSaving}
+                        decisionSaveMessage={page.decisionSaveMessage}
+                        apiScope={page.apiScopeQuery}
+                        drawerNote={page.drawerNote}
+                        drawerDecision={page.drawerDecision}
+                        canEdit={page.canEditImportReview}
+                        onClose={page.closeDrawer}
+                        onNoteChange={page.setDrawerNote}
+                        onDecisionChange={page.setDrawerDecision}
+                        onSave={() => void page.handleDrawerSave()}
+                        onDetailRefetch={page.refetchDrawerDetail}
+                    />
+                ) : (
+                    <ImportReviewDetailDrawer
+                        config={config}
+                        row={page.drawerRow}
+                        mapEntityType={config.mapEntityType}
+                        geometryKind={page.drawerMap?.geometryKind ?? toDataReviewGeometryKind(config.geometryType)}
+                        geometry={page.drawerMap?.geometry ?? null}
+                        fallbackNote={page.drawerMap?.fallbackNote}
+                        isLoadingDetail={page.isLoadingDetail}
+                        isLoadingGeometry={page.isLoadingGeometry}
+                        detailError={page.detailError}
+                        detailNotFound={page.detailNotFound}
+                        isSaving={page.isSaving}
+                        isSavingOverrides={page.isSavingOverrides}
+                        overrideSaveMessage={page.overrideSaveMessage}
+                        decisionSaveMessage={page.decisionSaveMessage}
+                        apiScope={page.apiScopeQuery}
+                        onSaveOverrides={page.handleDrawerOverridesSave}
+                        drawerNote={page.drawerNote}
+                        drawerDecision={page.drawerDecision}
+                        canEdit={page.canEditImportReview}
+                        onClose={page.closeDrawer}
+                        onNoteChange={page.setDrawerNote}
+                        onDecisionChange={page.setDrawerDecision}
+                        onSave={() => void page.handleDrawerSave()}
+                        formOptions={page.formOptions}
+                        formOptionsLoading={page.formOptionsLoading}
+                        formOptionsError={page.formOptionsError}
+                    />
+                )
             ) : null}
         </main>
     );

@@ -22,6 +22,7 @@ export const BUS_STOP_LABEL_SOURCE_ID = 'public-map-bus-stop-labels-src';
 
 const STREET_LAYER_ID = 'public-map-street-labels';
 const ADMIN_LAYER_ID = 'public-map-admin-labels';
+const VILLAGE_ADMIN_LAYER_ID = 'public-map-village-labels';
 const BUS_ROUTE_LAYER_ID = 'public-map-bus-route-labels';
 const BUS_STOP_LAYER_ID = 'public-map-bus-stop-labels';
 
@@ -33,6 +34,7 @@ const TEXT_GET_NAME = ['get', 'name'] as ExpressionSpecification;
 export const PUBLIC_MAP_GEO_LABEL_LAYER_IDS = [
   STREET_LAYER_ID,
   ADMIN_LAYER_ID,
+  VILLAGE_ADMIN_LAYER_ID,
   BUS_ROUTE_LAYER_ID,
   BUS_STOP_LAYER_ID,
 ] as const;
@@ -177,23 +179,52 @@ export function ensurePublicMapGeoJsonLabelLayers(map: MapEngine): void {
     });
     addSymbolLayerRelative(
       map,
-      pointSymbolLayer(ADMIN_LAYER_ID, ADMIN_LABEL_SOURCE_ID, 8, {
-        'text-color': '#6f7670',
-        'text-halo-color': '#f3f4f1',
-        'text-halo-width': 1.4,
-        'text-halo-blur': 0.2,
-        'text-opacity': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          8,
-          0.35,
-          11,
-          0.55,
-          14,
-          0.75,
-        ],
-      }),
+      {
+        ...pointSymbolLayer(ADMIN_LAYER_ID, ADMIN_LABEL_SOURCE_ID, 8, {
+          'text-color': '#6f7670',
+          'text-halo-color': '#f3f4f1',
+          'text-halo-width': 1.4,
+          'text-halo-blur': 0.2,
+          'text-opacity': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            8,
+            0.35,
+            11,
+            0.55,
+            14,
+            0.75,
+          ],
+        }),
+        filter: ['!=', ['get', 'admin_level_code'], 'village'],
+      },
+      'buildings',
+    );
+    addSymbolLayerRelative(
+      map,
+      {
+        ...pointSymbolLayer(VILLAGE_ADMIN_LAYER_ID, ADMIN_LABEL_SOURCE_ID, 12, {
+          'text-color': '#5c635d',
+          'text-halo-color': '#f3f4f1',
+          'text-halo-width': 1.5,
+          'text-halo-blur': 0.25,
+          'text-opacity': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            12,
+            0.45,
+            13,
+            0.62,
+            14,
+            0.78,
+            16,
+            0.88,
+          ],
+        }),
+        filter: ['==', ['get', 'admin_level_code'], 'village'],
+      },
       'buildings',
     );
   }

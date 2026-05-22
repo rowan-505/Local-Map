@@ -127,4 +127,108 @@ export class ImportReviewReferenceOptionsRepository {
         `;
         return rows[0] ?? null;
     }
+
+    async getActiveLanduseClassById(
+        id: bigint
+    ): Promise<{ id: bigint; code: string; name_en: string } | null> {
+        if (!(await tableExists(this.prisma, "ref.ref_landuse_classes"))) {
+            return null;
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint; code: string; name_en: string }[]>`
+            SELECT id, code, name_en
+            FROM ref.ref_landuse_classes
+            WHERE id = ${id}
+              AND is_active IS TRUE
+            LIMIT 1
+        `;
+        return rows[0] ?? null;
+    }
+
+    async findActiveLanduseClassIdByCode(code: string): Promise<bigint | null> {
+        if (!(await tableExists(this.prisma, "ref.ref_landuse_classes"))) {
+            return null;
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id
+            FROM ref.ref_landuse_classes
+            WHERE lower(code) = lower(${code})
+              AND is_active IS TRUE
+            ORDER BY sort_order ASC NULLS LAST, id ASC
+            LIMIT 1
+        `;
+        return rows[0]?.id ?? null;
+    }
+
+    async findActiveBuildingTypeIdByCode(code: string): Promise<bigint | null> {
+        if (!(await tableExists(this.prisma, "ref.ref_building_types"))) {
+            return null;
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id
+            FROM ref.ref_building_types
+            WHERE lower(code) = lower(${code})
+              AND is_active IS TRUE
+            ORDER BY sort_order ASC NULLS LAST, id ASC
+            LIMIT 1
+        `;
+        return rows[0]?.id ?? null;
+    }
+
+    async findFirstActiveBuildingTypeIdByCodes(codes: readonly string[]): Promise<bigint | null> {
+        for (const code of codes) {
+            const id = await this.findActiveBuildingTypeIdByCode(code);
+            if (id !== null) {
+                return id;
+            }
+        }
+        return null;
+    }
+
+    async findPoiCategoryIdByCode(code: string): Promise<bigint | null> {
+        if (!(await tableExists(this.prisma, "ref.ref_poi_categories"))) {
+            return null;
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id
+            FROM ref.ref_poi_categories
+            WHERE lower(code) = lower(${code})
+            ORDER BY sort_order ASC NULLS LAST, id ASC
+            LIMIT 1
+        `;
+        return rows[0]?.id ?? null;
+    }
+
+    async findFirstPoiCategoryIdByCodes(codes: readonly string[]): Promise<bigint | null> {
+        for (const code of codes) {
+            const id = await this.findPoiCategoryIdByCode(code);
+            if (id !== null) {
+                return id;
+            }
+        }
+        return null;
+    }
+
+    async findRoadClassIdByCode(code: string): Promise<bigint | null> {
+        if (!(await tableExists(this.prisma, "ref.ref_road_classes"))) {
+            return null;
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id
+            FROM ref.ref_road_classes
+            WHERE lower(code) = lower(${code})
+            ORDER BY id ASC
+            LIMIT 1
+        `;
+        return rows[0]?.id ?? null;
+    }
+
+    async findFirstRoadClassIdByCodes(codes: readonly string[]): Promise<bigint | null> {
+        for (const code of codes) {
+            const id = await this.findRoadClassIdByCode(code);
+            if (id !== null) {
+                return id;
+            }
+        }
+        return null;
+    }
 }

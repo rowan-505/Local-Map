@@ -6,6 +6,7 @@ import {
     markImportReviewApiAuthFailed,
     readImportReviewAuthDebugState,
 } from "./importReviewDevAccess";
+import { resolveImportReviewApiFamily } from "@/src/features/import-review/utils/importReviewApiFamily";
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -281,6 +282,45 @@ export type BuildingMultiPolygonGeometry = {
 };
 
 export type BuildingGeometry = BuildingPolygonGeometry | BuildingMultiPolygonGeometry;
+
+/** Row from ref.ref_landuse_classes (GET /admin/ref/landuse-classes). */
+export type RefLanduseClass = {
+    id: string;
+    code: string;
+    name_en: string;
+    name_mm: string | null;
+    parent_id: string | null;
+    sort_order: number | null;
+    min_zoom: number | null;
+    is_active: boolean;
+};
+
+/** Row from ref.ref_boundary_statuses (GET /admin/ref/boundary-statuses). */
+export type RefBoundaryStatus = {
+    id: string;
+    code: string;
+    name_en: string;
+    name_mm: string | null;
+    helper_en: string | null;
+    helper_mm: string | null;
+    sort_order: number;
+    default_is_official_boundary: boolean;
+    default_boundary_confidence_score: number;
+    default_address_usage_code: string | null;
+    is_active: boolean;
+};
+
+/** Row from ref.ref_address_usage_types (GET /admin/ref/address-usage-types). */
+export type RefAddressUsageType = {
+    id: string;
+    code: string;
+    name_en: string;
+    name_mm: string | null;
+    helper_en: string | null;
+    helper_mm: string | null;
+    sort_order: number;
+    is_active: boolean;
+};
 
 /** Row from ref.ref_building_types (GET /building-types and embedded on buildings). */
 export type RefBuildingType = {
@@ -588,12 +628,20 @@ export type ImportReviewBuildingListItem = {
     source_snapshot_id_local: string | null;
     external_id: string | null;
     canonical_name: string | null;
+    /** Reviewer-facing Myanmar label (override + imported sources). */
+    name_mm?: string | null;
+    /** Reviewer-facing English label (override + imported sources). */
+    name_en?: string | null;
     name: string | null;
     class_code: string | null;
     building_type: string | null;
     building_type_id: string | null;
     building_type_code?: string | null;
     building_type_name?: string | null;
+    landuse_class_id?: string | null;
+    landuse_class_code?: string | null;
+    landuse_class_name?: string | null;
+    landuse_class_name_mm?: string | null;
     admin_area_id: string | null;
     levels: number | null;
     height_m: number | null;
@@ -627,16 +675,54 @@ export type ImportReviewBuildingListItem = {
     road_candidate_class_label?: string | null;
     road_candidate_surface?: string | null;
     road_candidate_is_oneway?: boolean | null;
+    /** Meters along effective centerline (roads list/detail). */
+    length_m?: number | null;
+    /** Roads: resolved admin area display name */
+    admin_area_name?: string | null;
     effective_name?: string | null;
+    effective_name_mm?: string | null;
+    effective_name_en?: string | null;
+    effective_name_und?: string | null;
     effective_name_local?: string | null;
     effective_stop_code?: string | null;
     effective_canonical_name?: string | null;
     effective_class_code?: string | null;
+    effective_landuse_class_id?: string | null;
     effective_admin_area_id?: string | null;
     effective_admin_area_name?: string | null;
     effective_levels?: number | null;
     effective_height_m?: number | null;
     effective_full_address?: string | null;
+    /** Addresses list/detail: API-composed display address. */
+    display_full_address?: string | null;
+    generated_full_address_en?: string | null;
+    generated_full_address_my?: string | null;
+    house_number?: string | null;
+    street?: string | null;
+    locality?: string | null;
+    city?: string | null;
+    validation_status?: string | null;
+    promotion_blockers?: unknown;
+    promotion_warnings?: unknown;
+    matched_admin_area_id?: string | null;
+    matched_street_id?: string | null;
+    matched_building_id?: string | null;
+    matched_place_id?: string | null;
+    admin_match_type?: string | null;
+    street_match_type?: string | null;
+    admin_match_confidence?: number | null;
+    street_match_confidence?: number | null;
+    validated_at?: string | null;
+    source_tags?: unknown;
+    source_entity_type?: string | null;
+    source_name?: string | null;
+    source_type_hint?: string | null;
+    source_context?: ImportReviewAddressSourceContext;
+    map_preview_layers?: ImportReviewAddressMapPreviewLayers | null;
+    address_components_flat?: ImportReviewAddressComponentDto[];
+    address_components?: Record<string, Record<string, ImportReviewAddressComponentDto[]>>;
+    composition_warnings?: string[];
+    entrance_geometry?: ImportReviewGeoJson | null;
     effective_house_number?: string | null;
     effective_street_name?: string | null;
     effective_quarter?: string | null;
@@ -723,12 +809,18 @@ export type PatchImportReviewBuildingOverridesBody = ImportReviewEnvelopeQuery &
 };
 
 export type ImportReviewRoadReviewOverridesLeaf = {
-    canonical_name?: string | null;
+    name_mm?: string | null;
+    name_en?: string | null;
     road_class_id?: string | number | bigint | null;
-    road_class_code?: string | null;
+    admin_area_id?: string | number | bigint | null;
     is_oneway?: boolean | null;
     surface?: string | null;
+    confidence_score?: number | null;
     geom?: ImportReviewGeoJson | null;
+    /** @deprecated Legacy road override key. */
+    canonical_name?: string | null;
+    /** @deprecated Legacy road override key. */
+    road_class_code?: string | null;
 };
 
 export type PatchImportReviewRoadOverridesBody = ImportReviewEnvelopeQuery & {
@@ -1208,7 +1300,12 @@ export type AdminAreaOption = {
     name_mm: string | null;
     name_en: string | null;
     admin_level_id: string;
+    admin_level_code: string;
+    admin_level_name?: string | null;
     parent_id: string | null;
+    parent_label?: string | null;
+    boundary_status?: string | null;
+    address_usage?: string | null;
 };
 
 export function getAdminAreaOptions(params?: { limit?: number; q?: string }) {
@@ -1297,11 +1394,47 @@ export type ImportReviewReferenceOptionsResponse = {
     ref_poi_categories: ImportReviewReferenceOptionDto[];
     ref_road_classes: ImportReviewReferenceOptionDto[];
     ref_building_types: ImportReviewReferenceOptionDto[];
+    ref_landuse_classes: ImportReviewReferenceOptionDto[];
     ref_admin_levels: ImportReviewReferenceOptionDto[];
     ref_address_component_types: ImportReviewReferenceOptionDto[];
     ref_source_types: ImportReviewReferenceOptionDto[];
     core_admin_areas: ImportReviewReferenceOptionDto[];
 };
+
+export type ImportReviewFormOption = {
+    value: string | number;
+    label: string;
+    code?: string | null;
+    name_mm?: string | null;
+    name_en?: string | null;
+};
+
+export type ImportReviewAdminAreaFormOption = ImportReviewFormOption & {
+    id: string;
+    canonical_name: string;
+    admin_level_id: string;
+    parent_id?: string | null;
+};
+
+export type ImportReviewFormOptionsResponse = {
+    admin_areas: ImportReviewAdminAreaFormOption[];
+    admin_levels: ImportReviewFormOption[];
+    road_classes: ImportReviewFormOption[];
+    poi_categories: ImportReviewFormOption[];
+    building_types: ImportReviewFormOption[];
+    landuse_classes: ImportReviewFormOption[];
+    waterway_classes: ImportReviewFormOption[];
+    water_classes: ImportReviewFormOption[];
+    barrier_types: ImportReviewFormOption[];
+    surface_presets: ImportReviewFormOption[];
+};
+
+export function getImportReviewFormOptions(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<ImportReviewFormOptionsResponse>("/api/import-review/options", {
+        method: "GET",
+        ...fetchInit,
+    });
+}
 
 export function getImportReviewReferenceOptions(fetchInit?: Pick<RequestInit, "signal">) {
     return apiFetch<ImportReviewReferenceOptionsResponse>("/api/import-review/reference-options", {
@@ -1315,7 +1448,7 @@ export function patchImportReviewFamilyOverrides(
     id: string,
     body: PatchImportReviewBuildingOverridesBody
 ) {
-    const familyPath = encodeURIComponent(family.trim());
+    const familyPath = encodeURIComponent(resolveImportReviewApiFamily(family));
     return apiFetch<ImportReviewBuildingListItem>(`/api/import-review/${familyPath}/${id}/overrides`, {
         method: "PATCH",
         headers: {
@@ -1468,7 +1601,7 @@ export function postImportReviewRoadsBulkDecision(body: PostImportReviewBuilding
 }
 
 function importReviewFamilyPath(apiFamily: string): string {
-    return `/api/import-review/${encodeURIComponent(apiFamily)}`;
+    return `/api/import-review/${encodeURIComponent(resolveImportReviewApiFamily(apiFamily))}`;
 }
 
 export function getImportReviewFamilyFilterOptions(
@@ -1524,6 +1657,259 @@ export function patchImportReviewFamilyDecision(
             },
             body: JSON.stringify(wireImportReviewJsonBody(body as unknown as Record<string, unknown>)),
         }
+    );
+}
+
+export type ImportReviewAddressComponentDto = {
+    id: string;
+    component_type_code: string;
+    component_value: string;
+    language_code: string;
+    sort_order: number | null;
+    confidence_score: number | null;
+    match_type: string | null;
+    source_tag: string | null;
+    is_inferred: boolean;
+    is_reviewed: boolean;
+    source_admin_area_id: string | null;
+    boundary_status: string | null;
+    address_usage: string | null;
+};
+
+export type ImportReviewAddressMatchOptionStreet = {
+    id: string;
+    canonical_name: string;
+    name_en: string | null;
+    name_my: string | null;
+    name_und: string | null;
+    distance_m: number;
+    match_score: number;
+    match_method: string;
+};
+
+export type ImportReviewAddressSourceContext = {
+    source_name: string | null;
+    source_name_en: string | null;
+    source_name_my: string | null;
+    source_type_hint: string | null;
+    source_category_hint: string | null;
+    phone: string | null;
+    email: string | null;
+    opening_hours: string | null;
+    raw_relevant_tags: Record<string, string>;
+};
+
+export type ImportReviewAddressMapPreviewLayers = {
+    candidate_point: ImportReviewGeoJson | null;
+    entrance_point: ImportReviewGeoJson | null;
+    matched_building: ImportReviewGeoJson | null;
+    matched_street: ImportReviewGeoJson | null;
+    matched_admin_area: ImportReviewGeoJson | null;
+};
+
+export type ImportReviewAddressMatchOptionBuilding = {
+    id: string;
+    label: string;
+    building_type: string | null;
+    distance_m: number;
+    match_score: number;
+    match_method: string;
+};
+
+export type ImportReviewAddressMatchOptionPlace = {
+    id: string;
+    display_name: string;
+    name_en: string | null;
+    name_my: string | null;
+    category: string | null;
+    distance_m: number;
+    match_score: number;
+    match_method: string;
+};
+
+export type ImportReviewAddressMatchOptionAdminArea = {
+    id: string;
+    canonical_name: string;
+    name_en: string | null;
+    name_my: string | null;
+    admin_level_code: string;
+    boundary_status: string | null;
+    address_usage: string | null;
+    distance_m: number | null;
+    match_score: number;
+    match_method: string;
+};
+
+export type ImportReviewAddressOptionsResponse = {
+    address_candidate_id: string;
+    streets: ImportReviewAddressMatchOptionStreet[];
+    adminAreas: ImportReviewAddressMatchOptionAdminArea[];
+    postcodes: Array<{ value: string; language_code: string | null; source: string }>;
+    buildings: ImportReviewAddressMatchOptionBuilding[];
+    places: ImportReviewAddressMatchOptionPlace[];
+};
+
+export type ImportReviewAddressValidationIssue = {
+    code: string;
+    message: string;
+    severity: "error" | "warning";
+    field?: string;
+    component_id?: string;
+};
+
+export type ImportReviewAddressValidateResultItem = {
+    address_candidate_id: string;
+    validation_status: "blocked" | "valid_with_warnings" | "valid";
+    promotion_blockers: ImportReviewAddressValidationIssue[];
+    promotion_warnings: ImportReviewAddressValidationIssue[];
+    validated_at: string;
+};
+
+export type ImportReviewAddressValidateResponse = {
+    review_batch_id: string | null;
+    candidate_count: number;
+    summary: { blocked: number; valid_with_warnings: number; valid: number };
+    results: ImportReviewAddressValidateResultItem[];
+};
+
+export type PatchImportReviewAddressComponentsBody = {
+    upsert: Array<{
+        id?: string;
+        component_type_code: string;
+        component_value: string;
+        language_code: "en" | "my" | "und";
+        confidence_score?: number | null;
+        match_type?: string | null;
+        is_reviewed?: boolean;
+    }>;
+    delete_ids?: string[];
+};
+
+export type PatchImportReviewAddressMatchesBody = {
+    matched_street_id?: string | null;
+    matched_admin_area_id?: string | null;
+    matched_building_id?: string | null;
+    matched_place_id?: string | null;
+    street_match_confidence?: number;
+    replace_reviewed_street_components?: boolean;
+};
+
+export function getImportReviewAddressOptions(id: string, fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<ImportReviewAddressOptionsResponse>(
+        `/api/import-review/addresses/${encodeURIComponent(id)}/options`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export function patchImportReviewAddressComponents(
+    id: string,
+    body: PatchImportReviewAddressComponentsBody
+) {
+    return apiFetch<ImportReviewBuildingListItem>(
+        `/api/import-review/addresses/${encodeURIComponent(id)}/components`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        }
+    );
+}
+
+export function patchImportReviewAddressMatches(id: string, body: PatchImportReviewAddressMatchesBody) {
+    return apiFetch<{
+        address_candidate_id: string;
+        matched_street_id: string | null;
+        matched_admin_area_id: string | null;
+        matched_building_id: string | null;
+        matched_place_id: string | null;
+        street_match_type: string | null;
+        street_match_confidence: number | null;
+        street_components_synced: Array<{ language_code: string; action: string }>;
+    }>(`/api/import-review/addresses/${encodeURIComponent(id)}/matches`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+}
+
+export function postImportReviewAddressValidate(body: {
+    review_batch_id?: string;
+    candidate_ids?: string[];
+}) {
+    return apiFetch<ImportReviewAddressValidateResponse>(`/api/import-review/addresses/validate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+}
+
+export type ImportReviewAddressPromotionItem = {
+    address_candidate_id: string;
+    external_id: string | null;
+    outcome:
+        | "promoted"
+        | "would_promote"
+        | "skipped"
+        | "duplicate_review_needed"
+        | "failed";
+    reasons: string[];
+    core_address_id: string | null;
+    promotion_warnings: ImportReviewAddressValidationIssue[];
+    promotion_blockers: ImportReviewAddressValidationIssue[];
+};
+
+export type ImportReviewAddressPromotionResponse = {
+    dry_run: boolean;
+    review_batch_id: string | null;
+    candidate_count: number;
+    promoted: number;
+    skipped: number;
+    duplicate_review_needed: number;
+    failed: number;
+    warnings: string[];
+    items: ImportReviewAddressPromotionItem[];
+    finished_at: string;
+    disabled_because_env_flag_false?: boolean;
+    message?: string;
+};
+
+export function postImportReviewAddressPromoteDryRun(body: {
+    review_batch_id?: string;
+    candidate_ids?: string[];
+    confirm_warnings?: boolean;
+}) {
+    return apiFetch<ImportReviewAddressPromotionResponse>(
+        `/api/import-review/addresses/promote-dry-run`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        }
+    );
+}
+
+export function postImportReviewAddressPromote(body: {
+    review_batch_id?: string;
+    candidate_ids?: string[];
+    confirm_warnings?: boolean;
+}) {
+    return apiFetch<ImportReviewAddressPromotionResponse>(`/api/import-review/addresses/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+}
+
+export function getAdminReverseAddressDebug(
+    lat: number,
+    lng: number,
+    lang: "en" | "my" = "en",
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<import("@/src/features/addresses/reverseAddress.types").ReverseAddressDebugResponse>(
+        "/admin/addresses/reverse-debug",
+        { method: "GET", ...fetchInit },
+        { lat, lng, lang }
     );
 }
 
@@ -2319,6 +2705,18 @@ export function getBuildingTypes(fetchInit?: Pick<RequestInit, "signal">) {
     return apiFetch<RefBuildingType[]>("/building-types", { method: "GET", ...fetchInit });
 }
 
+export function getRefLanduseClasses(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<RefLanduseClass[]>("/admin/ref/landuse-classes", { method: "GET", ...fetchInit });
+}
+
+export function getRefBoundaryStatuses(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<RefBoundaryStatus[]>("/admin/ref/boundary-statuses", { method: "GET", ...fetchInit });
+}
+
+export function getRefAddressUsageTypes(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<RefAddressUsageType[]>("/admin/ref/address-usage-types", { method: "GET", ...fetchInit });
+}
+
 export function getBuilding(id: string, fetchInit?: Pick<RequestInit, "signal">) {
     return apiFetch<Building>(`/buildings/${id}`, { method: "GET", ...fetchInit });
 }
@@ -2716,6 +3114,12 @@ export type CoreReviewListParams = {
     includeDeleted?: boolean;
     status?: CoreReviewListStatus;
     routeId?: string;
+    landuseClassId?: string;
+    detailLevel?: "zone" | "parcel";
+    cropCode?: string;
+    boundaryStatus?: string;
+    addressUsage?: string;
+    isOfficialBoundary?: boolean;
 };
 
 export function getCoreReviewList<T = Record<string, unknown>>(

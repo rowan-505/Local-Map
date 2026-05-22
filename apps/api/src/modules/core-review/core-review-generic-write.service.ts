@@ -1,12 +1,19 @@
 import type { PrismaClient } from "@prisma/client";
 
 import { CoreReviewRefValidator } from "../../lib/core-review/ref-validation.js";
+import {
+    applyAdminAreaBoundaryDefaultsForCreate,
+    applyAdminAreaBoundaryDefaultsForPatch,
+} from "./admin-area-boundary-fields.js";
 import { CoreReviewEntitiesRepository } from "./core-review-entities.repo.js";
 import { CoreReviewEntitiesWriteRepository } from "./core-review-entities-write.repo.js";
+import { CoreReviewLanduseRepository } from "./entities/landuse.repo.js";
 import { CoreReviewNotFoundError, CoreReviewValidationError } from "./core-review-write.errors.js";
+import { validationMessageFromIssues } from "./core-review-write.helpers.js";
 import { pickAlias } from "./core-review-write.schema.js";
 import { buildDetailResponse } from "./core-review.pagination.js";
 import { serializeGenericCoreRow } from "./core-review-serializers.js";
+import { getCoreReviewLanduseDetail } from "./entities/landuse.handler.js";
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
 
 type WriteLogger = {
@@ -31,14 +38,18 @@ async function resolveSourceTypeId(
 }
 
 export class CoreReviewGenericWriteService {
+    private readonly prisma: PrismaClient;
     private readonly writeRepo: CoreReviewEntitiesWriteRepository;
     private readonly entitiesRepo: CoreReviewEntitiesRepository;
     private readonly refValidator: CoreReviewRefValidator;
+    private readonly landuseRepo: CoreReviewLanduseRepository;
 
     constructor(prisma: PrismaClient) {
+        this.prisma = prisma;
         this.writeRepo = new CoreReviewEntitiesWriteRepository(prisma);
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
         this.refValidator = new CoreReviewRefValidator(prisma);
+        this.landuseRepo = new CoreReviewLanduseRepository(prisma);
     }
 
     private async validateIssues(
@@ -47,7 +58,7 @@ export class CoreReviewGenericWriteService {
         const results = await Promise.all(checks);
         const issues = results.flat();
         if (issues.length > 0) {
-            throw new CoreReviewValidationError("Validation failed", issues);
+            throw new CoreReviewValidationError(validationMessageFromIssues(issues), issues);
         }
     }
 
@@ -95,10 +106,18 @@ export class CoreReviewGenericWriteService {
                 return buildDetailResponse(serializeGenericCoreRow(row!));
             }
             case "landuse": {
-                const id = await this.writeRepo.createMapPolygon("core.core_map_landuse", body);
-                if (!id) throw new CoreReviewValidationError("Failed to create landuse feature");
-                const row = await this.entitiesRepo.getLanduseById(id);
-                return buildDetailResponse(serializeGenericCoreRow(row!));
+                await this.validateIssues([
+                    this.refValidator.validateLanduseClassId(
+                        pickAlias<bigint>(body, "landuseClassId", "landuse_class_id"),
+                        true
+                    ),
+                    this.refValidator.validateAdminAreaId(
+                        pickAlias<bigint | null>(body, "adminAreaId", "admin_area_id") ?? null
+                    ),
+                ]);
+                const publicId = await this.landuseRepo.createLanduse(body);
+                if (!publicId) throw new CoreReviewValidationError("Failed to create landuse feature");
+                return getCoreReviewLanduseDetail(this.landuseRepo, publicId);
             }
             case "water-lines": {
                 const id = await this.writeRepo.createWaterLine(body);
@@ -117,7 +136,10 @@ export class CoreReviewGenericWriteService {
                 const streetPublicId = pickAlias<string | null>(body, "streetId", "street_id") ?? null;
                 const street = await this.refValidator.validateStreetPublicId(streetPublicId);
                 if (street.issues.length > 0) {
-                    throw new CoreReviewValidationError("Validation failed", street.issues);
+                    throw new CoreReviewValidationError(
+                        validationMessageFromIssues(street.issues),
+                        street.issues,
+                    );
                 }
                 await this.validateIssues([
                     this.refValidator.validateAdminAreaId(
@@ -140,10 +162,28 @@ export class CoreReviewGenericWriteService {
                 }
                 const parentId = pickAlias<bigint | null>(body, "parentId", "parent_id") ?? null;
                 this.warnParentGeometry(log, parentId);
+                Object.assign(
+                    body,
+                    await applyAdminAreaBoundaryDefaultsForCreate(this.prisma, body),
+                );
                 await this.validateIssues([
                     this.refValidator.validateAdminLevelId(adminLevelId),
                     this.refValidator.validateParentAdminAreaId(parentId),
                     this.refValidator.validateSourceTypeId(sourceTypeId),
+                    this.refValidator.validateBoundaryStatusCode(
+                        pickAlias(body, "boundaryStatus", "boundary_status"),
+                        true,
+                    ),
+                    this.refValidator.validateAddressUsageCode(
+                        pickAlias(body, "addressUsage", "address_usage"),
+                        true,
+                    ),
+                    Promise.resolve(
+                        this.refValidator.validateBoundaryConfidenceScore(
+                            pickAlias(body, "boundaryConfidenceScore", "boundary_confidence_score"),
+                            true,
+                        ),
+                    ),
                 ]);
                 const publicId = await this.writeRepo.createAdminArea(body, sourceTypeId);
                 if (!publicId) throw new CoreReviewValidationError("Failed to create admin area");
@@ -193,10 +233,20 @@ export class CoreReviewGenericWriteService {
                 return buildDetailResponse(serializeGenericCoreRow(row!));
             }
             case "landuse": {
-                const ok = await this.writeRepo.updateMapPolygon("core.core_map_landuse", id, body);
+                await this.validateIssues([
+                    this.refValidator.validateLanduseClassId(
+                        pickAlias<bigint | null>(body, "landuseClassId", "landuse_class_id"),
+                        false
+                    ),
+                    this.refValidator.validateAdminAreaId(
+                        pickAlias<bigint | null>(body, "adminAreaId", "admin_area_id")
+                    ),
+                ]);
+                const ok = await this.landuseRepo.updateLanduse(id, body);
                 if (!ok) throw new CoreReviewNotFoundError();
-                const row = await this.entitiesRepo.getLanduseById(id);
-                return buildDetailResponse(serializeGenericCoreRow(row!));
+                const detail = await getCoreReviewLanduseDetail(this.landuseRepo, id);
+                if (!detail) throw new CoreReviewNotFoundError();
+                return detail;
             }
             case "water-lines": {
                 const ok = await this.writeRepo.updateWaterLine(id, body);
@@ -238,6 +288,10 @@ export class CoreReviewGenericWriteService {
                 if (parentId !== undefined) {
                     this.warnParentGeometry(log, parentId);
                 }
+                Object.assign(
+                    body,
+                    await applyAdminAreaBoundaryDefaultsForPatch(this.prisma, body),
+                );
                 const checks = [];
                 const adminLevelId = pickAlias<bigint>(body, "adminLevelId", "admin_level_id");
                 if (adminLevelId !== undefined) {
@@ -251,6 +305,29 @@ export class CoreReviewGenericWriteService {
                         pickAlias<bigint | null>(body, "sourceTypeId", "source_type_id"),
                     ),
                 );
+                if (pickAlias(body, "boundaryStatus", "boundary_status") !== undefined) {
+                    checks.push(
+                        this.refValidator.validateBoundaryStatusCode(
+                            pickAlias(body, "boundaryStatus", "boundary_status"),
+                        ),
+                    );
+                }
+                if (pickAlias(body, "addressUsage", "address_usage") !== undefined) {
+                    checks.push(
+                        this.refValidator.validateAddressUsageCode(
+                            pickAlias(body, "addressUsage", "address_usage"),
+                        ),
+                    );
+                }
+                if (pickAlias(body, "boundaryConfidenceScore", "boundary_confidence_score") !== undefined) {
+                    checks.push(
+                        Promise.resolve(
+                            this.refValidator.validateBoundaryConfidenceScore(
+                                pickAlias(body, "boundaryConfidenceScore", "boundary_confidence_score"),
+                            ),
+                        ),
+                    );
+                }
                 await this.validateIssues(checks);
                 const ok = await this.writeRepo.updateAdminArea(id, body);
                 if (!ok) throw new CoreReviewNotFoundError();

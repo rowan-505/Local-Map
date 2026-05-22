@@ -6,7 +6,7 @@ import type {
     CoreReviewBusRouteRow,
     CoreReviewBusRouteVariantRow,
     CoreReviewBusStopRow,
-    CoreReviewLanduseRow,
+    CoreReviewMapFeatureRow,
     CoreReviewNameDto,
 } from "@/src/features/core-review/config/types";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
@@ -25,6 +25,8 @@ import {
     optionalGeometrySchema,
     optionalNumberStringSchema,
     optionalStringSchema,
+    parseOptionalFormRefId,
+    parseRequiredFormRefId,
     pointFromDetailGeometry,
     polygonFromDetailGeometry,
     requireLineGeometry,
@@ -47,14 +49,18 @@ type AddressDetail = CoreReviewAddressRow & {
     unitNumber?: string | null;
     postalCode?: string | null;
     streetId?: string | null;
+    streetPublicId?: string | null;
     sourceTypeId?: string | null;
+    sourceRefs?: unknown;
+    normalizedData?: unknown;
+    components?: import("@/src/features/core-review/config/types").CoreReviewAddressComponent[];
 };
 
 type AdminAreaDetail = CoreReviewAdminAreaRow & {
     sourceTypeId?: string | null;
 };
 
-type LanduseDetail = CoreReviewLanduseRow & {
+type MapFeatureDetail = CoreReviewMapFeatureRow & {
     sourceStagingId?: string | null;
     normalizedData?: unknown;
     sourceRefs?: unknown;
@@ -86,16 +92,26 @@ function baseWriteConfig<TDetail>(
 const BUS_STOP_GEOM = "geom";
 
 function busStopFormSchema(_mode: CoreEntityFormMode) {
-    return z.object({
-        name: optionalStringSchema,
-        name_local: optionalStringSchema,
-        stop_code: optionalStringSchema,
-        admin_area_id: optionalStringSchema,
-        source_type_id: optionalStringSchema,
-        is_active: optionalBooleanSchema,
-        is_verified: optionalBooleanSchema,
-        geom: optionalGeometrySchema,
-    });
+    return z
+        .object({
+            name: optionalStringSchema,
+            name_local: optionalStringSchema,
+            stop_code: optionalStringSchema,
+            admin_area_id: optionalStringSchema,
+            source_type_id: optionalStringSchema,
+            is_active: optionalBooleanSchema,
+            is_verified: optionalBooleanSchema,
+            geom: optionalGeometrySchema,
+        })
+        .superRefine((data, ctx) => {
+            if (!data.geom || (typeof data.geom === "object" && "type" in data.geom && data.geom.type !== "Point")) {
+                ctx.addIssue({
+                    code: "custom",
+                    message: "Click the map to set the bus stop location.",
+                    path: ["geom"],
+                });
+            }
+        });
 }
 
 function busStopPayload(values: CoreEntityFormValues) {
@@ -262,17 +278,27 @@ export const BUS_ROUTES_ENTITY_CONFIG = baseWriteConfig<CoreReviewBusRouteRow>({
 const VARIANT_GEOM = "geom";
 
 function busRouteVariantFormSchema(_mode: CoreEntityFormMode) {
-    return z.object({
-        route_id: optionalStringSchema,
-        variant_code: optionalStringSchema,
-        direction_name: optionalStringSchema,
-        origin_name: optionalStringSchema,
-        destination_name: optionalStringSchema,
-        distance_m: optionalNumberStringSchema,
-        is_active: optionalBooleanSchema,
-        is_verified: optionalBooleanSchema,
-        geom: optionalGeometrySchema,
-    });
+    return z
+        .object({
+            route_id: z.string().min(1, "Bus route is required"),
+            variant_code: optionalStringSchema,
+            direction_name: optionalStringSchema,
+            origin_name: optionalStringSchema,
+            destination_name: optionalStringSchema,
+            distance_m: optionalNumberStringSchema,
+            is_active: optionalBooleanSchema,
+            is_verified: optionalBooleanSchema,
+            geom: optionalGeometrySchema,
+        })
+        .superRefine((data, ctx) => {
+            if (!data.geom) {
+                ctx.addIssue({
+                    code: "custom",
+                    message: "Draw the variant path on the map before saving.",
+                    path: ["geom"],
+                });
+            }
+        });
 }
 
 function busRouteVariantPayload(values: CoreEntityFormValues) {
@@ -372,23 +398,36 @@ export const BUS_ROUTE_VARIANTS_ENTITY_CONFIG = baseWriteConfig<CoreReviewBusRou
 
 // ── Landuse / water (polygon + line factory) ──────────────────────────────────
 
-function mapFeatureFormSchema(_mode: CoreEntityFormMode) {
-    return z.object({
-        name: optionalStringSchema,
-        class_code: optionalStringSchema,
-        is_active: optionalBooleanSchema,
-        is_verified: optionalBooleanSchema,
-        geom: optionalGeometrySchema,
-    });
+function mapFeatureFormSchema(entityKey: "water-lines" | "water-polygons", _mode: CoreEntityFormMode) {
+    return z
+        .object({
+            name: optionalStringSchema,
+            class_code: z.string().trim().min(1, "Class code is required"),
+            is_active: optionalBooleanSchema,
+            is_verified: optionalBooleanSchema,
+            geom: optionalGeometrySchema,
+        })
+        .superRefine((data, ctx) => {
+            if (!data.geom) {
+                ctx.addIssue({
+                    code: "custom",
+                    message:
+                        entityKey === "water-lines"
+                            ? "Draw a water line on the map before saving."
+                            : "Draw a water polygon on the map before saving.",
+                    path: ["geom"],
+                });
+            }
+        });
 }
 
 function createMapFeatureConfig(
-    entityKey: "landuse" | "water-lines" | "water-polygons",
+    entityKey: "water-lines" | "water-polygons",
     label: string,
     labelPlural: string,
     geometryType: "polygon" | "line",
     geometryTitle: string,
-): CoreEntityConfig<LanduseDetail, Record<string, unknown>, Record<string, unknown>> {
+): CoreEntityConfig<MapFeatureDetail, Record<string, unknown>, Record<string, unknown>> {
     const toGeom =
         geometryType === "line" ? lineFromDetailGeometry : polygonFromDetailGeometry;
     const toPayload =
@@ -396,7 +435,7 @@ function createMapFeatureConfig(
             ? (values: CoreEntityFormValues) => mapWaterLinePayload(values, "geom")
             : (values: CoreEntityFormValues) => mapClassifiedFeaturePayload(values, "geom");
 
-    return baseWriteConfig<LanduseDetail>({
+    return baseWriteConfig<MapFeatureDetail>({
         entityKey,
         label,
         labelPlural,
@@ -414,7 +453,7 @@ function createMapFeatureConfig(
         },
         editableFields: [
             { key: "name", label: "Name", type: "text" },
-            { key: "class_code", label: "Class code", type: "text" },
+            { key: "class_code", label: "Class code", type: "text", required: true },
             { key: "is_active", label: "Active", type: "boolean" },
             { key: "is_verified", label: "Verified", type: "boolean" },
         ],
@@ -443,7 +482,7 @@ function createMapFeatureConfig(
             is_verified: false,
             geom: null,
         },
-        formSchema: mapFeatureFormSchema,
+        formSchema: (mode) => mapFeatureFormSchema(entityKey, mode),
         detailToFormValues: (detail) => ({
             name: str(detail.name),
             class_code: str(detail.classCode),
@@ -452,21 +491,13 @@ function createMapFeatureConfig(
             geom: toGeom(detail.geometry),
         }),
         getDetailId: (detail) => detail.id,
-        fetchDetail: createCoreReviewFetchDetail<LanduseDetail>(entityKey),
+        fetchDetail: createCoreReviewFetchDetail<MapFeatureDetail>(entityKey),
         formValuesToCreatePayload: toPayload,
         formValuesToUpdatePayload: toPayload,
         createDescription: `Draw the ${label.toLowerCase()} geometry on the map, then save.`,
         editDescription: (detail) => `id: ${detail.id}`,
     });
 }
-
-export const LANDUSE_ENTITY_CONFIG = createMapFeatureConfig(
-    "landuse",
-    "Landuse",
-    "Landuse",
-    "polygon",
-    "Landuse footprint",
-);
 
 export const WATER_LINES_ENTITY_CONFIG = createMapFeatureConfig(
     "water-lines",
@@ -487,25 +518,42 @@ export const WATER_POLYGONS_ENTITY_CONFIG = createMapFeatureConfig(
 // ── Addresses ───────────────────────────────────────────────────────────────
 
 function addressFormSchema(_mode: CoreEntityFormMode) {
-    return z.object({
-        full_address: optionalStringSchema,
-        house_number: optionalStringSchema,
-        unit_number: optionalStringSchema,
-        postal_code: optionalStringSchema,
-        street_id: optionalStringSchema,
-        admin_area_id: optionalStringSchema,
-        source_type_id: optionalStringSchema,
-        is_public: optionalBooleanSchema,
-        is_verified: optionalBooleanSchema,
-        point_geom: optionalGeometrySchema,
-        entrance_geom: optionalGeometrySchema,
-    });
+    return z
+        .object({
+            full_address: optionalStringSchema,
+            house_number: optionalStringSchema,
+            unit_number: optionalStringSchema,
+            postal_code: optionalStringSchema,
+            street_id: optionalStringSchema,
+            admin_area_id: optionalStringSchema,
+            source_type_id: optionalStringSchema,
+            is_public: optionalBooleanSchema,
+            is_verified: optionalBooleanSchema,
+            point_geom: optionalGeometrySchema,
+            entrance_geom: optionalGeometrySchema,
+        })
+        .superRefine((data, ctx) => {
+            if (
+                !data.point_geom ||
+                (typeof data.point_geom === "object" &&
+                    "type" in data.point_geom &&
+                    data.point_geom.type !== "Point")
+            ) {
+                ctx.addIssue({
+                    code: "custom",
+                    message: "Click the map to set the address location.",
+                    path: ["point_geom"],
+                });
+            }
+        });
 }
 
 function addressPayload(values: CoreEntityFormValues) {
     const entrance = values.entrance_geom;
+    const components = values.address_components as
+        | { upsert?: unknown[]; delete_ids?: string[] }
+        | undefined;
     return {
-        full_address: nullableFormString(values.full_address),
         house_number: nullableFormString(values.house_number),
         unit_number: nullableFormString(values.unit_number),
         postal_code: nullableFormString(values.postal_code),
@@ -519,6 +567,10 @@ function addressPayload(values: CoreEntityFormValues) {
             entrance && typeof entrance === "object" && "type" in entrance && entrance.type === "Point"
                 ? entrance
                 : null,
+        ...(components &&
+        ((components.upsert?.length ?? 0) > 0 || (components.delete_ids?.length ?? 0) > 0)
+            ? { components }
+            : {}),
     };
 }
 
@@ -543,7 +595,6 @@ export const ADDRESSES_ENTITY_CONFIG = baseWriteConfig<AddressDetail>({
         title: "Entrance location",
     },
     editableFields: [
-        { key: "full_address", label: "Full address", type: "textarea" },
         { key: "house_number", label: "House number", type: "text" },
         { key: "unit_number", label: "Unit number", type: "text" },
         { key: "postal_code", label: "Postal code", type: "text" },
@@ -557,6 +608,30 @@ export const ADDRESSES_ENTITY_CONFIG = baseWriteConfig<AddressDetail>({
         ...standardPublicIdReadonlyFields(),
         ...standardIdReadonlyFields(),
         ...standardTimestampReadonlyFields(),
+        {
+            key: "generated_en",
+            label: "Generated address (EN)",
+            type: "text",
+            detailPath: "generatedFullAddressEn",
+        },
+        {
+            key: "generated_my",
+            label: "Generated address (MY)",
+            type: "text",
+            detailPath: "generatedFullAddressMy",
+        },
+        {
+            key: "cached_full",
+            label: "DB cache (full_address)",
+            type: "text",
+            detailPath: "cachedFullAddress",
+        },
+        {
+            key: "components_json",
+            label: "Components",
+            type: "json-readonly",
+            detailPath: "components",
+        },
     ],
     defaultFormValues: {
         full_address: "",
@@ -570,10 +645,11 @@ export const ADDRESSES_ENTITY_CONFIG = baseWriteConfig<AddressDetail>({
         is_verified: false,
         point_geom: null,
         entrance_geom: null,
+        address_components: { upsert: [] },
     },
     formSchema: addressFormSchema,
     detailToFormValues: (detail) => ({
-        full_address: str(detail.fullAddress),
+        full_address: str(detail.displayFullAddress ?? detail.generatedFullAddressEn ?? detail.fullAddress),
         house_number: str(detail.houseNumber),
         unit_number: str(detail.unitNumber),
         postal_code: str(detail.postalCode),
@@ -596,29 +672,72 @@ export const ADDRESSES_ENTITY_CONFIG = baseWriteConfig<AddressDetail>({
 // ── Admin areas ─────────────────────────────────────────────────────────────
 
 function adminAreaFormSchema(_mode: CoreEntityFormMode) {
-    return z.object({
-        canonical_name: optionalStringSchema,
-        slug: optionalStringSchema,
-        parent_id: optionalStringSchema,
-        admin_level_id: optionalStringSchema,
-        source_type_id: optionalStringSchema,
-        is_active: optionalBooleanSchema,
-        is_verified: optionalBooleanSchema,
-        geom: optionalGeometrySchema,
-    });
+    return z
+        .object({
+            canonical_name: z.string().trim().min(1, "Canonical name is required"),
+            slug: optionalStringSchema,
+            parent_id: optionalStringSchema,
+            admin_level_id: z.string().min(1, "Admin level is required"),
+            source_type_id: optionalStringSchema,
+            is_active: optionalBooleanSchema,
+            is_verified: optionalBooleanSchema,
+            boundary_status: z.string().trim().min(1, "Boundary status is required"),
+            address_usage: z.string().trim().min(1, "Address usage is required"),
+            is_official_boundary: optionalBooleanSchema,
+            boundary_confidence_score: z.coerce
+                .number()
+                .min(0, "Must be between 0 and 100")
+                .max(100, "Must be between 0 and 100"),
+            boundary_note: optionalStringSchema,
+            geom: optionalGeometrySchema,
+        })
+        .superRefine((data, ctx) => {
+            if (!data.geom) {
+                ctx.addIssue({
+                    code: "custom",
+                    message: "Draw an admin boundary polygon before saving.",
+                    path: ["geom"],
+                });
+            }
+        });
 }
 
 function adminAreaPayload(values: CoreEntityFormValues) {
-    const adminLevelId = String(values.admin_level_id ?? "").trim();
-    if (!adminLevelId) {
-        throw new Error("Admin level is required.");
+    const canonicalName = String(values.canonical_name ?? "").trim();
+    if (!canonicalName) {
+        throw new Error("Canonical name is required.");
+    }
+    const adminLevelId = parseRequiredFormRefId(values.admin_level_id, "Admin level");
+    const parentId = parseOptionalFormRefId(values.parent_id);
+    const sourceTypeId = parseOptionalFormRefId(values.source_type_id);
+    const boundaryStatus = String(values.boundary_status ?? "").trim();
+    const addressUsage = String(values.address_usage ?? "").trim();
+    if (!boundaryStatus) {
+        throw new Error("Boundary status is required.");
+    }
+    if (!addressUsage) {
+        throw new Error("Address usage is required.");
     }
     return {
-        canonical_name: nullableFormString(values.canonical_name),
+        canonical_name: canonicalName,
         slug: nullableFormString(values.slug),
-        parent_id: optionalFormRefId(values.parent_id),
+        adminLevelId,
         admin_level_id: adminLevelId,
-        source_type_id: optionalFormRefId(values.source_type_id),
+        parentId,
+        parent_id: parentId,
+        ...(sourceTypeId !== null
+            ? { sourceTypeId: sourceTypeId, source_type_id: sourceTypeId }
+            : {}),
+        boundaryStatus,
+        boundary_status: boundaryStatus,
+        addressUsage,
+        address_usage: addressUsage,
+        isOfficialBoundary: bool(values.is_official_boundary),
+        is_official_boundary: bool(values.is_official_boundary),
+        boundaryConfidenceScore: Number(values.boundary_confidence_score),
+        boundary_confidence_score: Number(values.boundary_confidence_score),
+        boundaryNote: nullableFormString(values.boundary_note),
+        boundary_note: nullableFormString(values.boundary_note),
         is_active: bool(values.is_active),
         is_verified: bool(values.is_verified),
         geom: requirePolygonGeometry(values, "geom"),
@@ -650,8 +769,15 @@ export const ADMIN_AREAS_ENTITY_CONFIG = baseWriteConfig<AdminAreaDetail>({
             label: "Admin level",
             type: "ref",
             refSource: "reference-options:admin_levels",
+            required: true,
         },
-        { key: "source_type_id", label: "Source type", type: "ref", refSource: "reference-options:source_types" },
+        {
+            key: "source_type_id",
+            label: "Source type",
+            type: "ref",
+            refSource: "reference-options:source_types",
+            helpText: "Optional — defaults to manual when left blank.",
+        },
         { key: "is_active", label: "Active", type: "boolean" },
         { key: "is_verified", label: "Verified", type: "boolean" },
     ],
@@ -674,6 +800,11 @@ export const ADMIN_AREAS_ENTITY_CONFIG = baseWriteConfig<AdminAreaDetail>({
         source_type_id: "",
         is_active: true,
         is_verified: false,
+        boundary_status: "",
+        address_usage: "",
+        is_official_boundary: false,
+        boundary_confidence_score: "",
+        boundary_note: "",
         geom: null,
     },
     formSchema: adminAreaFormSchema,
@@ -685,6 +816,14 @@ export const ADMIN_AREAS_ENTITY_CONFIG = baseWriteConfig<AdminAreaDetail>({
         source_type_id: str(detail.sourceTypeId),
         is_active: bool(detail.isActive),
         is_verified: bool(detail.isVerified),
+        boundary_status: str(detail.boundaryStatus),
+        address_usage: str(detail.addressUsage),
+        is_official_boundary: detail.isOfficialBoundary ?? false,
+        boundary_confidence_score:
+            detail.boundaryConfidenceScore === null || detail.boundaryConfidenceScore === undefined
+                ? ""
+                : detail.boundaryConfidenceScore,
+        boundary_note: str(detail.boundaryNote),
         geom: polygonFromDetailGeometry(detail.geometry),
     }),
     getDetailId: (detail) => detail.publicId,

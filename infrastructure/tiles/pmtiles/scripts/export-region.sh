@@ -75,6 +75,7 @@ declare -a LAYERS=(
   "landuse:tiles_landuse_v"
   "admin_boundaries:tiles_admin_boundaries_v"
   "admin_areas:tiles_admin_areas_v"
+  "village_labels:tiles_village_labels_v"
 )
 
 for entry in "${LAYERS[@]}"; do

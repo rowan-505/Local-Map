@@ -132,3 +132,58 @@ export async function syncBuildingPrimaryNames(
 ): Promise<void> {
     await syncPrimaryOfficialNames(tx, BUILDING_NAMES_CONFIG(buildingId), slots);
 }
+
+export const LANDUSE_NAMES_CONFIG = (landuseId: bigint): EntityNamesTableConfig => ({
+    namesTable: "core.core_map_landuse_names",
+    fkColumn: "landuse_id",
+    entityId: landuseId,
+    myanmarWriteLanguageCode: "my",
+    myanmarScriptCode: "MYMR",
+    englishScriptCode: "LATN",
+});
+
+export type LanduseFeatureNameSlots = PrimaryNameSlots & {
+    name_und?: string | null | undefined;
+};
+
+/** Upserts primary official my/en/und feature names for one landuse polygon. */
+export async function syncLanduseFeatureNames(
+    tx: DbClient,
+    landuseId: bigint,
+    slots: LanduseFeatureNameSlots
+): Promise<void> {
+    await syncPrimaryOfficialNames(tx, LANDUSE_NAMES_CONFIG(landuseId), {
+        name_mm: slots.name_mm,
+        name_en: slots.name_en,
+    });
+
+    if (slots.name_und === undefined) {
+        return;
+    }
+
+    await tx.$executeRaw(Prisma.sql`
+        DELETE FROM core.core_map_landuse_names AS n
+        WHERE n.landuse_id = ${landuseId}
+          AND n.name_type = 'official'
+          AND n.is_primary IS TRUE
+          AND lower(trim(n.language_code)) = 'und'
+    `);
+
+    const und = trimName(slots.name_und);
+    if (und) {
+        await tx.$executeRaw(Prisma.sql`
+            INSERT INTO core.core_map_landuse_names (
+                landuse_id, name, language_code, script_code, name_type, is_primary, search_weight
+            )
+            VALUES (
+                ${landuseId},
+                ${und},
+                'und',
+                NULL,
+                'official',
+                TRUE,
+                80
+            )
+        `);
+    }
+}

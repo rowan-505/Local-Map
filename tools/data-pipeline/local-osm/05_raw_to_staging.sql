@@ -2804,8 +2804,38 @@ BEGIN
                     normalized_data, source_refs, confidence_score, match_status, auto_action, review_status, geom
                 )
                 SELECT
-                    $1, src.id, src.external_id, nullif(src.tags->>'name', ''), src.class_code,
-                    jsonb_build_object('tags', coalesce(src.tags, '{}'::jsonb), 'landuse', src.tags->>'landuse', 'leisure', src.tags->>'leisure', 'amenity', src.tags->>'amenity', 'name', src.tags->>'name'),
+                    $1, src.id, src.external_id,
+                    CASE
+                        WHEN nullif(btrim(src.tags->>'name'), '') IS NULL THEN NULL
+                        WHEN lower(btrim(src.tags->>'name')) = lower(btrim(src.class_code)) THEN NULL
+                        WHEN lower(btrim(src.tags->>'name')) IN (
+                            'residential', 'industrial', 'commercial', 'retail', 'farmland', 'paddy',
+                            'orchard', 'aquaculture', 'farmyard', 'education', 'healthcare', 'religious',
+                            'cemetery', 'military', 'transport', 'construction', 'park', 'recreation_ground',
+                            'forest', 'grassland', 'grass', 'vacant', 'other', 'wood'
+                        ) THEN NULL
+                        ELSE nullif(btrim(src.tags->>'name'), '')
+                    END,
+                    src.class_code,
+                    jsonb_build_object(
+                        'tags', coalesce(src.tags, '{}'::jsonb),
+                        'landuse', src.tags->>'landuse',
+                        'leisure', src.tags->>'leisure',
+                        'amenity', src.tags->>'amenity',
+                        'name', CASE
+                            WHEN nullif(btrim(src.tags->>'name'), '') IS NULL THEN NULL
+                            WHEN lower(btrim(src.tags->>'name')) = lower(btrim(src.class_code)) THEN NULL
+                            WHEN lower(btrim(src.tags->>'name')) IN (
+                                'residential', 'industrial', 'commercial', 'retail', 'farmland', 'paddy',
+                                'orchard', 'aquaculture', 'farmyard', 'education', 'healthcare', 'religious',
+                                'cemetery', 'military', 'transport', 'construction', 'park', 'recreation_ground',
+                                'forest', 'grassland', 'grass', 'vacant', 'other', 'wood'
+                            ) THEN NULL
+                            ELSE nullif(btrim(src.tags->>'name'), '')
+                        END,
+                        'name_en', nullif(btrim(src.tags->>'name:en'), ''),
+                        'name_mm', nullif(btrim(coalesce(src.tags->>'name:my', src.tags->>'name:mm', src.tags->>'name:my-MM')), '')
+                    ),
                     jsonb_build_object('source_snapshot_id', $1, 'snapshot_version', $2, 'region_code', $3, 'raw_table', 'raw_osm_polygons', 'raw_id', src.id, 'osm_id', src.osm_id, 'osm_feature_type', src.osm_feature_type),
                     CASE WHEN src.tags ? 'name' THEN 75 ELSE 60 END,
                     'new_candidate', NULL, 'pending', src.geom

@@ -376,6 +376,8 @@ export type DataReviewCandidateMapProps = {
     geometry: ImportReviewGeoJson | null | undefined;
     geometryKind: DataReviewGeometryKind;
     entityType?: ImportReviewEntityType;
+    /** When set, renders all features (mixed point/line/polygon) instead of single-geometry mode. */
+    previewFeatureCollection?: FeatureCollection<Geometry> | null;
     /** Shown under title (e.g. external_id). */
     externalId?: string | null;
     title?: string;
@@ -386,12 +388,54 @@ export type DataReviewCandidateMapProps = {
     fitButtonLabel?: string;
     /** Parent can refresh PMTiles / clear overlays after mutations. */
     mapSurfaceRef?: MutableRefObject<MaplibreMap | null>;
+    /** Click map to pick a point (e.g. import-review address location). */
+    onPointPick?: (coords: { lat: number; lng: number }) => void;
+    pointPickDisabled?: boolean;
 };
+
+function bboxFromFeatureCollection(fc: FeatureCollection<Geometry>): [number, number, number, number] | null {
+    let minLng = Infinity;
+    let minLat = Infinity;
+    let maxLng = -Infinity;
+    let maxLat = -Infinity;
+    const visitCoord = (lng: number, lat: number) => {
+        if (!Number.isFinite(lng + lat)) {
+            return;
+        }
+        minLng = Math.min(minLng, lng);
+        minLat = Math.min(minLat, lat);
+        maxLng = Math.max(maxLng, lng);
+        maxLat = Math.max(maxLat, lat);
+    };
+    const visitCoords = (coords: unknown) => {
+        if (!Array.isArray(coords)) {
+            return;
+        }
+        if (typeof coords[0] === "number" && typeof coords[1] === "number") {
+            visitCoord(coords[0], coords[1]);
+            return;
+        }
+        for (const c of coords) {
+            visitCoords(c);
+        }
+    };
+    for (const feature of fc.features) {
+        const geom = feature.geometry;
+        if (geom && "coordinates" in geom) {
+            visitCoords(geom.coordinates);
+        }
+    }
+    if (!Number.isFinite(minLng + minLat + maxLng + maxLat)) {
+        return null;
+    }
+    return [minLng, minLat, maxLng, maxLat];
+}
 
 export default function DataReviewCandidateMap({
     geometry,
     geometryKind,
     entityType: entityTypeProp,
+    previewFeatureCollection = null,
     externalId = null,
     title = "Candidate preview",
     subtitle,
@@ -399,6 +443,8 @@ export default function DataReviewCandidateMap({
     size = "default",
     fitButtonLabel,
     mapSurfaceRef,
+    onPointPick,
+    pointPickDisabled = false,
 }: DataReviewCandidateMapProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -503,6 +549,7 @@ export default function DataReviewCandidateMap({
             geometryKind,
             entityType,
             roadHighlight,
+            previewFeatureCollection,
         });
         const verticesOnly =
             prevOverlayContentKeyRef.current !== "" &&
@@ -542,6 +589,44 @@ export default function DataReviewCandidateMap({
                 prevOverlayContentKeyRef.current = overlayContentKey;
             };
 
+            const autoFitKey = JSON.stringify({
+                geometry,
+                geometryKind,
+                entityType,
+                previewFeatureCollection,
+            });
+            const shouldAutoFit = mapAutoFitSigRef.current !== autoFitKey;
+            mapAutoFitSigRef.current = autoFitKey;
+
+            if (previewFeatureCollection && previewFeatureCollection.features.length > 0) {
+                const vertexFc =
+                    showVertices && entityType !== "place"
+                        ? extractVerticesFromGeometry(previewFeatureCollection.features[0]?.geometry ?? null)
+                        : emptyFc();
+                pushPreviewData(
+                    map,
+                    previewFeatureCollection,
+                    vertexFc,
+                    entityType,
+                    showVertices,
+                    roadHighlight
+                );
+                if (shouldAutoFit) {
+                    const bbox = bboxFromFeatureCollection(previewFeatureCollection);
+                    if (bbox) {
+                        map.fitBounds(
+                            [
+                                [bbox[0], bbox[1]],
+                                [bbox[2], bbox[3]],
+                            ],
+                            { padding: 48, duration: 600, maxZoom: 18 }
+                        );
+                    }
+                }
+                markOverlayApplied();
+                return;
+            }
+
             const g = asGeoJsonGeometry(geometry ?? null);
 
             if (!g) {
@@ -559,14 +644,6 @@ export default function DataReviewCandidateMap({
                 markOverlayApplied();
                 return;
             }
-
-            const autoFitKey = JSON.stringify({
-                geometry,
-                geometryKind,
-                entityType,
-            });
-            const shouldAutoFit = mapAutoFitSigRef.current !== autoFitKey;
-            mapAutoFitSigRef.current = autoFitKey;
 
             clearImportReviewPreviewSources(map);
 
@@ -660,21 +737,53 @@ export default function DataReviewCandidateMap({
         }
 
         runOverlayBody();
-    }, [isMapReady, geometry, geometryKind, entityType, showVertices, roadHighlight]);
+    }, [isMapReady, geometry, geometryKind, entityType, showVertices, roadHighlight, previewFeatureCollection]);
 
-    const parsed = asGeoJsonGeometry(geometry ?? null);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !isMapReady || !onPointPick || pointPickDisabled) {
+            return;
+        }
+
+        const handler = (e: maplibregl.MapMouseEvent) => {
+            onPointPick({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+        };
+        map.on("click", handler);
+        return () => {
+            map.off("click", handler);
+        };
+    }, [isMapReady, onPointPick, pointPickDisabled]);
+
+    const parsed =
+        previewFeatureCollection && previewFeatureCollection.features.length > 0
+            ? previewFeatureCollection.features[0]?.geometry ?? null
+            : asGeoJsonGeometry(geometry ?? null);
     const hasRenderable =
-        parsed &&
-        ((geometryKind === "point" &&
-            (parsed.type === "Point" || parsed.type === "MultiPoint")) ||
-            (geometryKind === "polygon" &&
-                (parsed.type === "Polygon" || parsed.type === "MultiPolygon")) ||
-            (geometryKind === "line" &&
-                (parsed.type === "LineString" || parsed.type === "MultiLineString")));
+        (previewFeatureCollection && previewFeatureCollection.features.length > 0) ||
+        (parsed !== null &&
+            ((geometryKind === "point" &&
+                (parsed.type === "Point" || parsed.type === "MultiPoint")) ||
+                (geometryKind === "polygon" &&
+                    (parsed.type === "Polygon" || parsed.type === "MultiPolygon")) ||
+                (geometryKind === "line" &&
+                    (parsed.type === "LineString" || parsed.type === "MultiLineString"))));
 
     const handleFitGeometry = useCallback(() => {
         const map = mapRef.current;
         if (!map || !isMapReady || !map.isStyleLoaded()) {
+            return;
+        }
+        if (previewFeatureCollection && previewFeatureCollection.features.length > 0) {
+            const bbox = bboxFromFeatureCollection(previewFeatureCollection);
+            if (bbox) {
+                map.fitBounds(
+                    [
+                        [bbox[0], bbox[1]],
+                        [bbox[2], bbox[3]],
+                    ],
+                    { padding: 48, duration: 550, maxZoom: 18 }
+                );
+            }
             return;
         }
         const g = asGeoJsonGeometry(geometry ?? null);
@@ -694,7 +803,7 @@ export default function DataReviewCandidateMap({
             return;
         }
         fitMapToReviewCandidate(map, g, geometryKind, { duration: 550 });
-    }, [isMapReady, geometry, geometryKind]);
+    }, [isMapReady, geometry, geometryKind, previewFeatureCollection]);
 
     const viewportClass =
         size === "drawer"

@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 
 import type { ImportReviewPromotionRoadDryRunResult } from "./import-review-promotion-road-dry-run.types.js";
 import type { ImportReviewRoadRoutingValidationRow } from "./import-review-road-routing-validation.js";
+import { geomSourceExpr, effectiveRoadLengthMExpr } from "./import-review-promotion-promote-sql.js";
 
 export type RoadPublishItemRow = {
     publish_item_id: bigint;
@@ -93,10 +94,10 @@ export class ImportReviewPromotionRoadDryRunRepository {
                 r.matched_core_id,
                 r.road_class_id,
                 r.geom,
-                CASE WHEN r.geom IS NOT NULL THEN ST_SRID(r.geom) ELSE NULL END AS srid,
-                CASE WHEN r.geom IS NOT NULL THEN GeometryType(r.geom) ELSE NULL END AS geom_type,
-                CASE WHEN r.geom IS NOT NULL THEN ST_IsValid(r.geom) ELSE NULL END AS is_valid,
-                CASE WHEN r.geom IS NOT NULL THEN ST_Length(r.geom::geography)::float8 ELSE NULL END AS length_m
+                CASE WHEN ${geomSourceExpr("r")} IS NOT NULL THEN ST_SRID(${geomSourceExpr("r")}) ELSE NULL END AS srid,
+                CASE WHEN ${geomSourceExpr("r")} IS NOT NULL THEN GeometryType(${geomSourceExpr("r")}) ELSE NULL END AS geom_type,
+                CASE WHEN ${geomSourceExpr("r")} IS NOT NULL THEN ST_IsValid(${geomSourceExpr("r")}) ELSE NULL END AS is_valid,
+                ${effectiveRoadLengthMExpr("r")}::float8 AS length_m
             FROM import_review.road_candidates AS r
             WHERE r.id = ${candidateId}
               AND r.review_batch_id = ${reviewBatchId}

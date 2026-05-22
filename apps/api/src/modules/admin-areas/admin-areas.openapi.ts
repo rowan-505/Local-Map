@@ -18,14 +18,27 @@ const adminAreaRowSchema = {
 
 const adminAreaOptionRowSchema = {
     type: "object",
-    required: ["id", "canonical_name", "name_mm", "name_en", "admin_level_id", "parent_id"],
+    required: [
+        "id",
+        "canonical_name",
+        "name_mm",
+        "name_en",
+        "admin_level_id",
+        "admin_level_code",
+        "parent_id",
+    ],
     properties: {
         id: { type: "string" },
         canonical_name: { type: "string" },
         name_mm: { type: "string", nullable: true },
         name_en: { type: "string", nullable: true },
         admin_level_id: { type: "string" },
+        admin_level_code: { type: "string" },
+        admin_level_name: { type: "string", nullable: true },
         parent_id: { type: "string", nullable: true },
+        parent_label: { type: "string", nullable: true },
+        boundary_status: { type: "string", nullable: true },
+        address_usage: { type: "string", nullable: true },
     },
     additionalProperties: false,
 } as const;

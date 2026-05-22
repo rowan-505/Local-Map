@@ -36,13 +36,16 @@ import {
 } from "./import-review-promotion-validation.types.js";
 import {
     ImportReviewPromotionPromoteMapRepository,
-    CORE_LANDUSE_TABLE,
     CORE_WATER_LINES_TABLE,
     CORE_WATER_POLYGONS_TABLE,
-    LANDUSE_CANDIDATE_TABLE,
     WATER_LINE_CANDIDATE_TABLE,
     WATER_POLYGON_CANDIDATE_TABLE,
 } from "./import-review-promotion-promote-map.repo.js";
+import {
+    ImportReviewPromotionPromoteLanduseRepository,
+    CORE_LANDUSE_TABLE,
+    LANDUSE_CANDIDATE_TABLE,
+} from "./import-review-promotion-promote-landuse.repo.js";
 import {
     ImportReviewPromotionPromoteBusStopsRepository,
     BUS_STOP_CANDIDATE_TABLE,
@@ -165,6 +168,7 @@ const PROMOTE_READY_ROW = Prisma.sql`
 export class ImportReviewPromotionPromoteRepository {
     private readonly placesRepo: ImportReviewPromotionPromotePlacesRepository;
     private readonly mapRepo: ImportReviewPromotionPromoteMapRepository;
+    private readonly landuseRepo: ImportReviewPromotionPromoteLanduseRepository;
     private readonly busStopsRepo: ImportReviewPromotionPromoteBusStopsRepository;
     private readonly publishSummaryRepo: ImportReviewPublishBatchSummaryRepository;
     private readonly reviewSummaryRepo: ImportReviewReviewBatchSummaryRepository;
@@ -175,6 +179,7 @@ export class ImportReviewPromotionPromoteRepository {
     ) {
         this.placesRepo = new ImportReviewPromotionPromotePlacesRepository(prisma);
         this.mapRepo = new ImportReviewPromotionPromoteMapRepository(prisma);
+        this.landuseRepo = new ImportReviewPromotionPromoteLanduseRepository(prisma);
         this.busStopsRepo = new ImportReviewPromotionPromoteBusStopsRepository(prisma);
         this.publishSummaryRepo = new ImportReviewPublishBatchSummaryRepository(prisma);
         this.reviewSummaryRepo = new ImportReviewReviewBatchSummaryRepository(prisma);
@@ -572,6 +577,9 @@ export class ImportReviewPromotionPromoteRepository {
             if (item.entity_family === "bus_stops") {
                 return this.busStopsRepo.insertBusStop(args.batchId, args.publishItemId);
             }
+            if (item.entity_family === "landuse") {
+                return this.landuseRepo.insertLanduse(args.batchId, args.publishItemId);
+            }
             if (this.mapRepo.isMapEntityFamily(item.entity_family)) {
                 return this.mapRepo.insertMapEntity(item.entity_family, args.batchId, args.publishItemId);
             }
@@ -584,6 +592,9 @@ export class ImportReviewPromotionPromoteRepository {
             }
             if (item.entity_family === "bus_stops") {
                 return this.busStopsRepo.updateBusStop(args.batchId, args.publishItemId);
+            }
+            if (item.entity_family === "landuse") {
+                return this.landuseRepo.updateLanduse(args.batchId, args.publishItemId);
             }
             if (this.mapRepo.isMapEntityFamily(item.entity_family)) {
                 return this.mapRepo.updateMapEntity(item.entity_family, args.batchId, args.publishItemId);
@@ -610,6 +621,9 @@ export class ImportReviewPromotionPromoteRepository {
         }
         if (entityFamily === "bus_stops") {
             return this.busStopsRepo.checkBusStopCoreExists(targetId);
+        }
+        if (entityFamily === "landuse") {
+            return this.landuseRepo.checkLanduseCoreExists(targetId);
         }
         if (this.mapRepo.isMapEntityFamily(entityFamily)) {
             return this.mapRepo.checkMapCoreExists(entityFamily, targetId);

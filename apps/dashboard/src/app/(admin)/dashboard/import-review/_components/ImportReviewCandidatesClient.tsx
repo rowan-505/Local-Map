@@ -13,6 +13,8 @@ import DataReviewCandidateMap from "@/src/components/map/DataReviewCandidateMap"
 import ImportReviewSelectedActionBar from "@/src/features/import-review/components/ImportReviewSelectedActionBar";
 import { useClearSelectionOnListQueryChange } from "@/src/features/import-review/hooks/useClearSelectionOnListQueryChange";
 import { useImportReviewBulkActions } from "@/src/features/import-review/hooks/useImportReviewBulkActions";
+import { useImportReviewFormOptions } from "@/src/features/import-review/hooks/useImportReviewFormOptions";
+import { roadClassOptionsFromFormOptions } from "@/src/features/import-review/utils/formOptionsUtils";
 import { buildImportReviewListQueryKey } from "@/src/features/import-review/utils/entityPageUtils";
 import { Card, CardContent } from "@/src/components/ui/card";
 import {
@@ -73,6 +75,17 @@ import {
     importReviewStickyIdThClass,
 } from "@/src/app/(admin)/dashboard/import-review/_components/importReviewTableUi";
 import { deriveImportReviewEditorUxCanMutate } from "@/src/lib/importReviewEditorUx";
+import {
+    deriveRoadDrawerTitle,
+    deriveRoadListAdminArea,
+    deriveRoadListLengthM,
+    deriveRoadListNameEn,
+    deriveRoadListNameMm,
+    deriveRoadListOneway,
+    deriveRoadListRoadClass,
+    deriveRoadListSurface,
+    formatRoadListOneway,
+} from "@/src/features/import-review/utils/importReviewRoadListDisplay";
 
 const ENV_SNAPSHOT_DEFAULT = process.env.NEXT_PUBLIC_IMPORT_REVIEW_SNAPSHOT_VERSION?.trim() ?? "";
 
@@ -273,32 +286,6 @@ function Pill({ children, tone }: { children: React.ReactNode; tone: "slate" | "
     );
 }
 
-function RoadWarningPills({ row }: { row: ImportReviewBuildingListItem }) {
-    const ms = row.match_status ?? "";
-    const items: string[] = [];
-    if (ms === "duplicate_candidate") {
-        items.push("duplicate_candidate");
-    }
-    if (ms === "manual_protected") {
-        items.push("manual_protected");
-    }
-    if (items.length === 0) {
-        return <span className="text-xs text-gray-400">—</span>;
-    }
-    return (
-        <div className="flex flex-col gap-1">
-            {items.map((x) => (
-                <span
-                    key={x}
-                    className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-950"
-                >
-                    {x}
-                </span>
-            ))}
-        </div>
-    );
-}
-
 function importReviewCandidateTitle(family: ImportReviewCandidateFamily): string {
     return family === "places" ? "places" : "roads";
 }
@@ -353,6 +340,27 @@ export function ImportReviewCandidatesClient({
     const [drawerNote, setDrawerNote] = useState("");
     const [drawerDecision, setDrawerDecision] = useState<ImportReviewDecision>("needs_more_review");
     const [drawerSaving, setDrawerSaving] = useState(false);
+
+    const needsFormOptions = family === "roads";
+    const {
+        formOptions,
+        isLoading: formOptionsLoading,
+        error: formOptionsError,
+    } = useImportReviewFormOptions(needsFormOptions);
+
+    const roadClassOptions = useMemo(
+        () => roadClassOptionsFromFormOptions(formOptions),
+        [formOptions]
+    );
+
+    const roadClassLabelById = useMemo(() => {
+        const map = new Map<string, string>();
+        for (const option of roadClassOptions) {
+            const label = option.name?.trim() || option.code?.trim() || option.id;
+            map.set(option.id, label);
+        }
+        return map;
+    }, [roadClassOptions]);
 
     useEffect(() => {
         setCanEditImportReview(deriveImportReviewEditorUxCanMutate());
@@ -656,6 +664,11 @@ export function ImportReviewCandidatesClient({
             };
         });
         setDrawerRow((d) => (d?.id === row.id ? row : d));
+    };
+
+    const handleRoadOverridesSaved = (row: ImportReviewBuildingListItem) => {
+        mergeRow(row);
+        void fetchList();
     };
 
     const patchDecision = async (
@@ -1387,7 +1400,15 @@ export function ImportReviewCandidatesClient({
                                 </th>
                                 <th className={importReviewStickyIdThClass()}>ID</th>
                                 <th className="px-3 py-3">External ID</th>
-                                <th className="px-3 py-3">Name</th>
+                                {family === "roads" ? (
+                                    <>
+                                        <th className="px-3 py-3">Name MM</th>
+                                        <th className="px-3 py-3">Name EN</th>
+                                        <th className="px-3 py-3">Admin area</th>
+                                    </>
+                                ) : (
+                                    <th className="px-3 py-3">Name</th>
+                                )}
                                 {family === "places" ? (
                                     <>
                                         <th className="px-3 py-3">POI category</th>
@@ -1397,17 +1418,21 @@ export function ImportReviewCandidatesClient({
                                 ) : (
                                     <>
                                         <th className="px-3 py-3">Road class</th>
+                                        <th className="px-3 py-3">Surface</th>
                                         <th className="px-3 py-3">Oneway</th>
                                         <th className="px-3 py-3">Length (m)</th>
-                                        <th className="px-3 py-3">Alerts</th>
                                     </>
                                 )}
                                 <th className="px-3 py-3">Confidence</th>
                                 <th className="px-3 py-3">Match status</th>
                                 <th className="px-3 py-3">Auto action</th>
                                 <th className="px-3 py-3">Review status</th>
-                                <th className="px-3 py-3">Decision</th>
-                                <th className="px-3 py-3">Updated</th>
+                                {family !== "roads" ? (
+                                    <>
+                                        <th className="px-3 py-3">Decision</th>
+                                        <th className="px-3 py-3">Updated</th>
+                                    </>
+                                ) : null}
                                 <th className={importReviewStickyActionsThClass()}>Actions</th>
                             </tr>
                         </thead>
@@ -1432,23 +1457,25 @@ export function ImportReviewCandidatesClient({
                                 </tr>
                             ) : (
                                 list?.items.map((row) => {
-                                    const onewayRaw = normPick(row.normalized_data, "is_oneway");
-                                    const onewayDisp =
-                                        onewayRaw === true ||
-                                        onewayRaw === "true" ||
-                                        onewayRaw === 1 ||
-                                        onewayRaw === "1"
-                                            ? "yes"
-                                            : onewayRaw === false ||
-                                                onewayRaw === "false" ||
-                                                onewayRaw === 0 ||
-                                                onewayRaw === "0"
-                                              ? "no"
-                                              : "—";
-
                                     const rowSurface = importReviewRowSurface(row, {
                                         selected: selectedIds.has(row.id),
                                     });
+                                    const roadNameMm =
+                                        family === "roads" ? deriveRoadListNameMm(row) : null;
+                                    const roadNameEn =
+                                        family === "roads" ? deriveRoadListNameEn(row) : null;
+                                    const roadAdminArea =
+                                        family === "roads" ? deriveRoadListAdminArea(row) : null;
+                                    const roadClassLabel =
+                                        family === "roads"
+                                            ? deriveRoadListRoadClass(row, roadClassLabelById)
+                                            : null;
+                                    const roadSurface =
+                                        family === "roads" ? deriveRoadListSurface(row) : null;
+                                    const roadOneway =
+                                        family === "roads" ? deriveRoadListOneway(row) : null;
+                                    const roadLengthM =
+                                        family === "roads" ? deriveRoadListLengthM(row) : null;
                                     return (
                                         <tr key={row.id} className={rowSurface.rowClass}>
                                             <td className={importReviewStickyCheckboxTdClass(rowSurface.stickyCellClass)}>
@@ -1471,12 +1498,35 @@ export function ImportReviewCandidatesClient({
                                             <td className="max-w-[120px] truncate px-3 py-3 align-top font-mono text-xs">
                                                 {dash(row.external_id)}
                                             </td>
-                                            <td
-                                                className="max-w-[180px] truncate px-3 py-3 align-top text-gray-900"
-                                                title={row.canonical_name ?? ""}
-                                            >
-                                                {dash(row.canonical_name)}
-                                            </td>
+                                            {family === "roads" ? (
+                                                <>
+                                                    <td
+                                                        className="max-w-[180px] truncate px-3 py-3 align-top text-gray-900"
+                                                        title={roadNameMm ?? ""}
+                                                    >
+                                                        {dash(roadNameMm)}
+                                                    </td>
+                                                    <td
+                                                        className="max-w-[180px] truncate px-3 py-3 align-top text-gray-900"
+                                                        title={roadNameEn ?? ""}
+                                                    >
+                                                        {dash(roadNameEn)}
+                                                    </td>
+                                                    <td
+                                                        className="max-w-[140px] truncate px-3 py-3 align-top text-xs text-gray-900"
+                                                        title={roadAdminArea ?? ""}
+                                                    >
+                                                        {dash(roadAdminArea)}
+                                                    </td>
+                                                </>
+                                            ) : (
+                                                <td
+                                                    className="max-w-[180px] truncate px-3 py-3 align-top text-gray-900"
+                                                    title={row.canonical_name ?? ""}
+                                                >
+                                                    {dash(row.canonical_name)}
+                                                </td>
+                                            )}
                                             {family === "places" ? (
                                                 <>
                                                     <td className="max-w-[100px] truncate px-3 py-3 align-top font-mono text-xs">
@@ -1497,21 +1547,23 @@ export function ImportReviewCandidatesClient({
                                                 </>
                                             ) : (
                                                 <>
-                                                    <td className="max-w-[100px] truncate px-3 py-3 align-top font-mono text-xs">
-                                                        {displayNormField(row.normalized_data, "road_class_id")}
+                                                    <td
+                                                        className="max-w-[120px] truncate px-3 py-3 align-top text-xs text-gray-900"
+                                                        title={roadClassLabel ?? ""}
+                                                    >
+                                                        {dash(roadClassLabel)}
                                                     </td>
-                                                    <td className="px-3 py-3 align-top text-xs">{onewayDisp}</td>
+                                                    <td
+                                                        className="max-w-[100px] truncate px-3 py-3 align-top text-xs text-gray-900"
+                                                        title={roadSurface ?? ""}
+                                                    >
+                                                        {dash(roadSurface)}
+                                                    </td>
+                                                    <td className="px-3 py-3 align-top text-xs">
+                                                        {formatRoadListOneway(roadOneway)}
+                                                    </td>
                                                     <td className="px-3 py-3 align-top tabular-nums text-xs">
-                                                        {dash(
-                                                            normPick(row.normalized_data, "length_m") as
-                                                                | string
-                                                                | number
-                                                                | null
-                                                                | undefined,
-                                                        )}
-                                                    </td>
-                                                    <td className="px-3 py-3 align-top">
-                                                        <RoadWarningPills row={row} />
+                                                        {dash(roadLengthM)}
                                                     </td>
                                                 </>
                                             )}
@@ -1535,12 +1587,16 @@ export function ImportReviewCandidatesClient({
                                             <td className="whitespace-nowrap px-3 py-3 align-top">
                                                 <Pill tone="violet">{dash(row.review_status)}</Pill>
                                             </td>
-                                            <td className="whitespace-nowrap px-3 py-3 align-top">
-                                                <Pill tone="blue">{dash(row.review_decision)}</Pill>
-                                            </td>
-                                            <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-gray-600">
-                                                {formatTs(row.updated_at)}
-                                            </td>
+                                            {family !== "roads" ? (
+                                                <>
+                                                    <td className="whitespace-nowrap px-3 py-3 align-top">
+                                                        <Pill tone="blue">{dash(row.review_decision)}</Pill>
+                                                    </td>
+                                                    <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-gray-600">
+                                                        {formatTs(row.updated_at)}
+                                                    </td>
+                                                </>
+                                            ) : null}
                                             <td className={importReviewStickyActionsTdClass(rowSurface.stickyCellClass)}>
                                                 <ImportReviewReviewActionsMenu
                                                     disabled={!canEditImportReview}
@@ -1625,8 +1681,10 @@ export function ImportReviewCandidatesClient({
                     />
                     <div className="relative flex h-full w-full max-w-2xl flex-col border-l border-gray-200 bg-white shadow-2xl">
                         <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
-                            <h2 className="text-base font-semibold text-gray-900">
-                                {drawerKind} candidate
+                            <h2 className="truncate text-base font-semibold text-gray-900">
+                                {family === "roads" && drawerRow
+                                    ? deriveRoadDrawerTitle(drawerRow)
+                                    : `${drawerKind} candidate`}
                             </h2>
                             <button
                                 type="button"
@@ -1691,6 +1749,14 @@ export function ImportReviewCandidatesClient({
                                                 {drawerRow.source_snapshot_id_local}
                                             </div>
                                         </div>
+                                        <div className="sm:col-span-2">
+                                            <span className="font-medium text-gray-500">Myanmar name</span>
+                                            <div className="text-gray-900">{dash(deriveRoadListNameMm(drawerRow))}</div>
+                                        </div>
+                                        <div>
+                                            <span className="font-medium text-gray-500">English name</span>
+                                            <div className="text-gray-900">{dash(deriveRoadListNameEn(drawerRow))}</div>
+                                        </div>
                                         <div>
                                             <span className="font-medium text-gray-500">match_status</span>
                                             <div>{dash(drawerRow.match_status)}</div>
@@ -1738,8 +1804,12 @@ export function ImportReviewCandidatesClient({
                                         </div>
                                     </div>
                                     <div className="sm:col-span-2">
-                                        <span className="font-medium text-gray-500">canonical_name</span>
-                                        <div className="text-gray-900">{dash(drawerRow.canonical_name)}</div>
+                                        <span className="font-medium text-gray-500">Myanmar name</span>
+                                        <div className="text-gray-900">{dash(drawerRow.effective_name_mm)}</div>
+                                    </div>
+                                    <div>
+                                        <span className="font-medium text-gray-500">English name</span>
+                                        <div className="text-gray-900">{dash(drawerRow.effective_name_en)}</div>
                                     </div>
                                     <div>
                                         <span className="font-medium text-gray-500">class_code</span>
@@ -1875,15 +1945,13 @@ export function ImportReviewCandidatesClient({
                                     {hasValidScope ? (
                                         <ImportReviewRoadOverridesPanel
                                             row={drawerRow}
-                                            sourceSnapshotVersion={
-                                                list?.source_snapshot_version ??
-                                                (scopeQuery && "source_snapshot_version" in scopeQuery
-                                                    ? scopeQuery.source_snapshot_version
-                                                    : "")
-                                            }
+                                            mutationScope={importReviewMutationScope(list, apiScopeQuery)}
                                             canEdit={canEditImportReview}
                                             selectCls={selectCls}
-                                            onSaved={mergeRow}
+                                            onSaved={handleRoadOverridesSaved}
+                                            formOptions={formOptions}
+                                            formOptionsLoading={formOptionsLoading}
+                                            formOptionsError={formOptionsError}
                                             onValidated={(result) => {
                                                 setDrawerRoutingValidation(result);
                                                 const patch = {
@@ -1903,7 +1971,7 @@ export function ImportReviewCandidatesClient({
                                         />
                                     ) : (
                                         <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-950">
-                                            Apply filters with a source snapshot version to edit road overrides.
+                                            Apply filters with review_batch_id or source snapshot version to edit road overrides.
                                         </p>
                                     )}
                                 </>

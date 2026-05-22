@@ -25,6 +25,7 @@ export const DATA_REVIEW_PREVIEW_VECTOR_LAYERS = [
     "water-lines",
     "admin-boundaries",
     "admin-labels",
+    "village-labels",
     "road-casing",
     "road-fill",
     "buildings",
@@ -37,6 +38,7 @@ const HYBRID_OFF_LAYERS = new Set([
     "water-lines",
     "admin-boundaries",
     "admin-labels",
+    "village-labels",
     "buildings",
 ]);
 

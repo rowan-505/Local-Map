@@ -31,6 +31,7 @@ import {
 } from "@/src/lib/core-review/entityConfigs";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import { dashDevLog } from "@/src/lib/dashDevLog";
+import { summarizeCoreReviewSavePayload } from "@/src/lib/core-review/savePayloadUtils";
 
 import CoreEntityFieldRenderer from "./CoreEntityFieldRenderer";
 import CoreEntityFormShell from "./CoreEntityFormShell";
@@ -46,7 +47,10 @@ import CoreReadonlyMetadata from "./CoreReadonlyMetadata";
 import CoreReviewEntityFormLifecycleActions from "../lifecycle/CoreReviewEntityFormLifecycleActions";
 import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
 import StreetEditExtras, { type StreetSplitMapProps } from "./StreetEditExtras";
+import AdminAreaBoundaryFields from "../admin-areas/AdminAreaBoundaryFields";
+import CoreAddressFormExtras from "@/src/features/addresses/CoreAddressFormExtras";
 import { collectRefSources, useCoreEntityRefs } from "./useCoreEntityRefs";
+import type { CoreReviewAddressDetail } from "../config/types";
 
 // TODO: Add beforeunload / router guard when a shared unsaved-changes pattern exists in the dashboard.
 
@@ -58,12 +62,19 @@ export type CoreEntityFormPageProps = {
 
 function sanitizeSaveError(err: unknown): string {
     const raw = err instanceof Error ? err.message : "Request failed";
+    // Multi-line API responses include field-level issue bullets — show them verbatim.
+    if (/\n/.test(raw)) {
+        return raw;
+    }
     const looksTechnical =
         raw.length > 400 ||
-        /\b(pg_|postgresql|prisma|P1012|syntax error at|violates(?: foreign key)?|duplicate key value|permission denied for relation|syntax error\b)/i.test(
+        /\b(pg_|postgresql|prisma|P1012|syntax error at|permission denied for relation|syntax error\b)/i.test(
             raw,
         );
-    return looksTechnical ? "Saving failed. Please try again." : raw;
+    if (looksTechnical) {
+        return "Saving failed. Please try again.";
+    }
+    return raw;
 }
 
 export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFormPageProps) {
@@ -110,6 +121,18 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
 
     const roadClassId = watch("road_class_id") as string | undefined;
     const editReason = watch("edit_reason") as string | undefined;
+    const adminLevelId = watch("admin_level_id") as string | undefined;
+    const boundaryStatus = watch("boundary_status") as string | undefined;
+    const addressUsage = watch("address_usage") as string | undefined;
+    const adminLevelCode = useMemo(() => {
+        if (!adminLevelId) {
+            return "";
+        }
+        const match = refStates["reference-options:admin_levels"]?.options.find(
+            (option) => option.value === adminLevelId,
+        );
+        return match?.code?.trim().toLowerCase() ?? "";
+    }, [adminLevelId, refStates]);
     const isRecordDeleted =
         mode === "edit" && detail ? isCoreReviewRowDeleted(detail) : false;
 
@@ -165,6 +188,18 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
         };
     }, [entityKey, mode, setValue]);
 
+    useEffect(() => {
+        if (mode !== "create" || entityKey !== "admin-areas") {
+            return;
+        }
+        const manual = refStates["reference-options:source_types"]?.options.find(
+            (option) => option.code === "manual",
+        );
+        if (manual?.value) {
+            setValue("source_type_id", manual.value);
+        }
+    }, [entityKey, mode, refStates, setValue]);
+
     const onSubmit = handleSubmit(async (values) => {
         if (!config.writeApiAvailable) {
             return;
@@ -218,7 +253,7 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
 
             if (mode === "create") {
                 const payload = config.formValuesToCreatePayload(values);
-                dashDevLog(`${entityKey}:create:save-payload`, payload);
+                dashDevLog(`${entityKey}:create:save-payload`, summarizeCoreReviewSavePayload(payload));
                 const created = await config.createEntity(payload);
                 config.onAfterCreate?.(created);
 
@@ -264,7 +299,7 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
                 return;
             } else if (id) {
                 const payload = config.formValuesToUpdatePayload(values);
-                dashDevLog(`${entityKey}:edit:save-payload`, payload);
+                dashDevLog(`${entityKey}:edit:save-payload`, summarizeCoreReviewSavePayload(payload));
                 await config.updateEntity(id, payload);
                 const fresh = await config.fetchDetail(id);
                 setDetail(fresh as Record<string, unknown>);
@@ -332,7 +367,8 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
             : null;
 
     const formDisabled = !config.writeApiAvailable || isRecordDeleted || isSaving;
-    const showPointCoordinates = config.geometry?.geometryType === "point";
+    const showPointCoordinates =
+        config.geometry?.geometryType === "point" && entityKey !== "addresses";
 
     const selectedStreetName =
         entityKey === "streets" && detail && "canonical_name" in detail
@@ -364,32 +400,56 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
               ))
             : null;
 
-    const mapSection = config.geometry ? (
-        <div className="space-y-4">
-            <CoreEntityGeometrySection
-                config={config.geometry}
+    const pointGeom = watch("point_geom") as import("geojson").Geometry | null | undefined;
+    const addressDetail =
+        entityKey === "addresses" && detail ? (detail as CoreReviewAddressDetail) : null;
+
+    const mapSection =
+        entityKey === "addresses" && config.geometry ? (
+            <CoreAddressFormExtras
                 control={control}
-                externalId={externalId}
-                selectedEntityName={selectedStreetName}
-                snapExcludePublicId={entityKey === "streets" ? externalId : null}
+                pointGeom={pointGeom ?? null}
+                setValue={setValue}
                 disabled={formDisabled}
-                roadClassId={roadClassId}
-                onGeometryValidation={setGeometryValidation}
-                onApiValidation={setApiGeometryValidation}
-                streetSplitMapProps={entityKey === "streets" ? streetSplitMapProps : null}
-                mapSurfaceRef={entityKey === "places" ? placeHostMapRef : undefined}
+                initialComponents={addressDetail?.components}
             />
-            {config.secondaryGeometry ? (
+        ) : config.geometry ? (
+            <div className="space-y-4">
                 <CoreEntityGeometrySection
-                    config={config.secondaryGeometry}
+                    config={config.geometry}
                     control={control}
                     externalId={externalId}
+                    selectedEntityName={selectedStreetName}
+                    snapExcludePublicId={entityKey === "streets" ? externalId : null}
                     disabled={formDisabled}
+                    roadClassId={roadClassId}
                     onGeometryValidation={setGeometryValidation}
+                    onApiValidation={setApiGeometryValidation}
+                    streetSplitMapProps={entityKey === "streets" ? streetSplitMapProps : null}
+                    mapSurfaceRef={entityKey === "places" ? placeHostMapRef : undefined}
                 />
-            ) : null}
-        </div>
-    ) : null;
+                {config.secondaryGeometry ? (
+                    <CoreEntityGeometrySection
+                        config={config.secondaryGeometry}
+                        control={control}
+                        externalId={externalId}
+                        disabled={formDisabled}
+                        onGeometryValidation={setGeometryValidation}
+                    />
+                ) : null}
+            </div>
+        ) : null;
+
+    const addressEntranceSection =
+        entityKey === "addresses" && config.secondaryGeometry ? (
+            <CoreEntityGeometrySection
+                config={config.secondaryGeometry}
+                control={control}
+                externalId={externalId}
+                disabled={formDisabled}
+                onGeometryValidation={setGeometryValidation}
+            />
+        ) : null;
 
     return (
         <CoreEntityFormShell
@@ -457,6 +517,19 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
                             refStates={refStates}
                         />
                     ))}
+                    {entityKey === "admin-areas" ? (
+                        <AdminAreaBoundaryFields
+                            mode={mode}
+                            adminLevelCode={adminLevelCode}
+                            control={control}
+                            errors={errors}
+                            disabled={formDisabled}
+                            resetKey={mode === "edit" ? id : "create"}
+                            boundaryStatus={String(boundaryStatus ?? "")}
+                            addressUsage={String(addressUsage ?? "")}
+                            setValue={setValue}
+                        />
+                    ) : null}
                 </>
             }
             metadataSection={
@@ -493,7 +566,9 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
                 </>
             }
             leftColumnBelowMapSection={
-                mode === "edit" && entityKey === "places" && placeDetail ? (
+                addressEntranceSection ? (
+                    addressEntranceSection
+                ) : mode === "edit" && entityKey === "places" && placeDetail ? (
                     <PlaceLinkedBuildingsPanel
                         placePublicId={placeDetail.public_id}
                         placeLat={placeDetail.lat}

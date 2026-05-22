@@ -446,6 +446,7 @@ function buildSimpleMapLayerSpec(
   opts: {
     withCentroid?: boolean;
     nameFrom?: 'canonical' | 'class_code' | 'payload_name';
+    excludeClassCodeFromName?: boolean;
     geomMode?: 'point' | 'geometry' | 'any';
   } = {}
 ): UpsertSpec {
@@ -454,7 +455,9 @@ function buildSimpleMapLayerSpec(
     opts.nameFrom === 'class_code'
       ? 'coalesce(gp.class_code, gp.canonical_name, gp.name_hint)'
       : opts.nameFrom === 'payload_name'
-        ? 'coalesce(gp.name_hint, gp.canonical_name, gp.class_code)'
+        ? opts.excludeClassCodeFromName
+          ? 'coalesce(gp.name_hint, gp.canonical_name)'
+          : 'coalesce(gp.name_hint, gp.canonical_name, gp.class_code)'
         : 'coalesce(gp.canonical_name, gp.class_code, gp.name_hint)';
   const recordType = opts.withCentroid
     ? `${COMMON_RECORD}, name_hint text, centroid_json text`
@@ -554,7 +557,11 @@ function buildSimpleMapLayerSpec(
 }
 
 const UPSERT_SPECS: Partial<Record<EntityFamilySlug, UpsertSpec>> = {
-  landuse: buildSimpleMapLayerSpec('landuse', { withCentroid: true, nameFrom: 'payload_name' }),
+  landuse: buildSimpleMapLayerSpec('landuse', {
+    withCentroid: true,
+    nameFrom: 'payload_name',
+    excludeClassCodeFromName: true,
+  }),
   water_lines: buildSimpleMapLayerSpec('water_lines', { nameFrom: 'payload_name' }),
   water_polygons: buildSimpleMapLayerSpec('water_polygons', { withCentroid: true, nameFrom: 'payload_name' }),
 };

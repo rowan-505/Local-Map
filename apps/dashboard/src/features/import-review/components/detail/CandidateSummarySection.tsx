@@ -5,6 +5,14 @@ import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 import type { ImportReviewEntityConfig } from "../../config/types";
 import { dash, formatBuildingTypeLabel, formatImportReviewTs, importReviewRowHasOverrides } from "../../utils/entityPageUtils";
 import { resolveDrawerSubtitle, resolveDrawerTitle } from "../../utils/detailDrawerUtils";
+import {
+    formatLanduseClassLabel,
+    formatLanduseImportedClassCode,
+} from "../../utils/importReviewLanduseListDisplay";
+
+function hasNameFields(config: ImportReviewEntityConfig): boolean {
+    return config.overrideEditableFields.includes("name_mm") || config.overrideEditableFields.includes("name_en");
+}
 
 export default function CandidateSummarySection({
     config,
@@ -14,6 +22,9 @@ export default function CandidateSummarySection({
     row: ImportReviewBuildingListItem;
 }) {
     const subtitle = resolveDrawerSubtitle(row, config);
+    const nameMm = row.effective_name_mm ?? null;
+    const nameEn = row.effective_name_en ?? null;
+    const showNames = hasNameFields(config);
 
     return (
         <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -34,6 +45,20 @@ export default function CandidateSummarySection({
                     </p>
                 ) : null}
             </div>
+
+            {showNames ? (
+                <div className="grid grid-cols-1 gap-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3 text-sm sm:grid-cols-2">
+                    <div>
+                        <span className="font-medium text-gray-500">Myanmar name</span>
+                        <div className="text-gray-900">{dash(nameMm)}</div>
+                    </div>
+                    <div>
+                        <span className="font-medium text-gray-500">English name</span>
+                        <div className="text-gray-900">{dash(nameEn)}</div>
+                    </div>
+                </div>
+            ) : null}
+
             <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                 <div>
                     <span className="font-medium text-gray-500">id</span>
@@ -48,10 +73,40 @@ export default function CandidateSummarySection({
                         <span className="font-medium text-gray-500">Building type</span>
                         <div className="text-gray-900">{dash(formatBuildingTypeLabel(row))}</div>
                     </div>
+                ) : config.slug === "addresses" ? null : config.slug === "routing-barriers" ? (
+                    <>
+                        <div>
+                            <span className="font-medium text-gray-500">Barrier type</span>
+                            <div className="font-mono text-gray-900">{dash(row.effective_barrier_type)}</div>
+                        </div>
+                        <div>
+                            <span className="font-medium text-gray-500">Class</span>
+                            <div className="font-mono text-gray-900">{dash(row.effective_class_code)}</div>
+                        </div>
+                    </>
+                ) : config.apiFamily === "roads" ? null : config.apiFamily === "landuse" ? (
+                    <>
+                        <div>
+                            <span className="font-medium text-gray-500">Landuse class</span>
+                            <div className="text-gray-900">{dash(formatLanduseClassLabel(row))}</div>
+                        </div>
+                        <div>
+                            <span className="font-medium text-gray-500">Imported class</span>
+                            <div className="font-mono text-xs text-gray-700">
+                                {dash(formatLanduseImportedClassCode(row))}
+                            </div>
+                        </div>
+                    </>
                 ) : (
                     <div>
-                        <span className="font-medium text-gray-500">class_code</span>
-                        <div className="font-mono text-gray-900">{dash(row.class_code)}</div>
+                        <span className="font-medium text-gray-500">
+                            {config.apiFamily === "water_lines"
+                                ? "Waterway class"
+                                : config.apiFamily === "water_polygons"
+                                  ? "Water class"
+                                  : "Class"}
+                        </span>
+                        <div className="font-mono text-gray-900">{dash(row.effective_class_code)}</div>
                     </div>
                 )}
                 <div>

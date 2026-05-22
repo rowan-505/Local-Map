@@ -10,6 +10,13 @@ const TONE_CLASS: Record<string, string> = {
     manual_protected: "border-violet-200 bg-violet-50 text-violet-900",
     duplicate_candidate: "border-orange-200 bg-orange-50 text-orange-950",
     new_auto: "border-blue-200 bg-blue-50 text-blue-900",
+    valid: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    valid_with_warnings: "border-amber-200 bg-amber-50 text-amber-950",
+    blocked: "border-red-200 bg-red-50 text-red-900",
+    not_checked: "border-gray-200 bg-gray-50 text-gray-700",
+    passed: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    warnings: "border-amber-200 bg-amber-50 text-amber-950",
+    failed: "border-red-200 bg-red-50 text-red-900",
 };
 
 export default function ImportReviewStatusBadge({ value }: { value: string }) {

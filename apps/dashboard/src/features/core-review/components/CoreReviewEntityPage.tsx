@@ -59,6 +59,12 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
             isPublic: "",
             statusFilter: "active",
             routeId: "",
+            landuseClassId: "",
+            detailLevel: "",
+            cropCode: "",
+            boundaryStatus: "",
+            addressUsage: "",
+            isOfficialBoundary: "",
         });
     }, [config.defaultSortBy, list]);
 
@@ -249,24 +255,21 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                 </>
             ) : null}
 
-            <CoreReviewEntityDetailDrawer
-                open={Boolean(selectedRow)}
-                apiSlug={config.apiSlug}
-                idKind={config.idKind}
-                rowId={selectedRow ? config.getRowId(selectedRow) : null}
-                title={selectedRow ? config.getRowTitle(selectedRow) : ""}
-                subtitle={selectedRow ? config.getRowSubtitle?.(selectedRow) ?? null : null}
-                geometryKind={config.geometryKind}
-                mapEntityType={config.mapEntityType}
-                listGeometry={listGeometry}
-                detailFields={detailFields}
-                editPath={
-                    selectedRow && config.editPath
-                        ? config.editPath(config.getRowId(selectedRow))
-                        : undefined
-                }
-                drawerActions={
-                    selectedRow ? (
+            {config.extensions?.renderDetailDrawer ? (
+                config.extensions.renderDetailDrawer({
+                    open: Boolean(selectedRow),
+                    row: selectedRow,
+                    rowId: selectedRow ? config.getRowId(selectedRow) : null,
+                    title: selectedRow ? config.getRowTitle(selectedRow) : "",
+                    subtitle: selectedRow ? config.getRowSubtitle?.(selectedRow) ?? null : null,
+                    geometryKind: config.geometryKind,
+                    mapEntityType: config.mapEntityType,
+                    listGeometry: listGeometry,
+                    editPath:
+                        selectedRow && config.editPath
+                            ? config.editPath(config.getRowId(selectedRow))
+                            : undefined,
+                    drawerActions: selectedRow ? (
                         <>
                             <CoreReviewLifecycleDrawerActions
                                 apiSlug={config.apiSlug}
@@ -283,10 +286,49 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                                 reloadList: list.reload,
                             })}
                         </>
-                    ) : undefined
-                }
-                onClose={() => setSelectedId(null)}
-            />
+                    ) : undefined,
+                    onClose: () => setSelectedId(null),
+                })
+            ) : (
+                <CoreReviewEntityDetailDrawer
+                    open={Boolean(selectedRow)}
+                    apiSlug={config.apiSlug}
+                    idKind={config.idKind}
+                    rowId={selectedRow ? config.getRowId(selectedRow) : null}
+                    title={selectedRow ? config.getRowTitle(selectedRow) : ""}
+                    subtitle={selectedRow ? config.getRowSubtitle?.(selectedRow) ?? null : null}
+                    geometryKind={config.geometryKind}
+                    mapEntityType={config.mapEntityType}
+                    listGeometry={listGeometry}
+                    detailFields={detailFields}
+                    editPath={
+                        selectedRow && config.editPath
+                            ? config.editPath(config.getRowId(selectedRow))
+                            : undefined
+                    }
+                    drawerActions={
+                        selectedRow ? (
+                            <>
+                                <CoreReviewLifecycleDrawerActions
+                                    apiSlug={config.apiSlug}
+                                    row={selectedRow as Record<string, unknown>}
+                                    recordId={config.getRowId(selectedRow)}
+                                    onSuccess={handleLifecycleSuccess}
+                                    onError={handleLifecycleError}
+                                    onAfterLifecycle={() => setSelectedId(null)}
+                                />
+                                {config.extensions?.renderDrawerActions?.({
+                                    row: selectedRow,
+                                    detail: selectedRow,
+                                    close: () => setSelectedId(null),
+                                    reloadList: list.reload,
+                                })}
+                            </>
+                        ) : undefined
+                    }
+                    onClose={() => setSelectedId(null)}
+                />
+            )}
         </CoreReviewPageShell>
     );
 

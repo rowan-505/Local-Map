@@ -34,6 +34,12 @@ export type CoreReviewListDraft = {
     roadClassId: string;
     isPublic: string;
     routeId: string;
+    landuseClassId: string;
+    detailLevel: string;
+    cropCode: string;
+    boundaryStatus: string;
+    addressUsage: string;
+    isOfficialBoundary: string;
 };
 
 const PAGE_SIZE_CHOICES = [25, 50, 100] as const;
@@ -97,6 +103,12 @@ function readDraftFromSearchParams(
             searchParams.get("includeDeleted") === "true"
         ),
         routeId: searchParams.get("routeId")?.trim() ?? "",
+        landuseClassId: searchParams.get("landuseClassId")?.trim() ?? "",
+        detailLevel: searchParams.get("detailLevel")?.trim() ?? "",
+        cropCode: searchParams.get("cropCode")?.trim() ?? "",
+        boundaryStatus: searchParams.get("boundaryStatus")?.trim() ?? "",
+        addressUsage: searchParams.get("addressUsage")?.trim() ?? "",
+        isOfficialBoundary: searchParams.get("isOfficialBoundary")?.trim() ?? "",
     };
 }
 
@@ -142,6 +154,24 @@ export function buildListParamsFromDraft(
     if (filterSupport.routeId && draft.routeId) {
         params.routeId = draft.routeId;
     }
+    if (filterSupport.landuseClassId && draft.landuseClassId) {
+        params.landuseClassId = draft.landuseClassId;
+    }
+    if (filterSupport.detailLevel && draft.detailLevel) {
+        params.detailLevel = draft.detailLevel as "zone" | "parcel";
+    }
+    if (filterSupport.cropCode && draft.cropCode) {
+        params.cropCode = draft.cropCode;
+    }
+    if (filterSupport.boundaryStatus && draft.boundaryStatus) {
+        params.boundaryStatus = draft.boundaryStatus;
+    }
+    if (filterSupport.addressUsage && draft.addressUsage) {
+        params.addressUsage = draft.addressUsage;
+    }
+    if (filterSupport.isOfficialBoundary && draft.isOfficialBoundary !== "") {
+        params.isOfficialBoundary = draft.isOfficialBoundary === "true";
+    }
     return params;
 }
 
@@ -180,6 +210,24 @@ function draftToUrlParams(draft: CoreReviewListDraft, page: number): Record<stri
     }
     if (draft.routeId) {
         p.routeId = draft.routeId;
+    }
+    if (draft.landuseClassId) {
+        p.landuseClassId = draft.landuseClassId;
+    }
+    if (draft.detailLevel) {
+        p.detailLevel = draft.detailLevel;
+    }
+    if (draft.cropCode) {
+        p.cropCode = draft.cropCode;
+    }
+    if (draft.boundaryStatus) {
+        p.boundaryStatus = draft.boundaryStatus;
+    }
+    if (draft.addressUsage) {
+        p.addressUsage = draft.addressUsage;
+    }
+    if (draft.isOfficialBoundary !== "") {
+        p.isOfficialBoundary = draft.isOfficialBoundary;
     }
     return p;
 }

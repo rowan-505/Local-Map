@@ -19,6 +19,8 @@ import placeBuildingRoutes from "./modules/place-buildings/place-buildings.route
 import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
 import importReviewRoutes from "./modules/import-review/import-review.routes.js";
 import coreReviewRoutes from "./modules/core-review/core-review.routes.js";
+import refRoutes from "./modules/ref/ref.routes.js";
+import addressesRoutes from "./modules/addresses/addresses.routes.js";
 import { IMPORT_REVIEW_ADMIN_TOKEN_HEADER } from "./modules/import-review/import-review-admin.guard.js";
 import { healthGetSchema } from "./lib/openapi/health.openapi.js";
 
@@ -76,11 +78,13 @@ export async function buildApp() {
     await app.register(adminAreasRoutes);
     await app.register(placesRoutes);
     await app.register(publicMapRoutes);
+    await app.register(addressesRoutes);
     await app.register(streetsRoutes);
     await app.register(buildingsRoutes);
     await app.register(placeBuildingRoutes);
     await app.register(dashboardRoutes);
     await app.register(importReviewRoutes, { prefix: "/api/import-review" });
+    await app.register(refRoutes, { prefix: "/admin/ref" });
     await app.register(coreReviewRoutes, { prefix: "/core-review" });
 
     await app.register(swaggerUiPlugin);

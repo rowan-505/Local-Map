@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import type { FeatureCollection, Geometry } from "geojson";
 
 import DataReviewCandidateMap from "@/src/components/map/DataReviewCandidateMap";
 import type {
@@ -29,8 +30,11 @@ export type ImportReviewMapPreviewProps = {
     /** When true, detail/geometry fetch is in progress — map is not mounted. */
     isLoadingDetail?: boolean;
     isLoadingGeometry?: boolean;
-    /** Matched core overlay — reserved for dashed secondary geometry later. */
-    matchedCoreGeometry?: ImportReviewGeoJson | null;
+    /** Mixed-layer preview (e.g. address point + matched building/street). */
+    previewFeatureCollection?: FeatureCollection<Geometry> | null;
+    onPointPick?: (coords: { lat: number; lng: number }) => void;
+    pointPickDisabled?: boolean;
+    fitButtonLabel?: string;
     size?: "default" | "drawer";
     className?: string;
     /** When false, MapLibre is not initialized (e.g. closed drawer). Default true. */
@@ -68,7 +72,10 @@ export default function ImportReviewMapPreview({
     fallbackNote = null,
     isLoadingDetail = false,
     isLoadingGeometry = false,
-    matchedCoreGeometry: _matchedCoreGeometry,
+    previewFeatureCollection = null,
+    onPointPick,
+    pointPickDisabled = false,
+    fitButtonLabel,
     size = "drawer",
     className,
     enabled = true,
@@ -82,27 +89,39 @@ export default function ImportReviewMapPreview({
         [parsedGeometry, geometryKind]
     );
 
-    const status = useMemo(
-        () =>
-            getImportReviewMapPreviewStatus({
-                enabled,
-                isLoadingDetail,
-                isLoadingGeometry,
-                rawGeometry: geometry,
-                parsedGeometry,
-                effectiveKind,
-                fallbackNote,
-            }),
-        [
+    const hasPreviewCollection =
+        previewFeatureCollection !== null && previewFeatureCollection !== undefined &&
+        previewFeatureCollection.features.length > 0;
+
+    const status = useMemo(() => {
+        if (hasPreviewCollection) {
+            if (!enabled) {
+                return "disabled" as const;
+            }
+            if (isLoadingDetail || isLoadingGeometry) {
+                return "loading_geometry" as const;
+            }
+            return "ready" as const;
+        }
+        return getImportReviewMapPreviewStatus({
             enabled,
             isLoadingDetail,
             isLoadingGeometry,
-            geometry,
+            rawGeometry: geometry,
             parsedGeometry,
             effectiveKind,
             fallbackNote,
-        ]
-    );
+        });
+    }, [
+        hasPreviewCollection,
+        enabled,
+        isLoadingDetail,
+        isLoadingGeometry,
+        geometry,
+        parsedGeometry,
+        effectiveKind,
+        fallbackNote,
+    ]);
 
     const mapGeometry = useMemo(
         () => (parsedGeometry ? (parsedGeometry as unknown as ImportReviewGeoJson) : geometry ?? null),
@@ -181,10 +200,14 @@ export default function ImportReviewMapPreview({
                         geometry={mapGeometry}
                         geometryKind={effectiveKind}
                         entityType={entityType}
+                        previewFeatureCollection={previewFeatureCollection}
                         externalId={externalId}
                         title={title}
                         subtitle={subtitle}
                         size={size}
+                        fitButtonLabel={fitButtonLabel}
+                        onPointPick={onPointPick}
+                        pointPickDisabled={pointPickDisabled}
                         className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm"
                     />
                 </div>

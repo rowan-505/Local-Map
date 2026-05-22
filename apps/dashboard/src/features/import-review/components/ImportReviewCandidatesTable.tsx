@@ -17,6 +17,10 @@ import {
 import type { ImportReviewBuildingListItem, ImportReviewDecision } from "@/src/lib/api";
 
 import type { ImportReviewTableColumn } from "../config/types";
+import {
+    importReviewAddressDisplayCell,
+    importReviewAddressSourceTypeCell,
+} from "../utils/importReviewAddressListDisplay";
 import { importReviewCellValue, importReviewRowHasOverrides } from "../utils/entityPageUtils";
 import ImportReviewStatusBadge from "./ImportReviewStatusBadge";
 
@@ -26,6 +30,7 @@ const STATUS_COLUMNS = new Set([
     "review_status",
     "review_decision",
     "promotion_status",
+    "validation_status",
 ]);
 
 function OverrideEditedBadge() {
@@ -44,12 +49,26 @@ function renderCell(
     col: ImportReviewTableColumn,
     showOverrideBadge: boolean
 ): ReactNode {
-    const text = importReviewCellValue(row, col);
     let content: ReactNode;
+    if (col.key === "display_full_address") {
+        content = importReviewAddressDisplayCell(row);
+    } else if (col.key === "source_name") {
+        content = (
+            <span className="block max-w-[220px] truncate text-sm text-gray-800">
+                {row.source_name?.trim() ? row.source_name : "—"}
+            </span>
+        );
+    } else if (col.key === "source_type_hint") {
+        content = importReviewAddressSourceTypeCell(row);
+    } else {
+    const text = importReviewCellValue(row, col);
     if (STATUS_COLUMNS.has(col.key) && text !== "—") {
         content = <ImportReviewStatusBadge value={text} />;
+    } else if (col.key === "imported_class_code") {
+        content = <span className="font-mono text-xs text-gray-700">{text}</span>;
     } else {
         content = text;
+    }
     }
     if (showOverrideBadge && importReviewRowHasOverrides(row)) {
         return (

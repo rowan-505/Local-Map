@@ -316,6 +316,14 @@ export const importReviewBuildingItemSchema = {
         building_type_id: { type: "string", nullable: true },
         building_type_code: { type: "string", nullable: true },
         building_type_name: { type: "string", nullable: true },
+        landuse_class_id: {
+            type: "string",
+            nullable: true,
+            description: "Landuse list/patch only — effective ref.ref_landuse_classes id.",
+        },
+        landuse_class_code: { type: "string", nullable: true },
+        landuse_class_name: { type: "string", nullable: true },
+        landuse_class_name_mm: { type: "string", nullable: true },
         admin_area_id: { type: "string", nullable: true },
         levels: { type: "integer", nullable: true },
         height_m: { type: "number", nullable: true },
@@ -370,24 +378,153 @@ export const importReviewBuildingItemSchema = {
         },
         road_candidate_surface: { type: "string", nullable: true },
         road_candidate_is_oneway: { type: "boolean", nullable: true },
+        length_m: {
+            type: "number",
+            nullable: true,
+            description:
+                "Road candidates only — meters along effective centerline (review_overrides.geom when set, else geom), rounded to 2 decimals.",
+        },
         effective_name: {
             type: "string",
             nullable: true,
-            description: "Display value: review_overrides.name when set, else imported/normalized name.",
+            description: "Primary display name (English when available, else Myanmar).",
         },
-        effective_name_local: { type: "string", nullable: true },
+        name_mm: {
+            type: "string",
+            nullable: true,
+            description:
+                "Reviewer-facing Myanmar name from review_overrides.name_mm or imported Myanmar sources (tags, normalized_data).",
+        },
+        name_en: {
+            type: "string",
+            nullable: true,
+            description:
+                "Reviewer-facing English name from review_overrides.name_en or imported English sources (tags, normalized_data).",
+        },
+        effective_name_mm: {
+            type: "string",
+            nullable: true,
+            description: "Myanmar label from review_overrides.name_mm or imported Myanmar sources.",
+        },
+        effective_name_en: {
+            type: "string",
+            nullable: true,
+            description: "English label from review_overrides.name_en or imported English sources.",
+        },
+        effective_name_und: {
+            type: "string",
+            nullable: true,
+            description: "Undetermined-language label from tags.name when not mapped to en/mm.",
+        },
+        effective_name_local: {
+            type: "string",
+            nullable: true,
+            description: "Deprecated alias of effective_name_mm.",
+        },
         effective_stop_code: { type: "string", nullable: true },
         effective_canonical_name: { type: "string", nullable: true },
         effective_class_code: { type: "string", nullable: true },
+        effective_landuse_class_id: { type: "string", nullable: true },
         effective_admin_area_id: { type: "string", nullable: true },
         effective_admin_area_name: { type: "string", nullable: true },
+        admin_area_name: {
+            type: "string",
+            nullable: true,
+            description: "Roads: resolved admin area label (override id join or geometry inference).",
+        },
         effective_levels: { type: "integer", nullable: true },
         effective_height_m: { type: "number", nullable: true },
-        effective_full_address: { type: "string", nullable: true },
+        effective_full_address: {
+            type: "string",
+            nullable: true,
+            description: "Addresses: alias of display_full_address (generated from components).",
+        },
         effective_house_number: { type: "string", nullable: true },
         effective_street_name: { type: "string", nullable: true },
         effective_quarter: { type: "string", nullable: true },
         effective_township: { type: "string", nullable: true },
+        generated_full_address_en: {
+            type: "string",
+            nullable: true,
+            description: "Addresses: readonly composed English full address from address_components.",
+        },
+        generated_full_address_my: {
+            type: "string",
+            nullable: true,
+            description: "Addresses: readonly composed Myanmar full address from address_components.",
+        },
+        display_full_address: {
+            type: "string",
+            nullable: true,
+            description: "Addresses: preferred display full address (en-first by default).",
+        },
+        source_entity_type: { type: "string", nullable: true },
+        source_name: {
+            type: "string",
+            nullable: true,
+            description: "Addresses: OSM source_tags name (place context, not address component).",
+        },
+        source_type_hint: {
+            type: "string",
+            nullable: true,
+            description: "Addresses: first amenity/shop/tourism/etc. from source_tags.",
+        },
+        source_context: {
+            type: "object",
+            nullable: true,
+            additionalProperties: true,
+            description: "Addresses detail: derived OSM source/place evidence.",
+        },
+        map_preview_layers: {
+            type: "object",
+            nullable: true,
+            additionalProperties: true,
+            description: "Addresses detail: GeoJSON layers for map preview when include_geometry=true.",
+        },
+        validation_status: { type: "string", nullable: true },
+        promotion_blockers: { type: "array", items: { type: "object" }, nullable: true },
+        promotion_warnings: { type: "array", items: { type: "object" }, nullable: true },
+        house_number: { type: "string", nullable: true, description: "Addresses: from components." },
+        street: { type: "string", nullable: true, description: "Addresses: street/road from components." },
+        locality: {
+            type: "string",
+            nullable: true,
+            description: "Addresses: township/village/quarter display from components.",
+        },
+        city: { type: "string", nullable: true, description: "Addresses: city from components." },
+        address_components: {
+            type: "object",
+            nullable: true,
+            additionalProperties: true,
+            description: "Addresses detail: grouped by component_type_code then language_code.",
+        },
+        address_components_flat: {
+            type: "array",
+            nullable: true,
+            items: { type: "object", additionalProperties: true },
+        },
+        components_by_type: {
+            type: "object",
+            nullable: true,
+            additionalProperties: true,
+        },
+        composition_warnings: {
+            type: "array",
+            items: { type: "string" },
+            nullable: true,
+        },
+        source_tags: { type: "object", nullable: true, additionalProperties: true },
+        matched_admin_area_id: { type: "string", nullable: true },
+        matched_street_id: { type: "string", nullable: true },
+        matched_building_id: { type: "string", nullable: true },
+        matched_place_id: { type: "string", nullable: true },
+        admin_match_type: { type: "string", nullable: true },
+        street_match_type: { type: "string", nullable: true },
+        admin_match_confidence: { type: "number", nullable: true },
+        street_match_confidence: { type: "number", nullable: true },
+        promoted_core_address_id: { type: "string", nullable: true },
+        validated_at: { type: "string", nullable: true, format: "date-time" },
+        entrance_geometry: { type: "object", nullable: true, additionalProperties: true },
         effective_admin_level_id: { type: "string", nullable: true },
         effective_parent_id: { type: "string", nullable: true },
         effective_slug: { type: "string", nullable: true },
@@ -722,23 +859,49 @@ export const patchImportReviewBuildingDecisionSchema = {
     },
 } satisfies FastifySchema;
 
-const patchImportReviewBuildingOverridesLeafOpenApi = {
+const importReviewReviewOverridesPrimitiveOpenApi = {
+    anyOf: [
+        { type: "string" },
+        { type: "number" },
+        { type: "integer" },
+        { type: "boolean" },
+        { type: "null" },
+    ],
+} as const;
+
+const importReviewReviewOverridesPatchOpenApi = {
     type: "object",
-    additionalProperties: false,
-    properties: {
-        name: { oneOf: [{ type: "string", maxLength: 2048 }, { type: "null" }] },
-        canonical_name: { oneOf: [{ type: "string", maxLength: 2048 }, { type: "null" }] },
-        building_type_id: {
-            description: "ref.ref_building_types.id (active only); null clears override.",
-            oneOf: [{ type: "string", pattern: "^\\d+$" }, { type: "integer" }, { type: "null" }],
-        },
-        admin_area_id: {
-            description: "core.core_admin_areas.id (active only); null clears override.",
-            oneOf: [{ type: "string", pattern: "^\\d+$" }, { type: "integer" }, { type: "null" }],
-        },
-        levels: { oneOf: [{ type: "integer" }, { type: "null" }] },
-        height_m: { oneOf: [{ type: "number" }, { type: "null" }] },
+    description:
+        "Shallow JSON patch merged into review_overrides. Use name_mm (Myanmar) and name_en (English). null removes a key; {} clears all stored overrides.",
+    additionalProperties: importReviewReviewOverridesPrimitiveOpenApi,
+} as const;
+
+const importReviewRoadReviewOverridesPatchOpenApi = {
+    type: "object",
+    description:
+        "Shallow JSON patch merged into review_overrides for road candidates. null removes a key; {} clears all stored overrides.",
+    additionalProperties: {
+        anyOf: [
+            ...importReviewReviewOverridesPrimitiveOpenApi.anyOf,
+            { type: "object", additionalProperties: true },
+        ],
     },
+} as const;
+
+const patchImportReviewCandidateOverridesBodyOpenApi = {
+    type: "object",
+    required: ["review_overrides"],
+    properties: {
+        ...importReviewScopeQueryProperties,
+        review_overrides: importReviewReviewOverridesPatchOpenApi,
+        review_note: {
+            type: "string",
+            nullable: true,
+            description:
+                "Optional candidate review_note column update merged with overrides save (does not mutate normalized_data or source_refs).",
+        },
+    },
+    additionalProperties: false,
 } as const;
 
 const patchImportReviewBuildingOverridesBodyOpenApi = {
@@ -746,11 +909,7 @@ const patchImportReviewBuildingOverridesBodyOpenApi = {
     required: ["review_overrides"],
     properties: {
         ...importReviewScopeQueryProperties,
-        review_overrides: {
-            ...patchImportReviewBuildingOverridesLeafOpenApi,
-            description:
-                "Shallow JSON patch merged into review_overrides. building_type_id only — no class_code/building_type text.",
-        },
+        review_overrides: importReviewReviewOverridesPatchOpenApi,
         review_note: {
             type: "string",
             nullable: true,
@@ -787,37 +946,12 @@ export const patchImportReviewBuildingOverridesSchema = {
     },
 } satisfies FastifySchema;
 
-const patchImportReviewRoadOverridesLeafOpenApi = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-        canonical_name: {
-            description: "Optional canonical label; trimmed when non-null.",
-            oneOf: [{ type: "string" }, { type: "null" }],
-        },
-        road_class_id: {
-            description: "`ref.ref_road_classes.id` as integer string/BigInt JSON; null clears FK.",
-            oneOf: [{ type: "string", pattern: "^\\d+$" }, { type: "integer" }, { type: "null" }],
-        },
-        road_class_code: {
-            description: "Lookup by `ref.ref_road_classes.code` (case-insensitive). Mutually exclusive with road_class_id.",
-            oneOf: [{ type: "string", minLength: 1, maxLength: 64 }, { type: "null" }],
-        },
-        is_oneway: { oneOf: [{ type: "boolean" }, { type: "null" }] },
-        surface: { oneOf: [{ type: "string" }, { type: "null" }] },
-        geom: {
-            description: "GeoJSON LineString or MultiLineString in SRID 4326 (server normalizes + validates).",
-            ...geoJsonObjectSchema,
-        },
-    },
-} as const;
-
 const patchImportReviewRoadOverridesBodyOpenApi = {
     type: "object",
     required: ["review_overrides"],
     properties: {
         ...importReviewScopeQueryProperties,
-        review_overrides: patchImportReviewRoadOverridesLeafOpenApi,
+        review_overrides: importReviewRoadReviewOverridesPatchOpenApi,
         review_note: {
             type: "string",
             nullable: true,
@@ -2047,6 +2181,549 @@ export const postImportReviewCleanupPromotedExecuteSchema = {
     },
 } satisfies FastifySchema;
 
+const addressMatchBuildingOptionSchema = {
+    type: "object",
+    required: ["id", "label", "distance_m", "match_score", "match_method"],
+    properties: {
+        id: { type: "string" },
+        label: { type: "string" },
+        building_type: { type: "string", nullable: true },
+        distance_m: { type: "number" },
+        match_score: { type: "number" },
+        match_method: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+const addressMatchPlaceOptionSchema = {
+    type: "object",
+    required: ["id", "display_name", "distance_m", "match_score", "match_method"],
+    properties: {
+        id: { type: "string" },
+        display_name: { type: "string" },
+        name_en: { type: "string", nullable: true },
+        name_my: { type: "string", nullable: true },
+        category: { type: "string", nullable: true },
+        distance_m: { type: "number" },
+        match_score: { type: "number" },
+        match_method: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+const addressMatchStreetOptionSchema = {
+    type: "object",
+    required: [
+        "id",
+        "canonical_name",
+        "distance_m",
+        "match_score",
+        "match_method",
+    ],
+    properties: {
+        id: { type: "string" },
+        canonical_name: { type: "string" },
+        name_en: { type: "string", nullable: true },
+        name_my: { type: "string", nullable: true },
+        name_und: { type: "string", nullable: true },
+        distance_m: { type: "number" },
+        match_score: { type: "number", minimum: 0, maximum: 100 },
+        match_method: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+const addressMatchAdminAreaOptionSchema = {
+    type: "object",
+    required: ["id", "canonical_name", "admin_level_code", "match_score", "match_method"],
+    properties: {
+        id: { type: "string" },
+        canonical_name: { type: "string" },
+        name_en: { type: "string", nullable: true },
+        name_my: { type: "string", nullable: true },
+        admin_level_code: { type: "string" },
+        boundary_status: { type: "string", nullable: true },
+        address_usage: { type: "string", nullable: true },
+        distance_m: { type: "number", nullable: true },
+        match_score: { type: "number", minimum: 0, maximum: 100 },
+        match_method: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+const addressMatchPostcodeOptionSchema = {
+    type: "object",
+    required: ["value", "source"],
+    properties: {
+        value: { type: "string" },
+        language_code: { type: "string", nullable: true },
+        source: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+export const getImportReviewAddressOptionsSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Street/admin/building/place/postcode match options for an address candidate",
+    description:
+        "Returns ranked nearby core.core_streets (300m then 1000m fallback), admin area options from point geometry, building options (contains + 50m), place options (100m + name similarity), and postcode values from address_components.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["address_candidate_id", "streets", "adminAreas", "postcodes", "buildings", "places"],
+            properties: {
+                address_candidate_id: { type: "string" },
+                streets: { type: "array", items: addressMatchStreetOptionSchema },
+                adminAreas: { type: "array", items: addressMatchAdminAreaOptionSchema },
+                postcodes: { type: "array", items: addressMatchPostcodeOptionSchema },
+                buildings: { type: "array", items: addressMatchBuildingOptionSchema },
+                places: { type: "array", items: addressMatchPlaceOptionSchema },
+            },
+            additionalProperties: false,
+        },
+        400: messageSchema,
+        401: messageSchema,
+        404: messageSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
+export const patchImportReviewAddressComponentsSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Upsert or soft-delete address components for a candidate",
+    description:
+        "Persists structured import_review.address_components rows. Does not modify readonly generated full address fields on the candidate.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    body: {
+        type: "object",
+        properties: {
+            upsert: {
+                type: "array",
+                items: {
+                    type: "object",
+                    required: ["component_type_code", "component_value", "language_code"],
+                    properties: {
+                        id: { type: "string", pattern: "^\\d+$" },
+                        component_type_code: { type: "string" },
+                        component_value: { type: "string" },
+                        language_code: { type: "string", enum: ["en", "my", "und"] },
+                        confidence_score: { type: "number", nullable: true },
+                        match_type: { type: "string", nullable: true },
+                        is_reviewed: { type: "boolean" },
+                    },
+                    additionalProperties: false,
+                },
+            },
+            delete_ids: {
+                type: "array",
+                items: { type: "string", pattern: "^\\d+$" },
+            },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: {
+            type: "object",
+            additionalProperties: true,
+            description: "Address candidate detail after component save.",
+        },
+        400: messageSchema,
+        401: messageSchema,
+        404: messageSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
+export const patchImportReviewAddressMatchesSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Save matched street/admin/building/place ids for an address candidate",
+    description:
+        "Updates matched_* columns on import_review.address_candidates. When matched_street_id is set, syncs inferred street components from core.core_street_names (skips is_reviewed unless replace_reviewed_street_components=true).",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    body: {
+        type: "object",
+        properties: {
+            matched_street_id: { type: "string", nullable: true, pattern: "^\\d+$" },
+            matched_admin_area_id: { type: "string", nullable: true, pattern: "^\\d+$" },
+            matched_building_id: { type: "string", nullable: true, pattern: "^\\d+$" },
+            matched_place_id: { type: "string", nullable: true, pattern: "^\\d+$" },
+            street_match_confidence: { type: "number", minimum: 0, maximum: 100 },
+            replace_reviewed_street_components: { type: "boolean" },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: {
+            type: "object",
+            required: [
+                "address_candidate_id",
+                "matched_street_id",
+                "matched_admin_area_id",
+                "matched_building_id",
+                "matched_place_id",
+                "street_match_type",
+                "street_match_confidence",
+                "street_components_synced",
+            ],
+            properties: {
+                address_candidate_id: { type: "string" },
+                matched_street_id: { type: "string", nullable: true },
+                matched_admin_area_id: { type: "string", nullable: true },
+                matched_building_id: { type: "string", nullable: true },
+                matched_place_id: { type: "string", nullable: true },
+                street_match_type: { type: "string", nullable: true },
+                street_match_confidence: { type: "number", nullable: true },
+                street_components_synced: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        required: ["language_code", "action"],
+                        properties: {
+                            language_code: { type: "string" },
+                            action: {
+                                type: "string",
+                                enum: ["inserted", "updated", "skipped"],
+                            },
+                        },
+                        additionalProperties: false,
+                    },
+                },
+            },
+            additionalProperties: false,
+        },
+        400: messageSchema,
+        401: messageSchema,
+        404: messageSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
+const addressAdminInferenceVerificationSampleSchema = {
+    type: "object",
+    required: [
+        "address_candidate_id",
+        "component_type_code",
+        "language_code",
+        "component_value",
+    ],
+    properties: {
+        address_candidate_id: { type: "string" },
+        component_type_code: { type: "string" },
+        language_code: { type: "string" },
+        component_value: { type: "string" },
+        match_type: { type: "string", nullable: true },
+        confidence_score: { type: "number", nullable: true },
+        boundary_status: { type: "string", nullable: true },
+        address_usage: { type: "string", nullable: true },
+        source_admin_area_id: { type: "string", nullable: true },
+    },
+    additionalProperties: false,
+} as const;
+
+const addressValidationIssueSchema = {
+    type: "object",
+    required: ["code", "message", "severity"],
+    properties: {
+        code: { type: "string" },
+        message: { type: "string" },
+        severity: { type: "string", enum: ["error", "warning"] },
+        field: { type: "string" },
+        component_id: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+export const postImportReviewAddressValidateSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Validate address candidates before promotion",
+    description:
+        "Runs promotion-readiness checks on import_review.address_candidates and address_components. " +
+        "Persists validation_status, promotion_blockers, promotion_warnings, and validated_at. Does not promote to core.",
+    security: [...bearerAuth],
+    body: {
+        type: "object",
+        properties: {
+            review_batch_id: { type: "string", pattern: "^\\d+$" },
+            candidate_ids: {
+                type: "array",
+                items: { type: "string", pattern: "^\\d+$" },
+            },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["review_batch_id", "candidate_count", "summary", "results"],
+            properties: {
+                review_batch_id: { type: "string", nullable: true },
+                candidate_count: { type: "integer", minimum: 0 },
+                summary: {
+                    type: "object",
+                    required: ["blocked", "valid_with_warnings", "valid"],
+                    properties: {
+                        blocked: { type: "integer", minimum: 0 },
+                        valid_with_warnings: { type: "integer", minimum: 0 },
+                        valid: { type: "integer", minimum: 0 },
+                    },
+                    additionalProperties: false,
+                },
+                results: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        required: [
+                            "address_candidate_id",
+                            "validation_status",
+                            "promotion_blockers",
+                            "promotion_warnings",
+                            "validated_at",
+                        ],
+                        properties: {
+                            address_candidate_id: { type: "string" },
+                            validation_status: {
+                                type: "string",
+                                enum: ["blocked", "valid_with_warnings", "valid"],
+                            },
+                            promotion_blockers: {
+                                type: "array",
+                                items: addressValidationIssueSchema,
+                            },
+                            promotion_warnings: {
+                                type: "array",
+                                items: addressValidationIssueSchema,
+                            },
+                            validated_at: { type: "string", format: "date-time" },
+                        },
+                        additionalProperties: false,
+                    },
+                },
+            },
+            additionalProperties: false,
+        },
+        400: messageSchema,
+        401: messageSchema,
+        404: messageSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
+const addressPromotionResponseSchema = {
+    type: "object",
+    required: [
+        "dry_run",
+        "review_batch_id",
+        "candidate_count",
+        "promoted",
+        "skipped",
+        "duplicate_review_needed",
+        "failed",
+        "warnings",
+        "items",
+        "finished_at",
+    ],
+    properties: {
+        dry_run: { type: "boolean" },
+        review_batch_id: { type: "string", nullable: true },
+        candidate_count: { type: "integer", minimum: 0 },
+        promoted: { type: "integer", minimum: 0 },
+        skipped: { type: "integer", minimum: 0 },
+        duplicate_review_needed: { type: "integer", minimum: 0 },
+        failed: { type: "integer", minimum: 0 },
+        warnings: { type: "array", items: { type: "string" } },
+        items: {
+            type: "array",
+            items: {
+                type: "object",
+                required: [
+                    "address_candidate_id",
+                    "external_id",
+                    "outcome",
+                    "reasons",
+                    "core_address_id",
+                    "promotion_warnings",
+                    "promotion_blockers",
+                ],
+                properties: {
+                    address_candidate_id: { type: "string" },
+                    external_id: { type: "string", nullable: true },
+                    outcome: {
+                        type: "string",
+                        enum: [
+                            "promoted",
+                            "would_promote",
+                            "skipped",
+                            "duplicate_review_needed",
+                            "failed",
+                        ],
+                    },
+                    reasons: { type: "array", items: { type: "string" } },
+                    core_address_id: { type: "string", nullable: true },
+                    promotion_warnings: { type: "array", items: { type: "object" } },
+                    promotion_blockers: { type: "array", items: { type: "object" } },
+                },
+                additionalProperties: false,
+            },
+        },
+        finished_at: { type: "string", format: "date-time" },
+        disabled_because_env_flag_false: { type: "boolean" },
+        message: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+const addressPromotionBodySchema = {
+    type: "object",
+    properties: {
+        review_batch_id: { type: "string", pattern: "^\\d+$" },
+        candidate_ids: {
+            type: "array",
+            items: { type: "string", pattern: "^\\d+$" },
+        },
+        confirm_warnings: { type: "boolean", default: false },
+    },
+    additionalProperties: false,
+} as const;
+
+export const postImportReviewAddressPromotionDryRunSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Dry-run address promotion to core",
+    description:
+        "Evaluates import_review.address_candidates for promotion without writing core rows. " +
+        "Requires review_status=approved, validation_status valid/valid_with_warnings (with confirm_warnings when warnings), empty promotion_blockers.",
+    security: [...bearerAuth],
+    body: addressPromotionBodySchema,
+    response: {
+        200: addressPromotionResponseSchema,
+        400: messageSchema,
+        401: messageSchema,
+        404: messageSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewAddressPromotionSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Promote approved address candidates to core",
+    description:
+        "Transactionally inserts core.core_addresses + core.core_address_components from review components, " +
+        "links core.core_place_addresses when matched_place_id is set, and marks candidates promoted. " +
+        "Blocked candidates and duplicates are skipped or flagged duplicate_review_needed.",
+    security: [...bearerAuth],
+    body: addressPromotionBodySchema,
+    response: {
+        200: addressPromotionResponseSchema,
+        400: messageSchema,
+        401: messageSchema,
+        403: messageSchema,
+        404: messageSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewAddressAdminInferenceSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Infer address admin components for a review batch",
+    description:
+        "Runs import_review.infer_address_admin_components for address candidates with point_geom. " +
+        "Inserts idempotent inferred components from core.core_admin_areas (respecting boundary_status and address_usage), " +
+        "updates matched_admin_area_id and admin_match_* on candidates. Does not modify is_reviewed components.",
+    security: [...bearerAuth],
+    body: {
+        type: "object",
+        required: ["review_batch_id"],
+        properties: {
+            review_batch_id: { type: "string", pattern: "^\\d+$" },
+            nearest_village_meters: {
+                type: "number",
+                minimum: 1,
+                maximum: 50000,
+                default: 3000,
+                description: "Max distance (m) for nearest-village centroid locality hint when no village polygon match.",
+            },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["review_batch_id", "run", "verification"],
+            properties: {
+                review_batch_id: { type: "string" },
+                run: {
+                    type: "object",
+                    required: [
+                        "candidates_with_point",
+                        "candidates_matched",
+                        "components_inserted",
+                        "candidates_updated",
+                    ],
+                    properties: {
+                        candidates_with_point: { type: "string" },
+                        candidates_matched: { type: "string" },
+                        components_inserted: { type: "string" },
+                        candidates_updated: { type: "string" },
+                    },
+                    additionalProperties: false,
+                },
+                verification: {
+                    type: "object",
+                    required: [
+                        "matched_admin_area_count",
+                        "candidates_with_point",
+                        "components_by_type_language",
+                        "sample_components",
+                    ],
+                    properties: {
+                        matched_admin_area_count: { type: "string" },
+                        candidates_with_point: { type: "string" },
+                        components_by_type_language: {
+                            type: "array",
+                            items: {
+                                type: "object",
+                                required: ["component_type_code", "language_code", "row_count"],
+                                properties: {
+                                    component_type_code: { type: "string" },
+                                    language_code: { type: "string" },
+                                    row_count: { type: "string" },
+                                },
+                                additionalProperties: false,
+                            },
+                        },
+                        sample_components: {
+                            type: "array",
+                            items: addressAdminInferenceVerificationSampleSchema,
+                        },
+                    },
+                    additionalProperties: false,
+                },
+            },
+            additionalProperties: false,
+        },
+        400: messageSchema,
+        401: messageSchema,
+        404: messageSchema,
+        503: messageSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
 export const postImportReviewPromotionBatchPromoteSchema = {
     tags: [Tags.ImportReview],
     summary: "Promote validated publish batch to core (buildings and places)",
@@ -2435,6 +3112,74 @@ const importReviewReferenceOptionItemSchema = {
     additionalProperties: false,
 } as const;
 
+const importReviewFormOptionItemSchema = {
+    type: "object",
+    required: ["value", "label"],
+    properties: {
+        value: { anyOf: [{ type: "string" }, { type: "number" }] },
+        label: { type: "string" },
+        code: { type: "string", nullable: true },
+        name_mm: { type: "string", nullable: true },
+    },
+    additionalProperties: false,
+} as const;
+
+const importReviewAdminAreaFormOptionSchema = {
+    type: "object",
+    required: ["id", "value", "label", "canonical_name", "admin_level_id"],
+    properties: {
+        id: { type: "string" },
+        value: { anyOf: [{ type: "string" }, { type: "number" }] },
+        label: { type: "string" },
+        code: { type: "string", nullable: true },
+        name_mm: { type: "string", nullable: true },
+        name_en: { type: "string", nullable: true },
+        canonical_name: { type: "string" },
+        admin_level_id: { type: "string" },
+        parent_id: { type: "string", nullable: true },
+    },
+    additionalProperties: false,
+} as const;
+
+export const getImportReviewFormOptionsSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Form dropdown options for import-review override editors",
+    security: [...bearerAuth],
+    response: {
+        200: {
+            type: "object",
+            required: [
+                "admin_areas",
+                "admin_levels",
+                "road_classes",
+                "poi_categories",
+                "building_types",
+                "landuse_classes",
+                "waterway_classes",
+                "water_classes",
+                "barrier_types",
+                "surface_presets",
+            ],
+            properties: {
+                admin_areas: { type: "array", items: importReviewAdminAreaFormOptionSchema },
+                admin_levels: { type: "array", items: importReviewFormOptionItemSchema },
+                road_classes: { type: "array", items: importReviewFormOptionItemSchema },
+                poi_categories: { type: "array", items: importReviewFormOptionItemSchema },
+                building_types: { type: "array", items: importReviewFormOptionItemSchema },
+                landuse_classes: { type: "array", items: importReviewFormOptionItemSchema },
+                waterway_classes: { type: "array", items: importReviewFormOptionItemSchema },
+                water_classes: { type: "array", items: importReviewFormOptionItemSchema },
+                barrier_types: { type: "array", items: importReviewFormOptionItemSchema },
+                surface_presets: { type: "array", items: importReviewFormOptionItemSchema },
+            },
+            additionalProperties: false,
+        },
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        500: messageSchema,
+    },
+} satisfies FastifySchema;
+
 export const getImportReviewReferenceOptionsSchema = {
     tags: [Tags.ImportReview],
     summary: "Reference dropdown options for import-review override editors",
@@ -2503,7 +3248,7 @@ export const patchImportReviewFamilyCandidateOverridesSchema = {
             id: { type: "string", pattern: "^\\d+$" },
         },
     },
-    body: patchImportReviewBuildingOverridesBodyOpenApi,
+    body: patchImportReviewCandidateOverridesBodyOpenApi,
     response: {
         200: importReviewBuildingItemSchema,
         400: badRequestSchema,

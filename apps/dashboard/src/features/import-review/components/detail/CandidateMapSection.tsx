@@ -15,6 +15,7 @@ export default function CandidateMapSection({
     mapEntityType,
     externalId,
     fallbackNote,
+    geometryEssential = false,
 }: {
     supportsMapPreview: boolean;
     isLoadingDetail: boolean;
@@ -24,6 +25,7 @@ export default function CandidateMapSection({
     mapEntityType: ImportReviewEntityType;
     externalId: string | null;
     fallbackNote?: string | null;
+    geometryEssential?: boolean;
 }) {
     if (!supportsMapPreview) {
         return (
@@ -35,14 +37,16 @@ export default function CandidateMapSection({
 
     return (
         <section className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Map preview</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Map preview{geometryEssential ? " *" : ""}
+            </h3>
             <ImportReviewMapPreview
                 enabled
                 geometry={geometry}
                 geometryKind={geometryKind}
                 entityType={mapEntityType}
                 externalId={externalId}
-                title="Location"
+                title={geometryEssential ? "Location *" : "Location"}
                 fallbackNote={fallbackNote}
                 isLoadingDetail={isLoadingDetail}
                 isLoadingGeometry={isLoadingGeometry}

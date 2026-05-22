@@ -34,6 +34,8 @@ function PoiPanelInner({
   const selectedPoiId = selectedPoi?.id ?? null;
   const selectedStreet =
     selectedSearchResult?.type === 'street' ? selectedSearchResult : null;
+  const selectedAdminArea =
+    selectedSearchResult?.type === 'admin_area' ? selectedSearchResult : null;
 
   return (
     <aside
@@ -67,11 +69,67 @@ function PoiPanelInner({
             result={selectedStreet}
             onZoomToSearchResult={onZoomToSearchResult}
           />
+        ) : selectedAdminArea ? (
+          <AdminAreaDetail
+            result={selectedAdminArea}
+            onZoomToSearchResult={onZoomToSearchResult}
+          />
         ) : (
           <PoiDetail poi={selectedPoi} isLoading={detailLoading} error={detailError} />
         )}
       </div>
     </aside>
+  );
+}
+
+function AdminAreaDetail({
+  result,
+  onZoomToSearchResult,
+}: {
+  readonly result: PublicSearchResult;
+  readonly onZoomToSearchResult?: (result: PublicSearchResult) => void;
+}) {
+  const languageMode = useMapUiStore((s) => s.languageMode);
+  const title = getLocalizedName(result, languageMode);
+  const titleClass =
+    languageMode === 'both'
+      ? 'text-base font-semibold leading-snug whitespace-pre-line text-neutral-950'
+      : 'text-base font-semibold leading-snug text-neutral-950';
+
+  const center = getStreetCenter(result);
+  const coordinates = center ? formatCoordinates(center[0], center[1]) : null;
+  const hasBounds = result.cameraTarget?.type === 'bounds' && result.cameraTarget.bbox;
+
+  return (
+    <div className="space-y-4 text-sm">
+      <div className="rounded-2xl bg-violet-50 p-3 ring-1 ring-violet-100">
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+          Village
+        </p>
+        <h3 className={titleClass}>{title}</h3>
+        <p className="mt-1 text-xs text-neutral-600">{result.subtitle ?? 'Village'}</p>
+        {coordinates ? (
+          <p className="mt-2 font-mono text-xs text-neutral-600">{coordinates}</p>
+        ) : null}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <DetailActionButton
+          disabled={!coordinates}
+          onClick={() => {
+            if (coordinates) copyText(coordinates);
+          }}
+        >
+          Copy center
+        </DetailActionButton>
+        <DetailActionButton
+          disabled={!hasBounds}
+          onClick={() => onZoomToSearchResult?.(result)}
+        >
+          Full area
+        </DetailActionButton>
+      </div>
+    </div>
   );
 }
 

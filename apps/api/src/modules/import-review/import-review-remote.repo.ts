@@ -23,6 +23,7 @@ import {
     type ImportReviewEntityFamilySlug,
 } from "./import-review-config.js";
 import { buildCandidateRowQueryParts, type CandidateListFilters } from "./import-review-candidate-sql.js";
+import { buildReviewOverridesMergeExpr } from "./import-review-overrides-merge.js";
 import {
     GenericImportReviewCandidateRepository,
     buildSummaryAggregationSql,
@@ -719,78 +720,39 @@ export class RemoteImportReviewRepositoryCore {
         validation_warnings_json: unknown;
         review_status: string;
         validation_summary: Record<string, unknown>;
+        length_m: number | null;
     }): Promise<BuildingListRowDb | null> {
         const errorsJson = JSON.stringify(args.validation_errors_json);
         const warningsJson = JSON.stringify(args.validation_warnings_json);
         const summaryJson = JSON.stringify(args.validation_summary);
+        const roadsConfig = getImportReviewEntityConfig("roads");
+        const rowParts = buildCandidateRowQueryParts(roadsConfig, true);
+        const lengthSet =
+            args.length_m === null
+                ? Prisma.sql`length_m = NULL`
+                : Prisma.sql`length_m = ${args.length_m}::numeric`;
 
         const rows = await this.prisma.$queryRaw<BuildingListRowDb[]>`
-            UPDATE import_review.road_candidates AS r
-            SET
-                validation_errors = ${errorsJson}::jsonb,
-                validation_warnings = ${warningsJson}::jsonb,
-                review_status = ${args.review_status},
-                review_overrides = COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb)
-                    || jsonb_build_object('validation_summary', ${summaryJson}::jsonb),
-                updated_at = now()
-            WHERE r.id = ${args.id}
-              AND r.review_batch_id = ${args.reviewBatchId}
-              AND r.entity_family = 'roads'
-            RETURNING
-                r.id,
-                r.public_id::text AS public_id,
-                r.review_batch_id,
-                r.source_snapshot_version,
-                r.local_staging_id,
-                r.source_snapshot_id_local,
-                r.external_id,
-                r.canonical_name,
-                NULL::text AS name,
-                r.class_code,
-                NULL::text AS building_type,
-                NULL::bigint AS building_type_id,
-                NULL::bigint AS admin_area_id,
-                NULL::int AS levels,
-                NULL::numeric AS height_m,
-                NULL::numeric AS area_m2,
-                r.confidence_score,
-                r.match_status,
-                r.auto_action,
-                r.review_status,
-                r.review_decision,
-                r.reviewed_by::text AS reviewed_by,
-                r.reviewed_at,
-                r.review_note,
-                r.normalized_data,
-                r.source_refs,
-                COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb) AS review_overrides,
-                r.matched_core_id,
-                r.matched_core_table,
-                r.matched_core_data,
-                r.f2_comparison,
-                r.validation_warnings,
-                r.validation_errors,
-                r.promotion_status,
-                r.promoted_core_id,
-                r.created_at,
-                r.updated_at,
-                ST_AsGeoJSON(r.geom)::json AS geometry,
-                CASE
-                    WHEN r.geom IS NOT NULL THEN ST_AsGeoJSON(ST_SetSRID(ST_Centroid(r.geom), 4326))::json
-                    ELSE NULL::json
-                END AS centroid,
-                r.road_class_id AS road_candidate_road_class_id,
-                r.surface AS road_candidate_surface,
-                r.is_oneway AS road_candidate_is_oneway,
-                (
-                    SELECT COALESCE(rc.code, r.road_class)
-                      FROM ref.ref_road_classes AS rc
-                     WHERE rc.id = r.road_class_id
-                     LIMIT 1
-                ) AS road_candidate_class_label
+            WITH updated AS (
+                UPDATE import_review.road_candidates AS r
+                SET
+                    validation_errors = ${errorsJson}::jsonb,
+                    validation_warnings = ${warningsJson}::jsonb,
+                    review_status = ${args.review_status},
+                    review_overrides = COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb)
+                        || jsonb_build_object('validation_summary', ${summaryJson}::jsonb),
+                    ${lengthSet},
+                    updated_at = now()
+                WHERE r.id = ${args.id}
+                  AND r.review_batch_id = ${args.reviewBatchId}
+                  AND r.entity_family = 'roads'
+                RETURNING r.id
+            )
+            SELECT ${rowParts.select}
+            FROM ${rowParts.from}
+            INNER JOIN updated AS u ON r.id = u.id
         `;
-        const row = rows[0];
-        return row === undefined ? null : row;
+        return rows[0] ?? null;
     }
 
     async patchRoadCandidateReviewOverrides(args: {
@@ -812,6 +774,8 @@ export class RemoteImportReviewRepositoryCore {
         const warningsJson = JSON.stringify(args.validation_warnings_json);
         const errorsJson = JSON.stringify(args.validation_errors_json);
         const auditSupported = await this.pgRegclassExists("import_review.review_candidate_edits");
+        const roadsConfig = getImportReviewEntityConfig("roads");
+        const rowParts = buildCandidateRowQueryParts(roadsConfig, true);
 
         return this.prisma.$transaction(async (tx) => {
             const locked = await tx.$queryRaw<{ review_overrides: unknown }[]>`
@@ -845,6 +809,9 @@ export class RemoteImportReviewRepositoryCore {
             ];
             if (geomSet !== null) {
                 setPieces.push(Prisma.sql`geom = ${geomSet}`);
+                setPieces.push(
+                    Prisma.sql`length_m = ROUND(ST_Length(${geomSet}::geography)::numeric, 2)`
+                );
             }
             if (args.reviewNote !== undefined) {
                 setPieces.push(Prisma.sql`review_note = ${args.reviewNote}`);
@@ -852,63 +819,17 @@ export class RemoteImportReviewRepositoryCore {
             const updateSetClause = Prisma.join(setPieces, ", ");
 
             const rows = await tx.$queryRaw<BuildingListRowDb[]>`
-                UPDATE import_review.road_candidates AS r
-                   SET ${updateSetClause}
-                 WHERE r.id = ${args.id}
-                   AND r.review_batch_id = ${args.reviewBatchId}
-                   AND r.entity_family = 'roads'
-                RETURNING
-                    r.id,
-                    r.public_id::text AS public_id,
-                    r.review_batch_id,
-                    r.source_snapshot_version,
-                    r.local_staging_id,
-                    r.source_snapshot_id_local,
-                    r.external_id,
-                    r.canonical_name,
-                    NULL::text AS name,
-                    r.class_code,
-                    NULL::text AS building_type,
-                    NULL::bigint AS building_type_id,
-                    NULL::bigint AS admin_area_id,
-                    NULL::int AS levels,
-                    NULL::numeric AS height_m,
-                    NULL::numeric AS area_m2,
-                    r.confidence_score,
-                    r.match_status,
-                    r.auto_action,
-                    r.review_status,
-                    r.review_decision,
-                    r.reviewed_by::text AS reviewed_by,
-                    r.reviewed_at,
-                    r.review_note,
-                    r.normalized_data,
-                    r.source_refs,
-                    COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb) AS review_overrides,
-                    r.matched_core_id,
-                    r.matched_core_table,
-                    r.matched_core_data,
-                    r.f2_comparison,
-                    r.validation_warnings,
-                    r.validation_errors,
-                    r.promotion_status,
-                    r.promoted_core_id,
-                    r.created_at,
-                    r.updated_at,
-                    ST_AsGeoJSON(r.geom)::json AS geometry,
-                    CASE
-                        WHEN r.geom IS NOT NULL THEN ST_AsGeoJSON(ST_SetSRID(ST_Centroid(r.geom), 4326))::json
-                        ELSE NULL::json
-                    END AS centroid,
-                    r.road_class_id AS road_candidate_road_class_id,
-                    r.surface AS road_candidate_surface,
-                    r.is_oneway AS road_candidate_is_oneway,
-                    (
-                        SELECT COALESCE(rc.code, r.road_class)
-                          FROM ref.ref_road_classes AS rc
-                         WHERE rc.id = r.road_class_id
-                         LIMIT 1
-                    ) AS road_candidate_class_label
+                WITH updated AS (
+                    UPDATE import_review.road_candidates AS r
+                       SET ${updateSetClause}
+                     WHERE r.id = ${args.id}
+                       AND r.review_batch_id = ${args.reviewBatchId}
+                       AND r.entity_family = 'roads'
+                    RETURNING r.id
+                )
+                SELECT ${rowParts.select}
+                FROM ${rowParts.from}
+                INNER JOIN updated AS u ON r.id = u.id
             `;
 
             const updated = rows[0];
@@ -1629,11 +1550,12 @@ export class RemoteImportReviewRepositoryCore {
         editedByUserId: bigint | null;
         reviewNote: string | null | undefined;
     }): Promise<BuildingListRowDb | null> {
-        const merge = JSON.stringify(args.overridesPatch);
+        const buildingConfig = getImportReviewEntityConfig("buildings");
         const auditSupported = await this.pgRegclassExists("import_review.review_candidate_edits");
+        const overridesMerge = buildReviewOverridesMergeExpr(buildingConfig, args.overridesPatch);
 
         const setParts: Prisma.Sql[] = [
-            Prisma.sql`review_overrides = COALESCE(to_jsonb(b.review_overrides), '{}'::jsonb) || ${merge}::jsonb`,
+            Prisma.sql`review_overrides = ${overridesMerge}`,
             Prisma.sql`updated_at = now()`,
         ];
         if (args.reviewNote !== undefined) {

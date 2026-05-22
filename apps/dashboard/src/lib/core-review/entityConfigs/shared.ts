@@ -2,6 +2,7 @@ import type { Geometry } from "geojson";
 import { z } from "zod";
 
 import type { ImportReviewGeoJson } from "@/src/lib/api";
+import { preparePolygonGeometryForSave } from "@/src/lib/core-review/savePayloadUtils";
 import {
     createCoreReviewEntity,
     getCoreReviewDetail,
@@ -39,6 +40,27 @@ export function optionalFormRefId(value: unknown): string | null {
     return nullableFormString(value);
 }
 
+/** Parse a required ref dropdown value into a numeric id for API payloads. */
+export function parseRequiredFormRefId(value: unknown, fieldLabel: string): number {
+    const trimmed = String(value ?? "").trim();
+    if (!/^\d+$/.test(trimmed)) {
+        throw new Error(`${fieldLabel} must be selected from the list (numeric id required).`);
+    }
+    return Number.parseInt(trimmed, 10);
+}
+
+/** Parse an optional ref dropdown value into a numeric id, or null when blank. */
+export function parseOptionalFormRefId(value: unknown): number | null {
+    const trimmed = String(value ?? "").trim();
+    if (!trimmed) {
+        return null;
+    }
+    if (!/^\d+$/.test(trimmed)) {
+        throw new Error("Reference selection must use a numeric id from the dropdown.");
+    }
+    return Number.parseInt(trimmed, 10);
+}
+
 export function requirePointGeometry(values: CoreEntityFormValues, fieldKey: string): Geometry {
     const geometry = getFormGeometry(values, fieldKey);
     if (!geometry || geometry.type !== "Point") {
@@ -63,13 +85,17 @@ export function requirePolygonGeometry(values: CoreEntityFormValues, fieldKey: s
     if (!geometry || (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon")) {
         throw new Error("Draw a polygon on the map before saving.");
     }
-    return geometry;
+    return preparePolygonGeometryForSave(geometry);
 }
 
 export function mapClassifiedFeaturePayload(values: CoreEntityFormValues, geomField = "geom") {
+    const classCode = nullableFormString(values.class_code);
+    if (!classCode) {
+        throw new Error("Class code is required.");
+    }
     return {
         name: nullableFormString(values.name),
-        class_code: nullableFormString(values.class_code),
+        class_code: classCode,
         is_active: bool(values.is_active),
         is_verified: bool(values.is_verified),
         geom: requirePolygonGeometry(values, geomField),
@@ -77,9 +103,13 @@ export function mapClassifiedFeaturePayload(values: CoreEntityFormValues, geomFi
 }
 
 export function mapWaterLinePayload(values: CoreEntityFormValues, geomField = "geom") {
+    const classCode = nullableFormString(values.class_code);
+    if (!classCode) {
+        throw new Error("Class code is required.");
+    }
     return {
         name: nullableFormString(values.name),
-        class_code: nullableFormString(values.class_code),
+        class_code: classCode,
         is_active: bool(values.is_active),
         is_verified: bool(values.is_verified),
         geom: requireLineGeometry(values, geomField),

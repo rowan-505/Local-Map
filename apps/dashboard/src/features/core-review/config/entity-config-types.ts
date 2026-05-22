@@ -17,6 +17,12 @@ export type CoreReviewFilterSupport = {
     isPublic: boolean;
     includeDeleted: boolean;
     routeId: boolean;
+    landuseClassId?: boolean;
+    detailLevel?: boolean;
+    cropCode?: boolean;
+    boundaryStatus?: boolean;
+    addressUsage?: boolean;
+    isOfficialBoundary?: boolean;
 };
 
 export type CoreReviewOverviewStatus = "ready" | "partial" | "todo";
@@ -28,6 +34,19 @@ export type CoreReviewColumnDef<T> = {
 };
 
 export type CoreReviewEntityExtensions<T> = {
+    renderDetailDrawer?: (ctx: {
+        open: boolean;
+        row: T | null;
+        rowId: string | null;
+        editPath?: string;
+        drawerActions?: ReactNode;
+        onClose: () => void;
+        geometryKind: DataReviewGeometryKind | "none";
+        mapEntityType: ImportReviewEntityType;
+        listGeometry: import("@/src/lib/api").ImportReviewGeoJson | null;
+        title: string;
+        subtitle?: string | null;
+    }) => ReactNode;
     headerActions?: ReactNode;
     renderDrawerActions?: (ctx: {
         row: T;

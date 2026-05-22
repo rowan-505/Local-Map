@@ -1,6 +1,11 @@
 import type { StreetGeometry, StreetLineStringGeoJson } from "@/src/lib/api";
 import { normalizeLineStringForEditor } from "@/src/features/streets/normalizeStreetLineString";
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
+import {
+    seedRoadEditorNameEn,
+    seedRoadEditorNameMm,
+    toNameSourceRow,
+} from "@/src/features/import-review/utils/importReviewNameFields";
 
 export function asOverrideRecord(review_overrides: unknown): Record<string, unknown> {
     if (review_overrides && typeof review_overrides === "object" && !Array.isArray(review_overrides)) {
@@ -67,14 +72,6 @@ function surfaceFromNormalized(data: unknown): string {
     return "";
 }
 
-function generatedLabelFromNormalized(data: unknown): string {
-    const gl = normPick(data, "generated_label");
-    if (typeof gl === "string" && gl.trim()) {
-        return gl.trim();
-    }
-    return "";
-}
-
 function boolFromUnknown(value: unknown): boolean | null {
     if (value === true || value === "true" || value === 1 || value === "1") {
         return true;
@@ -86,7 +83,8 @@ function boolFromUnknown(value: unknown): boolean | null {
 }
 
 export type ImportReviewRoadEditorSeed = {
-    canonicalName: string;
+    nameMm: string;
+    nameEn: string;
     roadClassId: string;
     isOneway: boolean;
     surface: string;
@@ -94,6 +92,7 @@ export type ImportReviewRoadEditorSeed = {
     multiLineWarning: string | null;
     geometryLoadNotice: string | null;
     overridesReviewNote: string;
+    adminAreaId: string | null;
 };
 
 export function roadEditorSeedFromRow(
@@ -102,14 +101,10 @@ export function roadEditorSeedFromRow(
 ): ImportReviewRoadEditorSeed {
     const ov = asOverrideRecord(row.review_overrides);
     const nd = row.normalized_data;
+    const nameSource = toNameSourceRow(row);
 
-    let canonicalName = strFromUnknown(ov.canonical_name).trim();
-    if (!canonicalName) {
-        canonicalName = (row.canonical_name ?? "").trim();
-    }
-    if (!canonicalName) {
-        canonicalName = generatedLabelFromNormalized(nd);
-    }
+    const nameMm = seedRoadEditorNameMm(row, ov, nameSource);
+    const nameEn = seedRoadEditorNameEn(row, ov, nameSource);
 
     let roadClassId = strFromUnknown(ov.road_class_id).trim();
     if (!roadClassId && row.road_candidate_road_class_id) {
@@ -152,9 +147,17 @@ export function roadEditorSeedFromRow(
         norm.unsupportedReason ??
         (norm.parseError ? norm.parseError : null);
 
+    const adminFromOverride = strFromUnknown(ov.admin_area_id).trim();
+    const adminAreaId =
+        adminFromOverride ||
+        (row.effective_admin_area_id ? String(row.effective_admin_area_id).trim() : "") ||
+        null;
+
     return {
-        canonicalName,
+        nameMm,
+        nameEn,
         roadClassId,
+        adminAreaId: adminAreaId || null,
         isOneway,
         surface,
         line: norm.line,

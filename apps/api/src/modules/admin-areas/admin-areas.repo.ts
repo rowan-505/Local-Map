@@ -15,7 +15,12 @@ export type AdminAreaOptionRow = {
     name_mm: string | null;
     name_en: string | null;
     admin_level_id: bigint;
+    admin_level_code: string;
+    admin_level_name: string | null;
     parent_id: bigint | null;
+    parent_label: string | null;
+    boundary_status: string | null;
+    address_usage: string | null;
 };
 
 export class AdminAreasRepository {
@@ -65,8 +70,59 @@ export class AdminAreasRepository {
                 an_mm.name AS name_mm,
                 an_en.name AS name_en,
                 a.admin_level_id,
-                a.parent_id
+                al.code AS admin_level_code,
+                al.name AS admin_level_name,
+                a.parent_id,
+                COALESCE(
+                    NULLIF(trim(parent_mm.name), ''),
+                    NULLIF(trim(parent_en.name), ''),
+                    NULLIF(trim(parent.canonical_name), '')
+                ) AS parent_label,
+                a.boundary_status,
+                a.address_usage
             FROM core.core_admin_areas AS a
+            INNER JOIN ref.ref_admin_levels AS al
+                ON al.id = a.admin_level_id
+            LEFT JOIN core.core_admin_areas AS parent
+                ON parent.id = a.parent_id
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_admin_area_names AS n
+                WHERE n.admin_area_id = parent.id
+                  AND (
+                      lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+                      OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.search_weight DESC NULLS LAST,
+                    n.name ASC
+                LIMIT 1
+            ) AS parent_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_admin_area_names AS n
+                WHERE n.admin_area_id = parent.id
+                  AND (
+                      lower(trim(coalesce(n.language_code, ''))) = 'en'
+                      OR upper(trim(coalesce(n.script_code, ''))) = 'LATN'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.search_weight DESC NULLS LAST,
+                    n.name ASC
+                LIMIT 1
+            ) AS parent_en ON true
             LEFT JOIN LATERAL (
                 SELECT n.name
                 FROM core.core_admin_area_names AS n
@@ -106,6 +162,8 @@ export class AdminAreasRepository {
                 LIMIT 1
             ) AS an_en ON true
             WHERE a.is_active = true
+              AND a.deleted_at IS NULL
+              AND a.address_usage <> 'disabled'
             ${searchClause}
             ORDER BY a.canonical_name ASC
             LIMIT ${args.limit}
@@ -120,8 +178,59 @@ export class AdminAreasRepository {
                 an_mm.name AS name_mm,
                 an_en.name AS name_en,
                 a.admin_level_id,
-                a.parent_id
+                al.code AS admin_level_code,
+                al.name AS admin_level_name,
+                a.parent_id,
+                COALESCE(
+                    NULLIF(trim(parent_mm.name), ''),
+                    NULLIF(trim(parent_en.name), ''),
+                    NULLIF(trim(parent.canonical_name), '')
+                ) AS parent_label,
+                a.boundary_status,
+                a.address_usage
             FROM core.core_admin_areas AS a
+            INNER JOIN ref.ref_admin_levels AS al
+                ON al.id = a.admin_level_id
+            LEFT JOIN core.core_admin_areas AS parent
+                ON parent.id = a.parent_id
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_admin_area_names AS n
+                WHERE n.admin_area_id = parent.id
+                  AND (
+                      lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+                      OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.search_weight DESC NULLS LAST,
+                    n.name ASC
+                LIMIT 1
+            ) AS parent_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_admin_area_names AS n
+                WHERE n.admin_area_id = parent.id
+                  AND (
+                      lower(trim(coalesce(n.language_code, ''))) = 'en'
+                      OR upper(trim(coalesce(n.script_code, ''))) = 'LATN'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.search_weight DESC NULLS LAST,
+                    n.name ASC
+                LIMIT 1
+            ) AS parent_en ON true
             LEFT JOIN LATERAL (
                 SELECT n.name
                 FROM core.core_admin_area_names AS n
@@ -162,6 +271,7 @@ export class AdminAreasRepository {
             ) AS an_en ON true
             WHERE a.id = ${id}
               AND a.is_active = true
+              AND a.deleted_at IS NULL
             LIMIT 1
         `;
         return found[0] ?? null;

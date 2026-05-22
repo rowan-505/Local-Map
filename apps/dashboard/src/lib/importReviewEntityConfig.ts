@@ -31,6 +31,7 @@ export {
     getImportReviewEntityConfigBySlug,
     isKnownImportReviewEntitySlug,
     listImportReviewEntityConfigs,
+    resolveImportReviewApiFamily,
     toDataReviewGeometryKind,
     toLegacyRouteConfig,
 } from "@/src/features/import-review/config";

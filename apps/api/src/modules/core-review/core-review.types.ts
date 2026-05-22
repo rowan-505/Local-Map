@@ -51,4 +51,7 @@ export type CoreReviewListQuery = {
     isPublic?: boolean;
     includeDeleted?: boolean;
     routeId?: string;
+    landuseClassId?: string;
+    detailLevel?: "zone" | "parcel";
+    cropCode?: string;
 };

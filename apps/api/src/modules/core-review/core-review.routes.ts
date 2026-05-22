@@ -20,13 +20,14 @@ import {
     getCoreReviewCreateSchema,
     getCoreReviewPatchSchema,
     sanitizeCoreReviewWriteBody,
-    normalizeGeometryAliases,
+    normalizeWriteBodyAliases,
 } from "./core-review-write.schema.js";
 import {
     CoreReviewLifecycleNotSupportedError,
     CoreReviewNotFoundError,
     CoreReviewValidationError,
 } from "./core-review-write.errors.js";
+import { mapDatabaseWriteError, sanitizeDevWriteErrorMessage } from "./core-review-write.helpers.js";
 
 function replyCoreReviewReadError(
     request: FastifyRequest,
@@ -44,11 +45,41 @@ function replyCoreReviewWriteError(
     request: FastifyRequest,
     reply: FastifyReply,
     error: unknown,
-    context: string
+    context: string,
+    meta?: { entity?: string; operation?: string; payloadKeys?: string[] },
 ) {
-    request.log.error({ err: error }, context);
+    const mapped = mapDatabaseWriteError(error);
+    if (mapped) {
+        request.log.info(
+            {
+                entity: meta?.entity,
+                operation: meta?.operation,
+                payloadKeys: meta?.payloadKeys,
+                validationIssues: mapped.issues,
+            },
+            `${context} (mapped validation)`,
+        );
+        return reply.code(400).send({ message: mapped.message, issues: mapped.issues });
+    }
+
+    request.log.error(
+        {
+            err: error,
+            entity: meta?.entity,
+            operation: meta?.operation,
+            payloadKeys: meta?.payloadKeys,
+        },
+        context,
+    );
+
+    const isDev = process.env.NODE_ENV !== "production";
+    const devDetail =
+        isDev && error instanceof Error ? sanitizeDevWriteErrorMessage(error.message) : undefined;
+
     return reply.code(500).send({
-        message: "We could not save that core review change. Please try again.",
+        message: devDetail
+            ? `Save failed: ${devDetail}`
+            : "We could not save that core review change. Please try again.",
     });
 }
 
@@ -235,7 +266,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(403).send({ message: "Admin or editor role required" });
             }
 
-            const sanitized = sanitizeCoreReviewWriteBody(normalizeGeometryAliases(request.body));
+            const sanitized = sanitizeCoreReviewWriteBody(normalizeWriteBodyAliases(request.body));
             const schema = getCoreReviewCreateSchema(def.slug);
             const bodyParsed = schema.safeParse(sanitized);
             if (!bodyParsed.success) {
@@ -249,6 +280,8 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
                 });
             }
 
+            const payloadKeys = Object.keys(bodyParsed.data as Record<string, unknown>);
+
             try {
                 const result = await service.create(
                     def.path,
@@ -260,17 +293,29 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
                     return reply.code(404).send({ message: "Unknown core-review entity" });
                 }
 
-                request.log.info({ entity: def.slug, operation: "create" }, "core-review create");
+                request.log.info(
+                    { entity: def.slug, operation: "create", payloadKeys },
+                    "core-review create",
+                );
                 return reply.code(201).send(result);
             } catch (error) {
                 if (error instanceof CoreReviewValidationError) {
                     request.log.info(
-                        { entity: def.slug, operation: "create", validationIssues: error.issues },
+                        {
+                            entity: def.slug,
+                            operation: "create",
+                            payloadKeys,
+                            validationIssues: error.issues,
+                        },
                         "core-review create rejected",
                     );
                     return reply.code(400).send({ message: error.message, issues: error.issues });
                 }
-                return replyCoreReviewWriteError(request, reply, error, "core-review create failed");
+                return replyCoreReviewWriteError(request, reply, error, "core-review create failed", {
+                    entity: def.slug,
+                    operation: "create",
+                    payloadKeys,
+                });
             }
         },
     );
@@ -299,7 +344,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
                 return reply.code(403).send({ message: "Admin or editor role required" });
             }
 
-            const sanitized = sanitizeCoreReviewWriteBody(normalizeGeometryAliases(request.body));
+            const sanitized = sanitizeCoreReviewWriteBody(normalizeWriteBodyAliases(request.body));
             const schema = getCoreReviewPatchSchema(def.slug);
             const bodyParsed = schema.safeParse(sanitized);
             if (!bodyParsed.success) {
@@ -351,7 +396,11 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
                     );
                     return reply.code(400).send({ message: error.message, issues: error.issues });
                 }
-                return replyCoreReviewWriteError(request, reply, error, "core-review update failed");
+                return replyCoreReviewWriteError(request, reply, error, "core-review update failed", {
+                    entity: def.slug,
+                    operation: "update",
+                    payloadKeys: Object.keys(bodyParsed.data as Record<string, unknown>),
+                });
             }
         },
     );

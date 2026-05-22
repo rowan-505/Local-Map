@@ -1,12 +1,14 @@
 "use client";
 
 import type { ImportReviewBuildingListItem, ImportReviewDecision, ImportReviewGeoJson } from "@/src/lib/api";
+import type { ImportReviewFormOptionsResponse } from "@/src/lib/api";
 import type { ImportReviewEntityType } from "@/src/components/map/DataReviewCandidateMap";
 import type { DataReviewGeometryKind } from "@/src/components/map/DataReviewCandidateMap";
 
 import type { ImportReviewEntityConfig } from "../config/types";
 import type { ImportReviewScopeQueryParams } from "@/src/lib/importReviewSnapshot";
 import { jsonishSignalsPresent, resolveDrawerSubtitle, resolveDrawerTitle } from "../utils/detailDrawerUtils";
+import { isGeometryEssentialForEntity } from "../config/essentialFields";
 import { IMPORT_REVIEW_LOADING } from "../utils/loadingMessages";
 import { importReviewMessageTone } from "../utils/importReviewMessageTone";
 import ImportReviewErrorState from "./ImportReviewErrorState";
@@ -43,6 +45,9 @@ export default function ImportReviewDetailDrawer({
     onNoteChange,
     onDecisionChange,
     onSave,
+    formOptions = null,
+    formOptionsLoading = false,
+    formOptionsError = "",
 }: {
     config: ImportReviewEntityConfig;
     row: ImportReviewBuildingListItem;
@@ -67,6 +72,9 @@ export default function ImportReviewDetailDrawer({
     onNoteChange: (value: string) => void;
     onDecisionChange: (value: ImportReviewDecision) => void;
     onSave: () => void;
+    formOptions?: ImportReviewFormOptionsResponse | null;
+    formOptionsLoading?: boolean;
+    formOptionsError?: string;
 }) {
     const title = resolveDrawerTitle(row, config);
     const subtitle = resolveDrawerSubtitle(row, config);
@@ -151,6 +159,7 @@ export default function ImportReviewDetailDrawer({
                                 mapEntityType={mapEntityType}
                                 externalId={row.external_id ?? row.id}
                                 fallbackNote={fallbackNote}
+                                geometryEssential={isGeometryEssentialForEntity(config)}
                             />
 
                             {config.supportsOverrideEditor || config.overrideEditableFields.length > 0 ? (
@@ -162,6 +171,9 @@ export default function ImportReviewDetailDrawer({
                                     isSavingOverrides={isSavingOverrides}
                                     overrideSaveMessage={overrideSaveMessage}
                                     onSaveOverrides={onSaveOverrides}
+                                    formOptions={formOptions}
+                                    formOptionsLoading={formOptionsLoading}
+                                    formOptionsError={formOptionsError}
                                 />
                             ) : null}
 

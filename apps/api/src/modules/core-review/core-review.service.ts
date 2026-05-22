@@ -12,7 +12,18 @@ import {
     listCoreReviewBuildings,
 } from "./entities/buildings.handler.js";
 import { getCoreReviewPlaceDetail, listCoreReviewPlaces } from "./entities/places.handler.js";
+import {
+    getCoreReviewLanduseDetail,
+    listCoreReviewLanduse,
+} from "./entities/landuse.handler.js";
+import { CoreReviewLanduseRepository } from "./entities/landuse.repo.js";
 import { getCoreReviewStreetDetail, listCoreReviewStreets } from "./entities/streets.handler.js";
+import {
+    getCoreReviewAddressDetail,
+    listCoreReviewAddresses,
+} from "./entities/addresses.handler.js";
+import { CoreReviewAddressesRepository } from "./entities/addresses.repo.js";
+import { CoreReviewAddressesWriteService } from "./entities/addresses-write.service.js";
 import {
     CoreReviewEntitiesRepository,
     type CoreReviewEntityListParams,
@@ -47,6 +58,9 @@ function toListParams(
         routeId: query.routeId ? BigInt(query.routeId) : undefined,
         isPublic: query.isPublic,
         parentAdminAreaId: query.adminAreaId ? BigInt(query.adminAreaId) : undefined,
+        boundaryStatus: query.boundaryStatus,
+        addressUsage: query.addressUsage,
+        isOfficialBoundary: query.isOfficialBoundary,
         status: resolveCoreReviewListStatus(query),
     };
 }
@@ -63,6 +77,12 @@ function filterEcho(query: CoreReviewListQueryParsed): Record<string, unknown> {
         isPublic: query.isPublic,
         includeDeleted: query.includeDeleted,
         routeId: query.routeId,
+        landuseClassId: query.landuseClassId,
+        detailLevel: query.detailLevel,
+        cropCode: query.cropCode,
+        boundaryStatus: query.boundaryStatus,
+        addressUsage: query.addressUsage,
+        isOfficialBoundary: query.isOfficialBoundary,
     };
 }
 
@@ -99,6 +119,9 @@ export class CoreReviewService {
     private readonly entitiesRepo: CoreReviewEntitiesRepository;
     private readonly genericWriteService: CoreReviewGenericWriteService;
     private readonly lifecycleService: CoreReviewLifecycleService;
+    private readonly landuseRepo: CoreReviewLanduseRepository;
+    private readonly addressesRepo: CoreReviewAddressesRepository;
+    private readonly addressesWriteService: CoreReviewAddressesWriteService;
 
     constructor(prisma: PrismaClient) {
         this.buildingsRepo = new BuildingsRepository(prisma);
@@ -110,6 +133,9 @@ export class CoreReviewService {
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
         this.genericWriteService = new CoreReviewGenericWriteService(prisma);
         this.lifecycleService = new CoreReviewLifecycleService(prisma);
+        this.landuseRepo = new CoreReviewLanduseRepository(prisma);
+        this.addressesRepo = new CoreReviewAddressesRepository(prisma);
+        this.addressesWriteService = new CoreReviewAddressesWriteService(prisma);
     }
 
     softDelete(entityPath: string, id: string, user?: JwtUser) {
@@ -166,17 +192,8 @@ export class CoreReviewService {
                     (x) => this.entitiesRepo.countBusRouteVariants(x)
                 );
             }
-            case "landuse": {
-                const p = toListParams(def, query);
-                return listGeneric(
-                    this.entitiesRepo,
-                    def.slug,
-                    p,
-                    query,
-                    (x) => this.entitiesRepo.listLanduse(x),
-                    (x) => this.entitiesRepo.countLanduse(x)
-                );
-            }
+            case "landuse":
+                return listCoreReviewLanduse(this.landuseRepo, def, query);
             case "water-lines": {
                 const p = toListParams(def, query);
                 return listGeneric(
@@ -199,17 +216,8 @@ export class CoreReviewService {
                     (x) => this.entitiesRepo.countWaterPolygons(x)
                 );
             }
-            case "addresses": {
-                const p = toListParams(def, query);
-                return listGeneric(
-                    this.entitiesRepo,
-                    def.slug,
-                    p,
-                    query,
-                    (x) => this.entitiesRepo.listAddresses(x),
-                    (x) => this.entitiesRepo.countAddresses(x)
-                );
-            }
+            case "addresses":
+                return listCoreReviewAddresses(this.addressesRepo, def, query);
             case "admin-areas": {
                 const p = toListParams(def, query);
                 return listGeneric(
@@ -251,10 +259,8 @@ export class CoreReviewService {
                 const row = await this.entitiesRepo.getBusRouteVariantById(id);
                 return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
             }
-            case "landuse": {
-                const row = await this.entitiesRepo.getLanduseById(id);
-                return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
-            }
+            case "landuse":
+                return getCoreReviewLanduseDetail(this.landuseRepo, id);
             case "water-lines": {
                 const row = await this.entitiesRepo.getWaterLineById(id);
                 return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
@@ -263,10 +269,8 @@ export class CoreReviewService {
                 const row = await this.entitiesRepo.getWaterPolygonById(id);
                 return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
             }
-            case "addresses": {
-                const row = await this.entitiesRepo.getAddressByPublicId(id);
-                return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
-            }
+            case "addresses":
+                return getCoreReviewAddressDetail(this.addressesRepo, id);
             case "admin-areas": {
                 const row = await this.entitiesRepo.getAdminAreaByPublicId(id);
                 return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
@@ -299,6 +303,8 @@ export class CoreReviewService {
                     body,
                     user ?? { sub: "system", email: "system@local", roles: ["admin"] },
                 );
+            case "addresses":
+                return this.addressesWriteService.create(body);
             default:
                 return this.genericWriteService.create(def.slug as CoreReviewEntitySlug, body, log);
         }
@@ -329,6 +335,8 @@ export class CoreReviewService {
                     body,
                     user ?? { sub: "system", email: "system@local", roles: ["admin"] },
                 );
+            case "addresses":
+                return this.addressesWriteService.update(id, body);
             default:
                 return this.genericWriteService.update(def.slug as CoreReviewEntitySlug, id, body, log);
         }

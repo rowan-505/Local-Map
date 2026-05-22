@@ -14,6 +14,7 @@ import {
     patchEntityDecision,
     patchEntityOverrides,
 } from "@/src/features/import-review/api";
+import { useImportReviewFormOptions } from "./useImportReviewFormOptions";
 import { isImportReviewDetailNotFound } from "@/src/features/import-review/utils/detailDrawerUtils";
 import { getImportReviewEntityConfigBySlug, toDataReviewGeometryKind } from "@/src/features/import-review/config";
 import type { ImportReviewEntityConfig } from "@/src/features/import-review/config";
@@ -76,6 +77,14 @@ export function useImportReviewEntityPage(
 ) {
     const showMapPreview = options.showMapPreview ?? false;
     const config = getImportReviewEntityConfigBySlug(slug);
+    const needsFormOptions = Boolean(
+        config?.supportsOverrideEditor || (config?.overrideEditableFields.length ?? 0) > 0
+    );
+    const {
+        formOptions,
+        isLoading: formOptionsLoading,
+        error: formOptionsError,
+    } = useImportReviewFormOptions(needsFormOptions);
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
@@ -412,6 +421,17 @@ export function useImportReviewEntityPage(
         });
     };
 
+    const refetchDrawerDetail = useCallback(async () => {
+        if (!drawerRow || !config || !apiScopeQuery) {
+            return;
+        }
+        const detail = await getEntityCandidateDetail(config.apiFamily, drawerRow.id, {
+            ...apiScopeQuery,
+            include_geometry: true,
+        });
+        mergeRow(detail);
+    }, [drawerRow, config, apiScopeQuery]);
+
     const patchDecision = async (
         row: ImportReviewBuildingListItem,
         decision: ImportReviewDecision,
@@ -714,5 +734,9 @@ export function useImportReviewEntityPage(
         showMapPreview,
         handleRowAction,
         handleDrawerSave,
+        refetchDrawerDetail,
+        formOptions,
+        formOptionsLoading,
+        formOptionsError,
     };
 }

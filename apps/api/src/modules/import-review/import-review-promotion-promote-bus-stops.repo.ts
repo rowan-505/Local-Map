@@ -36,8 +36,6 @@ const PROMOTE_BUS_STOP_SRC_COLUMNS = Prisma.sql`
     bs.local_staging_id,
     bs.external_id,
     bs.canonical_name,
-    bs.name,
-    bs.name_local,
     bs.stop_code,
     bs.admin_area_id,
     bs.geom,

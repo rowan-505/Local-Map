@@ -17,6 +17,7 @@ export {
     isKnownImportReviewEntitySlug,
     listImportReviewEntityConfigs,
 } from "./importReviewEntityConfigs";
+export { resolveImportReviewApiFamily } from "../utils/importReviewApiFamily";
 export {
     toDataReviewGeometryKind,
     toLegacyRouteConfig,

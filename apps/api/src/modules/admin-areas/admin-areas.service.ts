@@ -15,7 +15,12 @@ export type AdminAreaOptionResponse = {
     name_mm: string | null;
     name_en: string | null;
     admin_level_id: string;
+    admin_level_code: string;
+    admin_level_name: string | null;
     parent_id: string | null;
+    parent_label: string | null;
+    boundary_status: string | null;
+    address_usage: string | null;
 };
 
 export function formatAdminAreaOptionLabel(option: Pick<AdminAreaOptionResponse, "canonical_name" | "name_mm" | "name_en">): string {
@@ -61,7 +66,12 @@ export class AdminAreasService {
                 name_mm: row.name_mm,
                 name_en: row.name_en,
                 admin_level_id: row.admin_level_id.toString(),
+                admin_level_code: row.admin_level_code,
+                admin_level_name: row.admin_level_name,
                 parent_id: row.parent_id !== null ? row.parent_id.toString() : null,
+                parent_label: row.parent_label,
+                boundary_status: row.boundary_status,
+                address_usage: row.address_usage,
             })
         );
     }

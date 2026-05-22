@@ -24,6 +24,13 @@ function fieldErrorMessages(errors: FieldErrors<Record<string, unknown>>): strin
     return messages;
 }
 
+function splitFormErrorLines(formError: string): string[] {
+    return formError
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+}
+
 export default function CoreEntityValidationPanel({
     fieldErrors,
     geometryValidation,
@@ -31,6 +38,7 @@ export default function CoreEntityValidationPanel({
     formError,
 }: CoreEntityValidationPanelProps) {
     const fieldMsgs = fieldErrors ? fieldErrorMessages(fieldErrors) : [];
+    const formErrorLines = formError ? splitFormErrorLines(formError) : [];
     const hasFieldErrors = fieldMsgs.length > 0;
     const hasGeometryIssues =
         geometryValidation &&
@@ -44,7 +52,7 @@ export default function CoreEntityValidationPanel({
             apiGeometryValidation.crossings.length > 0 ||
             apiGeometryValidation.duplicates.length > 0);
 
-    if (!formError && !hasFieldErrors && !hasGeometryIssues && !hasApiValidation) {
+    if (!formErrorLines.length && !hasFieldErrors && !hasGeometryIssues && !hasApiValidation) {
         return null;
     }
 
@@ -52,8 +60,15 @@ export default function CoreEntityValidationPanel({
         <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900">Validation</h3>
 
-            {formError ? (
-                <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{formError}</div>
+            {formErrorLines.length > 0 ? (
+                <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                    <div className="font-semibold">Save error</div>
+                    <ul className="mt-1.5 list-disc space-y-1 pl-5">
+                        {formErrorLines.map((line) => (
+                            <li key={line}>{line.replace(/^•\s*/, "")}</li>
+                        ))}
+                    </ul>
+                </div>
             ) : null}
 
             {hasFieldErrors ? (

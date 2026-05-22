@@ -4,7 +4,11 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 
 import { getAdminAreaOptions } from "@/src/lib/api";
 
-import { formatAdminAreaOptionLabel, type AdminAreaOption } from "./adminAreaLabels";
+import {
+    formatAdminAreaOptionLabel,
+    formatAdminAreaOptionMeta,
+    type AdminAreaOption,
+} from "./adminAreaLabels";
 
 export type AdminAreaComboboxProps = {
     /** Admin area id as string (bigint from API). */
@@ -14,6 +18,9 @@ export type AdminAreaComboboxProps = {
     placeholder?: string;
     className?: string;
     id?: string;
+    /** When provided, skips internal fetch (e.g. from GET /import-review/options). */
+    options?: AdminAreaOption[];
+    optionsLoading?: boolean;
 };
 
 export default function AdminAreaCombobox({
@@ -23,6 +30,8 @@ export default function AdminAreaCombobox({
     placeholder = "Search admin area…",
     className = "",
     id: idProp,
+    options: externalOptions,
+    optionsLoading: externalLoading,
 }: AdminAreaComboboxProps) {
     const autoId = useId();
     const inputId = idProp ?? autoId;
@@ -56,6 +65,12 @@ export default function AdminAreaCombobox({
     }, [options, query]);
 
     useEffect(() => {
+        if (externalOptions !== undefined) {
+            setOptions(externalOptions);
+            setLoading(externalLoading ?? false);
+            setLoadError(null);
+            return;
+        }
         let cancelled = false;
         setLoading(true);
         setLoadError(null);
@@ -78,7 +93,7 @@ export default function AdminAreaCombobox({
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [externalOptions, externalLoading]);
 
     useEffect(() => {
         if (!open) {
@@ -203,7 +218,14 @@ export default function AdminAreaCombobox({
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => pick(opt)}
                                 >
-                                    {formatAdminAreaOptionLabel(opt)}
+                                    <span className="block font-medium">
+                                        {formatAdminAreaOptionLabel(opt)}
+                                    </span>
+                                    {formatAdminAreaOptionMeta(opt) ? (
+                                        <span className="mt-0.5 block text-xs text-gray-500">
+                                            {formatAdminAreaOptionMeta(opt)}
+                                        </span>
+                                    ) : null}
                                 </button>
                             </li>
                         ))

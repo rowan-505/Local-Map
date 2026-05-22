@@ -9,6 +9,7 @@ import {
     getImportReviewRoadsSchema,
     getImportReviewSummarySchema,
     getImportReviewReferenceOptionsSchema,
+    getImportReviewFormOptionsSchema,
     patchImportReviewBuildingDecisionSchema,
     patchImportReviewBuildingOverridesSchema,
     patchImportReviewPlaceDecisionSchema,
@@ -34,6 +35,13 @@ import {
     getImportReviewPromotionRoadDryRunSchema,
     postImportReviewCleanupPromotedDryRunSchema,
     postImportReviewCleanupPromotedExecuteSchema,
+    postImportReviewAddressAdminInferenceSchema,
+    postImportReviewAddressValidateSchema,
+    postImportReviewAddressPromotionDryRunSchema,
+    postImportReviewAddressPromotionSchema,
+    getImportReviewAddressOptionsSchema,
+    patchImportReviewAddressMatchesSchema,
+    patchImportReviewAddressComponentsSchema,
     getImportReviewHistoryReviewBatchesSchema,
     getImportReviewHistoryReviewBatchByIdSchema,
     getImportReviewHistoryPublishBatchesSchema,
@@ -128,6 +136,24 @@ import {
     postImportReviewCleanupPromotedExecuteBodySchema,
 } from "./import-review-cleanup-promoted.schema.js";
 import { createImportReviewCleanupPromotedService } from "./import-review-cleanup-promoted.service.js";
+import {
+    ImportReviewAddressAdminInferenceBatchNotFoundError,
+    ImportReviewAddressAdminInferenceNotReadyError,
+    createImportReviewAddressAdminInferenceService,
+} from "./import-review-address-admin-inference.service.js";
+import { postImportReviewAddressAdminInferenceBodySchema } from "./import-review-address-admin-inference.schema.js";
+import { createImportReviewAddressValidationService } from "./import-review-address-validation.service.js";
+import { postImportReviewAddressValidateBodySchema } from "./import-review-address-validation.schema.js";
+import { createImportReviewAddressComponentsMutationService } from "./import-review-address-components-mutation.service.js";
+import { createImportReviewAddressPromotionService } from "./import-review-address-promotion.service.js";
+import { ImportReviewAddressPromotionDisabledError } from "./import-review-address-promotion.errors.js";
+import { postImportReviewAddressPromotionBodySchema } from "./import-review-address-promotion.schema.js";
+import { patchImportReviewAddressComponentsBodySchema } from "./import-review-address-components-mutation.schema.js";
+import { createImportReviewAddressMatchesService } from "./import-review-address-matches.service.js";
+import {
+    importReviewAddressCandidateIdParamsSchema,
+    patchImportReviewAddressMatchesBodySchema,
+} from "./import-review-address-matches.schema.js";
 import { ImportReviewHistoryRepository } from "./import-review-history.repo.js";
 import { ImportReviewHistoryService } from "./import-review-history.service.js";
 import { ImportReviewHistoryReviewBatchNotFoundError } from "./import-review-history.errors.js";
@@ -276,9 +302,20 @@ function sendImportReviewError(reply: FastifyReply, error: unknown): boolean {
 
     if (
         error instanceof ImportReviewCleanupReviewBatchNotFoundError ||
-        error instanceof ImportReviewCleanupPublishBatchNotFoundError
+        error instanceof ImportReviewCleanupPublishBatchNotFoundError ||
+        error instanceof ImportReviewAddressAdminInferenceBatchNotFoundError
     ) {
         void reply.code(404).send({ message: error.message });
+        return true;
+    }
+
+    if (error instanceof ImportReviewAddressAdminInferenceNotReadyError) {
+        void reply.code(503).send({ message: error.message });
+        return true;
+    }
+
+    if (error instanceof ImportReviewAddressPromotionDisabledError) {
+        void reply.code(403).send({ message: error.message });
         return true;
     }
 
@@ -545,6 +582,11 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
     const historyRepo = new ImportReviewHistoryRepository(prisma);
     const historyService = new ImportReviewHistoryService(historyRepo);
     const cleanupPromotedService = createImportReviewCleanupPromotedService(prisma);
+    const addressAdminInferenceService = createImportReviewAddressAdminInferenceService(prisma);
+    const addressMatchesService = createImportReviewAddressMatchesService(prisma);
+    const addressValidationService = createImportReviewAddressValidationService(prisma);
+    const addressPromotionService = createImportReviewAddressPromotionService(prisma);
+    const addressComponentsMutationService = createImportReviewAddressComponentsMutationService(prisma);
 
     app.get(
         "/history/review-batches",
@@ -715,6 +757,26 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
     );
 
     app.get(
+        "/options",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: getImportReviewFormOptionsSchema,
+        },
+        async (_request, reply) => {
+            try {
+                const options = await importReviewService.getFormOptions();
+                reply.header("Cache-Control", "private, max-age=300");
+                return reply.send(options);
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.get(
         "/reference-options",
         {
             preHandler: importReviewAuthorizedPreHandlers(),
@@ -723,6 +785,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (_request, reply) => {
             try {
                 const options = await importReviewService.getReferenceOptions();
+                reply.header("Cache-Control", "private, max-age=300");
                 return reply.send(options);
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {
@@ -1693,6 +1756,222 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             }
             try {
                 return reply.send(await cleanupPromotedService.execute(bodyParsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.get(
+        "/addresses/:id/options",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: getImportReviewAddressOptionsSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewAddressCandidateIdParamsSchema.safeParse(request.params);
+            if (!paramsParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid path parameters",
+                    issues: paramsParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(
+                    await addressMatchesService.getOptions(paramsParsed.data.id)
+                );
+            } catch (error) {
+                const candidateId = paramsParsed.data.id.toString();
+                const message = error instanceof Error ? error.message : String(error);
+                console.error(
+                    `[import-review address options] candidate_id=${candidateId} request failed: ${message}`
+                );
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.patch(
+        "/addresses/:id/components",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: patchImportReviewAddressComponentsSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewAddressCandidateIdParamsSchema.safeParse(request.params);
+            const bodyParsed = patchImportReviewAddressComponentsBodySchema.safeParse(request.body ?? {});
+
+            if (!paramsParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid path parameters",
+                    issues: paramsParsed.error.flatten(),
+                });
+            }
+            if (!bodyParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid body",
+                    issues: bodyParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(
+                    await addressComponentsMutationService.patchComponents(
+                        paramsParsed.data.id,
+                        bodyParsed.data
+                    )
+                );
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.patch(
+        "/addresses/:id/matches",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: patchImportReviewAddressMatchesSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewAddressCandidateIdParamsSchema.safeParse(request.params);
+            const bodyParsed = patchImportReviewAddressMatchesBodySchema.safeParse(request.body ?? {});
+
+            if (!paramsParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid path parameters",
+                    issues: paramsParsed.error.flatten(),
+                });
+            }
+            if (!bodyParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid body",
+                    issues: bodyParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(
+                    await addressMatchesService.patchMatches(
+                        paramsParsed.data.id,
+                        bodyParsed.data
+                    )
+                );
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/addresses/validate",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewAddressValidateSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewAddressValidateBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid body",
+                    issues: bodyParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(await addressValidationService.validate(bodyParsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/addresses/infer-admin-components",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewAddressAdminInferenceSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewAddressAdminInferenceBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid body",
+                    issues: bodyParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(await addressAdminInferenceService.run(bodyParsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/addresses/promote-dry-run",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewAddressPromotionDryRunSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewAddressPromotionBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid body",
+                    issues: bodyParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(await addressPromotionService.dryRun(bodyParsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/addresses/promote",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewAddressPromotionSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewAddressPromotionBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid body",
+                    issues: bodyParsed.error.flatten(),
+                });
+            }
+            try {
+                return reply.send(await addressPromotionService.promote(bodyParsed.data));
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {
                     return;

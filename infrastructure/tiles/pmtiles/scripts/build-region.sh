@@ -108,6 +108,7 @@ LAYERS=(
   landuse
   admin_boundaries
   admin_areas
+  village_labels
 )
 
 for base in "${LAYERS[@]}"; do

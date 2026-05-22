@@ -59,6 +59,22 @@ export class CoreReviewRefValidator {
         return ok ? [] : [{ path, message: "road_class_id not found" }];
     }
 
+    async validateLanduseClassId(
+        landuseClassId: bigint | null | undefined,
+        required = false,
+        path = "landuseClassId"
+    ): Promise<ValidationIssue[]> {
+        if (landuseClassId === undefined || landuseClassId === null) {
+            return required ? [{ path, message: "landuse_class_id is required" }] : [];
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id FROM ref.ref_landuse_classes
+            WHERE id = ${landuseClassId} AND is_active IS TRUE
+            LIMIT 1
+        `;
+        return rows.length > 0 ? [] : [{ path, message: "landuse_class_id is invalid or inactive" }];
+    }
+
     async validateBusRouteId(routeId: bigint, path = "routeId"): Promise<ValidationIssue[]> {
         const rows = await this.prisma.$queryRaw<{ id: bigint }[]>(Prisma.sql`
             SELECT id FROM core.core_bus_routes WHERE id = ${routeId} AND is_active IS TRUE LIMIT 1
@@ -70,7 +86,7 @@ export class CoreReviewRefValidator {
         const rows = await this.prisma.$queryRaw<{ id: bigint }[]>(Prisma.sql`
             SELECT id FROM ref.ref_admin_levels WHERE id = ${adminLevelId} LIMIT 1
         `);
-        return rows.length > 0 ? [] : [{ path, message: "admin_level_id is invalid" }];
+        return rows.length > 0 ? [] : [{ path, message: "Admin level id is invalid or not found" }];
     }
 
     async validateParentAdminAreaId(
@@ -124,5 +140,56 @@ export class CoreReviewRefValidator {
         }
         const row = await this.buildingsRepo.getActiveBuildingTypeById(buildingTypeId);
         return row ? [] : [{ path, message: "building_type_id is invalid or inactive" }];
+    }
+
+    async validateBoundaryStatusCode(
+        boundaryStatus: string | null | undefined,
+        required = false,
+        path = "boundaryStatus",
+    ): Promise<ValidationIssue[]> {
+        if (boundaryStatus === undefined || boundaryStatus === null || boundaryStatus === "") {
+            return required ? [{ path, message: "Required" }] : [];
+        }
+        const code = String(boundaryStatus).trim();
+        const rows = await this.prisma.$queryRaw<{ code: string }[]>(Prisma.sql`
+            SELECT code FROM ref.ref_boundary_statuses
+            WHERE lower(trim(code)) = lower(trim(${code}))
+              AND is_active IS TRUE
+            LIMIT 1
+        `);
+        return rows.length > 0 ? [] : [{ path, message: "Invalid or inactive boundary status code" }];
+    }
+
+    async validateAddressUsageCode(
+        addressUsage: string | null | undefined,
+        required = false,
+        path = "addressUsage",
+    ): Promise<ValidationIssue[]> {
+        if (addressUsage === undefined || addressUsage === null || addressUsage === "") {
+            return required ? [{ path, message: "Required" }] : [];
+        }
+        const code = String(addressUsage).trim();
+        const rows = await this.prisma.$queryRaw<{ code: string }[]>(Prisma.sql`
+            SELECT code FROM ref.ref_address_usage_types
+            WHERE lower(trim(code)) = lower(trim(${code}))
+              AND is_active IS TRUE
+            LIMIT 1
+        `);
+        return rows.length > 0 ? [] : [{ path, message: "Invalid or inactive address usage code" }];
+    }
+
+    validateBoundaryConfidenceScore(
+        score: unknown,
+        required = false,
+        path = "boundaryConfidenceScore",
+    ): ValidationIssue[] {
+        if (score === undefined || score === null || score === "") {
+            return required ? [{ path, message: "Required" }] : [];
+        }
+        const value = typeof score === "number" ? score : Number(String(score));
+        if (!Number.isFinite(value) || value < 0 || value > 100) {
+            return [{ path, message: "Must be between 0 and 100" }];
+        }
+        return [];
     }
 }

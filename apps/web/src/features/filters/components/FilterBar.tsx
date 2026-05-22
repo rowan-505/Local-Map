@@ -112,7 +112,9 @@ function FilterBarInner({
               <div className="px-4 py-4 text-xs text-red-600">Could not load search results.</div>
             ) : null}
             {!searchLoading && !searchError && searchResults.length === 0 ? (
-              <div className="px-4 py-4 text-xs text-neutral-500">No places or streets found.</div>
+              <div className="px-4 py-4 text-xs text-neutral-500">
+                No places, villages, or streets found.
+              </div>
             ) : null}
             {!searchLoading && !searchError
               ? searchResults.map((result) => {
@@ -136,9 +138,15 @@ function FilterBarInner({
                       <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
                         result.type === 'street'
                           ? 'bg-orange-50 text-orange-700'
-                          : 'bg-emerald-50 text-emerald-700'
+                          : result.type === 'admin_area'
+                            ? 'bg-violet-50 text-violet-800'
+                            : 'bg-emerald-50 text-emerald-700'
                       }`}>
-                        {result.type === 'street' ? 'St' : 'P'}
+                        {result.type === 'street'
+                          ? 'St'
+                          : result.type === 'admin_area'
+                            ? 'V'
+                            : 'P'}
                       </span>
                       <span className="min-w-0">
                         <span className={titleClass}>{title}</span>
@@ -146,7 +154,11 @@ function FilterBarInner({
                           {result.subtitle ??
                             result.categoryName ??
                             result.categoryCode ??
-                            (result.type === 'street' ? 'Street' : 'Place')}
+                            (result.type === 'street'
+                              ? 'Street'
+                              : result.type === 'admin_area'
+                                ? 'Village'
+                                : 'Place')}
                         </span>
                       </span>
                     </button>

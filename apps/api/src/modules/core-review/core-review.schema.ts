@@ -67,6 +67,12 @@ export const coreReviewListQuerySchema = z.object({
     isPublic: optionalBooleanSchema,
     includeDeleted: optionalBooleanSchema,
     routeId: optionalBigintIdSchema,
+    landuseClassId: optionalBigintIdSchema,
+    detailLevel: z.enum(["zone", "parcel"]).optional(),
+    cropCode: optionalSearchSchema,
+    boundaryStatus: optionalSearchSchema,
+    addressUsage: optionalSearchSchema,
+    isOfficialBoundary: optionalBooleanSchema,
 });
 
 export type CoreReviewListQueryParsed = z.infer<typeof coreReviewListQuerySchema>;

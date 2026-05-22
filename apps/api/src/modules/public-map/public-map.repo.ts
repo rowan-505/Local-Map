@@ -23,6 +23,7 @@ export type PublicMapGeoLabelRow = {
     primary_name?: string | null;
     name_mm: string | null;
     name_en: string | null;
+    admin_level_code?: string | null;
     /** Parsed GeoJSON Geometry from Postgres json */
     geom: unknown;
     /** Hint for symbol-spacing: denser repeats on corridors / bus routes (`true`), looser on small streets (`false`). */
@@ -54,7 +55,7 @@ export type PublicCategoryRow = {
 
 export type PublicSearchRow = {
     id: string;
-    result_type: "place" | "street";
+    result_type: "place" | "street" | "admin_area";
     name: string;
     name_mm: string | null;
     name_en: string | null;
@@ -314,8 +315,33 @@ export class PublicMapRepository {
                 NULL::text AS primary_name,
                 an_mm.name AS name_mm,
                 an_en.name AS name_en,
-                ST_AsGeoJSON(a.centroid)::json AS geom
+                al.code AS admin_level_code,
+                ST_AsGeoJSON(
+                    ST_SetSRID(
+                        COALESCE(
+                            CASE
+                                WHEN a.centroid IS NOT NULL
+                                     AND NOT ST_IsEmpty(a.centroid)
+                                     AND ST_IsValid(a.centroid)
+                                    THEN a.centroid
+                                ELSE NULL
+                            END,
+                            CASE
+                                WHEN a.geom IS NOT NULL
+                                     AND NOT ST_IsEmpty(a.geom)
+                                     AND ST_IsValid(a.geom)
+                                    THEN ST_PointOnSurface(
+                                        ST_MakeValid(ST_SetSRID(a.geom, 4326))
+                                    )
+                                ELSE NULL
+                            END
+                        ),
+                        4326
+                    )
+                )::json AS geom
             FROM core.core_admin_areas AS a
+            INNER JOIN ref.ref_admin_levels AS al
+                ON al.id = a.admin_level_id
             LEFT JOIN LATERAL (
                 SELECT n.name
                 FROM core.core_admin_area_names AS n
@@ -355,9 +381,58 @@ export class PublicMapRepository {
                 LIMIT 1
             ) AS an_en ON true
             WHERE a.is_active = true
-              AND ST_Intersects(a.geom, ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL})
-            ORDER BY a.canonical_name ASC
-            LIMIT 500
+              AND a.deleted_at IS NULL
+              AND a.address_usage <> 'disabled'
+              AND (
+                  al.code <> 'village'
+                  OR a.boundary_status IN (
+                      'official',
+                      'surveyed',
+                      'approximate',
+                      'settlement_extent'
+                  )
+              )
+              AND COALESCE(
+                    CASE
+                        WHEN a.centroid IS NOT NULL
+                             AND NOT ST_IsEmpty(a.centroid)
+                             AND ST_IsValid(a.centroid)
+                            THEN a.centroid
+                        ELSE NULL
+                    END,
+                    CASE
+                        WHEN a.geom IS NOT NULL
+                             AND NOT ST_IsEmpty(a.geom)
+                             AND ST_IsValid(a.geom)
+                            THEN ST_PointOnSurface(
+                                ST_MakeValid(ST_SetSRID(a.geom, 4326))
+                            )
+                        ELSE NULL
+                    END
+                ) IS NOT NULL
+              AND ST_Intersects(
+                    COALESCE(
+                        CASE
+                            WHEN a.centroid IS NOT NULL
+                                 AND NOT ST_IsEmpty(a.centroid)
+                                 AND ST_IsValid(a.centroid)
+                                THEN a.centroid
+                            ELSE NULL
+                        END,
+                        CASE
+                            WHEN a.geom IS NOT NULL
+                                 AND NOT ST_IsEmpty(a.geom)
+                                 AND ST_IsValid(a.geom)
+                                THEN ST_PointOnSurface(
+                                    ST_MakeValid(ST_SetSRID(a.geom, 4326))
+                                )
+                            ELSE NULL
+                        END
+                    ),
+                    ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL}
+                )
+            ORDER BY al.code ASC, a.canonical_name ASC
+            LIMIT 2500
         `);
     }
 
@@ -670,16 +745,202 @@ function buildSearchQuery(
                   s.canonical_name ILIKE ${partialTerm}
                   ${streetNamesWhere}
               )
+        ),
+        admin_area_results AS (
+            SELECT
+                a.public_id::text AS id,
+                'admin_area'::text AS result_type,
+                COALESCE(
+                    NULLIF(trim(an_mm.name), ''),
+                    NULLIF(trim(an_en.name), ''),
+                    NULLIF(trim(a.canonical_name), ''),
+                    'Unnamed'
+                ) AS name,
+                an_mm.name AS name_mm,
+                an_en.name AS name_en,
+                NULL::text AS display_name,
+                NULL::text AS primary_name,
+                a.canonical_name,
+                CASE
+                    WHEN al.code = 'village' AND COALESCE(
+                        NULLIF(trim(parent_mm.name), ''),
+                        NULLIF(trim(parent_en.name), ''),
+                        NULLIF(trim(parent.canonical_name), '')
+                    ) IS NOT NULL
+                        THEN 'Village · ' || COALESCE(
+                            NULLIF(trim(parent_mm.name), ''),
+                            NULLIF(trim(parent_en.name), ''),
+                            NULLIF(trim(parent.canonical_name), '')
+                        )
+                    WHEN al.code = 'village'
+                        THEN 'Village'
+                    ELSE COALESCE(al.name, al.code)
+                END AS subtitle,
+                NULL::text AS category_name,
+                ST_Y(admin_label_point.geom)::double precision AS lat,
+                ST_X(admin_label_point.geom)::double precision AS lng,
+                NULL::double precision AS importance_score,
+                CASE
+                    WHEN lower(a.canonical_name) = ${normalizedTerm}
+                      OR lower(COALESCE(an_mm.name, '')) = ${normalizedTerm}
+                      OR lower(COALESCE(an_en.name, '')) = ${normalizedTerm}
+                      OR lower(COALESCE(admin_name_match.name, '')) = ${normalizedTerm}
+                    THEN 1
+                    WHEN lower(a.canonical_name) LIKE ${prefixTerm}
+                      OR lower(COALESCE(an_mm.name, '')) LIKE ${prefixTerm}
+                      OR lower(COALESCE(an_en.name, '')) LIKE ${prefixTerm}
+                      OR lower(COALESCE(admin_name_match.name, '')) LIKE ${prefixTerm}
+                    THEN 2
+                    ELSE 3
+                END AS rank,
+                CASE
+                    WHEN a.geom IS NOT NULL
+                         AND NOT ST_IsEmpty(a.geom)
+                         AND ST_IsValid(a.geom)
+                        THEN ST_XMin(Box2D(ST_Transform(a.geom, 4326)))::double precision
+                    ELSE NULL::double precision
+                END AS min_lng,
+                CASE
+                    WHEN a.geom IS NOT NULL
+                         AND NOT ST_IsEmpty(a.geom)
+                         AND ST_IsValid(a.geom)
+                        THEN ST_YMin(Box2D(ST_Transform(a.geom, 4326)))::double precision
+                    ELSE NULL::double precision
+                END AS min_lat,
+                CASE
+                    WHEN a.geom IS NOT NULL
+                         AND NOT ST_IsEmpty(a.geom)
+                         AND ST_IsValid(a.geom)
+                        THEN ST_XMax(Box2D(ST_Transform(a.geom, 4326)))::double precision
+                    ELSE NULL::double precision
+                END AS max_lng,
+                CASE
+                    WHEN a.geom IS NOT NULL
+                         AND NOT ST_IsEmpty(a.geom)
+                         AND ST_IsValid(a.geom)
+                        THEN ST_YMax(Box2D(ST_Transform(a.geom, 4326)))::double precision
+                    ELSE NULL::double precision
+                END AS max_lat
+            FROM core.core_admin_areas AS a
+            INNER JOIN ref.ref_admin_levels AS al
+                ON al.id = a.admin_level_id
+            CROSS JOIN LATERAL (
+                SELECT ST_SetSRID(
+                    COALESCE(
+                        CASE
+                            WHEN a.centroid IS NOT NULL
+                                 AND NOT ST_IsEmpty(a.centroid)
+                                 AND ST_IsValid(a.centroid)
+                                THEN a.centroid
+                            ELSE NULL
+                        END,
+                        CASE
+                            WHEN a.geom IS NOT NULL
+                                 AND NOT ST_IsEmpty(a.geom)
+                                 AND ST_IsValid(a.geom)
+                                THEN ST_PointOnSurface(
+                                    ST_MakeValid(ST_SetSRID(a.geom, 4326))
+                                )
+                            ELSE NULL
+                        END
+                    ),
+                    4326
+                )::geometry(Point, 4326) AS geom
+            ) AS admin_label_point
+            LEFT JOIN core.core_admin_areas AS parent
+                ON parent.id = a.parent_id
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_admin_area_names AS n
+                WHERE n.admin_area_id = parent.id
+                  AND (
+                      n.language_code IN ('my', 'mm')
+                      OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.search_weight DESC NULLS LAST,
+                    n.name ASC
+                LIMIT 1
+            ) AS parent_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_admin_area_names AS n
+                WHERE n.admin_area_id = parent.id
+                  AND (
+                      n.language_code = 'en'
+                      OR upper(trim(coalesce(n.script_code, ''))) = 'LATN'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                        WHEN n.is_primary = true THEN 2
+                        WHEN n.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    n.search_weight DESC NULLS LAST,
+                    n.name ASC
+                LIMIT 1
+            ) AS parent_en ON true
+            ${localizedNameJoin("core.core_admin_area_names", "n", "n.admin_area_id = a.id", "an_mm", "my")}
+            ${localizedNameJoin("core.core_admin_area_names", "n", "n.admin_area_id = a.id", "an_en", "en")}
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM core.core_admin_area_names AS n
+                WHERE n.admin_area_id = a.id
+                  AND n.name ILIKE ${partialTerm}
+                ORDER BY
+                    CASE
+                        WHEN lower(n.name) = ${normalizedTerm} THEN 1
+                        WHEN lower(n.name) LIKE ${prefixTerm} THEN 2
+                        ELSE 3
+                    END,
+                    n.is_primary DESC,
+                    n.search_weight DESC NULLS LAST,
+                    n.name ASC
+                LIMIT 1
+            ) AS admin_name_match ON true
+            WHERE a.is_active = true
+              AND a.deleted_at IS NULL
+              AND a.address_usage <> 'disabled'
+              AND admin_label_point.geom IS NOT NULL
+              AND ST_Intersects(admin_label_point.geom, ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL})
+              AND (
+                  al.code <> 'village'
+                  OR a.boundary_status IN (
+                      'official',
+                      'surveyed',
+                      'approximate',
+                      'settlement_extent'
+                  )
+              )
+              AND (
+                  a.canonical_name ILIKE ${partialTerm}
+                  OR an_mm.name ILIKE ${partialTerm}
+                  OR an_en.name ILIKE ${partialTerm}
+                  OR admin_name_match.name IS NOT NULL
+              )
         )
         SELECT *
         FROM (
             SELECT * FROM place_results
             UNION ALL
+            SELECT * FROM admin_area_results
+            UNION ALL
             SELECT * FROM street_results
         ) AS results
         ORDER BY
             rank ASC,
-            CASE WHEN result_type = 'place' THEN 0 ELSE 1 END ASC,
+            CASE
+                WHEN result_type = 'place' THEN 0
+                WHEN result_type = 'admin_area' THEN 1
+                ELSE 2
+            END ASC,
             importance_score DESC NULLS LAST,
             name ASC
         LIMIT ${params.limit}

@@ -33,6 +33,11 @@ export function isImportReviewRoadPromotionEnabled(): boolean {
     return process.env.ENABLE_IMPORT_REVIEW_ROAD_PROMOTION === "true";
 }
 
+/** When false, address promotion dry-run is allowed but POST promote is blocked. */
+export function isImportReviewAddressPromotionEnabled(): boolean {
+    return process.env.ENABLE_IMPORT_REVIEW_ADDRESS_PROMOTION === "true";
+}
+
 /** Never logs passwords or raw URLs. */
 export function logImportReviewDatabaseStartup(logger: FastifyBaseLogger): void {
     const identity = parsePostgresUrlSanitized(getImportReviewDatabaseUrlBase());
@@ -113,6 +118,8 @@ export type ImportReviewEntityFamilyConfig = {
     roadClassJoin: boolean;
     /** When true, list/detail SELECT joins ref.ref_building_types on effective building_type_id. */
     buildingTypeJoin: boolean;
+    /** When true, list/detail SELECT joins ref.ref_landuse_classes on effective landuse_class_id. */
+    landuseClassJoin: boolean;
     /** When true, list/detail SELECT joins core.core_admin_areas on effective admin_area_id. */
     effectiveAdminAreaJoin: boolean;
     /** Maps BuildingListRowDb padding — null means NULL::type in SELECT. */
@@ -120,6 +127,7 @@ export type ImportReviewEntityFamilyConfig = {
         name: string | null;
         building_type: string | null;
         building_type_id: string | null;
+        landuse_class_id: string | null;
         admin_area_id: string | null;
         levels: string | null;
         height_m: string | null;
@@ -174,11 +182,13 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         supportsOverrides: true,
         roadClassJoin: false,
         buildingTypeJoin: true,
+        landuseClassJoin: false,
         effectiveAdminAreaJoin: true,
         listRowShape: {
             name: "name",
             building_type: "building_type",
             building_type_id: "building_type_id",
+            landuse_class_id: null,
             admin_area_id: "admin_area_id",
             levels: "levels",
             height_m: "height_m",
@@ -201,11 +211,13 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         supportsOverrides: true,
         roadClassJoin: false,
         buildingTypeJoin: false,
+        landuseClassJoin: false,
         effectiveAdminAreaJoin: true,
         listRowShape: {
             name: null,
             building_type: null,
             building_type_id: null,
+            landuse_class_id: null,
             admin_area_id: "admin_area_id",
             levels: null,
             height_m: null,
@@ -228,11 +240,13 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         supportsOverrides: true,
         roadClassJoin: true,
         buildingTypeJoin: false,
-        effectiveAdminAreaJoin: false,
+        landuseClassJoin: false,
+        effectiveAdminAreaJoin: true,
         listRowShape: {
             name: null,
             building_type: null,
             building_type_id: null,
+            landuse_class_id: null,
             admin_area_id: null,
             levels: null,
             height_m: null,
@@ -244,8 +258,8 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         importReviewTable: "bus_stop_candidates",
         entityFamily: "bus_stops",
         tableAlias: "s",
-        displayFields: ["name", "name_local", "stop_code"],
-        searchableFields: ["canonical_name", "name", "name_local", "stop_code", "external_id"],
+        displayFields: ["name_mm", "name_en", "stop_code"],
+        searchableFields: ["canonical_name", "stop_code", "external_id"],
         filterFields: [...COMMON_FILTER_FIELDS],
         geometryColumns: { primary: "geom" },
         defaultSort: "updated_at_desc",
@@ -255,11 +269,13 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         supportsOverrides: true,
         roadClassJoin: false,
         buildingTypeJoin: false,
+        landuseClassJoin: false,
         effectiveAdminAreaJoin: true,
         listRowShape: {
-            name: "name",
+            name: null,
             building_type: null,
             building_type_id: null,
+            landuse_class_id: null,
             admin_area_id: "admin_area_id",
             levels: null,
             height_m: null,
@@ -271,9 +287,9 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         importReviewTable: "landuse_candidates",
         entityFamily: "landuse",
         tableAlias: "l",
-        displayFields: ["name"],
-        searchableFields: ["canonical_name", "name", "external_id"],
-        filterFields: [...COMMON_FILTER_FIELDS],
+        displayFields: ["name", "landuse_class_id"],
+        searchableFields: ["canonical_name", "name", "external_id", "class_code"],
+        filterFields: [...COMMON_FILTER_FIELDS, "class_code"],
         geometryColumns: { primary: "geom", secondary: "centroid" },
         defaultSort: "updated_at_desc",
         riskLevel: "low",
@@ -282,11 +298,13 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         supportsOverrides: true,
         roadClassJoin: false,
         buildingTypeJoin: false,
+        landuseClassJoin: true,
         effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "name",
             building_type: null,
             building_type_id: null,
+            landuse_class_id: "landuse_class_id",
             admin_area_id: null,
             levels: null,
             height_m: null,
@@ -309,11 +327,13 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         supportsOverrides: true,
         roadClassJoin: false,
         buildingTypeJoin: false,
+        landuseClassJoin: false,
         effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "name",
             building_type: null,
             building_type_id: null,
+            landuse_class_id: null,
             admin_area_id: null,
             levels: null,
             height_m: null,
@@ -336,11 +356,13 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         supportsOverrides: true,
         roadClassJoin: false,
         buildingTypeJoin: false,
+        landuseClassJoin: false,
         effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "name",
             building_type: null,
             building_type_id: null,
+            landuse_class_id: null,
             admin_area_id: null,
             levels: null,
             height_m: null,
@@ -378,11 +400,13 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         supportsOverrides: true,
         roadClassJoin: false,
         buildingTypeJoin: false,
+        landuseClassJoin: false,
         effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "full_address",
             building_type: null,
             building_type_id: null,
+            landuse_class_id: null,
             admin_area_id: "admin_area_id",
             levels: null,
             height_m: null,
@@ -405,11 +429,13 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         supportsOverrides: true,
         roadClassJoin: false,
         buildingTypeJoin: false,
+        landuseClassJoin: false,
         effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "slug",
             building_type: null,
             building_type_id: null,
+            landuse_class_id: null,
             admin_area_id: "admin_level_id",
             levels: null,
             height_m: null,
@@ -432,11 +458,13 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         supportsOverrides: true,
         roadClassJoin: false,
         buildingTypeJoin: false,
+        landuseClassJoin: false,
         effectiveAdminAreaJoin: false,
         listRowShape: {
             name: "barrier_type",
             building_type: null,
             building_type_id: null,
+            landuse_class_id: null,
             admin_area_id: null,
             levels: null,
             height_m: null,

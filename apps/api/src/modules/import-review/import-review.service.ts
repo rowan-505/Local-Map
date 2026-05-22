@@ -26,14 +26,30 @@ import {
     applyImportReviewEffectiveFields,
     type EffectiveValuesRawRow,
 } from "./import-review-effective-values.js";
+import { assertValidStoredReviewOverrides } from "./import-review-overrides-validator.js";
+import {
+    buildPersistableReviewOverridesPatch,
+    normalizeLegacyNameOverrides,
+    reviewOverridesPersistPatch,
+} from "./import-review-legacy-name-overrides.js";
+import { sanitizeReviewOverridesPatch } from "./import-review-overrides-sanitize.js";
+import { normalizeReviewOverridesForJsonStorage } from "./import-review-overrides-normalize.js";
+import {
+    applyImportReviewEssentialDefaults,
+    assertImportReviewEssentialFieldsMet,
+    buildEssentialDefaultOverridesPatch,
+} from "./import-review-essential-defaults.js";
+import { ImportReviewEssentialDefaultsRepository } from "./import-review-essential-defaults.repo.js";
 import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
 import { getImportReviewEntityConfig, IMPORT_REVIEW_ENTITY_FAMILIES } from "./import-review-config.js";
 import { AdminAreasRepository } from "../admin-areas/admin-areas.repo.js";
 import { ImportReviewReferenceOptionsRepository } from "./import-review-reference-options.repo.js";
-import type {
-    ImportReviewBuildingOverridesLeaf,
-    ImportReviewCandidateOverridesLeaf,
-} from "./import-review.schema.js";
+import {
+    ImportReviewOptionsRepository,
+    toLegacyReferenceOptionsBundle,
+} from "./import-review-options.repo.js";
+import type { ImportReviewFormOptionsResponse } from "./import-review-options.types.js";
+import type { ImportReviewReviewOverridesPatch } from "./import-review.schema.js";
 import type {
     BulkImportReviewBuildingDecisionBody,
     ImportReviewBuildingsQuery,
@@ -69,6 +85,15 @@ import {
     rollupFamilySummaries,
     type ImportReviewFamilySummaryMetrics,
 } from "./import-review-summary-counts.js";
+import { ImportReviewAddressComponentsRepository } from "./import-review-address-components.repo.js";
+import { ImportReviewAddressMapPreviewRepository } from "./import-review-address-map-preview.repo.js";
+import {
+    composeFromComponentRows,
+    enrichAddressListItem,
+    indexComponentsByCandidateId,
+    mapAddressDetailItem,
+    resolveAddressDisplayName,
+} from "./import-review-address-responses.js";
 
 export {
     ImportReviewBatchAmbiguousError,
@@ -108,12 +133,12 @@ function toEffectiveRawRow(row: BuildingListRowDb): EffectiveValuesRawRow {
         canonical_name: row.canonical_name,
         class_code: row.class_code,
         admin_area_id: row.admin_area_id,
+        landuse_class_id: row.landuse_class_id,
         levels: row.levels,
         height_m: row.height_m,
         normalized_data: row.normalized_data,
         review_overrides: row.review_overrides,
         effective_admin_area_name: row.effective_admin_area_name ?? null,
-        name_local: row.name_local ?? null,
         stop_code: row.stop_code ?? null,
     };
 }
@@ -136,11 +161,17 @@ function mapBuildingRow(
         external_id: row.external_id,
         canonical_name: row.canonical_name,
         name: row.name,
+        name_mm: row.name_mm ?? null,
+        name_en: row.name_en ?? null,
         class_code: row.class_code,
         building_type: row.building_type,
         building_type_id: bigStr(row.building_type_id),
         building_type_code: row.building_type_code ?? null,
         building_type_name: row.building_type_name ?? null,
+        landuse_class_id: bigStr(row.landuse_class_id),
+        landuse_class_code: row.landuse_class_code ?? null,
+        landuse_class_name: row.landuse_class_name ?? null,
+        landuse_class_name_mm: row.landuse_class_name_mm ?? null,
         admin_area_id: bigStr(row.admin_area_id),
         levels: row.levels,
         height_m: numOrNull(row.height_m),
@@ -176,6 +207,8 @@ function mapBuildingRow(
         road_candidate_class_label: row.road_candidate_class_label ?? null,
         road_candidate_surface: row.road_candidate_surface ?? null,
         road_candidate_is_oneway: row.road_candidate_is_oneway ?? null,
+        length_m: numOrNull(row.length_m),
+        admin_area_name: row.admin_area_name ?? row.effective_admin_area_name ?? null,
     };
 
     return applyImportReviewEffectiveFields(family, base, toEffectiveRawRow(row));
@@ -631,12 +664,28 @@ export class ImportReviewService {
             );
         }
 
-        const overridesPatch = await this.prepareValidatedOverridesPatch(body.review_overrides);
+        const userPatch = await this.prepareValidatedOverridesPatch("buildings", body.review_overrides);
+        const overridesPatch = await this.mergeEssentialDefaultsForOverrideSave(
+            "buildings",
+            scope,
+            buildingId,
+            userPatch
+        );
+
+        const existingOverrides =
+            ctx.review_overrides && typeof ctx.review_overrides === "object" && !Array.isArray(ctx.review_overrides)
+                ? (ctx.review_overrides as Record<string, unknown>)
+                : {};
+        const persistPatch = buildPersistableReviewOverridesPatch(
+            "buildings",
+            existingOverrides,
+            overridesPatch
+        );
 
         const row = await this.repo.patchBuildingReviewOverrides({
             scope,
             id: buildingId,
-            overridesPatch,
+            overridesPatch: persistPatch,
             editedByUserId: reviewedByUserId(user),
             reviewNote: body.review_note,
         });
@@ -668,7 +717,17 @@ export class ImportReviewService {
             );
         }
 
-        const leaf = body.review_overrides;
+        const essentialMerged = await this.mergeEssentialDefaultsForOverrideSave(
+            "roads",
+            scope,
+            roadId,
+            await this.prepareValidatedOverridesPatch("roads", body.review_overrides)
+        );
+
+        const leaf: Record<string, unknown> = { ...essentialMerged };
+        if (leaf.road_class_id !== undefined && leaf.road_class_id !== null) {
+            leaf.road_class_id = BigInt(String(leaf.road_class_id));
+        }
 
         const hardErrors: string[] = [];
 
@@ -683,17 +742,18 @@ export class ImportReviewService {
                 effectiveRc = null;
                 label = null;
             } else {
-                const refRow = await this.repo.lookupRefRoadClassById(leaf.road_class_id);
+                const roadClassId = BigInt(String(leaf.road_class_id));
+                const refRow = await this.repo.lookupRefRoadClassById(roadClassId);
                 if (refRow === null) {
                     hardErrors.push(
-                        `Unknown road_class_id=${leaf.road_class_id.toString()} (missing from ref.ref_road_classes).`
+                        `Unknown road_class_id=${roadClassId.toString()} (missing from ref.ref_road_classes).`
                     );
                 } else {
                     effectiveRc = refRow.id;
                     label = refRow.code;
                 }
             }
-        } else if (leaf.road_class_code !== undefined) {
+        } else if (typeof leaf.road_class_code === "string" && leaf.road_class_code !== undefined) {
             const rawCode = leaf.road_class_code;
             if (rawCode === null) {
                 effectiveRc = null;
@@ -719,14 +779,34 @@ export class ImportReviewService {
         const baselineNoteProvided = !!(baseline.review_note && baseline.review_note.trim() !== "");
 
         const patchForValidator: ImportReviewRoadOverridesPatchNormalized = {};
-        if (leaf.canonical_name !== undefined) {
-            patchForValidator.canonical_name = leaf.canonical_name;
+        if (leaf.name_mm !== undefined) {
+            patchForValidator.name_mm =
+                typeof leaf.name_mm === "string" || leaf.name_mm === null
+                    ? leaf.name_mm
+                    : String(leaf.name_mm);
+        }
+        if (leaf.name_en !== undefined) {
+            patchForValidator.name_en =
+                typeof leaf.name_en === "string" || leaf.name_en === null
+                    ? leaf.name_en
+                    : String(leaf.name_en);
         }
         if (leaf.is_oneway !== undefined) {
-            patchForValidator.is_oneway = leaf.is_oneway;
+            patchForValidator.is_oneway = leaf.is_oneway as boolean | null;
+        }
+        if (leaf.road_class_id !== undefined) {
+            patchForValidator.road_class_id =
+                leaf.road_class_id === null ? null : (leaf.road_class_id as bigint);
+        }
+        if (leaf.admin_area_id !== undefined) {
+            patchForValidator.admin_area_id =
+                leaf.admin_area_id === null ? null : Number(leaf.admin_area_id);
         }
         if (leaf.surface !== undefined) {
-            patchForValidator.surface = leaf.surface;
+            patchForValidator.surface =
+                typeof leaf.surface === "string" || leaf.surface === null
+                    ? leaf.surface
+                    : String(leaf.surface);
         }
         if (leaf.geom !== undefined) {
             patchForValidator.geom =
@@ -775,10 +855,17 @@ export class ImportReviewService {
                 ? JSON.stringify(outcome.normalizedPatchForJson.geom)
                 : null;
 
+        const mergedRaw: Record<string, unknown> = { ...outcome.mergedOverridesJson };
+        for (const key of patchProvided) {
+            if (Object.prototype.hasOwnProperty.call(essentialMerged, key)) {
+                mergedRaw[key] = essentialMerged[key];
+            }
+        }
+
         const row = await this.repo.patchRoadCandidateReviewOverrides({
             scope,
             id: roadId,
-            merged_review_overrides: outcome.mergedOverridesJson,
+            merged_review_overrides: normalizeReviewOverridesForJsonStorage("roads", mergedRaw),
             canonical_name: outcome.effectiveState.canonical_name,
             road_class_id: outcome.effectiveState.road_class_id,
             road_class_label: outcome.effectiveState.road_class_label,
@@ -845,6 +932,9 @@ export class ImportReviewService {
             validation_warnings_json: issuesToStoredJson([...result.warnings, ...result.info]),
             review_status: nextReviewStatus,
             validation_summary,
+            length_m: Number.isFinite(result.stats.length_m)
+                ? Math.round(result.stats.length_m * 100) / 100
+                : null,
         });
 
         if (persisted === null) {
@@ -895,6 +985,10 @@ export class ImportReviewService {
             throw new ImportReviewDecisionRuleError(
                 "Cannot approve a manual_protected / protect_manual candidate without force=true"
             );
+        }
+
+        if (body.review_decision === "approved") {
+            await this.persistEssentialDefaultsOnApprove("buildings", scope, buildingId);
         }
 
         const updated = await this.repo.updateBuildingReviewDecision({
@@ -1045,6 +1139,10 @@ export class ImportReviewService {
             );
         }
 
+        if (body.review_decision === "approved") {
+            await this.persistEssentialDefaultsOnApprove("places", scope, placeId);
+        }
+
         const updated = await this.repo.updatePlaceReviewDecision({
             scope,
             id: placeId,
@@ -1129,6 +1227,8 @@ export class ImportReviewService {
                     "Unresolved routing_validation warnings on this candidate; send confirm_routing_warnings=true (or force=true) after review."
                 );
             }
+
+            await this.persistEssentialDefaultsOnApprove("roads", scope, roadId);
         }
 
         const updated = await this.repo.updateRoadReviewDecision({
@@ -1223,13 +1323,82 @@ export class ImportReviewService {
             this.repo.listCandidates(family, scope, listFilters),
         ]);
 
+        const items =
+            family === "addresses"
+                ? await this.mapAddressListItems(rows)
+                : rows.map((r) => mapCandidateRow(r, family));
+
         return {
             ...this.envelopeLists(scope),
-            items: rows.map((r) => mapCandidateRow(r, family)),
+            items,
             total: Number(total),
             limit: query.limit,
             offset: query.offset,
         };
+    }
+
+    private async mapAddressListItems(rows: BuildingListRowDb[]): Promise<ImportReviewBuildingListItem[]> {
+        if (rows.length === 0) {
+            return [];
+        }
+        const componentRepo = new ImportReviewAddressComponentsRepository(getImportReviewPrisma());
+        const componentRows = await componentRepo.listByCandidateIds(rows.map((r) => r.id));
+        const byCandidate = indexComponentsByCandidateId(componentRows);
+
+        return rows.map((row) => {
+            const base = mapCandidateRow(row, "addresses");
+            const components = byCandidate.get(row.id.toString()) ?? [];
+            return enrichAddressListItem(base, row, components);
+        });
+    }
+
+    private async mapAddressDetailItem(
+        row: BuildingListRowDb,
+        includeGeometry = false
+    ): Promise<ImportReviewBuildingListItem> {
+        const base = mapCandidateRow(row, "addresses");
+        const componentRepo = new ImportReviewAddressComponentsRepository(getImportReviewPrisma());
+        const componentRows = await componentRepo.listByCandidateIds([row.id]);
+        const enriched = enrichAddressListItem(base, row, componentRows);
+        const detail = mapAddressDetailItem(row, componentRows);
+        const composed = composeFromComponentRows(componentRows, "en");
+        const name = resolveAddressDisplayName(row, composed);
+
+        let map_preview_layers = detail.map_preview_layers ?? null;
+        if (includeGeometry) {
+            const previewRepo = new ImportReviewAddressMapPreviewRepository(getImportReviewPrisma());
+            const matchedLayers = await previewRepo.fetchMapPreviewLayers({
+                matchedBuildingId: row.matched_building_id ?? null,
+                matchedStreetId: row.matched_street_id ?? null,
+                matchedAdminAreaId: row.matched_admin_area_id ?? null,
+            });
+            map_preview_layers = {
+                candidate_point: detail.geometry,
+                entrance_point: detail.entrance_geometry,
+                ...matchedLayers,
+            };
+        }
+
+        return {
+            ...enriched,
+            ...detail,
+            map_preview_layers,
+            name,
+            canonical_name: row.canonical_name ?? name,
+        };
+    }
+
+    private async mapCandidateResponse(
+        row: BuildingListRowDb,
+        family: ImportReviewEntityFamilySlug
+    ): Promise<ImportReviewBuildingListItem> {
+        if (family === "addresses") {
+            return this.mapAddressDetailItem(row, false);
+        }
+        if (family === "buildings") {
+            return mapBuildingRow(row, "buildings");
+        }
+        return mapCandidateRow(row, family);
     }
 
     async getCandidateById(
@@ -1249,6 +1418,9 @@ export class ImportReviewService {
         const row = await this.repo.getCandidateById(family, scope, params.id, params.include_geometry);
         if (row === null) {
             throwCandidateNotFound(family, params.id, scope);
+        }
+        if (family === "addresses") {
+            return this.mapAddressDetailItem(row, params.include_geometry);
         }
         return mapCandidateRow(row, family);
     }
@@ -1284,6 +1456,10 @@ export class ImportReviewService {
 
         assertGenericCandidateDecisionAllowed({ family, body, existing });
 
+        if (body.review_decision === "approved") {
+            await this.persistEssentialDefaultsOnApprove(family, scope, candidateId);
+        }
+
         const updated = await this.repo.updateCandidateReviewDecision({
             family,
             scope,
@@ -1298,7 +1474,7 @@ export class ImportReviewService {
             throwCandidateNotFound(family, candidateId, scope);
         }
 
-        return mapCandidateRow(updated, family);
+        return this.mapCandidateResponse(updated, family);
     }
 
     async bulkCandidateDecision(
@@ -1333,50 +1509,161 @@ export class ImportReviewService {
         return { ...this.envelopeLists(scope), ...res };
     }
 
+    private async mergeEssentialDefaultsForOverrideSave(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved,
+        candidateId: bigint,
+        userPatch: Record<string, unknown>
+    ): Promise<Record<string, unknown>> {
+        const prisma = getImportReviewPrisma();
+        const essentialRepo = new ImportReviewEssentialDefaultsRepository(prisma);
+        const ctx = await essentialRepo.fetchEssentialContext(family, scope.reviewBatchId, candidateId);
+        if (ctx === null) {
+            throwCandidateNotFound(family, candidateId, scope);
+        }
+
+        const { overridesPatch } = await buildEssentialDefaultOverridesPatch(
+            prisma,
+            family,
+            ctx,
+            userPatch
+        );
+        await assertImportReviewEssentialFieldsMet(prisma, family, ctx, userPatch);
+        return { ...overridesPatch, ...userPatch };
+    }
+
+    private async persistEssentialDefaultsOnApprove(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved,
+        candidateId: bigint
+    ): Promise<void> {
+        const prisma = getImportReviewPrisma();
+        const essentialRepo = new ImportReviewEssentialDefaultsRepository(prisma);
+        const ctx = await essentialRepo.fetchEssentialContext(family, scope.reviewBatchId, candidateId);
+        if (ctx === null) {
+            throwCandidateNotFound(family, candidateId, scope);
+        }
+
+        const existingOverrides =
+            ctx.review_overrides && typeof ctx.review_overrides === "object" && !Array.isArray(ctx.review_overrides)
+                ? (ctx.review_overrides as Record<string, unknown>)
+                : {};
+        const normalizedStored = normalizeLegacyNameOverrides(family, existingOverrides);
+        const legacyMigrationPatch = reviewOverridesPersistPatch(existingOverrides, normalizedStored);
+        if (Object.keys(legacyMigrationPatch).length > 0) {
+            await this.repo.patchCandidateReviewOverrides({
+                family,
+                scope,
+                id: candidateId,
+                overridesPatch: legacyMigrationPatch,
+                editedByUserId: null,
+                reviewNote: undefined,
+            });
+        }
+
+        const ctxForDefaults =
+            Object.keys(legacyMigrationPatch).length > 0
+                ? await essentialRepo.fetchEssentialContext(family, scope.reviewBatchId, candidateId)
+                : ctx;
+        if (ctxForDefaults === null) {
+            throwCandidateNotFound(family, candidateId, scope);
+        }
+
+        const outcome = await applyImportReviewEssentialDefaults(prisma, family, ctxForDefaults, {});
+        if (Object.keys(outcome.overridesPatch).length > 0) {
+            await this.repo.patchCandidateReviewOverrides({
+                family,
+                scope,
+                id: candidateId,
+                overridesPatch: outcome.overridesPatch,
+                editedByUserId: null,
+                reviewNote: undefined,
+            });
+        }
+
+        const refreshed = await essentialRepo.fetchEssentialContext(family, scope.reviewBatchId, candidateId);
+        if (refreshed === null) {
+            throwCandidateNotFound(family, candidateId, scope);
+        }
+
+        await assertImportReviewEssentialFieldsMet(prisma, family, refreshed, {});
+        assertValidStoredReviewOverrides(family, refreshed.review_overrides);
+    }
+
     private async prepareValidatedOverridesPatch(
-        leaf: ImportReviewBuildingOverridesLeaf | ImportReviewCandidateOverridesLeaf
+        family: ImportReviewEntityFamilySlug,
+        rawPatch: ImportReviewReviewOverridesPatch
     ): Promise<Record<string, unknown>> {
         const prisma = getImportReviewPrisma();
         const refRepo = new ImportReviewReferenceOptionsRepository(prisma);
         const adminRepo = new AdminAreasRepository(prisma);
+        const patch = sanitizeReviewOverridesPatch(family, rawPatch);
 
-        if (leaf.building_type_id !== undefined && leaf.building_type_id !== null) {
-            const refRow = await refRepo.getActiveBuildingTypeById(leaf.building_type_id);
-            if (refRow === null) {
-                throw new ImportReviewDecisionRuleError(
-                    `Unknown or inactive building_type_id=${leaf.building_type_id.toString()} (must match ref.ref_building_types where is_active = true).`
-                );
+        const parseId = (value: unknown): bigint | null => {
+            if (value === null || value === undefined) {
+                return null;
+            }
+            if (typeof value === "bigint") {
+                return value;
+            }
+            if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+                return BigInt(value);
+            }
+            const s = String(value).trim();
+            return /^\d+$/.test(s) ? BigInt(s) : null;
+        };
+
+        if (Object.prototype.hasOwnProperty.call(patch, "building_type_id")) {
+            const id = parseId(patch.building_type_id);
+            if (id !== null) {
+                const refRow = await refRepo.getActiveBuildingTypeById(id);
+                if (refRow === null) {
+                    throw new ImportReviewDecisionRuleError(
+                        `Unknown or inactive building_type_id=${id.toString()} (must match ref.ref_building_types where is_active = true).`
+                    );
+                }
             }
         }
 
-        if (leaf.admin_area_id !== undefined && leaf.admin_area_id !== null) {
-            const has = await adminRepo.hasActiveAdminArea(leaf.admin_area_id);
-            if (!has) {
-                throw new ImportReviewDecisionRuleError(
-                    `Unknown or inactive admin_area_id=${leaf.admin_area_id.toString()} (must match core.core_admin_areas where is_active = true).`
-                );
+        if (Object.prototype.hasOwnProperty.call(patch, "landuse_class_id")) {
+            const id = parseId(patch.landuse_class_id);
+            if (id !== null) {
+                const refRow = await refRepo.getActiveLanduseClassById(id);
+                if (refRow === null) {
+                    throw new ImportReviewDecisionRuleError(
+                        `Unknown or inactive landuse_class_id=${id.toString()} (must match ref.ref_landuse_classes where is_active = true).`
+                    );
+                }
             }
         }
 
-        const overridesPatch: Record<string, unknown> = { ...leaf };
-        if (leaf.building_type_id !== undefined) {
-            overridesPatch.building_type_id =
-                leaf.building_type_id === null ? null : leaf.building_type_id.toString();
+        if (Object.prototype.hasOwnProperty.call(patch, "category_id")) {
+            const id = parseId(patch.category_id);
+            if (id !== null) {
+                const rows = await prisma.$queryRaw<{ id: bigint }[]>`
+                    SELECT id FROM ref.ref_poi_categories WHERE id = ${id} LIMIT 1
+                `;
+                if (rows[0] === undefined) {
+                    throw new ImportReviewDecisionRuleError(
+                        `Unknown category_id=${id.toString()} (must match ref.ref_poi_categories).`
+                    );
+                }
+            }
         }
-        if (leaf.admin_area_id !== undefined) {
-            overridesPatch.admin_area_id =
-                leaf.admin_area_id === null ? null : leaf.admin_area_id.toString();
+
+        if (Object.prototype.hasOwnProperty.call(patch, "admin_area_id")) {
+            const id = parseId(patch.admin_area_id);
+            if (id !== null) {
+                const has = await adminRepo.hasActiveAdminArea(id);
+                if (!has) {
+                    throw new ImportReviewDecisionRuleError(
+                        `Unknown or inactive admin_area_id=${id.toString()} (must match core.core_admin_areas where is_active = true).`
+                    );
+                }
+            }
         }
-        const candidateLeaf = leaf as ImportReviewCandidateOverridesLeaf;
-        if (candidateLeaf.poi_category_id !== undefined) {
-            overridesPatch.poi_category_id =
-                candidateLeaf.poi_category_id === null ? null : candidateLeaf.poi_category_id.toString();
-        }
-        if (candidateLeaf.category_id !== undefined) {
-            overridesPatch.poi_category_id =
-                candidateLeaf.category_id === null ? null : candidateLeaf.category_id.toString();
-        }
-        return overridesPatch;
+
+        return patch;
     }
 
     async patchCandidateOverrides(
@@ -1410,13 +1697,29 @@ export class ImportReviewService {
             );
         }
 
-        const overridesPatch = await this.prepareValidatedOverridesPatch(body.review_overrides);
+        const userPatch = await this.prepareValidatedOverridesPatch(family, body.review_overrides);
+        const overridesPatch = await this.mergeEssentialDefaultsForOverrideSave(
+            family,
+            scope,
+            candidateId,
+            userPatch
+        );
+
+        const existingOverrides =
+            ctx.review_overrides && typeof ctx.review_overrides === "object" && !Array.isArray(ctx.review_overrides)
+                ? (ctx.review_overrides as Record<string, unknown>)
+                : {};
+        const persistPatch = buildPersistableReviewOverridesPatch(
+            family,
+            existingOverrides,
+            overridesPatch
+        );
 
         const row = await this.repo.patchCandidateReviewOverrides({
             family,
             scope,
             id: candidateId,
-            overridesPatch,
+            overridesPatch: persistPatch,
             editedByUserId: reviewedByUserId(user),
             reviewNote: body.review_note,
         });
@@ -1425,11 +1728,24 @@ export class ImportReviewService {
             throwCandidateNotFound(family, candidateId, scope);
         }
 
-        return family === "buildings" ? mapBuildingRow(row, "buildings") : mapCandidateRow(row, family);
+        return this.mapCandidateResponse(row, family);
+    }
+
+    async getFormOptions(): Promise<ImportReviewFormOptionsResponse> {
+        const repo = new ImportReviewOptionsRepository(getImportReviewPrisma());
+        return repo.fetchAll();
     }
 
     async getReferenceOptions() {
-        const repo = new ImportReviewReferenceOptionsRepository(getImportReviewPrisma());
-        return repo.fetchAll();
+        const prisma = getImportReviewPrisma();
+        const options = await this.getFormOptions();
+        const legacy = toLegacyReferenceOptionsBundle(options);
+        const refRepo = new ImportReviewReferenceOptionsRepository(prisma);
+        const extra = await refRepo.fetchAll();
+        return {
+            ...legacy,
+            ref_address_component_types: extra.ref_address_component_types,
+            ref_source_types: extra.ref_source_types,
+        };
     }
 }

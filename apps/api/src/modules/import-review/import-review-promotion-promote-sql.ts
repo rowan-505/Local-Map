@@ -33,10 +33,13 @@ export function nameExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
+            ${a}.review_overrides->>'name_en',
+            ${a}.review_overrides->>'name_mm',
             ${a}.review_overrides->>'name',
             ${a}.review_overrides->>'canonical_name',
             ${a}.name,
             ${a}.canonical_name,
+            ${a}.normalized_data->>'name:en',
             ${a}.normalized_data->>'name',
             ${a}.normalized_data->>'canonical_name',
             ''
@@ -70,6 +73,20 @@ export function geomSourceExpr(alias: string, geomColumn = "geom"): Prisma.Sql {
                  AND jsonb_typeof(${a}.review_overrides->'geom') = 'object'
             THEN ST_SetSRID(ST_GeomFromGeoJSON(${a}.review_overrides->'geom'), 4326)
             ELSE ${a}.${geomCol}
+        END
+    `;
+}
+
+/** Meters along effective road centerline (override geom when present, else candidate geom). */
+export function effectiveRoadLengthMExpr(alias: string, geomColumn = "geom"): Prisma.Sql {
+    const effectiveGeom = geomSourceExpr(alias, geomColumn);
+    return Prisma.sql`
+        CASE
+            WHEN ${effectiveGeom} IS NOT NULL
+                 AND ST_IsValid(${effectiveGeom})
+                 AND NOT ST_IsEmpty(${effectiveGeom})
+            THEN ROUND(ST_Length(${effectiveGeom}::geography)::numeric, 2)
+            ELSE NULL::numeric
         END
     `;
 }

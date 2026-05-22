@@ -11,7 +11,9 @@ import {
     pointGeomExpr,
     polygonGeomExpr,
 } from "../../lib/geo/postgis-geometry.js";
+import { normalizePolygonGeoJsonForSave } from "../../lib/geo/normalize-polygon-geojson.js";
 import { CoreReviewValidationError } from "./core-review-write.errors.js";
+import { pickTrimmedAlias, slugFromCanonicalName } from "./core-review-write.helpers.js";
 import { pickAlias, pickGeometry } from "./core-review-write.schema.js";
 
 const DASHBOARD_SOURCE_REFS = JSON.stringify({ source: "dashboard" });
@@ -37,8 +39,9 @@ export class CoreReviewEntitiesWriteRepository {
         }
     }
 
-    private async validatePolygon(prisma: PrismaClient, geojson: unknown) {
-        const analysis = await analyzePolygonGeometry(prisma, geojsonSqlParam(geojson));
+    private async validatePolygon(prisma: PrismaClient, geojson: unknown): Promise<unknown> {
+        const normalized = normalizePolygonGeoJsonForSave(geojson);
+        const analysis = await analyzePolygonGeometry(prisma, geojsonSqlParam(normalized));
         if (!analysis?.allowed_type) {
             throw new CoreReviewValidationError("geometry must be Polygon or MultiPolygon", [
                 { path: "geometry", message: "Invalid polygon type" },
@@ -49,6 +52,7 @@ export class CoreReviewEntitiesWriteRepository {
                 { path: "geometry", message: analysis.invalid_reason ?? "Invalid polygon" },
             ]);
         }
+        return normalized;
     }
 
     private async validateLineString(prisma: PrismaClient, geojson: unknown, multiLine = false) {
@@ -271,19 +275,29 @@ export class CoreReviewEntitiesWriteRepository {
                 { path: "geometry", message: "Required" },
             ]);
         }
-        await this.validatePolygon(this.prisma, geom);
-        const geojson = geojsonSqlParam(geom);
+        const classCode =
+            pickTrimmedAlias(body, "classCode", "class_code") ??
+            pickTrimmedAlias(body, "class_code", "class_code");
+        if (!classCode) {
+            throw new CoreReviewValidationError("class_code is required", [
+                { path: "classCode", message: "Required" },
+            ]);
+        }
+        const normalizedGeom = await this.validatePolygon(this.prisma, geom);
+        const geojson = geojsonSqlParam(normalizedGeom);
         const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
             INSERT INTO ${Prisma.raw(table)} (
+                source_staging_id, external_id,
                 name, class_code, geom, is_active, is_verified, source_refs, normalized_data
             ) VALUES (
+                NULL, NULL,
                 ${pickAlias(body, "name", "name") ?? null},
-                ${pickAlias(body, "classCode", "class_code") ?? null},
+                ${classCode},
                 ${polygonGeomExpr(geojson)},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
                 ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)},
                 ${DASHBOARD_SOURCE_REFS}::jsonb,
-                '{}'::jsonb
+                jsonb_build_object('source', 'dashboard')
             )
             RETURNING id::text AS id
         `);
@@ -310,8 +324,8 @@ export class CoreReviewEntitiesWriteRepository {
         }
         const geom = pickGeometry(body);
         if (geom) {
-            await this.validatePolygon(this.prisma, geom);
-            sets.push(Prisma.sql`geom = ${polygonGeomExpr(geojsonSqlParam(geom))}`);
+            const normalizedGeom = await this.validatePolygon(this.prisma, geom);
+            sets.push(Prisma.sql`geom = ${polygonGeomExpr(geojsonSqlParam(normalizedGeom))}`);
         }
         if (sets.length === 0) return false;
         sets.push(Prisma.sql`updated_at = NOW()`);
@@ -329,19 +343,29 @@ export class CoreReviewEntitiesWriteRepository {
                 { path: "geometry", message: "Required" },
             ]);
         }
+        const classCode =
+            pickTrimmedAlias(body, "classCode", "class_code") ??
+            pickTrimmedAlias(body, "class_code", "class_code");
+        if (!classCode) {
+            throw new CoreReviewValidationError("class_code is required", [
+                { path: "classCode", message: "Required" },
+            ]);
+        }
         await this.validateLineString(this.prisma, geom, true);
         const geojson = geojsonSqlParam(geom);
         const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
             INSERT INTO core.core_map_water_lines (
+                source_staging_id, external_id,
                 name, class_code, geom, is_active, is_verified, source_refs, normalized_data
             ) VALUES (
+                NULL, NULL,
                 ${pickAlias(body, "name", "name") ?? null},
-                ${pickAlias(body, "classCode", "class_code") ?? null},
+                ${classCode},
                 ${multiLineStringGeomExpr(geojson)},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
                 ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)},
                 ${DASHBOARD_SOURCE_REFS}::jsonb,
-                '{}'::jsonb
+                jsonb_build_object('source', 'dashboard')
             )
             RETURNING id::text AS id
         `);
@@ -486,17 +510,40 @@ export class CoreReviewEntitiesWriteRepository {
                 { path: "geometry", message: "Required" },
             ]);
         }
-        await this.validatePolygon(this.prisma, geom);
-        const geojson = geojsonSqlParam(geom);
+
+        const canonicalName = pickTrimmedAlias(body, "canonicalName", "canonical_name");
+        if (!canonicalName) {
+            throw new CoreReviewValidationError("canonical_name is required", [
+                { path: "canonicalName", message: "Required" },
+            ]);
+        }
+
+        let slug = pickTrimmedAlias(body, "slug", "slug");
+        if (!slug) {
+            slug = slugFromCanonicalName(canonicalName);
+        }
+
+        const normalizedGeom = await this.validatePolygon(this.prisma, geom);
+        const geojson = geojsonSqlParam(normalizedGeom);
         const geomExpr = polygonGeomExpr(geojson);
+        const boundaryStatus = pickTrimmedAlias(body, "boundaryStatus", "boundary_status");
+        const addressUsage = pickTrimmedAlias(body, "addressUsage", "address_usage");
+        const boundaryConfidenceScore = pickAlias<number>(
+            body,
+            "boundaryConfidenceScore",
+            "boundary_confidence_score",
+        );
+        const boundaryNote = pickAlias<string | null>(body, "boundaryNote", "boundary_note") ?? null;
         const rows = await this.prisma.$queryRaw<{ public_id: string }[]>(Prisma.sql`
             INSERT INTO core.core_admin_areas (
                 public_id, canonical_name, slug, parent_id, admin_level_id,
-                source_type_id, geom, centroid, is_active, is_verified, source_refs
+                source_type_id, geom, centroid, is_active, is_verified, source_refs,
+                boundary_status, is_official_boundary, boundary_confidence_score,
+                address_usage, boundary_note
             ) VALUES (
                 gen_random_uuid(),
-                ${pickAlias(body, "canonicalName", "canonical_name") ?? null},
-                ${pickAlias(body, "slug", "slug") ?? null},
+                ${canonicalName},
+                ${slug},
                 ${pickAlias<bigint | null>(body, "parentId", "parent_id") ?? null},
                 ${pickAlias<bigint>(body, "adminLevelId", "admin_level_id")},
                 ${sourceTypeId},
@@ -504,7 +551,12 @@ export class CoreReviewEntitiesWriteRepository {
                 ${centroidFromGeomExpr(geomExpr)},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
                 ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)},
-                ${DASHBOARD_SOURCE_REFS}::jsonb
+                ${DASHBOARD_SOURCE_REFS}::jsonb,
+                ${boundaryStatus},
+                ${boolOr(pickAlias(body, "isOfficialBoundary", "is_official_boundary"), false)},
+                ${boundaryConfidenceScore},
+                ${addressUsage},
+                ${boundaryNote}
             )
             RETURNING public_id::text AS public_id
         `);
@@ -538,10 +590,42 @@ export class CoreReviewEntitiesWriteRepository {
         if (pickAlias(body, "isVerified", "is_verified") !== undefined) {
             sets.push(Prisma.sql`is_verified = ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)}`);
         }
+        if (pickAlias(body, "boundaryStatus", "boundary_status") !== undefined) {
+            sets.push(
+                Prisma.sql`boundary_status = ${pickAlias(body, "boundaryStatus", "boundary_status") ?? null}`,
+            );
+        }
+        if (pickAlias(body, "isOfficialBoundary", "is_official_boundary") !== undefined) {
+            sets.push(
+                Prisma.sql`is_official_boundary = ${boolOr(
+                    pickAlias(body, "isOfficialBoundary", "is_official_boundary"),
+                    false,
+                )}`,
+            );
+        }
+        if (pickAlias(body, "boundaryConfidenceScore", "boundary_confidence_score") !== undefined) {
+            sets.push(
+                Prisma.sql`boundary_confidence_score = ${pickAlias(
+                    body,
+                    "boundaryConfidenceScore",
+                    "boundary_confidence_score",
+                ) ?? null}`,
+            );
+        }
+        if (pickAlias(body, "addressUsage", "address_usage") !== undefined) {
+            sets.push(
+                Prisma.sql`address_usage = ${pickAlias(body, "addressUsage", "address_usage") ?? null}`,
+            );
+        }
+        if (pickAlias(body, "boundaryNote", "boundary_note") !== undefined) {
+            sets.push(
+                Prisma.sql`boundary_note = ${pickAlias<string | null>(body, "boundaryNote", "boundary_note") ?? null}`,
+            );
+        }
         const geom = pickGeometry(body);
         if (geom) {
-            await this.validatePolygon(this.prisma, geom);
-            const geojson = geojsonSqlParam(geom);
+            const normalizedGeom = await this.validatePolygon(this.prisma, geom);
+            const geojson = geojsonSqlParam(normalizedGeom);
             const geomExpr = polygonGeomExpr(geojson);
             sets.push(Prisma.sql`geom = ${geomExpr}`);
             sets.push(Prisma.sql`centroid = ${centroidFromGeomExpr(geomExpr)}`);

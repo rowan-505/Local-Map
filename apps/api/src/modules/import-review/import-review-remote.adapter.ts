@@ -316,6 +316,7 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
         validation_warnings_json: unknown;
         review_status: string;
         validation_summary: Record<string, unknown>;
+        length_m: number | null;
     }) {
         return this.core.persistRoadRoutingValidation({
             id: args.id,
@@ -324,6 +325,7 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
             validation_warnings_json: args.validation_warnings_json,
             review_status: args.review_status,
             validation_summary: args.validation_summary,
+            length_m: args.length_m,
         });
     }
 

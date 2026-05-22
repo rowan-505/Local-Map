@@ -120,6 +120,7 @@ function geoLabelProperties(row: PublicMapGeoLabelRow): Record<string, string | 
     if (mm) props.name_mm = mm;
     if (en) props.name_en = en;
     if (display) props.display_name = display;
+    if (row.admin_level_code) props.admin_level_code = row.admin_level_code;
 
     return props;
 }
@@ -156,9 +157,62 @@ function normalizeName(value: string | null) {
 }
 
 function serializeSearchResult(result: PublicSearchRow) {
-    const isPlace = result.result_type === "place";
     const mm = normalizeName(result.name_mm);
     const en = normalizeName(result.name_en);
+    const hasBbox =
+        result.min_lng !== null &&
+        result.min_lat !== null &&
+        result.max_lng !== null &&
+        result.max_lat !== null &&
+        result.min_lng !== result.max_lng &&
+        result.min_lat !== result.max_lat;
+
+    const cameraTarget = (() => {
+        if (result.result_type === "place") {
+            return {
+                type: "point" as const,
+                center: [result.lng, result.lat] as [number, number],
+                zoom: 16,
+            };
+        }
+
+        if (result.result_type === "admin_area") {
+            if (hasBbox) {
+                return {
+                    type: "bounds" as const,
+                    bbox: [
+                        result.min_lng,
+                        result.min_lat,
+                        result.max_lng,
+                        result.max_lat,
+                    ] as [number, number, number, number],
+                    padding: 80,
+                };
+            }
+            return {
+                type: "point" as const,
+                center: [result.lng, result.lat] as [number, number],
+                zoom: 14,
+            };
+        }
+
+        return {
+            type: "bounds" as const,
+            center: [result.lng, result.lat] as [number, number],
+            zoom: 15,
+            ...(hasBbox
+                ? {
+                      bbox: [
+                          result.min_lng,
+                          result.min_lat,
+                          result.max_lng,
+                          result.max_lat,
+                      ] as [number, number, number, number],
+                      padding: 80,
+                  }
+                : {}),
+        };
+    })();
 
     return {
         id: result.id,
@@ -174,16 +228,6 @@ function serializeSearchResult(result: PublicSearchRow) {
         categoryName: result.category_name,
         lat: result.lat,
         lng: result.lng,
-        cameraTarget: {
-            type: isPlace ? "point" : "bounds",
-            center: [result.lng, result.lat],
-            zoom: isPlace ? 16 : 15,
-            ...(isPlace
-                ? {}
-                : {
-                      bbox: [result.min_lng, result.min_lat, result.max_lng, result.max_lat],
-                      padding: 80,
-                  }),
-        },
+        cameraTarget,
     };
 }

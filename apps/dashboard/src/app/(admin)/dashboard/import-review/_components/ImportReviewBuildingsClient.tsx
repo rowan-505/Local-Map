@@ -20,6 +20,15 @@ import { useClearSelectionOnListQueryChange } from "@/src/features/import-review
 import { useImportReviewBulkActions } from "@/src/features/import-review/hooks/useImportReviewBulkActions";
 import { buildImportReviewListQueryKey } from "@/src/features/import-review/utils/entityPageUtils";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
+import {
+    deriveImportedNameEn,
+    deriveImportedNameMm,
+    pickEffectiveNameEn,
+    pickEffectiveNameMm,
+    toNameSourceRow,
+    IMPORT_REVIEW_NAME_EN_HELPER,
+    IMPORT_REVIEW_NAME_MM_HELPER,
+} from "@/src/features/import-review/utils/importReviewNameFields";
 import { Card, CardContent } from "@/src/components/ui/card";
 import {
     getImportReviewBuildings,
@@ -476,8 +485,13 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
         }
         setDrawerNote(drawerRow.review_note ?? "");
         const ov = asOverrideRecord(drawerRow.review_overrides);
-        setOvName(strFromUnknown(ov.name) || (drawerRow.name ?? ""));
-        setOvCanonicalName(strFromUnknown(ov.canonical_name) || (drawerRow.canonical_name ?? ""));
+        const nameSource = toNameSourceRow(drawerRow);
+        setOvName(
+            pickEffectiveNameMm(ov, nameSource) ?? deriveImportedNameMm(nameSource) ?? ""
+        );
+        setOvCanonicalName(
+            pickEffectiveNameEn(ov, nameSource) ?? deriveImportedNameEn(nameSource) ?? ""
+        );
         setOvClassCode(strFromUnknown(ov.class_code) || (drawerRow.class_code ?? ""));
         setOvBuildingType(strFromUnknown(ov.building_type) || (drawerRow.building_type ?? ""));
         setOvBuildingTypeCode(strFromUnknown(ov.building_type_code));
@@ -759,10 +773,10 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
         try {
             const review_overrides: Record<string, unknown> = {};
             if (ovName.trim()) {
-                review_overrides.name = ovName.trim();
+                review_overrides.name_mm = ovName.trim();
             }
             if (ovCanonicalName.trim()) {
-                review_overrides.canonical_name = ovCanonicalName.trim();
+                review_overrides.name_en = ovCanonicalName.trim();
             }
             if (ovClassCode.trim()) {
                 review_overrides.class_code = ovClassCode.trim();
@@ -1481,9 +1495,9 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                                         <div className="break-all font-mono text-gray-900">{dash(drawerRow.external_id)}</div>
                                     </div>
                                     <div className="sm:col-span-2">
-                                        <span className="font-medium text-gray-500">name / canonical_name</span>
-                                        <div className="text-gray-900">{dash(drawerRow.name)}</div>
-                                        <div className="font-medium text-gray-800">{dash(drawerRow.canonical_name)}</div>
+                                        <span className="font-medium text-gray-500">Myanmar / English name</span>
+                                        <div className="text-gray-900">{dash(drawerRow.effective_name_mm)}</div>
+                                        <div className="font-medium text-gray-800">{dash(drawerRow.effective_name_en)}</div>
                                     </div>
                                     <div>
                                         <span className="font-medium text-gray-500">building_type</span>
@@ -1632,7 +1646,10 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                                 </div>
                                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                     <label className="flex flex-col gap-1 text-xs font-medium text-gray-700">
-                                        name
+                                        Myanmar name
+                                        <span className="text-[10px] font-normal text-gray-500">
+                                            {IMPORT_REVIEW_NAME_MM_HELPER}
+                                        </span>
                                         <input
                                             value={ovName}
                                             disabled={
@@ -1645,7 +1662,10 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                                         />
                                     </label>
                                     <label className="flex flex-col gap-1 text-xs font-medium text-gray-700">
-                                        canonical_name
+                                        English name
+                                        <span className="text-[10px] font-normal text-gray-500">
+                                            {IMPORT_REVIEW_NAME_EN_HELPER}
+                                        </span>
                                         <input
                                             value={ovCanonicalName}
                                             disabled={

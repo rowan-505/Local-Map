@@ -11,6 +11,8 @@ const VARIANT_STYLES = {
     "confidence-high": "bg-emerald-50 text-emerald-800 ring-emerald-200",
     "confidence-medium": "bg-amber-50 text-amber-900 ring-amber-200",
     "confidence-low": "bg-red-50 text-red-800 ring-red-200",
+    surveyed: "bg-teal-50 text-teal-900 ring-teal-200",
+    settlement: "bg-violet-50 text-violet-900 ring-violet-200",
     neutral: "bg-slate-100 text-slate-600 ring-slate-200",
     "not-implemented": "bg-amber-50 text-amber-900 ring-amber-200",
     ready: "bg-emerald-50 text-emerald-800 ring-emerald-200",
@@ -21,13 +23,17 @@ export type ReviewStatusBadgeVariant = keyof typeof VARIANT_STYLES;
 export default function ReviewStatusBadge({
     variant,
     label,
+    title,
 }: {
     variant: ReviewStatusBadgeVariant;
     label: string;
+    /** Native tooltip — full label and guidance for compact list badges. */
+    title?: string;
 }) {
     return (
         <span
-            className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${VARIANT_STYLES[variant]}`}
+            title={title}
+            className={`inline-flex max-w-full items-center truncate rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${VARIANT_STYLES[variant]}`}
         >
             {label}
         </span>

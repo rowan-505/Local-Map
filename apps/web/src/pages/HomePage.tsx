@@ -155,7 +155,7 @@ function cameraTargetForSearchResult(result: PublicSearchResult): SearchCameraTa
     return {
       type: 'point',
       center: [result.lng, result.lat],
-      zoom: result.type === 'street' ? 15 : 16,
+      zoom: searchResultPointZoom(result.type),
       duration: 900,
     };
   }
@@ -164,7 +164,7 @@ function cameraTargetForSearchResult(result: PublicSearchResult): SearchCameraTa
     return {
       type: 'point',
       center: result.center,
-      zoom: result.type === 'street' ? 15 : 16,
+      zoom: searchResultPointZoom(result.type),
       duration: 900,
     };
   }
@@ -179,4 +179,10 @@ function cameraTargetForSearchResult(result: PublicSearchResult): SearchCameraTa
   }
 
   return undefined;
+}
+
+function searchResultPointZoom(type: PublicSearchResult['type']): number {
+  if (type === 'admin_area') return 14;
+  if (type === 'street') return 15;
+  return 16;
 }

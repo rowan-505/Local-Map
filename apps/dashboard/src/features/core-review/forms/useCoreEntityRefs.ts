@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import type { PlaceFormOption, RefBuildingType, RoadClassOption, Street, ImportReviewReferenceOptionDto } from "@/src/lib/api";
+import type { PlaceFormOption, RefBuildingType, RefLanduseClass, RoadClassOption, Street, ImportReviewReferenceOptionDto } from "@/src/lib/api";
 import {
     getBuildingTypes,
     getCoreReviewList,
     getImportReviewReferenceOptions,
     getPlaceFormOptions,
+    getRefLanduseClasses,
     getRoadClasses,
     getStreets,
     type PlaceFormOptions,
@@ -65,6 +66,20 @@ function mapReferenceOptions(items: ImportReviewReferenceOptionDto[]): CoreRefOp
     }));
 }
 
+function mapAdminLevelOptions(items: ImportReviewReferenceOptionDto[]): CoreRefOption[] {
+    return items.map((item) => {
+        const code = item.code?.trim() ?? "";
+        const name = item.name?.trim() ?? "";
+        const label =
+            code && name ? `${code} — ${name} (${code})` : code || name || item.id;
+        return {
+            value: item.id,
+            label,
+            code: code || undefined,
+        };
+    });
+}
+
 function mapBusRoutes(items: CoreReviewBusRouteRow[]): CoreRefOption[] {
     return items.map((item) => ({
         value: item.id,
@@ -73,6 +88,16 @@ function mapBusRoutes(items: CoreReviewBusRouteRow[]): CoreRefOption[] {
             : item.routeCode ?? item.id,
         code: item.routeCode ?? undefined,
     }));
+}
+
+function mapLanduseClasses(items: RefLanduseClass[]): CoreRefOption[] {
+    return items
+        .filter((item) => item.is_active)
+        .map((item) => ({
+            value: item.id,
+            label: item.name_mm ? `${item.name_en} — ${item.name_mm}` : item.name_en,
+            code: item.code,
+        }));
 }
 
 function mapStreets(items: Street[]): CoreRefOption[] {
@@ -120,12 +145,17 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
     const [streetsLoading, setStreetsLoading] = useState(false);
     const [streetsError, setStreetsError] = useState<string | null>(null);
 
+    const [landuseClasses, setLanduseClasses] = useState<CoreRefOption[]>([]);
+    const [landuseClassesLoading, setLanduseClassesLoading] = useState(false);
+    const [landuseClassesError, setLanduseClassesError] = useState<string | null>(null);
+
     const needsBuildingTypes = sources.includes("building-types");
     const needsRoadClasses = sources.includes("road-classes");
     const needsPlaceForm = sources.some((s) => s.startsWith("place-form-options:"));
     const needsReferenceOptions = sources.some((s) => s.startsWith("reference-options:"));
     const needsBusRoutes = sources.includes("core-review:bus-routes");
     const needsStreets = sources.includes("streets");
+    const needsLanduseClasses = sources.includes("landuse-classes");
 
     const loadBuildingTypes = useCallback(async () => {
         if (!needsBuildingTypes) return;
@@ -220,6 +250,21 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
         }
     }, [needsStreets]);
 
+    const loadLanduseClasses = useCallback(async () => {
+        if (!needsLanduseClasses) return;
+        setLanduseClassesLoading(true);
+        setLanduseClassesError(null);
+        try {
+            const data = await getRefLanduseClasses();
+            setLanduseClasses(mapLanduseClasses(data));
+        } catch (err) {
+            setLanduseClasses([]);
+            setLanduseClassesError(err instanceof Error ? err.message : "Could not load landuse classes.");
+        } finally {
+            setLanduseClassesLoading(false);
+        }
+    }, [needsLanduseClasses]);
+
     useEffect(() => {
         void loadBuildingTypes();
     }, [loadBuildingTypes]);
@@ -243,6 +288,10 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
     useEffect(() => {
         void loadStreets();
     }, [loadStreets]);
+
+    useEffect(() => {
+        void loadLanduseClasses();
+    }, [loadLanduseClasses]);
 
     const adminAreasState = emptyRefState();
 
@@ -288,7 +337,7 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
         },
         "reference-options:admin_levels": {
             options: referenceOptions
-                ? mapReferenceOptions(referenceOptions.ref_admin_levels)
+                ? mapAdminLevelOptions(referenceOptions.ref_admin_levels)
                 : [],
             isLoading: referenceLoading,
             error: referenceError,
@@ -306,6 +355,12 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
             error: streetsError,
             reload: () => void loadStreets(),
             // Note: first 100 streets only; dedicated search combobox TODO when street count grows.
+        },
+        "landuse-classes": {
+            options: landuseClasses,
+            isLoading: landuseClassesLoading,
+            error: landuseClassesError,
+            reload: () => void loadLanduseClasses(),
         },
     };
 }

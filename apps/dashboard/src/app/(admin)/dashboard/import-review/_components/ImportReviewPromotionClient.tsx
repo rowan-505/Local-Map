@@ -88,7 +88,9 @@ function CandidateDetailModal({
                     <h3 id="candidate-detail-title" className="text-lg font-semibold text-gray-900">
                         Candidate {row.id}
                     </h3>
-                    <p className="mt-0.5 text-sm text-gray-600">{row.name ?? row.canonical_name ?? row.public_id}</p>
+                    <p className="mt-0.5 text-sm text-gray-600">
+                        {row.name ?? row.canonical_name ?? row.public_id}
+                    </p>
                 </div>
                 <div className="space-y-3 px-5 py-4 text-sm">
                     <dl className="grid grid-cols-2 gap-x-4 gap-y-2">

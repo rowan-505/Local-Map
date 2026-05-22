@@ -5,6 +5,13 @@ import type { ReactNode } from "react";
 import { ConfidenceBadge, VerifiedBadge } from "@/src/components/review/ReviewStatusBadge";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 
+import AdminAreaBoundaryFilters from "../admin-areas/AdminAreaBoundaryFilters";
+import {
+    adminAreaBoundaryDetailFields,
+    AdminAreaAddressUsageBadge,
+    AdminAreaBoundaryConfidenceCell,
+    AdminAreaBoundaryStatusBadge,
+} from "../admin-areas/adminAreaBoundaryBadges";
 import { dash, formatArea, formatDate, yesNo } from "../utils/formatters";
 import {
     buildingDisplayName,
@@ -13,6 +20,7 @@ import {
 } from "../utils/rowGeometry";
 import { hl, standardNameAndVerifiedColumns } from "./tableColumns";
 import type { CoreReviewEntityConfig, CoreReviewFilterSupport } from "./entity-config-types";
+import CoreReviewAddressDetailDrawer from "../components/CoreReviewAddressDetailDrawer";
 import type {
     CoreReviewAddressRow,
     CoreReviewAdminAreaRow,
@@ -21,6 +29,7 @@ import type {
     CoreReviewBusRouteVariantRow,
     CoreReviewBusStopRow,
     CoreReviewLanduseRow,
+    CoreReviewMapFeatureRow,
     CoreReviewPlaceRow,
     CoreReviewStreetRow,
 } from "./types";
@@ -93,13 +102,16 @@ const FILTER_BUS_VARIANTS: CoreReviewFilterSupport = {
 
 const FILTER_LANDUSE: CoreReviewFilterSupport = {
     isVerified: true,
-    adminAreaId: false,
+    adminAreaId: true,
     categoryId: false,
     buildingTypeId: false,
     roadClassId: false,
     isPublic: false,
-    includeDeleted: false,
+    includeDeleted: true,
     routeId: false,
+    landuseClassId: true,
+    detailLevel: true,
+    cropCode: true,
 };
 
 const FILTER_ADDRESSES: CoreReviewFilterSupport = {
@@ -122,6 +134,9 @@ const FILTER_ADMIN_AREAS: CoreReviewFilterSupport = {
     isPublic: false,
     includeDeleted: false,
     routeId: false,
+    boundaryStatus: true,
+    addressUsage: true,
+    isOfficialBoundary: true,
 };
 
 function buildingTypeLabel(row: CoreReviewBuildingRow): string {
@@ -449,60 +464,158 @@ export const CORE_REVIEW_BUS_ROUTE_VARIANTS_CONFIG: CoreReviewEntityConfig<CoreR
         editPath: (id) => coreReviewPath(`bus-route-variants/${id}/edit`),
     };
 
+function landuseClassLabel(row: CoreReviewLanduseRow): string {
+    const en = row.landuseClassNameEn?.trim();
+    const mm = row.landuseClassNameMm?.trim();
+    if (en && mm) {
+        return `${en} — ${mm}`;
+    }
+    return en || mm || row.landuseClassCode?.trim() || row.classCode?.trim() || "—";
+}
+
+function landuseDisplayName(row: CoreReviewLanduseRow): string {
+    return row.nameMm?.trim() || row.nameEn?.trim() || row.name?.trim() || "—";
+}
+
 export const CORE_REVIEW_LANDUSE_CONFIG: CoreReviewEntityConfig<CoreReviewLanduseRow> = {
     segment: "landuse",
     apiSlug: "landuse",
     title: "Landuse",
-    description: "Land-use polygons from core schema.",
-    overviewStatus: "partial",
-    idKind: "numeric_id",
+    description:
+        "Production landuse polygons — urban zones and village farmland/paddy parcels for map context.",
+    overviewStatus: "ready",
+    idKind: "public_id",
     geometryKind: "polygon",
     mapEntityType: "landuse",
     defaultSortBy: "updated_at",
     sortOptions: [
         { value: "name", label: "Name", type: "text" },
         { value: "class_code", label: "Class", type: "text" },
+        { value: "admin_area", label: "Admin area", type: "text" },
+        { value: "detail_level", label: "Detail level", type: "text" },
+        { value: "area_m2", label: "Area", type: "text" },
         { value: "updated_at", label: "Updated", type: "date" },
     ],
     filterSupport: FILTER_LANDUSE,
-    getRowId: (r) => r.id,
-    getRowTitle: (r) => dash(r.name) || r.id,
+    getRowId: (r) => r.publicId,
+    getRowTitle: landuseDisplayName,
+    getRowSubtitle: (r) => r.publicId,
     getGeometry: (r) => r.geometry,
-    searchPlaceholder: "Search landuse (name or class code)…",
-    columns: genericClassColumns<CoreReviewLanduseRow>(),
+    searchPlaceholder: "Search landuse (name, class, crop)…",
+    columns: [
+        { id: "public_id", header: "Public ID", cell: (r, q) => hl(r.publicId, q) },
+        ...standardNameAndVerifiedColumns<CoreReviewLanduseRow>({
+            myanmar: (r) => r.nameMm,
+            english: (r) => r.nameEn,
+        }),
+        {
+            id: "class",
+            header: "Landuse class",
+            cell: (r, q) => hl(landuseClassLabel(r), q),
+        },
+        { id: "admin", header: "Admin area", cell: (r, q) => hl(dash(r.adminAreaName), q) },
+        { id: "detail", header: "Detail level", cell: (r) => dash(r.detailLevel) },
+        { id: "crop", header: "Crop", cell: (r, q) => hl(dash(r.cropCode), q) },
+        { id: "area", header: "Area (m²)", cell: (r) => formatArea(r.areaM2) },
+        {
+            id: "confidence",
+            header: "Confidence",
+            cell: (r) => <ConfidenceBadge score={r.confidenceScore} />,
+        },
+        { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt) },
+    ],
     detailFields: (r) => [
-        { label: "ID", value: r.id },
-        { label: "Myanmar name", value: dash(r.name) },
-        { label: "Class", value: dash(r.classCode) },
+        { label: "Public ID", value: r.publicId },
+        { label: "External ID", value: dash(r.externalId) },
+        { label: "Myanmar name", value: dash(r.nameMm) },
+        { label: "English name", value: dash(r.nameEn) },
+        { label: "Landuse class", value: landuseClassLabel(r) },
+        { label: "Admin area", value: dash(r.adminAreaName) },
+        { label: "Detail level", value: dash(r.detailLevel) },
+        { label: "Crop code", value: dash(r.cropCode) },
+        { label: "Irrigated", value: r.irrigated == null ? "—" : yesNo(r.irrigated) },
+        { label: "Seasonality", value: dash(r.seasonality) },
+        { label: "Area (m²)", value: formatArea(r.areaM2) },
+        { label: "Confidence", value: <ConfidenceBadge score={r.confidenceScore} /> },
         { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
         { label: "Active", value: yesNo(r.isActive) },
+        { label: "Created", value: formatDate(r.createdAt) },
         { label: "Updated", value: formatDate(r.updatedAt) },
     ],
     newPath: coreReviewPath("landuse/new"),
     editPath: (id) => coreReviewPath(`landuse/${id}/edit`),
 };
 
-export const CORE_REVIEW_WATER_LINES_CONFIG: CoreReviewEntityConfig<CoreReviewLanduseRow> = {
-    ...CORE_REVIEW_LANDUSE_CONFIG,
+const FILTER_MAP_FEATURE: CoreReviewFilterSupport = {
+    isVerified: true,
+    adminAreaId: false,
+    categoryId: false,
+    buildingTypeId: false,
+    roadClassId: false,
+    isPublic: false,
+    includeDeleted: false,
+    routeId: false,
+};
+
+function mapFeatureDetailFields(r: CoreReviewMapFeatureRow) {
+    return [
+        { label: "ID", value: r.id },
+        { label: "Name", value: dash(r.name) },
+        { label: "Class", value: dash(r.classCode) },
+        { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
+        { label: "Active", value: yesNo(r.isActive) },
+        { label: "Updated", value: formatDate(r.updatedAt) },
+    ];
+}
+
+export const CORE_REVIEW_WATER_LINES_CONFIG: CoreReviewEntityConfig<CoreReviewMapFeatureRow> = {
     segment: "water-lines",
     apiSlug: "water-lines",
     title: "Water lines",
     description: "Linear water features.",
+    overviewStatus: "partial",
+    idKind: "numeric_id",
     geometryKind: "line",
     mapEntityType: "water_line",
+    defaultSortBy: "updated_at",
+    sortOptions: [
+        { value: "name", label: "Name", type: "text" },
+        { value: "class_code", label: "Class", type: "text" },
+        { value: "updated_at", label: "Updated", type: "date" },
+    ],
+    filterSupport: FILTER_MAP_FEATURE,
+    getRowId: (r) => r.id,
+    getRowTitle: (r) => dash(r.name) || r.id,
+    getGeometry: (r) => r.geometry,
     searchPlaceholder: "Search water lines…",
+    columns: genericClassColumns<CoreReviewMapFeatureRow>(),
+    detailFields: mapFeatureDetailFields,
     newPath: coreReviewPath("water-lines/new"),
     editPath: (id) => coreReviewPath(`water-lines/${id}/edit`),
 };
 
-export const CORE_REVIEW_WATER_POLYGONS_CONFIG: CoreReviewEntityConfig<CoreReviewLanduseRow> = {
-    ...CORE_REVIEW_LANDUSE_CONFIG,
+export const CORE_REVIEW_WATER_POLYGONS_CONFIG: CoreReviewEntityConfig<CoreReviewMapFeatureRow> = {
     segment: "water-polygons",
     apiSlug: "water-polygons",
     title: "Water polygons",
     description: "Water body polygons.",
+    overviewStatus: "partial",
+    idKind: "numeric_id",
+    geometryKind: "polygon",
     mapEntityType: "water_polygon",
+    defaultSortBy: "updated_at",
+    sortOptions: [
+        { value: "name", label: "Name", type: "text" },
+        { value: "class_code", label: "Class", type: "text" },
+        { value: "updated_at", label: "Updated", type: "date" },
+    ],
+    filterSupport: FILTER_MAP_FEATURE,
+    getRowId: (r) => r.id,
+    getRowTitle: (r) => dash(r.name) || r.id,
+    getGeometry: (r) => r.geometry,
     searchPlaceholder: "Search water polygons…",
+    columns: genericClassColumns<CoreReviewMapFeatureRow>(),
+    detailFields: mapFeatureDetailFields,
     newPath: coreReviewPath("water-polygons/new"),
     editPath: (id) => coreReviewPath(`water-polygons/${id}/edit`),
 };
@@ -524,7 +637,8 @@ export const CORE_REVIEW_ADDRESSES_CONFIG: CoreReviewEntityConfig<CoreReviewAddr
     ],
     filterSupport: FILTER_ADDRESSES,
     getRowId: (r) => r.publicId,
-    getRowTitle: (r) => dash(r.fullAddress) || r.publicId,
+    getRowTitle: (r) => dash(r.displayFullAddress ?? r.fullAddress) || r.publicId,
+    getRowSubtitle: (r) => r.publicId,
     getGeometry: (r) => r.geometry,
     searchPlaceholder: "Search addresses…",
     columns: [
@@ -532,14 +646,15 @@ export const CORE_REVIEW_ADDRESSES_CONFIG: CoreReviewEntityConfig<CoreReviewAddr
         { id: "admin", header: "Admin area", cell: (r, q) => hl(dash(r.adminAreaName), q) },
         { id: "public", header: "Public", cell: (r) => yesNo(r.isPublic) },
         ...standardNameAndVerifiedColumns<CoreReviewAddressRow>({
-            myanmar: () => null,
-            english: (r) => r.fullAddress,
+            myanmar: (r) => r.generatedFullAddressMy ?? r.myanmarName,
+            english: (r) => r.generatedFullAddressEn ?? r.englishName,
         }),
         { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt) },
     ],
     detailFields: (r) => [
         { label: "Public ID", value: r.publicId },
-        { label: "English name", value: dash(r.fullAddress) },
+        { label: "Myanmar address", value: dash(r.generatedFullAddressMy) },
+        { label: "English address", value: dash(r.generatedFullAddressEn) },
         { label: "Admin area", value: dash(r.adminAreaName) },
         { label: "Public", value: yesNo(r.isPublic) },
         { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
@@ -547,6 +662,22 @@ export const CORE_REVIEW_ADDRESSES_CONFIG: CoreReviewEntityConfig<CoreReviewAddr
     ],
     newPath: coreReviewPath("addresses/new"),
     editPath: (id) => coreReviewPath(`addresses/${id}/edit`),
+    extensions: {
+        renderDetailDrawer: (ctx) => (
+            <CoreReviewAddressDetailDrawer
+                open={ctx.open}
+                rowId={ctx.rowId}
+                title={ctx.title}
+                subtitle={ctx.subtitle}
+                geometryKind={ctx.geometryKind === "none" ? "point" : ctx.geometryKind}
+                mapEntityType={ctx.mapEntityType}
+                listGeometry={ctx.listGeometry}
+                editPath={ctx.editPath}
+                drawerActions={ctx.drawerActions}
+                onClose={ctx.onClose}
+            />
+        ),
+    },
 };
 
 export const CORE_REVIEW_ADMIN_AREAS_CONFIG: CoreReviewEntityConfig<CoreReviewAdminAreaRow> = {
@@ -571,6 +702,21 @@ export const CORE_REVIEW_ADMIN_AREAS_CONFIG: CoreReviewEntityConfig<CoreReviewAd
     columns: [
         { id: "slug", header: "Slug", cell: (r, q) => hl(dash(r.slug), q) },
         { id: "level", header: "Admin level", cell: (r) => dash(r.adminLevelId) },
+        {
+            id: "boundary",
+            header: "Boundary",
+            cell: (r) => <AdminAreaBoundaryStatusBadge row={r} mode="list" />,
+        },
+        {
+            id: "address_usage",
+            header: "Address usage",
+            cell: (r) => <AdminAreaAddressUsageBadge row={r} mode="list" />,
+        },
+        {
+            id: "confidence",
+            header: "Confidence",
+            cell: (r) => <AdminAreaBoundaryConfidenceCell row={r} />,
+        },
         { id: "active", header: "Active", cell: (r) => yesNo(r.isActive) },
         ...standardNameAndVerifiedColumns<CoreReviewAdminAreaRow>({
             myanmar: (r) => r.canonicalName,
@@ -584,10 +730,16 @@ export const CORE_REVIEW_ADMIN_AREAS_CONFIG: CoreReviewEntityConfig<CoreReviewAd
         { label: "Slug", value: dash(r.slug) },
         { label: "Parent ID", value: dash(r.parentId) },
         { label: "Admin level ID", value: dash(r.adminLevelId) },
+        ...adminAreaBoundaryDetailFields(r),
         { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
         { label: "Active", value: yesNo(r.isActive) },
         { label: "Updated", value: formatDate(r.updatedAt) },
     ],
+    extensions: {
+        renderExtraFilters: ({ draft, setDraft }) => (
+            <AdminAreaBoundaryFilters draft={draft} setDraft={setDraft} />
+        ),
+    },
     newPath: coreReviewPath("admin-areas/new"),
     editPath: (id) => coreReviewPath(`admin-areas/${id}/edit`),
 };

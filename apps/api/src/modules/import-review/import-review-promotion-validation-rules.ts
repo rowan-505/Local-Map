@@ -5,7 +5,12 @@ import {
     busStopNameLocalExpr,
     busStopPrimaryRealNameExpr,
     busStopStopCodeExpr,
+    effectiveAdminAreaIdExpr,
 } from "./import-review-effective-values.js";
+import {
+    landuseClassIdExpr,
+    landuseEffectiveClassIdRawExpr,
+} from "./import-review-promotion-promote-landuse-sql.js";
 import type { ImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 import { getImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 import {
@@ -214,6 +219,10 @@ export class ImportReviewPromotionValidationRules {
         const a = config.tableAlias;
         const join = itemsJoinSql(config);
         const maxArea = config.entityFamily === "landuse" ? MAX_LANDUSE_AREA_M2 : MAX_AREA_M2;
+        const useMakeValidFix = config.entityFamily === "landuse";
+        const geomExpr = useMakeValidFix
+            ? Prisma.sql`ST_MakeValid(${col(a, "geom")})`
+            : col(a, "geom");
         const centroidClause = requireCentroid
             ? Prisma.sql`
                 UNION ALL
@@ -238,13 +247,11 @@ export class ImportReviewPromotionValidationRules {
                 SELECT spi.id, 'invalid_geom', 'Geometry must pass ST_IsValid.', 'error'
                 ${join}
                 WHERE spi.id IN (${Prisma.join(itemIds)})
-                  AND ${col(a, "geom")} IS NOT NULL AND NOT ST_IsValid(${col(a, "geom")})
-
-                UNION ALL
-                SELECT spi.id, 'empty_geom', 'Geometry must not be empty.', 'error'
-                ${join}
-                WHERE spi.id IN (${Prisma.join(itemIds)})
-                  AND ${col(a, "geom")} IS NOT NULL AND ST_IsEmpty(${col(a, "geom")})
+                  AND ${col(a, "geom")} IS NOT NULL
+                  AND (
+                      NOT ST_IsValid(${geomExpr})
+                      OR ST_IsEmpty(${geomExpr})
+                  )
 
                 UNION ALL
                 SELECT spi.id, 'invalid_srid', 'Geometry SRID must be 4326.', 'error'
@@ -258,7 +265,7 @@ export class ImportReviewPromotionValidationRules {
                 ${join}
                 WHERE spi.id IN (${Prisma.join(itemIds)})
                   AND ${col(a, "geom")} IS NOT NULL
-                  AND upper(GeometryType(${col(a, "geom")})) NOT IN ('POLYGON', 'MULTIPOLYGON', 'GEOMETRYCOLLECTION')
+                  AND upper(GeometryType(${geomExpr})) NOT IN ('POLYGON', 'MULTIPOLYGON', 'GEOMETRYCOLLECTION')
 
                 UNION ALL
                 SELECT spi.id, 'area_out_of_range',
@@ -268,8 +275,8 @@ export class ImportReviewPromotionValidationRules {
                 WHERE spi.id IN (${Prisma.join(itemIds)})
                   AND ${col(a, "geom")} IS NOT NULL
                   AND (
-                      ST_Area(${col(a, "geom")}::geography) < ${MIN_AREA_M2}
-                      OR ST_Area(${col(a, "geom")}::geography) > ${maxArea}
+                      ST_Area(${geomExpr}::geography) < ${MIN_AREA_M2}
+                      OR ST_Area(${geomExpr}::geography) > ${maxArea}
                   )
                 ${centroidClause}
             ) AS issues
@@ -420,11 +427,12 @@ export class ImportReviewPromotionValidationRules {
                   : family === "landuse"
                     ? Prisma.sql`
                     UNION ALL
-                    SELECT spi.id, 'missing_class_code', 'class_code is required for landuse.', 'error'
+                    SELECT spi.id, 'missing_landuse_class_id',
+                        'landuse_class_id is required (review_overrides or candidate column).', 'error'
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND ${col(a, "id")} IS NOT NULL
-                      AND nullif(trim(coalesce(${col(a, "class_code")}, '')), '') IS NULL
+                      AND ${landuseClassIdExpr(a)} IS NULL
                   `
                     : family === "water_polygons" || family === "water_lines"
                       ? Prisma.sql`
@@ -582,6 +590,41 @@ export class ImportReviewPromotionValidationRules {
                       WHERE ca.id = ${busStopEffectiveAdminAreaIdRawExpr(a)}
                         AND ca.is_active IS TRUE
                   )
+            `;
+        }
+
+        if (family === "landuse") {
+            const rawClassId = landuseEffectiveClassIdRawExpr(a);
+            const validClassId = landuseClassIdExpr(a);
+            return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
+                SELECT publish_item_id, code, message, severity FROM (
+                    SELECT spi.id AS publish_item_id, 'invalid_landuse_class_id'::text AS code,
+                        'landuse_class_id does not exist in ref.ref_landuse_classes.'::text AS message,
+                        'error'::text AS severity
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${rawClassId} IS NOT NULL
+                      AND ${validClassId} IS NULL
+
+                    UNION ALL
+                    SELECT spi.id, 'invalid_admin_area_id',
+                        'admin_area_id does not exist in core.core_admin_areas.', 'error'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${effectiveAdminAreaIdExpr(a)} IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_admin_areas AS ca
+                          WHERE ca.id = ${effectiveAdminAreaIdExpr(a)}
+                            AND coalesce(ca.is_active, true)
+                      )
+
+                    UNION ALL
+                    SELECT spi.id, 'missing_admin_area',
+                        'admin_area_id is not set; confirm admin assignment before promotion.', 'warning'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${effectiveAdminAreaIdExpr(a)} IS NULL
+                ) AS issues
             `;
         }
 

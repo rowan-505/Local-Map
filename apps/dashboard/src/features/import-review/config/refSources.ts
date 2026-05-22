@@ -1,5 +1,6 @@
 export type RefSource =
     | "ref_building_types"
+    | "ref_landuse_classes"
     | "ref_poi_categories"
     | "ref_road_classes"
     | "ref_admin_levels"
@@ -22,6 +23,14 @@ export const REF_BUILDING_TYPE_ID: RefDropdownFieldConfig = {
     refSource: "ref_building_types",
     valueKey: "id",
     labelKey: "name",
+};
+
+export const REF_LANDUSE_CLASS_ID: RefDropdownFieldConfig = {
+    fieldKey: "landuse_class_id",
+    refSource: "ref_landuse_classes",
+    valueKey: "id",
+    labelKey: "name",
+    notes: "Uses GET /admin/ref/landuse-classes and import-review form options landuse_classes.",
 };
 
 export const REF_POI_CATEGORY_ID: RefDropdownFieldConfig = {

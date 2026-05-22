@@ -1,5 +1,6 @@
 import type { CoreEntityConfig } from "./types";
 import { BUILDINGS_ENTITY_CONFIG } from "./buildings";
+import { LANDUSE_ENTITY_CONFIG } from "./landuse";
 import { PLACES_ENTITY_CONFIG } from "./places";
 import { STREETS_ENTITY_CONFIG } from "./streets";
 import {
@@ -8,7 +9,6 @@ import {
     BUS_ROUTES_ENTITY_CONFIG,
     BUS_ROUTE_VARIANTS_ENTITY_CONFIG,
     BUS_STOPS_ENTITY_CONFIG,
-    LANDUSE_ENTITY_CONFIG,
     WATER_LINES_ENTITY_CONFIG,
     WATER_POLYGONS_ENTITY_CONFIG,
 } from "./extendedEntities";
@@ -21,6 +21,7 @@ export type {
     CoreEntityKey,
 } from "./types";
 export { BUILDINGS_ENTITY_CONFIG } from "./buildings";
+export { LANDUSE_ENTITY_CONFIG } from "./landuse";
 export { PLACES_ENTITY_CONFIG } from "./places";
 export { STREETS_ENTITY_CONFIG } from "./streets";
 export {
@@ -29,7 +30,6 @@ export {
     BUS_ROUTES_ENTITY_CONFIG,
     BUS_ROUTE_VARIANTS_ENTITY_CONFIG,
     BUS_STOPS_ENTITY_CONFIG,
-    LANDUSE_ENTITY_CONFIG,
     WATER_LINES_ENTITY_CONFIG,
     WATER_POLYGONS_ENTITY_CONFIG,
 } from "./extendedEntities";
