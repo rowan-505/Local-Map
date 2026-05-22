@@ -116,6 +116,7 @@ import { createImportReviewAddressPromotionService } from "./import-review-addre
 import { postImportReviewAddressPromotionBodySchema } from "./import-review-address-promotion.schema.js";
 import { patchImportReviewAddressComponentsBodySchema } from "./import-review-address-components-mutation.schema.js";
 import { createImportReviewAddressMatchesService } from "./import-review-address-matches.service.js";
+import { registerImportReviewRoadsRequestLogging } from "./import-review-roads-request-logging.js";
 import {
     importReviewAddressCandidateIdParamsSchema,
     patchImportReviewAddressMatchesBodySchema,
@@ -336,6 +337,8 @@ function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0]
 
 const importReviewRoutes: FastifyPluginAsync = async (app) => {
     app.log.info(`import-review admin guard enabled: ${isImportReviewHeaderTokenGuardEnabled()}`);
+
+    registerImportReviewRoadsRequestLogging(app);
 
     app.addHook("onRequest", async (request, reply) => {
         await authenticateImportReview(request, reply);

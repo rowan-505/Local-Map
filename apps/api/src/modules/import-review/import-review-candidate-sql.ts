@@ -11,6 +11,10 @@ import {
     roadResolvedAdminAreaIdExpr,
     roadResolvedAdminAreaNameExpr,
 } from "./import-review-road-admin-area-sql.js";
+import {
+    buildRoadCandidateListFromClause,
+    buildRoadCandidateListSelect,
+} from "./import-review-road-list-sql.js";
 import { effectiveRoadLengthMExpr } from "./import-review-promotion-promote-sql.js";
 import type { ImportReviewBuildingSort, ImportReviewBulkFilters } from "./import-review.schema.js";
 
@@ -435,6 +439,17 @@ export function buildCandidateRowQueryParts(
     };
 }
 
+function useRoadListSelect(
+    config: ImportReviewEntityFamilyConfig,
+    includeGeometry: boolean
+): boolean {
+    return (
+        config.routeFamily === "roads" &&
+        !includeGeometry &&
+        (config.listSelectMode ?? "summary") === "summary"
+    );
+}
+
 export function buildCandidateListQueryParts(
     config: ImportReviewEntityFamilyConfig,
     reviewBatchId: bigint,
@@ -446,9 +461,13 @@ export function buildCandidateListQueryParts(
     orderBy: Prisma.Sql;
 } {
     const includeGeometry = filters.include_geometry ?? false;
+    const summaryList = useRoadListSelect(config, includeGeometry);
+
     return {
-        select: buildCandidateCommonSelect(config, includeGeometry),
-        from: buildCandidateFromClause(config),
+        select: summaryList
+            ? buildRoadCandidateListSelect(config)
+            : buildCandidateCommonSelect(config, includeGeometry),
+        from: summaryList ? buildRoadCandidateListFromClause(config) : buildCandidateFromClause(config),
         where: buildCandidateWhereClause(config, reviewBatchId, filters),
         orderBy: buildCandidateOrderBy(config, filters.sort ?? config.defaultSort),
     };

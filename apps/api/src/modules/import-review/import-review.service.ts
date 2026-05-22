@@ -26,6 +26,7 @@ import {
     applyImportReviewEffectiveFields,
     type EffectiveValuesRawRow,
 } from "./import-review-effective-values.js";
+import { SERIOUS_ROUTING_WARNING_CODES } from "./import-review-road-routing-validation.types.js";
 import { assertValidStoredReviewOverrides } from "./import-review-overrides-validator.js";
 import {
     buildPersistableReviewOverridesPatch,
@@ -132,6 +133,84 @@ function numOrNull(value: unknown): number | null {
     return Number.isFinite(n) ? n : null;
 }
 
+function validationIssueCodes(raw: unknown): string[] {
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+
+    const out: string[] = [];
+    for (const item of raw) {
+        if (typeof item === "string") {
+            const t = item.trim();
+            if (t.length > 0) {
+                out.push(t);
+            }
+            continue;
+        }
+        if (item && typeof item === "object" && !Array.isArray(item)) {
+            const code = typeof (item as Record<string, unknown>).code === "string"
+                ? ((item as Record<string, unknown>).code as string).trim()
+                : "";
+            if (code.length > 0) {
+                out.push(code);
+            }
+        }
+    }
+    return out;
+}
+
+const ROUTING_STATUS_CODE_PREFIXES = ["ROUTING_"] as const;
+
+function isRoutingValidationCode(code: string): boolean {
+    const normalized = code.trim().toUpperCase();
+    if (SERIOUS_ROUTING_WARNING_CODES.has(normalized)) {
+        return true;
+    }
+    return ROUTING_STATUS_CODE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function deriveRoadValidationStatus(row: BuildingListRowDb): string {
+    if (row.validation_status) {
+        return row.validation_status;
+    }
+
+    const errorCount = Array.isArray(row.validation_errors) ? row.validation_errors.length : 0;
+    const warningCount = Array.isArray(row.validation_warnings) ? row.validation_warnings.length : 0;
+
+    if (errorCount > 0) {
+        return "errors";
+    }
+    if (warningCount > 0) {
+        return "warnings";
+    }
+    if (row.validation_errors !== null || row.validation_warnings !== null) {
+        return "valid";
+    }
+    return "unknown";
+}
+
+function deriveRoadRoutingStatus(row: BuildingListRowDb): string {
+    if (row.routing_status) {
+        return row.routing_status;
+    }
+
+    const errorCodes = validationIssueCodes(row.validation_errors).filter(isRoutingValidationCode);
+    if (errorCodes.length > 0) {
+        return "errors";
+    }
+
+    const warningCodes = validationIssueCodes(row.validation_warnings).filter(isRoutingValidationCode);
+    if (warningCodes.length > 0) {
+        return "warnings";
+    }
+
+    if (row.validation_errors === null && row.validation_warnings === null) {
+        return "unknown";
+    }
+
+    return "valid";
+}
+
 function toEffectiveRawRow(row: BuildingListRowDb): EffectiveValuesRawRow {
     return {
         name: row.name,
@@ -154,6 +233,7 @@ function mapBuildingRow(
 ): ImportReviewBuildingListItem {
     const geom = (row.geometry as ImportReviewGeoJson | null) ?? null;
     const centroid = (row.centroid as ImportReviewGeoJson | null) ?? null;
+    const isRoadListProjection = family === "roads" && row.is_road_list_projection === true;
 
     const base: ImportReviewBuildingListItem = {
         id: row.id.toString(),
@@ -190,12 +270,12 @@ function mapBuildingRow(
         reviewed_at: toIso(row.reviewed_at),
         review_note: row.review_note,
         normalized_data: row.normalized_data,
-        source_refs: row.source_refs,
+        source_refs: isRoadListProjection ? {} : row.source_refs,
         review_overrides: row.review_overrides,
         matched_core_id: bigStr(row.matched_core_id),
         matched_core_table: row.matched_core_table,
-        matched_core_data: row.matched_core_data,
-        f2_comparison: row.f2_comparison,
+        matched_core_data: isRoadListProjection ? {} : row.matched_core_data,
+        f2_comparison: isRoadListProjection ? {} : row.f2_comparison,
         validation_warnings: row.validation_warnings,
         validation_errors: row.validation_errors,
         promotion_status: row.promotion_status,
@@ -214,6 +294,11 @@ function mapBuildingRow(
         road_candidate_is_oneway: row.road_candidate_is_oneway ?? null,
         length_m: numOrNull(row.length_m),
         admin_area_name: row.admin_area_name ?? row.effective_admin_area_name ?? null,
+        bridge: row.bridge ?? null,
+        tunnel: row.tunnel ?? null,
+        layer: row.layer ?? null,
+        validation_status: family === "roads" ? deriveRoadValidationStatus(row) : row.validation_status ?? null,
+        routing_status: family === "roads" ? deriveRoadRoutingStatus(row) : null,
     };
 
     return applyImportReviewEffectiveFields(family, base, toEffectiveRawRow(row));

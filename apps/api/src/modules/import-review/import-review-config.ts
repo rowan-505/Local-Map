@@ -130,6 +130,8 @@ export type ImportReviewEntityFamilyConfig = {
     landuseClassJoin: boolean;
     /** When true, list/detail SELECT joins core.core_admin_areas on effective admin_area_id. */
     effectiveAdminAreaJoin: boolean;
+    /** Roads list: use lightweight SELECT (no geom / heavy JSONB / spatial admin inference). */
+    listSelectMode?: "summary" | "full";
     /** Maps BuildingListRowDb padding — null means NULL::type in SELECT. */
     listRowShape: {
         name: string | null;
@@ -250,6 +252,7 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         buildingTypeJoin: false,
         landuseClassJoin: false,
         effectiveAdminAreaJoin: true,
+        listSelectMode: "summary",
         listRowShape: {
             name: null,
             building_type: null,

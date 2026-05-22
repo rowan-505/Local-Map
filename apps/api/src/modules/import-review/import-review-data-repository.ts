@@ -88,6 +88,13 @@ export type BuildingListRowDb = {
     effective_admin_area_name?: string | null;
     /** Roads: resolved override/normalized or geometry-inferred admin area label */
     admin_area_name?: string | null;
+    /** Roads list projection: typed columns with override-aware COALESCE */
+    bridge?: boolean | null;
+    tunnel?: boolean | null;
+    layer?: number | null;
+    /** Internal marker from lightweight roads list SELECT — not serialized to API */
+    is_road_list_projection?: boolean | null;
+    routing_status?: string | null;
     /** Address candidates (042 repair columns) */
     source_entity_type?: string | null;
     source_tags?: unknown;

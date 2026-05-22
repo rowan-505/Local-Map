@@ -3,7 +3,6 @@ import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 import {
     deriveImportedNameEn,
     deriveImportedNameMm,
-    normPick,
     pickEffectiveNameEn,
     pickEffectiveNameMm,
     reviewerFacingNameOrNull,
@@ -23,14 +22,6 @@ function trimString(value: unknown): string | null {
     }
     const s = String(value).trim();
     return s.length > 0 ? s : null;
-}
-
-function normTagPick(data: unknown, tagKey: string): string | null {
-    const tags = normPick(data, "tags");
-    if (tags && typeof tags === "object" && !Array.isArray(tags)) {
-        return trimString((tags as Record<string, unknown>)[tagKey]);
-    }
-    return null;
 }
 
 function boolFromUnknown(value: unknown): boolean | null {
@@ -89,12 +80,7 @@ export function deriveRoadListSurface(row: ImportReviewBuildingListItem): string
         }
     }
 
-    const nd = row.normalized_data;
-    return (
-        trimString(row.road_candidate_surface) ??
-        normTagPick(nd, "surface") ??
-        trimString(normPick(nd, "surface"))
-    );
+    return trimString(row.road_candidate_surface);
 }
 
 /** Effective road class label for road list cells. */
@@ -120,13 +106,7 @@ export function deriveRoadListRoadClass(
         return roadClassLabelById.get(candidateId) ?? candidateId;
     }
 
-    const nd = row.normalized_data;
-    return (
-        trimString(row.class_code) ??
-        normTagPick(nd, "highway") ??
-        trimString(normPick(nd, "highway")) ??
-        trimString(normPick(nd, "road_class"))
-    );
+    return trimString(row.class_code);
 }
 
 /** Effective one-way flag for road list cells. */
@@ -138,7 +118,7 @@ export function deriveRoadListOneway(row: ImportReviewBuildingListItem): boolean
     if (row.road_candidate_is_oneway !== null && row.road_candidate_is_oneway !== undefined) {
         return row.road_candidate_is_oneway;
     }
-    return boolFromUnknown(normPick(row.normalized_data, "is_oneway"));
+    return null;
 }
 
 export function formatRoadListOneway(value: boolean | null): string {
@@ -155,14 +135,6 @@ export function formatRoadListOneway(value: boolean | null): string {
 export function deriveRoadListLengthM(row: ImportReviewBuildingListItem): string | number | null {
     if (row.length_m !== null && row.length_m !== undefined && Number.isFinite(Number(row.length_m))) {
         return row.length_m;
-    }
-
-    const fromNorm = normPick(row.normalized_data, "length_m");
-    if (fromNorm === null || fromNorm === undefined) {
-        return null;
-    }
-    if (typeof fromNorm === "number" || typeof fromNorm === "string") {
-        return fromNorm;
     }
     return null;
 }

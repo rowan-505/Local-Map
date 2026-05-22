@@ -677,6 +677,11 @@ export type ImportReviewBuildingListItem = {
     road_candidate_is_oneway?: boolean | null;
     /** Meters along effective centerline (roads list/detail). */
     length_m?: number | null;
+    /** Roads: typed columns with override-aware values */
+    bridge?: boolean | null;
+    tunnel?: boolean | null;
+    layer?: number | null;
+    routing_status?: string | null;
     /** Roads: resolved admin area display name */
     admin_area_name?: string | null;
     effective_name?: string | null;

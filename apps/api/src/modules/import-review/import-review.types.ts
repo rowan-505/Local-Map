@@ -136,6 +136,12 @@ export type ImportReviewBuildingListItem = {
     effective_admin_area_name?: string | null;
     /** Roads list: resolved admin area display name */
     admin_area_name?: string | null;
+    /** Roads list: typed columns with override-aware values */
+    bridge?: boolean | null;
+    tunnel?: boolean | null;
+    layer?: number | null;
+    /** Derived from cached validation_errors / validation_warnings (roads list). */
+    routing_status?: string | null;
     effective_levels?: number | null;
     effective_height_m?: number | null;
     effective_full_address?: string | null;

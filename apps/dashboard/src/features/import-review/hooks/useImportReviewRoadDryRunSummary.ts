@@ -8,6 +8,7 @@ import {
     isAbortError,
     type ImportReviewRoadDryRunSummaryResponse,
 } from "@/src/lib/api";
+import { logImportReviewClientFetch } from "@/src/features/import-review/utils/importReviewClientFetchLog";
 
 export function useImportReviewRoadDryRunSummary(
     apiScopeQuery: ImportReviewScopeQueryParams | null,
@@ -25,16 +26,43 @@ export function useImportReviewRoadDryRunSummary(
             return;
         }
         const controller = new AbortController();
+        const startedAt = performance.now();
         setIsLoading(true);
         setError(null);
+        logImportReviewClientFetch({
+            phase: "roads-dry-run-summary",
+            family: "roads",
+            status: "start",
+            query: { ...apiScopeQuery },
+        });
         void getImportReviewRoadDryRunSummary(apiScopeQuery, { signal: controller.signal })
             .then((res) => {
+                logImportReviewClientFetch({
+                    phase: "roads-dry-run-summary",
+                    family: "roads",
+                    status: "success",
+                    durationMs: Math.round(performance.now() - startedAt),
+                    itemCount: Object.keys(res.items_by_candidate_id ?? {}).length,
+                });
                 setSummary(res);
             })
             .catch((err) => {
                 if (isAbortError(err)) {
+                    logImportReviewClientFetch({
+                        phase: "roads-dry-run-summary",
+                        family: "roads",
+                        status: "abort",
+                        durationMs: Math.round(performance.now() - startedAt),
+                    });
                     return;
                 }
+                logImportReviewClientFetch({
+                    phase: "roads-dry-run-summary",
+                    family: "roads",
+                    status: "error",
+                    durationMs: Math.round(performance.now() - startedAt),
+                    error: err instanceof Error ? err.message : String(err),
+                });
                 setSummary(null);
                 setError(err instanceof Error ? err.message : "Failed to load dry-run summary");
             })

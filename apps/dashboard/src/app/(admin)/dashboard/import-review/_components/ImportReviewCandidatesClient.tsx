@@ -11,11 +11,16 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import DataReviewCandidateMap from "@/src/components/map/DataReviewCandidateMap";
 import ImportReviewSelectedActionBar from "@/src/features/import-review/components/ImportReviewSelectedActionBar";
+import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
+import ImportReviewInlineSpinner from "@/src/features/import-review/components/ImportReviewInlineSpinner";
+import ImportReviewSkeletonTable from "@/src/features/import-review/components/ImportReviewSkeletonTable";
 import { useClearSelectionOnListQueryChange } from "@/src/features/import-review/hooks/useClearSelectionOnListQueryChange";
 import { useImportReviewBulkActions } from "@/src/features/import-review/hooks/useImportReviewBulkActions";
 import { useImportReviewFormOptions } from "@/src/features/import-review/hooks/useImportReviewFormOptions";
 import { roadClassOptionsFromFormOptions } from "@/src/features/import-review/utils/formOptionsUtils";
 import { buildImportReviewListQueryKey } from "@/src/features/import-review/utils/entityPageUtils";
+import { logImportReviewClientFetch } from "@/src/features/import-review/utils/importReviewClientFetchLog";
+import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import { Card, CardContent } from "@/src/components/ui/card";
 import {
     getImportReviewFamilyCandidateById,
@@ -376,7 +381,12 @@ export function ImportReviewCandidatesClient({
     const [filterOptionsLoading, setFilterOptionsLoading] = useState(false);
 
     const [list, setList] = useState<ImportReviewBuildingsListResponse | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(() => {
+        const scope = importReviewScopeQueryFromSearch(searchParams, ENV_SNAPSHOT_DEFAULT, {
+            useEnvDefault: false,
+        });
+        return importReviewScopeQueryForApi(scope) !== null;
+    });
     const [error, setError] = useState("");
     const [ambiguousBatches, setAmbiguousBatches] = useState<ImportReviewBatchChoice[] | null>(null);
     const [ambiguousSnapshot, setAmbiguousSnapshot] = useState("");
@@ -544,12 +554,40 @@ export function ImportReviewCandidatesClient({
         }
         const c = new AbortController();
         setFilterOptionsLoading(true);
+        const startedAt = performance.now();
+        logImportReviewClientFetch({
+            phase: "filter-options",
+            family,
+            status: "start",
+            query: { ...apiScopeQuery },
+        });
         getImportReviewSummary({ ...apiScopeQuery }, { signal: c.signal })
-            .then((s) => setFilterOptions(filterOptionsFromSummary(s, family)))
+            .then((s) => {
+                logImportReviewClientFetch({
+                    phase: "filter-options",
+                    family,
+                    status: "success",
+                    durationMs: Math.round(performance.now() - startedAt),
+                });
+                setFilterOptions(filterOptionsFromSummary(s, family));
+            })
             .catch((err) => {
                 if (isAbortError(err)) {
+                    logImportReviewClientFetch({
+                        phase: "filter-options",
+                        family,
+                        status: "abort",
+                        durationMs: Math.round(performance.now() - startedAt),
+                    });
                     return;
                 }
+                logImportReviewClientFetch({
+                    phase: "filter-options",
+                    family,
+                    status: "error",
+                    durationMs: Math.round(performance.now() - startedAt),
+                    error: err instanceof Error ? err.message : String(err),
+                });
                 if (isImportReviewBatchAmbiguousError(err)) {
                     setAmbiguousBatches(err.batches);
                     setAmbiguousSnapshot(err.sourceSnapshotVersion);
@@ -580,6 +618,20 @@ export function ImportReviewCandidatesClient({
             setError("");
             setAmbiguousBatches(null);
             setAmbiguousSnapshot("");
+
+            const startedAt = performance.now();
+            logImportReviewClientFetch({
+                phase: "candidates-list",
+                family,
+                status: "start",
+                query: {
+                    ...apiScopeQuery,
+                    limit,
+                    offset,
+                    sort,
+                    include_geometry: family !== "roads",
+                },
+            });
 
             try {
                 const params = {
@@ -618,6 +670,14 @@ export function ImportReviewCandidatesClient({
                     family === "places"
                         ? await getImportReviewPlaces(rest, signal ? { signal } : undefined)
                         : await getImportReviewRoads(rest, signal ? { signal } : undefined);
+                logImportReviewClientFetch({
+                    phase: "candidates-list",
+                    family,
+                    status: "success",
+                    durationMs: Math.round(performance.now() - startedAt),
+                    itemCount: res.items.length,
+                    total: res.total,
+                });
                 setList(res);
                 if (res.review_batch_id && !batchUrl.trim()) {
                     replaceQuery((p) => {
@@ -626,6 +686,12 @@ export function ImportReviewCandidatesClient({
                 }
             } catch (err) {
                 if (isAbortError(err)) {
+                    logImportReviewClientFetch({
+                        phase: "candidates-list",
+                        family,
+                        status: "abort",
+                        durationMs: Math.round(performance.now() - startedAt),
+                    });
                     return;
                 }
                 if (isImportReviewBatchAmbiguousError(err)) {
@@ -642,8 +708,17 @@ export function ImportReviewCandidatesClient({
                         `Failed to load ${importReviewCandidateTitle(family)}.`
                     )
                 );
+                logImportReviewClientFetch({
+                    phase: "candidates-list",
+                    family,
+                    status: "error",
+                    durationMs: Math.round(performance.now() - startedAt),
+                    error: err instanceof Error ? err.message : String(err),
+                });
             } finally {
-                setIsLoading(false);
+                if (!signal?.aborted) {
+                    setIsLoading(false);
+                }
             }
         },
         [hasValidScope, apiScopeQuery, limit, offset, sort, filters, qApplied, family, batchUrl, replaceQuery, roadClientFilters.promotion_status, roadClientFilters.class_code],
@@ -652,12 +727,27 @@ export function ImportReviewCandidatesClient({
     useEffect(() => {
         if (!hasValidScope) {
             setList(null);
+            setIsLoading(false);
             return;
         }
+        setIsLoading(true);
         const c = new AbortController();
         void fetchList(c.signal);
         return () => c.abort();
     }, [fetchList, hasValidScope]);
+
+    const showCandidatesSkeleton =
+        hasValidScope &&
+        list === null &&
+        !error &&
+        !(ambiguousBatches?.length) &&
+        isLoading;
+    const isRefreshingCandidates =
+        hasValidScope && isLoading && list !== null && (list.items.length ?? 0) > 0;
+    const candidatesLoadingMessage =
+        family === "roads"
+            ? IMPORT_REVIEW_LOADING.loadingRoadCandidates
+            : IMPORT_REVIEW_LOADING.loadingCandidates;
 
     const bulk = useImportReviewBulkActions({
         items: list?.items ?? [],
@@ -798,7 +888,6 @@ export function ImportReviewCandidatesClient({
 
     const handleRoadOverridesSaved = (row: ImportReviewBuildingListItem) => {
         mergeRow(row);
-        void fetchList();
     };
 
     const openRoadDrawer = useCallback(
@@ -809,13 +898,34 @@ export function ImportReviewCandidatesClient({
                 return;
             }
             setDrawerDetailLoading(true);
+            const startedAt = performance.now();
+            logImportReviewClientFetch({
+                phase: "road-candidate-detail",
+                family: "roads",
+                status: "start",
+                query: { ...apiScopeQuery, candidateId: row.id, include_geometry: true },
+            });
             try {
                 const detail = await getImportReviewFamilyCandidateById("roads", row.id, {
                     ...apiScopeQuery,
                     include_geometry: true,
                 });
+                logImportReviewClientFetch({
+                    phase: "road-candidate-detail",
+                    family: "roads",
+                    status: "success",
+                    durationMs: Math.round(performance.now() - startedAt),
+                    itemCount: 1,
+                });
                 setDrawerRow(detail);
-            } catch {
+            } catch (err) {
+                logImportReviewClientFetch({
+                    phase: "road-candidate-detail",
+                    family: "roads",
+                    status: "error",
+                    durationMs: Math.round(performance.now() - startedAt),
+                    error: err instanceof Error ? err.message : String(err),
+                });
                 // Keep list row if detail fetch fails.
             } finally {
                 setDrawerDetailLoading(false);
@@ -1324,7 +1434,7 @@ export function ImportReviewCandidatesClient({
                                 </p>
                             </div>
                             {filterOptionsLoading ? (
-                                <span className="text-xs text-gray-500">Loading filter options…</span>
+                                <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.loadingFilterOptions} />
                             ) : filterOptions ? (
                                 <span className="text-xs text-gray-500">
                                     Scope{" "}
@@ -1586,7 +1696,9 @@ export function ImportReviewCandidatesClient({
                                     </label>
                                 </div>
                                 {roadDryRunLoading ? (
-                                    <p className="text-xs text-gray-500">Loading dry-run summary…</p>
+                                    <ImportReviewInlineSpinner
+                                        label={IMPORT_REVIEW_LOADING.loadingRoadDryRunSummary}
+                                    />
                                 ) : roadDryRunError ? (
                                     <p className="text-xs text-amber-800">{roadDryRunError}</p>
                                 ) : roadDryRunSummary ? (
@@ -1634,23 +1746,26 @@ export function ImportReviewCandidatesClient({
                             <span className="text-sm text-gray-600">
                                 {hasValidScope ? (
                                     <>
-                                        <strong className="text-gray-900">{total.toLocaleString()}</strong>{" "}
-                                        candidates
-                                        {family === "roads" && hasActiveRoadClientFilters ? (
+                                        {showCandidatesSkeleton ? (
+                                            candidatesLoadingMessage
+                                        ) : isRefreshingCandidates ? (
+                                            IMPORT_REVIEW_LOADING.refreshingCandidates
+                                        ) : (
                                             <>
-                                                {" "}
-                                                ·{" "}
-                                                <strong className="text-gray-900">
-                                                    {displayedItems.length.toLocaleString()}
-                                                </strong>{" "}
-                                                on this page after road filters
+                                                <strong className="text-gray-900">{total.toLocaleString()}</strong>{" "}
+                                                candidates
+                                                {family === "roads" && hasActiveRoadClientFilters ? (
+                                                    <>
+                                                        {" "}
+                                                        ·{" "}
+                                                        <strong className="text-gray-900">
+                                                            {displayedItems.length.toLocaleString()}
+                                                        </strong>{" "}
+                                                        on this page after road filters
+                                                    </>
+                                                ) : null}
                                             </>
-                                        ) : null}
-                                        {isLoading
-                                            ? family === "roads"
-                                                ? " · Loading road candidates…"
-                                                : " · Loading…"
-                                            : null}
+                                        )}
                                     </>
                                 ) : (
                                     "Set snapshot version and apply."
@@ -1758,6 +1873,22 @@ export function ImportReviewCandidatesClient({
                     />
                 ) : null}
 
+                {showCandidatesSkeleton ? (
+                    <>
+                        <ImportReviewLoadingBannerWithSpinner message={candidatesLoadingMessage} />
+                        <ImportReviewSkeletonTable
+                            columnCount={emptyColSpan}
+                            message={candidatesLoadingMessage}
+                        />
+                    </>
+                ) : (
+                    <>
+                {isRefreshingCandidates ? (
+                    <div className="flex justify-end">
+                        <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.refreshingCandidates} />
+                    </div>
+                ) : null}
+
                 <ImportReviewTableFrame>
                     <table className={`${IMPORT_REVIEW_TABLE_MIN_WIDTH_CLASS} divide-y divide-gray-200 text-left text-sm`}>
                         <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -1826,7 +1957,7 @@ export function ImportReviewCandidatesClient({
                             ) : isLoading && !list ? (
                                 <tr>
                                     <td colSpan={emptyColSpan} className="px-4 py-10 text-center text-gray-500">
-                                        {family === "roads" ? "Loading road candidates…" : "Loading…"}
+                                        {candidatesLoadingMessage}
                                     </td>
                                 </tr>
                             ) : tableRows.length === 0 ? (
@@ -2020,6 +2151,8 @@ export function ImportReviewCandidatesClient({
                         </tbody>
                     </table>
                 </ImportReviewTableFrame>
+                    </>
+                )}
 
                 {list && total > 0 ? (
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2103,17 +2236,15 @@ export function ImportReviewCandidatesClient({
                         </div>
                         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pb-8 text-sm">
                             {family === "roads" && drawerDetailLoading ? (
-                                <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
-                                    Loading road detail…
-                                </p>
+                                <ImportReviewInlineSpinner
+                                    label={IMPORT_REVIEW_LOADING.loadingCandidateDetail}
+                                />
                             ) : null}
                             {family === "roads" &&
                             !drawerDetailLoading &&
                             !drawerRow.geometry &&
                             !drawerMapInput?.geometry ? (
-                                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                                    Loading geometry…
-                                </p>
+                                <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.loadingGeometry} />
                             ) : null}
                             {family === "roads" &&
                             (drawerRow.match_status === "duplicate_candidate" ||
