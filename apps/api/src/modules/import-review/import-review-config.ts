@@ -33,6 +33,14 @@ export function isImportReviewRoadPromotionEnabled(): boolean {
     return process.env.ENABLE_IMPORT_REVIEW_ROAD_PROMOTION === "true";
 }
 
+/** When false, road publish batches are limited to {@link IMPORT_REVIEW_ROAD_PROMOTION_MAX_ITEMS}. */
+export function isImportReviewRoadBulkPromotionEnabled(): boolean {
+    return process.env.ENABLE_IMPORT_REVIEW_ROAD_BULK_PROMOTION === "true";
+}
+
+/** Max road publish items per batch without ENABLE_IMPORT_REVIEW_ROAD_BULK_PROMOTION. */
+export const IMPORT_REVIEW_ROAD_PROMOTION_MAX_ITEMS = 3;
+
 /** When false, address promotion dry-run is allowed but POST promote is blocked. */
 export function isImportReviewAddressPromotionEnabled(): boolean {
     return process.env.ENABLE_IMPORT_REVIEW_ADDRESS_PROMOTION === "true";

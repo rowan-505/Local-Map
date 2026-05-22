@@ -18,13 +18,16 @@ import {
     type ImportReviewBuildingListItem,
     type ImportReviewGeoJson,
     type ImportReviewRoadRoutingValidationResponse,
+    type RoadDryRunItemResult,
     type StreetLineStringGeoJson,
 } from "@/src/lib/api";
+import ImportReviewRoadStructuredValidation from "@/src/features/import-review/components/ImportReviewRoadStructuredValidation";
 import {
     bundleFromRoutingValidation,
     bundleFromRow,
-    ValidationIssuesSection,
-    ValidationStatsGrid,
+    ValidationSummaryBanner,
+    ValidationModeBanner,
+    ApprovalGuidanceNote,
 } from "@/src/lib/importReviewRoadDrawerValidation";
 import {
     asOverrideRecord,
@@ -64,6 +67,7 @@ type Props = {
     formOptions?: ImportReviewFormOptionsBundle | null;
     formOptionsLoading?: boolean;
     formOptionsError?: string;
+    dryRunItem?: RoadDryRunItemResult | null;
 };
 
 function hasMutationScope(scope: ImportReviewRoadMutationScope): boolean {
@@ -94,6 +98,7 @@ export default function ImportReviewRoadOverridesPanel({
     formOptions = null,
     formOptionsLoading = false,
     formOptionsError = "",
+    dryRunItem = null,
 }: Props) {
     const promoted = (row.promotion_status ?? "").toLowerCase() === "promoted";
     const disabled = !canEdit || promoted;
@@ -124,6 +129,12 @@ export default function ImportReviewRoadOverridesPanel({
     const [adminAreaId, setAdminAreaId] = useState<string | null>(null);
     const [isOneway, setIsOneway] = useState(false);
     const [surface, setSurface] = useState("");
+    const [bridge, setBridge] = useState(false);
+    const [tunnel, setTunnel] = useState(false);
+    const [layer, setLayer] = useState("");
+    const [access, setAccess] = useState("");
+    const [speedKph, setSpeedKph] = useState("");
+    const [showVertices, setShowVertices] = useState(false);
     const [overridesReviewNote, setOverridesReviewNote] = useState("");
     const [editableGeometry, setEditableGeometry] = useState<StreetLineStringGeoJson | null>(null);
     const [multiLineWarning, setMultiLineWarning] = useState<string | null>(null);
@@ -166,6 +177,11 @@ export default function ImportReviewRoadOverridesPanel({
             setIsOneway(seed.isOneway);
             baselineOnewayRef.current = seed.isOneway;
             setSurface(seed.surface);
+            setBridge(seed.bridge);
+            setTunnel(seed.tunnel);
+            setLayer(seed.layer);
+            setAccess(seed.access);
+            setSpeedKph(seed.speedKph);
             setOverridesReviewNote(seed.overridesReviewNote);
             setEditableGeometry(seed.line);
             setMultiLineWarning(seed.multiLineWarning);
@@ -248,6 +264,62 @@ export default function ImportReviewRoadOverridesPanel({
         fitMapToReviewCandidate(map, editableGeometry, "line", { duration: 650 });
     }, [mapHydrateEpoch, hasRenderableLine, editableGeometry]);
 
+    useEffect(() => {
+        const map = mapInstanceRef.current;
+        if (!map || !editableGeometry || editableGeometry.coordinates.length < 2) {
+            return;
+        }
+        const start = editableGeometry.coordinates[0];
+        const end = editableGeometry.coordinates[editableGeometry.coordinates.length - 1];
+        if (!start || !end) {
+            return;
+        }
+        const sourceId = "import-review-road-endpoints";
+        const startLayerId = "import-review-road-endpoint-start";
+        const endLayerId = "import-review-road-endpoint-end";
+        const fc: GeoJSON.FeatureCollection = {
+            type: "FeatureCollection",
+            features: [
+                {
+                    type: "Feature",
+                    properties: { role: "start" },
+                    geometry: { type: "Point", coordinates: start },
+                },
+                {
+                    type: "Feature",
+                    properties: { role: "end" },
+                    geometry: { type: "Point", coordinates: end },
+                },
+            ],
+        };
+        const apply = () => {
+            if (map.getSource(sourceId)) {
+                (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(fc);
+            } else {
+                map.addSource(sourceId, { type: "geojson", data: fc });
+                map.addLayer({
+                    id: startLayerId,
+                    type: "circle",
+                    source: sourceId,
+                    filter: ["==", ["get", "role"], "start"],
+                    paint: { "circle-radius": 6, "circle-color": "#059669", "circle-stroke-width": 2, "circle-stroke-color": "#fff" },
+                });
+                map.addLayer({
+                    id: endLayerId,
+                    type: "circle",
+                    source: sourceId,
+                    filter: ["==", ["get", "role"], "end"],
+                    paint: { "circle-radius": 6, "circle-color": "#dc2626", "circle-stroke-width": 2, "circle-stroke-color": "#fff" },
+                });
+            }
+        };
+        if (map.isStyleLoaded()) {
+            apply();
+        } else {
+            map.once("load", apply);
+        }
+    }, [editableGeometry, mapHydrateEpoch]);
+
     async function runValidateRouting(confirmWarnings: boolean) {
         if (!hasMutationScope(mutationScope)) {
             setValidateError("Apply filters with review_batch_id or source snapshot version first.");
@@ -318,6 +390,11 @@ export default function ImportReviewRoadOverridesPanel({
                 adminAreaId,
                 surface,
                 isOneway,
+                bridge,
+                tunnel,
+                layer,
+                access,
+                speedKph,
                 confidenceScore: row.confidence_score,
                 geom: geomPayload,
                 includeGeom,
@@ -351,7 +428,7 @@ export default function ImportReviewRoadOverridesPanel({
             onSaved(updated);
             hydrateFromRow(updated);
             setStreetMapRefreshKey((k) => k + 1);
-            setSaveSuccessMessage("Overrides saved.");
+            setSaveSuccessMessage("Saved");
         } catch (err) {
             const msg = err instanceof Error ? err.message : "Failed to save road overrides";
 
@@ -430,51 +507,36 @@ export default function ImportReviewRoadOverridesPanel({
             <section className="space-y-2 rounded-lg border border-teal-200 bg-teal-50/40 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-teal-900">
-                        Routing validation
+                        Road validation
                     </h4>
                     <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            disabled={saving || disabled || optionsLoading}
+                            onClick={() => void submitOverrides(false)}
+                            className="rounded-lg border border-violet-700 bg-violet-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-900 disabled:opacity-50"
+                        >
+                            {saving ? "Saving overrides…" : "Save overrides"}
+                        </button>
                         <button
                             type="button"
                             disabled={validating || disabled || optionsLoading}
                             onClick={() => void runValidateRouting(false)}
                             className="rounded-lg border border-teal-700 bg-teal-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-900 disabled:opacity-50"
                         >
-                            {validating ? "Validating…" : "Validate for Routing"}
+                            {validating ? "Revalidating road…" : "Re-run road validation"}
                         </button>
-                        {lastValidation ? (
-                            <button
-                                type="button"
-                                disabled={validating || disabled}
-                                onClick={() => void runValidateRouting(false)}
-                                className="rounded-lg border border-teal-300 bg-white px-3 py-1.5 text-xs font-semibold text-teal-900 hover:bg-teal-50 disabled:opacity-50"
-                            >
-                                Revalidate
-                            </button>
-                        ) : null}
                     </div>
                 </div>
                 {validateError ? <InlineAlert message={validateError} /> : null}
-                {lastValidation?.stats ? (
-                    <ValidationStatsGrid
-                        stats={lastValidation.stats}
-                        canApprove={lastValidation.can_approve}
-                    />
-                ) : null}
-                {lastValidation ||
-                displayValidationBundle.errors.length > 0 ||
-                displayValidationBundle.warnings.length > 0 ||
-                displayValidationBundle.info.length > 0 ? (
-                    <ValidationIssuesSection
-                        errors={displayValidationBundle.errors}
-                        warnings={displayValidationBundle.warnings}
-                        info={displayValidationBundle.info}
-                    />
-                ) : (
-                    <p className="text-[11px] text-gray-600">
-                        Runs full geometry, connectivity, duplicate, and promotion-readiness checks. Results are
-                        saved on the candidate row (no core promotion).
-                    </p>
-                )}
+                <ImportReviewRoadStructuredValidation
+                    errors={displayValidationBundle.errors}
+                    warnings={displayValidationBundle.warnings}
+                    info={displayValidationBundle.info}
+                    stats={lastValidation?.stats ?? displayValidationBundle.stats}
+                    canApprove={lastValidation?.can_approve ?? displayValidationBundle.canApprove}
+                    dryRunItem={dryRunItem}
+                />
             </section>
 
             <section className="space-y-2 rounded-lg border border-teal-100 bg-white/90 p-3">
@@ -528,7 +590,7 @@ export default function ImportReviewRoadOverridesPanel({
                         <option value="">Select road class…</option>
                         {roadClasses.map((rc) => (
                             <option key={rc.id} value={rc.id}>
-                                {rc.name} ({rc.code})
+                                {rc.code} — {rc.name}
                             </option>
                         ))}
                     </select>
@@ -594,6 +656,59 @@ export default function ImportReviewRoadOverridesPanel({
                     One-way
                 </label>
 
+                <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
+                    <input
+                        type="checkbox"
+                        checked={bridge}
+                        disabled={disabled || optionsLoading}
+                        onChange={(e) => setBridge(e.target.checked)}
+                        className="rounded border-gray-300"
+                    />
+                    Bridge
+                </label>
+                <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
+                    <input
+                        type="checkbox"
+                        checked={tunnel}
+                        disabled={disabled || optionsLoading}
+                        onChange={(e) => setTunnel(e.target.checked)}
+                        className="rounded border-gray-300"
+                    />
+                    Tunnel
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-medium text-gray-700">
+                    Layer
+                    <input
+                        value={layer}
+                        disabled={disabled || optionsLoading}
+                        onChange={(e) => setLayer(e.target.value)}
+                        className={selectCls}
+                        inputMode="numeric"
+                        placeholder="e.g. 1"
+                    />
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-medium text-gray-700">
+                    Access
+                    <input
+                        value={access}
+                        disabled={disabled || optionsLoading}
+                        onChange={(e) => setAccess(e.target.value)}
+                        className={selectCls}
+                        placeholder="e.g. public"
+                    />
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-medium text-gray-700">
+                    Speed (kph)
+                    <input
+                        value={speedKph}
+                        disabled={disabled || optionsLoading}
+                        onChange={(e) => setSpeedKph(e.target.value)}
+                        className={selectCls}
+                        inputMode="numeric"
+                        placeholder="Optional"
+                    />
+                </label>
+
                 <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 sm:col-span-2">
                     review_note (saved with overrides)
                     <textarea
@@ -616,6 +731,9 @@ export default function ImportReviewRoadOverridesPanel({
                     onFit={handleFitGeometry}
                     basemapMode={basemapMode}
                     onBasemapModeChange={setBasemapMode}
+                    showVerticesToggle
+                    showVertices={showVertices}
+                    onShowVerticesChange={setShowVertices}
                 />
                 <div className="p-2">
                     <StreetEditorMap
@@ -639,18 +757,14 @@ export default function ImportReviewRoadOverridesPanel({
                 ) : null}
                 <p className="border-t border-gray-100 px-3 py-2 text-[11px] leading-relaxed text-gray-600">
                     Vertex drag and snap match <span className="font-medium">Streets</span>. Use{" "}
-                    <span className="font-medium">Fit</span> and Map / Sat / Hyb like place & building previews.
+                    <span className="font-medium">Fit</span> and Map / Sat / Hyb. Green/red markers show start/end
+                    endpoints. Nearby core roads render from the streets tile layer.
                 </p>
             </div>
 
-            <button
-                type="button"
-                disabled={saving || disabled || optionsLoading}
-                onClick={() => void submitOverrides(false)}
-                className="rounded-lg bg-violet-900 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
-            >
-                {saving ? "Saving overrides…" : "Save overrides"}
-            </button>
+            {saveSuccessMessage ? (
+                <p className="text-xs font-medium text-emerald-800">{saveSuccessMessage}</p>
+            ) : null}
 
             <div>
                 <h4 className="text-[11px] font-semibold uppercase text-gray-500">Stored review_overrides</h4>

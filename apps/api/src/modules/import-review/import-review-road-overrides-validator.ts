@@ -6,6 +6,11 @@ import type {
     ImportReviewRoadOverrideValidationOutcome,
 } from "./import-review-road-overrides.types.js";
 import { pickEffectiveDisplayName } from "./import-review-name-fields.js";
+import {
+    normalizeOverrideOptionalBoolean,
+    normalizeOverrideOptionalInteger,
+    normalizeOverrideOptionalNumber,
+} from "./import-review-overrides-normalize.js";
 
 const SURFACE_MAX = 200;
 
@@ -349,6 +354,27 @@ export async function buildImportReviewRoadOverrideOutcome(args: {
                 normalizedPatchForJson.surface = surfOk.value;
             }
         }
+    }
+
+    if (args.patch.bridge !== undefined) {
+        normalizedPatchForJson.bridge = normalizeOverrideOptionalBoolean(args.patch.bridge, "bridge");
+    }
+    if (args.patch.tunnel !== undefined) {
+        normalizedPatchForJson.tunnel = normalizeOverrideOptionalBoolean(args.patch.tunnel, "tunnel");
+    }
+    if (args.patch.layer !== undefined) {
+        normalizedPatchForJson.layer = normalizeOverrideOptionalInteger(args.patch.layer, "layer");
+    }
+    if (args.patch.access !== undefined) {
+        if (args.patch.access === null) {
+            normalizedPatchForJson.access = null;
+        } else if (typeof args.patch.access === "string") {
+            const t = args.patch.access.trim();
+            normalizedPatchForJson.access = t === "" ? null : t;
+        }
+    }
+    if (args.patch.speed_kph !== undefined) {
+        normalizedPatchForJson.speed_kph = normalizeOverrideOptionalNumber(args.patch.speed_kph, "speed_kph");
     }
 
     let normalizedGeomCandidate: Record<string, unknown> | null = null;

@@ -11,6 +11,7 @@
     "test:entity-names": "node --import tsx --test src/lib/entity-names/entity-names.test.ts",
     "test:address-composer": "node --import tsx --test src/modules/addresses/address-composer.test.ts",
     "check:streets-names": "tsx scripts/check-street-name-normalization.ts",
+    "build:routing-graph": "tsx src/scripts/build-routing-graph.ts",
     "docs:api": "tsx scripts/generate-api-docs.ts",
     "curl-examples:import-review-auth": "bash scripts/import-review-admin-curl-examples.sh",
     "prisma:generate": "prisma generate"

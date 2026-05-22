@@ -12,6 +12,7 @@ import {
     AdminAreaBoundaryConfidenceCell,
     AdminAreaBoundaryStatusBadge,
 } from "../admin-areas/adminAreaBoundaryBadges";
+import { StreetAttributesCell, StreetRoutingStatusBadge } from "../streets/streetRoutingBadges";
 import { dash, formatArea, formatDate, yesNo } from "../utils/formatters";
 import {
     buildingDisplayName,
@@ -286,7 +287,8 @@ export const CORE_REVIEW_STREETS_CONFIG: CoreReviewEntityConfig<CoreReviewStreet
     columns: [
         { id: "class", header: "Road class", cell: (r, q) => hl(roadClassLabel(r), q) },
         { id: "admin", header: "Admin area", cell: (r, q) => hl(dash(r.adminAreaName), q) },
-        { id: "oneway", header: "Oneway", cell: (r) => yesNo(r.isOneway) },
+        { id: "attributes", header: "Attributes", cell: (r) => <StreetAttributesCell row={r} /> },
+        { id: "routing", header: "Routing", cell: (r) => <StreetRoutingStatusBadge row={r} /> },
         ...standardNameAndVerifiedColumns<CoreReviewStreetRow>({
             myanmar: (r) => r.myanmarName,
             english: (r) => r.englishName,
@@ -300,8 +302,8 @@ export const CORE_REVIEW_STREETS_CONFIG: CoreReviewEntityConfig<CoreReviewStreet
         { label: "Canonical name", value: streetDisplayName(r) },
         { label: "Road class", value: roadClassLabel(r) },
         { label: "Admin area", value: dash(r.adminAreaName) },
-        { label: "Oneway", value: yesNo(r.isOneway) },
-        { label: "Surface", value: dash(r.surface) },
+        { label: "Attributes", value: <StreetAttributesCell row={r} /> },
+        { label: "Routing", value: <StreetRoutingStatusBadge row={r} /> },
         { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
         { label: "Active", value: yesNo(r.isActive) },
         { label: "Deleted", value: r.deletedAt ? formatDate(r.deletedAt) : "—" },

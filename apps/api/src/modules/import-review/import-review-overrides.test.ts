@@ -121,6 +121,31 @@ describe("sanitizeReviewOverridesPatch", () => {
         assert.equal(patch.is_oneway, false);
     });
 
+    it("normalizes road layer empty string to null and numeric strings to integers", () => {
+        const empty = sanitizeReviewOverridesPatch("roads", { layer: "" });
+        assert.equal(empty.layer, null);
+
+        const zero = sanitizeReviewOverridesPatch("roads", { layer: "0" });
+        assert.equal(zero.layer, 0);
+
+        const bridgeLayer = sanitizeReviewOverridesPatch("roads", { layer: "1" });
+        assert.equal(bridgeLayer.layer, 1);
+
+        const tunnelLayer = sanitizeReviewOverridesPatch("roads", { layer: "-1" });
+        assert.equal(tunnelLayer.layer, -1);
+    });
+
+    it("rejects invalid road layer with 400-class error", () => {
+        assert.throws(
+            () =>
+                sanitizeReviewOverridesPatch("roads", {
+                    layer: "abc",
+                }),
+            (err: unknown) =>
+                err instanceof ImportReviewDecisionRuleError && err.message.includes("layer")
+        );
+    });
+
     it("rejects invalid road_class_id with 400-class error", () => {
         assert.throws(
             () =>

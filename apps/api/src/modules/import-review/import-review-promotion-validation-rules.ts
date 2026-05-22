@@ -1,16 +1,18 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import {
+    ImportReviewCandidateColumnRegistry,
+    effectiveAdminAreaIdExpr,
+    landuseClassCodeEffectiveExpr,
+    landuseClassIdExpr,
+    landuseEffectiveClassIdRawExpr,
+} from "./import-review-candidate-column-registry.js";
+import {
     busStopEffectiveAdminAreaIdRawExpr,
     busStopNameLocalExpr,
     busStopPrimaryRealNameExpr,
     busStopStopCodeExpr,
-    effectiveAdminAreaIdExpr,
 } from "./import-review-effective-values.js";
-import {
-    landuseClassIdExpr,
-    landuseEffectiveClassIdRawExpr,
-} from "./import-review-promotion-promote-landuse-sql.js";
 import type { ImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 import { getImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 import {
@@ -88,7 +90,11 @@ function lineageExpr(alias: string): Prisma.Sql {
 }
 
 export class ImportReviewPromotionValidationRules {
-    constructor(private readonly prisma: PrismaClient) {}
+    private readonly columnRegistry: ImportReviewCandidateColumnRegistry;
+
+    constructor(private readonly prisma: PrismaClient) {
+        this.columnRegistry = new ImportReviewCandidateColumnRegistry(prisma);
+    }
 
     async validateStage(
         stage: ImportReviewPublishItemValidationStageKey,
@@ -402,7 +408,7 @@ export class ImportReviewPromotionValidationRules {
                 ? Prisma.sql`
                     UNION ALL
                     SELECT spi.id, 'missing_building_type',
-                        'class_code or building_type must be available.', 'error'
+                        'class_code or building_type is recommended before promotion.', 'warning'
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND ${col(a, "id")} IS NOT NULL
@@ -427,12 +433,12 @@ export class ImportReviewPromotionValidationRules {
                   : family === "landuse"
                     ? Prisma.sql`
                     UNION ALL
-                    SELECT spi.id, 'missing_landuse_class_id',
-                        'landuse_class_id is required (review_overrides or candidate column).', 'error'
+                    SELECT spi.id, 'CLASS_CODE_MISSING',
+                        'class_code is recommended for landuse features.', 'warning'
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND ${col(a, "id")} IS NOT NULL
-                      AND ${landuseClassIdExpr(a)} IS NULL
+                      AND ${landuseClassCodeEffectiveExpr(a)} IS NULL
                   `
                     : family === "water_polygons" || family === "water_lines"
                       ? Prisma.sql`
@@ -448,7 +454,7 @@ export class ImportReviewPromotionValidationRules {
                         ? Prisma.sql`
                     UNION ALL
                     SELECT spi.id, 'missing_stop_identity',
-                        'name or stop_code is required for bus stops.', 'error'
+                        'name or stop_code is recommended for bus stops.', 'warning'
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND ${col(a, "id")} IS NOT NULL
@@ -505,11 +511,13 @@ export class ImportReviewPromotionValidationRules {
         const a = config.tableAlias;
         const join = itemsJoinSql(config);
         const family = config.entityFamily;
+        const caps = await this.columnRegistry.getCapabilities(config.candidateTable);
+        const adminExpr = effectiveAdminAreaIdExpr(a, { hasAdminAreaColumn: caps.hasAdminAreaIdColumn });
 
         if (family === "buildings") {
-            return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
-                SELECT publish_item_id, code, message, severity FROM (
-                    SELECT spi.id AS publish_item_id, 'invalid_building_type_id'::text AS code,
+            const buildingTypeCheck = caps.hasBuildingTypeIdColumn
+                ? Prisma.sql`
+                    SELECT spi.id AS publish_item_id, 'INVALID_BUILDING_TYPE_ID'::text AS code,
                         'building_type_id does not exist in ref.ref_building_types.'::text AS message, 'error'::text AS severity
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
@@ -521,22 +529,29 @@ export class ImportReviewPromotionValidationRules {
                       )
 
                     UNION ALL
-                    SELECT spi.id, 'invalid_admin_area_id',
-                        'admin_area_id does not exist in core.core_admin_areas.', 'error'
+                  `
+                : Prisma.empty;
+
+            return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
+                SELECT publish_item_id, code, message, severity FROM (
+                    ${buildingTypeCheck}
+                    SELECT spi.id AS publish_item_id, 'INVALID_ADMIN_AREA_ID'::text AS code,
+                        'admin_area_id does not exist in core.core_admin_areas.'::text AS message, 'error'::text AS severity
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
-                      AND ${col(a, "admin_area_id")} IS NOT NULL
+                      AND ${adminExpr} IS NOT NULL
                       AND NOT EXISTS (
                           SELECT 1 FROM core.core_admin_areas AS ca
-                          WHERE ca.id = ${col(a, "admin_area_id")}
+                          WHERE ca.id = ${adminExpr}
                             AND ca.is_active IS TRUE
                       )
 
                     UNION ALL
-                    SELECT spi.id, 'missing_admin_area',
+                    SELECT spi.id, 'ADMIN_AREA_MISSING',
                         'admin_area_id is not set; confirm admin assignment before promotion.', 'warning'
                     ${join}
-                    WHERE spi.id IN (${Prisma.join(itemIds)}) AND ${col(a, "admin_area_id")} IS NULL
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${adminExpr} IS NULL
                 ) AS issues
             `;
         }
@@ -548,7 +563,7 @@ export class ImportReviewPromotionValidationRules {
 
             return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
                 SELECT publish_item_id, code, message, severity FROM (
-                    SELECT spi.id AS publish_item_id, 'invalid_category_id'::text AS code,
+                    SELECT spi.id AS publish_item_id, 'INVALID_POI_CATEGORY_ID'::text AS code,
                         'category_id does not exist in ref.ref_poi_categories.'::text AS message, 'error'::text AS severity
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
@@ -568,37 +583,76 @@ export class ImportReviewPromotionValidationRules {
 
                     UNION ALL
                     SELECT spi.id, 'CATEGORY_MISSING'::text,
-                        'No category_id or mappable class_code; category is required for core.core_places.'::text,
+                        'No category_id or mappable class_code; category is recommended for core.core_places.'::text,
                         'warning'::text AS severity
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND ${resolvedCategoryId} IS NULL
                       AND ${classCode} IS NULL
+
+                    UNION ALL
+                    SELECT spi.id, 'INVALID_ADMIN_AREA_ID',
+                        'admin_area_id does not exist in core.core_admin_areas.', 'error'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${adminExpr} IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_admin_areas AS ca
+                          WHERE ca.id = ${adminExpr}
+                            AND coalesce(ca.is_active, true)
+                      )
+
+                    UNION ALL
+                    SELECT spi.id, 'ADMIN_AREA_MISSING',
+                        'admin_area_id is not set; confirm admin assignment before promotion.', 'warning'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${adminExpr} IS NULL
                 ) AS issues
             `;
         }
 
         if (family === "bus_stops") {
             return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
-                SELECT spi.id AS publish_item_id, 'invalid_admin_area_id'::text AS code,
-                    'admin_area_id does not exist in core.core_admin_areas.'::text AS message, 'error'::text AS severity
-                ${join}
-                WHERE spi.id IN (${Prisma.join(itemIds)})
-                  AND ${busStopEffectiveAdminAreaIdRawExpr(a)} IS NOT NULL
-                  AND NOT EXISTS (
-                      SELECT 1 FROM core.core_admin_areas AS ca
-                      WHERE ca.id = ${busStopEffectiveAdminAreaIdRawExpr(a)}
-                        AND ca.is_active IS TRUE
-                  )
+                SELECT publish_item_id, code, message, severity FROM (
+                    SELECT spi.id AS publish_item_id, 'INVALID_ADMIN_AREA_ID'::text AS code,
+                        'admin_area_id does not exist in core.core_admin_areas.'::text AS message, 'error'::text AS severity
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${busStopEffectiveAdminAreaIdRawExpr(a)} IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_admin_areas AS ca
+                          WHERE ca.id = ${busStopEffectiveAdminAreaIdRawExpr(a)}
+                            AND ca.is_active IS TRUE
+                      )
+
+                    UNION ALL
+                    SELECT spi.id, 'ADMIN_AREA_MISSING',
+                        'admin_area_id is not set on the bus stop candidate.', 'warning'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${busStopEffectiveAdminAreaIdRawExpr(a)} IS NULL
+                ) AS issues
             `;
         }
 
         if (family === "landuse") {
-            const rawClassId = landuseEffectiveClassIdRawExpr(a);
-            const validClassId = landuseClassIdExpr(a);
+            const rawClassId = landuseEffectiveClassIdRawExpr(a, {
+                hasLanduseClassIdColumn: caps.hasLanduseClassIdColumn,
+            });
+            const validClassId = landuseClassIdExpr(a, {
+                hasLanduseClassIdColumn: caps.hasLanduseClassIdColumn,
+            });
+            const optionalColumnNotice = this.optionalAdminAreaColumnNoticeSql(
+                config,
+                itemIds,
+                caps.hasAdminAreaIdColumn,
+                "Landuse validation uses review_overrides/normalized_data for admin_area_id; landuse_candidates has no admin_area_id column. This reference is optional for landuse."
+            );
+
             return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
                 SELECT publish_item_id, code, message, severity FROM (
-                    SELECT spi.id AS publish_item_id, 'invalid_landuse_class_id'::text AS code,
+                    SELECT spi.id AS publish_item_id, 'INVALID_LANDUSE_CLASS_ID'::text AS code,
                         'landuse_class_id does not exist in ref.ref_landuse_classes.'::text AS message,
                         'error'::text AS severity
                     ${join}
@@ -607,28 +661,82 @@ export class ImportReviewPromotionValidationRules {
                       AND ${validClassId} IS NULL
 
                     UNION ALL
-                    SELECT spi.id, 'invalid_admin_area_id',
+                    SELECT spi.id, 'INVALID_ADMIN_AREA_ID',
                         'admin_area_id does not exist in core.core_admin_areas.', 'error'
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
-                      AND ${effectiveAdminAreaIdExpr(a)} IS NOT NULL
+                      AND ${adminExpr} IS NOT NULL
                       AND NOT EXISTS (
                           SELECT 1 FROM core.core_admin_areas AS ca
-                          WHERE ca.id = ${effectiveAdminAreaIdExpr(a)}
+                          WHERE ca.id = ${adminExpr}
                             AND coalesce(ca.is_active, true)
                       )
 
                     UNION ALL
-                    SELECT spi.id, 'missing_admin_area',
+                    SELECT spi.id, 'ADMIN_AREA_MISSING',
                         'admin_area_id is not set; confirm admin assignment before promotion.', 'warning'
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
-                      AND ${effectiveAdminAreaIdExpr(a)} IS NULL
+                      AND ${adminExpr} IS NULL
+                    ${optionalColumnNotice}
+                ) AS issues
+            `;
+        }
+
+        if (family === "water_lines" || family === "water_polygons") {
+            const entityLabel = family === "water_lines" ? "Water line" : "Water polygon";
+            const optionalColumnNotice = this.optionalAdminAreaColumnNoticeSql(
+                config,
+                itemIds,
+                caps.hasAdminAreaIdColumn,
+                `${entityLabel} validation uses review_overrides/normalized_data for admin_area_id; ${config.candidateTable.split(".").pop()} has no admin_area_id column. This reference is optional.`
+            );
+
+            return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
+                SELECT publish_item_id, code, message, severity FROM (
+                    SELECT spi.id AS publish_item_id, 'INVALID_ADMIN_AREA_ID'::text AS code,
+                        'admin_area_id does not exist in core.core_admin_areas.'::text AS message, 'error'::text AS severity
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${adminExpr} IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_admin_areas AS ca
+                          WHERE ca.id = ${adminExpr}
+                            AND coalesce(ca.is_active, true)
+                      )
+
+                    UNION ALL
+                    SELECT spi.id, 'ADMIN_AREA_MISSING',
+                        'admin_area_id is not set; confirm admin assignment before promotion.', 'warning'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${adminExpr} IS NULL
+                    ${optionalColumnNotice}
                 ) AS issues
             `;
         }
 
         return [];
+    }
+
+    private optionalAdminAreaColumnNoticeSql(
+        config: ImportReviewPublishFamilyConfig,
+        itemIds: bigint[],
+        hasAdminAreaIdColumn: boolean,
+        message: string
+    ): Prisma.Sql {
+        if (itemIds.length === 0 || hasAdminAreaIdColumn) {
+            return Prisma.empty;
+        }
+        const join = itemsJoinSql(config);
+        return Prisma.sql`
+            UNION ALL
+            SELECT spi.id, 'OPTIONAL_COLUMN_NOT_AVAILABLE',
+                ${message}, 'info'
+            ${join}
+            WHERE spi.id IN (${Prisma.join(itemIds)})
+              AND spi.id = (SELECT min(v) FROM unnest(ARRAY[${Prisma.join(itemIds)}]::bigint[]) AS v)
+        `;
     }
 
     private async validateDuplicates(

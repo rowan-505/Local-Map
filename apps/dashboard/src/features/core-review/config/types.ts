@@ -74,6 +74,7 @@ export type CoreReviewStreetRow = {
     isOneway: boolean | null;
     bridge: boolean | null;
     tunnel: boolean | null;
+    routingStatus: string | null;
     isActive: boolean;
     isVerified: boolean;
     deletedAt: string | null;

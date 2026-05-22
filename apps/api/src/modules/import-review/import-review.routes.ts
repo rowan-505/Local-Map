@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync, FastifyReply } from "fastify";
+import type { FastifyPluginAsync } from "fastify";
 
 import { getImportReviewPrisma } from "../../lib/import-review-prisma.js";
 import {
@@ -7,6 +7,7 @@ import {
     getImportReviewBuildingsSchema,
     getImportReviewPlacesSchema,
     getImportReviewRoadsSchema,
+    getImportReviewRoadDryRunSummarySchema,
     getImportReviewSummarySchema,
     getImportReviewReferenceOptionsSchema,
     getImportReviewFormOptionsSchema,
@@ -61,18 +62,11 @@ import {
     requireImportReviewAdmin,
 } from "./import-review-admin.guard.js";
 import { createImportReviewDataRepository } from "./import-review-repository.factory.js";
+import { sendImportReviewError } from "./import-review-error-handler.js";
 import {
-    ImportReviewBatchAmbiguousError,
-    ImportReviewBatchNotFoundError,
-    ImportReviewBuildingNotFoundError,
-    ImportReviewCandidateNotFoundError,
-    ImportReviewDecisionRuleError,
-    ImportReviewInvalidScopeError,
-    ImportReviewPlaceNotFoundError,
-    ImportReviewRoadNotFoundError,
-    ImportReviewRoadOverridesValidationFailedError,
-    ImportReviewRoadOverridesWarningsPendingError,
-} from "./import-review-errors.js";
+    sendImportReviewNotFoundError,
+    sendImportReviewValidationError,
+} from "./import-review-error-response.js";
 import {
     bulkImportReviewBuildingDecisionBodySchema,
     importReviewBuildingIdParamsSchema,
@@ -82,6 +76,7 @@ import {
     importReviewFamilyCandidateParamsSchema,
     importReviewPlacesQuerySchema,
     importReviewRoadsQuerySchema,
+    importReviewRoadDryRunSummaryQuerySchema,
     importReviewScopedIncludeGeometryQuerySchema,
     importReviewSummaryQuerySchema,
     patchImportReviewBuildingDecisionBodySchema,
@@ -96,24 +91,7 @@ import { ImportReviewPromotionRepository } from "./import-review-promotion.repo.
 import { ImportReviewPromotionService } from "./import-review-promotion.service.js";
 import { ImportReviewPromotionPromoteRepository } from "./import-review-promotion-promote.repo.js";
 import { ImportReviewPromotionValidationRepository } from "./import-review-promotion-validation.repo.js";
-import {
-    ImportReviewPublishBatchCreationTimeoutError,
-    ImportReviewPublishBatchNameConflictError,
-    ImportReviewPublishBatchNotFoundError,
-    ImportReviewPublishInvalidStageStatusError,
-    ImportReviewPublishBatchInvalidStatusError,
-    ImportReviewPublishBatchPromotionConfirmationError,
-    ImportReviewPublishBatchPromotionConflictError,
-    ImportReviewPublishBatchValidationConflictError,
-    ImportReviewPromotionNoEligibleCandidatesError,
-    ImportReviewRoadPromotionDisabledError,
-} from "./import-review-promotion.errors.js";
-import {
-    ImportReviewPromotionRoadDryRunNoItemsError,
-    ImportReviewPromotionRoadDryRunNotFoundError,
-} from "./import-review-promotion-road-dry-run.errors.js";
 import { postImportReviewPromotionRoadDryRunBodySchema } from "./import-review-promotion-road-dry-run.schema.js";
-import { ImportReviewMissingPoiCategoriesTableError } from "./import-review-promotion-place-category.js";
 import {
     importReviewPromotionBatchEligibilityQuerySchema,
     importReviewPromotionBatchIdParamsSchema,
@@ -125,28 +103,16 @@ import {
     postImportReviewRepairInvalidPromotedBatchesBodySchema,
 } from "./import-review-promotion.schema.js";
 import {
-    ImportReviewCleanupConfirmationError,
-    ImportReviewCleanupDisabledError,
-    ImportReviewCleanupNoEligibleRowsError,
-    ImportReviewCleanupPublishBatchNotFoundError,
-    ImportReviewCleanupReviewBatchNotFoundError,
-} from "./import-review-cleanup-promoted.errors.js";
-import {
     postImportReviewCleanupPromotedDryRunBodySchema,
     postImportReviewCleanupPromotedExecuteBodySchema,
 } from "./import-review-cleanup-promoted.schema.js";
 import { createImportReviewCleanupPromotedService } from "./import-review-cleanup-promoted.service.js";
-import {
-    ImportReviewAddressAdminInferenceBatchNotFoundError,
-    ImportReviewAddressAdminInferenceNotReadyError,
-    createImportReviewAddressAdminInferenceService,
-} from "./import-review-address-admin-inference.service.js";
+import { createImportReviewAddressAdminInferenceService } from "./import-review-address-admin-inference.service.js";
 import { postImportReviewAddressAdminInferenceBodySchema } from "./import-review-address-admin-inference.schema.js";
 import { createImportReviewAddressValidationService } from "./import-review-address-validation.service.js";
 import { postImportReviewAddressValidateBodySchema } from "./import-review-address-validation.schema.js";
 import { createImportReviewAddressComponentsMutationService } from "./import-review-address-components-mutation.service.js";
 import { createImportReviewAddressPromotionService } from "./import-review-address-promotion.service.js";
-import { ImportReviewAddressPromotionDisabledError } from "./import-review-address-promotion.errors.js";
 import { postImportReviewAddressPromotionBodySchema } from "./import-review-address-promotion.schema.js";
 import { patchImportReviewAddressComponentsBodySchema } from "./import-review-address-components-mutation.schema.js";
 import { createImportReviewAddressMatchesService } from "./import-review-address-matches.service.js";
@@ -156,7 +122,6 @@ import {
 } from "./import-review-address-matches.schema.js";
 import { ImportReviewHistoryRepository } from "./import-review-history.repo.js";
 import { ImportReviewHistoryService } from "./import-review-history.service.js";
-import { ImportReviewHistoryReviewBatchNotFoundError } from "./import-review-history.errors.js";
 import {
     importReviewHistoryPublishBatchIdParamsSchema,
     importReviewHistoryPublishBatchItemsQuerySchema,
@@ -164,171 +129,6 @@ import {
     importReviewHistoryReviewBatchIdParamsSchema,
     importReviewHistoryReviewBatchesListQuerySchema,
 } from "./import-review-history.schema.js";
-
-/** @returns true if `reply` was sent. */
-function sendImportReviewError(reply: FastifyReply, error: unknown): boolean {
-    if (error instanceof ImportReviewInvalidScopeError) {
-        void reply.code(422).send({ message: error.message });
-        return true;
-    }
-
-    if (error instanceof ImportReviewDecisionRuleError) {
-        void reply.code(400).send({ message: error.message });
-        return true;
-    }
-
-    if (
-        error instanceof ImportReviewBatchNotFoundError ||
-        error instanceof ImportReviewBuildingNotFoundError ||
-        error instanceof ImportReviewPlaceNotFoundError ||
-        error instanceof ImportReviewRoadNotFoundError ||
-        error instanceof ImportReviewCandidateNotFoundError
-    ) {
-        void reply.code(404).send({ message: error.message });
-        return true;
-    }
-
-    if (error instanceof ImportReviewBatchAmbiguousError) {
-        void reply.code(409).send({
-            message: "Multiple review batches matched source_snapshot_version",
-            source_snapshot_version: error.sourceSnapshotVersion,
-            batches: error.batches,
-        });
-        return true;
-    }
-
-    if (error instanceof ImportReviewRoadOverridesValidationFailedError) {
-        void reply.code(400).send({
-            message: "Road overrides validation failed",
-            errors: error.errors,
-            warnings: error.warnings,
-        });
-        return true;
-    }
-
-    if (error instanceof ImportReviewRoadOverridesWarningsPendingError) {
-        void reply.code(409).send({
-            message:
-                "Routing continuity warnings detected — retry with confirm_acknowledge_routing_warnings=true after acknowledging.",
-            warnings: error.warnings,
-            errors: [] as string[],
-        });
-        return true;
-    }
-
-    if (error instanceof ImportReviewPublishBatchNotFoundError) {
-        void reply.code(404).send({ message: error.message });
-        return true;
-    }
-
-    if (error instanceof ImportReviewHistoryReviewBatchNotFoundError) {
-        void reply.code(404).send({ message: error.message });
-        return true;
-    }
-
-    if (error instanceof ImportReviewPublishBatchCreationTimeoutError) {
-        void reply.code(504).send({ message: error.message });
-        return true;
-    }
-
-    if (error instanceof ImportReviewPublishInvalidStageStatusError) {
-        void reply.code(500).send({
-            message: error.message,
-            stage_status: error.stageStatus,
-        });
-        return true;
-    }
-
-    if (error instanceof ImportReviewMissingPoiCategoriesTableError) {
-        void reply.code(500).send({ message: error.message });
-        return true;
-    }
-
-    if (error instanceof ImportReviewPublishBatchNameConflictError) {
-        void reply.code(409).send({ message: error.message });
-        return true;
-    }
-
-    if (error instanceof ImportReviewPromotionNoEligibleCandidatesError) {
-        void reply.code(400).send({
-            message: error.message,
-            ready_count: error.readyCount,
-            ...(error.byFamily ? { by_family: error.byFamily } : {}),
-        });
-        return true;
-    }
-
-    if (error instanceof ImportReviewPublishBatchValidationConflictError) {
-        void reply.code(409).send({ message: error.message, batch_id: error.batchId });
-        return true;
-    }
-
-    if (error instanceof ImportReviewPublishBatchPromotionConflictError) {
-        void reply.code(409).send({ message: error.message, batch_id: error.batchId });
-        return true;
-    }
-
-    if (error instanceof ImportReviewRoadPromotionDisabledError) {
-        void reply.code(409).send({ message: error.message, batch_id: error.batchId });
-        return true;
-    }
-
-    if (error instanceof ImportReviewPublishBatchPromotionConfirmationError) {
-        void reply.code(400).send({ message: error.message, batch_id: error.batchId });
-        return true;
-    }
-
-    if (error instanceof ImportReviewPublishBatchInvalidStatusError) {
-        void reply.code(400).send({
-            message: error.message,
-            batch_id: error.batchId,
-            status: error.status,
-        });
-        return true;
-    }
-
-    if (error instanceof ImportReviewCleanupDisabledError) {
-        void reply.code(403).send({ message: error.message });
-        return true;
-    }
-
-    if (
-        error instanceof ImportReviewCleanupConfirmationError ||
-        error instanceof ImportReviewCleanupNoEligibleRowsError
-    ) {
-        void reply.code(400).send({ message: error.message });
-        return true;
-    }
-
-    if (
-        error instanceof ImportReviewCleanupReviewBatchNotFoundError ||
-        error instanceof ImportReviewCleanupPublishBatchNotFoundError ||
-        error instanceof ImportReviewAddressAdminInferenceBatchNotFoundError
-    ) {
-        void reply.code(404).send({ message: error.message });
-        return true;
-    }
-
-    if (error instanceof ImportReviewAddressAdminInferenceNotReadyError) {
-        void reply.code(503).send({ message: error.message });
-        return true;
-    }
-
-    if (error instanceof ImportReviewAddressPromotionDisabledError) {
-        void reply.code(403).send({ message: error.message });
-        return true;
-    }
-
-    if (
-        error instanceof ImportReviewPromotionRoadDryRunNotFoundError ||
-        error instanceof ImportReviewPromotionRoadDryRunNoItemsError
-    ) {
-        void reply.code(error.statusCode).send({ message: error.message, batch_id: error.batchId });
-        return true;
-    }
-
-    return false;
-}
 
 function importReviewAuthorizedPreHandlers(): [typeof requireImportReviewAdmin] {
     return [requireImportReviewAdmin];
@@ -344,15 +144,12 @@ function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0]
         async (request, reply) => {
             const familyRaw = (request.params as { family?: string }).family ?? "";
             if (!isImportReviewEntityFamily(familyRaw)) {
-                return reply.code(404).send({ message: `Unknown import-review entity family: ${familyRaw}` });
+                return sendImportReviewNotFoundError(reply, `Unknown import-review entity family: `);
             }
 
             const parsed = importReviewSummaryQuerySchema.safeParse(request.query);
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
 
             try {
@@ -378,17 +175,11 @@ function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0]
             const queryParsed = importReviewScopedIncludeGeometryQuerySchema.safeParse(request.query);
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
 
             if (!queryParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: queryParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", queryParsed.error.flatten());
             }
 
             try {
@@ -418,15 +209,12 @@ function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0]
             const familyRaw = (request.params as { family?: string }).family ?? "";
             const familyParsed = importReviewEntityFamilyParamSchema.safeParse(familyRaw);
             if (!familyParsed.success) {
-                return reply.code(404).send({ message: `Unknown import-review entity family: ${familyRaw}` });
+                return sendImportReviewNotFoundError(reply, `Unknown import-review entity family: `);
             }
 
             const parsed = importReviewCandidatesListQuerySchema.safeParse(request.query);
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
 
             try {
@@ -452,17 +240,11 @@ function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0]
             const bodyParsed = patchImportReviewBuildingDecisionBodySchema.safeParse(request.body);
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
 
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
 
             try {
@@ -493,17 +275,11 @@ function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0]
             const bodyParsed = patchImportReviewCandidateOverridesBodySchema.safeParse(request.body);
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
 
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
 
             try {
@@ -533,15 +309,12 @@ function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0]
             const familyRaw = (request.params as { family?: string }).family ?? "";
             const familyParsed = importReviewEntityFamilyParamSchema.safeParse(familyRaw);
             if (!familyParsed.success) {
-                return reply.code(404).send({ message: `Unknown import-review entity family: ${familyRaw}` });
+                return sendImportReviewNotFoundError(reply, `Unknown import-review entity family: `);
             }
 
             const bodyParsed = bulkImportReviewBuildingDecisionBodySchema.safeParse(request.body);
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
 
             try {
@@ -597,10 +370,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const parsed = importReviewHistoryReviewBatchesListQuerySchema.safeParse(request.query);
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
             try {
                 return reply.send(await historyService.listReviewBatches(parsed.data));
@@ -622,10 +392,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewHistoryReviewBatchIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -649,10 +416,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const parsed = importReviewHistoryPublishBatchesListQuerySchema.safeParse(request.query);
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
             try {
                 return reply.send(await historyService.listPublishBatches(parsed.data));
@@ -674,10 +438,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewHistoryPublishBatchIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -702,16 +463,10 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const paramsParsed = importReviewHistoryPublishBatchIdParamsSchema.safeParse(request.params);
             const queryParsed = importReviewHistoryPublishBatchItemsQuerySchema.safeParse(request.query);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             if (!queryParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: queryParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", queryParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -738,10 +493,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewHistoryPublishBatchIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -806,10 +558,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const parsed = importReviewSummaryQuerySchema.safeParse(request.query);
 
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
 
             try {
@@ -834,10 +583,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const parsed = importReviewSummaryQuerySchema.safeParse(request.query);
 
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
 
             try {
@@ -863,17 +609,11 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const queryParsed = importReviewScopedIncludeGeometryQuerySchema.safeParse(request.query);
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
 
             if (!queryParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: queryParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", queryParsed.error.flatten());
             }
 
             try {
@@ -903,10 +643,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const parsed = importReviewBuildingsQuerySchema.safeParse(request.query);
 
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
 
             try {
@@ -931,10 +668,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const parsed = importReviewPlacesQuerySchema.safeParse(request.query);
 
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
 
             try {
@@ -959,15 +693,35 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const parsed = importReviewRoadsQuerySchema.safeParse(request.query);
 
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
 
             try {
                 const list = await importReviewService.listRoads(parsed.data);
                 return reply.send(list);
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.get(
+        "/roads/dry-run-summary",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: getImportReviewRoadDryRunSummarySchema,
+        },
+        async (request, reply) => {
+            const parsed = importReviewRoadDryRunSummaryQuerySchema.safeParse(request.query);
+            if (!parsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
+            }
+            try {
+                const summary = await importReviewService.getRoadDryRunSummary(parsed.data);
+                return reply.send(summary);
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {
                     return;
@@ -987,10 +741,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const parsed = bulkImportReviewBuildingDecisionBodySchema.safeParse(request.body);
 
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", parsed.error.flatten());
             }
 
             try {
@@ -1015,10 +766,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const parsed = bulkImportReviewBuildingDecisionBodySchema.safeParse(request.body);
 
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", parsed.error.flatten());
             }
 
             try {
@@ -1043,10 +791,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const parsed = bulkImportReviewBuildingDecisionBodySchema.safeParse(request.body);
 
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", parsed.error.flatten());
             }
 
             try {
@@ -1072,17 +817,11 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const bodyParsed = patchImportReviewBuildingOverridesBodySchema.safeParse(request.body);
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
 
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
 
             try {
@@ -1112,17 +851,11 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const bodyParsed = patchImportReviewBuildingDecisionBodySchema.safeParse(request.body);
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
 
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
 
             try {
@@ -1152,17 +885,11 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const bodyParsed = patchImportReviewBuildingDecisionBodySchema.safeParse(request.body);
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
 
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
 
             try {
@@ -1192,17 +919,11 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const bodyParsed = patchImportReviewRoadOverridesBodySchema.safeParse(request.body);
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
 
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
 
             try {
@@ -1232,17 +953,11 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const bodyParsed = postImportReviewRoadValidateRoutingBodySchema.safeParse(request.body);
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
 
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
 
             try {
@@ -1272,17 +987,11 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const bodyParsed = patchImportReviewBuildingDecisionBodySchema.safeParse(request.body);
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
 
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
 
             try {
@@ -1310,10 +1019,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const parsed = importReviewPromotionReadyQuerySchema.safeParse(request.query);
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
             try {
                 return reply.send(await promotionService.getReady(parsed.data));
@@ -1335,10 +1041,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const parsed = importReviewPromotionReadyCandidatesQuerySchema.safeParse(request.query);
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
             try {
                 return reply.send(await promotionService.listReadyCandidates(parsed.data));
@@ -1360,10 +1063,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const parsed = importReviewPromotionBatchEligibilityQuerySchema.safeParse(request.query);
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
             try {
                 return reply.send(await promotionService.getBatchEligibility(parsed.data));
@@ -1385,10 +1085,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const parsed = importReviewPromotionBatchesListQuerySchema.safeParse(request.query);
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid query",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
             }
             try {
                 return reply.send(await promotionService.listBatches(parsed.data));
@@ -1410,10 +1107,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -1437,10 +1131,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const parsed = postImportReviewPromotionBatchBodySchema.safeParse(request.body);
             if (!parsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: parsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", parsed.error.flatten());
             }
             try {
                 const result = await promotionService.createBatch(
@@ -1470,10 +1161,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             try {
                 const result = await promotionService.startValidateBatch(
@@ -1499,10 +1187,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -1526,10 +1211,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -1553,17 +1235,11 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             const bodyParsed = postImportReviewPromotionBatchPromoteBodySchema.safeParse(request.body);
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
             try {
                 const result = await promotionService.startPromoteBatch(
@@ -1593,10 +1269,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
                 request.body ?? {}
             );
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -1627,19 +1300,13 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             const bodyParsed = postImportReviewPromotionRoadDryRunBodySchema.safeParse(
                 request.body ?? {}
             );
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -1666,10 +1333,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -1693,10 +1357,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -1722,10 +1383,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
                 request.body ?? {}
             );
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
             try {
                 return reply.send(await cleanupPromotedService.dryRun(bodyParsed.data));
@@ -1749,10 +1407,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
                 request.body ?? {}
             );
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
             try {
                 return reply.send(await cleanupPromotedService.execute(bodyParsed.data));
@@ -1774,10 +1429,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (request, reply) => {
             const paramsParsed = importReviewAddressCandidateIdParamsSchema.safeParse(request.params);
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -1808,16 +1460,10 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const bodyParsed = patchImportReviewAddressComponentsBodySchema.safeParse(request.body ?? {});
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -1846,16 +1492,10 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             const bodyParsed = patchImportReviewAddressMatchesBodySchema.safeParse(request.body ?? {});
 
             if (!paramsParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid path parameters",
-                    issues: paramsParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
             try {
                 return reply.send(
@@ -1884,10 +1524,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
                 request.body ?? {}
             );
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
             try {
                 return reply.send(await addressValidationService.validate(bodyParsed.data));
@@ -1911,10 +1548,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
                 request.body ?? {}
             );
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
             try {
                 return reply.send(await addressAdminInferenceService.run(bodyParsed.data));
@@ -1938,10 +1572,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
                 request.body ?? {}
             );
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
             try {
                 return reply.send(await addressPromotionService.dryRun(bodyParsed.data));
@@ -1965,10 +1596,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
                 request.body ?? {}
             );
             if (!bodyParsed.success) {
-                return reply.code(400).send({
-                    message: "Invalid body",
-                    issues: bodyParsed.error.flatten(),
-                });
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
             }
             try {
                 return reply.send(await addressPromotionService.promote(bodyParsed.data));

@@ -14,4 +14,19 @@ describe("normalizeReviewOverridesForJsonStorage", () => {
         assert.equal(normalized.admin_area_id, 12);
         assert.equal(normalized.is_oneway, false);
     });
+
+    it("stores road layer as integer or null", () => {
+        assert.equal(
+            normalizeReviewOverridesForJsonStorage("roads", { layer: "" }).layer,
+            null
+        );
+        assert.equal(
+            normalizeReviewOverridesForJsonStorage("roads", { layer: "0" }).layer,
+            0
+        );
+        assert.equal(
+            normalizeReviewOverridesForJsonStorage("roads", { layer: "-1" }).layer,
+            -1
+        );
+    });
 });

@@ -183,6 +183,8 @@ export function mergeEffectiveRoadState(row: ImportReviewRoadRoutingValidationRo
     road_class_id: bigint | null;
     road_class_code: string | null;
     surface: string | null;
+    access: string | null;
+    speed_kph: number | null;
     is_oneway: boolean | null;
     bridge: boolean | null;
     tunnel: boolean | null;
@@ -213,6 +215,8 @@ export function mergeEffectiveRoadState(row: ImportReviewRoadRoutingValidationRo
         road_class_id: parseOptionalBigInt(ov.road_class_id) ?? row.road_class_id,
         road_class_code: pickString(ov.road_class_code, row.road_class, row.class_code, tags.highway),
         surface: pickString(ov.surface, row.surface, tags.surface),
+        access: pickString(ov.access, normPick(nd, "access"), tags.access),
+        speed_kph: pickInt(ov.speed_kph, normPick(nd, "speed_kph"), tags.maxspeed),
         is_oneway: effectiveOneway,
         bridge: pickBool(ov.bridge, normPick(nd, "bridge"), tags.bridge),
         tunnel: pickBool(ov.tunnel, normPick(nd, "tunnel"), tags.tunnel),
@@ -390,8 +394,18 @@ export async function runImportReviewRoadRoutingValidation(args: {
             SELECT id FROM ref.ref_road_classes WHERE lower(code) = ${lc} LIMIT 2
         `;
         if (refByCode.length === 0 && effective.road_class_id === null) {
-            errors.push(
-                err("INVALID_ROAD_CLASS_CODE", `road_class code "${effective.road_class_code}" is not in ref.ref_road_classes.`)
+            warnings.push(
+                warn(
+                    "INVALID_ROAD_CLASS_CODE",
+                    `road_class code "${effective.road_class_code}" is not in ref.ref_road_classes.`
+                )
+            );
+        } else if (refByCode.length > 1 && effective.road_class_id === null) {
+            warnings.push(
+                warn(
+                    "AMBIGUOUS_ROAD_CLASS_CODE",
+                    `road_class code "${effective.road_class_code}" matches multiple ref.ref_road_classes rows.`
+                )
             );
         }
     }
@@ -401,6 +415,16 @@ export async function runImportReviewRoadRoutingValidation(args: {
     }
     if (!effective.surface) {
         warnings.push(warn("SURFACE_MISSING", "Surface tag/field is missing."));
+    }
+    if (!effective.access) {
+        warnings.push(warn("ACCESS_MISSING", "Access tag/field is missing."));
+    }
+    if (effective.speed_kph === null) {
+        if (isImportantRoad(roadClassCode)) {
+            warnings.push(warn("SPEED_KPH_MISSING", "Speed limit is missing for a major road class."));
+        } else {
+            infos.push(info("SPEED_KPH_MISSING", "Speed limit is missing."));
+        }
     }
     if (!effective.canonical_name) {
         warnings.push(warn("NAME_MISSING", "Canonical name / label is missing."));

@@ -23,6 +23,7 @@ import {
 import {
     ImportReviewPublishBatchSummaryRepository,
 } from "./import-review-publish-batch-summary.js";
+import { busStopCandidateMissingCoreNamesSql } from "./import-review-publish-batch-core-verification.js";
 import { ImportReviewReviewBatchSummaryRepository } from "./import-review-review-batch-summary.js";
 import {
     buildVerificationMetadataTracking,
@@ -51,6 +52,11 @@ import {
     BUS_STOP_CANDIDATE_TABLE,
     CORE_BUS_STOPS_TABLE,
 } from "./import-review-promotion-promote-bus-stops.repo.js";
+import {
+    ImportReviewPromotionPromoteRoadsRepository,
+    CORE_STREETS_TABLE,
+} from "./import-review-promotion-promote-roads.repo.js";
+import { ROAD_CANDIDATE_TABLE, ImportReviewPromotionRoadDryRunRepository } from "./import-review-promotion-road-dry-run.repo.js";
 import {
     buildingClassCodeExpr,
     geomSourceExpr,
@@ -170,6 +176,8 @@ export class ImportReviewPromotionPromoteRepository {
     private readonly mapRepo: ImportReviewPromotionPromoteMapRepository;
     private readonly landuseRepo: ImportReviewPromotionPromoteLanduseRepository;
     private readonly busStopsRepo: ImportReviewPromotionPromoteBusStopsRepository;
+    private readonly roadsRepo: ImportReviewPromotionPromoteRoadsRepository;
+    private readonly dryRunRepo: ImportReviewPromotionRoadDryRunRepository;
     private readonly publishSummaryRepo: ImportReviewPublishBatchSummaryRepository;
     private readonly reviewSummaryRepo: ImportReviewReviewBatchSummaryRepository;
 
@@ -181,12 +189,18 @@ export class ImportReviewPromotionPromoteRepository {
         this.mapRepo = new ImportReviewPromotionPromoteMapRepository(prisma);
         this.landuseRepo = new ImportReviewPromotionPromoteLanduseRepository(prisma);
         this.busStopsRepo = new ImportReviewPromotionPromoteBusStopsRepository(prisma);
+        this.roadsRepo = new ImportReviewPromotionPromoteRoadsRepository(prisma);
+        this.dryRunRepo = new ImportReviewPromotionRoadDryRunRepository(prisma);
         this.publishSummaryRepo = new ImportReviewPublishBatchSummaryRepository(prisma);
         this.reviewSummaryRepo = new ImportReviewReviewBatchSummaryRepository(prisma);
     }
 
     async fetchBatchProgress(batchId: bigint): Promise<ImportReviewPublishBatchProgressRow | null> {
         return this.validationRepo.fetchBatchProgress(batchId);
+    }
+
+    async readRoadDryRunResult(batchId: bigint) {
+        return this.dryRunRepo.readRoadDryRunResult(batchId);
     }
 
     async countRoadPublishItems(batchId: bigint): Promise<number> {
@@ -437,6 +451,26 @@ export class ImportReviewPromotionPromoteRepository {
                    AND spi.review_candidate_table = ${BUS_STOP_CANDIDATE_TABLE}
                 WHERE spi.publish_batch_id = ${batchId}
                   AND spi.entity_family = 'bus_stops'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
+                    'roads'::text AS entity_family,
+                    ${CORE_STREETS_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    r.review_batch_id,
+                    r.source_snapshot_version,
+                    r.promotion_status,
+                    r.promoted_core_id,
+                    r.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.road_candidates AS r
+                    ON r.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${ROAD_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'roads'
             ) AS items
             ORDER BY entity_family ASC, publish_item_id ASC
         `;
@@ -580,6 +614,9 @@ export class ImportReviewPromotionPromoteRepository {
             if (item.entity_family === "landuse") {
                 return this.landuseRepo.insertLanduse(args.batchId, args.publishItemId);
             }
+            if (item.entity_family === "roads") {
+                return this.roadsRepo.insertRoad(args.batchId, args.publishItemId, args.promotedBy);
+            }
             if (this.mapRepo.isMapEntityFamily(item.entity_family)) {
                 return this.mapRepo.insertMapEntity(item.entity_family, args.batchId, args.publishItemId);
             }
@@ -595,6 +632,9 @@ export class ImportReviewPromotionPromoteRepository {
             }
             if (item.entity_family === "landuse") {
                 return this.landuseRepo.updateLanduse(args.batchId, args.publishItemId);
+            }
+            if (item.entity_family === "roads") {
+                return this.roadsRepo.updateRoad(args.batchId, args.publishItemId, args.promotedBy);
             }
             if (this.mapRepo.isMapEntityFamily(item.entity_family)) {
                 return this.mapRepo.updateMapEntity(item.entity_family, args.batchId, args.publishItemId);
@@ -624,6 +664,9 @@ export class ImportReviewPromotionPromoteRepository {
         }
         if (entityFamily === "landuse") {
             return this.landuseRepo.checkLanduseCoreExists(targetId);
+        }
+        if (entityFamily === "roads") {
+            return this.roadsRepo.checkRoadCoreExists(targetId);
         }
         if (this.mapRepo.isMapEntityFamily(entityFamily)) {
             return this.mapRepo.checkMapCoreExists(entityFamily, targetId);
@@ -1128,43 +1171,41 @@ export class ImportReviewPromotionPromoteRepository {
                 count(*) FILTER (
                     WHERE spi.publish_status = 'success'
                       AND s.id IS NOT NULL
-                      AND bs.id IS NOT NULL
-                      AND nullif(trim(coalesce(
-                          bs.review_overrides->>'name',
-                          bs.review_overrides->>'name_local',
-                          bs.name,
-                          bs.name_local,
-                          bs.canonical_name,
-                          bs.normalized_data->>'name',
-                          bs.normalized_data->>'name_local',
-                          bs.normalized_data->>'canonical_name',
-                          ''
-                      )), '') IS NOT NULL
-                      AND nullif(trim(coalesce(
-                          bs.review_overrides->>'name',
-                          bs.review_overrides->>'name_local',
-                          bs.name,
-                          bs.name_local,
-                          bs.canonical_name,
-                          bs.normalized_data->>'name',
-                          bs.normalized_data->>'name_local',
-                          bs.normalized_data->>'canonical_name',
-                          ''
-                      )), '') <> nullif(trim(coalesce(
-                          bs.review_overrides->>'stop_code',
-                          bs.stop_code,
-                          bs.normalized_data->>'stop_code',
-                          ''
-                      )), '')
-                      AND NOT EXISTS (
-                          SELECT 1 FROM core.core_bus_stop_names AS n WHERE n.stop_id = s.id
-                      )
+                      AND ${busStopCandidateMissingCoreNamesSql("bs", "s")}
                 )::bigint AS missing_names
             FROM system.system_publish_items AS spi
             LEFT JOIN core.core_bus_stops AS s ON s.id = spi.target_id
             LEFT JOIN import_review.bus_stop_candidates AS bs ON bs.id = spi.review_candidate_id
             WHERE spi.publish_batch_id = ${batchId}
               AND spi.entity_family = 'bus_stops'
+        `;
+        const roadRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint }[]>`
+            SELECT
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND (
+                          spi.target_id IS NULL
+                          OR s.id IS NULL
+                          OR NOT coalesce(s.is_active, true)
+                          OR s.deleted_at IS NOT NULL
+                          OR s.source_refs->>'review_candidate_id' IS NULL
+                          OR s.source_refs->>'publish_batch_id' IS NULL
+                      )
+                )::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND s.id IS NOT NULL
+                      AND (
+                          s.geom IS NULL
+                          OR NOT ST_IsValid(s.geom)
+                          OR ST_SRID(s.geom) <> 4326
+                          OR upper(ST_GeometryType(s.geom)) <> 'ST_LINESTRING'
+                      )
+                )::bigint AS invalid_geom
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_streets AS s ON s.id = spi.target_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'roads'
         `;
         return {
             missing:
@@ -1173,14 +1214,16 @@ export class ImportReviewPromotionPromoteRepository {
                 Number(mapPolygonRows[0]?.missing ?? 0n) +
                 Number(waterLineRows[0]?.missing ?? 0n) +
                 Number(waterPolygonRows[0]?.missing ?? 0n) +
-                Number(busStopRows[0]?.missing ?? 0n),
+                Number(busStopRows[0]?.missing ?? 0n) +
+                Number(roadRows[0]?.missing ?? 0n),
             invalid_geom:
                 Number(buildingRows[0]?.invalid_geom ?? 0n) +
                 Number(placeRows[0]?.invalid_geom ?? 0n) +
                 Number(mapPolygonRows[0]?.invalid_geom ?? 0n) +
                 Number(waterLineRows[0]?.invalid_geom ?? 0n) +
                 Number(waterPolygonRows[0]?.invalid_geom ?? 0n) +
-                Number(busStopRows[0]?.invalid_geom ?? 0n),
+                Number(busStopRows[0]?.invalid_geom ?? 0n) +
+                Number(roadRows[0]?.invalid_geom ?? 0n),
             missing_names:
                 Number(placeRows[0]?.missing_names ?? 0n) + Number(busStopRows[0]?.missing_names ?? 0n),
         };
@@ -1249,6 +1292,16 @@ export class ImportReviewPromotionPromoteRepository {
                   AND spi.publish_status = 'success'
                   AND bs.promotion_status = 'promoted'
                   AND bs.promoted_core_id IS NOT NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.road_candidates AS r
+                    ON r.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${ROAD_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND r.promotion_status = 'promoted'
+                  AND r.promoted_core_id IS NOT NULL
             ) AS marked
         `;
         return Number(rows[0]?.count ?? 0n);
@@ -1423,37 +1476,7 @@ export class ImportReviewPromotionPromoteRepository {
                 count(*) FILTER (
                     WHERE spi.publish_status = 'success'
                       AND s.id IS NOT NULL
-                      AND bs.id IS NOT NULL
-                      AND nullif(trim(coalesce(
-                          bs.review_overrides->>'name',
-                          bs.review_overrides->>'name_local',
-                          bs.name,
-                          bs.name_local,
-                          bs.canonical_name,
-                          bs.normalized_data->>'name',
-                          bs.normalized_data->>'name_local',
-                          bs.normalized_data->>'canonical_name',
-                          ''
-                      )), '') IS NOT NULL
-                      AND nullif(trim(coalesce(
-                          bs.review_overrides->>'name',
-                          bs.review_overrides->>'name_local',
-                          bs.name,
-                          bs.name_local,
-                          bs.canonical_name,
-                          bs.normalized_data->>'name',
-                          bs.normalized_data->>'name_local',
-                          bs.normalized_data->>'canonical_name',
-                          ''
-                      )), '') <> nullif(trim(coalesce(
-                          bs.review_overrides->>'stop_code',
-                          bs.stop_code,
-                          bs.normalized_data->>'stop_code',
-                          ''
-                      )), '')
-                      AND NOT EXISTS (
-                          SELECT 1 FROM core.core_bus_stop_names AS n WHERE n.stop_id = s.id
-                      )
+                      AND ${busStopCandidateMissingCoreNamesSql("bs", "s")}
                 )::bigint AS missing_names
             FROM system.system_publish_items AS spi
             LEFT JOIN core.core_bus_stops AS s ON s.id = spi.target_id

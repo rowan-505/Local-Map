@@ -44,6 +44,6 @@ export const roadsImportReviewEntityConfig = createImportReviewEntityConfig({
     supportsMapPreview: true,
     supportsVertexPreview: true,
     supportsGeometryEditLater: true,
-    supportsPromotion: false,
+    supportsPromotion: true,
     supportsOverrideEditor: true,
 });

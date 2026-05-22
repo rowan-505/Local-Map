@@ -69,6 +69,9 @@ export function normalizeOverrideOptionalNumber(value: unknown, fieldName: strin
     if (value === null || value === undefined) {
         return null;
     }
+    if (typeof value === "string" && value.trim() === "") {
+        return null;
+    }
     if (typeof value === "number" && Number.isFinite(value)) {
         return value;
     }
@@ -83,6 +86,45 @@ export function normalizeOverrideOptionalNumber(value: unknown, fieldName: strin
     }
     throw new ImportReviewDecisionRuleError(
         `review_overrides.${fieldName} must be a number or null.`
+    );
+}
+
+/** Integer override fields (e.g. layer) — allows negative values and zero. */
+export function normalizeOverrideOptionalInteger(value: unknown, fieldName: string): number | null {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    if (typeof value === "string" && value.trim() === "") {
+        return null;
+    }
+    if (typeof value === "number") {
+        if (!Number.isFinite(value) || !Number.isInteger(value)) {
+            throw new ImportReviewDecisionRuleError(
+                `review_overrides.${fieldName} must be an integer or null.`
+            );
+        }
+        return value;
+    }
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (trimmed === "") {
+            return null;
+        }
+        if (!/^-?\d+$/.test(trimmed)) {
+            throw new ImportReviewDecisionRuleError(
+                `review_overrides.${fieldName} must be an integer or null.`
+            );
+        }
+        const n = Number(trimmed);
+        if (!Number.isSafeInteger(n)) {
+            throw new ImportReviewDecisionRuleError(
+                `review_overrides.${fieldName} must be an integer or null.`
+            );
+        }
+        return n;
+    }
+    throw new ImportReviewDecisionRuleError(
+        `review_overrides.${fieldName} must be an integer or null.`
     );
 }
 
@@ -158,6 +200,22 @@ export function normalizeReviewOverridesForJsonStorage(
         }
         if (family === "roads" && key === "is_oneway") {
             out[key] = normalizeOverrideOptionalBoolean(value, key);
+            continue;
+        }
+        if (family === "roads" && (key === "bridge" || key === "tunnel")) {
+            out[key] = normalizeOverrideOptionalBoolean(value, key);
+            continue;
+        }
+        if (family === "roads" && key === "layer") {
+            out[key] = normalizeOverrideOptionalInteger(value, key);
+            continue;
+        }
+        if (family === "roads" && key === "speed_kph") {
+            out[key] = normalizeOverrideOptionalNumber(value, key);
+            continue;
+        }
+        if (family === "roads" && key === "access") {
+            out[key] = normalizeOptionalOverrideString(value, key);
             continue;
         }
         if (family === "roads" && (key === "name_mm" || key === "name_en" || key === "surface")) {

@@ -7,7 +7,9 @@ import {
     pickEffectiveDisplayName,
     type ImportReviewNameCandidate,
 } from "./import-review-name-fields.js";
-import type { ImportReviewBuildingListItem } from "./import-review.types.js";
+import {
+    effectiveAdminAreaIdExpr as buildEffectiveAdminAreaIdExpr,
+} from "./import-review-candidate-column-registry.js";
 
 export type EffectiveFieldSource = "column" | "normalized";
 
@@ -541,16 +543,7 @@ export function busStopPointGeomExpr(alias: string): Prisma.Sql {
 
 /** Raw effective admin_area_id (no FK existence check) — for validation/read joins. */
 export function busStopEffectiveAdminAreaIdRawExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        coalesce(
-            CASE WHEN (${a}.review_overrides->>'admin_area_id') ~ '^[0-9]+$'
-                THEN (${a}.review_overrides->>'admin_area_id')::bigint END,
-            ${a}.admin_area_id,
-            CASE WHEN (${a}.normalized_data->>'admin_area_id') ~ '^[0-9]+$'
-                THEN (${a}.normalized_data->>'admin_area_id')::bigint END
-        )
-    `;
+    return effectiveAdminAreaIdExpr(alias, { hasAdminAreaColumn: true });
 }
 
 export function busStopAdminAreaIdExpr(alias: string): Prisma.Sql {
@@ -567,17 +560,13 @@ export function busStopAdminAreaIdExpr(alias: string): Prisma.Sql {
     `;
 }
 
-export function effectiveAdminAreaIdExpr(configTableAlias: string): Prisma.Sql {
-    const a = Prisma.raw(configTableAlias);
-    return Prisma.sql`
-        coalesce(
-            CASE WHEN (${a}.review_overrides->>'admin_area_id') ~ '^[0-9]+$'
-                THEN (${a}.review_overrides->>'admin_area_id')::bigint END,
-            ${a}.admin_area_id,
-            CASE WHEN (${a}.normalized_data->>'admin_area_id') ~ '^[0-9]+$'
-                THEN (${a}.normalized_data->>'admin_area_id')::bigint END
-        )
-    `;
+export function effectiveAdminAreaIdExpr(
+    alias: string,
+    options?: { hasAdminAreaColumn?: boolean }
+): Prisma.Sql {
+    return buildEffectiveAdminAreaIdExpr(alias, {
+        hasAdminAreaColumn: options?.hasAdminAreaColumn !== false,
+    });
 }
 
 export { nameExpr, mapClassCodeExpr };

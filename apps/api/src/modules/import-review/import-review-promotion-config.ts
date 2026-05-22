@@ -25,6 +25,7 @@ export const PROMOTABLE_PUBLISH_FAMILIES = [
     "water_lines",
     "water_polygons",
     "bus_stops",
+    "roads",
 ] as const satisfies readonly ImportReviewEntityFamilySlug[];
 
 export type PromotablePublishEntityFamily = (typeof PROMOTABLE_PUBLISH_FAMILIES)[number];

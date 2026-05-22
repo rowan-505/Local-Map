@@ -1,11 +1,14 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import { coreVerificationExistsUnionSql } from "./import-review-publish-batch-core-verification.js";
+
 const BUILDING_CANDIDATE_TABLE = "import_review.building_candidates";
 const PLACE_CANDIDATE_TABLE = "import_review.place_candidates";
 const LANDUSE_CANDIDATE_TABLE = "import_review.landuse_candidates";
 const WATER_LINE_CANDIDATE_TABLE = "import_review.water_line_candidates";
 const WATER_POLYGON_CANDIDATE_TABLE = "import_review.water_polygon_candidates";
 const BUS_STOP_CANDIDATE_TABLE = "import_review.bus_stop_candidates";
+const ROAD_CANDIDATE_TABLE = "import_review.road_candidates";
 
 export type PublishBatchDerivedStatus =
     | "draft"
@@ -568,130 +571,7 @@ export class ImportReviewPublishBatchSummaryRepository {
             WHERE spi.publish_batch_id = ${batchId}
               AND spi.publish_status = 'success'
               AND spi.target_id IS NOT NULL
-              AND (
-                  (
-                      spi.entity_family = 'buildings'
-                      AND EXISTS (
-                          SELECT 1 FROM core.core_map_buildings AS c
-                          WHERE c.id = spi.target_id
-                            AND coalesce(c.is_active, true)
-                            AND c.deleted_at IS NULL
-                            AND c.geom IS NOT NULL
-                            AND ST_IsValid(c.geom)
-                            AND ST_SRID(c.geom) = 4326
-                            AND c.source_refs->>'review_candidate_id' IS NOT NULL
-                            AND c.source_refs->>'publish_batch_id' IS NOT NULL
-                      )
-                  )
-                  OR (
-                      spi.entity_family = 'places'
-                      AND EXISTS (
-                          SELECT 1 FROM core.core_places AS p
-                          WHERE p.id = spi.target_id
-                            AND p.deleted_at IS NULL
-                            AND p.point_geom IS NOT NULL
-                            AND ST_IsValid(p.point_geom)
-                            AND ST_SRID(p.point_geom) = 4326
-                            AND p.source_refs->>'review_candidate_id' IS NOT NULL
-                            AND p.source_refs->>'publish_batch_id' IS NOT NULL
-                            AND EXISTS (
-                                SELECT 1 FROM core.core_place_names AS pn
-                                WHERE pn.place_id = p.id
-                            )
-                      )
-                  )
-                  OR (
-                      spi.entity_family = 'landuse'
-                      AND EXISTS (
-                          SELECT 1 FROM core.core_map_landuse AS c
-                          WHERE c.id = spi.target_id
-                            AND coalesce(c.is_active, true)
-                            AND c.geom IS NOT NULL
-                            AND ST_IsValid(c.geom)
-                            AND ST_SRID(c.geom) = 4326
-                            AND c.source_refs->>'review_candidate_id' IS NOT NULL
-                            AND c.source_refs->>'publish_batch_id' IS NOT NULL
-                      )
-                  )
-                  OR (
-                      spi.entity_family = 'water_lines'
-                      AND EXISTS (
-                          SELECT 1 FROM core.core_map_water_lines AS c
-                          WHERE c.id = spi.target_id
-                            AND coalesce(c.is_active, true)
-                            AND c.geom IS NOT NULL
-                            AND ST_IsValid(c.geom)
-                            AND ST_SRID(c.geom) = 4326
-                            AND c.source_refs->>'review_candidate_id' IS NOT NULL
-                            AND c.source_refs->>'publish_batch_id' IS NOT NULL
-                      )
-                  )
-                  OR (
-                      spi.entity_family = 'water_polygons'
-                      AND EXISTS (
-                          SELECT 1 FROM core.core_map_water_polygons AS c
-                          WHERE c.id = spi.target_id
-                            AND coalesce(c.is_active, true)
-                            AND c.geom IS NOT NULL
-                            AND ST_IsValid(c.geom)
-                            AND ST_SRID(c.geom) = 4326
-                            AND c.source_refs->>'review_candidate_id' IS NOT NULL
-                            AND c.source_refs->>'publish_batch_id' IS NOT NULL
-                      )
-                  )
-                  OR (
-                      spi.entity_family = 'bus_stops'
-                      AND EXISTS (
-                          SELECT 1 FROM core.core_bus_stops AS s
-                          WHERE s.id = spi.target_id
-                            AND coalesce(s.is_active, true)
-                            AND s.geom IS NOT NULL
-                            AND ST_IsValid(s.geom)
-                            AND ST_SRID(s.geom) = 4326
-                            AND ST_GeometryType(s.geom) = 'ST_Point'
-                            AND s.source_refs->>'review_candidate_id' IS NOT NULL
-                            AND s.source_refs->>'publish_batch_id' IS NOT NULL
-                            AND (
-                                NOT EXISTS (
-                                    SELECT 1
-                                    FROM import_review.bus_stop_candidates AS bs
-                                    WHERE bs.id = (s.source_refs->>'review_candidate_id')::bigint
-                                      AND nullif(trim(coalesce(
-                                          bs.review_overrides->>'name',
-                                          bs.review_overrides->>'name_local',
-                                          bs.name,
-                                          bs.name_local,
-                                          bs.canonical_name,
-                                          bs.normalized_data->>'name',
-                                          bs.normalized_data->>'name_local',
-                                          bs.normalized_data->>'canonical_name',
-                                          ''
-                                      )), '') IS NOT NULL
-                                      AND nullif(trim(coalesce(
-                                          bs.review_overrides->>'name',
-                                          bs.review_overrides->>'name_local',
-                                          bs.name,
-                                          bs.name_local,
-                                          bs.canonical_name,
-                                          bs.normalized_data->>'name',
-                                          bs.normalized_data->>'name_local',
-                                          bs.normalized_data->>'canonical_name',
-                                          ''
-                                      )), '') <> nullif(trim(coalesce(
-                                          bs.review_overrides->>'stop_code',
-                                          bs.stop_code,
-                                          bs.normalized_data->>'stop_code',
-                                          ''
-                                      )), '')
-                                )
-                                OR EXISTS (
-                                    SELECT 1 FROM core.core_bus_stop_names AS n
-                                    WHERE n.stop_id = s.id
-                                )
-                            )
-                      )
-                  )
-              )
+              AND (${coreVerificationExistsUnionSql()})
         `;
         return n(rows[0]?.count ?? 0n);
     }
@@ -759,6 +639,16 @@ export class ImportReviewPublishBatchSummaryRepository {
                   AND spi.publish_status = 'success'
                   AND bs.promotion_status = 'promoted'
                   AND bs.promoted_core_id IS NOT NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.road_candidates AS r
+                    ON r.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${ROAD_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND r.promotion_status = 'promoted'
+                  AND r.promoted_core_id IS NOT NULL
             ) AS marked
         `;
         return n(rows[0]?.count ?? 0n);

@@ -12,6 +12,11 @@ export type ImportReviewRoadOverridesPatchNormalized = {
     road_class_code?: string | null | undefined;
     is_oneway?: boolean | null | undefined;
     surface?: string | null | undefined;
+    bridge?: boolean | null | undefined;
+    tunnel?: boolean | null | undefined;
+    layer?: number | null | undefined;
+    access?: string | null | undefined;
+    speed_kph?: number | null | undefined;
     /** GeoJSON object (LineString or MultiLineString), not raw string. */
     geom?: ImportReviewRoadGeomJson | null | undefined;
 };

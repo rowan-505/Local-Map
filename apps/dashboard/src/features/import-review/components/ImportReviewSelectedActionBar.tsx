@@ -43,6 +43,8 @@ export default function ImportReviewSelectedActionBar({
     onIgnoreSelected,
     onDryRunSafeBulkApprove,
     onRealSafeBulkApprove,
+    bulkWarning,
+    disableBulkApprove,
 }: {
     selectedCount: number;
     analysis: BulkSelectionAnalysis;
@@ -70,6 +72,8 @@ export default function ImportReviewSelectedActionBar({
     onIgnoreSelected: () => void;
     onDryRunSafeBulkApprove?: () => void;
     onRealSafeBulkApprove?: () => void;
+    bulkWarning?: string | null;
+    disableBulkApprove?: boolean;
 }) {
     const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -88,7 +92,11 @@ export default function ImportReviewSelectedActionBar({
     const bulkUpdated = bulkPreview?.updated_count ?? 0;
 
     const approveDisabled =
-        bulkBusy || !canEdit || !hasValidScope || Boolean(approveBlockedReason);
+        bulkBusy ||
+        !canEdit ||
+        !hasValidScope ||
+        Boolean(approveBlockedReason) ||
+        Boolean(disableBulkApprove);
 
     const otherDecisionDisabled =
         bulkBusy || !canEdit || !hasValidScope || analysis.hasPromoted;
@@ -99,6 +107,11 @@ export default function ImportReviewSelectedActionBar({
             role="region"
             aria-label="Bulk actions for selected rows"
         >
+            {bulkWarning ? (
+                <p className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-950">
+                    {bulkWarning}
+                </p>
+            ) : null}
             <div className="flex flex-wrap items-end gap-3 p-4">
                 <div className="min-w-[120px]">
                     <p className="text-sm font-semibold text-gray-900">

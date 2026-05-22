@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
+import { Prisma } from "@prisma/client";
 
 import { isValidatablePublishFamily, PROMOTABLE_PUBLISH_FAMILIES } from "./import-review-promotion-config.js";
 import {
@@ -64,8 +65,15 @@ function itemsFullyValidated(globalStagePasses: number, totalItems: number): num
 
 function mergeIssues(
     state: Map<string, ItemIssueState>,
-    rows: { publish_item_id: bigint; code: string; message: string; severity: ImportReviewValidationSeverity }[],
-    stageKey: ImportReviewPublishValidationStageKey
+    rows: {
+        publish_item_id: bigint;
+        code: string;
+        message: string;
+        severity: ImportReviewValidationSeverity;
+        entity_family?: string;
+    }[],
+    stageKey: ImportReviewPublishValidationStageKey,
+    entityFamily: string
 ): void {
     for (const row of rows) {
         const id = row.publish_item_id.toString();
@@ -81,6 +89,7 @@ function mergeIssues(
             message: row.message,
             severity: row.severity,
             stage_key: stageKey,
+            entity_family: row.entity_family ?? entityFamily,
         });
         if (row.severity === "error") {
             entry.blocked = true;
@@ -88,6 +97,29 @@ function mergeIssues(
             entry.warned = true;
         }
     }
+}
+
+function formatValidationStageError(
+    err: unknown,
+    entityFamily: string,
+    stageKey: ImportReviewPublishItemValidationStageKey
+): string {
+    const stage = stageByKey(stageKey);
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+        const meta = err.meta as { code?: string; message?: string } | undefined;
+        const pgCode = meta?.code ?? "";
+        const pgMessage = meta?.message ?? err.message;
+        if (pgCode === "42703" || pgMessage.includes("does not exist")) {
+            return [
+                `VALIDATION_SYSTEM_ERROR during ${stage.label} for ${entityFamily}:`,
+                pgMessage,
+                "An optional candidate column was referenced directly in validation SQL.",
+                "Re-run validation after deploying schema-aware validation fixes.",
+            ].join(" ");
+        }
+        return `VALIDATION_SYSTEM_ERROR during ${stage.label} for ${entityFamily}: ${pgMessage}`;
+    }
+    return err instanceof Error ? err.message : `Validation failed during ${stage.label} for ${entityFamily}.`;
 }
 
 function markUnsupportedSkipped(
@@ -275,7 +307,7 @@ export class ImportReviewPromotionValidationRunner {
             let globalStagePasses = 0;
 
             for (const stageKey of IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES) {
-                await this.runMultiFamilyItemStage({
+                const stageOk = await this.runMultiFamilyItemStage({
                     batchId,
                     stageKey,
                     groupedItems,
@@ -286,6 +318,9 @@ export class ImportReviewPromotionValidationRunner {
                         globalStagePasses = passes;
                     },
                 });
+                if (!stageOk) {
+                    return;
+                }
             }
 
             await this.runStage(batchId, "write_validation_summary", async () => {
@@ -416,14 +451,6 @@ export class ImportReviewPromotionValidationRunner {
             const message = err instanceof Error ? err.message : "Validation failed unexpectedly.";
             log?.error({ err, batchId: batchId.toString() }, "publish batch validation failed");
             await this.repo.failBatch(batchId, message);
-            await this.repo.updateStageLog({
-                batchId,
-                stageKey: "write_validation_summary",
-                stageStatus: "failed",
-                message,
-                progressPercent: 100,
-                finished: true,
-            });
         } finally {
             runningBatchIds.delete(batchId);
         }
@@ -437,7 +464,7 @@ export class ImportReviewPromotionValidationRunner {
         progressTotal: number;
         globalStagePassesRef: { value: number };
         onProgress: (passes: number) => void;
-    }): Promise<void> {
+    }): Promise<boolean> {
         const stage = stageByKey(args.stageKey);
         const prevStage =
             IMPORT_REVIEW_PUBLISH_VALIDATION_STAGES[
@@ -461,54 +488,75 @@ export class ImportReviewPromotionValidationRunner {
         });
 
         let stageDone = 0;
+        let currentFamily = "unknown";
         const validatableFamilies = [...args.groupedItems.entries()].filter(([family]) =>
             isValidatablePublishFamily(family)
         );
 
-        for (const [family, familyItemIds] of validatableFamilies) {
-            for (let i = 0; i < familyItemIds.length; i += IMPORT_REVIEW_VALIDATION_CHUNK_SIZE) {
-                const chunk = familyItemIds.slice(i, i + IMPORT_REVIEW_VALIDATION_CHUNK_SIZE);
-                const rows = await this.rules.validateStage(args.stageKey, family, chunk);
-                mergeIssues(args.itemState, rows, args.stageKey);
-                stageDone += chunk.length;
-                args.globalStagePassesRef.value += chunk.length;
-                args.onProgress(args.globalStagePassesRef.value);
+        try {
+            for (const [family, familyItemIds] of validatableFamilies) {
+                currentFamily = family;
+                for (let i = 0; i < familyItemIds.length; i += IMPORT_REVIEW_VALIDATION_CHUNK_SIZE) {
+                    const chunk = familyItemIds.slice(i, i + IMPORT_REVIEW_VALIDATION_CHUNK_SIZE);
+                    const rows = await this.rules.validateStage(args.stageKey, family, chunk);
+                    mergeIssues(args.itemState, rows, args.stageKey, family);
+                    stageDone += chunk.length;
+                    args.globalStagePassesRef.value += chunk.length;
+                    args.onProgress(args.globalStagePassesRef.value);
 
-                const itemsValidated = itemsFullyValidated(
-                    args.globalStagePassesRef.value,
-                    args.progressTotal
-                );
-                const percent = progressBetweenStages(
-                    prevEnd,
-                    stage.progressEnd,
-                    itemsValidated,
-                    args.progressTotal
-                );
-                await this.repo.updateBatchProgress({
-                    batchId: args.batchId,
-                    validationDone: itemsValidated,
-                    validationPercent: Math.round(percent * 100) / 100,
-                });
-                await this.repo.updateStageLog({
-                    batchId: args.batchId,
-                    stageKey: args.stageKey,
-                    stageStatus: "running",
-                    message: `Validating ${family} (${stageDone}/${familyItemIds.length} in stage)…`,
-                    progressPercent: Math.round(percent * 100) / 100,
-                    details: {
-                        entity_family: family,
-                        process_state: "running",
-                        stage_count: stageCount,
-                        item_processed_count: stageDone,
-                        total_item_count: args.progressTotal,
-                        counts: { done: stageDone, family_total: familyItemIds.length },
-                    },
-                });
+                    const itemsValidated = itemsFullyValidated(
+                        args.globalStagePassesRef.value,
+                        args.progressTotal
+                    );
+                    const percent = progressBetweenStages(
+                        prevEnd,
+                        stage.progressEnd,
+                        itemsValidated,
+                        args.progressTotal
+                    );
+                    await this.repo.updateBatchProgress({
+                        batchId: args.batchId,
+                        validationDone: itemsValidated,
+                        validationPercent: Math.round(percent * 100) / 100,
+                    });
+                    await this.repo.updateStageLog({
+                        batchId: args.batchId,
+                        stageKey: args.stageKey,
+                        stageStatus: "running",
+                        message: `Validating ${family} (${stageDone}/${familyItemIds.length} in stage)…`,
+                        progressPercent: Math.round(percent * 100) / 100,
+                        details: {
+                            entity_family: family,
+                            process_state: "running",
+                            stage_count: stageCount,
+                            item_processed_count: stageDone,
+                            total_item_count: args.progressTotal,
+                            counts: { done: stageDone, family_total: familyItemIds.length },
+                        },
+                    });
+                }
             }
+        } catch (err) {
+            const message = formatValidationStageError(err, currentFamily, args.stageKey);
+            await this.repo.updateStageLog({
+                batchId: args.batchId,
+                stageKey: args.stageKey,
+                stageStatus: "failed",
+                message,
+                progressPercent: prevEnd,
+                details: {
+                    entity_family: currentFamily,
+                    process_state: "failed",
+                    failed_check: args.stageKey,
+                },
+                finished: true,
+            });
+            await this.repo.failBatch(args.batchId, message);
+            return false;
         }
 
         const issueCount = [...args.itemState.values()].filter((s) =>
-            s.issues.some((i) => i.stage_key === args.stageKey)
+            s.issues.some((i) => i.stage_key === args.stageKey && i.severity !== "info")
         ).length;
 
         await this.repo.updateStageLog({
@@ -526,6 +574,7 @@ export class ImportReviewPromotionValidationRunner {
             },
             finished: true,
         });
+        return true;
     }
 
     private async runStage(

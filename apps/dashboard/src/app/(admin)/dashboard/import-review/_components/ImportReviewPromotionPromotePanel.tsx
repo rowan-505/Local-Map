@@ -37,6 +37,7 @@ const STAGE_ORDER = [
     "promote_water_lines_to_core",
     "promote_water_polygons_to_core",
     "promote_bus_stops_to_core",
+    "promote_roads_to_core",
     "write_publish_item_results",
     "verify_core_rows",
     "mark_import_review_promoted",
@@ -213,6 +214,10 @@ export default function ImportReviewPromotionPromotePanel({
     const requiresWarningNote = validationForModal?.requires_warning_confirmation === true;
     const roadPromotionEnvEnabled =
         roadDryRunResult !== null && roadDryRunResult.disabled_because_env_flag_false === false;
+    const roadPromotedSuccess =
+        promotionResult?.promoted_entity_families.includes("roads") === true
+            ? promotionResult.success_count
+            : 0;
     const roadPromoteBlocked =
         hasRoadItems && (!roadDryRunResult || roadDryRunResult.disabled_because_env_flag_false);
     const canPromote =
@@ -222,7 +227,7 @@ export default function ImportReviewPromotionPromotePanel({
     const promoteDisabledReason = roadPromoteBlocked
         ? !roadDryRunResult
             ? "Run road dry-run first. Road batches require routing validation preview before promotion."
-            : "Road promotion is disabled until ENABLE_IMPORT_REVIEW_ROAD_PROMOTION=true on the API."
+            : "Road promotion is disabled. Run road dry-run and complete routing validation first."
         : null;
     const canConfirmPromote =
         confirmText === "PROMOTE" &&
@@ -271,11 +276,40 @@ export default function ImportReviewPromotionPromotePanel({
             {error ? <ImportReviewStatusBanner message={error} tone="error" compact /> : null}
 
             {hasRoadItems ? (
-                <p className="text-xs text-gray-600">
-                    {roadPromotionEnvEnabled
-                        ? "Road env flag is enabled on the API. Promote may proceed for non-road families; road core writes are not implemented in this phase."
-                        : promoteDisabledReason}
-                </p>
+                <div className="space-y-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-950">
+                    <p className="font-semibold">High-risk road promotion</p>
+                    <p>
+                        Roads write to <code className="rounded bg-white/80 px-1">core.core_streets</code> only.
+                        Routing graph tables are <strong>not</strong> built in this phase (Phase 9E). Controlled
+                        batches: max 3 road items unless{" "}
+                        <code className="rounded bg-white/80 px-1">
+                            ENABLE_IMPORT_REVIEW_ROAD_BULK_PROMOTION=true
+                        </code>
+                        .
+                    </p>
+                    <p>
+                        Env gate:{" "}
+                        {roadPromotionEnvEnabled ? (
+                            <span className="font-semibold text-emerald-800">ENABLED</span>
+                        ) : (
+                            <span className="font-semibold">DISABLED</span>
+                        )}{" "}
+                        (<code className="rounded bg-white/80 px-1">ENABLE_IMPORT_REVIEW_ROAD_PROMOTION</code>)
+                    </p>
+                    {roadDryRunResult ? (
+                        <p>
+                            Dry-run promotable:{" "}
+                            {roadDryRunResult.safe_to_promote_count + roadDryRunResult.promote_with_warning_count}{" "}
+                            of {roadDryRunResult.total_count} · blocked {roadDryRunResult.blocked_count}
+                        </p>
+                    ) : null}
+                    {promotionResult && roadPromotedSuccess > 0 ? (
+                        <p className="text-emerald-900">
+                            Roads promoted to core: {roadPromotedSuccess.toLocaleString()} (routing rebuild pending)
+                        </p>
+                    ) : null}
+                    {!roadPromotionEnvEnabled ? <p>{promoteDisabledReason}</p> : null}
+                </div>
             ) : null}
 
             {(isPromoting || (progress?.workflow === "promotion" && percent > 0)) && (
@@ -402,8 +436,10 @@ export default function ImportReviewPromotionPromotePanel({
                     <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
                         <h3 className="text-lg font-semibold text-gray-900">Promote to core</h3>
                         <p className="mt-2 text-sm text-gray-600">
-                            This will write approved items to core for buildings, places, landuse, water lines,
-                            water polygons, and bus stops.
+                            This will write approved items to core. Road batches also write{" "}
+                            <code className="rounded bg-gray-100 px-1 text-xs">core.core_streets</code> and{" "}
+                            <code className="rounded bg-gray-100 px-1 text-xs">core.core_street_names</code> when
+                            names exist. Routing graph is not built yet.
                         </p>
                         {validationForModal ? (
                             <ul className="mt-3 space-y-1 text-sm text-gray-700">

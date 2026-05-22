@@ -1,15 +1,16 @@
 import type { FastifySchema } from "fastify";
 
+import { apiErrorResponseSchema } from "../../lib/api-error-response.js";
 import {
     Tags,
-    badRequestSchema,
     bearerAuth,
-    conflictSchema,
     forbiddenSchema,
     messageSchema,
-    notFoundSchema,
     unauthorizedSchema,
 } from "../../lib/openapi/common.js";
+
+/** Standard import-review API error envelope for 4xx/5xx handled by `sendImportReviewError`. */
+export const importReviewApiErrorResponseSchema = apiErrorResponseSchema;
 
 /** Scope selectors validated against XOR rules in Zod (`source_snapshot_version` is canonical; `snapshot_version` alias). */
 const importReviewScopeQueryProperties = {
@@ -34,36 +35,6 @@ const importReviewScopeQueryProperties = {
         description:
             "When multiple non-archived batches share source_snapshot_version, select the newest by uploaded_at (requires snapshot scope).",
     },
-} as const;
-
-const importReviewBatchChoiceSchema = {
-    type: "object",
-    required: ["id", "batch_name", "status", "uploaded_at", "total_candidate_count", "entity_families"],
-    properties: {
-        id: { type: "string" },
-        batch_name: { type: "string" },
-        status: { type: "string" },
-        uploaded_at: { type: "string", format: "date-time" },
-        total_candidate_count: { type: "integer", minimum: 0 },
-        entity_families: { type: "array", items: { type: "string" } },
-    },
-    additionalProperties: false,
-} as const;
-
-const importReviewBatchAmbiguousConflictSchema = {
-    type: "object",
-    required: ["message", "source_snapshot_version", "batches"],
-    properties: {
-        message: { type: "string" },
-        source_snapshot_version: { type: "string" },
-        batches: { type: "array", items: importReviewBatchChoiceSchema },
-    },
-    additionalProperties: false,
-} as const;
-
-/** Scope endpoints may return structured batch ambiguity or a generic conflict message. */
-const importReviewScopeConflictResponse = {
-    oneOf: [importReviewBatchAmbiguousConflictSchema, conflictSchema],
 } as const;
 
 const importReviewEnvelopeResponseProperties = {
@@ -588,12 +559,12 @@ export const getImportReviewSummarySchema = {
     },
     response: {
         200: importReviewSummaryResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -638,12 +609,12 @@ export const getImportReviewBuildingsSchema = {
     },
     response: {
         200: importReviewBuildingsListResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -674,6 +645,43 @@ const importReviewPlacesRoadsListQuerystring = {
     additionalProperties: false,
 } as const;
 
+const importReviewRoadsListQuerystring = {
+    type: "object",
+    properties: {
+        ...importReviewPlacesRoadsListQuerystring.properties,
+        promotion_status: {
+            type: "string",
+            minLength: 1,
+            description: "Filter by promotion_status, or __unreviewed__ for NULL/empty.",
+        },
+        class_code: { type: "string", minLength: 1 },
+        include_promoted: { type: "boolean" },
+    },
+    additionalProperties: false,
+} as const;
+
+export const getImportReviewRoadDryRunSummarySchema = {
+    tags: [Tags.ImportReview],
+    summary: "Road dry-run summary for a review batch",
+    description:
+        "Returns the latest publish-batch road dry-run result indexed by review_candidate_id for the scoped review batch.",
+    security: [...bearerAuth],
+    querystring: {
+        type: "object",
+        properties: { ...importReviewScopeQueryProperties },
+        additionalProperties: false,
+    },
+    response: {
+        200: { type: "object", additionalProperties: true },
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
 export const getImportReviewPlacesSchema = {
     tags: [Tags.ImportReview],
     summary: "List import-review place candidates",
@@ -683,12 +691,12 @@ export const getImportReviewPlacesSchema = {
     querystring: importReviewPlacesRoadsListQuerystring,
     response: {
         200: importReviewBuildingsListResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -698,15 +706,15 @@ export const getImportReviewRoadsSchema = {
     description:
         "Paginated `import_review.road_candidates` within the resolved batch/source snapshot.",
     security: [...bearerAuth],
-    querystring: importReviewPlacesRoadsListQuerystring,
+    querystring: importReviewRoadsListQuerystring,
     response: {
         200: importReviewBuildingsListResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -764,12 +772,12 @@ export const getImportReviewBuildingsFilterOptionsSchema = {
     },
     response: {
         200: importReviewBuildingsFilterOptionsResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -796,12 +804,12 @@ export const getImportReviewBuildingByIdSchema = {
     },
     response: {
         200: importReviewBuildingItemSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -850,12 +858,12 @@ export const patchImportReviewBuildingDecisionSchema = {
     body: patchImportReviewBuildingDecisionBodyOpenApi,
     response: {
         200: importReviewBuildingItemSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -937,12 +945,12 @@ export const patchImportReviewBuildingOverridesSchema = {
     body: patchImportReviewBuildingOverridesBodyOpenApi,
     response: {
         200: importReviewBuildingItemSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -990,12 +998,12 @@ export const patchImportReviewRoadOverridesSchema = {
     body: patchImportReviewRoadOverridesBodyOpenApi,
     response: {
         200: importReviewBuildingItemSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1016,12 +1024,12 @@ export const patchImportReviewPlaceDecisionSchema = {
     body: patchImportReviewBuildingDecisionBodyOpenApi,
     response: {
         200: importReviewBuildingItemSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1110,11 +1118,11 @@ export const postImportReviewRoadValidateRoutingSchema = {
     body: postImportReviewRoadValidateRoutingBodyOpenApi,
     response: {
         200: importReviewRoadRoutingValidationResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1135,12 +1143,12 @@ export const patchImportReviewRoadDecisionSchema = {
     body: patchImportReviewBuildingDecisionBodyOpenApi,
     response: {
         200: importReviewBuildingItemSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1215,12 +1223,12 @@ export const postBulkImportReviewBuildingDecisionSchema = {
     body: postBulkImportReviewBuildingDecisionBodyOpenApi,
     response: {
         200: importReviewBulkDecisionResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1232,12 +1240,12 @@ export const postBulkImportReviewPlacesDecisionSchema = {
     body: postBulkImportReviewBuildingDecisionBodyOpenApi,
     response: {
         200: importReviewBulkDecisionResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1249,12 +1257,12 @@ export const postBulkImportReviewRoadsDecisionSchema = {
     body: postBulkImportReviewBuildingDecisionBodyOpenApi,
     response: {
         200: importReviewBulkDecisionResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1395,12 +1403,12 @@ export const getImportReviewPromotionReadySchema = {
     querystring: importReviewPromotionScopeQueryOpenApi,
     response: {
         200: importReviewPromotionReadyResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1489,12 +1497,12 @@ export const getImportReviewPromotionReadyCandidatesSchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1522,12 +1530,12 @@ export const getImportReviewPromotionBatchesSchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1542,11 +1550,11 @@ export const getImportReviewPromotionBatchByIdSchema = {
     },
     response: {
         200: importReviewPublishBatchDetailSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1632,12 +1640,12 @@ export const getImportReviewPromotionBatchEligibilitySchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1754,12 +1762,12 @@ export const postImportReviewPromotionBatchSchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1873,12 +1881,12 @@ export const postImportReviewPromotionBatchValidateSchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -1992,11 +2000,11 @@ export const getImportReviewPromotionBatchProgressSchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2043,7 +2051,7 @@ export const postImportReviewRepairInvalidPromotedBatchesSchema = {
         400: messageSchema,
         401: messageSchema,
         403: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2133,7 +2141,7 @@ export const postImportReviewCleanupPromotedDryRunSchema = {
         401: messageSchema,
         403: messageSchema,
         404: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2177,7 +2185,7 @@ export const postImportReviewCleanupPromotedExecuteSchema = {
         401: messageSchema,
         403: messageSchema,
         404: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2290,7 +2298,7 @@ export const getImportReviewAddressOptionsSchema = {
         400: messageSchema,
         401: messageSchema,
         404: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2341,7 +2349,7 @@ export const patchImportReviewAddressComponentsSchema = {
         400: messageSchema,
         401: messageSchema,
         404: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2410,7 +2418,7 @@ export const patchImportReviewAddressMatchesSchema = {
         400: messageSchema,
         401: messageSchema,
         404: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2520,7 +2528,7 @@ export const postImportReviewAddressValidateSchema = {
         400: messageSchema,
         401: messageSchema,
         404: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2614,7 +2622,7 @@ export const postImportReviewAddressPromotionDryRunSchema = {
         400: messageSchema,
         401: messageSchema,
         404: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2633,7 +2641,7 @@ export const postImportReviewAddressPromotionSchema = {
         401: messageSchema,
         403: messageSchema,
         404: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2720,7 +2728,7 @@ export const postImportReviewAddressAdminInferenceSchema = {
         401: messageSchema,
         404: messageSchema,
         503: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2756,14 +2764,42 @@ export const postImportReviewPromotionBatchPromoteSchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        409: importReviewScopeConflictResponse,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
+
+const roadDryRunSampleItemSchema = {
+    type: "object",
+    required: [
+        "publish_item_id",
+        "review_candidate_id",
+        "external_id",
+        "canonical_name",
+        "dry_run_status",
+        "blocking_reasons",
+        "warning_codes",
+        "info_codes",
+    ],
+    properties: {
+        publish_item_id: { type: "string" },
+        review_candidate_id: { type: "string" },
+        external_id: { type: "string", nullable: true },
+        canonical_name: { type: "string", nullable: true },
+        dry_run_status: {
+            type: "string",
+            enum: ["safe_to_promote", "promote_with_warning", "needs_manual_review", "blocked"],
+        },
+        blocking_reasons: { type: "array", items: { type: "string" } },
+        warning_codes: { type: "array", items: { type: "string" } },
+        info_codes: { type: "array", items: { type: "string" } },
+    },
+    additionalProperties: false,
+} as const;
 
 const roadDryRunItemSchema = {
     type: "object",
@@ -2771,28 +2807,38 @@ const roadDryRunItemSchema = {
         "publish_item_id",
         "review_candidate_id",
         "external_id",
+        "canonical_name",
         "publish_action",
         "dry_run_status",
         "blocking_reasons",
         "warning_codes",
+        "info_codes",
         "matched_core_id",
-        "routing_validation_summary",
         "geometry_summary",
+        "connectivity_summary",
+        "duplicate_summary",
+        "routing_summary",
+        "can_promote_later",
     ],
     properties: {
         publish_item_id: { type: "string" },
         review_candidate_id: { type: "string" },
         external_id: { type: "string", nullable: true },
+        canonical_name: { type: "string", nullable: true },
         publish_action: { type: "string" },
         dry_run_status: {
             type: "string",
-            enum: ["blocked", "warning", "eligible", "eligible_if_confirmed"],
+            enum: ["safe_to_promote", "promote_with_warning", "needs_manual_review", "blocked"],
         },
         blocking_reasons: { type: "array", items: { type: "string" } },
         warning_codes: { type: "array", items: { type: "string" } },
+        info_codes: { type: "array", items: { type: "string" } },
         matched_core_id: { type: "string", nullable: true },
-        routing_validation_summary: { type: "object", nullable: true, additionalProperties: true },
         geometry_summary: { type: "object", nullable: true, additionalProperties: true },
+        connectivity_summary: { type: "object", nullable: true, additionalProperties: true },
+        duplicate_summary: { type: "object", nullable: true, additionalProperties: true },
+        routing_summary: { type: "object", nullable: true, additionalProperties: true },
+        can_promote_later: { type: "boolean" },
     },
     additionalProperties: false,
 } as const;
@@ -2802,14 +2848,23 @@ const roadDryRunResultSchema = {
     required: [
         "batch_id",
         "review_batch_id",
-        "would_insert_count",
-        "would_update_count",
+        "total_count",
+        "safe_to_promote_count",
+        "promote_with_warning_count",
+        "needs_manual_review_count",
         "blocked_count",
         "warning_count",
+        "error_count",
         "duplicate_risk_count",
-        "routing_warning_count",
-        "serious_warning_count",
-        "eligible_if_confirmed_count",
+        "connectivity_warning_count",
+        "unsplit_intersection_count",
+        "would_insert_count",
+        "would_update_count",
+        "by_warning_code",
+        "by_error_code",
+        "by_road_class",
+        "sample_blocked_items",
+        "sample_warning_items",
         "disabled_because_env_flag_false",
         "items",
         "finished_at",
@@ -2818,14 +2873,23 @@ const roadDryRunResultSchema = {
     properties: {
         batch_id: { type: "string" },
         review_batch_id: { type: "string", nullable: true },
-        would_insert_count: { type: "integer", minimum: 0 },
-        would_update_count: { type: "integer", minimum: 0 },
+        total_count: { type: "integer", minimum: 0 },
+        safe_to_promote_count: { type: "integer", minimum: 0 },
+        promote_with_warning_count: { type: "integer", minimum: 0 },
+        needs_manual_review_count: { type: "integer", minimum: 0 },
         blocked_count: { type: "integer", minimum: 0 },
         warning_count: { type: "integer", minimum: 0 },
+        error_count: { type: "integer", minimum: 0 },
         duplicate_risk_count: { type: "integer", minimum: 0 },
-        routing_warning_count: { type: "integer", minimum: 0 },
-        serious_warning_count: { type: "integer", minimum: 0 },
-        eligible_if_confirmed_count: { type: "integer", minimum: 0 },
+        connectivity_warning_count: { type: "integer", minimum: 0 },
+        unsplit_intersection_count: { type: "integer", minimum: 0 },
+        would_insert_count: { type: "integer", minimum: 0 },
+        would_update_count: { type: "integer", minimum: 0 },
+        by_warning_code: { type: "object", additionalProperties: { type: "integer", minimum: 0 } },
+        by_error_code: { type: "object", additionalProperties: { type: "integer", minimum: 0 } },
+        by_road_class: { type: "object", additionalProperties: { type: "integer", minimum: 0 } },
+        sample_blocked_items: { type: "array", items: roadDryRunSampleItemSchema },
+        sample_warning_items: { type: "array", items: roadDryRunSampleItemSchema },
         disabled_because_env_flag_false: { type: "boolean" },
         items: { type: "array", items: roadDryRunItemSchema },
         finished_at: { type: "string" },
@@ -2848,7 +2912,8 @@ export const postImportReviewPromotionRoadDryRunSchema = {
     body: {
         type: "object",
         properties: {
-            confirm_routing_warnings: { type: "boolean", default: false },
+            include_warnings: { type: "boolean", default: false },
+            revalidate: { type: "boolean", default: true },
             use_review_overrides: { type: "boolean", default: true },
             connectivity_threshold_m: { type: "number", minimum: 5, maximum: 250, default: 35 },
             duplicate_threshold_m: { type: "number", minimum: 1, maximum: 100, default: 15 },
@@ -2861,7 +2926,7 @@ export const postImportReviewPromotionRoadDryRunSchema = {
         401: messageSchema,
         403: messageSchema,
         404: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2880,7 +2945,7 @@ export const getImportReviewPromotionRoadDryRunSchema = {
         401: messageSchema,
         403: messageSchema,
         404: messageSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2941,11 +3006,11 @@ export const getImportReviewPromotionBatchVerifySchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -2968,11 +3033,11 @@ export const getImportReviewPromotionBatchLogsSchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3025,11 +3090,11 @@ export const getImportReviewFamilyCandidatesSchema = {
     querystring: importReviewFamilyCandidatesListQuerystring,
     response: {
         200: importReviewBuildingsListResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3055,11 +3120,11 @@ export const getImportReviewFamilyCandidateByIdSchema = {
     },
     response: {
         200: importReviewBuildingItemSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3093,11 +3158,11 @@ export const getImportReviewFamilyFilterOptionsSchema = {
                 items: { type: "string" },
             },
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3176,7 +3241,7 @@ export const getImportReviewFormOptionsSchema = {
         },
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3209,7 +3274,7 @@ export const getImportReviewReferenceOptionsSchema = {
         },
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3228,11 +3293,11 @@ export const patchImportReviewFamilyCandidateDecisionSchema = {
     body: patchImportReviewBuildingDecisionBodyOpenApi,
     response: {
         200: importReviewBuildingItemSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3251,11 +3316,11 @@ export const patchImportReviewFamilyCandidateOverridesSchema = {
     body: patchImportReviewCandidateOverridesBodyOpenApi,
     response: {
         200: importReviewBuildingItemSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3271,11 +3336,11 @@ export const postImportReviewFamilyBulkDecisionSchema = {
     body: postBulkImportReviewBuildingDecisionBodyOpenApi,
     response: {
         200: importReviewBulkDecisionResponseSchema,
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3388,10 +3453,10 @@ export const getImportReviewHistoryReviewBatchesSchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3406,11 +3471,11 @@ export const getImportReviewHistoryReviewBatchByIdSchema = {
     },
     response: {
         200: { type: "object", additionalProperties: true },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3443,10 +3508,10 @@ export const getImportReviewHistoryPublishBatchesSchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        500: messageSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3461,11 +3526,11 @@ export const getImportReviewHistoryPublishBatchByIdSchema = {
     },
     response: {
         200: { type: "object", additionalProperties: true },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3499,11 +3564,11 @@ export const getImportReviewHistoryPublishBatchItemsSchema = {
             },
             additionalProperties: false,
         },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
 
@@ -3518,10 +3583,10 @@ export const getImportReviewHistoryPublishBatchLogsSchema = {
     },
     response: {
         200: { type: "object", additionalProperties: true },
-        400: badRequestSchema,
+        400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
-        404: notFoundSchema,
-        500: messageSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;

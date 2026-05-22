@@ -116,8 +116,32 @@ export class ImportReviewRoadPromotionDisabledError extends Error {
 
     constructor(public readonly batchId: string) {
         super(
-            "Road promotion is disabled. Run road dry-run and enable ENABLE_IMPORT_REVIEW_ROAD_PROMOTION only after routing validation is stable."
+            "Road promotion is disabled. Set ENABLE_IMPORT_REVIEW_ROAD_PROMOTION=true, run road dry-run, and complete routing validation first."
         );
         this.name = "ImportReviewRoadPromotionDisabledError";
+    }
+}
+
+export class ImportReviewRoadPromotionBatchLimitError extends Error {
+    readonly statusCode = 409;
+
+    constructor(
+        public readonly batchId: string,
+        public readonly roadItemCount: number,
+        public readonly maxItems: number
+    ) {
+        super(
+            `Road promotion batch limit exceeded (${roadItemCount} road items; max ${maxItems} without ENABLE_IMPORT_REVIEW_ROAD_BULK_PROMOTION=true).`
+        );
+        this.name = "ImportReviewRoadPromotionBatchLimitError";
+    }
+}
+
+export class ImportReviewRoadDryRunRequiredError extends Error {
+    readonly statusCode = 409;
+
+    constructor(public readonly batchId: string) {
+        super("Road dry-run is required before promoting road publish items.");
+        this.name = "ImportReviewRoadDryRunRequiredError";
     }
 }

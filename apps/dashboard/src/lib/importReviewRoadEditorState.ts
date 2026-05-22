@@ -88,6 +88,11 @@ export type ImportReviewRoadEditorSeed = {
     roadClassId: string;
     isOneway: boolean;
     surface: string;
+    bridge: boolean;
+    tunnel: boolean;
+    layer: string;
+    access: string;
+    speedKph: string;
     line: StreetLineStringGeoJson | null;
     multiLineWarning: string | null;
     geometryLoadNotice: string | null;
@@ -136,6 +141,24 @@ export function roadEditorSeedFromRow(
         surface = surfaceFromNormalized(nd);
     }
 
+    const bridge =
+        boolFromUnknown(ov.bridge) ??
+        boolFromUnknown(normPick(nd, "bridge")) ??
+        false;
+    const tunnel =
+        boolFromUnknown(ov.tunnel) ??
+        boolFromUnknown(normPick(nd, "tunnel")) ??
+        false;
+    const layer =
+        strFromUnknown(ov.layer).trim() ||
+        strFromUnknown(normPick(nd, "layer")).trim();
+    const access =
+        strFromUnknown(ov.access).trim() ||
+        strFromUnknown(normPick(nd, "access")).trim();
+    const speedKph =
+        strFromUnknown(ov.speed_kph).trim() ||
+        strFromUnknown(normPick(nd, "speed_kph")).trim();
+
     const ovGeom = ov.geom;
     const geomSource: StreetGeometry | null =
         ovGeom && typeof ovGeom === "object" && !Array.isArray(ovGeom) && "type" in ovGeom
@@ -160,6 +183,11 @@ export function roadEditorSeedFromRow(
         adminAreaId: adminAreaId || null,
         isOneway,
         surface,
+        bridge,
+        tunnel,
+        layer,
+        access,
+        speedKph,
         line: norm.line,
         multiLineWarning: norm.multiLineWarning ?? null,
         geometryLoadNotice,

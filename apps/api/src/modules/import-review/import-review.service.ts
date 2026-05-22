@@ -76,6 +76,11 @@ import type {
 import { buildImportReviewRoadOverrideOutcome } from "./import-review-road-overrides-validator.js";
 import type { ImportReviewRoadOverridesPatchNormalized } from "./import-review-road-overrides.types.js";
 import {
+    buildRoadDryRunSummaryResponse,
+    ImportReviewRoadDryRunSummaryRepository,
+} from "./import-review-road-dry-run-summary.repo.js";
+import type { ImportReviewRoadDryRunSummaryResponse } from "./import-review-road-dry-run-summary.types.js";
+import {
     issuesToStoredJson,
     runImportReviewRoadRoutingValidation,
 } from "./import-review-road-routing-validation.js";
@@ -481,6 +486,9 @@ function assertGenericCandidateDecisionAllowed(args: {
 
 export class ImportReviewService {
     private readonly routingStreets = new StreetsRepository(getImportReviewPrisma());
+    private readonly roadDryRunSummaryRepo = new ImportReviewRoadDryRunSummaryRepository(
+        getImportReviewPrisma()
+    );
 
     constructor(private readonly repo: ImportReviewDataRepository) {}
 
@@ -812,6 +820,22 @@ export class ImportReviewService {
             patchForValidator.geom =
                 leaf.geom === null ? null : (leaf.geom as unknown as Record<string, unknown>);
         }
+        if (leaf.bridge !== undefined) {
+            patchForValidator.bridge = leaf.bridge as boolean | null;
+        }
+        if (leaf.tunnel !== undefined) {
+            patchForValidator.tunnel = leaf.tunnel as boolean | null;
+        }
+        if (leaf.layer !== undefined) {
+            patchForValidator.layer = leaf.layer as number | null;
+        }
+        if (leaf.access !== undefined) {
+            patchForValidator.access =
+                typeof leaf.access === "string" || leaf.access === null ? leaf.access : String(leaf.access);
+        }
+        if (leaf.speed_kph !== undefined) {
+            patchForValidator.speed_kph = leaf.speed_kph as number | null;
+        }
 
         const baselineGeom =
             baseline.geom_geojson && typeof baseline.geom_geojson === "object"
@@ -1071,6 +1095,9 @@ export class ImportReviewService {
             auto_action: query.auto_action,
             review_status: query.review_status,
             review_decision: query.review_decision,
+            promotion_status: query.promotion_status,
+            class_code: query.class_code,
+            include_promoted: query.include_promoted,
             q: query.q,
         };
 
@@ -1094,6 +1121,20 @@ export class ImportReviewService {
             limit: query.limit,
             offset: query.offset,
         };
+    }
+
+    async getRoadDryRunSummary(
+        query: ImportReviewScopeQuery
+    ): Promise<ImportReviewRoadDryRunSummaryResponse> {
+        const scope = await this.resolveScopeChecked(query);
+        const latest = await this.roadDryRunSummaryRepo.fetchLatestDryRunForReviewBatch(
+            scope.reviewBatchId
+        );
+        return buildRoadDryRunSummaryResponse(
+            scope.reviewBatchId,
+            latest?.publishBatchId ?? null,
+            latest?.result ?? null
+        );
     }
 
     async patchPlaceDecision(

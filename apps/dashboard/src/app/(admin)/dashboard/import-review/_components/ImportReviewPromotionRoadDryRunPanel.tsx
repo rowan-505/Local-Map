@@ -17,24 +17,50 @@ import {
 } from "@/src/lib/api";
 
 const STATUS_LABELS: Record<RoadDryRunItemStatus, string> = {
+    safe_to_promote: "Safe to promote",
+    promote_with_warning: "Promote with warning",
+    needs_manual_review: "Needs manual review",
     blocked: "Blocked",
-    warning: "Warning",
-    eligible: "Eligible",
-    eligible_if_confirmed: "Eligible if confirmed",
 };
 
 function statusBadgeClass(status: RoadDryRunItemStatus): string {
     switch (status) {
-        case "eligible":
+        case "safe_to_promote":
             return "bg-emerald-50 text-emerald-800 ring-emerald-200";
-        case "warning":
+        case "promote_with_warning":
             return "bg-amber-50 text-amber-900 ring-amber-200";
-        case "eligible_if_confirmed":
+        case "needs_manual_review":
             return "bg-orange-50 text-orange-900 ring-orange-200";
         case "blocked":
         default:
             return "bg-red-50 text-red-800 ring-red-200";
     }
+}
+
+function CodeBreakdown({
+    title,
+    counts,
+}: {
+    title: string;
+    counts: Record<string, number>;
+}) {
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) {
+        return null;
+    }
+    return (
+        <details className="rounded-md border border-blue-200 bg-white p-3">
+            <summary className="cursor-pointer text-xs font-medium text-blue-950">{title}</summary>
+            <ul className="mt-2 space-y-1 text-xs text-gray-700">
+                {entries.map(([code, count]) => (
+                    <li key={code} className="flex justify-between gap-4 font-mono">
+                        <span>{code}</span>
+                        <span className="tabular-nums">{count.toLocaleString()}</span>
+                    </li>
+                ))}
+            </ul>
+        </details>
+    );
 }
 
 type Props = {
@@ -85,7 +111,9 @@ export default function ImportReviewPromotionRoadDryRunPanel({
         setIsRunning(true);
         setError(null);
         try {
-            const next = await postImportReviewPromotionBatchRoadDryRun(batchId, {});
+            const next = await postImportReviewPromotionBatchRoadDryRun(batchId, {
+                revalidate: true,
+            });
             applyResult(next);
         } catch (err) {
             setError(formatError(err));
@@ -93,6 +121,15 @@ export default function ImportReviewPromotionRoadDryRunPanel({
             setIsRunning(false);
         }
     }
+
+    const tableItems = result
+        ? result.items.filter(
+              (item) =>
+                  item.dry_run_status === "blocked" ||
+                  item.dry_run_status === "promote_with_warning" ||
+                  item.dry_run_status === "needs_manual_review"
+          )
+        : [];
 
     return (
         <section className="border-t border-gray-100 pt-6">
@@ -105,9 +142,14 @@ export default function ImportReviewPromotionRoadDryRunPanel({
                 <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-950">
                     <p className="font-medium">Roads affect routing and are not bulk-promoted by default.</p>
                     <p className="mt-1 text-xs">
-                        Run road dry-run before considering promotion. Real road promotion requires{" "}
-                        <code className="rounded bg-red-100 px-1">ENABLE_IMPORT_REVIEW_ROAD_PROMOTION=true</code> on
-                        the API server.
+                        Run road dry-run before promotion. Live writes require{" "}
+                        <code className="rounded bg-red-100 px-1">ENABLE_IMPORT_REVIEW_ROAD_PROMOTION=true</code>{" "}
+                        on the API server. Max 3 road publish items per batch unless{" "}
+                        <code className="rounded bg-red-100 px-1">
+                            ENABLE_IMPORT_REVIEW_ROAD_BULK_PROMOTION=true
+                        </code>
+                        . Promotion writes <code className="rounded bg-red-100 px-1">core.core_streets</code> only —
+                        routing graph tables are built in Phase 9E.
                     </p>
                 </div>
 
@@ -148,41 +190,54 @@ export default function ImportReviewPromotionRoadDryRunPanel({
                                 </p>
                             ) : (
                                 <p className="mt-2 text-xs font-medium text-emerald-900">
-                                    Road promotion env flag is enabled on the API (core writes still require a
-                                    future promote module).
+                                    Road promotion env flag is enabled on the API. Use the promote panel after dry-run
+                                    review (controlled batches only).
                                 </p>
                             )}
                         </div>
 
                         <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            <Count label="Total" value={result.total_count} />
+                            <Count label="Safe to promote" value={result.safe_to_promote_count} tone="success" />
+                            <Count
+                                label="Promote with warning"
+                                value={result.promote_with_warning_count}
+                                tone="warning"
+                            />
+                            <Count
+                                label="Needs manual review"
+                                value={result.needs_manual_review_count}
+                                tone="warning"
+                            />
+                            <Count label="Blocked" value={result.blocked_count} tone="error" />
+                            <Count label="Duplicate risk" value={result.duplicate_risk_count} />
+                            <Count label="Connectivity warnings" value={result.connectivity_warning_count} />
+                            <Count label="Unsplit intersections" value={result.unsplit_intersection_count} />
                             <Count label="Would insert" value={result.would_insert_count} />
                             <Count label="Would update" value={result.would_update_count} />
-                            <Count label="Blocked" value={result.blocked_count} tone="error" />
-                            <Count label="Warnings" value={result.warning_count} tone="warning" />
-                            <Count label="Routing warnings" value={result.routing_warning_count} />
-                            <Count label="Serious warnings" value={result.serious_warning_count} />
-                            <Count label="Duplicate risk" value={result.duplicate_risk_count} />
-                            <Count
-                                label="Eligible if confirmed"
-                                value={result.eligible_if_confirmed_count}
-                            />
                         </dl>
 
-                        {result.items.length > 0 ? (
+                        <div className="grid gap-3 lg:grid-cols-2">
+                            <CodeBreakdown title="Warning codes" counts={result.by_warning_code} />
+                            <CodeBreakdown title="Error codes" counts={result.by_error_code} />
+                        </div>
+
+                        {tableItems.length > 0 ? (
                             <div className="overflow-x-auto rounded-md border border-blue-200 bg-white">
                                 <table className="min-w-full text-left text-xs">
                                     <thead className="border-b border-gray-200 bg-gray-50 text-gray-600">
                                         <tr>
                                             <th className="px-3 py-2 font-medium">Status</th>
+                                            <th className="px-3 py-2 font-medium">Name</th>
                                             <th className="px-3 py-2 font-medium">External id</th>
-                                            <th className="px-3 py-2 font-medium">Action</th>
                                             <th className="px-3 py-2 font-medium">Blockers</th>
                                             <th className="px-3 py-2 font-medium">Warnings</th>
-                                            <th className="px-3 py-2 font-medium">Core match</th>
+                                            <th className="px-3 py-2 font-medium">Info</th>
+                                            <th className="px-3 py-2 font-medium">Can promote later</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {result.items.map((item) => (
+                                        {tableItems.map((item) => (
                                             <tr key={item.publish_item_id} className="text-gray-800">
                                                 <td className="px-3 py-2">
                                                     <span
@@ -191,10 +246,10 @@ export default function ImportReviewPromotionRoadDryRunPanel({
                                                         {STATUS_LABELS[item.dry_run_status]}
                                                     </span>
                                                 </td>
+                                                <td className="px-3 py-2">{item.canonical_name ?? "—"}</td>
                                                 <td className="px-3 py-2 font-mono">
                                                     {item.external_id ?? "—"}
                                                 </td>
-                                                <td className="px-3 py-2">{item.publish_action}</td>
                                                 <td className="px-3 py-2">
                                                     {item.blocking_reasons.length > 0
                                                         ? item.blocking_reasons.join(", ")
@@ -205,8 +260,13 @@ export default function ImportReviewPromotionRoadDryRunPanel({
                                                         ? item.warning_codes.join(", ")
                                                         : "—"}
                                                 </td>
-                                                <td className="px-3 py-2 font-mono">
-                                                    {item.matched_core_id ?? "—"}
+                                                <td className="px-3 py-2">
+                                                    {item.info_codes.length > 0
+                                                        ? item.info_codes.join(", ")
+                                                        : "—"}
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    {item.can_promote_later ? "Yes" : "No"}
                                                 </td>
                                             </tr>
                                         ))}
@@ -214,7 +274,7 @@ export default function ImportReviewPromotionRoadDryRunPanel({
                                 </table>
                             </div>
                         ) : (
-                            <p className="text-xs">No road publish items in this batch.</p>
+                            <p className="text-xs">No blocked or warning road items in this batch.</p>
                         )}
 
                         <p className="text-xs opacity-75">
@@ -239,14 +299,16 @@ function Count({
 }: {
     label: string;
     value: number;
-    tone?: "error" | "warning";
+    tone?: "error" | "warning" | "success";
 }) {
     const valueCls =
         tone === "error"
             ? "text-red-800"
             : tone === "warning"
               ? "text-amber-800"
-              : "text-blue-950";
+              : tone === "success"
+                ? "text-emerald-800"
+                : "text-blue-950";
     return (
         <div>
             <dt className="text-xs uppercase tracking-wide opacity-75">{label}</dt>

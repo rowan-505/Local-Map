@@ -7,6 +7,7 @@ import {
     normalizeOverrideBoolean,
     normalizeOverrideNumericId,
     normalizeOverrideOptionalBoolean,
+    normalizeOverrideOptionalInteger,
     normalizeOverrideOptionalNumber,
     normalizeOverrideOptionalScore,
 } from "./import-review-overrides-normalize.js";
@@ -55,6 +56,9 @@ const BOOLEAN_PATCH_KEYS = new Set(["is_oneway", "intermittent"]);
 const SCORE_PATCH_KEYS = new Set(["confidence_score", "importance_score", "popularity_score"]);
 
 const NUMBER_PATCH_KEYS = new Set(["levels", "height_m"]);
+
+const ROAD_BOOL_PATCH_KEYS = new Set(["bridge", "tunnel"]);
+const ROAD_STRING_PATCH_KEYS = new Set(["access"]);
 
 const GEOM_PATCH_KEYS = new Set(["geom", "point_geom"]);
 
@@ -185,6 +189,22 @@ function normalizePatchFieldValue(
 
     if (NUMBER_PATCH_KEYS.has(key)) {
         return normalizeOverrideOptionalNumber(value, key);
+    }
+
+    if (family === "roads" && key === "layer") {
+        return normalizeOverrideOptionalInteger(value, key);
+    }
+
+    if (family === "roads" && key === "speed_kph") {
+        return normalizeOverrideOptionalNumber(value, key);
+    }
+
+    if (family === "roads" && ROAD_BOOL_PATCH_KEYS.has(key)) {
+        return normalizeOverrideOptionalBoolean(value, key);
+    }
+
+    if (family === "roads" && ROAD_STRING_PATCH_KEYS.has(key)) {
+        return normalizeOptionalOverrideString(value, key);
     }
 
     if (STRING_PATCH_KEYS.has(key)) {

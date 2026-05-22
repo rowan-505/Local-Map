@@ -28,13 +28,14 @@ export type ImportReviewPublishValidationStageKey =
 export type ImportReviewPublishItemValidationStageKey =
     (typeof IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES)[number];
 
-export type ImportReviewValidationSeverity = "error" | "warning";
+export type ImportReviewValidationSeverity = "error" | "warning" | "info";
 
 export type ImportReviewValidationIssue = {
     code: string;
     message: string;
     severity: ImportReviewValidationSeverity;
     stage_key?: ImportReviewPublishValidationStageKey;
+    entity_family?: string;
 };
 
 export type ImportReviewPublishItemValidationStatus = "valid" | "warning" | "blocked" | "skipped";
@@ -91,4 +92,5 @@ export type ImportReviewPublishValidationIssueRow = {
     code: string;
     message: string;
     severity: ImportReviewValidationSeverity;
+    entity_family?: string;
 };

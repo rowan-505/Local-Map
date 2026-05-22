@@ -1,7 +1,12 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import type { ImportReviewPromotionRoadDryRunResult } from "./import-review-promotion-road-dry-run.types.js";
+import {
+    IMPORT_REVIEW_ROAD_DRY_RUN_STAGES,
+    type ImportReviewRoadDryRunStageKey,
+} from "./import-review-promotion-road-dry-run.stages.js";
 import type { ImportReviewRoadRoutingValidationRow } from "./import-review-road-routing-validation.js";
+import { requireValidPublishStageStatus } from "./import-review-promotion-stage-status.js";
 import { geomSourceExpr, effectiveRoadLengthMExpr } from "./import-review-promotion-promote-sql.js";
 
 export type RoadPublishItemRow = {
@@ -15,6 +20,9 @@ export type RoadCandidatePromotionRow = {
     id: bigint;
     review_batch_id: bigint;
     external_id: string | null;
+    canonical_name: string | null;
+    class_code: string | null;
+    road_class: string | null;
     review_status: string;
     review_decision: string | null;
     promotion_status: string;
@@ -31,6 +39,7 @@ export type RoadCandidatePromotionRow = {
     geom_type: string | null;
     is_valid: boolean | null;
     length_m: number | null;
+    part_count: number | null;
 };
 
 const ROAD_CANDIDATE_TABLE = "import_review.road_candidates";
@@ -82,6 +91,9 @@ export class ImportReviewPromotionRoadDryRunRepository {
                 r.id,
                 r.review_batch_id,
                 r.external_id,
+                r.canonical_name,
+                r.class_code,
+                r.road_class,
                 r.review_status,
                 r.review_decision,
                 r.promotion_status,
@@ -97,7 +109,14 @@ export class ImportReviewPromotionRoadDryRunRepository {
                 CASE WHEN ${geomSourceExpr("r")} IS NOT NULL THEN ST_SRID(${geomSourceExpr("r")}) ELSE NULL END AS srid,
                 CASE WHEN ${geomSourceExpr("r")} IS NOT NULL THEN GeometryType(${geomSourceExpr("r")}) ELSE NULL END AS geom_type,
                 CASE WHEN ${geomSourceExpr("r")} IS NOT NULL THEN ST_IsValid(${geomSourceExpr("r")}) ELSE NULL END AS is_valid,
-                ${effectiveRoadLengthMExpr("r")}::float8 AS length_m
+                ${effectiveRoadLengthMExpr("r")}::float8 AS length_m,
+                CASE
+                    WHEN ${geomSourceExpr("r")} IS NULL THEN NULL
+                    WHEN GeometryType(${geomSourceExpr("r")}) = 'ST_MultiLineString'
+                        THEN ST_NumGeometries(${geomSourceExpr("r")})
+                    WHEN GeometryType(${geomSourceExpr("r")}) = 'ST_LineString' THEN 1
+                    ELSE NULL
+                END AS part_count
             FROM import_review.road_candidates AS r
             WHERE r.id = ${candidateId}
               AND r.review_batch_id = ${reviewBatchId}
@@ -149,6 +168,129 @@ export class ImportReviewPromotionRoadDryRunRepository {
         return rows[0]?.exists === true;
     }
 
+    async countRoadClassesByCode(code: string): Promise<number> {
+        const lc = code.trim().toLowerCase();
+        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
+            SELECT count(*)::bigint AS count
+            FROM ref.ref_road_classes
+            WHERE lower(code) = ${lc}
+        `;
+        return Number(rows[0]?.count ?? 0n);
+    }
+
+    async duplicateExternalIdInCore(externalId: string): Promise<boolean> {
+        const rows = await this.prisma.$queryRaw<{ exists: boolean }[]>`
+            SELECT EXISTS (
+                SELECT 1
+                FROM core.core_streets AS s
+                WHERE s.external_id = ${externalId}
+                  AND s.deleted_at IS NULL
+                  AND s.is_active IS TRUE
+            ) AS exists
+        `;
+        return rows[0]?.exists === true;
+    }
+
+    async countLikelyNameClassDuplicates(args: {
+        reviewBatchId: bigint;
+        candidateId: bigint;
+        canonicalName: string;
+        roadClassCode: string | null;
+        duplicateThresholdM: number;
+        geomGeojson: Record<string, unknown>;
+    }): Promise<number> {
+        const gj = JSON.stringify(args.geomGeojson);
+        const nameNorm = args.canonicalName.trim().toLowerCase();
+        const classNorm = (args.roadClassCode ?? "").trim().toLowerCase();
+        const dupM = args.duplicateThresholdM;
+
+        const rows = await this.prisma.$queryRaw<[{ c: number }]>`
+            WITH cand AS (
+                SELECT ST_SetSRID(ST_GeomFromGeoJSON(${gj}::json), 4326)::geometry AS geom
+            )
+            SELECT count(*)::int AS c
+            FROM import_review.road_candidates AS r, cand
+            WHERE r.review_batch_id = ${args.reviewBatchId}
+              AND r.entity_family = 'roads'
+              AND r.id <> ${args.candidateId}
+              AND r.geom IS NOT NULL
+              AND lower(trim(coalesce(r.canonical_name, ''))) = ${nameNorm}
+              AND (
+                  ${classNorm} = ''
+                  OR lower(trim(coalesce(r.class_code, r.road_class, ''))) = ${classNorm}
+              )
+              AND r.geom && ST_Expand(cand.geom, ${dupM / 111320.0})
+              AND ST_DWithin(r.geom::geography, cand.geom::geography, ${dupM}::double precision)
+            LIMIT 20
+        `;
+        return rows[0]?.c ?? 0;
+    }
+
+    async seedRoadDryRunStageLogs(batchId: bigint): Promise<void> {
+        for (const stage of IMPORT_REVIEW_ROAD_DRY_RUN_STAGES) {
+            await this.prisma.$executeRaw`
+                INSERT INTO system.system_publish_stage_logs (
+                    publish_batch_id,
+                    stage_key,
+                    stage_label,
+                    stage_status,
+                    message,
+                    progress_percent,
+                    details,
+                    started_at
+                )
+                VALUES (
+                    ${batchId},
+                    ${stage.key},
+                    ${stage.label},
+                    'pending',
+                    NULL,
+                    0,
+                    '{}'::jsonb,
+                    now()
+                )
+            `;
+        }
+    }
+
+    async updateRoadDryRunStageLog(args: {
+        batchId: bigint;
+        stageKey: ImportReviewRoadDryRunStageKey;
+        stageStatus: string;
+        message?: string | null;
+        progressPercent: number;
+        details?: Record<string, unknown>;
+        finished?: boolean;
+    }): Promise<void> {
+        const stageStatus = requireValidPublishStageStatus(args.stageStatus);
+        const detailsJson = JSON.stringify(args.details ?? {});
+        if (args.finished) {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_stage_logs
+                SET
+                    stage_status = ${stageStatus},
+                    message = ${args.message ?? null},
+                    progress_percent = ${args.progressPercent},
+                    details = ${detailsJson}::jsonb,
+                    finished_at = now()
+                WHERE publish_batch_id = ${args.batchId}
+                  AND stage_key = ${args.stageKey}
+            `;
+        } else {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_stage_logs
+                SET
+                    stage_status = ${stageStatus},
+                    message = ${args.message ?? null},
+                    progress_percent = ${args.progressPercent},
+                    details = ${detailsJson}::jsonb,
+                    started_at = CASE WHEN stage_status = 'pending' THEN now() ELSE started_at END
+                WHERE publish_batch_id = ${args.batchId}
+                  AND stage_key = ${args.stageKey}
+            `;
+        }
+    }
+
     async persistRoadDryRunResult(
         batchId: bigint,
         result: ImportReviewPromotionRoadDryRunResult
@@ -157,6 +299,34 @@ export class ImportReviewPromotionRoadDryRunRepository {
         await this.prisma.$executeRaw`
             UPDATE system.system_publish_batches
             SET summary = coalesce(summary, '{}'::jsonb) || ${patch}::jsonb
+            WHERE id = ${batchId}
+        `;
+        await this.syncValidationReadinessForRoadDryRun(batchId, result);
+    }
+
+    private async syncValidationReadinessForRoadDryRun(
+        batchId: bigint,
+        result: ImportReviewPromotionRoadDryRunResult
+    ): Promise<void> {
+        const promotableCount = result.safe_to_promote_count + result.promote_with_warning_count;
+        const canPromoteRoads =
+            result.blocked_count === 0 &&
+            result.needs_manual_review_count === 0 &&
+            promotableCount > 0;
+        const validationMerge = JSON.stringify({
+            can_promote: canPromoteRoads,
+            requires_warning_confirmation: result.promote_with_warning_count > 0,
+            promotable_entity_families: canPromoteRoads ? ["roads"] : [],
+            road_dry_run_ready: canPromoteRoads,
+        });
+        await this.prisma.$executeRaw`
+            UPDATE system.system_publish_batches
+            SET summary = jsonb_set(
+                coalesce(summary, '{}'::jsonb),
+                '{validation_result}',
+                coalesce(summary->'validation_result', '{}'::jsonb) || ${validationMerge}::jsonb,
+                true
+            )
             WHERE id = ${batchId}
         `;
     }

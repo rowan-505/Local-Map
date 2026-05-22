@@ -18,6 +18,7 @@ import { roadClassOptionsFromFormOptions } from "@/src/features/import-review/ut
 import { buildImportReviewListQueryKey } from "@/src/features/import-review/utils/entityPageUtils";
 import { Card, CardContent } from "@/src/components/ui/card";
 import {
+    getImportReviewFamilyCandidateById,
     getImportReviewPlaces,
     getImportReviewRoads,
     getImportReviewSummary,
@@ -32,8 +33,25 @@ import {
     type ImportReviewDecision,
     type ImportReviewGeoJson,
     type ImportReviewRoadRoutingValidationResponse,
+    type ImportReviewRoadsListParams,
     type ImportReviewSummaryResponse,
+    type RoadDryRunItemResult,
 } from "@/src/lib/api";
+import ImportReviewRoadDryRunStatusBadge from "@/src/features/import-review/components/ImportReviewRoadDryRunStatusBadge";
+import { useImportReviewRoadDryRunSummary } from "@/src/features/import-review/hooks/useImportReviewRoadDryRunSummary";
+import {
+    collectDryRunStatusOptions,
+    collectIssueCodeOptions,
+    EMPTY_ROAD_CLIENT_FILTERS,
+    filterRoadListItems,
+    type ImportReviewRoadClientFilters,
+} from "@/src/features/import-review/utils/importReviewRoadClientFilters";
+import {
+    mergeDryRunItem,
+    ROAD_DRY_RUN_STATUS_LABELS,
+    topIssueCodes,
+    validationIssueCodesFromRow,
+} from "@/src/features/import-review/utils/importReviewRoadDryRunUi";
 import {
     ApprovalGuidanceNote,
     bundleFromRoutingValidation,
@@ -267,7 +285,7 @@ function filterOptionsFromSummary(
     };
 }
 
-function Pill({ children, tone }: { children: React.ReactNode; tone: "slate" | "blue" | "amber" | "violet" }) {
+function Pill({ children, tone }: { children: React.ReactNode; tone: "slate" | "blue" | "amber" | "violet" | "red" | "emerald" }) {
     const cls =
         tone === "blue"
             ? "border-blue-100 bg-blue-50 text-blue-900"
@@ -275,7 +293,11 @@ function Pill({ children, tone }: { children: React.ReactNode; tone: "slate" | "
               ? "border-amber-100 bg-amber-50 text-amber-900"
               : tone === "violet"
                 ? "border-violet-100 bg-violet-50 text-violet-900"
-                : "border-gray-200 bg-gray-50 text-gray-800";
+                : tone === "red"
+                  ? "border-red-100 bg-red-50 text-red-900"
+                  : tone === "emerald"
+                    ? "border-emerald-100 bg-emerald-50 text-emerald-900"
+                    : "border-gray-200 bg-gray-50 text-gray-800";
 
     return (
         <span
@@ -283,6 +305,35 @@ function Pill({ children, tone }: { children: React.ReactNode; tone: "slate" | "
         >
             {children}
         </span>
+    );
+}
+
+function RoadIssueBadges({
+    row,
+    dryRunItem,
+}: {
+    row: ImportReviewBuildingListItem;
+    dryRunItem: RoadDryRunItemResult | null;
+}) {
+    const issueCodes = validationIssueCodesFromRow(row);
+    const errors = topIssueCodes(dryRunItem?.blocking_reasons ?? issueCodes.errors, 2);
+    const warnings = topIssueCodes(dryRunItem?.warning_codes ?? issueCodes.warnings, 2);
+    if (errors.length === 0 && warnings.length === 0) {
+        return <span className="text-xs text-gray-400">—</span>;
+    }
+    return (
+        <div className="flex max-w-[140px] flex-wrap gap-1">
+            {errors.map((code) => (
+                <Pill key={`e-${code}`} tone="red">
+                    {code}
+                </Pill>
+            ))}
+            {warnings.map((code) => (
+                <Pill key={`w-${code}`} tone="amber">
+                    {code}
+                </Pill>
+            ))}
+        </div>
     );
 }
 
@@ -335,6 +386,9 @@ export function ImportReviewCandidatesClient({
     const [canEditImportReview, setCanEditImportReview] = useState(false);
 
     const [drawerRow, setDrawerRow] = useState<ImportReviewBuildingListItem | null>(null);
+    const [drawerDetailLoading, setDrawerDetailLoading] = useState(false);
+    const [roadClientFilters, setRoadClientFilters] =
+        useState<ImportReviewRoadClientFilters>(EMPTY_ROAD_CLIENT_FILTERS);
     const [drawerRoutingValidation, setDrawerRoutingValidation] =
         useState<ImportReviewRoadRoutingValidationResponse | null>(null);
     const [drawerNote, setDrawerNote] = useState("");
@@ -356,7 +410,9 @@ export function ImportReviewCandidatesClient({
     const roadClassLabelById = useMemo(() => {
         const map = new Map<string, string>();
         for (const option of roadClassOptions) {
-            const label = option.name?.trim() || option.code?.trim() || option.id;
+            const label = option.code?.trim()
+                ? `${option.code} — ${option.name?.trim() || option.code}`
+                : option.name?.trim() || option.id;
             map.set(option.id, label);
         }
         return map;
@@ -411,6 +467,63 @@ export function ImportReviewCandidatesClient({
     useClearSelectionOnListQueryChange(listQueryKey, setSelectedIds);
 
     const hasValidScope = apiScopeQuery !== null;
+
+    const {
+        summary: roadDryRunSummary,
+        isLoading: roadDryRunLoading,
+        error: roadDryRunError,
+    } = useImportReviewRoadDryRunSummary(apiScopeQuery, family === "roads" && hasValidScope);
+
+    const displayedItems = useMemo(() => {
+        const items = list?.items ?? [];
+        if (family !== "roads") {
+            return items;
+        }
+        return filterRoadListItems({
+            items,
+            clientFilters: roadClientFilters,
+            dryRunByCandidateId: roadDryRunSummary?.items_by_candidate_id,
+            roadClassLabelById,
+        });
+    }, [list?.items, family, roadClientFilters, roadDryRunSummary, roadClassLabelById]);
+
+    const roadDryRunStatusOptions = useMemo(
+        () => collectDryRunStatusOptions(roadDryRunSummary?.items_by_candidate_id),
+        [roadDryRunSummary],
+    );
+
+    const roadWarningCodeOptions = useMemo(
+        () =>
+            collectIssueCodeOptions({
+                items: list?.items ?? [],
+                dryRunByCandidateId: roadDryRunSummary?.items_by_candidate_id,
+                kind: "warning",
+            }),
+        [list?.items, roadDryRunSummary],
+    );
+
+    const roadErrorCodeOptions = useMemo(
+        () =>
+            collectIssueCodeOptions({
+                items: list?.items ?? [],
+                dryRunByCandidateId: roadDryRunSummary?.items_by_candidate_id,
+                kind: "error",
+            }),
+        [list?.items, roadDryRunSummary],
+    );
+
+    const roadClassFilterOptions = useMemo(() => {
+        return roadClassOptions.map((rc) => {
+            const label = rc.code?.trim()
+                ? `${rc.code} — ${rc.name?.trim() || rc.code}`
+                : rc.name?.trim() || rc.id;
+            return { value: label, label };
+        });
+    }, [roadClassOptions]);
+
+    const hasActiveRoadClientFilters = useMemo(() => {
+        return Object.values(roadClientFilters).some((v) => v.trim() !== "");
+    }, [roadClientFilters]);
 
     useEffect(() => {
         setFilters(readListFilters(searchParams));
@@ -474,15 +587,9 @@ export function ImportReviewCandidatesClient({
                     limit,
                     offset,
                     sort,
-                    include_geometry: true,
+                    include_geometry: family !== "roads",
                 };
-                const rest: typeof params & {
-                    match_status?: string;
-                    auto_action?: string;
-                    review_status?: string;
-                    review_decision?: string;
-                    q?: string;
-                } = { ...params };
+                const rest: ImportReviewRoadsListParams = { ...params };
                 if (filters.match_status) {
                     rest.match_status = filters.match_status;
                 }
@@ -494,6 +601,14 @@ export function ImportReviewCandidatesClient({
                 }
                 if (filters.review_decision) {
                     rest.review_decision = filters.review_decision;
+                }
+                if (family === "roads") {
+                    if (roadClientFilters.promotion_status) {
+                        rest.promotion_status = roadClientFilters.promotion_status;
+                    }
+                    if (roadClientFilters.class_code) {
+                        rest.class_code = roadClientFilters.class_code;
+                    }
                 }
                 if (qApplied) {
                     rest.q = qApplied;
@@ -531,7 +646,7 @@ export function ImportReviewCandidatesClient({
                 setIsLoading(false);
             }
         },
-        [hasValidScope, apiScopeQuery, limit, offset, sort, filters, qApplied, family, batchUrl, replaceQuery],
+        [hasValidScope, apiScopeQuery, limit, offset, sort, filters, qApplied, family, batchUrl, replaceQuery, roadClientFilters.promotion_status, roadClientFilters.class_code],
     );
 
     useEffect(() => {
@@ -551,12 +666,25 @@ export function ImportReviewCandidatesClient({
         list,
         apiScopeQuery,
         apiFamily: family,
-        supportsBulkActions: family === "places",
+        supportsBulkActions: true,
         canEdit: canEditImportReview,
         onListRefresh: () => {
             void fetchList();
         },
     });
+
+    const roadBulkApproveBlockedReason = useMemo(() => {
+        if (family !== "roads" || selectedIds.size === 0) {
+            return bulk.approveBlockedReason;
+        }
+        if (bulk.dangerForce) {
+            return bulk.approveBlockedReason;
+        }
+        const base =
+            bulk.approveBlockedReason ??
+            "Road bulk approve is disabled until dry-run validation is reviewed. Use Advanced / danger → Force approve for exceptional cases.";
+        return base;
+    }, [family, selectedIds.size, bulk.approveBlockedReason, bulk.dangerForce]);
 
     useEffect(() => {
         if (!drawerRow) {
@@ -607,6 +735,7 @@ export function ImportReviewCandidatesClient({
             review_status: "",
             review_decision: "",
         });
+        setRoadClientFilters(EMPTY_ROAD_CLIENT_FILTERS);
         setQDraft("");
         replaceQuery((p) => {
             for (const key of ["match_status", "auto_action", "review_status", "review_decision", "q"]) {
@@ -637,12 +766,13 @@ export function ImportReviewCandidatesClient({
     };
 
     const toggleSelectAllPage = (on: boolean) => {
-        if (!list) {
+        const pageRows = family === "roads" ? displayedItems : list?.items;
+        if (!pageRows || pageRows.length === 0) {
             return;
         }
         setSelectedIds((prev) => {
             const next = new Set(prev);
-            for (const row of list.items) {
+            for (const row of pageRows) {
                 if (on) {
                     next.add(row.id);
                 } else {
@@ -670,6 +800,40 @@ export function ImportReviewCandidatesClient({
         mergeRow(row);
         void fetchList();
     };
+
+    const openRoadDrawer = useCallback(
+        async (row: ImportReviewBuildingListItem) => {
+            setDrawerRow(row);
+            setDrawerRoutingValidation(null);
+            if (!apiScopeQuery) {
+                return;
+            }
+            setDrawerDetailLoading(true);
+            try {
+                const detail = await getImportReviewFamilyCandidateById("roads", row.id, {
+                    ...apiScopeQuery,
+                    include_geometry: true,
+                });
+                setDrawerRow(detail);
+            } catch {
+                // Keep list row if detail fetch fails.
+            } finally {
+                setDrawerDetailLoading(false);
+            }
+        },
+        [apiScopeQuery],
+    );
+
+    const openDrawer = useCallback(
+        (row: ImportReviewBuildingListItem) => {
+            if (family === "roads") {
+                void openRoadDrawer(row);
+                return;
+            }
+            setDrawerRow(row);
+        },
+        [family, openRoadDrawer],
+    );
 
     const patchDecision = async (
         row: ImportReviewBuildingListItem,
@@ -950,8 +1114,9 @@ export function ImportReviewCandidatesClient({
     const total = list?.total ?? 0;
     const pageStart = total === 0 ? 0 : offset + 1;
     const pageEnd = Math.min(offset + (list?.items.length ?? 0), total);
+    const tableRows = family === "roads" ? displayedItems : list?.items ?? [];
     const allPageSelected = Boolean(
-        list && list.items.length > 0 && list.items.every((r) => selectedIds.has(r.id)),
+        tableRows.length > 0 && tableRows.every((r) => selectedIds.has(r.id)),
     );
 
     const mapSourceRow = useMemo(() => {
@@ -1053,7 +1218,14 @@ export function ImportReviewCandidatesClient({
     const titleLabel = family === "places" ? "places" : "roads";
     const drawerKind = family === "places" ? "Place" : "Road";
 
-    const emptyColSpan = family === "places" ? 14 : 15;
+    const emptyColSpan = family === "places" ? 14 : 19;
+
+    const drawerDryRunItem = useMemo(() => {
+        if (family !== "roads" || !drawerRow || !roadDryRunSummary?.items_by_candidate_id) {
+            return null;
+        }
+        return roadDryRunSummary.items_by_candidate_id[drawerRow.id] ?? null;
+    }, [family, drawerRow, roadDryRunSummary]);
 
     return (
         <main className="min-h-screen overflow-x-hidden bg-gray-50/80 p-6">
@@ -1285,6 +1457,165 @@ export function ImportReviewCandidatesClient({
                             </label>
                         </div>
 
+                        {family === "roads" ? (
+                            <div className="space-y-2 rounded-lg border border-sky-100 bg-sky-50/40 p-4">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-sky-900">
+                                    Road validation filters
+                                </p>
+                                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                                    <label className="flex flex-col gap-1">
+                                        <span className="text-xs font-semibold text-gray-600">Dry-run status</span>
+                                        <select
+                                            value={roadClientFilters.dry_run_status}
+                                            onChange={(e) =>
+                                                setRoadClientFilters((f) => ({
+                                                    ...f,
+                                                    dry_run_status: e.target.value,
+                                                }))
+                                            }
+                                            className={selectCls}
+                                        >
+                                            <option value="">All</option>
+                                            {roadDryRunStatusOptions.map((status) => (
+                                                <option key={status} value={status}>
+                                                    {ROAD_DRY_RUN_STATUS_LABELS[status]}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="flex flex-col gap-1">
+                                        <span className="text-xs font-semibold text-gray-600">Warning code</span>
+                                        <select
+                                            value={roadClientFilters.warning_code}
+                                            onChange={(e) =>
+                                                setRoadClientFilters((f) => ({
+                                                    ...f,
+                                                    warning_code: e.target.value,
+                                                }))
+                                            }
+                                            className={selectCls}
+                                        >
+                                            <option value="">All</option>
+                                            {roadWarningCodeOptions.map((code) => (
+                                                <option key={code} value={code}>
+                                                    {code}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="flex flex-col gap-1">
+                                        <span className="text-xs font-semibold text-gray-600">Error code</span>
+                                        <select
+                                            value={roadClientFilters.error_code}
+                                            onChange={(e) =>
+                                                setRoadClientFilters((f) => ({
+                                                    ...f,
+                                                    error_code: e.target.value,
+                                                }))
+                                            }
+                                            className={selectCls}
+                                        >
+                                            <option value="">All</option>
+                                            {roadErrorCodeOptions.map((code) => (
+                                                <option key={code} value={code}>
+                                                    {code}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="flex flex-col gap-1">
+                                        <span className="text-xs font-semibold text-gray-600">Road class</span>
+                                        <select
+                                            value={roadClientFilters.road_class}
+                                            onChange={(e) =>
+                                                setRoadClientFilters((f) => ({
+                                                    ...f,
+                                                    road_class: e.target.value,
+                                                }))
+                                            }
+                                            className={selectCls}
+                                        >
+                                            <option value="">All</option>
+                                            {roadClassFilterOptions.map((opt) => (
+                                                <option key={opt.value} value={opt.value}>
+                                                    {opt.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="flex flex-col gap-1">
+                                        <span className="text-xs font-semibold text-gray-600">Promotion status</span>
+                                        <select
+                                            value={roadClientFilters.promotion_status}
+                                            onChange={(e) =>
+                                                setRoadClientFilters((f) => ({
+                                                    ...f,
+                                                    promotion_status: e.target.value,
+                                                }))
+                                            }
+                                            className={selectCls}
+                                        >
+                                            <option value="">All</option>
+                                            <option value={UNREVIEWED}>Unreviewed (null / empty)</option>
+                                            {(filterOptions?.promotion_status ?? []).map((v) => (
+                                                <option key={v} value={v}>
+                                                    {v}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="flex flex-col gap-1">
+                                        <span className="text-xs font-semibold text-gray-600">Class code</span>
+                                        <select
+                                            value={roadClientFilters.class_code}
+                                            onChange={(e) =>
+                                                setRoadClientFilters((f) => ({
+                                                    ...f,
+                                                    class_code: e.target.value,
+                                                }))
+                                            }
+                                            className={selectCls}
+                                        >
+                                            <option value="">All</option>
+                                            {[...new Set((list?.items ?? []).map((r) => (r.class_code ?? "").trim()).filter(Boolean))].sort().map((code) => (
+                                                <option key={code} value={code}>
+                                                    {code}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                </div>
+                                {roadDryRunLoading ? (
+                                    <p className="text-xs text-gray-500">Loading dry-run summary…</p>
+                                ) : roadDryRunError ? (
+                                    <p className="text-xs text-amber-800">{roadDryRunError}</p>
+                                ) : roadDryRunSummary ? (
+                                    <p className="text-xs text-gray-600">
+                                        Batch dry-run:{" "}
+                                        <span className="font-medium text-gray-900">
+                                            {roadDryRunSummary.safe_to_promote_count} safe
+                                        </span>
+                                        {" · "}
+                                        <span className="font-medium text-amber-900">
+                                            {roadDryRunSummary.promote_with_warning_count} with warning
+                                        </span>
+                                        {" · "}
+                                        <span className="font-medium text-orange-900">
+                                            {roadDryRunSummary.needs_manual_review_count} manual review
+                                        </span>
+                                        {" · "}
+                                        <span className="font-medium text-red-900">
+                                            {roadDryRunSummary.blocked_count} blocked
+                                        </span>
+                                    </p>
+                                ) : (
+                                    <p className="text-xs text-gray-500">
+                                        No batch dry-run summary yet — run dry-run from the promotion page.
+                                    </p>
+                                )}
+                            </div>
+                        ) : null}
+
                         <div className="flex flex-wrap items-center gap-3">
                             <button
                                 type="button"
@@ -1305,7 +1636,21 @@ export function ImportReviewCandidatesClient({
                                     <>
                                         <strong className="text-gray-900">{total.toLocaleString()}</strong>{" "}
                                         candidates
-                                        {isLoading ? " · Loading…" : null}
+                                        {family === "roads" && hasActiveRoadClientFilters ? (
+                                            <>
+                                                {" "}
+                                                ·{" "}
+                                                <strong className="text-gray-900">
+                                                    {displayedItems.length.toLocaleString()}
+                                                </strong>{" "}
+                                                on this page after road filters
+                                            </>
+                                        ) : null}
+                                        {isLoading
+                                            ? family === "roads"
+                                                ? " · Loading road candidates…"
+                                                : " · Loading…"
+                                            : null}
                                     </>
                                 ) : (
                                     "Set snapshot version and apply."
@@ -1383,6 +1728,34 @@ export function ImportReviewCandidatesClient({
                         onNeedsMoreReviewSelected={() => void bulk.bulkNeedsMoreReviewSelected()}
                         onIgnoreSelected={() => void bulk.bulkIgnoreSelected()}
                     />
+                ) : selectedIds.size > 0 ? (
+                    <ImportReviewSelectedActionBar
+                        selectedCount={selectedIds.size}
+                        analysis={bulk.analysis}
+                        bulkNote={bulk.bulkNote}
+                        bulkBusy={bulk.isBulkActionRunning}
+                        bulkPhase={bulk.bulkPhase}
+                        bulkMessage={bulk.bulkMessage}
+                        canEdit={canEditImportReview}
+                        hasValidScope={hasValidScope}
+                        approveBlockedReason={roadBulkApproveBlockedReason}
+                        bulkPreview={bulk.bulkPreview}
+                        dangerForce={bulk.dangerForce}
+                        overrideManualProtected={bulk.overrideManualProtected}
+                        overrideDuplicate={bulk.overrideDuplicate}
+                        bulkWarning="Roads affect routing. Bulk approval should only be used after dry-run validation."
+                        disableBulkApprove={!bulk.dangerForce}
+                        onBulkNoteChange={bulk.setBulkNote}
+                        onDangerForceChange={bulk.setDangerForce}
+                        onOverrideManualProtectedChange={bulk.setOverrideManualProtected}
+                        onOverrideDuplicateChange={bulk.setOverrideDuplicate}
+                        onClearSelection={bulk.clearSelection}
+                        onPreviewApprove={() => void bulk.bulkPreviewApprove()}
+                        onApproveSelected={() => void bulk.bulkApproveSelected()}
+                        onRejectSelected={() => void bulk.bulkRejectSelected()}
+                        onNeedsMoreReviewSelected={() => void bulk.bulkNeedsMoreReviewSelected()}
+                        onIgnoreSelected={() => void bulk.bulkIgnoreSelected()}
+                    />
                 ) : null}
 
                 <ImportReviewTableFrame>
@@ -1394,7 +1767,7 @@ export function ImportReviewCandidatesClient({
                                         type="checkbox"
                                         checked={allPageSelected}
                                         onChange={(e) => toggleSelectAllPage(e.target.checked)}
-                                        disabled={!canEditImportReview || !list || list.items.length === 0}
+                                        disabled={!canEditImportReview || tableRows.length === 0}
                                         aria-label="Select all on page"
                                     />
                                 </th>
@@ -1421,18 +1794,25 @@ export function ImportReviewCandidatesClient({
                                         <th className="px-3 py-3">Surface</th>
                                         <th className="px-3 py-3">Oneway</th>
                                         <th className="px-3 py-3">Length (m)</th>
+                                        <th className="px-3 py-3">Dry-run</th>
+                                        <th className="px-3 py-3">Issues</th>
                                     </>
                                 )}
                                 <th className="px-3 py-3">Confidence</th>
                                 <th className="px-3 py-3">Match status</th>
                                 <th className="px-3 py-3">Auto action</th>
                                 <th className="px-3 py-3">Review status</th>
-                                {family !== "roads" ? (
+                                {family === "roads" ? (
+                                    <>
+                                        <th className="px-3 py-3">Decision</th>
+                                        <th className="px-3 py-3">Promotion</th>
+                                    </>
+                                ) : (
                                     <>
                                         <th className="px-3 py-3">Decision</th>
                                         <th className="px-3 py-3">Updated</th>
                                     </>
-                                ) : null}
+                                )}
                                 <th className={importReviewStickyActionsThClass()}>Actions</th>
                             </tr>
                         </thead>
@@ -1446,17 +1826,23 @@ export function ImportReviewCandidatesClient({
                             ) : isLoading && !list ? (
                                 <tr>
                                     <td colSpan={emptyColSpan} className="px-4 py-10 text-center text-gray-500">
-                                        Loading…
+                                        {family === "roads" ? "Loading road candidates…" : "Loading…"}
                                     </td>
                                 </tr>
-                            ) : list && list.items.length === 0 ? (
+                            ) : tableRows.length === 0 ? (
                                 <tr>
                                     <td colSpan={emptyColSpan} className="px-4 py-10 text-center text-gray-500">
-                                        No rows for this query.
+                                        {list && list.items.length > 0 && family === "roads" && hasActiveRoadClientFilters
+                                            ? "No rows match the road validation filters on this page."
+                                            : "No rows for this query."}
                                     </td>
                                 </tr>
                             ) : (
-                                list?.items.map((row) => {
+                                tableRows.map((row) => {
+                                    const rowDryRun =
+                                        family === "roads"
+                                            ? mergeDryRunItem(row, roadDryRunSummary?.items_by_candidate_id)
+                                            : null;
                                     const rowSurface = importReviewRowSurface(row, {
                                         selected: selectedIds.has(row.id),
                                     });
@@ -1489,7 +1875,7 @@ export function ImportReviewCandidatesClient({
                                             <td className={importReviewStickyIdTdClass(rowSurface.stickyCellClass)}>
                                                 <button
                                                     type="button"
-                                                    onClick={() => setDrawerRow(row)}
+                                                    onClick={() => openDrawer(row)}
                                                     className="text-left font-medium text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
                                                 >
                                                     {row.id}
@@ -1565,6 +1951,18 @@ export function ImportReviewCandidatesClient({
                                                     <td className="px-3 py-3 align-top tabular-nums text-xs">
                                                         {dash(roadLengthM)}
                                                     </td>
+                                                    <td className="whitespace-nowrap px-3 py-3 align-top">
+                                                        {rowDryRun ? (
+                                                            <ImportReviewRoadDryRunStatusBadge
+                                                                status={rowDryRun.dry_run_status}
+                                                            />
+                                                        ) : (
+                                                            <span className="text-xs text-gray-400">—</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-3 py-3 align-top">
+                                                        <RoadIssueBadges row={row} dryRunItem={rowDryRun} />
+                                                    </td>
                                                 </>
                                             )}
                                             <td className="px-3 py-3 align-top tabular-nums text-gray-800">
@@ -1587,7 +1985,16 @@ export function ImportReviewCandidatesClient({
                                             <td className="whitespace-nowrap px-3 py-3 align-top">
                                                 <Pill tone="violet">{dash(row.review_status)}</Pill>
                                             </td>
-                                            {family !== "roads" ? (
+                                            {family === "roads" ? (
+                                                <>
+                                                    <td className="whitespace-nowrap px-3 py-3 align-top">
+                                                        <Pill tone="blue">{dash(row.review_decision)}</Pill>
+                                                    </td>
+                                                    <td className="whitespace-nowrap px-3 py-3 align-top">
+                                                        <Pill tone="slate">{dash(row.promotion_status)}</Pill>
+                                                    </td>
+                                                </>
+                                            ) : (
                                                 <>
                                                     <td className="whitespace-nowrap px-3 py-3 align-top">
                                                         <Pill tone="blue">{dash(row.review_decision)}</Pill>
@@ -1596,14 +2003,14 @@ export function ImportReviewCandidatesClient({
                                                         {formatTs(row.updated_at)}
                                                     </td>
                                                 </>
-                                            ) : null}
+                                            )}
                                             <td className={importReviewStickyActionsTdClass(rowSurface.stickyCellClass)}>
                                                 <ImportReviewReviewActionsMenu
                                                     disabled={!canEditImportReview}
                                                     busy={rowActionBusyId === row.id}
                                                     onDecision={(d) => void handleRowAction(row, d)}
-                                                    onEditOverrides={() => setDrawerRow(row)}
-                                                    onViewDetails={() => setDrawerRow(row)}
+                                                    onEditOverrides={() => openDrawer(row)}
+                                                    onViewDetails={() => openDrawer(row)}
                                                 />
                                             </td>
                                         </tr>
@@ -1695,6 +2102,19 @@ export function ImportReviewCandidatesClient({
                             </button>
                         </div>
                         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pb-8 text-sm">
+                            {family === "roads" && drawerDetailLoading ? (
+                                <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+                                    Loading road detail…
+                                </p>
+                            ) : null}
+                            {family === "roads" &&
+                            !drawerDetailLoading &&
+                            !drawerRow.geometry &&
+                            !drawerMapInput?.geometry ? (
+                                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                                    Loading geometry…
+                                </p>
+                            ) : null}
                             {family === "roads" &&
                             (drawerRow.match_status === "duplicate_candidate" ||
                                 drawerRow.match_status === "manual_protected") ? (
@@ -1950,8 +2370,9 @@ export function ImportReviewCandidatesClient({
                                             selectCls={selectCls}
                                             onSaved={handleRoadOverridesSaved}
                                             formOptions={formOptions}
-                                            formOptionsLoading={formOptionsLoading}
+                                            formOptionsLoading={formOptionsLoading || drawerDetailLoading}
                                             formOptionsError={formOptionsError}
+                                            dryRunItem={drawerDryRunItem}
                                             onValidated={(result) => {
                                                 setDrawerRoutingValidation(result);
                                                 const patch = {
@@ -1977,18 +2398,16 @@ export function ImportReviewCandidatesClient({
                                 </>
                             )}
 
-                            <div>
-                                <h3 className="text-xs font-semibold uppercase text-gray-500">normalized_data</h3>
-                                <pre className="mt-1 max-h-56 overflow-auto rounded-lg border border-gray-100 bg-gray-50 p-2 text-xs">
+                            <CollapsibleDrawerSection title="normalized_data">
+                                <pre className="max-h-56 overflow-auto rounded-lg border border-gray-100 bg-gray-50 p-2 text-xs">
                                     {safeJson(drawerRow.normalized_data)}
                                 </pre>
-                            </div>
-                            <div>
-                                <h3 className="text-xs font-semibold uppercase text-gray-500">source_refs</h3>
-                                <pre className="mt-1 max-h-56 overflow-auto rounded-lg border border-gray-100 bg-gray-50 p-2 text-xs">
+                            </CollapsibleDrawerSection>
+                            <CollapsibleDrawerSection title="source_refs">
+                                <pre className="max-h-56 overflow-auto rounded-lg border border-gray-100 bg-gray-50 p-2 text-xs">
                                     {safeJson(drawerRow.source_refs)}
                                 </pre>
-                            </div>
+                            </CollapsibleDrawerSection>
                             <label className="flex flex-col gap-1">
                                 <span className="text-xs font-medium text-gray-600">Decision</span>
                                 <select

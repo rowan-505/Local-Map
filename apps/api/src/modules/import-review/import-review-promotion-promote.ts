@@ -5,9 +5,15 @@ import {
     ImportReviewPublishBatchNotFoundError,
     ImportReviewPublishBatchPromotionConflictError,
     ImportReviewPublishBatchPromotionConfirmationError,
+    ImportReviewRoadDryRunRequiredError,
+    ImportReviewRoadPromotionBatchLimitError,
     ImportReviewRoadPromotionDisabledError,
 } from "./import-review-promotion.errors.js";
-import { isImportReviewRoadPromotionEnabled } from "./import-review-config.js";
+import {
+    IMPORT_REVIEW_ROAD_PROMOTION_MAX_ITEMS,
+    isImportReviewRoadBulkPromotionEnabled,
+    isImportReviewRoadPromotionEnabled,
+} from "./import-review-config.js";
 import {
     DEFAULT_PROMOTE_CHUNK_SIZE,
     ImportReviewPromotionPromoteRepository,
@@ -149,8 +155,24 @@ export class ImportReviewPromotionPromoteRunner {
         }
 
         const roadItemCount = await this.repo.countRoadPublishItems(args.batchId);
-        if (roadItemCount > 0 && !isImportReviewRoadPromotionEnabled()) {
-            throw new ImportReviewRoadPromotionDisabledError(args.batchId.toString());
+        if (roadItemCount > 0) {
+            if (!isImportReviewRoadPromotionEnabled()) {
+                throw new ImportReviewRoadPromotionDisabledError(args.batchId.toString());
+            }
+            if (
+                roadItemCount > IMPORT_REVIEW_ROAD_PROMOTION_MAX_ITEMS &&
+                !isImportReviewRoadBulkPromotionEnabled()
+            ) {
+                throw new ImportReviewRoadPromotionBatchLimitError(
+                    args.batchId.toString(),
+                    roadItemCount,
+                    IMPORT_REVIEW_ROAD_PROMOTION_MAX_ITEMS
+                );
+            }
+            const dryRun = await this.repo.readRoadDryRunResult(args.batchId);
+            if (!dryRun) {
+                throw new ImportReviewRoadDryRunRequiredError(args.batchId.toString());
+            }
         }
 
         const claim = await this.repo.claimBatchForPromotion(args.batchId);

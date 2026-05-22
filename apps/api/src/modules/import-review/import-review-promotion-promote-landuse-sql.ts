@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 
-import { effectiveAdminAreaIdExpr } from "./import-review-effective-values.js";
+import { effectiveAdminAreaIdExpr } from "./import-review-candidate-column-registry.js";
 import {
     externalIdExpr,
     geomSourceExpr,
@@ -13,32 +13,13 @@ export const LANDUSE_PADDY_PARCEL_MAX_AREA_M2 = 25_000;
 
 export const LANDUSE_CANDIDATE_SQL_ALIAS = "lu";
 
-export function landuseEffectiveClassIdRawExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        coalesce(
-            CASE WHEN (${a}.review_overrides->>'landuse_class_id') ~ '^[0-9]+$'
-                THEN (${a}.review_overrides->>'landuse_class_id')::bigint END,
-            ${a}.landuse_class_id
-        )
-    `;
-}
-
-/** Effective landuse_class_id when it exists in ref.ref_landuse_classes. */
-export function landuseClassIdExpr(alias: string): Prisma.Sql {
-    const raw = landuseEffectiveClassIdRawExpr(alias);
-    return Prisma.sql`
-        CASE
-            WHEN ${raw} IS NULL THEN NULL::bigint
-            WHEN EXISTS (
-                SELECT 1 FROM ref.ref_landuse_classes AS lc
-                WHERE lc.id = ${raw}
-                  AND coalesce(lc.is_active, true)
-            ) THEN ${raw}
-            ELSE NULL::bigint
-        END
-    `;
-}
+export {
+    landuseClassIdExpr,
+    landuseEffectiveClassIdRawExpr,
+} from "./import-review-candidate-column-registry.js";
+import {
+    landuseClassIdExpr,
+} from "./import-review-candidate-column-registry.js";
 
 export function landuseClassCodeExpr(alias: string, classIdExpr: Prisma.Sql): Prisma.Sql {
     const a = Prisma.raw(alias);
@@ -128,7 +109,7 @@ export function landusePolygonFromRawExpr(rawGeomExpr: Prisma.Sql): Prisma.Sql {
 }
 
 export function landuseAdminAreaIdExpr(alias: string): Prisma.Sql {
-    const raw = effectiveAdminAreaIdExpr(alias);
+    const raw = effectiveAdminAreaIdExpr(alias, { hasAdminAreaColumn: false });
     return Prisma.sql`
         CASE
             WHEN ${raw} IS NULL THEN NULL::bigint
@@ -145,7 +126,7 @@ export function landuseAdminAreaIdExpr(alias: string): Prisma.Sql {
 /** Ready-row expressions — alias must reference a row that already has `geom` (MultiPolygon). */
 export function landuseReadyFieldExprs(batchId: bigint, alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
-    const classId = landuseClassIdExpr(alias);
+    const classId = landuseClassIdExpr(alias, { hasLanduseClassIdColumn: true });
     const classCode = landuseClassCodeExpr(alias, classId);
     const areaM2 = Prisma.sql`ROUND(ST_Area(${a}.geom::geography)::numeric, 2)`;
     return Prisma.sql`

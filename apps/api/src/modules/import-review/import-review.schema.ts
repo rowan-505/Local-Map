@@ -269,12 +269,25 @@ export const importReviewPlacesQuerySchema = z.preprocess(
 
 export const importReviewRoadsQuerySchema = z.preprocess(
     mergeImportReviewSnapshotAliases,
-    importReviewPlacesRoadsQueryBaseInner
+    importReviewPlacesRoadsQueryBaseInner.extend({
+        promotion_status: optionalTrimmedStringSchema,
+        class_code: optionalTrimmedStringSchema,
+        include_promoted: z.coerce.boolean().optional(),
+    })
 );
 
 export type ImportReviewBuildingsQuery = z.infer<typeof importReviewBuildingsQuerySchema>;
 export type ImportReviewPlacesQuery = z.infer<typeof importReviewPlacesQuerySchema>;
 export type ImportReviewRoadsQuery = z.infer<typeof importReviewRoadsQuerySchema>;
+
+export const importReviewRoadDryRunSummaryQuerySchema = z.preprocess(
+    mergeImportReviewSnapshotAliases,
+    importReviewScopeObjectSchema.superRefine(refineImportReviewSnapshotBatchScope)
+);
+
+export type ImportReviewRoadDryRunSummaryQuery = z.infer<
+    typeof importReviewRoadDryRunSummaryQuerySchema
+>;
 
 export type ImportReviewBuildingSort = z.infer<typeof importReviewBuildingSortSchema>;
 
