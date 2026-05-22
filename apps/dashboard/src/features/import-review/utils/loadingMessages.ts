@@ -2,7 +2,7 @@
 export const IMPORT_REVIEW_LOADING = {
     loadingBatchContext: "Loading batch context…",
     resolvingReviewBatch: "Resolving review batch…",
-    multipleBatchesFound: "Multiple batches found — select one",
+    multipleBatchesFound: "Multiple review batches found. Choose one batch to continue.",
     loadingFilterOptions: "Loading filter options…",
     applyingFilters: "Applying filters…",
     loadingCandidates: "Loading candidates…",

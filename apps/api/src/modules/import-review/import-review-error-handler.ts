@@ -15,6 +15,7 @@ import {
 import {
     logImportReviewServerError,
     sendImportReviewApiError,
+    sendImportReviewMultipleBatchesError,
 } from "./import-review-error-response.js";
 import {
     ImportReviewPublishBatchCreationTimeoutError,
@@ -73,16 +74,7 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
     }
 
     if (error instanceof ImportReviewBatchAmbiguousError) {
-        sendImportReviewApiError(
-            reply,
-            409,
-            "BATCH_AMBIGUOUS",
-            "Multiple review batches matched source_snapshot_version",
-            {
-                source_snapshot_version: error.sourceSnapshotVersion,
-                batches: error.batches,
-            }
-        );
+        sendImportReviewMultipleBatchesError(reply, error.sourceSnapshotVersion, error.batches);
         return true;
     }
 

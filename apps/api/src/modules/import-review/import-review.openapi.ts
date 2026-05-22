@@ -37,6 +37,80 @@ const importReviewScopeQueryProperties = {
     },
 } as const;
 
+const importReviewBatchChoiceSchema = {
+    type: "object",
+    required: [
+        "id",
+        "batch_name",
+        "source_snapshot_version",
+        "status",
+        "uploaded_at",
+        "created_at",
+        "updated_at",
+        "total_candidate_count",
+        "entity_families",
+    ],
+    properties: {
+        id: { type: "string" },
+        batch_name: { type: "string" },
+        source_snapshot_version: { type: "string" },
+        status: { type: "string" },
+        uploaded_at: { type: "string", format: "date-time" },
+        created_at: { type: "string", format: "date-time" },
+        updated_at: { type: "string", format: "date-time" },
+        total_candidate_count: { type: "integer", minimum: 0 },
+        entity_families: { type: "array", items: { type: "string" } },
+    },
+    additionalProperties: false,
+} as const;
+
+export const importReviewMultipleBatchesErrorResponseSchema = {
+    type: "object",
+    required: ["ok", "error", "message", "source_snapshot_version", "batches"],
+    properties: {
+        ok: { type: "boolean", const: false },
+        error: { type: "string", const: "MULTIPLE_REVIEW_BATCHES" },
+        message: { type: "string" },
+        source_snapshot_version: { type: "string" },
+        batches: { type: "array", items: importReviewBatchChoiceSchema },
+    },
+    additionalProperties: false,
+} as const;
+
+const importReviewBatchesListResponseSchema = {
+    type: "object",
+    required: ["source_snapshot_version", "batches"],
+    properties: {
+        source_snapshot_version: { type: "string" },
+        batches: { type: "array", items: importReviewBatchChoiceSchema },
+    },
+    additionalProperties: false,
+} as const;
+
+export const getImportReviewBatchesSchema = {
+    tags: [Tags.ImportReview],
+    summary: "List import-review batches for a snapshot",
+    description:
+        "Lightweight list of non-archived `import_review.review_batches` rows for a source_snapshot_version, newest first. No geometry or large JSONB fields.",
+    security: [...bearerAuth],
+    querystring: {
+        type: "object",
+        required: ["source_snapshot_version"],
+        properties: {
+            source_snapshot_version: importReviewScopeQueryProperties.source_snapshot_version,
+            snapshot_version: importReviewScopeQueryProperties.snapshot_version,
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: importReviewBatchesListResponseSchema,
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
 const importReviewEnvelopeResponseProperties = {
     source_snapshot_version: {
         type: "string",
@@ -548,7 +622,7 @@ export const getImportReviewSummarySchema = {
     tags: [Tags.ImportReview],
     summary: "Import review candidate summary",
     description:
-        "Grouped counts over `import_review.*` candidates for the resolved review batch (`DATABASE_URL`, optional `IMPORT_REVIEW_DATABASE_URL` override). Supply exactly one of `source_snapshot_version` (alias: `snapshot_version`) or `review_batch_id`.",
+        "Grouped counts over `import_review.*` candidates for the resolved review batch (`DATABASE_URL`, optional `IMPORT_REVIEW_DATABASE_URL` override). Supply exactly one of `source_snapshot_version` (alias: `snapshot_version`) or `review_batch_id`. When both are sent, `review_batch_id` is preferred.",
     security: [...bearerAuth],
     querystring: {
         type: "object",
@@ -563,7 +637,9 @@ export const getImportReviewSummarySchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: {
+            anyOf: [importReviewApiErrorResponseSchema, importReviewMultipleBatchesErrorResponseSchema],
+        },
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;

@@ -15,8 +15,11 @@ export type ImportReviewBatchSelectedBy =
 export type ImportReviewBatchChoice = {
     id: string;
     batch_name: string;
+    source_snapshot_version: string;
     status: string;
     uploaded_at: string;
+    created_at: string;
+    updated_at: string;
     total_candidate_count: number;
     entity_families: string[];
 };
@@ -49,14 +52,19 @@ type ReviewBatchRowDb = {
     entity_families: string[];
     total_candidate_count: number;
     uploaded_at: Date;
+    created_at: Date;
+    updated_at: Date;
 };
 
 function toBatchChoice(row: ReviewBatchRowDb): ImportReviewBatchChoice {
     return {
         id: row.id.toString(),
         batch_name: row.batch_name,
+        source_snapshot_version: row.source_snapshot_version,
         status: row.status,
         uploaded_at: row.uploaded_at.toISOString(),
+        created_at: row.created_at.toISOString(),
+        updated_at: row.updated_at.toISOString(),
         total_candidate_count: row.total_candidate_count,
         entity_families: [...row.entity_families],
     };
@@ -93,7 +101,9 @@ export async function resolveImportReviewBatchScope(
                 status,
                 entity_families,
                 total_candidate_count,
-                uploaded_at
+                uploaded_at,
+                created_at,
+                updated_at
             FROM import_review.review_batches
             WHERE id = ${query.review_batch_id}
             LIMIT 2
@@ -123,7 +133,9 @@ export async function resolveImportReviewBatchScope(
             status,
             entity_families,
             total_candidate_count,
-            uploaded_at
+            uploaded_at,
+            created_at,
+            updated_at
         FROM import_review.review_batches
         WHERE source_snapshot_version = ${v}
           AND status IS DISTINCT FROM 'archived'

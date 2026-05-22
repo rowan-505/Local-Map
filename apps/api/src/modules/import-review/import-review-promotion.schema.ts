@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import {
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     refineImportReviewSnapshotBatchScope,
 } from "./import-review.schema.js";
 import { IMPORT_REVIEW_ENTITY_FAMILIES } from "./import-review-config.js";
@@ -134,7 +134,7 @@ const postImportReviewPromotionBatchBodyObjectSchema = z.object({
 
 // Do not call .omit/.pick/.extend on refined schemas. Apply refinements after object composition.
 export const postImportReviewPromotionBatchBodySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     postImportReviewPromotionBatchBodyObjectSchema
         .superRefine(refineImportReviewSnapshotBatchScope)
         .superRefine((data, ctx) => {

@@ -452,6 +452,15 @@ function ImportReviewSummaryInner() {
                         <ImportReviewBatchPicker
                         sourceSnapshotVersion={ambiguousSnapshot}
                         batches={ambiguousBatches}
+                        onSelectBatch={(batchId) => {
+                            setVersionInput("");
+                            setBatchInput(batchId);
+                            void load({
+                                snapshotVersion: "",
+                                reviewBatchId: batchId,
+                                syncUrl: true,
+                            });
+                        }}
                         onUseLatest={() => {
                             const snap =
                                 ambiguousSnapshot ||

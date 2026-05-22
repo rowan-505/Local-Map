@@ -1,6 +1,7 @@
 import { getImportReviewPrisma } from "../../lib/import-review-prisma.js";
 import type { JwtUser } from "../../plugins/auth.js";
 import { StreetsRepository } from "../streets/streets.repo.js";
+import { ImportReviewBatchesRepository } from "./import-review-batches.repo.js";
 import type {
     BuildingListRowDb,
     CandidateReviewGuardContext,
@@ -53,6 +54,7 @@ import type { ImportReviewFormOptionsResponse } from "./import-review-options.ty
 import type { ImportReviewReviewOverridesPatch } from "./import-review.schema.js";
 import type {
     BulkImportReviewBuildingDecisionBody,
+    ImportReviewBatchesListQuery,
     ImportReviewBuildingsQuery,
     ImportReviewCandidatesListQuery,
     ImportReviewDecisionValue,
@@ -73,6 +75,7 @@ import type {
     ImportReviewGeoJson,
     ImportReviewSummaryEnvelope,
     ImportReviewSummaryResponse,
+    ImportReviewBatchesListResponse,
 } from "./import-review.types.js";
 import { buildImportReviewRoadOverrideOutcome } from "./import-review-road-overrides-validator.js";
 import type { ImportReviewRoadOverridesPatchNormalized } from "./import-review-road-overrides.types.js";
@@ -574,6 +577,7 @@ export class ImportReviewService {
     private readonly roadDryRunSummaryRepo = new ImportReviewRoadDryRunSummaryRepository(
         getImportReviewPrisma()
     );
+    private readonly batchesRepo = new ImportReviewBatchesRepository(getImportReviewPrisma());
 
     constructor(private readonly repo: ImportReviewDataRepository) {}
 
@@ -672,6 +676,25 @@ export class ImportReviewService {
             total_pending_review_count: rollup.pending_review_candidates,
             total_approved_count: rollup.approved_candidates,
             total_rejected_count: rollup.rejected_candidates,
+        };
+    }
+
+    async listBatches(q: ImportReviewBatchesListQuery): Promise<ImportReviewBatchesListResponse> {
+        const sourceSnapshotVersion = q.source_snapshot_version.trim();
+        const rows = await this.batchesRepo.listBySourceSnapshotVersion(sourceSnapshotVersion);
+        return {
+            source_snapshot_version: sourceSnapshotVersion,
+            batches: rows.map((row) => ({
+                id: row.id.toString(),
+                batch_name: row.batch_name,
+                source_snapshot_version: row.source_snapshot_version,
+                status: row.status,
+                uploaded_at: row.uploaded_at.toISOString(),
+                created_at: row.created_at.toISOString(),
+                updated_at: row.updated_at.toISOString(),
+                total_candidate_count: row.total_candidate_count,
+                entity_families: [...row.entity_families],
+            })),
         };
     }
 

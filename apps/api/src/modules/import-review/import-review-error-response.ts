@@ -1,6 +1,7 @@
 import type { FastifyReply } from "fastify";
 
 import { buildApiErrorResponse } from "../../lib/api-error-response.js";
+import type { ImportReviewBatchChoice } from "./import-review-batch-resolver.js";
 
 export function sendImportReviewApiError(
     reply: FastifyReply,
@@ -28,6 +29,29 @@ export function sendImportReviewValidationError(
 
 export function sendImportReviewNotFoundError(reply: FastifyReply, message: string): void {
     sendImportReviewApiError(reply, 404, "NOT_FOUND", message);
+}
+
+export type ImportReviewMultipleBatchesErrorBody = {
+    ok: false;
+    error: "MULTIPLE_REVIEW_BATCHES";
+    message: string;
+    source_snapshot_version: string;
+    batches: ImportReviewBatchChoice[];
+};
+
+export function sendImportReviewMultipleBatchesError(
+    reply: FastifyReply,
+    sourceSnapshotVersion: string,
+    batches: ImportReviewBatchChoice[]
+): void {
+    const body: ImportReviewMultipleBatchesErrorBody = {
+        ok: false,
+        error: "MULTIPLE_REVIEW_BATCHES",
+        message: "Multiple review batches matched source_snapshot_version",
+        source_snapshot_version: sourceSnapshotVersion,
+        batches,
+    };
+    void reply.code(409).send(body);
 }
 
 export function logImportReviewServerError(reply: FastifyReply, error: unknown, context: string): void {

@@ -457,11 +457,89 @@ export type ImportReviewEnvelopeFields = {
 export type ImportReviewBatchChoice = {
     id: string;
     batch_name: string;
+    source_snapshot_version?: string;
     status: string;
     uploaded_at: string;
+    created_at?: string;
+    updated_at?: string;
     total_candidate_count: number;
     entity_families: string[];
 };
+
+function parseImportReviewBatchChoice(raw: unknown): ImportReviewBatchChoice | null {
+    if (!raw || typeof raw !== "object") {
+        return null;
+    }
+    const row = raw as Record<string, unknown>;
+    const id = typeof row.id === "string" || typeof row.id === "number" ? String(row.id) : "";
+    const batchName = typeof row.batch_name === "string" ? row.batch_name : "";
+    const status = typeof row.status === "string" ? row.status : "";
+    const uploadedAt = typeof row.uploaded_at === "string" ? row.uploaded_at : "";
+    const totalCandidateCount =
+        typeof row.total_candidate_count === "number" ? row.total_candidate_count : 0;
+    const entityFamilies = Array.isArray(row.entity_families)
+        ? row.entity_families.filter((v): v is string => typeof v === "string")
+        : [];
+
+    if (!id || !batchName) {
+        return null;
+    }
+
+    return {
+        id,
+        batch_name: batchName,
+        ...(typeof row.source_snapshot_version === "string"
+            ? { source_snapshot_version: row.source_snapshot_version }
+            : {}),
+        status,
+        uploaded_at: uploadedAt,
+        ...(typeof row.created_at === "string" ? { created_at: row.created_at } : {}),
+        ...(typeof row.updated_at === "string" ? { updated_at: row.updated_at } : {}),
+        total_candidate_count: totalCandidateCount,
+        entity_families: entityFamilies,
+    };
+}
+
+function parseImportReviewMultipleBatchesError(data: Record<string, unknown>): ImportReviewBatchAmbiguousError | null {
+    const errorCode = typeof data.error === "string" ? data.error : "";
+    const isMultiBatch =
+        errorCode === "MULTIPLE_REVIEW_BATCHES" || errorCode === "BATCH_AMBIGUOUS";
+    if (!isMultiBatch) {
+        return null;
+    }
+
+    const details =
+        data.details && typeof data.details === "object" && !Array.isArray(data.details)
+            ? (data.details as Record<string, unknown>)
+            : null;
+
+    const batchesRaw = Array.isArray(data.batches)
+        ? data.batches
+        : details && Array.isArray(details.batches)
+          ? details.batches
+          : null;
+
+    if (!batchesRaw || batchesRaw.length === 0) {
+        return null;
+    }
+
+    const batches = batchesRaw
+        .map(parseImportReviewBatchChoice)
+        .filter((batch): batch is ImportReviewBatchChoice => batch !== null);
+
+    if (batches.length === 0) {
+        return null;
+    }
+
+    const snap =
+        typeof data.source_snapshot_version === "string"
+            ? data.source_snapshot_version
+            : details && typeof details.source_snapshot_version === "string"
+              ? details.source_snapshot_version
+              : "";
+    const msg = typeof data.message === "string" ? data.message : undefined;
+    return new ImportReviewBatchAmbiguousError(snap, batches, msg);
+}
 
 /** Thrown when multiple non-archived review batches share a source_snapshot_version. */
 export class ImportReviewBatchAmbiguousError extends Error {
@@ -1233,14 +1311,9 @@ export async function apiFetch<T>(
                 throw new Error(`Request failed with status ${response.status}`);
             }
 
-            if (Array.isArray(data.batches) && data.batches.length > 0) {
-                const batches = data.batches as ImportReviewBatchChoice[];
-                const snap =
-                    typeof data.source_snapshot_version === "string"
-                        ? data.source_snapshot_version
-                        : "";
-                const msg = typeof data.message === "string" ? data.message : undefined;
-                throw new ImportReviewBatchAmbiguousError(snap, batches, msg);
+            const ambiguous = parseImportReviewMultipleBatchesError(data);
+            if (ambiguous) {
+                throw ambiguous;
             }
 
             const headline: string[] = [];
@@ -1344,6 +1417,25 @@ export function getImportReviewSummary(params: ImportReviewEnvelopeQuery, fetchI
             ...fetchInit,
         },
         normalizedImportReviewUrlParams(params as Record<string, QueryValue>)
+    );
+}
+
+export type ImportReviewBatchesListResponse = {
+    source_snapshot_version: string;
+    batches: ImportReviewBatchChoice[];
+};
+
+export function getImportReviewBatches(
+    params: { source_snapshot_version: string },
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewBatchesListResponse>(
+        "/api/import-review/batches",
+        {
+            method: "GET",
+            ...fetchInit,
+        },
+        { source_snapshot_version: params.source_snapshot_version.trim() }
     );
 }
 

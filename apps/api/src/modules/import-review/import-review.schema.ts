@@ -38,6 +38,48 @@ export function mergeImportReviewSnapshotAliases(input: unknown): unknown {
     return out;
 }
 
+function parseOptionalReviewBatchId(value: unknown): bigint | undefined {
+    if (value === undefined || value === null || value === "") {
+        return undefined;
+    }
+    if (typeof value === "bigint") {
+        return value;
+    }
+    if (typeof value === "number" && Number.isInteger(value)) {
+        return BigInt(value);
+    }
+    if (typeof value === "string") {
+        const t = value.trim();
+        if (t === "" || !/^\d+$/.test(t)) {
+            return undefined;
+        }
+        return BigInt(t);
+    }
+    return undefined;
+}
+
+/** When both scope keys are present, prefer review_batch_id (drop snapshot/latest). */
+export function preferImportReviewBatchScope(input: unknown): unknown {
+    if (!input || typeof input !== "object") {
+        return input;
+    }
+
+    const raw = input as Record<string, unknown>;
+    if (parseOptionalReviewBatchId(raw.review_batch_id) === undefined) {
+        return input;
+    }
+
+    const out = { ...raw };
+    delete out.source_snapshot_version;
+    delete out.latest;
+    return out;
+}
+
+/** Merge snapshot alias, then prefer review_batch_id when both scope keys are sent. */
+export function preprocessImportReviewScopeQuery(input: unknown): unknown {
+    return preferImportReviewBatchScope(mergeImportReviewSnapshotAliases(input));
+}
+
 /** Remote import_review scope: exactly one of source_snapshot_version or review_batch_id. */
 export function refineImportReviewSnapshotBatchScope<
     T extends {
@@ -125,11 +167,27 @@ export const importReviewScopeNormalizedSchema =
 
 /** Query string for GET /api/import-review/summary */
 export const importReviewSummaryQuerySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     importReviewScopeNormalizedSchema
 );
 
 export type ImportReviewSummaryQuery = z.infer<typeof importReviewSummaryQuerySchema>;
+
+/** Query string for GET /api/import-review/batches */
+export const importReviewBatchesListQuerySchema = z.preprocess(
+    mergeImportReviewSnapshotAliases,
+    z.object({
+        source_snapshot_version: z.preprocess((value) => {
+            if (typeof value !== "string") {
+                return value;
+            }
+            const trimmed = value.trim();
+            return trimmed === "" ? undefined : trimmed;
+        }, z.string().min(1)),
+    })
+);
+
+export type ImportReviewBatchesListQuery = z.infer<typeof importReviewBatchesListQuerySchema>;
 
 export type ImportReviewScopeNormalized = z.infer<typeof importReviewScopeNormalizedSchema>;
 
@@ -214,7 +272,7 @@ const importReviewCandidatesListQueryBaseInner = importReviewScopeObjectSchema
     .superRefine(refineImportReviewSnapshotBatchScope);
 
 export const importReviewCandidatesListQuerySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     importReviewCandidatesListQueryBaseInner
 );
 
@@ -242,7 +300,7 @@ const importReviewBuildingsQueryBaseInner = importReviewScopeObjectSchema.extend
 }).superRefine(refineImportReviewSnapshotBatchScope);
 
 export const importReviewBuildingsQuerySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     importReviewBuildingsQueryBaseInner
 );
 
@@ -263,12 +321,12 @@ const importReviewPlacesRoadsQueryBaseInner = importReviewScopeObjectSchema
 
 /** Same as buildings list filters except no `class_code` (not on place/road candidates). */
 export const importReviewPlacesQuerySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     importReviewPlacesRoadsQueryBaseInner
 );
 
 export const importReviewRoadsQuerySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     importReviewPlacesRoadsQueryBaseInner.extend({
         promotion_status: optionalTrimmedStringSchema,
         class_code: optionalTrimmedStringSchema,
@@ -281,7 +339,7 @@ export type ImportReviewPlacesQuery = z.infer<typeof importReviewPlacesQuerySche
 export type ImportReviewRoadsQuery = z.infer<typeof importReviewRoadsQuerySchema>;
 
 export const importReviewRoadDryRunSummaryQuerySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     importReviewScopeObjectSchema.superRefine(refineImportReviewSnapshotBatchScope)
 );
 
@@ -299,7 +357,7 @@ const importReviewScopedIncludeGeometryInner = importReviewScopeObjectSchema
 
 /** GET/PATCH helpers: scope + geometry flag for `/buildings/:id` */
 export const importReviewScopedIncludeGeometryQuerySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     importReviewScopedIncludeGeometryInner
 );
 
@@ -343,7 +401,7 @@ const patchDecisionBodyInner = importReviewScopeObjectSchema
     .superRefine(refineImportReviewSnapshotBatchScope);
 
 export const patchImportReviewBuildingDecisionBodySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     patchDecisionBodyInner
 );
 
@@ -384,7 +442,7 @@ const patchOverridesBodyInner = importReviewScopeObjectSchema
     .superRefine(refineImportReviewSnapshotBatchScope);
 
 export const patchImportReviewBuildingOverridesBodySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     patchOverridesBodyInner
 );
 
@@ -398,7 +456,7 @@ const patchCandidateOverridesBodyInner = importReviewScopeObjectSchema
     .superRefine(refineImportReviewSnapshotBatchScope);
 
 export const patchImportReviewCandidateOverridesBodySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     patchCandidateOverridesBodyInner
 );
 
@@ -414,7 +472,7 @@ const patchRoadOverridesRoutingBodyInner = importReviewScopeObjectSchema
     .superRefine(refineImportReviewSnapshotBatchScope);
 
 export const patchImportReviewRoadOverridesBodySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     patchRoadOverridesRoutingBodyInner
 );
 
@@ -430,7 +488,7 @@ const postImportReviewRoadValidateRoutingBodyInner = importReviewScopeObjectSche
     .superRefine(refineImportReviewSnapshotBatchScope);
 
 export const postImportReviewRoadValidateRoutingBodySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     postImportReviewRoadValidateRoutingBodyInner
 );
 
@@ -520,7 +578,7 @@ const bulkDecisionBodyCoreInner = importReviewScopeObjectSchema
     });
 
 export const bulkImportReviewBuildingDecisionBodySchema = z.preprocess(
-    mergeImportReviewSnapshotAliases,
+    preprocessImportReviewScopeQuery,
     bulkDecisionBodyCoreInner
 );
 

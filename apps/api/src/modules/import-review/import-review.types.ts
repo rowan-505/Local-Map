@@ -36,6 +36,11 @@ export type ImportReviewSummaryEnvelope = {
 
 export type { ImportReviewBatchChoice } from "./import-review-batch-resolver.js";
 
+export type ImportReviewBatchesListResponse = {
+    source_snapshot_version: string;
+    batches: import("./import-review-batch-resolver.js").ImportReviewBatchChoice[];
+};
+
 export type ImportReviewSummaryResponse = ImportReviewSummaryEnvelope & {
     /** Dimension bucket rows for breakdown charts (match_status, review_decision, etc.). */
     entity_summaries: ImportReviewSummaryBucketRow[];

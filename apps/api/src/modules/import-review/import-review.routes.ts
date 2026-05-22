@@ -9,6 +9,7 @@ import {
     getImportReviewRoadsSchema,
     getImportReviewRoadDryRunSummarySchema,
     getImportReviewSummarySchema,
+    getImportReviewBatchesSchema,
     getImportReviewReferenceOptionsSchema,
     getImportReviewFormOptionsSchema,
     patchImportReviewBuildingDecisionSchema,
@@ -79,6 +80,7 @@ import {
     importReviewRoadDryRunSummaryQuerySchema,
     importReviewScopedIncludeGeometryQuerySchema,
     importReviewSummaryQuerySchema,
+    importReviewBatchesListQuerySchema,
     patchImportReviewBuildingDecisionBodySchema,
     patchImportReviewBuildingOverridesBodySchema,
     patchImportReviewCandidateOverridesBodySchema,
@@ -542,6 +544,31 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
                 const options = await importReviewService.getReferenceOptions();
                 reply.header("Cache-Control", "private, max-age=300");
                 return reply.send(options);
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.get(
+        "/batches",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: getImportReviewBatchesSchema,
+        },
+        async (request, reply) => {
+            const parsed = importReviewBatchesListQuerySchema.safeParse(request.query);
+
+            if (!parsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
+            }
+
+            try {
+                const batches = await importReviewService.listBatches(parsed.data);
+                return reply.send(batches);
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {
                     return;
