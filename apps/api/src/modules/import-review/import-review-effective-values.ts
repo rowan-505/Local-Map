@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
+import type { ImportReviewBuildingListItem } from "./import-review.types.js";
 import { externalIdExpr, mapClassCodeExpr, nameExpr } from "./import-review-promotion-promote-sql.js";
 import {
     deriveImportReviewNames,
