@@ -1,0 +1,59 @@
+import type { ImportReviewGeoJson, Street } from "@/src/lib/api";
+
+import type { CoreReviewStreetRow } from "../config/types";
+
+type StreetDetailLike = Street &
+    Partial<CoreReviewStreetRow> & {
+        is_verified?: boolean;
+    };
+
+function strOrNull(value: unknown): string | null {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    const trimmed = String(value).trim();
+    return trimmed || null;
+}
+
+function boolOrNull(value: unknown): boolean | null {
+    return typeof value === "boolean" ? value : null;
+}
+
+function geometryOrNull(value: unknown): ImportReviewGeoJson | null {
+    if (!value || typeof value !== "object" || !("type" in value)) {
+        return null;
+    }
+    return value as ImportReviewGeoJson;
+}
+
+/** Maps street edit detail (legacy `/streets/:id`) onto a core-review list row. */
+export function applyStreetDetailToListRow(
+    row: CoreReviewStreetRow,
+    detail: unknown,
+): CoreReviewStreetRow {
+    const d = detail as StreetDetailLike;
+
+    return {
+        ...row,
+        publicId: d.publicId ?? d.public_id ?? row.publicId,
+        canonicalName: d.canonicalName ?? d.canonical_name ?? row.canonicalName,
+        myanmarName: d.myanmarName ?? row.myanmarName,
+        englishName: d.englishName ?? row.englishName,
+        adminAreaId: strOrNull(d.adminAreaId ?? d.admin_area_id) ?? row.adminAreaId,
+        adminAreaName: strOrNull(d.adminAreaName ?? d.admin_area_name) ?? row.adminAreaName,
+        roadClassId: strOrNull(d.roadClassId ?? d.road_class_id) ?? row.roadClassId,
+        roadClass: strOrNull(d.roadClass ?? d.road_class) ?? row.roadClass,
+        roadClassName: strOrNull(d.roadClassName ?? d.road_class_name) ?? row.roadClassName,
+        surface: strOrNull(d.surface) ?? row.surface,
+        isOneway: boolOrNull(d.isOneway ?? d.is_oneway) ?? row.isOneway,
+        bridge: boolOrNull(d.bridge) ?? row.bridge,
+        tunnel: boolOrNull(d.tunnel) ?? row.tunnel,
+        routingStatus: strOrNull(d.routingStatus ?? d.routing_status) ?? row.routingStatus,
+        isActive: boolOrNull(d.isActive ?? d.is_active) ?? row.isActive,
+        isVerified: boolOrNull(d.isVerified ?? d.is_verified) ?? row.isVerified,
+        deletedAt: strOrNull(d.deletedAt ?? d.deleted_at) ?? row.deletedAt,
+        createdAt: strOrNull(d.createdAt ?? d.created_at) ?? row.createdAt,
+        updatedAt: strOrNull(d.updatedAt ?? d.updated_at) ?? row.updatedAt,
+        geometry: geometryOrNull(d.geometry) ?? row.geometry,
+    };
+}

@@ -1,11 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import CoreReviewMapPreview from "@/src/components/core-review/CoreReviewMapPreview";
 import { CoreReviewDetailField } from "@/src/components/core-review/CoreReviewStateCard";
-import ReviewDetailDrawer from "@/src/components/review/ReviewDetailDrawer";
 import type { DataReviewGeometryKind } from "@/src/components/map/DataReviewCandidateMap";
 import type { ImportReviewEntityType } from "@/src/components/map/DataReviewCandidateMap";
 import {
@@ -17,35 +15,27 @@ import {
 
 import type { CoreReviewIdKind } from "../config/entity-config-types";
 
-export default function CoreReviewEntityDetailDrawer<T extends Record<string, unknown>>({
-    open,
-    apiSlug,
-    idKind,
-    rowId,
-    title,
-    subtitle,
-    geometryKind,
-    mapEntityType,
-    listGeometry,
-    detailFields,
-    editPath,
-    drawerActions,
-    onClose,
-}: {
-    open: boolean;
+export type CoreReviewEntityDrawerViewProps = {
     apiSlug: CoreReviewEntitySlug;
     idKind: CoreReviewIdKind;
-    rowId: string | null;
-    title: string;
-    subtitle?: string | null;
+    rowId: string;
     geometryKind: DataReviewGeometryKind | "none";
     mapEntityType: ImportReviewEntityType;
     listGeometry: ImportReviewGeoJson | null;
     detailFields: { label: string; value: React.ReactNode }[];
-    editPath?: string;
-    drawerActions?: React.ReactNode;
-    onClose: () => void;
-}) {
+    successMessage?: string | null;
+};
+
+export default function CoreReviewEntityDrawerView({
+    apiSlug,
+    idKind,
+    rowId,
+    geometryKind,
+    mapEntityType,
+    listGeometry,
+    detailFields,
+    successMessage,
+}: CoreReviewEntityDrawerViewProps) {
     const [detailGeometry, setDetailGeometry] = useState<ImportReviewGeoJson | null>(null);
     const [detailLoading, setDetailLoading] = useState(false);
     const [detailError, setDetailError] = useState("");
@@ -56,13 +46,6 @@ export default function CoreReviewEntityDetailDrawer<T extends Record<string, un
 
         queueMicrotask(() => {
             if (!active) {
-                return;
-            }
-
-            if (!open || !rowId) {
-                setDetailGeometry(null);
-                setDetailError("");
-                setDetailLoading(false);
                 return;
             }
 
@@ -89,7 +72,7 @@ export default function CoreReviewEntityDetailDrawer<T extends Record<string, un
                     }
                     const g = res.data.geometry;
                     setDetailGeometry(
-                        g && typeof g === "object" && "type" in g ? (g as ImportReviewGeoJson) : null
+                        g && typeof g === "object" && "type" in g ? (g as ImportReviewGeoJson) : null,
                     );
                 })
                 .catch((err) => {
@@ -110,33 +93,18 @@ export default function CoreReviewEntityDetailDrawer<T extends Record<string, un
             active = false;
             c.abort();
         };
-    }, [open, rowId, apiSlug, listGeometry, geometryKind]);
-
-    if (!open || !rowId) {
-        return null;
-    }
+    }, [rowId, apiSlug, listGeometry, geometryKind]);
 
     const mapEnabled = geometryKind !== "none";
 
     return (
-        <ReviewDetailDrawer
-            title={title}
-            subtitle={subtitle}
-            onClose={onClose}
-            actions={
-                <>
-                    {editPath ? (
-                        <Link
-                            href={editPath}
-                            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
-                        >
-                            Edit
-                        </Link>
-                    ) : null}
-                    {drawerActions}
-                </>
-            }
-        >
+        <>
+            {successMessage ? (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                    {successMessage}
+                </div>
+            ) : null}
+
             {mapEnabled ? (
                 <CoreReviewMapPreview
                     enabled
@@ -162,6 +130,6 @@ export default function CoreReviewEntityDetailDrawer<T extends Record<string, un
                     </CoreReviewDetailField>
                 ))}
             </div>
-        </ReviewDetailDrawer>
+        </>
     );
 }

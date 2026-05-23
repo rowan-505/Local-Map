@@ -52,7 +52,7 @@ export async function updateCoreReviewBuilding(
     }
 
     try {
-        await service.updateBuilding(id, parsed.data);
+        await service.updateCoreReviewBuilding(id, parsed.data);
         const detail = await getCoreReviewBuildingDetail(repo, id);
         if (!detail) {
             throw new CoreReviewValidationError("Building was updated but could not be loaded");

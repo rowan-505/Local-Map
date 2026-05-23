@@ -29,7 +29,6 @@ export default function CoreReviewEntityFilters({
     draft,
     setDraft,
     sortOptions,
-    defaultSortBy,
     filterSupport,
     searchPlaceholder,
     totalCount,
@@ -42,7 +41,6 @@ export default function CoreReviewEntityFilters({
     draft: CoreReviewListDraft;
     setDraft: React.Dispatch<React.SetStateAction<CoreReviewListDraft>>;
     sortOptions: DataTableSortOption[];
-    defaultSortBy: string;
     filterSupport: CoreReviewFilterSupport;
     searchPlaceholder: string;
     totalCount: number;

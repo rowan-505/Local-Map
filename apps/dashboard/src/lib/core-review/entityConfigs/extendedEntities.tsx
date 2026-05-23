@@ -127,6 +127,26 @@ function busStopPayload(values: CoreEntityFormValues) {
     };
 }
 
+function busStopUpdatePayload(values: CoreEntityFormValues) {
+    const payload: Record<string, unknown> = {
+        name: nullableFormString(values.name),
+        name_local: nullableFormString(values.name_local),
+        stop_code: nullableFormString(values.stop_code),
+        is_active: bool(values.is_active),
+        is_verified: bool(values.is_verified),
+        geom: requirePointGeometry(values, BUS_STOP_GEOM),
+    };
+    const adminAreaId = String(values.admin_area_id ?? "").trim();
+    if (adminAreaId) {
+        payload.admin_area_id = parseOptionalFormRefId(values.admin_area_id);
+    }
+    const sourceTypeId = String(values.source_type_id ?? "").trim();
+    if (sourceTypeId) {
+        payload.source_type_id = parseOptionalFormRefId(values.source_type_id);
+    }
+    return payload;
+}
+
 export const BUS_STOPS_ENTITY_CONFIG = baseWriteConfig<BusStopDetail>({
     entityKey: "bus-stops",
     label: "Bus stop",
@@ -143,8 +163,8 @@ export const BUS_STOPS_ENTITY_CONFIG = baseWriteConfig<BusStopDetail>({
         title: "Stop location",
     },
     editableFields: [
-        { key: "name", label: "Name", type: "text" },
-        { key: "name_local", label: "Local name", type: "text" },
+        { key: "name", label: "English name", type: "text" },
+        { key: "name_local", label: "Myanmar name", type: "text" },
         { key: "stop_code", label: "Stop code", type: "text" },
         { key: "admin_area_id", label: "Admin area", type: "ref", refSource: "admin-areas" },
         { key: "source_type_id", label: "Source type", type: "ref", refSource: "reference-options:source_types" },
@@ -180,7 +200,7 @@ export const BUS_STOPS_ENTITY_CONFIG = baseWriteConfig<BusStopDetail>({
     getDetailId: (detail) => detail.publicId,
     fetchDetail: createCoreReviewFetchDetail<BusStopDetail>("bus-stops"),
     formValuesToCreatePayload: busStopPayload,
-    formValuesToUpdatePayload: busStopPayload,
+    formValuesToUpdatePayload: busStopUpdatePayload,
     createDescription: "Set the bus stop location and attributes, then save.",
     editDescription: (detail) => `public_id: ${detail.publicId}`,
 });
@@ -211,6 +231,23 @@ function busRoutePayload(values: CoreEntityFormValues) {
         is_active: bool(values.is_active),
         is_verified: bool(values.is_verified),
     };
+}
+
+function busRouteUpdatePayload(values: CoreEntityFormValues) {
+    const payload: Record<string, unknown> = {
+        route_code: nullableFormString(values.route_code),
+        public_name: nullableFormString(values.public_name),
+        operator_name: nullableFormString(values.operator_name),
+        route_type: nullableFormString(values.route_type),
+        directionality: nullableFormString(values.directionality),
+        is_active: bool(values.is_active),
+        is_verified: bool(values.is_verified),
+    };
+    const sourceTypeId = String(values.source_type_id ?? "").trim();
+    if (sourceTypeId) {
+        payload.source_type_id = parseOptionalFormRefId(values.source_type_id);
+    }
+    return payload;
 }
 
 export const BUS_ROUTES_ENTITY_CONFIG = baseWriteConfig<CoreReviewBusRouteRow>({
@@ -261,14 +298,14 @@ export const BUS_ROUTES_ENTITY_CONFIG = baseWriteConfig<CoreReviewBusRouteRow>({
         operator_name: str(detail.operatorName),
         route_type: str(detail.routeType),
         directionality: str(detail.directionality),
-        source_type_id: "",
+        source_type_id: str(detail.sourceTypeId),
         is_active: bool(detail.isActive),
         is_verified: bool(detail.isVerified),
     }),
     getDetailId: (detail) => detail.id,
     fetchDetail: createCoreReviewFetchDetail<CoreReviewBusRouteRow>("bus-routes"),
     formValuesToCreatePayload: busRoutePayload,
-    formValuesToUpdatePayload: busRoutePayload,
+    formValuesToUpdatePayload: busRouteUpdatePayload,
     createDescription: "Route metadata only (no geometry).",
     editDescription: (detail) => `id: ${detail.id}`,
 });

@@ -5,6 +5,8 @@ import type { ImportReviewEntityType } from "@/src/components/map/DataReviewCand
 import type { DataTableSortOption } from "@/src/components/dashboard/DataTableToolbar";
 import type { CoreReviewEntitySlug } from "@/src/lib/api";
 import type { ImportReviewGeoJson } from "@/src/lib/api";
+import type { CoreEntityKey } from "@/src/lib/core-review/entityConfigs";
+import type { useCoreEntityEditForm } from "../drawer/useCoreEntityEditForm";
 
 export type CoreReviewIdKind = "public_id" | "numeric_id";
 
@@ -34,18 +36,15 @@ export type CoreReviewColumnDef<T> = {
 };
 
 export type CoreReviewEntityExtensions<T> = {
-    renderDetailDrawer?: (ctx: {
-        open: boolean;
+    renderDrawerView?: (ctx: {
+        row: T;
+        rowId: string;
+        successMessage?: string | null;
+    }) => ReactNode;
+    renderDrawerEdit?: (ctx: {
         row: T | null;
-        rowId: string | null;
-        editPath?: string;
-        drawerActions?: ReactNode;
-        onClose: () => void;
-        geometryKind: DataReviewGeometryKind | "none";
-        mapEntityType: ImportReviewEntityType;
-        listGeometry: import("@/src/lib/api").ImportReviewGeoJson | null;
-        title: string;
-        subtitle?: string | null;
+        rowId: string;
+        editForm: ReturnType<typeof useCoreEntityEditForm>;
     }) => ReactNode;
     headerActions?: ReactNode;
     renderDrawerActions?: (ctx: {
@@ -65,7 +64,10 @@ export type CoreReviewEntityExtensions<T> = {
 
 export type CoreReviewEntityConfig<T extends Record<string, unknown> = Record<string, unknown>> = {
     segment: string;
+    entityKey: CoreEntityKey;
     apiSlug: CoreReviewEntitySlug;
+    supportsInlineEdit?: boolean;
+    applyDetailToListRow?: (row: T, detail: unknown) => T;
     title: string;
     description: string;
     overviewStatus: CoreReviewOverviewStatus;
@@ -82,7 +84,6 @@ export type CoreReviewEntityConfig<T extends Record<string, unknown> = Record<st
     getGeometry: (row: T) => ImportReviewGeoJson | null;
     detailFields: (row: T) => { label: string; value: ReactNode }[];
     searchPlaceholder: string;
-    editPath?: (id: string) => string;
     newPath?: string;
     extensions?: CoreReviewEntityExtensions<T>;
 };

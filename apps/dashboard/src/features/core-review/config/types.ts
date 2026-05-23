@@ -93,6 +93,7 @@ export type CoreReviewBusStopRow = {
     stopCode: string | null;
     adminAreaId: string | null;
     adminAreaName: string | null;
+    sourceTypeId?: string | null;
     isActive: boolean;
     isVerified: boolean;
     deletedAt?: string | null;
@@ -108,6 +109,7 @@ export type CoreReviewBusRouteRow = {
     operatorName: string | null;
     routeType: string | null;
     directionality: string | null;
+    sourceTypeId?: string | null;
     variantCount?: number;
     isActive: boolean;
     isVerified: boolean;

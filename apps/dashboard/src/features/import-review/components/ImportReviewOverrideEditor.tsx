@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 import type { ImportReviewScopeQueryParams } from "@/src/lib/importReviewSnapshot";
@@ -231,22 +231,29 @@ export default function ImportReviewOverrideEditor({
         [fieldDefs]
     );
 
-    const [form, setForm] = useState<Record<string, string>>(() => buildInitialOverrideForm(row, fieldDefs));
-    const [baseline, setBaseline] = useState<Record<string, string>>(() => buildInitialOverrideForm(row, fieldDefs));
+    const rowResetKey = `${row.id}:${config.apiFamily}`;
+    const [lastRowResetKey, setLastRowResetKey] = useState(rowResetKey);
+    const [form, setForm] = useState<Record<string, string>>(() =>
+        buildInitialOverrideForm(row, fieldDefs, config.apiFamily),
+    );
+    const [baseline, setBaseline] = useState<Record<string, string>>(() =>
+        buildInitialOverrideForm(row, fieldDefs, config.apiFamily),
+    );
     const [clearedKeys, setClearedKeys] = useState<Set<string>>(() => new Set());
     const [overrideNote, setOverrideNote] = useState(row.review_note ?? "");
     const [validationError, setValidationError] = useState<string | null>(null);
 
-    const promoted = (row.promotion_status ?? "").toLowerCase() === "promoted";
-
-    useEffect(() => {
+    if (lastRowResetKey !== rowResetKey) {
         const next = buildInitialOverrideForm(row, fieldDefs, config.apiFamily);
+        setLastRowResetKey(rowResetKey);
         setForm(next);
         setBaseline(next);
         setClearedKeys(new Set());
         setOverrideNote(row.review_note ?? "");
         setValidationError(null);
-    }, [row.id, fieldDefs, row, config.apiFamily]);
+    }
+
+    const promoted = (row.promotion_status ?? "").toLowerCase() === "promoted";
 
     const isDirty = useMemo(() => {
         if (clearedKeys.size > 0) {

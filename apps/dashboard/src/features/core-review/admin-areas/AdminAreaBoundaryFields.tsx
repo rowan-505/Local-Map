@@ -97,8 +97,6 @@ export default function AdminAreaBoundaryFields({
 
     useEffect(() => {
         const controller = new AbortController();
-        setIsLoading(true);
-        setLoadError(null);
         Promise.all([
             getRefBoundaryStatuses({ signal: controller.signal }),
             getRefAddressUsageTypes({ signal: controller.signal }),

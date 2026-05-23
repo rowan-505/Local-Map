@@ -37,9 +37,13 @@ export default function AdminAreaCombobox({
     const inputId = idProp ?? autoId;
     const listboxId = `${inputId}-listbox`;
 
-    const [options, setOptions] = useState<AdminAreaOption[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [loadError, setLoadError] = useState<string | null>(null);
+    const usesExternalOptions = externalOptions !== undefined;
+    const [internalOptions, setInternalOptions] = useState<AdminAreaOption[]>([]);
+    const [internalLoading, setInternalLoading] = useState(!usesExternalOptions);
+    const [internalLoadError, setInternalLoadError] = useState<string | null>(null);
+    const options = usesExternalOptions ? externalOptions : internalOptions;
+    const loading = usesExternalOptions ? (externalLoading ?? false) : internalLoading;
+    const loadError = usesExternalOptions ? null : internalLoadError;
     const [query, setQuery] = useState("");
     const [open, setOpen] = useState(false);
     const [activeIndex, setActiveIndex] = useState(-1);
@@ -65,35 +69,32 @@ export default function AdminAreaCombobox({
     }, [options, query]);
 
     useEffect(() => {
-        if (externalOptions !== undefined) {
-            setOptions(externalOptions);
-            setLoading(externalLoading ?? false);
-            setLoadError(null);
+        if (usesExternalOptions) {
             return;
         }
         let cancelled = false;
-        setLoading(true);
-        setLoadError(null);
         void getAdminAreaOptions({ limit: 2000 })
             .then((rows) => {
                 if (!cancelled) {
-                    setOptions(rows);
+                    setInternalOptions(rows);
                 }
             })
             .catch((err: unknown) => {
                 if (!cancelled) {
-                    setLoadError(err instanceof Error ? err.message : "Failed to load admin areas");
+                    setInternalLoadError(
+                        err instanceof Error ? err.message : "Failed to load admin areas",
+                    );
                 }
             })
             .finally(() => {
                 if (!cancelled) {
-                    setLoading(false);
+                    setInternalLoading(false);
                 }
             });
         return () => {
             cancelled = true;
         };
-    }, [externalOptions, externalLoading]);
+    }, [usesExternalOptions]);
 
     useEffect(() => {
         if (!open) {

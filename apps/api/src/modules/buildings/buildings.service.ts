@@ -119,6 +119,53 @@ export class BuildingsService {
         return this.serializeBuilding(updated);
     }
 
+    /** Core Review inline edit — any active building (import or dashboard). */
+    async updateCoreReviewBuilding(publicId: string, body: UpdateBuildingBody) {
+        const existing = await this.buildingsRepo.getActiveBuildingByPublicId(publicId);
+
+        if (!existing) {
+            throw new BuildingNotFoundError();
+        }
+
+        const snapshot = await this.mergePersistSnapshot(existing, body);
+
+        if (body.geometry !== undefined) {
+            const geojsonText = JSON.stringify(body.geometry);
+            await this.validateGeoJsonPipeline(geojsonText);
+
+            const updated = await this.buildingsRepo.updateDashboardBuildingGeometry(
+                publicId,
+                geojsonText,
+                snapshot,
+                "active",
+            );
+
+            if (!updated) {
+                throw new BuildingValidationError("Building geometry update failed validation", [
+                    {
+                        path: "geometry",
+                        message:
+                            `Polygon area must be between ${AREA_MIN_EXCLUSIVE} and ${AREA_MAX_EXCLUSIVE} square meters.`,
+                    },
+                ]);
+            }
+
+            return this.serializeBuilding(updated);
+        }
+
+        const updated = await this.buildingsRepo.updateDashboardBuildingScalars(
+            publicId,
+            snapshot,
+            "active",
+        );
+
+        if (!updated) {
+            throw new BuildingNotFoundError();
+        }
+
+        return this.serializeBuilding(updated);
+    }
+
     async softDeleteBuilding(publicId: string): Promise<{ public_id: string }> {
         const deleted = await this.buildingsRepo.softDeleteActiveBuildingByPublicId(publicId);
 

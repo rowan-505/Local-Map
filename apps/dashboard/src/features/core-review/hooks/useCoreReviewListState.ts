@@ -236,8 +236,9 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
     apiSlug: CoreReviewEntitySlug;
     defaultSortBy: string;
     filterSupport: CoreReviewFilterSupport;
+    getRowId: (row: T) => string;
 }) {
-    const { apiSlug, defaultSortBy, filterSupport } = options;
+    const { apiSlug, defaultSortBy, filterSupport, getRowId } = options;
     const searchParams = useSearchParams();
     const pathname = usePathname() ?? "";
     const router = useRouter();
@@ -298,6 +299,15 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
         pushDraft(appliedDraft, appliedPage);
     }, [appliedDraft, appliedPage, pushDraft]);
 
+    const patchRow = useCallback(
+        (rowId: string, updater: (row: T) => T) => {
+            setRows((prev) =>
+                prev.map((row) => (getRowId(row) === rowId ? updater(row) : row)),
+            );
+        },
+        [getRowId],
+    );
+
     useEffect(() => {
         const controller = new AbortController();
         setIsLoading(true);
@@ -350,6 +360,7 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
         applyDraft,
         setPage,
         reload,
+        patchRow,
         pageSizeChoices: PAGE_SIZE_CHOICES,
     };
 }

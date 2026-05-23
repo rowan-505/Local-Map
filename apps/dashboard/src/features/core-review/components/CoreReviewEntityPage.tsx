@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import CoreReviewDataTableCard from "@/src/components/core-review/CoreReviewDataTableCard";
 import CoreReviewHeaderCard from "@/src/components/core-review/CoreReviewHeaderCard";
@@ -15,35 +15,128 @@ import ReviewEmptyState from "@/src/components/review/ReviewEmptyState";
 import ReviewPagination from "@/src/components/review/ReviewPagination";
 import { reviewTableRowClass } from "@/src/components/review/reviewPalette";
 
+import { getCoreReviewDetail, isAbortError } from "@/src/lib/api";
+
 import type { CoreReviewEntityConfig } from "../config/entity-config-types";
 import { useCoreReviewListState } from "../hooks/useCoreReviewListState";
 import { useCoreReviewVerificationTotals } from "../hooks/useCoreReviewVerificationTotals";
 import { formatCoreReviewHeaderMeta } from "../utils/listHeaderMeta";
 import { coreReviewCreateButtonLabel } from "../utils/createButtonLabel";
-import CoreReviewEntityDetailDrawer from "./CoreReviewEntityDetailDrawer";
 import CoreReviewEntityFilters from "./CoreReviewEntityFilters";
 import CoreReviewLifecycleDrawerActions from "../lifecycle/CoreReviewLifecycleDrawerActions";
 import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
+import CoreReviewEntityDrawer from "../drawer/CoreReviewEntityDrawer";
+import type { CoreReviewInlineEditGuard } from "../drawer";
+
+export type CoreReviewEntityPageProps<T extends Record<string, unknown> = Record<string, unknown>> = {
+    config: CoreReviewEntityConfig<T>;
+    initialSelectedRowId?: string | null;
+    initialDrawerMode?: "view" | "edit";
+};
 
 function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
     config,
-}: {
-    config: CoreReviewEntityConfig<T>;
-}) {
+    initialSelectedRowId = null,
+    initialDrawerMode = "view",
+}: CoreReviewEntityPageProps<T>) {
     const list = useCoreReviewListState<T>({
         apiSlug: config.apiSlug,
         defaultSortBy: config.defaultSortBy,
         filterSupport: config.filterSupport,
+        getRowId: config.getRowId,
     });
 
-    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [selectedId, setSelectedId] = useState<string | null>(initialSelectedRowId);
+    const [deepLinkRow, setDeepLinkRow] = useState<T | null>(null);
+    const [initialEditPending, setInitialEditPending] = useState(
+        initialDrawerMode === "edit" && Boolean(initialSelectedRowId),
+    );
     const [lifecycleMessage, setLifecycleMessage] = useState("");
     const [lifecycleError, setLifecycleError] = useState("");
+    const inlineEditGuardRef = useRef<CoreReviewInlineEditGuard | null>(null);
+    const runGuardedImplRef = useRef<(action: () => void) => void>((action) => {
+        action();
+    });
+
+    const supportsInlineEdit = config.supportsInlineEdit === true;
+
+    const handleInlineEditGuardReady = useCallback((guard: CoreReviewInlineEditGuard | null) => {
+        inlineEditGuardRef.current = guard;
+    }, []);
+
+    useEffect(() => {
+        runGuardedImplRef.current = (action) => {
+            const guard = inlineEditGuardRef.current;
+            if (guard) {
+                guard(action);
+                return;
+            }
+            action();
+        };
+    });
+
+    const runGuarded = useCallback((action: () => void) => {
+        runGuardedImplRef.current(action);
+    }, []);
+
+    const handleSelectRow = useCallback(
+        (id: string) => {
+            if (selectedId === id) {
+                return;
+            }
+            if (supportsInlineEdit) {
+                runGuarded(() => setSelectedId(id));
+                return;
+            }
+            setSelectedId(id);
+        },
+        [runGuarded, selectedId, supportsInlineEdit],
+    );
+
+    const handleCloseDrawer = useCallback(() => {
+        setInitialEditPending(false);
+        if (supportsInlineEdit) {
+            runGuarded(() => setSelectedId(null));
+            return;
+        }
+        setSelectedId(null);
+    }, [runGuarded, supportsInlineEdit]);
 
     const selectedRow = useMemo(
         () => list.rows.find((r) => config.getRowId(r) === selectedId) ?? null,
         [list.rows, selectedId, config]
     );
+
+    const drawerRow = selectedRow ?? deepLinkRow;
+
+    useEffect(() => {
+        if (!selectedId || selectedRow) {
+            setDeepLinkRow(null);
+            return;
+        }
+        if (list.isLoading) {
+            return;
+        }
+
+        const controller = new AbortController();
+        void getCoreReviewDetail<T>(config.apiSlug, selectedId, { signal: controller.signal })
+            .then((response) => {
+                setDeepLinkRow(response.data);
+            })
+            .catch((error) => {
+                if (!isAbortError(error)) {
+                    setDeepLinkRow(null);
+                }
+            });
+
+        return () => controller.abort();
+    }, [config.apiSlug, list.isLoading, selectedId, selectedRow]);
+
+    const startInEditMode =
+        initialEditPending &&
+        supportsInlineEdit &&
+        Boolean(initialSelectedRowId) &&
+        selectedId === initialSelectedRowId;
 
     const handleClear = useCallback(() => {
         list.applyDraft({
@@ -110,9 +203,6 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
               )
             : undefined;
 
-    const detailFields = selectedRow ? config.detailFields(selectedRow) : [];
-    const listGeometry = selectedRow ? config.getGeometry(selectedRow) : null;
-
     const headerActions = useMemo(() => {
         if (config.extensions?.headerActions) {
             return config.extensions.headerActions;
@@ -158,7 +248,6 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                         draft={list.draft}
                         setDraft={list.setDraft}
                         sortOptions={config.sortOptions}
-                        defaultSortBy={config.defaultSortBy}
                         filterSupport={config.filterSupport}
                         searchPlaceholder={config.searchPlaceholder}
                         totalCount={list.pagination.total}
@@ -226,7 +315,7 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                                                     isSelected,
                                                     rowDeleted ? "opacity-60" : undefined
                                                 )}
-                                                onClick={() => setSelectedId(id)}
+                                                onClick={() => handleSelectRow(id)}
                                             >
                                                 {config.columns.map((col) => (
                                                     <td
@@ -255,80 +344,40 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                 </>
             ) : null}
 
-            {config.extensions?.renderDetailDrawer ? (
-                config.extensions.renderDetailDrawer({
-                    open: Boolean(selectedRow),
-                    row: selectedRow,
-                    rowId: selectedRow ? config.getRowId(selectedRow) : null,
-                    title: selectedRow ? config.getRowTitle(selectedRow) : "",
-                    subtitle: selectedRow ? config.getRowSubtitle?.(selectedRow) ?? null : null,
-                    geometryKind: config.geometryKind,
-                    mapEntityType: config.mapEntityType,
-                    listGeometry: listGeometry,
-                    editPath:
-                        selectedRow && config.editPath
-                            ? config.editPath(config.getRowId(selectedRow))
-                            : undefined,
-                    drawerActions: selectedRow ? (
+            <CoreReviewEntityDrawer
+                config={config}
+                open={Boolean(selectedId && drawerRow)}
+                row={drawerRow}
+                rowId={selectedId}
+                startInEditMode={startInEditMode}
+                onClose={handleCloseDrawer}
+                onRowPatched={(rowId, updater) => list.patchRow(rowId, updater)}
+                onInlineEditGuardReady={
+                    supportsInlineEdit ? handleInlineEditGuardReady : undefined
+                }
+                drawerActions={
+                    drawerRow ? (
                         <>
                             <CoreReviewLifecycleDrawerActions
                                 apiSlug={config.apiSlug}
-                                row={selectedRow as Record<string, unknown>}
-                                recordId={config.getRowId(selectedRow)}
+                                row={drawerRow as Record<string, unknown>}
+                                recordId={config.getRowId(drawerRow)}
+                                beforeAction={supportsInlineEdit ? runGuarded : undefined}
                                 onSuccess={handleLifecycleSuccess}
                                 onError={handleLifecycleError}
-                                onAfterLifecycle={() => setSelectedId(null)}
+                                onAfterLifecycle={handleCloseDrawer}
                             />
+                            {/* eslint-disable-next-line react-hooks/refs -- close/runGuarded run only on user action */}
                             {config.extensions?.renderDrawerActions?.({
-                                row: selectedRow,
-                                detail: selectedRow,
-                                close: () => setSelectedId(null),
+                                row: drawerRow,
+                                detail: drawerRow,
+                                close: handleCloseDrawer,
                                 reloadList: list.reload,
                             })}
                         </>
-                    ) : undefined,
-                    onClose: () => setSelectedId(null),
-                })
-            ) : (
-                <CoreReviewEntityDetailDrawer
-                    open={Boolean(selectedRow)}
-                    apiSlug={config.apiSlug}
-                    idKind={config.idKind}
-                    rowId={selectedRow ? config.getRowId(selectedRow) : null}
-                    title={selectedRow ? config.getRowTitle(selectedRow) : ""}
-                    subtitle={selectedRow ? config.getRowSubtitle?.(selectedRow) ?? null : null}
-                    geometryKind={config.geometryKind}
-                    mapEntityType={config.mapEntityType}
-                    listGeometry={listGeometry}
-                    detailFields={detailFields}
-                    editPath={
-                        selectedRow && config.editPath
-                            ? config.editPath(config.getRowId(selectedRow))
-                            : undefined
-                    }
-                    drawerActions={
-                        selectedRow ? (
-                            <>
-                                <CoreReviewLifecycleDrawerActions
-                                    apiSlug={config.apiSlug}
-                                    row={selectedRow as Record<string, unknown>}
-                                    recordId={config.getRowId(selectedRow)}
-                                    onSuccess={handleLifecycleSuccess}
-                                    onError={handleLifecycleError}
-                                    onAfterLifecycle={() => setSelectedId(null)}
-                                />
-                                {config.extensions?.renderDrawerActions?.({
-                                    row: selectedRow,
-                                    detail: selectedRow,
-                                    close: () => setSelectedId(null),
-                                    reloadList: list.reload,
-                                })}
-                            </>
-                        ) : undefined
-                    }
-                    onClose={() => setSelectedId(null)}
-                />
-            )}
+                    ) : undefined
+                }
+            />
         </CoreReviewPageShell>
     );
 
@@ -337,9 +386,9 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
 
 export default function CoreReviewEntityPage<T extends Record<string, unknown>>({
     config,
-}: {
-    config: CoreReviewEntityConfig<T>;
-}) {
+    initialSelectedRowId,
+    initialDrawerMode,
+}: CoreReviewEntityPageProps<T>) {
     return (
         <Suspense
             fallback={
@@ -348,7 +397,11 @@ export default function CoreReviewEntityPage<T extends Record<string, unknown>>(
                 </CoreReviewPageShell>
             }
         >
-            <CoreReviewEntityPageInner config={config} />
+            <CoreReviewEntityPageInner
+                config={config}
+                initialSelectedRowId={initialSelectedRowId}
+                initialDrawerMode={initialDrawerMode}
+            />
         </Suspense>
     );
 }

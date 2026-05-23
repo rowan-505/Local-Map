@@ -18,6 +18,7 @@ export default function CoreReviewSoftDeleteButton({
     compact,
     onSuccess,
     onError,
+    beforeOpen,
 }: {
     apiSlug: CoreReviewEntitySlug;
     recordId: string;
@@ -25,6 +26,8 @@ export default function CoreReviewSoftDeleteButton({
     compact?: boolean;
     onSuccess?: (message: string) => void;
     onError?: (message: string) => void;
+    /** When set, called before opening the confirm dialog (e.g. unsaved-edit guard). */
+    beforeOpen?: (proceed: () => void) => void;
 }) {
     const [open, setOpen] = useState(false);
     const { isBusy, runSoftDelete } = useCoreReviewLifecycleMutation(apiSlug);
@@ -47,7 +50,12 @@ export default function CoreReviewSoftDeleteButton({
                 disabled={disabled || isBusy}
                 onClick={(e) => {
                     e.stopPropagation();
-                    setOpen(true);
+                    const openDialog = () => setOpen(true);
+                    if (beforeOpen) {
+                        beforeOpen(openDialog);
+                    } else {
+                        openDialog();
+                    }
                 }}
                 className={compact ? `${BUTTON_CLASS} px-2 py-1 text-xs` : BUTTON_CLASS}
             >

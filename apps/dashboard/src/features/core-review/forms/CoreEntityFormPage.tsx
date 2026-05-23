@@ -6,8 +6,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type Resolver } from "react-hook-form";
 import type { Map as MaplibreMap } from "maplibre-gl";
 
-import BuildingLinkedPlacesPanel from "@/src/components/buildings/BuildingLinkedPlacesPanel";
-import PlaceLinkedBuildingsPanel from "@/src/components/places/PlaceLinkedBuildingsPanel";
 import type { CoreGeometryValidationResult } from "@/src/components/core-review/geometry";
 import { CoreReviewErrorCard, CoreReviewLoadingCard } from "@/src/components/core-review/CoreReviewStateCard";
 import { useBuildingTileVersion, useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
@@ -19,8 +17,6 @@ import {
 import {
     getPlaceFormOptions,
     validateStreetGeometry,
-    type PlaceDetail,
-    type Street,
     type ValidateStreetGeometryResponse,
 } from "@/src/lib/api";
 import {
@@ -33,24 +29,24 @@ import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 import { summarizeCoreReviewSavePayload } from "@/src/lib/core-review/savePayloadUtils";
 
-import CoreEntityFieldRenderer from "./CoreEntityFieldRenderer";
+import { useCoreEntityEditForm, sanitizeSaveError } from "../drawer";
+import {
+    CoreEntityEditBelowMapSection,
+    CoreEntityEditExtrasSection,
+    CoreEntityEditFieldsSection,
+    CoreEntityEditMapSection,
+    CoreEntityEditMetadataSection,
+    resolveCoreEntityExternalId,
+} from "./CoreEntityEditFormSections";
 import CoreEntityFormShell from "./CoreEntityFormShell";
-import CoreEntityGeometrySection, {
-    SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM,
-} from "./CoreEntityGeometrySection";
-import CoreEntityNamesMetadata from "./CoreEntityNamesMetadata";
+import { SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM } from "./CoreEntityGeometrySection";
 import CoreEntityValidationPanel from "./CoreEntityValidationPanel";
 import CoreEntityWriteApiBanner from "./CoreEntityWriteApiBanner";
 import CoreFormActions from "./CoreFormActions";
-import CorePlaceCoordinatesField from "./CorePlaceCoordinatesField";
-import CoreReadonlyMetadata from "./CoreReadonlyMetadata";
 import CoreReviewEntityFormLifecycleActions from "../lifecycle/CoreReviewEntityFormLifecycleActions";
 import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
-import StreetEditExtras, { type StreetSplitMapProps } from "./StreetEditExtras";
-import AdminAreaBoundaryFields from "../admin-areas/AdminAreaBoundaryFields";
-import CoreAddressFormExtras from "@/src/features/addresses/CoreAddressFormExtras";
+import type { StreetSplitMapProps } from "./StreetEditExtras";
 import { collectRefSources, useCoreEntityRefs } from "./useCoreEntityRefs";
-import type { CoreReviewAddressDetail } from "../config/types";
 
 // TODO: Add beforeunload / router guard when a shared unsaved-changes pattern exists in the dashboard.
 
@@ -60,35 +56,23 @@ export type CoreEntityFormPageProps = {
     id?: string;
 };
 
-function sanitizeSaveError(err: unknown): string {
-    const raw = err instanceof Error ? err.message : "Request failed";
-    // Multi-line API responses include field-level issue bullets — show them verbatim.
-    if (/\n/.test(raw)) {
-        return raw;
-    }
-    const looksTechnical =
-        raw.length > 400 ||
-        /\b(pg_|postgresql|prisma|P1012|syntax error at|permission denied for relation|syntax error\b)/i.test(
-            raw,
-        );
-    if (looksTechnical) {
-        return "Saving failed. Please try again.";
-    }
-    return raw;
-}
-
 export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFormPageProps) {
     const config = getCoreEntityConfig(entityKey);
     const router = useRouter();
     const { bumpPlaceTileVersion, bumpStreetTileVersion, bumpRoadLabelTileVersion } = useDashboardTileVersions();
     const { bumpBuildingTileVersion } = useBuildingTileVersion();
 
-    const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
-    const [isLoading, setIsLoading] = useState(mode === "edit");
-    const [loadError, setLoadError] = useState("");
-    const [saveError, setSaveError] = useState<string | null>(null);
-    const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
-    const [isSaving, setIsSaving] = useState(false);
+    const isEdit = mode === "edit" && Boolean(id);
+
+    const editForm = useCoreEntityEditForm({
+        entityKey,
+        recordId: id ?? "",
+        enabled: isEdit,
+    });
+
+    const [createSaveError, setCreateSaveError] = useState<string | null>(null);
+    const [createSaveSuccess, setCreateSaveSuccess] = useState<string | null>(null);
+    const [createIsSaving, setCreateIsSaving] = useState(false);
     const [geometryValidation, setGeometryValidation] = useState<CoreGeometryValidationResult | null>(null);
     const [apiGeometryValidation, setApiGeometryValidation] = useState<ValidateStreetGeometryResponse | null>(
         null,
@@ -98,71 +82,43 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
 
     const geometryFieldKey = config.geometry?.fieldKey ?? "geom";
 
-    const refSources = useMemo(
+    const createRefSources = useMemo(
         () => collectRefSources(config.editableFields),
         [config.editableFields],
     );
-    const refStates = useCoreEntityRefs(refSources);
+    const createRefStates = useCoreEntityRefs(createRefSources);
 
-    const schema = useMemo(() => config.formSchema(mode), [config, mode]);
+    const createSchema = useMemo(() => config.formSchema("create"), [config]);
 
-    const {
-        control,
-        handleSubmit,
-        reset,
-        watch,
-        setValue,
-        formState: { errors },
-    } = useForm<CoreEntityFormValues>({
+    const createForm = useForm<CoreEntityFormValues>({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- entity schemas vary by config; RHF resolver typing is unified at runtime.
-        resolver: zodResolver(schema as any) as Resolver<CoreEntityFormValues>,
+        resolver: zodResolver(createSchema as any) as Resolver<CoreEntityFormValues>,
         defaultValues: config.defaultFormValues,
     });
 
-    const roadClassId = watch("road_class_id") as string | undefined;
-    const editReason = watch("edit_reason") as string | undefined;
-    const adminLevelId = watch("admin_level_id") as string | undefined;
-    const boundaryStatus = watch("boundary_status") as string | undefined;
-    const addressUsage = watch("address_usage") as string | undefined;
-    const adminLevelCode = useMemo(() => {
-        if (!adminLevelId) {
-            return "";
-        }
-        const match = refStates["reference-options:admin_levels"]?.options.find(
-            (option) => option.value === adminLevelId,
-        );
-        return match?.code?.trim().toLowerCase() ?? "";
-    }, [adminLevelId, refStates]);
+    const control = isEdit ? editForm.control : createForm.control;
+    const watch = isEdit ? editForm.watch : createForm.watch;
+    const setValue = isEdit ? editForm.setValue : createForm.setValue;
+    const errors = isEdit ? editForm.errors : createForm.formState.errors;
+    const refStates = isEdit ? editForm.refStates : createRefStates;
+
+    const detail = isEdit ? editForm.detail : null;
+    const isLoading = isEdit ? editForm.isLoading : false;
+    const loadError = isEdit ? editForm.loadError : "";
+    const saveError = isEdit ? editForm.saveError : createSaveError;
+    const saveSuccess = isEdit ? editForm.saveSuccess : createSaveSuccess;
+    const isSaving = isEdit ? editForm.isSaving : createIsSaving;
+
     const isRecordDeleted =
-        mode === "edit" && detail ? isCoreReviewRowDeleted(detail) : false;
+        isEdit && detail ? isCoreReviewRowDeleted(detail) : false;
 
     const handleStreetSplitMapPropsChange = useCallback((props: StreetSplitMapProps) => {
         setStreetSplitMapProps(props);
     }, []);
 
     const reloadDetail = useCallback(async () => {
-        if (mode !== "edit" || !id) {
-            return;
-        }
-        setIsLoading(true);
-        setLoadError("");
-        try {
-            const data = await config.fetchDetail(id);
-            setDetail(data as Record<string, unknown>);
-            reset(config.detailToFormValues(data));
-        } catch (err) {
-            setLoadError(err instanceof Error ? err.message : `Failed to load ${config.label.toLowerCase()}`);
-            setDetail(null);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [config, id, mode, reset]);
-
-    useEffect(() => {
-        if (mode === "edit" && id) {
-            void reloadDetail();
-        }
-    }, [mode, id, reloadDetail]);
+        await editForm.reloadDetail();
+    }, [editForm]);
 
     useEffect(() => {
         if (mode !== "create" || entityKey !== "places") {
@@ -177,37 +133,37 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
             const manual = options.source_types.find((s) => s.code === "manual");
             const published = options.publish_statuses.find((s) => s.code === "published");
             if (manual?.id) {
-                setValue("sourceTypeId", manual.id);
+                createForm.setValue("sourceTypeId", manual.id);
             }
             if (published?.id) {
-                setValue("publishStatusId", published.id);
+                createForm.setValue("publishStatusId", published.id);
             }
         });
         return () => {
             mounted = false;
         };
-    }, [entityKey, mode, setValue]);
+    }, [entityKey, mode, createForm]);
 
     useEffect(() => {
         if (mode !== "create" || entityKey !== "admin-areas") {
             return;
         }
-        const manual = refStates["reference-options:source_types"]?.options.find(
+        const manual = createRefStates["reference-options:source_types"]?.options.find(
             (option) => option.code === "manual",
         );
         if (manual?.value) {
-            setValue("source_type_id", manual.value);
+            createForm.setValue("source_type_id", manual.value);
         }
-    }, [entityKey, mode, refStates, setValue]);
+    }, [entityKey, mode, createRefStates, createForm]);
 
-    const onSubmit = handleSubmit(async (values) => {
+    const onCreateSubmit = createForm.handleSubmit(async (values) => {
         if (!config.writeApiAvailable) {
             return;
         }
 
-        setSaveError(null);
-        setSaveSuccess(null);
-        setIsSaving(true);
+        setCreateSaveError(null);
+        setCreateSaveSuccess(null);
+        setCreateIsSaving(true);
 
         try {
             if (entityKey === "streets") {
@@ -218,32 +174,31 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
                         : null,
                 );
                 if (!prep.ok) {
-                    setSaveError(prep.message);
-                    setIsSaving(false);
+                    setCreateSaveError(prep.message);
+                    setCreateIsSaving(false);
                     return;
                 }
 
                 const roadClass = ensureRoadClassSelected(String(values.road_class_id ?? ""));
                 if (!roadClass) {
-                    setSaveError("Select a road class before saving.");
-                    setIsSaving(false);
+                    setCreateSaveError("Select a road class before saving.");
+                    setCreateIsSaving(false);
                     return;
                 }
 
                 const check = await validateStreetGeometry({
                     geometry: prep.sanitized,
-                    ...(mode === "edit" && id ? { streetId: id } : {}),
                 });
                 setApiGeometryValidation(check);
 
                 if (!check.isValid) {
-                    setIsSaving(false);
+                    setCreateIsSaving(false);
                     return;
                 }
 
                 if (check.warnings.length > 0) {
                     if (!window.confirm(SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM)) {
-                        setIsSaving(false);
+                        setCreateIsSaving(false);
                         return;
                     }
                 }
@@ -251,79 +206,64 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
                 values = { ...values, [geometryFieldKey]: prep.sanitized };
             }
 
-            if (mode === "create") {
-                const payload = config.formValuesToCreatePayload(values);
-                dashDevLog(`${entityKey}:create:save-payload`, summarizeCoreReviewSavePayload(payload));
-                const created = await config.createEntity(payload);
-                config.onAfterCreate?.(created);
+            const payload = config.formValuesToCreatePayload(values);
+            dashDevLog(`${entityKey}:create:save-payload`, summarizeCoreReviewSavePayload(payload));
+            const created = await config.createEntity(payload);
+            config.onAfterCreate?.(created);
 
-                if (entityKey === "buildings") {
-                    const tileVersion = bumpBuildingTileVersion();
-                    scheduleBuildingTileRefresh(null, tileVersion);
-                    window.setTimeout(() => {
-                        router.push(config.editRoute(config.getDetailId(created)));
-                    }, 0);
-                    return;
-                }
-
-                if (entityKey === "places") {
-                    bumpPlaceTileVersion();
-                    try {
-                        sessionStorage.setItem(
-                            "placeCreateSuccess",
-                            `Place "${config.getDetailId(created)}" created successfully.`,
-                        );
-                    } catch {
-                        /* ignore */
-                    }
-                    router.push(config.listRoute);
-                    return;
-                }
-
-                if (entityKey === "streets") {
-                    const streetTileVersion = bumpStreetTileVersion();
-                    bumpRoadLabelTileVersion();
-                    try {
-                        sessionStorage.setItem(DASHBOARD_STREET_MVT_SESSION_BUST_KEY, String(streetTileVersion));
-                    } catch {
-                        /* ignore */
-                    }
-                    window.setTimeout(() => {
-                        router.push(config.editRoute(config.getDetailId(created)));
-                    }, 0);
-                    return;
-                }
-
-                router.push(config.editRoute(config.getDetailId(created)));
-                setSaveSuccess(`${config.label} created successfully.`);
+            if (entityKey === "buildings") {
+                const tileVersion = bumpBuildingTileVersion();
+                scheduleBuildingTileRefresh(null, tileVersion);
+                window.setTimeout(() => {
+                    router.push(config.editRoute(config.getDetailId(created)));
+                }, 0);
                 return;
-            } else if (id) {
-                const payload = config.formValuesToUpdatePayload(values);
-                dashDevLog(`${entityKey}:edit:save-payload`, summarizeCoreReviewSavePayload(payload));
-                await config.updateEntity(id, payload);
-                const fresh = await config.fetchDetail(id);
-                setDetail(fresh as Record<string, unknown>);
-                reset(config.detailToFormValues(fresh));
-                config.onAfterUpdate?.(fresh);
-                setSaveSuccess(`${config.label} saved successfully.`);
-
-                if (entityKey === "buildings") {
-                    const tileVersion = bumpBuildingTileVersion();
-                    scheduleBuildingTileRefresh(null, tileVersion);
-                } else if (entityKey === "places") {
-                    bumpPlaceTileVersion();
-                } else if (entityKey === "streets") {
-                    bumpStreetTileVersion();
-                    bumpRoadLabelTileVersion();
-                }
             }
+
+            if (entityKey === "places") {
+                bumpPlaceTileVersion();
+                try {
+                    sessionStorage.setItem(
+                        "placeCreateSuccess",
+                        `Place "${config.getDetailId(created)}" created successfully.`,
+                    );
+                } catch {
+                    /* ignore */
+                }
+                router.push(config.listRoute);
+                return;
+            }
+
+            if (entityKey === "streets") {
+                const streetTileVersion = bumpStreetTileVersion();
+                bumpRoadLabelTileVersion();
+                try {
+                    sessionStorage.setItem(DASHBOARD_STREET_MVT_SESSION_BUST_KEY, String(streetTileVersion));
+                } catch {
+                    /* ignore */
+                }
+                window.setTimeout(() => {
+                    router.push(config.editRoute(config.getDetailId(created)));
+                }, 0);
+                return;
+            }
+
+            router.push(config.editRoute(config.getDetailId(created)));
+            setCreateSaveSuccess(`${config.label} created successfully.`);
         } catch (err) {
-            dashDevLog(`${entityKey}:${mode}:save-error`, err);
-            setSaveError(sanitizeSaveError(err));
+            dashDevLog(`${entityKey}:create:save-error`, err);
+            setCreateSaveError(sanitizeSaveError(err));
         } finally {
-            setIsSaving(false);
+            setCreateIsSaving(false);
         }
     });
+
+    const onEditSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        void editForm.submitUpdate();
+    };
+
+    const onSubmit = isEdit ? onEditSubmit : (e: React.FormEvent<HTMLFormElement>) => void onCreateSubmit(e);
 
     if (mode === "edit" && !id) {
         return (
@@ -357,99 +297,44 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
               ? config.editDescription?.(detail as never)
               : undefined;
 
-    const externalId =
-        mode === "edit" && detail
-            ? "public_id" in detail
-                ? String(detail.public_id)
-                : "publicId" in detail
-                  ? String(detail.publicId)
-                  : null
-            : null;
+    const externalId = isEdit ? resolveCoreEntityExternalId(detail) : null;
 
     const formDisabled = !config.writeApiAvailable || isRecordDeleted || isSaving;
-    const showPointCoordinates =
-        config.geometry?.geometryType === "point" && entityKey !== "addresses";
 
-    const selectedStreetName =
-        entityKey === "streets" && detail && "canonical_name" in detail
-            ? String((detail as Street).canonical_name)
-            : null;
+    const resolvedGeometryValidation = isEdit ? editForm.geometryValidation : geometryValidation;
+    const resolvedApiGeometryValidation = isEdit ? editForm.apiGeometryValidation : apiGeometryValidation;
+    const setResolvedGeometryValidation = isEdit
+        ? editForm.setGeometryValidation
+        : setGeometryValidation;
+    const setResolvedApiGeometryValidation = isEdit
+        ? editForm.setApiGeometryValidation
+        : setApiGeometryValidation;
 
-    const visibleFields = config.editableFields.filter((field) => {
-        if (field.createOnly && mode === "edit") {
-            return false;
-        }
-        if (field.editOnly && mode === "create") {
-            return false;
-        }
-        return true;
-    });
+    const editSectionProps = {
+        entityKey,
+        mode,
+        config,
+        recordId: id ?? null,
+        control,
+        watch,
+        setValue,
+        errors,
+        refStates,
+        detail,
+        disabled: formDisabled,
+        isSaving,
+        externalId,
+        onGeometryValidation: setResolvedGeometryValidation,
+        onApiValidation: setResolvedApiGeometryValidation,
+        streetSplitMapProps,
+        onStreetSplitMapPropsChange: handleStreetSplitMapPropsChange,
+        placeHostMapRef,
+        reloadDetail: isEdit ? editForm.reloadDetail : undefined,
+    };
 
-    const placeDetail = entityKey === "places" && detail ? (detail as PlaceDetail) : null;
-    const streetDetail = entityKey === "streets" && detail ? (detail as Street) : null;
-    const busStopNames =
-        entityKey === "bus-stops" && detail && Array.isArray((detail as { names?: unknown }).names)
-            ? ((detail as { names: { id?: string; name: string; languageCode?: string | null; nameType?: string; isPrimary?: boolean }[] }).names.map(
-                  (n) => ({
-                      id: n.id,
-                      name: n.name,
-                      language_code: n.languageCode,
-                      name_type: n.nameType,
-                      is_primary: n.isPrimary,
-                  }),
-              ))
-            : null;
-
-    const pointGeom = watch("point_geom") as import("geojson").Geometry | null | undefined;
-    const addressDetail =
-        entityKey === "addresses" && detail ? (detail as CoreReviewAddressDetail) : null;
-
-    const mapSection =
-        entityKey === "addresses" && config.geometry ? (
-            <CoreAddressFormExtras
-                control={control}
-                pointGeom={pointGeom ?? null}
-                setValue={setValue}
-                disabled={formDisabled}
-                initialComponents={addressDetail?.components}
-            />
-        ) : config.geometry ? (
-            <div className="space-y-4">
-                <CoreEntityGeometrySection
-                    config={config.geometry}
-                    control={control}
-                    externalId={externalId}
-                    selectedEntityName={selectedStreetName}
-                    snapExcludePublicId={entityKey === "streets" ? externalId : null}
-                    disabled={formDisabled}
-                    roadClassId={roadClassId}
-                    onGeometryValidation={setGeometryValidation}
-                    onApiValidation={setApiGeometryValidation}
-                    streetSplitMapProps={entityKey === "streets" ? streetSplitMapProps : null}
-                    mapSurfaceRef={entityKey === "places" ? placeHostMapRef : undefined}
-                />
-                {config.secondaryGeometry ? (
-                    <CoreEntityGeometrySection
-                        config={config.secondaryGeometry}
-                        control={control}
-                        externalId={externalId}
-                        disabled={formDisabled}
-                        onGeometryValidation={setGeometryValidation}
-                    />
-                ) : null}
-            </div>
-        ) : null;
-
-    const addressEntranceSection =
-        entityKey === "addresses" && config.secondaryGeometry ? (
-            <CoreEntityGeometrySection
-                config={config.secondaryGeometry}
-                control={control}
-                externalId={externalId}
-                disabled={formDisabled}
-                onGeometryValidation={setGeometryValidation}
-            />
-        ) : null;
+    const mapSection = config.geometry ? (
+        <CoreEntityEditMapSection {...editSectionProps} />
+    ) : null;
 
     return (
         <CoreEntityFormShell
@@ -458,9 +343,9 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
             description={description}
             backHref={config.listRoute}
             backLabel={`Back to ${config.labelPlural.toLowerCase()}`}
-            onSubmit={config.writeApiAvailable ? (e) => void onSubmit(e) : undefined}
+            onSubmit={config.writeApiAvailable ? onSubmit : undefined}
             headerActions={
-                mode === "edit" && id ? (
+                isEdit && id ? (
                     <CoreReviewEntityFormLifecycleActions
                         entityKey={entityKey}
                         recordId={id}
@@ -468,12 +353,12 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
                         listRoute={config.listRoute}
                         onReload={reloadDetail}
                         onSuccess={(message) => {
-                            setSaveError(null);
-                            setSaveSuccess(message);
+                            editForm.setSaveError(null);
+                            editForm.setSaveSuccess(message);
                         }}
                         onError={(message) => {
-                            setSaveSuccess(null);
-                            setSaveError(message);
+                            editForm.setSaveSuccess(null);
+                            editForm.setSaveError(message);
                         }}
                     />
                 ) : undefined
@@ -493,90 +378,15 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
             validationSection={
                 <CoreEntityValidationPanel
                     fieldErrors={errors}
-                    geometryValidation={geometryValidation}
-                    apiGeometryValidation={apiGeometryValidation}
+                    geometryValidation={resolvedGeometryValidation}
+                    apiGeometryValidation={resolvedApiGeometryValidation}
                     formError={saveError}
                 />
             }
-            fieldsSection={
-                <>
-                    {showPointCoordinates ? (
-                        <CorePlaceCoordinatesField
-                            control={control}
-                            fieldKey={config.geometry?.fieldKey ?? "point_geom"}
-                        />
-                    ) : null}
-                    {visibleFields.map((field) => (
-                        <CoreEntityFieldRenderer
-                            key={field.key}
-                            field={field}
-                            mode={mode}
-                            control={control}
-                            errors={errors}
-                            disabled={formDisabled}
-                            refStates={refStates}
-                        />
-                    ))}
-                    {entityKey === "admin-areas" ? (
-                        <AdminAreaBoundaryFields
-                            mode={mode}
-                            adminLevelCode={adminLevelCode}
-                            control={control}
-                            errors={errors}
-                            disabled={formDisabled}
-                            resetKey={mode === "edit" ? id : "create"}
-                            boundaryStatus={String(boundaryStatus ?? "")}
-                            addressUsage={String(addressUsage ?? "")}
-                            setValue={setValue}
-                        />
-                    ) : null}
-                </>
-            }
-            metadataSection={
-                mode === "edit" ? (
-                    <>
-                        <CoreReadonlyMetadata detail={detail} fields={config.readonlyMetadata} />
-                        {placeDetail?.names?.length ? (
-                            <CoreEntityNamesMetadata names={placeDetail.names} />
-                        ) : null}
-                        {streetDetail?.names?.length ? (
-                            <CoreEntityNamesMetadata names={streetDetail.names} title="Street name records" />
-                        ) : null}
-                        {busStopNames?.length ? (
-                            <CoreEntityNamesMetadata names={busStopNames} title="Bus stop name records" />
-                        ) : null}
-                    </>
-                ) : null
-            }
-            extrasSection={
-                <>
-                    {mode === "edit" && entityKey === "buildings" && detail && "public_id" in detail ? (
-                        <BuildingLinkedPlacesPanel buildingPublicId={String(detail.public_id)} />
-                    ) : null}
-                    {mode === "edit" && entityKey === "streets" && streetDetail && id ? (
-                        <StreetEditExtras
-                            street={streetDetail}
-                            streetId={id}
-                            isSaving={isSaving}
-                            editReason={String(editReason ?? "")}
-                            onSplitMapPropsChange={handleStreetSplitMapPropsChange}
-                            onReload={reloadDetail}
-                        />
-                    ) : null}
-                </>
-            }
-            leftColumnBelowMapSection={
-                addressEntranceSection ? (
-                    addressEntranceSection
-                ) : mode === "edit" && entityKey === "places" && placeDetail ? (
-                    <PlaceLinkedBuildingsPanel
-                        placePublicId={placeDetail.public_id}
-                        placeLat={placeDetail.lat}
-                        placeLng={placeDetail.lng}
-                        hostMapRef={placeHostMapRef}
-                    />
-                ) : null
-            }
+            fieldsSection={<CoreEntityEditFieldsSection {...editSectionProps} />}
+            metadataSection={<CoreEntityEditMetadataSection {...editSectionProps} />}
+            extrasSection={<CoreEntityEditExtrasSection {...editSectionProps} />}
+            leftColumnBelowMapSection={<CoreEntityEditBelowMapSection {...editSectionProps} />}
             actions={
                 <CoreFormActions
                     cancelHref={config.listRoute}

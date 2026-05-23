@@ -1,7 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
-
 import { ConfidenceBadge, VerifiedBadge } from "@/src/components/review/ReviewStatusBadge";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 
@@ -13,6 +11,16 @@ import {
     AdminAreaBoundaryStatusBadge,
 } from "../admin-areas/adminAreaBoundaryBadges";
 import { StreetAttributesCell, StreetRoutingStatusBadge } from "../streets/streetRoutingBadges";
+import { applyStreetDetailToListRow } from "../streets/applyStreetDetailToListRow";
+import {
+    applyAddressDetailToListRow,
+    applyAdminAreaDetailToListRow,
+    applyBuildingDetailToListRow,
+    applyBusRouteVariantDetailToListRow,
+    applyLanduseDetailToListRow,
+    applyMapFeatureDetailToListRow,
+    applyPlaceDetailToListRow,
+} from "./applyInlineEditDetailToListRow";
 import { dash, formatArea, formatDate, yesNo } from "../utils/formatters";
 import {
     buildingDisplayName,
@@ -21,7 +29,7 @@ import {
 } from "../utils/rowGeometry";
 import { hl, standardNameAndVerifiedColumns } from "./tableColumns";
 import type { CoreReviewEntityConfig, CoreReviewFilterSupport } from "./entity-config-types";
-import CoreReviewAddressDetailDrawer from "../components/CoreReviewAddressDetailDrawer";
+import CoreReviewAddressDrawerView from "../components/CoreReviewAddressDrawerView";
 import type {
     CoreReviewAddressRow,
     CoreReviewAdminAreaRow,
@@ -153,7 +161,10 @@ function roadClassLabel(row: CoreReviewStreetRow): string {
 
 export const CORE_REVIEW_BUILDINGS_CONFIG: CoreReviewEntityConfig<CoreReviewBuildingRow> = {
     segment: "buildings",
+    entityKey: "buildings",
     apiSlug: "buildings",
+    supportsInlineEdit: true,
+    applyDetailToListRow: applyBuildingDetailToListRow,
     title: "Buildings",
     description:
         "Production building footprints in core — search, verify, and edit dashboard-sourced polygons.",
@@ -176,7 +187,6 @@ export const CORE_REVIEW_BUILDINGS_CONFIG: CoreReviewEntityConfig<CoreReviewBuil
     getGeometry: (r) => r.geometry,
     searchPlaceholder: "Search buildings…",
     newPath: coreReviewPath("buildings/new"),
-    editPath: (id) => coreReviewPath(`buildings/${id}/edit`),
     columns: [
         {
             id: "type",
@@ -215,7 +225,10 @@ export const CORE_REVIEW_BUILDINGS_CONFIG: CoreReviewEntityConfig<CoreReviewBuil
 
 export const CORE_REVIEW_PLACES_CONFIG: CoreReviewEntityConfig<CoreReviewPlaceRow> = {
     segment: "places",
+    entityKey: "places",
     apiSlug: "places",
+    supportsInlineEdit: true,
+    applyDetailToListRow: applyPlaceDetailToListRow,
     title: "Places",
     description: "Points of interest and place records linked to categories and admin areas.",
     overviewStatus: "ready",
@@ -237,7 +250,6 @@ export const CORE_REVIEW_PLACES_CONFIG: CoreReviewEntityConfig<CoreReviewPlaceRo
     getGeometry: (r) => r.geometry,
     searchPlaceholder: "Search places…",
     newPath: coreReviewPath("places/new"),
-    editPath: (id) => coreReviewPath(`places/${id}/edit`),
     columns: [
         ...standardNameAndVerifiedColumns<CoreReviewPlaceRow>({
             myanmar: (r) => r.myanmarName,
@@ -262,7 +274,10 @@ export const CORE_REVIEW_PLACES_CONFIG: CoreReviewEntityConfig<CoreReviewPlaceRo
 
 export const CORE_REVIEW_STREETS_CONFIG: CoreReviewEntityConfig<CoreReviewStreetRow> = {
     segment: "roads",
+    entityKey: "streets",
     apiSlug: "streets",
+    supportsInlineEdit: true,
+    applyDetailToListRow: applyStreetDetailToListRow,
     title: "Roads",
     description: "Street centerlines, road classes, and geometry for the core routing graph.",
     overviewStatus: "partial",
@@ -283,7 +298,6 @@ export const CORE_REVIEW_STREETS_CONFIG: CoreReviewEntityConfig<CoreReviewStreet
     getGeometry: (r) => r.geometry,
     searchPlaceholder: "Search roads…",
     newPath: coreReviewPath("roads/new"),
-    editPath: (id) => coreReviewPath(`roads/${id}/edit`),
     columns: [
         { id: "class", header: "Road class", cell: (r, q) => hl(roadClassLabel(r), q) },
         { id: "admin", header: "Admin area", cell: (r, q) => hl(dash(r.adminAreaName), q) },
@@ -334,7 +348,25 @@ function genericClassColumns<
 
 export const CORE_REVIEW_BUS_STOPS_CONFIG: CoreReviewEntityConfig<CoreReviewBusStopRow> = {
     segment: "bus-stops",
+    entityKey: "bus-stops",
     apiSlug: "bus-stops",
+    supportsInlineEdit: true,
+    applyDetailToListRow: (row, detail) => {
+        const d = detail as CoreReviewBusStopRow;
+        return {
+            ...row,
+            name: d.name ?? row.name,
+            nameLocal: d.nameLocal ?? row.nameLocal,
+            stopCode: d.stopCode ?? row.stopCode,
+            adminAreaId: d.adminAreaId ?? row.adminAreaId,
+            adminAreaName: d.adminAreaName ?? row.adminAreaName,
+            sourceTypeId: d.sourceTypeId ?? row.sourceTypeId,
+            isActive: d.isActive ?? row.isActive,
+            isVerified: d.isVerified ?? row.isVerified,
+            updatedAt: d.updatedAt ?? row.updatedAt,
+            geometry: d.geometry ?? row.geometry,
+        };
+    },
     title: "Bus stops",
     description: "Transit stop locations and metadata.",
     overviewStatus: "partial",
@@ -374,12 +406,28 @@ export const CORE_REVIEW_BUS_STOPS_CONFIG: CoreReviewEntityConfig<CoreReviewBusS
         { label: "Updated", value: formatDate(r.updatedAt) },
     ],
     newPath: coreReviewPath("bus-stops/new"),
-    editPath: (id) => coreReviewPath(`bus-stops/${id}/edit`),
 };
 
 export const CORE_REVIEW_BUS_ROUTES_CONFIG: CoreReviewEntityConfig<CoreReviewBusRouteRow> = {
     segment: "bus-routes",
+    entityKey: "bus-routes",
     apiSlug: "bus-routes",
+    supportsInlineEdit: true,
+    applyDetailToListRow: (row, detail) => {
+        const d = detail as CoreReviewBusRouteRow;
+        return {
+            ...row,
+            routeCode: d.routeCode ?? row.routeCode,
+            publicName: d.publicName ?? row.publicName,
+            operatorName: d.operatorName ?? row.operatorName,
+            routeType: d.routeType ?? row.routeType,
+            directionality: d.directionality ?? row.directionality,
+            sourceTypeId: d.sourceTypeId ?? row.sourceTypeId,
+            isActive: d.isActive ?? row.isActive,
+            isVerified: d.isVerified ?? row.isVerified,
+            updatedAt: d.updatedAt ?? row.updatedAt,
+        };
+    },
     title: "Bus routes",
     description: "Route definitions and service patterns.",
     overviewStatus: "partial",
@@ -419,13 +467,15 @@ export const CORE_REVIEW_BUS_ROUTES_CONFIG: CoreReviewEntityConfig<CoreReviewBus
         { label: "Updated", value: formatDate(r.updatedAt) },
     ],
     newPath: coreReviewPath("bus-routes/new"),
-    editPath: (id) => coreReviewPath(`bus-routes/${id}/edit`),
 };
 
 export const CORE_REVIEW_BUS_ROUTE_VARIANTS_CONFIG: CoreReviewEntityConfig<CoreReviewBusRouteVariantRow> =
     {
         segment: "bus-route-variants",
+        entityKey: "bus-route-variants",
         apiSlug: "bus-route-variants",
+        supportsInlineEdit: true,
+        applyDetailToListRow: applyBusRouteVariantDetailToListRow,
         title: "Bus route variants",
         description: "Directional or scheduled variants of bus routes.",
         overviewStatus: "partial",
@@ -463,7 +513,6 @@ export const CORE_REVIEW_BUS_ROUTE_VARIANTS_CONFIG: CoreReviewEntityConfig<CoreR
             { label: "Active", value: yesNo(r.isActive) },
         ],
         newPath: coreReviewPath("bus-route-variants/new"),
-        editPath: (id) => coreReviewPath(`bus-route-variants/${id}/edit`),
     };
 
 function landuseClassLabel(row: CoreReviewLanduseRow): string {
@@ -481,7 +530,10 @@ function landuseDisplayName(row: CoreReviewLanduseRow): string {
 
 export const CORE_REVIEW_LANDUSE_CONFIG: CoreReviewEntityConfig<CoreReviewLanduseRow> = {
     segment: "landuse",
+    entityKey: "landuse",
     apiSlug: "landuse",
+    supportsInlineEdit: true,
+    applyDetailToListRow: applyLanduseDetailToListRow,
     title: "Landuse",
     description:
         "Production landuse polygons — urban zones and village farmland/paddy parcels for map context.",
@@ -545,7 +597,6 @@ export const CORE_REVIEW_LANDUSE_CONFIG: CoreReviewEntityConfig<CoreReviewLandus
         { label: "Updated", value: formatDate(r.updatedAt) },
     ],
     newPath: coreReviewPath("landuse/new"),
-    editPath: (id) => coreReviewPath(`landuse/${id}/edit`),
 };
 
 const FILTER_MAP_FEATURE: CoreReviewFilterSupport = {
@@ -572,7 +623,10 @@ function mapFeatureDetailFields(r: CoreReviewMapFeatureRow) {
 
 export const CORE_REVIEW_WATER_LINES_CONFIG: CoreReviewEntityConfig<CoreReviewMapFeatureRow> = {
     segment: "water-lines",
+    entityKey: "water-lines",
     apiSlug: "water-lines",
+    supportsInlineEdit: true,
+    applyDetailToListRow: applyMapFeatureDetailToListRow,
     title: "Water lines",
     description: "Linear water features.",
     overviewStatus: "partial",
@@ -593,12 +647,14 @@ export const CORE_REVIEW_WATER_LINES_CONFIG: CoreReviewEntityConfig<CoreReviewMa
     columns: genericClassColumns<CoreReviewMapFeatureRow>(),
     detailFields: mapFeatureDetailFields,
     newPath: coreReviewPath("water-lines/new"),
-    editPath: (id) => coreReviewPath(`water-lines/${id}/edit`),
 };
 
 export const CORE_REVIEW_WATER_POLYGONS_CONFIG: CoreReviewEntityConfig<CoreReviewMapFeatureRow> = {
     segment: "water-polygons",
+    entityKey: "water-polygons",
     apiSlug: "water-polygons",
+    supportsInlineEdit: true,
+    applyDetailToListRow: applyMapFeatureDetailToListRow,
     title: "Water polygons",
     description: "Water body polygons.",
     overviewStatus: "partial",
@@ -619,12 +675,14 @@ export const CORE_REVIEW_WATER_POLYGONS_CONFIG: CoreReviewEntityConfig<CoreRevie
     columns: genericClassColumns<CoreReviewMapFeatureRow>(),
     detailFields: mapFeatureDetailFields,
     newPath: coreReviewPath("water-polygons/new"),
-    editPath: (id) => coreReviewPath(`water-polygons/${id}/edit`),
 };
 
 export const CORE_REVIEW_ADDRESSES_CONFIG: CoreReviewEntityConfig<CoreReviewAddressRow> = {
     segment: "addresses",
+    entityKey: "addresses",
     apiSlug: "addresses",
+    supportsInlineEdit: true,
+    applyDetailToListRow: applyAddressDetailToListRow,
     title: "Addresses",
     description: "Structured addresses and components.",
     overviewStatus: "ready",
@@ -663,20 +721,16 @@ export const CORE_REVIEW_ADDRESSES_CONFIG: CoreReviewEntityConfig<CoreReviewAddr
         { label: "Updated", value: formatDate(r.updatedAt) },
     ],
     newPath: coreReviewPath("addresses/new"),
-    editPath: (id) => coreReviewPath(`addresses/${id}/edit`),
     extensions: {
-        renderDetailDrawer: (ctx) => (
-            <CoreReviewAddressDetailDrawer
-                open={ctx.open}
-                rowId={ctx.rowId}
-                title={ctx.title}
-                subtitle={ctx.subtitle}
-                geometryKind={ctx.geometryKind === "none" ? "point" : ctx.geometryKind}
-                mapEntityType={ctx.mapEntityType}
-                listGeometry={ctx.listGeometry}
-                editPath={ctx.editPath}
-                drawerActions={ctx.drawerActions}
-                onClose={ctx.onClose}
+        renderDrawerView: ({ row, rowId, successMessage }) => (
+            <CoreReviewAddressDrawerView
+                rowId={rowId}
+                listRow={row}
+                listGeometry={row.geometry}
+                listRowUpdatedAt={row.updatedAt}
+                geometryKind="point"
+                mapEntityType="place"
+                successMessage={successMessage}
             />
         ),
     },
@@ -684,7 +738,10 @@ export const CORE_REVIEW_ADDRESSES_CONFIG: CoreReviewEntityConfig<CoreReviewAddr
 
 export const CORE_REVIEW_ADMIN_AREAS_CONFIG: CoreReviewEntityConfig<CoreReviewAdminAreaRow> = {
     segment: "admin-areas",
+    entityKey: "admin-areas",
     apiSlug: "admin-areas",
+    supportsInlineEdit: true,
+    applyDetailToListRow: applyAdminAreaDetailToListRow,
     title: "Admin areas",
     description: "Administrative boundary hierarchy.",
     overviewStatus: "partial",
@@ -743,7 +800,6 @@ export const CORE_REVIEW_ADMIN_AREAS_CONFIG: CoreReviewEntityConfig<CoreReviewAd
         ),
     },
     newPath: coreReviewPath("admin-areas/new"),
-    editPath: (id) => coreReviewPath(`admin-areas/${id}/edit`),
 };
 
 export const CORE_REVIEW_ENTITY_CONFIG_BY_SEGMENT = {

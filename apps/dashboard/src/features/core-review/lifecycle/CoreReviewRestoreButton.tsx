@@ -18,6 +18,7 @@ export default function CoreReviewRestoreButton({
     compact,
     onSuccess,
     onError,
+    beforeOpen,
 }: {
     apiSlug: CoreReviewEntitySlug;
     recordId: string;
@@ -25,6 +26,7 @@ export default function CoreReviewRestoreButton({
     compact?: boolean;
     onSuccess?: (message: string) => void;
     onError?: (message: string) => void;
+    beforeOpen?: (proceed: () => void) => void;
 }) {
     const [open, setOpen] = useState(false);
     const { isBusy, runRestore } = useCoreReviewLifecycleMutation(apiSlug);
@@ -47,7 +49,12 @@ export default function CoreReviewRestoreButton({
                 disabled={disabled || isBusy}
                 onClick={(e) => {
                     e.stopPropagation();
-                    setOpen(true);
+                    const openDialog = () => setOpen(true);
+                    if (beforeOpen) {
+                        beforeOpen(openDialog);
+                    } else {
+                        openDialog();
+                    }
                 }}
                 className={compact ? `${BUTTON_CLASS} px-2 py-1 text-xs` : BUTTON_CLASS}
             >

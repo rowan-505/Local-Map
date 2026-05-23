@@ -8,6 +8,7 @@ import {
     unlinkBuildingFromPlace,
     type LinkedPlaceSummaryApi,
 } from "@/src/lib/api";
+import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 
 type BuildingLinkedPlacesPanelProps = {
     buildingPublicId: string;
@@ -133,7 +134,7 @@ export default function BuildingLinkedPlacesPanel({ buildingPublicId }: Building
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <Link
-                                                    href={`/places?editPlace=${encodeURIComponent(pid)}`}
+                                                    href={`${coreReviewPath("places")}?editPlace=${encodeURIComponent(pid)}`}
                                                     className="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50"
                                                 >
                                                     Edit POI

@@ -1,8 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
+
+function readPlaceCreateSuccessMessage(): string {
+    if (typeof window === "undefined") {
+        return "";
+    }
+    const message = window.sessionStorage.getItem("placeCreateSuccess");
+    if (message) {
+        window.sessionStorage.removeItem("placeCreateSuccess");
+        return message;
+    }
+    return "";
+}
 
 import { CoreReviewLoadingCard, CoreReviewSuccessBanner } from "@/src/components/core-review/CoreReviewStateCard";
 import CoreReviewPageShell from "@/src/components/core-review/CoreReviewPageShell";
@@ -14,25 +26,27 @@ import { CORE_REVIEW_PLACES_CONFIG } from "../config/entity-configs";
 
 function CoreReviewPlacesPageInner() {
     const searchParams = useSearchParams();
+    const pathname = usePathname();
+    const router = useRouter();
     const { bumpPlaceTileVersion } = useDashboardTileVersions();
-    const [successMessage, setSuccessMessage] = useState("");
-    const editPlaceOpenId = searchParams.get("editPlace");
+    const [successMessage] = useState(readPlaceCreateSuccessMessage);
+    const [deepLinkEditPlaceId] = useState(() => searchParams.get("editPlace"));
 
     useEffect(() => {
-        const message =
-            typeof window !== "undefined" ? window.sessionStorage.getItem("placeCreateSuccess") : null;
-        if (message) {
-            setSuccessMessage(message);
-            sessionStorage.removeItem("placeCreateSuccess");
+        if (successMessage) {
             bumpPlaceTileVersion();
         }
-    }, [bumpPlaceTileVersion]);
+    }, [successMessage, bumpPlaceTileVersion]);
 
     useEffect(() => {
-        if (editPlaceOpenId && typeof window !== "undefined") {
-            window.location.replace(coreReviewPath(`places/${editPlaceOpenId}/edit`));
+        if (!deepLinkEditPlaceId) {
+            return;
         }
-    }, [editPlaceOpenId]);
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete("editPlace");
+        const qs = params.toString();
+        router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }, [deepLinkEditPlaceId, pathname, router, searchParams]);
 
     const config = {
         ...CORE_REVIEW_PLACES_CONFIG,
@@ -54,7 +68,13 @@ function CoreReviewPlacesPageInner() {
         },
     };
 
-    return <CoreReviewEntityPage config={config} />;
+    return (
+        <CoreReviewEntityPage
+            config={config}
+            initialSelectedRowId={deepLinkEditPlaceId}
+            initialDrawerMode={deepLinkEditPlaceId ? "edit" : "view"}
+        />
+    );
 }
 
 export default function CoreReviewPlacesPage() {

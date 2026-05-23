@@ -13,6 +13,7 @@ export default function CoreReviewLifecycleDrawerActions({
     onSuccess,
     onError,
     onAfterLifecycle,
+    beforeAction,
 }: {
     apiSlug: CoreReviewEntitySlug;
     row: Record<string, unknown>;
@@ -20,6 +21,7 @@ export default function CoreReviewLifecycleDrawerActions({
     onSuccess?: (message: string) => void;
     onError?: (message: string) => void;
     onAfterLifecycle?: () => void;
+    beforeAction?: (proceed: () => void) => void;
 }) {
     const deleted = isCoreReviewRowDeleted(row);
 
@@ -33,6 +35,7 @@ export default function CoreReviewLifecycleDrawerActions({
             <CoreReviewRestoreButton
                 apiSlug={apiSlug}
                 recordId={recordId}
+                beforeOpen={beforeAction}
                 onSuccess={handleSuccess}
                 onError={onError}
             />
@@ -43,6 +46,7 @@ export default function CoreReviewLifecycleDrawerActions({
         <CoreReviewSoftDeleteButton
             apiSlug={apiSlug}
             recordId={recordId}
+            beforeOpen={beforeAction}
             onSuccess={handleSuccess}
             onError={onError}
         />

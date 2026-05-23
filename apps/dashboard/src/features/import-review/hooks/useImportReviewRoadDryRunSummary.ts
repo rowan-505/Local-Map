@@ -18,17 +18,30 @@ export function useImportReviewRoadDryRunSummary(
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        if (!enabled || !apiScopeQuery) {
+    const shouldFetch = enabled && apiScopeQuery !== null;
+    const scopeKey =
+        shouldFetch && apiScopeQuery ? JSON.stringify(apiScopeQuery) : "";
+    const [trackedScopeKey, setTrackedScopeKey] = useState(scopeKey);
+
+    if (scopeKey !== trackedScopeKey) {
+        setTrackedScopeKey(scopeKey);
+        if (!scopeKey) {
             setSummary(null);
-            setError(null);
             setIsLoading(false);
+            setError(null);
+        } else {
+            setSummary(null);
+            setIsLoading(true);
+            setError(null);
+        }
+    }
+
+    useEffect(() => {
+        if (!shouldFetch || !apiScopeQuery) {
             return;
         }
         const controller = new AbortController();
         const startedAt = performance.now();
-        setIsLoading(true);
-        setError(null);
         logImportReviewClientFetch({
             phase: "roads-dry-run-summary",
             family: "roads",
@@ -72,7 +85,11 @@ export function useImportReviewRoadDryRunSummary(
                 }
             });
         return () => controller.abort();
-    }, [enabled, apiScopeQuery]);
+    }, [shouldFetch, apiScopeQuery, trackedScopeKey]);
 
-    return { summary, isLoading, error };
+    return {
+        summary: shouldFetch ? summary : null,
+        isLoading: shouldFetch ? isLoading : false,
+        error: shouldFetch ? error : null,
+    };
 }

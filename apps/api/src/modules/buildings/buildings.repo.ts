@@ -18,6 +18,15 @@ const AREA_MAX_EXCLUSIVE = 200_000;
 
 /** Matches dashboard-created buildings (`source_refs @> {"source":"dashboard"}`). */
 const dashboardBuildingClause = Prisma.sql`b.source_refs @> '{"source":"dashboard"}'::jsonb`;
+const activeBuildingWriteClause = Prisma.sql`b.deleted_at IS NULL AND b.is_active IS TRUE`;
+
+type BuildingWriteScope = "dashboard" | "active";
+
+function buildingWriteScopeClause(scope: BuildingWriteScope) {
+    return scope === "dashboard"
+        ? Prisma.sql`${dashboardBuildingClause} AND ${activeBuildingWriteClause}`
+        : activeBuildingWriteClause;
+}
 
 export type BuildingGeometryAnalysisRow = {
     allowed_type: boolean;
@@ -237,13 +246,25 @@ export class BuildingsRepository {
         await syncBuildingPrimaryNames(db, BigInt(internalId), slots);
     }
 
+    private async refetchBuildingAfterWrite(
+        publicId: string,
+        snapshot: BuildingPersistSnapshot,
+        scope: BuildingWriteScope = "dashboard",
+        db: DbClient = this.prisma
+    ): Promise<BuildingDetailRow | null> {
+        await this.syncDashboardBuildingNamesIfNeeded(publicId, snapshot, db);
+        if (scope === "active") {
+            return this.getActiveBuildingByPublicId(publicId, db);
+        }
+        return this.getDashboardBuildingByPublicId(publicId, db);
+    }
+
     private async refetchDashboardBuildingAfterWrite(
         publicId: string,
         snapshot: BuildingPersistSnapshot,
         db: DbClient = this.prisma
     ): Promise<BuildingDetailRow | null> {
-        await this.syncDashboardBuildingNamesIfNeeded(publicId, snapshot, db);
-        return this.getDashboardBuildingByPublicId(publicId, db);
+        return this.refetchBuildingAfterWrite(publicId, snapshot, "dashboard", db);
     }
 
     async analyzeBuildingGeometry(
@@ -627,7 +648,8 @@ export class BuildingsRepository {
     async updateDashboardBuildingGeometry(
         publicId: string,
         geojsonText: string,
-        snapshot: BuildingPersistSnapshot
+        snapshot: BuildingPersistSnapshot,
+        scope: BuildingWriteScope = "dashboard"
     ): Promise<BuildingDetailRow | null> {
         const normalizedJson = JSON.stringify(snapshot.normalized_data);
 
@@ -692,9 +714,7 @@ export class BuildingsRepository {
                     updated_at = NOW()
                 FROM ready, lbl
                 WHERE b.public_id = CAST(${publicId} AS uuid)
-                  AND ${dashboardBuildingClause}
-                  AND b.deleted_at IS NULL
-                  AND b.is_active IS TRUE
+                  AND ${buildingWriteScopeClause(scope)}
                 RETURNING
                     b.id::text AS id,
                     b.public_id::text AS public_id
@@ -712,16 +732,17 @@ export class BuildingsRepository {
             await this.tryInferDashboardBuildingAdminAreaFromGeometry(BigInt(updated.id));
         }
 
-        return this.refetchDashboardBuildingAfterWrite(publicId, snapshot);
+        return this.refetchBuildingAfterWrite(publicId, snapshot, scope);
     }
 
     async updateDashboardBuildingScalars(
         publicId: string,
-        snapshot: BuildingPersistSnapshot
+        snapshot: BuildingPersistSnapshot,
+        scope: BuildingWriteScope = "dashboard"
     ): Promise<BuildingDetailRow | null> {
         const normalizedJson = JSON.stringify(snapshot.normalized_data);
 
-        const rows = await this.prisma.$queryRaw<BuildingDetailRow[]>(Prisma.sql`
+        const updatedCount = await this.prisma.$executeRaw(Prisma.sql`
             UPDATE core.core_map_buildings AS b
             SET
                 name = ${snapshot.name},
@@ -736,51 +757,14 @@ export class BuildingsRepository {
                 area_m2 = ST_Area(b.geom::geography)::double precision,
                 updated_at = NOW()
             WHERE b.public_id = CAST(${publicId} AS uuid)
-              AND ${dashboardBuildingClause}
-              AND b.deleted_at IS NULL
-              AND b.is_active IS TRUE
-            RETURNING
-                b.id::text AS id,
-                b.public_id::text AS public_id,
-                b.source_staging_id::text AS source_staging_id,
-                b.external_id,
-                ${buildingNameLabelSelectSql},
-                ${buildingClassCodeSelectSql},
-                b.building_type_id::text AS building_type_id,
-                (SELECT bt.id::text FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_id,
-                (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_code,
-                (SELECT bt.name FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_name,
-                (SELECT bt.name_mm FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_name_mm,
-                (SELECT bt.parent_id::text FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS ref_bt_parent_id,
-                (SELECT bt.code FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_code,
-                (SELECT bt.name FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_name,
-                (SELECT bt.name_mm FROM ref.ref_building_types AS bt WHERE bt.id = b.building_type_id LIMIT 1) AS building_type_name_mm,
-                b.admin_area_id::text AS admin_area_id,
-                (SELECT aa.id::text FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
-                    AS admin_area_row_id,
-                (SELECT aa.canonical_name FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
-                    AS admin_area_canonical_name,
-                (SELECT aa.slug FROM core.core_admin_areas AS aa WHERE aa.id = b.admin_area_id LIMIT 1)
-                    AS admin_area_slug,
-                b.normalized_data,
-                b.source_refs,
-                b.levels,
-                b.height_m::double precision AS height_m,
-                b.area_m2::double precision AS area_m2,
-                b.confidence_score::double precision AS confidence_score,
-                b.is_verified,
-                b.is_active,
-                b.created_at,
-                b.updated_at,
-                b.deleted_at,
-                ST_AsGeoJSON(b.geom)::json AS geometry
+              AND ${buildingWriteScopeClause(scope)}
         `);
 
-        if (!rows[0]) {
+        if (Number(updatedCount) === 0) {
             return null;
         }
 
-        return this.refetchDashboardBuildingAfterWrite(publicId, snapshot);
+        return this.refetchBuildingAfterWrite(publicId, snapshot, scope);
     }
 
     /**
