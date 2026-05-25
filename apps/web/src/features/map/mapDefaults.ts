@@ -48,6 +48,11 @@ export const MAP_TOWNSHIP_FIT_OPTIONS = {
   essential: true,
 } as const;
 
+export const MAP_KYAUKTAN_STARTUP_BOUNDS: [[number, number], [number, number]] = [
+  [96.2674254, 16.6121997],
+  [96.4651032, 16.685961],
+];
+
 export const MAP_DEFAULT_CENTER = REGION_SCOPE.operationalArea.centerLngLat;
 export const MAP_DEFAULT_ZOOM = 14;
 

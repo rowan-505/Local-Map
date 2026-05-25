@@ -3,6 +3,7 @@
  */
 import type { Poi } from '@/types';
 import type { SearchCameraTarget } from '@/features/poi/api/publicMapApi';
+import type { MapCameraLayout } from './lib/mapCameraPadding';
 
 export type MapClickedLocation = {
   readonly label: string;
@@ -19,6 +20,7 @@ export type MapViewProps = {
   readonly selectedPoiId: string | null;
   readonly selectedPoi?: Poi;
   readonly cameraTarget?: SearchCameraTarget;
+  readonly cameraLayout: MapCameraLayout;
   readonly clickedLocation?: MapClickedLocation | null;
   /** Called when a POI marker is clicked, or when the map is clicked away from markers. */
   readonly onSelectPoiId: (id: string | null) => void;

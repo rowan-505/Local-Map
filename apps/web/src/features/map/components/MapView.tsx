@@ -12,6 +12,11 @@ import type { FeatureCollection } from 'geojson';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import { usePublicMapGeoLabelQueries } from '@/features/poi/api/usePublicMapData';
 import type { MapViewProps } from '../types';
+import { MAP_KYAUKTAN_STARTUP_BOUNDS } from '../mapDefaults';
+import {
+  DEFAULT_MAP_CAMERA_LAYOUT,
+  visibleMapCameraPadding,
+} from '../lib/mapCameraPadding';
 import { poisToFeatureCollection } from '../lib/poisToGeoJSON';
 import {
   applyMapOverlayStackOrder,
@@ -49,6 +54,7 @@ function MapViewInner({
   selectedPoiId,
   selectedPoi,
   cameraTarget,
+  cameraLayout,
   clickedLocation,
   onSelectPoiId,
   onEmptyMapClick,
@@ -62,10 +68,14 @@ function MapViewInner({
   const languageMode = useMapUiStore((s) => s.languageMode);
   const utilityCommand = useMapUiStore((s) => s.utilityCommand);
   const languageModeRef = useRef(languageMode);
+  const cameraLayoutRef = useRef(cameraLayout ?? DEFAULT_MAP_CAMERA_LAYOUT);
 
   useEffect(() => {
     languageModeRef.current = languageMode;
   }, [languageMode]);
+  useEffect(() => {
+    cameraLayoutRef.current = cameraLayout;
+  }, [cameraLayout]);
 
   const geoLayerResults = usePublicMapGeoLabelQueries();
   const [streetsGeo, adminGeo, busStopsGeo, busRoutesGeo] = geoLayerResults;
@@ -120,6 +130,7 @@ function MapViewInner({
           ensureClickedLocationLayer(map, clickedLocationRef.current);
           applyMapOverlayStackOrder(map);
           applyAllLocalizedMapLabels(map, languageModeRef.current);
+          fitKyauktanStartup(map, containerRef.current, cameraLayoutRef.current);
           setMapReady(true);
           emitViewportChange(map, onViewportChangeRef.current);
         };
@@ -226,6 +237,7 @@ function MapViewInner({
     map.flyTo({
       center: [selectedPoi.longitude, selectedPoi.latitude],
       zoom: 16,
+      padding: visibleMapCameraPadding(cameraLayoutRef.current, containerRef.current),
       essential: true,
     });
   }, [cameraTarget, mapReady, selectedPoi]);
@@ -240,6 +252,7 @@ function MapViewInner({
         center: [cameraTarget.center[0], cameraTarget.center[1]],
         zoom: cameraTarget.zoom ?? 16,
         duration: 900,
+        padding: visibleMapCameraPadding(cameraLayoutRef.current, containerRef.current),
         essential: true,
       });
       return;
@@ -253,7 +266,7 @@ function MapViewInner({
           [maxLng, maxLat],
         ],
         {
-          padding: cameraTarget.padding ?? 80,
+          padding: visibleMapCameraPadding(cameraLayoutRef.current, containerRef.current),
           maxZoom: 17,
           duration: 900,
           essential: true,
@@ -283,10 +296,24 @@ function MapViewInner({
         center: KYAUKTAN_CENTER,
         zoom: KYAUKTAN_CENTER_ZOOM,
         duration: 900,
+        padding: visibleMapCameraPadding(cameraLayoutRef.current, containerRef.current),
         essential: true,
       });
     }
   }, [mapReady, utilityCommand]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    map.easeTo({
+      center: map.getCenter(),
+      padding: visibleMapCameraPadding(cameraLayout, containerRef.current),
+      duration: 280,
+      essential: true,
+    });
+  }, [cameraLayout, mapReady]);
 
   /** Clicks / hover — stable subscription (handler reads latest callback via ref). */
   useEffect(() => {
@@ -343,6 +370,18 @@ function MapViewInner({
 export const MapView = memo(MapViewInner);
 
 export default MapView;
+
+function fitKyauktanStartup(
+  map: MapEngine,
+  container: HTMLElement | null,
+  cameraLayout: MapViewProps['cameraLayout'],
+): void {
+  map.fitBounds(MAP_KYAUKTAN_STARTUP_BOUNDS, {
+    padding: visibleMapCameraPadding(cameraLayout, container),
+    duration: 0,
+    essential: true,
+  });
+}
 
 function emitViewportChange(
   map: MapEngine,

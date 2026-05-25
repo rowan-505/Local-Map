@@ -115,6 +115,10 @@ export default function HomePage() {
     () => combinePlacesForMap(places, selectedPoi),
     [places, selectedPoi],
   );
+  const mapCameraLayout = useMemo(
+    () => ({ isSidebarOpen, bottomSheetState }),
+    [bottomSheetState, isSidebarOpen],
+  );
 
   const onSelectPoiId = useCallback((id: string | null) => {
     setSelectedPoiId(id);
@@ -236,6 +240,7 @@ export default function HomePage() {
             selectedPoiId={selectedPoiIdForMap}
             selectedPoi={selectedPoi}
             cameraTarget={cameraTarget}
+            cameraLayout={mapCameraLayout}
             clickedLocation={clickedLocation}
             onSelectPoiId={onSelectPoiId}
             onEmptyMapClick={onEmptyMapClick}

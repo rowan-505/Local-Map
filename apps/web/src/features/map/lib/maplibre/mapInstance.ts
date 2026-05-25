@@ -20,10 +20,6 @@ import { logGlyphServingHealthInDev } from './glyphDevCheck';
 import { syncCountryMinZoom } from './mapCountryMinZoom';
 
 type BoundsLike = maplibregl.LngLatBoundsLike;
-const KYAUKTAN_INITIAL_BOUNDS = [
-  [96.2674254, 16.6121997],
-  [96.4651032, 16.685961],
-] as const satisfies BoundsLike;
 
 /** Vite dev, non-production client build, or localhost (e.g. `vite preview`). */
 function isMapDebugExposeEnabled(): boolean {
@@ -49,8 +45,8 @@ export async function createMaplibreMap(container: HTMLDivElement): Promise<MapE
   logGlyphServingHealthInDev();
 
   /**
-   * Initial camera = Kyauktan bounds, applied on first load with an instant `fitBounds`.
-   * `minZoom` is finalized in `syncCountryMinZoom` after load.
+   * React `MapView` applies the initial Kyauktan camera after style load because
+   * it knows the current sidebar/bottom-sheet layout and can pad the visible area.
    *
    * `maxBounds` is the wide regional box — pan limits only, not the country framing.
    */
@@ -67,11 +63,6 @@ export async function createMaplibreMap(container: HTMLDivElement): Promise<MapE
 
 
   map.once('load', () => {
-    map.fitBounds(KYAUKTAN_INITIAL_BOUNDS, {
-      padding: 40,
-      duration: 0,
-      essential: true,
-    });
     applyMvpBasemapStyle(map);
     map.on('resize', () => syncCountryMinZoom(map, { skipResize: true }));
 
