@@ -14,11 +14,12 @@ import { usePublicMapGeoLabelQueries } from '@/features/poi/api/usePublicMapData
 import type { MapViewProps } from '../types';
 import { poisToFeatureCollection } from '../lib/poisToGeoJSON';
 import {
-  addNavigationControl,
   applyMapOverlayStackOrder,
   bindPoiLayerInteractions,
   createMapEngine,
+  ensureClickedLocationLayer,
   ensurePlacesLayer,
+  setClickedLocation,
   setPlacesGeoJSON,
   setSelectedPoiHighlight,
   syncCountryMinZoom,
@@ -35,6 +36,9 @@ import {
   STREET_LABEL_SOURCE_ID,
 } from '../lib/maplibre/publicMapGeoLayers';
 
+const KYAUKTAN_CENTER: [number, number] = [96.3168, 16.6590];
+const KYAUKTAN_CENTER_ZOOM = 14.5;
+
 function featureCollectionOrEmpty(data: FeatureCollection | undefined): FeatureCollection {
   if (data && data.type === 'FeatureCollection') return data;
   return { ...PUBLIC_MAP_EMPTY_FC };
@@ -45,7 +49,10 @@ function MapViewInner({
   selectedPoiId,
   selectedPoi,
   cameraTarget,
+  clickedLocation,
   onSelectPoiId,
+  onEmptyMapClick,
+  onViewportChange,
   className,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -53,6 +60,7 @@ function MapViewInner({
   const [mapReady, setMapReady] = useState(false);
 
   const languageMode = useMapUiStore((s) => s.languageMode);
+  const utilityCommand = useMapUiStore((s) => s.utilityCommand);
   const languageModeRef = useRef(languageMode);
 
   useEffect(() => {
@@ -67,16 +75,28 @@ function MapViewInner({
   /** Latest POI snapshot for the async `load` event (avoids stale mount closure). */
   const geojsonRef = useRef(geojson);
   const selectedRef = useRef(selectedPoiId);
+  const clickedLocationRef = useRef(clickedLocation ?? null);
 
   useEffect(() => {
     geojsonRef.current = geojson;
     selectedRef.current = selectedPoiId;
   }, [geojson, selectedPoiId]);
+  useEffect(() => {
+    clickedLocationRef.current = clickedLocation ?? null;
+  }, [clickedLocation]);
 
   const onSelectRef = useRef(onSelectPoiId);
+  const onEmptyMapClickRef = useRef(onEmptyMapClick);
+  const onViewportChangeRef = useRef(onViewportChange);
   useEffect(() => {
     onSelectRef.current = onSelectPoiId;
   }, [onSelectPoiId]);
+  useEffect(() => {
+    onEmptyMapClickRef.current = onEmptyMapClick;
+  }, [onEmptyMapClick]);
+  useEffect(() => {
+    onViewportChangeRef.current = onViewportChange;
+  }, [onViewportChange]);
 
   /** One-time map engine; teardown on unmount (StrictMode-safe). */
   useEffect(() => {
@@ -93,14 +113,15 @@ function MapViewInner({
           return;
         }
         mapRef.current = map;
-        addNavigationControl(map);
 
         const onLoad = () => {
           ensurePublicMapGeoJsonLabelLayers(map);
           ensurePlacesLayer(map, geojsonRef.current, selectedRef.current, languageModeRef.current);
+          ensureClickedLocationLayer(map, clickedLocationRef.current);
           applyMapOverlayStackOrder(map);
           applyAllLocalizedMapLabels(map, languageModeRef.current);
           setMapReady(true);
+          emitViewportChange(map, onViewportChangeRef.current);
         };
         map.once('load', onLoad);
       } catch (e) {
@@ -188,6 +209,15 @@ function MapViewInner({
   }, [mapReady, selectedPoiId]);
 
   useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+    ensureClickedLocationLayer(map, clickedLocation ?? null);
+    setClickedLocation(map, clickedLocation ?? null);
+    applyMapOverlayStackOrder(map);
+  }, [clickedLocation, mapReady]);
+
+  useEffect(() => {
     if (cameraTarget) return;
     if (!mapReady || !selectedPoi) return;
     const map = mapRef.current;
@@ -232,14 +262,62 @@ function MapViewInner({
     }
   }, [cameraTarget, mapReady]);
 
+  useEffect(() => {
+    if (!mapReady || !utilityCommand) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (utilityCommand.action === 'zoomIn') {
+      map.zoomIn({ duration: 220 });
+      return;
+    }
+
+    if (utilityCommand.action === 'zoomOut') {
+      map.zoomOut({ duration: 220 });
+      return;
+    }
+
+    // TODO: Later replace this with browser geolocation using navigator.geolocation.
+    if (utilityCommand.action === 'centerKyauktan') {
+      map.flyTo({
+        center: KYAUKTAN_CENTER,
+        zoom: KYAUKTAN_CENTER_ZOOM,
+        duration: 900,
+        essential: true,
+      });
+    }
+  }, [mapReady, utilityCommand]);
+
   /** Clicks / hover — stable subscription (handler reads latest callback via ref). */
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current;
     if (!map) return;
-    return bindPoiLayerInteractions(map, (id) => {
-      onSelectRef.current(id);
-    });
+    return bindPoiLayerInteractions(
+      map,
+      (id) => {
+        onSelectRef.current(id);
+      },
+      (location) => {
+        onEmptyMapClickRef.current?.(location);
+      },
+    );
+  }, [mapReady]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    const onViewportSettled = () => emitViewportChange(map, onViewportChangeRef.current);
+    onViewportSettled();
+    map.on('moveend', onViewportSettled);
+    map.on('zoomend', onViewportSettled);
+
+    return () => {
+      map.off('moveend', onViewportSettled);
+      map.off('zoomend', onViewportSettled);
+    };
   }, [mapReady]);
 
   /**
@@ -265,3 +343,21 @@ function MapViewInner({
 export const MapView = memo(MapViewInner);
 
 export default MapView;
+
+function emitViewportChange(
+  map: MapEngine,
+  onViewportChange: MapViewProps['onViewportChange'],
+): void {
+  if (!onViewportChange) return;
+
+  const bounds = map.getBounds();
+  const west = bounds.getWest();
+  const south = bounds.getSouth();
+  const east = bounds.getEast();
+  const north = bounds.getNorth();
+
+  onViewportChange({
+    bbox: [west, south, east, north],
+    zoom: map.getZoom(),
+  });
+}

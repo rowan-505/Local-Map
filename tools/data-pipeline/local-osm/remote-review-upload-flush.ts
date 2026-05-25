@@ -1,8 +1,9 @@
 /**
  * Stage K flush handlers — upsert import_review.*_candidates from local package items.
  *
- * Idempotency: import_review unique keys are (source_snapshot_version, entity_family, local_staging_id).
- * INSERT skips when that snapshot identity exists; UPDATE refreshes pending rows and moves review_batch_id.
+ * Idempotency: candidate uploads prefer (review_batch_id, entity_family, external_id)
+ * and fall back to (source_snapshot_version, entity_family, local_staging_id).
+ * INSERT skips existing rows; UPDATE refreshes pending rows and moves review_batch_id.
  * Preserved rows: UPDATE runs only when review_decision IS NULL AND review_status IN ('pending','needs_review');
  * reviewed fields (review_note, reviewed_by, reviewed_at, review_overrides) are never overwritten.
  */
@@ -146,16 +147,32 @@ export const PRESERVED_REMOTE_WHERE_SQL =
 function insertSkipExistingBySnapshotSql(table: string, family: EntityFamilySlug): string {
   return `WHERE NOT EXISTS (
       SELECT 1 FROM ${table} e
-       WHERE e.source_snapshot_version = gp.source_snapshot_version
-         AND e.entity_family = '${family}'
-         AND e.local_staging_id = gp.local_staging_id
+       WHERE (
+           e.review_batch_id = $1::bigint
+           AND e.entity_family = '${family}'
+           AND gp.external_id IS NOT NULL
+           AND e.external_id = gp.external_id
+         )
+         OR (
+           e.source_snapshot_version = gp.source_snapshot_version
+           AND e.entity_family = '${family}'
+           AND e.local_staging_id = gp.local_staging_id
+         )
     )`;
 }
 
 function updateMatchBySnapshotSql(family: EntityFamilySlug): string {
-  return `t.source_snapshot_version = gp.source_snapshot_version
-      AND t.entity_family = '${family}'
-      AND t.local_staging_id = gp.local_staging_id`;
+  return `((
+        t.review_batch_id = $1::bigint
+        AND t.entity_family = '${family}'
+        AND gp.external_id IS NOT NULL
+        AND t.external_id = gp.external_id
+      )
+      OR (
+        t.source_snapshot_version = gp.source_snapshot_version
+        AND t.entity_family = '${family}'
+        AND t.local_staging_id = gp.local_staging_id
+      ))`;
 }
 
 export function normJsonObj(value: unknown): Record<string, unknown> {
@@ -191,6 +208,19 @@ export function pickString(j: Record<string, unknown>, keys: string[]): string |
   for (const k of keys) {
     const raw = j[k];
     if (typeof raw === 'string' && raw.trim() !== '') return raw;
+  }
+  return null;
+}
+
+export function pickBoolean(j: Record<string, unknown>, keys: string[]): boolean | null {
+  for (const k of keys) {
+    const raw = j[k];
+    if (typeof raw === 'boolean') return raw;
+    if (typeof raw === 'string') {
+      const s = raw.trim().toLowerCase();
+      if (['true', 't', '1', 'yes'].includes(s)) return true;
+      if (['false', 'f', '0', 'no'].includes(s)) return false;
+    }
   }
   return null;
 }
@@ -909,7 +939,7 @@ function busStopsSpec(): UpsertSpec {
 function addressesSpec(): UpsertSpec {
   const table = importReviewTableQualified('addresses');
   const addrFields =
-    'full_address text, house_number text, unit_number text, street_id bigint, street_name text, quarter text, suburb text, township text, city text, district text, state_region text, postcode text, country text, postal_code text, plus_code text, entrance_geom_json text';
+    'full_address text, house_number text, unit_number text, street_id bigint, street_name text, quarter text, suburb text, township text, city text, district text, state_region text, postcode text, country text, postal_code text, plus_code text, entrance_geom_json text, source_classification text, has_place_evidence boolean, has_address_evidence boolean, address_strength text, place_candidate_status text, validation_status text, promotion_status text';
   return {
     family: 'addresses',
     recordTypeSql: `${COMMON_RECORD}, ${addrFields}`,
@@ -943,6 +973,17 @@ function addressesSpec(): UpsertSpec {
           entrance_geom_json: geomJsonParam(
             p.entrance_geom_geojson ?? nd.entrance_geom_geojson
           ),
+          source_classification:
+            pickString(p, ['source_classification']) ?? pickString(nd, ['source_classification']),
+          has_place_evidence:
+            pickBoolean(p, ['has_place_evidence']) ?? pickBoolean(nd, ['has_place_evidence']),
+          has_address_evidence:
+            pickBoolean(p, ['has_address_evidence']) ?? pickBoolean(nd, ['has_address_evidence']),
+          address_strength: pickString(p, ['address_strength']) ?? pickString(nd, ['address_strength']),
+          place_candidate_status:
+            pickString(p, ['place_candidate_status']) ?? pickString(nd, ['place_candidate_status']),
+          validation_status: pickString(p, ['validation_status']) ?? pickString(nd, ['validation_status']),
+          promotion_status: pickString(p, ['promotion_status']) ?? pickString(nd, ['promotion_status']),
         };
       }),
     insertSql: `
@@ -965,7 +1006,9 @@ function addressesSpec(): UpsertSpec {
       match_status, auto_action, review_status, review_decision,
       normalized_data, source_refs, matched_core_id, matched_core_table, matched_core_data, f2_comparison,
       full_address, house_number, unit_number, street_id, street_name, quarter, suburb, township, city, district,
-      state_region, postcode, country, postal_code, plus_code, point_geom, entrance_geom, updated_at
+      state_region, postcode, country, postal_code, plus_code, point_geom, entrance_geom,
+      source_classification, has_place_evidence, has_address_evidence, address_strength,
+      place_candidate_status, validation_status, promotion_status, updated_at
     )
     SELECT $1::bigint, gp.source_snapshot_version, gp.source_snapshot_id_local::bigint, gp.local_staging_id::bigint,
       'addresses', gp.external_id, gp.canonical_name, gp.class_code, gp.confidence_score,
@@ -974,7 +1017,15 @@ function addressesSpec(): UpsertSpec {
       gp.matched_core_id, gp.matched_core_table, gp.matched_core_data::jsonb, gp.f2_comparison::jsonb,
       gp.full_address, gp.house_number, gp.unit_number, gp.street_id::bigint, gp.street_name, gp.quarter, gp.suburb, gp.township,
       gp.city, gp.district, gp.state_region, gp.postcode, gp.country, gp.postal_code, gp.plus_code,
-      gp.pt_geom, gp.entrance_geom_b, now()
+      gp.pt_geom, gp.entrance_geom_b,
+      gp.source_classification, coalesce(gp.has_place_evidence, false), coalesce(gp.has_address_evidence, false),
+      gp.address_strength,
+      CASE
+        WHEN gp.place_candidate_status IN ('not_applicable','needs_place_candidate','place_candidate_created','matched_core_place','ignored')
+        THEN gp.place_candidate_status
+        ELSE NULL
+      END,
+      coalesce(gp.validation_status, 'not_checked'), coalesce(gp.promotion_status, 'not_ready'), now()
     FROM geom_prep gp
     ${insertSkipExistingBySnapshotSql(table, 'addresses')}
     RETURNING id, local_staging_id`,
@@ -1004,7 +1055,19 @@ function addressesSpec(): UpsertSpec {
       street_id = gp.street_id::bigint, street_name = gp.street_name, quarter = gp.quarter, suburb = gp.suburb, township = gp.township,
       city = gp.city, district = gp.district, state_region = gp.state_region, postcode = gp.postcode,
       country = gp.country, postal_code = gp.postal_code, plus_code = gp.plus_code,
-      point_geom = gp.pt_geom, entrance_geom = gp.entrance_geom_b, updated_at = now()
+      point_geom = gp.pt_geom, entrance_geom = gp.entrance_geom_b,
+      source_classification = gp.source_classification,
+      has_place_evidence = coalesce(gp.has_place_evidence, false),
+      has_address_evidence = coalesce(gp.has_address_evidence, false),
+      address_strength = gp.address_strength,
+      place_candidate_status = CASE
+        WHEN gp.place_candidate_status IN ('not_applicable','needs_place_candidate','place_candidate_created','matched_core_place','ignored')
+        THEN gp.place_candidate_status
+        ELSE t.place_candidate_status
+      END,
+      validation_status = coalesce(gp.validation_status, t.validation_status),
+      promotion_status = coalesce(gp.promotion_status, t.promotion_status),
+      updated_at = now()
     FROM geom_prep gp
     WHERE ${updateMatchBySnapshotSql('addresses')}
       AND ${PRESERVED_REMOTE_WHERE_SQL}
@@ -1175,6 +1238,398 @@ function routingBarriersSpec(): UpsertSpec {
   };
 }
 
+async function flushAddressComponents(
+  remoteClient: pg.PoolClient,
+  batchId: bigint,
+  pkg: LocalPackageRow,
+  items: LocalPackageItemRow[]
+): Promise<FlushOutcome> {
+  const rows = items.map((it) => {
+    const c = buildCommonRow(it, pkg);
+    const p = it.payload;
+    const nd = c.normalized_data;
+    return {
+      local_staging_id: c.local_staging_id,
+      source_snapshot_version: c.source_snapshot_version,
+      source_snapshot_id_local: c.source_snapshot_id_local,
+      external_id: c.external_id,
+      confidence_score: c.confidence_score,
+      normalized_data: c.normalized_data,
+      source_refs: c.source_refs,
+      address_local_staging_id: pickInteger(p, ['address_local_staging_id']) ?? pickInteger(nd, ['address_local_staging_id']),
+      address_external_id: pickString(p, ['address_external_id']) ?? pickString(nd, ['address_external_id']),
+      component_type_code: pickString(p, ['component_type_code']) ?? pickString(nd, ['component_type_code']) ?? c.class_code,
+      component_value: pickString(p, ['component_value']) ?? pickString(nd, ['component_value']) ?? c.canonical_name,
+      language_code: pickString(p, ['language_code']) ?? pickString(nd, ['language_code']) ?? 'und',
+      source_tag: pickString(p, ['source_tag']) ?? pickString(nd, ['source_tag']),
+      sort_order: pickInteger(p, ['sort_order']) ?? pickInteger(nd, ['sort_order']),
+    };
+  });
+
+  const recordType = `
+    local_staging_id bigint,
+    source_snapshot_version text,
+    source_snapshot_id_local bigint,
+    external_id text,
+    confidence_score numeric,
+    normalized_data jsonb,
+    source_refs jsonb,
+    address_local_staging_id bigint,
+    address_external_id text,
+    component_type_code text,
+    component_value text,
+    language_code text,
+    source_tag text,
+    sort_order integer
+  `;
+  const dataCte = `
+    WITH data AS (
+      SELECT * FROM jsonb_to_recordset($2::jsonb) AS d (${recordType})
+      WHERE nullif(trim(component_type_code), '') IS NOT NULL
+        AND nullif(trim(component_value), '') IS NOT NULL
+    ),
+    resolved AS (
+      SELECT data.*, a.id AS remote_address_candidate_id
+      FROM data
+      INNER JOIN import_review.address_candidates AS a
+        ON a.review_batch_id = $1::bigint
+       AND (
+            (data.address_external_id IS NOT NULL AND a.external_id = data.address_external_id)
+            OR (
+              data.address_local_staging_id IS NOT NULL
+              AND a.source_snapshot_version = data.source_snapshot_version
+              AND a.entity_family = 'addresses'
+              AND a.local_staging_id = data.address_local_staging_id
+            )
+       )
+    )`;
+
+  const ins = await remoteClient.query<{ id: string; local_staging_id: string }>(
+    `
+    ${dataCte},
+    inserted AS (
+      INSERT INTO import_review.address_components (
+        address_candidate_id, component_type_code, component_value, language_code,
+        source_tag, sort_order, confidence_score, source_refs, normalized_data, updated_at
+      )
+      SELECT
+        r.remote_address_candidate_id,
+        r.component_type_code,
+        r.component_value,
+        coalesce(nullif(trim(r.language_code), ''), 'und'),
+        r.source_tag,
+        r.sort_order,
+        r.confidence_score,
+        coalesce(r.source_refs, '{}'::jsonb) || jsonb_build_object(
+          'local_staging_id', r.local_staging_id,
+          'source_snapshot_version', r.source_snapshot_version,
+          'source_snapshot_id_local', r.source_snapshot_id_local,
+          'external_id', r.external_id
+        ),
+        coalesce(r.normalized_data, '{}'::jsonb),
+        now()
+      FROM resolved AS r
+      WHERE NOT EXISTS (
+        SELECT 1 FROM import_review.address_components AS existing
+        WHERE existing.address_candidate_id = r.remote_address_candidate_id
+          AND existing.component_type_code = r.component_type_code
+          AND existing.language_code = coalesce(nullif(trim(r.language_code), ''), 'und')
+          AND existing.component_value = r.component_value
+      )
+      RETURNING id, source_refs->>'local_staging_id' AS local_staging_id
+    )
+    SELECT id::text, local_staging_id::text FROM inserted
+    `,
+    [batchId.toString(), JSON.stringify(rows)]
+  );
+
+  const upd = await remoteClient.query<{ id: string; local_staging_id: string }>(
+    `
+    ${dataCte},
+    updated AS (
+      UPDATE import_review.address_components AS t
+      SET
+        source_tag = r.source_tag,
+        sort_order = r.sort_order,
+        confidence_score = r.confidence_score,
+        source_refs = coalesce(r.source_refs, '{}'::jsonb) || jsonb_build_object(
+          'local_staging_id', r.local_staging_id,
+          'source_snapshot_version', r.source_snapshot_version,
+          'source_snapshot_id_local', r.source_snapshot_id_local,
+          'external_id', r.external_id
+        ),
+        normalized_data = coalesce(r.normalized_data, '{}'::jsonb),
+        updated_at = now()
+      FROM resolved AS r
+      WHERE t.address_candidate_id = r.remote_address_candidate_id
+        AND t.component_type_code = r.component_type_code
+        AND t.language_code = coalesce(nullif(trim(r.language_code), ''), 'und')
+        AND t.component_value = r.component_value
+        AND coalesce(t.is_reviewed, false) IS NOT TRUE
+      RETURNING t.id, r.local_staging_id
+    )
+    SELECT id::text, local_staging_id::text FROM updated
+    `,
+    [batchId.toString(), JSON.stringify(rows)]
+  );
+
+  const remoteIdsByLsid = new Map<string, bigint>();
+  mergeRemoteCandidateIdRows(ins.rows, remoteIdsByLsid);
+  mergeRemoteCandidateIdRows(upd.rows, remoteIdsByLsid);
+
+  const found = await remoteClient.query<{ id: string; local_staging_id: string }>(
+    `
+    ${dataCte}
+    SELECT t.id::text, r.local_staging_id::text
+    FROM resolved AS r
+    INNER JOIN import_review.address_components AS t
+      ON t.address_candidate_id = r.remote_address_candidate_id
+     AND t.component_type_code = r.component_type_code
+     AND t.language_code = coalesce(nullif(trim(r.language_code), ''), 'und')
+     AND t.component_value = r.component_value
+    `,
+    [batchId.toString(), JSON.stringify(rows)]
+  );
+  mergeRemoteCandidateIdRows(found.rows, remoteIdsByLsid);
+
+  const out = outcomeForFamily('address_components', items.length, ins.rowCount ?? 0, upd.rowCount ?? 0);
+  out.remoteIdsByLsid = remoteIdsByLsid;
+  return out;
+}
+
+async function flushPlaceAddressLinks(
+  remoteClient: pg.PoolClient,
+  batchId: bigint,
+  pkg: LocalPackageRow,
+  items: LocalPackageItemRow[]
+): Promise<FlushOutcome> {
+  const rows = items.map((it) => {
+    const c = buildCommonRow(it, pkg);
+    const p = it.payload;
+    const nd = c.normalized_data;
+    return {
+      local_staging_id: c.local_staging_id,
+      source_snapshot_id_local: c.source_snapshot_id_local,
+      external_id: c.external_id,
+      confidence_score: c.confidence_score,
+      match_status: c.match_status,
+      auto_action: c.auto_action,
+      review_status: c.review_status,
+      normalized_data: c.normalized_data,
+      source_refs: c.source_refs,
+      place_local_staging_id: pickInteger(p, ['place_local_staging_id']) ?? pickInteger(nd, ['place_local_staging_id']),
+      place_external_id: pickString(p, ['place_external_id']) ?? pickString(nd, ['place_external_id']),
+      address_local_staging_id: pickInteger(p, ['address_local_staging_id']) ?? pickInteger(nd, ['address_local_staging_id']),
+      address_external_id: pickString(p, ['address_external_id']) ?? pickString(nd, ['address_external_id']),
+      relation_type: pickString(p, ['relation_type']) ?? pickString(nd, ['relation_type']) ?? 'located_at',
+      is_primary: pickBoolean(p, ['is_primary']) ?? pickBoolean(nd, ['is_primary']) ?? true,
+      source_classification: pickString(p, ['source_classification']) ?? pickString(nd, ['source_classification']),
+      address_strength: pickString(p, ['address_strength']) ?? pickString(nd, ['address_strength']),
+      validation_status: pickString(p, ['validation_status']) ?? pickString(nd, ['validation_status']) ?? 'not_checked',
+      promotion_status: pickString(p, ['promotion_status']) ?? pickString(nd, ['promotion_status']) ?? 'not_ready',
+    };
+  });
+
+  const recordType = `
+    local_staging_id bigint,
+    source_snapshot_id_local bigint,
+    external_id text,
+    confidence_score numeric,
+    match_status text,
+    auto_action text,
+    review_status text,
+    normalized_data jsonb,
+    source_refs jsonb,
+    place_local_staging_id bigint,
+    place_external_id text,
+    address_local_staging_id bigint,
+    address_external_id text,
+    relation_type text,
+    is_primary boolean,
+    source_classification text,
+    address_strength text,
+    validation_status text,
+    promotion_status text
+  `;
+  const dataCte = `
+    WITH data AS (
+      SELECT * FROM jsonb_to_recordset($2::jsonb) AS d (${recordType})
+    ),
+    resolved AS (
+      SELECT data.*, p.id AS remote_place_candidate_id, a.id AS remote_address_candidate_id
+      FROM data
+      INNER JOIN import_review.place_candidates AS p
+        ON p.review_batch_id = $1::bigint
+       AND (
+            (data.place_external_id IS NOT NULL AND p.external_id = data.place_external_id)
+            OR (
+              data.place_local_staging_id IS NOT NULL
+              AND p.source_snapshot_version = $3::text
+              AND p.entity_family = 'places'
+              AND p.local_staging_id = data.place_local_staging_id
+            )
+       )
+      INNER JOIN import_review.address_candidates AS a
+        ON a.review_batch_id = $1::bigint
+       AND (
+            (data.address_external_id IS NOT NULL AND a.external_id = data.address_external_id)
+            OR (
+              data.address_local_staging_id IS NOT NULL
+              AND a.source_snapshot_version = $3::text
+              AND a.entity_family = 'addresses'
+              AND a.local_staging_id = data.address_local_staging_id
+            )
+       )
+    )`;
+
+  const params = [batchId.toString(), JSON.stringify(rows), pkg.snapshot_version];
+  const ins = await remoteClient.query<{ id: string; local_staging_id: string }>(
+    `
+    ${dataCte},
+    inserted AS (
+      INSERT INTO import_review.place_address_links (
+        review_batch_id, source_snapshot_id, external_id, place_candidate_id, address_candidate_id,
+        relation_type, is_primary, confidence_score, match_status, auto_action, review_status,
+        validation_status, promotion_status, source_refs, normalized_data, updated_at
+      )
+      SELECT
+        $1::bigint,
+        r.source_snapshot_id_local,
+        r.external_id,
+        r.remote_place_candidate_id,
+        r.remote_address_candidate_id,
+        CASE WHEN r.relation_type IN ('primary','located_at','entrance','delivery','mailing','nearby')
+          THEN r.relation_type ELSE 'located_at' END,
+        coalesce(r.is_primary, true),
+        r.confidence_score,
+        coalesce(r.match_status, 'new_candidate'),
+        coalesce(r.auto_action, 'needs_review'),
+        coalesce(r.review_status, 'pending'),
+        coalesce(r.validation_status, 'not_checked'),
+        coalesce(r.promotion_status, 'not_ready'),
+        coalesce(r.source_refs, '{}'::jsonb) || jsonb_build_object(
+          'local_staging_id', r.local_staging_id,
+          'source_snapshot_id_local', r.source_snapshot_id_local,
+          'place_local_staging_id', r.place_local_staging_id,
+          'place_external_id', r.place_external_id,
+          'address_local_staging_id', r.address_local_staging_id,
+          'address_external_id', r.address_external_id
+        ),
+        coalesce(r.normalized_data, '{}'::jsonb),
+        now()
+      FROM resolved AS r
+      WHERE NOT EXISTS (
+        SELECT 1 FROM import_review.place_address_links AS existing
+        WHERE existing.review_batch_id = $1::bigint
+          AND (
+            (r.external_id IS NOT NULL AND existing.external_id = r.external_id)
+            OR (
+              existing.place_candidate_id = r.remote_place_candidate_id
+              AND existing.address_candidate_id = r.remote_address_candidate_id
+              AND existing.relation_type = CASE WHEN r.relation_type IN ('primary','located_at','entrance','delivery','mailing','nearby')
+                THEN r.relation_type ELSE 'located_at' END
+            )
+          )
+      )
+      RETURNING id, source_refs->>'local_staging_id' AS local_staging_id
+    )
+    SELECT id::text, local_staging_id::text FROM inserted
+    `,
+    params
+  );
+
+  const upd = await remoteClient.query<{ id: string; local_staging_id: string }>(
+    `
+    ${dataCte},
+    updated AS (
+      UPDATE import_review.place_address_links AS t
+      SET
+        source_snapshot_id = r.source_snapshot_id_local,
+        external_id = r.external_id,
+        is_primary = coalesce(r.is_primary, true),
+        confidence_score = r.confidence_score,
+        match_status = coalesce(r.match_status, t.match_status),
+        auto_action = coalesce(r.auto_action, t.auto_action),
+        validation_status = coalesce(r.validation_status, t.validation_status),
+        promotion_status = coalesce(r.promotion_status, t.promotion_status),
+        source_refs = coalesce(r.source_refs, '{}'::jsonb) || jsonb_build_object(
+          'local_staging_id', r.local_staging_id,
+          'source_snapshot_id_local', r.source_snapshot_id_local,
+          'place_local_staging_id', r.place_local_staging_id,
+          'place_external_id', r.place_external_id,
+          'address_local_staging_id', r.address_local_staging_id,
+          'address_external_id', r.address_external_id
+        ),
+        normalized_data = coalesce(r.normalized_data, '{}'::jsonb),
+        updated_at = now()
+      FROM resolved AS r
+      WHERE t.review_batch_id = $1::bigint
+        AND (
+          (r.external_id IS NOT NULL AND t.external_id = r.external_id)
+          OR (
+            t.place_candidate_id = r.remote_place_candidate_id
+            AND t.address_candidate_id = r.remote_address_candidate_id
+            AND t.relation_type = CASE WHEN r.relation_type IN ('primary','located_at','entrance','delivery','mailing','nearby')
+              THEN r.relation_type ELSE 'located_at' END
+          )
+        )
+        AND t.review_decision IS NULL
+        AND t.review_status IN ('pending', 'needs_review')
+      RETURNING t.id, r.local_staging_id
+    )
+    SELECT id::text, local_staging_id::text FROM updated
+    `,
+    params
+  );
+
+  await remoteClient.query(
+    `
+    ${dataCte}
+    UPDATE import_review.address_candidates AS a
+    SET
+      linked_place_candidate_id = r.remote_place_candidate_id,
+      place_candidate_status = CASE
+        WHEN a.place_candidate_status IN ('not_applicable', 'needs_place_candidate') THEN 'place_candidate_created'
+        ELSE a.place_candidate_status
+      END,
+      updated_at = now()
+    FROM resolved AS r
+    WHERE a.id = r.remote_address_candidate_id
+      AND a.linked_place_candidate_id IS NULL
+      AND a.source_classification = 'place_with_address'
+    `,
+    params
+  );
+
+  const remoteIdsByLsid = new Map<string, bigint>();
+  mergeRemoteCandidateIdRows(ins.rows, remoteIdsByLsid);
+  mergeRemoteCandidateIdRows(upd.rows, remoteIdsByLsid);
+  const found = await remoteClient.query<{ id: string; local_staging_id: string }>(
+    `
+    ${dataCte}
+    SELECT t.id::text, r.local_staging_id::text
+    FROM resolved AS r
+    INNER JOIN import_review.place_address_links AS t
+      ON t.review_batch_id = $1::bigint
+     AND (
+       (r.external_id IS NOT NULL AND t.external_id = r.external_id)
+       OR (
+         t.place_candidate_id = r.remote_place_candidate_id
+         AND t.address_candidate_id = r.remote_address_candidate_id
+         AND t.relation_type = CASE WHEN r.relation_type IN ('primary','located_at','entrance','delivery','mailing','nearby')
+           THEN r.relation_type ELSE 'located_at' END
+       )
+     )
+    `,
+    params
+  );
+  mergeRemoteCandidateIdRows(found.rows, remoteIdsByLsid);
+
+  const out = outcomeForFamily('place_address_links', items.length, ins.rowCount ?? 0, upd.rowCount ?? 0);
+  out.remoteIdsByLsid = remoteIdsByLsid;
+  return out;
+}
+
 function getUpsertSpec(family: EntityFamilySlug): UpsertSpec {
   if (family === 'buildings') return buildingsSpec();
   if (family === 'places') return placesSpec();
@@ -1192,7 +1647,9 @@ export function assertUploadConfigForFamily(family: string): EntityFamilySlug {
   if (!isEntityFamilySlug(family)) {
     throw new Error(`Missing Stage 12 upload config for entity_family=${family}`);
   }
-  getUpsertSpec(family);
+  if (family !== 'address_components' && family !== 'place_address_links') {
+    getUpsertSpec(family);
+  }
   return family;
 }
 
@@ -1206,6 +1663,16 @@ export async function flushEntityFamily(
 ): Promise<FlushOutcome> {
   if (items.length === 0) {
     return outcomeForFamily(family, 0, 0, 0);
+  }
+  if (family === 'address_components') {
+    const out = await flushAddressComponents(remoteClient, batchId, pkg, items);
+    prog.done += items.length;
+    return out;
+  }
+  if (family === 'place_address_links') {
+    const out = await flushPlaceAddressLinks(remoteClient, batchId, pkg, items);
+    prog.done += items.length;
+    return out;
   }
   const spec = getUpsertSpec(family);
   const { inserted, updated, remoteIdsByLsid } = await runUpsertChunk(
@@ -1226,18 +1693,30 @@ export function mergeFlushOutcomes(a: FlushOutcome, b: FlushOutcome): FlushOutco
 }
 
 export function buildBatchCountUnionSql(): string {
-  const parts = Object.values(ENTITY_FAMILY_UPLOAD_CONFIG).map(
-    (c) =>
-      `select count(*)::int as c from import_review.${c.importReviewTable} where review_batch_id = $1::bigint`
-  );
+  const parts = Object.values(ENTITY_FAMILY_UPLOAD_CONFIG).map((c) => {
+    if (c.uploadMode === 'address_components') {
+      return `select count(*)::int as c
+        from import_review.address_components ac
+        join import_review.address_candidates a on a.id = ac.address_candidate_id
+       where a.review_batch_id = $1::bigint`;
+    }
+    return `select count(*)::int as c from import_review.${c.importReviewTable} where review_batch_id = $1::bigint`;
+  });
   return parts.join('\n      union all\n      ');
 }
 
 export function buildBatchPreservedUnionSql(): string {
-  const parts = Object.values(ENTITY_FAMILY_UPLOAD_CONFIG).map(
-    (c) => `select count(*)::int as p from import_review.${c.importReviewTable} t
+  const parts = Object.values(ENTITY_FAMILY_UPLOAD_CONFIG).map((c) => {
+    if (c.uploadMode === 'address_components') {
+      return `select count(*)::int as p
+        from import_review.address_components t
+        join import_review.address_candidates a on a.id = t.address_candidate_id
+       where a.review_batch_id = $1::bigint
+         and coalesce(t.is_reviewed, false) IS TRUE`;
+    }
+    return `select count(*)::int as p from import_review.${c.importReviewTable} t
        where t.review_batch_id = $1::bigint
-         and not (${PRESERVED_REMOTE_WHERE_SQL})`
-  );
+         and not (${PRESERVED_REMOTE_WHERE_SQL})`;
+  });
   return parts.join('\n      union all\n      ');
 }

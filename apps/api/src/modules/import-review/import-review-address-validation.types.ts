@@ -17,6 +17,9 @@ export type AddressCandidateValidationInput = {
     entrance_geom_present: boolean;
     matched_admin_area_id: bigint | null;
     matched_street_id: bigint | null;
+    source_classification: string | null;
+    address_strength: string | null;
+    place_candidate_status: string | null;
     review_status: string | null;
     promotion_status: string | null;
     promoted_core_address_id: bigint | null;

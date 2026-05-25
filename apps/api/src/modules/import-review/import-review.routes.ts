@@ -35,14 +35,22 @@ import {
     getImportReviewPromotionBatchVerifySchema,
     postImportReviewPromotionRoadDryRunSchema,
     getImportReviewPromotionRoadDryRunSchema,
+    postImportReviewPromotionRoutingBarrierDryRunSchema,
+    getImportReviewPromotionRoutingBarrierDryRunSchema,
     postImportReviewCleanupPromotedDryRunSchema,
     postImportReviewCleanupPromotedExecuteSchema,
     postImportReviewAddressAdminInferenceSchema,
     postImportReviewAddressValidateSchema,
     postImportReviewAddressPromotionDryRunSchema,
     postImportReviewAddressPromotionSchema,
+    postImportReviewPlaceAddressLinkPromotionSchema,
+    postImportReviewPlacePromotionSchema,
     getImportReviewAddressOptionsSchema,
     patchImportReviewAddressMatchesSchema,
+    patchImportReviewAddressPlaceStatusSchema,
+    postImportReviewPlaceAddressLinkValidateSchema,
+    postImportReviewPlaceValidateSchema,
+    postImportReviewAddressCreatePlaceCandidateSchema,
     patchImportReviewAddressComponentsSchema,
     getImportReviewHistoryReviewBatchesSchema,
     getImportReviewHistoryReviewBatchByIdSchema,
@@ -94,6 +102,7 @@ import { ImportReviewPromotionService } from "./import-review-promotion.service.
 import { ImportReviewPromotionPromoteRepository } from "./import-review-promotion-promote.repo.js";
 import { ImportReviewPromotionValidationRepository } from "./import-review-promotion-validation.repo.js";
 import { postImportReviewPromotionRoadDryRunBodySchema } from "./import-review-promotion-road-dry-run.schema.js";
+import { postImportReviewPromotionRoutingBarrierDryRunBodySchema } from "./import-review-promotion-routing-barrier-dry-run.schema.js";
 import {
     importReviewPromotionBatchEligibilityQuerySchema,
     importReviewPromotionBatchIdParamsSchema,
@@ -116,8 +125,18 @@ import { postImportReviewAddressValidateBodySchema } from "./import-review-addre
 import { createImportReviewAddressComponentsMutationService } from "./import-review-address-components-mutation.service.js";
 import { createImportReviewAddressPromotionService } from "./import-review-address-promotion.service.js";
 import { postImportReviewAddressPromotionBodySchema } from "./import-review-address-promotion.schema.js";
+import { createImportReviewPlacePromotionService } from "./import-review-place-promotion.service.js";
+import { postImportReviewPlacePromotionBodySchema } from "./import-review-place-promotion.schema.js";
+import { createImportReviewPlaceAddressLinkPromotionService } from "./import-review-place-address-link-promotion.service.js";
+import { postImportReviewPlaceAddressLinkPromotionBodySchema } from "./import-review-place-address-link-promotion.schema.js";
 import { patchImportReviewAddressComponentsBodySchema } from "./import-review-address-components-mutation.schema.js";
 import { createImportReviewAddressMatchesService } from "./import-review-address-matches.service.js";
+import { createImportReviewAddressPlaceWorkflowService } from "./import-review-address-place-workflow.service.js";
+import { patchImportReviewAddressPlaceStatusBodySchema } from "./import-review-address-place-workflow.schema.js";
+import { createImportReviewPlaceValidationService } from "./import-review-place-validation.service.js";
+import { postImportReviewPlaceValidateBodySchema } from "./import-review-place-validation.schema.js";
+import { createImportReviewPlaceAddressLinkValidationService } from "./import-review-place-address-link-validation.service.js";
+import { postImportReviewPlaceAddressLinkValidateBodySchema } from "./import-review-place-address-link-validation.schema.js";
 import { registerImportReviewRoadsRequestLogging } from "./import-review-roads-request-logging.js";
 import {
     importReviewAddressCandidateIdParamsSchema,
@@ -362,8 +381,13 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
     const cleanupPromotedService = createImportReviewCleanupPromotedService(prisma);
     const addressAdminInferenceService = createImportReviewAddressAdminInferenceService(prisma);
     const addressMatchesService = createImportReviewAddressMatchesService(prisma);
+    const addressPlaceWorkflowService = createImportReviewAddressPlaceWorkflowService(prisma);
     const addressValidationService = createImportReviewAddressValidationService(prisma);
+    const placeValidationService = createImportReviewPlaceValidationService(prisma);
+    const placeAddressLinkValidationService = createImportReviewPlaceAddressLinkValidationService(prisma);
     const addressPromotionService = createImportReviewAddressPromotionService(prisma);
+    const placePromotionService = createImportReviewPlacePromotionService(prisma);
+    const placeAddressLinkPromotionService = createImportReviewPlaceAddressLinkPromotionService(prisma);
     const addressComponentsMutationService = createImportReviewAddressComponentsMutationService(prisma);
 
     app.get(
@@ -1378,6 +1402,63 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         }
     );
 
+    app.post(
+        "/promotion/batches/:id/routing-barrier-dry-run",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewPromotionRoutingBarrierDryRunSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
+            if (!paramsParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
+            }
+            const bodyParsed = postImportReviewPromotionRoutingBarrierDryRunBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
+            }
+            try {
+                return reply.send(
+                    await promotionService.runRoutingBarrierDryRun(
+                        BigInt(paramsParsed.data.id),
+                        bodyParsed.data
+                    )
+                );
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.get(
+        "/promotion/batches/:id/routing-barrier-dry-run",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: getImportReviewPromotionRoutingBarrierDryRunSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
+            if (!paramsParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
+            }
+            try {
+                return reply.send(
+                    await promotionService.getRoutingBarrierDryRun(BigInt(paramsParsed.data.id))
+                );
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
     app.get(
         "/promotion/batches/:id/verify",
         {
@@ -1479,6 +1560,61 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         }
     );
 
+    app.post(
+        "/addresses/:id/create-place-candidate",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewAddressCreatePlaceCandidateSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewAddressCandidateIdParamsSchema.safeParse(request.params);
+            if (!paramsParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
+            }
+            try {
+                return reply.send(
+                    await addressPlaceWorkflowService.createPlaceCandidate(paramsParsed.data.id)
+                );
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.patch(
+        "/addresses/:id/place-status",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: patchImportReviewAddressPlaceStatusSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewAddressCandidateIdParamsSchema.safeParse(request.params);
+            const bodyParsed = patchImportReviewAddressPlaceStatusBodySchema.safeParse(request.body ?? {});
+            if (!paramsParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
+            }
+            if (!bodyParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
+            }
+            try {
+                return reply.send(
+                    await addressPlaceWorkflowService.patchPlaceStatus(
+                        paramsParsed.data.id,
+                        bodyParsed.data
+                    )
+                );
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
     app.patch(
         "/addresses/:id/components",
         {
@@ -1568,6 +1704,52 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
     );
 
     app.post(
+        "/places/validate",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewPlaceValidateSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewPlaceValidateBodySchema.safeParse(request.body ?? {});
+            if (!bodyParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
+            }
+            try {
+                return reply.send(await placeValidationService.validate(bodyParsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/place-address-links/validate",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewPlaceAddressLinkValidateSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewPlaceAddressLinkValidateBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
+            }
+            try {
+                return reply.send(await placeAddressLinkValidationService.validate(bodyParsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
         "/addresses/infer-admin-components",
         {
             preHandler: importReviewAuthorizedPreHandlers(),
@@ -1630,6 +1812,98 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             }
             try {
                 return reply.send(await addressPromotionService.promote(bodyParsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/places/promote-dry-run",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewPlacePromotionSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewPlacePromotionBodySchema.safeParse(request.body ?? {});
+            if (!bodyParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
+            }
+            try {
+                return reply.send(await placePromotionService.dryRun(bodyParsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/places/promote",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewPlacePromotionSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewPlacePromotionBodySchema.safeParse(request.body ?? {});
+            if (!bodyParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
+            }
+            try {
+                return reply.send(await placePromotionService.promote(bodyParsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/place-address-links/promote-dry-run",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewPlaceAddressLinkPromotionSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewPlaceAddressLinkPromotionBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
+            }
+            try {
+                return reply.send(await placeAddressLinkPromotionService.dryRun(bodyParsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/place-address-links/promote",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewPlaceAddressLinkPromotionSchema,
+        },
+        async (request, reply) => {
+            const bodyParsed = postImportReviewPlaceAddressLinkPromotionBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
+            }
+            try {
+                return reply.send(await placeAddressLinkPromotionService.promote(bodyParsed.data));
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {
                     return;

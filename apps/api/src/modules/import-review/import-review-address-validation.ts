@@ -143,14 +143,41 @@ export function validateAddressCandidate(
         }
     }
 
-    const hasLocalComponent = activeComponents.some((c) =>
+    const activeNonEmptyComponents = activeComponents.filter((c) => c.component_value.trim() !== "");
+    const componentTypes = new Set(activeNonEmptyComponents.map((c) => c.component_type_code));
+    const hasLocalComponent = activeNonEmptyComponents.some((c) =>
         LOCAL_COMPONENT_TYPES.has(c.component_type_code)
     );
     const onlyGlobal =
-        activeComponents.length > 0 &&
-        activeComponents.every((c) => GLOBAL_ONLY_COMPONENT_TYPES.has(c.component_type_code));
+        activeNonEmptyComponents.length > 0 &&
+        activeNonEmptyComponents.every((c) => GLOBAL_ONLY_COMPONENT_TYPES.has(c.component_type_code));
 
-    if (activeComponents.length > 0 && !hasLocalComponent && onlyGlobal) {
+    if (activeNonEmptyComponents.length > 0 && componentTypes.size === 1 && componentTypes.has("country")) {
+        blockers.push(
+            issue(
+                "only_country_component",
+                "Only country address component is present; this is not enough to promote an address.",
+                "error"
+            )
+        );
+    }
+
+    const onlyCityCountry =
+        activeNonEmptyComponents.length > 0 &&
+        [...componentTypes].every((type) => type === "city" || type === "country") &&
+        componentTypes.has("city") &&
+        componentTypes.has("country");
+    if (onlyCityCountry) {
+        blockers.push(
+            issue(
+                "only_city_country_components",
+                "Only city and country address components are present; add street, house number, or stronger locality evidence.",
+                "error"
+            )
+        );
+    }
+
+    if (activeNonEmptyComponents.length > 0 && !hasLocalComponent && onlyGlobal) {
         blockers.push(
             issue(
                 "only_global_components",
@@ -195,6 +222,22 @@ export function validateAddressCandidate(
         );
     }
 
+    const sourceClassification = (input.source_classification ?? "").trim().toLowerCase();
+    const addressStrength = (input.address_strength ?? "").trim().toLowerCase();
+    if (
+        sourceClassification === "place_only" &&
+        (addressStrength === "none" || addressStrength === "weak")
+    ) {
+        blockers.push(
+            issue(
+                "place_only_weak_address",
+                "Source is classified as place_only with no/weak address evidence; create or validate the place separately.",
+                "error",
+                { field: "source_classification" }
+            )
+        );
+    }
+
     if (input.matched_street_id === null) {
         warnings.push(
             issue(
@@ -202,6 +245,31 @@ export function validateAddressCandidate(
                 "matched_street_id is not set; street-level match is recommended.",
                 "warning",
                 { field: "matched_street_id" }
+            )
+        );
+    }
+
+    if (
+        sourceClassification === "place_with_address" &&
+        (input.place_candidate_status ?? "").trim().toLowerCase() === "needs_place_candidate"
+    ) {
+        warnings.push(
+            issue(
+                "place_candidate_needed",
+                "Source is place_with_address but no related place candidate has been created yet.",
+                "warning",
+                { field: "place_candidate_status" }
+            )
+        );
+    }
+
+    if (addressStrength === "partial") {
+        warnings.push(
+            issue(
+                "address_strength_partial",
+                "Address evidence is partial; review components before promotion.",
+                "warning",
+                { field: "address_strength" }
             )
         );
     }
@@ -265,6 +333,16 @@ export function validateAddressCandidate(
                 issue(
                     "admin_locality_hint",
                     `Admin component ${row.component_type_code} (${row.language_code}) uses locality_hint address_usage.`,
+                    "warning",
+                    { component_id: row.id.toString() }
+                )
+            );
+        }
+        if (row.boundary_status === "approximate" || row.address_usage === "locality_hint") {
+            warnings.push(
+                issue(
+                    "source_admin_locality_approximate",
+                    `Component ${row.component_type_code} (${row.language_code}) is based on approximate/locality-hint source context.`,
                     "warning",
                     { component_id: row.id.toString() }
                 )

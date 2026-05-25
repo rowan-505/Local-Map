@@ -106,6 +106,14 @@ export type BuildingListRowDb = {
     matched_street_id?: bigint | null;
     matched_building_id?: bigint | null;
     matched_place_id?: bigint | null;
+    source_classification?: string | null;
+    has_place_evidence?: boolean | null;
+    has_address_evidence?: boolean | null;
+    address_strength?: string | null;
+    place_candidate_status?: string | null;
+    linked_place_candidate_id?: bigint | null;
+    matched_core_place_id?: bigint | null;
+    classification_reasons?: unknown;
     admin_match_type?: string | null;
     street_match_type?: string | null;
     admin_match_confidence?: unknown;

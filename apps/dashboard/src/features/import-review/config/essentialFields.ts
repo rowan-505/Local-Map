@@ -6,6 +6,21 @@ export type DashboardEssentialFieldRule =
     | { kind: "geometry" };
 
 const ESSENTIAL_BY_API_FAMILY: Record<string, readonly DashboardEssentialFieldRule[]> = {
+    bus_routes: [
+        { kind: "field", key: "route_code" },
+        { kind: "field", key: "public_name" },
+    ],
+    bus_route_variants: [
+        { kind: "field", key: "route_id" },
+        { kind: "field", key: "route_code" },
+        { kind: "field", key: "variant_code" },
+        { kind: "field", key: "geom" },
+    ],
+    bus_route_stops: [
+        { kind: "field", key: "route_variant_id" },
+        { kind: "field", key: "stop_id" },
+        { kind: "field", key: "stop_sequence" },
+    ],
     bus_stops: [
         { kind: "field", key: "name_mm" },
         { kind: "field", key: "admin_area_id" },

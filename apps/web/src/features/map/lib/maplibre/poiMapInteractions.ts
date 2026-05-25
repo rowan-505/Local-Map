@@ -2,14 +2,28 @@
  * Pointer handling for the POI circle layer — keeps MapView free of map event API details.
  */
 import type { MapEngine, MapMouseEvent } from '../mapEngineTypes';
-import { PLACES_LAYER_ID } from './placesOnMap';
+import {
+  PLACES_IMPORTANT_LAYER_ID,
+  PLACES_LAYER_ID,
+  PLACES_SELECTED_HALO_LAYER_ID,
+  PLACES_SELECTED_LAYER_ID,
+} from './placesOnMap';
+import type { MapClickedLocation } from '../../types';
+
+const POI_HIT_LAYERS = [
+  PLACES_SELECTED_LAYER_ID,
+  PLACES_SELECTED_HALO_LAYER_ID,
+  PLACES_IMPORTANT_LAYER_ID,
+  PLACES_LAYER_ID,
+] as const;
 
 export function bindPoiLayerInteractions(
   map: MapEngine,
   onSelectPoiId: (id: string | null) => void,
+  onEmptyMapClick?: (location: MapClickedLocation) => void,
 ): () => void {
   const onMapClick = (e: MapMouseEvent) => {
-    const hits = map.queryRenderedFeatures(e.point, { layers: [PLACES_LAYER_ID] });
+    const hits = map.queryRenderedFeatures(e.point, { layers: [...POI_HIT_LAYERS] });
     const first = hits[0];
     const raw = first?.properties?.id;
     if (typeof raw === 'string') {
@@ -17,6 +31,10 @@ export function bindPoiLayerInteractions(
       return;
     }
     onSelectPoiId(null);
+    onEmptyMapClick?.({
+      label: 'Clicked location',
+      coordinates: [e.lngLat.lng, e.lngLat.lat],
+    });
   };
 
   const onEnter = () => {
@@ -29,13 +47,21 @@ export function bindPoiLayerInteractions(
   };
 
   map.on('click', onMapClick);
-  map.on('mouseenter', PLACES_LAYER_ID, onEnter);
-  map.on('mouseleave', PLACES_LAYER_ID, onLeave);
+  for (const layerId of POI_HIT_LAYERS) {
+    if (map.getLayer(layerId)) {
+      map.on('mouseenter', layerId, onEnter);
+      map.on('mouseleave', layerId, onLeave);
+    }
+  }
 
   return () => {
     map.off('click', onMapClick);
-    map.off('mouseenter', PLACES_LAYER_ID, onEnter);
-    map.off('mouseleave', PLACES_LAYER_ID, onLeave);
+    for (const layerId of POI_HIT_LAYERS) {
+      if (map.getLayer(layerId)) {
+        map.off('mouseenter', layerId, onEnter);
+        map.off('mouseleave', layerId, onLeave);
+      }
+    }
     const canvas = map.getCanvas();
     if (canvas?.style) canvas.style.cursor = '';
   };

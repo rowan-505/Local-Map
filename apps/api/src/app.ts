@@ -18,6 +18,7 @@ import buildingsRoutes from "./modules/buildings/buildings.routes.js";
 import placeBuildingRoutes from "./modules/place-buildings/place-buildings.routes.js";
 import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
 import importReviewRoutes from "./modules/import-review/import-review.routes.js";
+import coreVerificationRoutes from "./modules/core-verification/core-verification.routes.js";
 import coreReviewRoutes from "./modules/core-review/core-review.routes.js";
 import routingRoutes from "./modules/routing/routing.routes.js";
 import refRoutes from "./modules/ref/ref.routes.js";
@@ -85,6 +86,7 @@ export async function buildApp() {
     await app.register(placeBuildingRoutes);
     await app.register(dashboardRoutes);
     await app.register(importReviewRoutes, { prefix: "/api/import-review" });
+    await app.register(coreVerificationRoutes, { prefix: "/api/core-verification" });
     await app.register(routingRoutes, { prefix: "/api/routing" });
     await app.register(refRoutes, { prefix: "/admin/ref" });
     await app.register(coreReviewRoutes, { prefix: "/core-review" });

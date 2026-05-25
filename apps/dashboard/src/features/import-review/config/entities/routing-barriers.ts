@@ -14,7 +14,7 @@ export const routingBarriersImportReviewEntityConfig = createImportReviewEntityC
     geometryType: "point",
     mapLayerType: "point",
     mapEntityType: "generic",
-    riskLevel: "medium",
+    riskLevel: "high",
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
         { key: "effective_barrier_type", label: "Barrier type", source: "row" },
@@ -30,6 +30,6 @@ export const routingBarriersImportReviewEntityConfig = createImportReviewEntityC
     supportsMapPreview: true,
     supportsVertexPreview: false,
     supportsGeometryEditLater: false,
-    supportsPromotion: false,
+    supportsPromotion: true,
     supportsOverrideEditor: true,
 });

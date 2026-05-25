@@ -16,7 +16,7 @@ function PoiDetailInner({ poi, isLoading = false, error = null }: PoiDetailProps
   const languageMode = useMapUiStore((s) => s.languageMode);
 
   if (isLoading) {
-    return <p className="text-xs leading-relaxed text-neutral-500">Loading place details…</p>;
+    return <p className="text-xs leading-relaxed text-neutral-500">Loading place details...</p>;
   }
 
   if (error) {
@@ -31,10 +31,6 @@ function PoiDetailInner({ poi, isLoading = false, error = null }: PoiDetailProps
     );
   }
 
-  const tagPreview = Object.entries(poi.osm_tags)
-    .slice(0, 8)
-    .map(([k, v]) => `${k}=${v}`)
-    .join(', ');
   const coordinates = formatCoordinates(poi.longitude, poi.latitude);
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${poi.latitude},${poi.longitude}`;
   const title = getLocalizedName(poi, languageMode);
@@ -44,9 +40,9 @@ function PoiDetailInner({ poi, isLoading = false, error = null }: PoiDetailProps
       : 'text-base font-semibold leading-snug text-neutral-950';
 
   return (
-    <div className="space-y-4 text-sm">
+    <div className="space-y-3 text-sm">
       <div className="rounded-2xl bg-neutral-50 p-3 ring-1 ring-neutral-100">
-        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
           Place
         </p>
         <h3 className={titleClass}>{title}</h3>
@@ -62,7 +58,7 @@ function PoiDetailInner({ poi, isLoading = false, error = null }: PoiDetailProps
         </p>
       ) : null}
       {poi.isVerified ? (
-        <p className="inline-flex rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+        <p className="inline-flex rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
           Verified place
         </p>
       ) : null}
@@ -85,14 +81,6 @@ function PoiDetailInner({ poi, isLoading = false, error = null }: PoiDetailProps
           Share
         </DetailActionButton>
       </div>
-      <p className="text-xs text-neutral-400">Source: deployed API</p>
-      {tagPreview.length > 0 ? (
-        <p className="text-xs leading-relaxed text-neutral-600">
-          <span className="text-neutral-500">OSM tags: </span>
-          {tagPreview}
-          {Object.keys(poi.osm_tags).length > 8 ? '…' : ''}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -128,7 +116,7 @@ function DetailActionButton({
   return (
     <button
       type="button"
-      className={`rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-50 ${className}`}
+      className={`rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50 ${className}`}
       onClick={onClick}
     >
       {children}

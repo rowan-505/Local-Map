@@ -235,6 +235,7 @@ async function runPromotion(
                     promotion_warnings: candidate.promotion_warnings,
                     promoted_core_address_id: candidate.promoted_core_address_id,
                     point_geom_present: candidate.point_geom_present,
+                    address_strength: candidate.address_strength,
                 },
                 confirmWarnings: body.confirm_warnings,
                 hasCoreDuplicate: dup !== undefined,
@@ -329,13 +330,6 @@ async function runPromotion(
                     components: candidateComponents,
                     caps: componentCaps,
                 });
-
-                if (candidate.matched_place_id !== null) {
-                    await txRepo.linkPlaceAddress(
-                        candidate.matched_place_id,
-                        coreAddressId
-                    );
-                }
 
                 await txRepo.markPromoted(candidate.id, coreAddressId);
                 promotedCoreAddressIds.push(coreAddressId);

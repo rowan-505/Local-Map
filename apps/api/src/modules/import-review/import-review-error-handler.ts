@@ -27,14 +27,22 @@ import {
     ImportReviewPublishBatchPromotionConflictError,
     ImportReviewPublishBatchValidationConflictError,
     ImportReviewPromotionNoEligibleCandidatesError,
+    ImportReviewAdminAreaPromotionBatchLimitError,
     ImportReviewRoadDryRunRequiredError,
     ImportReviewRoadPromotionBatchLimitError,
     ImportReviewRoadPromotionDisabledError,
+    ImportReviewRoutingBarrierDryRunRequiredError,
+    ImportReviewRoutingBarrierPromotionBatchLimitError,
+    ImportReviewRoutingBarrierPromotionDisabledError,
 } from "./import-review-promotion.errors.js";
 import {
     ImportReviewPromotionRoadDryRunNoItemsError,
     ImportReviewPromotionRoadDryRunNotFoundError,
 } from "./import-review-promotion-road-dry-run.errors.js";
+import {
+    ImportReviewPromotionRoutingBarrierDryRunNoItemsError,
+    ImportReviewPromotionRoutingBarrierDryRunNotFoundError,
+} from "./import-review-promotion-routing-barrier-dry-run.errors.js";
 import { ImportReviewMissingPoiCategoriesTableError } from "./import-review-promotion-place-category.js";
 import {
     ImportReviewCleanupConfirmationError,
@@ -161,6 +169,13 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
         return true;
     }
 
+    if (error instanceof ImportReviewRoutingBarrierPromotionDisabledError) {
+        sendImportReviewApiError(reply, 409, "ROUTING_BARRIER_PROMOTION_DISABLED", error.message, {
+            batch_id: error.batchId,
+        });
+        return true;
+    }
+
     if (error instanceof ImportReviewRoadPromotionBatchLimitError) {
         sendImportReviewApiError(reply, 409, "ROAD_PROMOTION_BATCH_LIMIT", error.message, {
             batch_id: error.batchId,
@@ -170,8 +185,33 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
         return true;
     }
 
+    if (error instanceof ImportReviewAdminAreaPromotionBatchLimitError) {
+        sendImportReviewApiError(reply, 409, "ADMIN_AREA_PROMOTION_BATCH_LIMIT", error.message, {
+            batch_id: error.batchId,
+            admin_area_item_count: error.adminAreaItemCount,
+            max_items: error.maxItems,
+        });
+        return true;
+    }
+
+    if (error instanceof ImportReviewRoutingBarrierPromotionBatchLimitError) {
+        sendImportReviewApiError(reply, 409, "ROUTING_BARRIER_PROMOTION_BATCH_LIMIT", error.message, {
+            batch_id: error.batchId,
+            routing_barrier_item_count: error.routingBarrierItemCount,
+            max_items: error.maxItems,
+        });
+        return true;
+    }
+
     if (error instanceof ImportReviewRoadDryRunRequiredError) {
         sendImportReviewApiError(reply, 409, "ROAD_DRY_RUN_REQUIRED", error.message, {
+            batch_id: error.batchId,
+        });
+        return true;
+    }
+
+    if (error instanceof ImportReviewRoutingBarrierDryRunRequiredError) {
+        sendImportReviewApiError(reply, 409, "ROUTING_BARRIER_DRY_RUN_REQUIRED", error.message, {
             batch_id: error.batchId,
         });
         return true;
@@ -226,9 +266,11 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
 
     if (
         error instanceof ImportReviewPromotionRoadDryRunNotFoundError ||
-        error instanceof ImportReviewPromotionRoadDryRunNoItemsError
+        error instanceof ImportReviewPromotionRoadDryRunNoItemsError ||
+        error instanceof ImportReviewPromotionRoutingBarrierDryRunNotFoundError ||
+        error instanceof ImportReviewPromotionRoutingBarrierDryRunNoItemsError
     ) {
-        sendImportReviewApiError(reply, error.statusCode, "ROAD_DRY_RUN_ERROR", error.message, {
+        sendImportReviewApiError(reply, error.statusCode, "PROMOTION_DRY_RUN_ERROR", error.message, {
             batch_id: error.batchId,
         });
         return true;

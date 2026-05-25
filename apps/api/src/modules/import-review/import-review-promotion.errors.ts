@@ -137,6 +137,56 @@ export class ImportReviewRoadPromotionBatchLimitError extends Error {
     }
 }
 
+export class ImportReviewAdminAreaPromotionBatchLimitError extends Error {
+    readonly statusCode = 409;
+
+    constructor(
+        public readonly batchId: string,
+        public readonly adminAreaItemCount: number,
+        public readonly maxItems: number
+    ) {
+        super(
+            `Admin area promotion batch limit exceeded (${adminAreaItemCount} admin area items; max ${maxItems} without ENABLE_IMPORT_REVIEW_ADMIN_AREA_BULK_PROMOTION=true).`
+        );
+        this.name = "ImportReviewAdminAreaPromotionBatchLimitError";
+    }
+}
+
+export class ImportReviewRoutingBarrierPromotionDisabledError extends Error {
+    readonly statusCode = 409;
+
+    constructor(public readonly batchId: string) {
+        super(
+            "Routing barrier promotion is disabled. Set ENABLE_IMPORT_REVIEW_ROUTING_BARRIER_PROMOTION=true and run routing-barrier dry-run first."
+        );
+        this.name = "ImportReviewRoutingBarrierPromotionDisabledError";
+    }
+}
+
+export class ImportReviewRoutingBarrierPromotionBatchLimitError extends Error {
+    readonly statusCode = 409;
+
+    constructor(
+        public readonly batchId: string,
+        public readonly routingBarrierItemCount: number,
+        public readonly maxItems: number
+    ) {
+        super(
+            `Routing barrier promotion batch limit exceeded (${routingBarrierItemCount} routing barrier items; max ${maxItems} without ENABLE_IMPORT_REVIEW_ROUTING_BARRIER_BULK_PROMOTION=true).`
+        );
+        this.name = "ImportReviewRoutingBarrierPromotionBatchLimitError";
+    }
+}
+
+export class ImportReviewRoutingBarrierDryRunRequiredError extends Error {
+    readonly statusCode = 409;
+
+    constructor(public readonly batchId: string) {
+        super("Routing barrier dry-run is required before promoting routing barrier publish items.");
+        this.name = "ImportReviewRoutingBarrierDryRunRequiredError";
+    }
+}
+
 export class ImportReviewRoadDryRunRequiredError extends Error {
     readonly statusCode = 409;
 

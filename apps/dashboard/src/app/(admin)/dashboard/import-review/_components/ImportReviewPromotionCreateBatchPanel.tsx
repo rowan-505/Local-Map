@@ -24,6 +24,8 @@ const DEFAULT_PUBLISH_FAMILIES = [
     "landuse",
     "water_lines",
     "water_polygons",
+    "bus_routes",
+    "bus_route_variants",
     "bus_stops",
 ] as const;
 
@@ -35,6 +37,9 @@ const FAMILY_LABELS: Record<string, string> = {
     landuse: "Land use",
     water_lines: "Water lines",
     water_polygons: "Water polygons",
+    bus_routes: "Bus routes",
+    bus_route_variants: "Bus route variants",
+    bus_route_stops: "Bus route stops",
     bus_stops: "Bus stops",
     roads: "Roads",
     addresses: "Addresses",
@@ -264,18 +269,25 @@ export default function ImportReviewPromotionCreateBatchPanel({
                             Enable high-risk families (roads, addresses, admin areas, routing barriers)
                         </label>
                         {highRiskEnabled ? (
-                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                                {HIGH_RISK_PUBLISH_FAMILIES.map((family) => (
-                                    <label key={family} className="flex items-center gap-2 text-sm text-gray-800">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedFamilies.includes(family)}
-                                            onChange={(e) => toggleFamily(family, e.target.checked)}
-                                        />
-                                        {FAMILY_LABELS[family] ?? family}
-                                    </label>
-                                ))}
-                            </div>
+                            <>
+                                <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                                    Admin areas are high risk because they affect search filters, address hierarchy,
+                                    region clipping, analytics, routing region selection, and dashboard filters.
+                                    Keep admin-area publish batches tiny unless the API bulk env flag is enabled.
+                                </p>
+                                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                    {HIGH_RISK_PUBLISH_FAMILIES.map((family) => (
+                                        <label key={family} className="flex items-center gap-2 text-sm text-gray-800">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedFamilies.includes(family)}
+                                                onChange={(e) => toggleFamily(family, e.target.checked)}
+                                            />
+                                            {FAMILY_LABELS[family] ?? family}
+                                        </label>
+                                    ))}
+                                </div>
+                            </>
                         ) : null}
                     </details>
                 </PromotionCardBody>

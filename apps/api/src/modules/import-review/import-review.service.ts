@@ -96,6 +96,7 @@ import {
 } from "./import-review-summary-counts.js";
 import { ImportReviewAddressComponentsRepository } from "./import-review-address-components.repo.js";
 import { ImportReviewAddressMapPreviewRepository } from "./import-review-address-map-preview.repo.js";
+import { ImportReviewAddressPlaceWorkflowRepository } from "./import-review-address-place-workflow.repo.js";
 import {
     composeFromComponentRows,
     enrichAddressListItem,
@@ -1527,11 +1528,14 @@ export class ImportReviewService {
                 ...matchedLayers,
             };
         }
+        const placeWorkflowRepo = new ImportReviewAddressPlaceWorkflowRepository(getImportReviewPrisma());
+        const placeWorkflowSummary = await placeWorkflowRepo.getSummary(row.id);
 
         return {
             ...enriched,
             ...detail,
             map_preview_layers,
+            ...placeWorkflowSummary,
             name,
             canonical_name: row.canonical_name ?? name,
         };

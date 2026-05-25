@@ -11,18 +11,19 @@ import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadin
 import ImportReviewPromotionPromotePanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionPromotePanel";
 import ImportReviewPromotionCleanupPanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionCleanupPanel";
 import ImportReviewPromotionRoadDryRunPanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionRoadDryRunPanel";
+import ImportReviewPromotionRoutingBarrierDryRunPanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionRoutingBarrierDryRunPanel";
 import ImportReviewPromotionValidationPanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionValidationPanel";
 import {
     PromotionCardBody,
     PromotionSectionHeading,
     PromotionStatusBadge,
     PublishEntityFamilyLabel,
-    publishEntityFamilyLabel,
 } from "@/src/app/(admin)/dashboard/import-review/_components/importReviewPromotionUi";
 import {
     getImportReviewPromotionBatchById,
     isAbortError,
     type ImportReviewPromotionRoadDryRunResult,
+    type ImportReviewPromotionRoutingBarrierDryRunResult,
     type ImportReviewPublishBatchDetail,
 } from "@/src/lib/api";
 import { importReviewPath } from "@/src/lib/dashboardNavigation";
@@ -74,6 +75,8 @@ export default function ImportReviewPromotionBatchDetailClient() {
     const [roadDryRunResult, setRoadDryRunResult] = useState<ImportReviewPromotionRoadDryRunResult | null>(
         null
     );
+    const [routingBarrierDryRunResult, setRoutingBarrierDryRunResult] =
+        useState<ImportReviewPromotionRoutingBarrierDryRunResult | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -108,6 +111,14 @@ export default function ImportReviewPromotionBatchDetailClient() {
     }, [loadBatch]);
 
     const hasRoadItems = (batchDetail?.item_counts_by_entity_family?.roads?.total ?? 0) > 0;
+    const hasBusRouteItems = (batchDetail?.item_counts_by_entity_family?.bus_routes?.total ?? 0) > 0;
+    const hasBusRouteVariantItems =
+        (batchDetail?.item_counts_by_entity_family?.bus_route_variants?.total ?? 0) > 0;
+    const hasBusRouteStopItems =
+        (batchDetail?.item_counts_by_entity_family?.bus_route_stops?.total ?? 0) > 0;
+    const hasAdminAreaItems = (batchDetail?.item_counts_by_entity_family?.admin_areas?.total ?? 0) > 0;
+    const hasRoutingBarrierItems =
+        (batchDetail?.item_counts_by_entity_family?.routing_barriers?.total ?? 0) > 0;
 
     return (
         <main className="p-6">
@@ -210,6 +221,38 @@ export default function ImportReviewPromotionBatchDetailClient() {
                                 />
                             )}
                         </div>
+                        {hasAdminAreaItems ? (
+                            <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                                Admin area promotion is high risk. These rows affect search filters, address
+                                hierarchy, clipping, analytics, routing region selection, and dashboard filters.
+                                Batches with more than 3 admin area items require{" "}
+                                <code className="rounded bg-white/70 px-1 text-xs">
+                                    ENABLE_IMPORT_REVIEW_ADMIN_AREA_BULK_PROMOTION=true
+                                </code>
+                                .
+                            </div>
+                        ) : null}
+                        {hasBusRouteItems ? (
+                            <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950">
+                                Bus route promotion writes routes and route names only. Route variants and route
+                                stops are separate transit phases.
+                            </div>
+                        ) : null}
+                        {hasBusRouteVariantItems ? (
+                            <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950">
+                                Bus route variants require an existing promoted/core bus route. Validation shows
+                                DEPENDENCY_ROUTE_MISSING when route_id, route_code, or external route references
+                                cannot resolve.
+                            </div>
+                        ) : null}
+                        {hasBusRouteStopItems ? (
+                            <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950">
+                                Bus route stops require both dependencies first: a promoted/core route variant and
+                                a promoted/core bus stop. Validation shows DEPENDENCY_VARIANT_MISSING or
+                                DEPENDENCY_STOP_MISSING, plus sequence warnings for gaps and non-increasing
+                                distance.
+                            </div>
+                        ) : null}
                         <ImportReviewPromotionValidationPanel
                             batchId={batchDetail.id}
                             batchStatus={batchDetail.status}
@@ -223,11 +266,21 @@ export default function ImportReviewPromotionBatchDetailClient() {
                                 onDryRunUpdated={setRoadDryRunResult}
                             />
                         ) : null}
+                        {hasRoutingBarrierItems ? (
+                            <ImportReviewPromotionRoutingBarrierDryRunPanel
+                                batchId={batchDetail.id}
+                                formatError={formatPromotionError}
+                                onDryRunUpdated={setRoutingBarrierDryRunResult}
+                            />
+                        ) : null}
                         <ImportReviewPromotionPromotePanel
                             batchId={batchDetail.id}
                             batchStatus={batchDetail.status}
                             hasRoadItems={hasRoadItems}
+                            hasAdminAreaItems={hasAdminAreaItems}
+                            hasRoutingBarrierItems={hasRoutingBarrierItems}
                             roadDryRunResult={roadDryRunResult}
+                            routingBarrierDryRunResult={routingBarrierDryRunResult}
                             onBatchUpdated={setBatchDetail}
                             formatError={formatPromotionError}
                         />

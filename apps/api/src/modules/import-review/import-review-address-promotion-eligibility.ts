@@ -11,6 +11,7 @@ export type AddressPromotionCandidateSnapshot = {
     promotion_warnings: unknown;
     promoted_core_address_id: bigint | null;
     point_geom_present: boolean;
+    address_strength: string | null;
 };
 
 export type AddressPromotionEligibility = {
@@ -95,6 +96,17 @@ export function assessAddressPromotionEligibility(args: {
     if (jsonbArrayLength(candidate.promotion_blockers) > 0) {
         reasons.push("promotion_blockers_present");
         blockers.push(...parseIssues(candidate.promotion_blockers, "error"));
+    }
+
+    const addressStrength = (candidate.address_strength ?? "").trim().toLowerCase();
+    if (!["partial", "strong", "full"].includes(addressStrength)) {
+        reasons.push("address_strength_not_promotable");
+        blockers.push({
+            code: "address_strength_not_promotable",
+            message: "Address strength must be partial, strong, or full before address promotion.",
+            severity: "error",
+            field: "address_strength",
+        });
     }
 
     if (!candidate.point_geom_present) {

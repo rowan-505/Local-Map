@@ -6,6 +6,9 @@ import {
 import { createImportReviewEntityConfig } from "../createEntityConfig";
 
 const ADDRESS_TABLE_COLUMNS = [
+    { key: "source_classification", label: "Classification", source: "row" as const },
+    { key: "address_strength", label: "Address strength", source: "row" as const },
+    { key: "place_candidate_status", label: "Place status", source: "row" as const },
     { key: "source_name", label: "Source / place", source: "row" as const },
     { key: "source_type_hint", label: "Source type", source: "row" as const },
     { key: "house_number", label: "House #", source: "row" as const },

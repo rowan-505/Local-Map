@@ -798,9 +798,20 @@ export type ImportReviewBuildingListItem = {
     validated_at?: string | null;
     source_tags?: unknown;
     source_entity_type?: string | null;
+    source_classification?: string | null;
+    has_place_evidence?: boolean;
+    has_address_evidence?: boolean;
+    address_strength?: string | null;
+    place_candidate_status?: string | null;
+    linked_place_candidate_id?: string | null;
+    matched_core_place_id?: string | null;
+    classification_reasons?: unknown;
     source_name?: string | null;
     source_type_hint?: string | null;
     source_context?: ImportReviewAddressSourceContext;
+    linked_place_candidate?: ImportReviewAddressLinkedPlaceSummary | null;
+    matched_core_place?: ImportReviewAddressMatchedCorePlaceSummary | null;
+    place_address_link?: ImportReviewAddressPlaceAddressLinkSummary | null;
     map_preview_layers?: ImportReviewAddressMapPreviewLayers | null;
     address_components_flat?: ImportReviewAddressComponentDto[];
     address_components?: Record<string, Record<string, ImportReviewAddressComponentDto[]>>;
@@ -1823,6 +1834,41 @@ export type ImportReviewAddressSourceContext = {
     raw_relevant_tags: Record<string, string>;
 };
 
+export type ImportReviewAddressLinkedPlaceSummary = {
+    id: string;
+    external_id: string | null;
+    canonical_name: string | null;
+    display_name: string | null;
+    class_code: string | null;
+    review_status: string | null;
+    promotion_status: string | null;
+    validation_status: string | null;
+    validation_errors: unknown;
+    validation_warnings: unknown;
+};
+
+export type ImportReviewAddressMatchedCorePlaceSummary = {
+    id: string;
+    display_name: string | null;
+    canonical_name: string | null;
+    category_name: string | null;
+};
+
+export type ImportReviewAddressPlaceAddressLinkSummary = {
+    id: string;
+    place_candidate_id: string | null;
+    address_candidate_id: string;
+    relation_type: string | null;
+    is_primary: boolean | null;
+    confidence_score: number | null;
+    match_status: string | null;
+    review_status: string | null;
+    validation_status: string | null;
+    promotion_status: string | null;
+    validation_errors: unknown;
+    validation_warnings: unknown;
+};
+
 export type ImportReviewAddressMapPreviewLayers = {
     candidate_point: ImportReviewGeoJson | null;
     entrance_point: ImportReviewGeoJson | null;
@@ -1886,6 +1932,8 @@ export type ImportReviewAddressValidateResultItem = {
     validation_status: "blocked" | "valid_with_warnings" | "valid";
     promotion_blockers: ImportReviewAddressValidationIssue[];
     promotion_warnings: ImportReviewAddressValidationIssue[];
+    validation_errors: ImportReviewAddressValidationIssue[];
+    validation_warnings: ImportReviewAddressValidationIssue[];
     validated_at: string;
 };
 
@@ -1894,6 +1942,36 @@ export type ImportReviewAddressValidateResponse = {
     candidate_count: number;
     summary: { blocked: number; valid_with_warnings: number; valid: number };
     results: ImportReviewAddressValidateResultItem[];
+};
+
+export type ImportReviewPlaceValidateResultItem = {
+    place_candidate_id: string;
+    validation_status: "blocked" | "valid_with_warnings" | "valid";
+    validation_errors: ImportReviewAddressValidationIssue[];
+    validation_warnings: ImportReviewAddressValidationIssue[];
+    validated_at: string;
+};
+
+export type ImportReviewPlaceValidateResponse = {
+    review_batch_id: string | null;
+    candidate_count: number;
+    summary: { blocked: number; valid_with_warnings: number; valid: number };
+    results: ImportReviewPlaceValidateResultItem[];
+};
+
+export type ImportReviewPlaceAddressLinkValidateResultItem = {
+    place_address_link_id: string;
+    validation_status: "blocked" | "valid_with_warnings" | "valid";
+    validation_errors: ImportReviewAddressValidationIssue[];
+    validation_warnings: ImportReviewAddressValidationIssue[];
+    validated_at: string;
+};
+
+export type ImportReviewPlaceAddressLinkValidateResponse = {
+    review_batch_id: string | null;
+    link_count: number;
+    summary: { blocked: number; valid_with_warnings: number; valid: number };
+    results: ImportReviewPlaceAddressLinkValidateResultItem[];
 };
 
 export type PatchImportReviewAddressComponentsBody = {
@@ -1916,6 +1994,22 @@ export type PatchImportReviewAddressMatchesBody = {
     matched_place_id?: string | null;
     street_match_confidence?: number;
     replace_reviewed_street_components?: boolean;
+};
+
+export type ImportReviewAddressPlaceWorkflowResponse = {
+    address_candidate_id: string;
+    linked_place_candidate_id: string | null;
+    matched_core_place_id: string | null;
+    place_candidate_status: string | null;
+    linked_place_candidate: ImportReviewAddressLinkedPlaceSummary | null;
+    matched_core_place: ImportReviewAddressMatchedCorePlaceSummary | null;
+    place_address_link: ImportReviewAddressPlaceAddressLinkSummary | null;
+};
+
+export type PatchImportReviewAddressPlaceStatusBody = {
+    place_candidate_status?: "ignored";
+    matched_core_place_id?: string | null;
+    clear_linked_place_candidate?: boolean;
 };
 
 export function getImportReviewAddressOptions(id: string, fetchInit?: Pick<RequestInit, "signal">) {
@@ -1956,6 +2050,27 @@ export function patchImportReviewAddressMatches(id: string, body: PatchImportRev
     });
 }
 
+export function postImportReviewAddressCreatePlaceCandidate(id: string) {
+    return apiFetch<ImportReviewAddressPlaceWorkflowResponse>(
+        `/api/import-review/addresses/${encodeURIComponent(id)}/create-place-candidate`,
+        { method: "POST" }
+    );
+}
+
+export function patchImportReviewAddressPlaceStatus(
+    id: string,
+    body: PatchImportReviewAddressPlaceStatusBody
+) {
+    return apiFetch<ImportReviewAddressPlaceWorkflowResponse>(
+        `/api/import-review/addresses/${encodeURIComponent(id)}/place-status`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        }
+    );
+}
+
 export function postImportReviewAddressValidate(body: {
     review_batch_id?: string;
     candidate_ids?: string[];
@@ -1965,6 +2080,31 @@ export function postImportReviewAddressValidate(body: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
     });
+}
+
+export function postImportReviewPlaceValidate(body: {
+    review_batch_id?: string;
+    candidate_ids?: string[];
+}) {
+    return apiFetch<ImportReviewPlaceValidateResponse>(`/api/import-review/places/validate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+}
+
+export function postImportReviewPlaceAddressLinkValidate(body: {
+    review_batch_id?: string;
+    link_ids?: string[];
+}) {
+    return apiFetch<ImportReviewPlaceAddressLinkValidateResponse>(
+        `/api/import-review/place-address-links/validate`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        }
+    );
 }
 
 export type ImportReviewAddressPromotionItem = {
@@ -1997,6 +2137,28 @@ export type ImportReviewAddressPromotionResponse = {
     message?: string;
 };
 
+export type ImportReviewSplitPromotionItem = {
+    candidate_id: string;
+    external_id: string | null;
+    outcome: "promoted" | "would_promote" | "skipped" | "failed";
+    reasons: string[];
+    core_id: string | null;
+    promotion_warnings: ImportReviewAddressValidationIssue[];
+    promotion_blockers: ImportReviewAddressValidationIssue[];
+};
+
+export type ImportReviewSplitPromotionResponse = {
+    dry_run: boolean;
+    review_batch_id: string | null;
+    candidate_count: number;
+    promoted: number;
+    skipped: number;
+    failed: number;
+    warnings: string[];
+    items: ImportReviewSplitPromotionItem[];
+    finished_at: string;
+};
+
 export function postImportReviewAddressPromoteDryRun(body: {
     review_batch_id?: string;
     candidate_ids?: string[];
@@ -2022,6 +2184,60 @@ export function postImportReviewAddressPromote(body: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
     });
+}
+
+export function postImportReviewPlacePromoteDryRun(body: {
+    review_batch_id?: string;
+    candidate_ids?: string[];
+    confirm_warnings?: boolean;
+}) {
+    return apiFetch<ImportReviewSplitPromotionResponse>(`/api/import-review/places/promote-dry-run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+}
+
+export function postImportReviewPlacePromote(body: {
+    review_batch_id?: string;
+    candidate_ids?: string[];
+    confirm_warnings?: boolean;
+}) {
+    return apiFetch<ImportReviewSplitPromotionResponse>(`/api/import-review/places/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+}
+
+export function postImportReviewPlaceAddressLinkPromoteDryRun(body: {
+    review_batch_id?: string;
+    link_ids?: string[];
+    confirm_warnings?: boolean;
+}) {
+    return apiFetch<ImportReviewSplitPromotionResponse>(
+        `/api/import-review/place-address-links/promote-dry-run`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        }
+    );
+}
+
+export function postImportReviewPlaceAddressLinkPromote(body: {
+    review_batch_id?: string;
+    link_ids?: string[];
+    confirm_warnings?: boolean;
+}) {
+    return apiFetch<ImportReviewSplitPromotionResponse>(
+        `/api/import-review/place-address-links/promote`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        }
+    );
 }
 
 export function getAdminReverseAddressDebug(
@@ -2564,6 +2780,166 @@ export function getImportReviewPromotionBatchVerify(
     );
 }
 
+export type CoreVerificationStatus =
+    | "unverified"
+    | "verified"
+    | "needs_fix"
+    | "questionable"
+    | "rejected_after_core_review";
+
+export type CoreVerificationSupport = {
+    table_exists: boolean;
+    verification_supported: boolean;
+    unsupported_reason: string | null;
+    missing_verification_columns: string[];
+};
+
+export type CoreVerificationSummaryFamily = {
+    family: string;
+    label: string;
+    table: string;
+    path: string;
+    total: number;
+    unverified: number;
+    verified: number;
+    needs_fix: number;
+    questionable: number;
+    rejected_after_core_review: number;
+    support: CoreVerificationSupport;
+};
+
+export type CoreVerificationSummaryResponse = {
+    statuses: CoreVerificationStatus[];
+    totals: Record<string, number>;
+    families: CoreVerificationSummaryFamily[];
+};
+
+export type CoreVerificationListItem = {
+    id: string;
+    family: string;
+    display_name: string | null;
+    verification_status: CoreVerificationStatus | "unsupported" | null;
+    is_verified: boolean | null;
+    verification_note: string | null;
+    verified_at: string | null;
+    verified_by: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+    external_id: string | null;
+    admin_area_id: string | null;
+    is_active: boolean | null;
+    has_geometry: boolean;
+    geometry_label: string;
+    source_lineage: Record<string, unknown> | null;
+};
+
+export type CoreVerificationListResponse = {
+    family: string;
+    label: string;
+    support: CoreVerificationSupport;
+    items: CoreVerificationListItem[];
+    total: number;
+    limit: number;
+    offset: number;
+};
+
+export type CoreVerificationDetailResponse = CoreVerificationListItem & {
+    source_refs: unknown;
+    normalized_data: unknown;
+    geometry: unknown;
+    properties: Record<string, unknown>;
+    support: CoreVerificationSupport;
+    safe_editable_fields: string[];
+};
+
+export type CoreVerificationListParams = {
+    limit?: number;
+    offset?: number;
+    q?: string;
+    is_verified?: boolean;
+    verification_status?: CoreVerificationStatus;
+    review_batch_id?: string;
+    publish_batch_id?: string;
+    source_snapshot_version?: string;
+    admin_area_id?: string;
+    created_from?: string;
+    created_to?: string;
+    updated_from?: string;
+    updated_to?: string;
+};
+
+function coreVerificationQuery(params: CoreVerificationListParams): Record<string, QueryValue> {
+    return {
+        ...params,
+        is_verified: params.is_verified === undefined ? undefined : String(params.is_verified),
+    };
+}
+
+export function getCoreVerificationSummary(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<CoreVerificationSummaryResponse>(
+        "/api/core-verification/summary",
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export function getCoreVerificationList(
+    family: string,
+    params: CoreVerificationListParams = {},
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<CoreVerificationListResponse>(
+        `/api/core-verification/${family}`,
+        { method: "GET", ...fetchInit },
+        coreVerificationQuery(params)
+    );
+}
+
+export function getCoreVerificationDetail(
+    family: string,
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<CoreVerificationDetailResponse>(
+        `/api/core-verification/${family}/${encodeURIComponent(id)}`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export function patchCoreVerificationStatus(
+    family: string,
+    id: string,
+    body: {
+        verification_status: CoreVerificationStatus;
+        verification_note?: string;
+        deactivate?: boolean;
+        deactivate_confirmation?: "DEACTIVATE";
+    }
+) {
+    return apiFetch<CoreVerificationDetailResponse>(
+        `/api/core-verification/${family}/${encodeURIComponent(id)}/status`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        }
+    );
+}
+
+export function patchCoreVerificationEdit(
+    family: string,
+    id: string,
+    changes: Record<string, unknown>
+) {
+    return apiFetch<CoreVerificationDetailResponse>(
+        `/api/core-verification/${family}/${encodeURIComponent(id)}/edit`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ changes }),
+        }
+    );
+}
+
 export type RoadDryRunItemStatus =
     | "safe_to_promote"
     | "promote_with_warning"
@@ -2690,6 +3066,93 @@ export function getImportReviewPromotionBatchRoadDryRun(
 ) {
     return apiFetch<ImportReviewPromotionRoadDryRunResult>(
         `/api/import-review/promotion/batches/${id}/road-dry-run`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export type RoutingBarrierDryRunItemStatus = RoadDryRunItemStatus;
+
+export type RoutingBarrierDryRunSampleItem = {
+    publish_item_id: string;
+    review_candidate_id: string;
+    external_id: string | null;
+    barrier_type: string | null;
+    dry_run_status: RoutingBarrierDryRunItemStatus;
+    blocking_reasons: string[];
+    warning_codes: string[];
+    info_codes: string[];
+};
+
+export type RoutingBarrierDryRunItemResult = RoutingBarrierDryRunSampleItem & {
+    publish_action: string;
+    matched_core_id: string | null;
+    core_street_id: string | null;
+    geometry_summary: { srid: number | null; geom_type: string | null; is_valid: boolean | null } | null;
+    network_summary: {
+        nearby_core_roads: number;
+        nearby_review_roads: number;
+        nearest_core_street_id: string | null;
+        nearest_core_road_distance_m: number | null;
+    } | null;
+    can_promote_later: boolean;
+};
+
+export type ImportReviewPromotionRoutingBarrierDryRunResult = {
+    batch_id: string;
+    review_batch_id: string | null;
+    total_count: number;
+    safe_to_promote_count: number;
+    promote_with_warning_count: number;
+    needs_manual_review_count: number;
+    blocked_count: number;
+    warning_count: number;
+    error_count: number;
+    duplicate_risk_count: number;
+    network_warning_count: number;
+    would_insert_count: number;
+    would_update_count: number;
+    by_warning_code: Record<string, number>;
+    by_error_code: Record<string, number>;
+    by_barrier_type: Record<string, number>;
+    sample_blocked_items: RoutingBarrierDryRunSampleItem[];
+    sample_warning_items: RoutingBarrierDryRunSampleItem[];
+    disabled_because_env_flag_false: boolean;
+    items: RoutingBarrierDryRunItemResult[];
+    finished_at: string;
+    message: string;
+};
+
+export type PostImportReviewPromotionRoutingBarrierDryRunBody = {
+    include_warnings?: boolean;
+    revalidate?: boolean;
+    use_review_overrides?: boolean;
+    nearby_core_road_threshold_m?: number;
+    nearby_review_road_threshold_m?: number;
+    duplicate_threshold_m?: number;
+};
+
+export function postImportReviewPromotionBatchRoutingBarrierDryRun(
+    id: string,
+    body: PostImportReviewPromotionRoutingBarrierDryRunBody = {},
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewPromotionRoutingBarrierDryRunResult>(
+        `/api/import-review/promotion/batches/${id}/routing-barrier-dry-run`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function getImportReviewPromotionBatchRoutingBarrierDryRun(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewPromotionRoutingBarrierDryRunResult>(
+        `/api/import-review/promotion/batches/${id}/routing-barrier-dry-run`,
         { method: "GET", ...fetchInit }
     );
 }

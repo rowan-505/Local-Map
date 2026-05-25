@@ -17,6 +17,8 @@ export type ImportReviewAddressValidateResultItem = {
     validation_status: string;
     promotion_blockers: AddressValidationIssue[];
     promotion_warnings: AddressValidationIssue[];
+    validation_errors: AddressValidationIssue[];
+    validation_warnings: AddressValidationIssue[];
     validated_at: string;
 };
 
@@ -130,6 +132,9 @@ export function createImportReviewAddressValidationService(prisma: PrismaClient)
                     entrance_geom_present: candidate.entrance_geom_present,
                     matched_admin_area_id: candidate.matched_admin_area_id,
                     matched_street_id: candidate.matched_street_id,
+                    source_classification: candidate.source_classification,
+                    address_strength: candidate.address_strength,
+                    place_candidate_status: candidate.place_candidate_status,
                     review_status: candidate.review_status,
                     promotion_status: candidate.promotion_status,
                     promoted_core_address_id: candidate.promoted_core_address_id,
@@ -193,6 +198,8 @@ function mapResultItem(
         validation_status: validation.validation_status,
         promotion_blockers: validation.promotion_blockers,
         promotion_warnings: validation.promotion_warnings,
+        validation_errors: validation.promotion_blockers,
+        validation_warnings: validation.promotion_warnings,
         validated_at: validatedAt,
     };
 }

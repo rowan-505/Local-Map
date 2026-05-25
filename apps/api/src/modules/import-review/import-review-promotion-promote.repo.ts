@@ -53,10 +53,38 @@ import {
     CORE_BUS_STOPS_TABLE,
 } from "./import-review-promotion-promote-bus-stops.repo.js";
 import {
+    BUS_ROUTE_CANDIDATE_TABLE,
+    CORE_BUS_ROUTES_TABLE,
+    ImportReviewPromotionPromoteBusRoutesRepository,
+} from "./import-review-promotion-promote-bus-routes.repo.js";
+import {
+    BUS_ROUTE_VARIANT_CANDIDATE_TABLE,
+    CORE_BUS_ROUTE_VARIANTS_TABLE,
+    ImportReviewPromotionPromoteBusRouteVariantsRepository,
+} from "./import-review-promotion-promote-bus-route-variants.repo.js";
+import {
+    BUS_ROUTE_STOP_CANDIDATE_TABLE,
+    CORE_BUS_ROUTE_STOPS_TABLE,
+    ImportReviewPromotionPromoteBusRouteStopsRepository,
+} from "./import-review-promotion-promote-bus-route-stops.repo.js";
+import {
     ImportReviewPromotionPromoteRoadsRepository,
     CORE_STREETS_TABLE,
 } from "./import-review-promotion-promote-roads.repo.js";
+import {
+    ADMIN_AREA_CANDIDATE_TABLE,
+    CORE_ADMIN_AREAS_TABLE,
+    ImportReviewPromotionPromoteAdminAreasRepository,
+} from "./import-review-promotion-promote-admin-areas.repo.js";
 import { ROAD_CANDIDATE_TABLE, ImportReviewPromotionRoadDryRunRepository } from "./import-review-promotion-road-dry-run.repo.js";
+import {
+    ImportReviewPromotionPromoteRoutingBarriersRepository,
+} from "./import-review-promotion-promote-routing-barriers.repo.js";
+import {
+    ROUTING_BARRIER_CANDIDATE_TABLE,
+    ROUTING_BARRIER_TARGET_TABLE,
+    ImportReviewPromotionRoutingBarrierDryRunRepository,
+} from "./import-review-promotion-routing-barrier-dry-run.repo.js";
 import {
     buildingClassCodeExpr,
     geomSourceExpr,
@@ -175,9 +203,15 @@ export class ImportReviewPromotionPromoteRepository {
     private readonly placesRepo: ImportReviewPromotionPromotePlacesRepository;
     private readonly mapRepo: ImportReviewPromotionPromoteMapRepository;
     private readonly landuseRepo: ImportReviewPromotionPromoteLanduseRepository;
+    private readonly busRoutesRepo: ImportReviewPromotionPromoteBusRoutesRepository;
+    private readonly busRouteVariantsRepo: ImportReviewPromotionPromoteBusRouteVariantsRepository;
+    private readonly busRouteStopsRepo: ImportReviewPromotionPromoteBusRouteStopsRepository;
     private readonly busStopsRepo: ImportReviewPromotionPromoteBusStopsRepository;
     private readonly roadsRepo: ImportReviewPromotionPromoteRoadsRepository;
+    private readonly adminAreasRepo: ImportReviewPromotionPromoteAdminAreasRepository;
+    private readonly routingBarriersRepo: ImportReviewPromotionPromoteRoutingBarriersRepository;
     private readonly dryRunRepo: ImportReviewPromotionRoadDryRunRepository;
+    private readonly routingBarrierDryRunRepo: ImportReviewPromotionRoutingBarrierDryRunRepository;
     private readonly publishSummaryRepo: ImportReviewPublishBatchSummaryRepository;
     private readonly reviewSummaryRepo: ImportReviewReviewBatchSummaryRepository;
 
@@ -188,9 +222,15 @@ export class ImportReviewPromotionPromoteRepository {
         this.placesRepo = new ImportReviewPromotionPromotePlacesRepository(prisma);
         this.mapRepo = new ImportReviewPromotionPromoteMapRepository(prisma);
         this.landuseRepo = new ImportReviewPromotionPromoteLanduseRepository(prisma);
+        this.busRoutesRepo = new ImportReviewPromotionPromoteBusRoutesRepository(prisma);
+        this.busRouteVariantsRepo = new ImportReviewPromotionPromoteBusRouteVariantsRepository(prisma);
+        this.busRouteStopsRepo = new ImportReviewPromotionPromoteBusRouteStopsRepository(prisma);
         this.busStopsRepo = new ImportReviewPromotionPromoteBusStopsRepository(prisma);
         this.roadsRepo = new ImportReviewPromotionPromoteRoadsRepository(prisma);
+        this.adminAreasRepo = new ImportReviewPromotionPromoteAdminAreasRepository(prisma);
+        this.routingBarriersRepo = new ImportReviewPromotionPromoteRoutingBarriersRepository(prisma);
         this.dryRunRepo = new ImportReviewPromotionRoadDryRunRepository(prisma);
+        this.routingBarrierDryRunRepo = new ImportReviewPromotionRoutingBarrierDryRunRepository(prisma);
         this.publishSummaryRepo = new ImportReviewPublishBatchSummaryRepository(prisma);
         this.reviewSummaryRepo = new ImportReviewReviewBatchSummaryRepository(prisma);
     }
@@ -203,12 +243,36 @@ export class ImportReviewPromotionPromoteRepository {
         return this.dryRunRepo.readRoadDryRunResult(batchId);
     }
 
+    async readRoutingBarrierDryRunResult(batchId: bigint) {
+        return this.routingBarrierDryRunRepo.readDryRunResult(batchId);
+    }
+
     async countRoadPublishItems(batchId: bigint): Promise<number> {
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
             SELECT count(*)::bigint AS count
             FROM system.system_publish_items
             WHERE publish_batch_id = ${batchId}
               AND entity_family = 'roads'
+        `;
+        return Number(rows[0]?.count ?? 0n);
+    }
+
+    async countAdminAreaPublishItems(batchId: bigint): Promise<number> {
+        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
+            SELECT count(*)::bigint AS count
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+              AND entity_family = 'admin_areas'
+        `;
+        return Number(rows[0]?.count ?? 0n);
+    }
+
+    async countRoutingBarrierPublishItems(batchId: bigint): Promise<number> {
+        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
+            SELECT count(*)::bigint AS count
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+              AND entity_family = 'routing_barriers'
         `;
         return Number(rows[0]?.count ?? 0n);
     }
@@ -434,6 +498,66 @@ export class ImportReviewPromotionPromoteRepository {
                 UNION ALL
                 SELECT
                     spi.id AS publish_item_id,
+                    'bus_routes'::text AS entity_family,
+                    ${CORE_BUS_ROUTES_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    br.review_batch_id,
+                    br.source_snapshot_version,
+                    br.promotion_status,
+                    br.promoted_core_id,
+                    br.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.bus_route_candidates AS br
+                    ON br.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${BUS_ROUTE_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'bus_routes'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
+                    'bus_route_variants'::text AS entity_family,
+                    ${CORE_BUS_ROUTE_VARIANTS_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    brv.review_batch_id,
+                    brv.source_snapshot_version,
+                    brv.promotion_status,
+                    brv.promoted_core_id,
+                    brv.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.bus_route_variant_candidates AS brv
+                    ON brv.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${BUS_ROUTE_VARIANT_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'bus_route_variants'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
+                    'bus_route_stops'::text AS entity_family,
+                    ${CORE_BUS_ROUTE_STOPS_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    brs.review_batch_id,
+                    brs.source_snapshot_version,
+                    brs.promotion_status,
+                    brs.promoted_core_id,
+                    brs.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.bus_route_stop_candidates AS brs
+                    ON brs.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${BUS_ROUTE_STOP_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'bus_route_stops'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
                     'bus_stops'::text AS entity_family,
                     ${CORE_BUS_STOPS_TABLE} AS target_table,
                     spi.publish_action,
@@ -471,6 +595,46 @@ export class ImportReviewPromotionPromoteRepository {
                    AND spi.review_candidate_table = ${ROAD_CANDIDATE_TABLE}
                 WHERE spi.publish_batch_id = ${batchId}
                   AND spi.entity_family = 'roads'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
+                    'admin_areas'::text AS entity_family,
+                    ${CORE_ADMIN_AREAS_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    aa.review_batch_id,
+                    aa.source_snapshot_version,
+                    aa.promotion_status,
+                    aa.promoted_core_id,
+                    aa.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.admin_area_candidates AS aa
+                    ON aa.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${ADMIN_AREA_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'admin_areas'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
+                    'routing_barriers'::text AS entity_family,
+                    ${ROUTING_BARRIER_TARGET_TABLE} AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    rb.review_batch_id,
+                    rb.source_snapshot_version,
+                    rb.promotion_status,
+                    rb.promoted_core_id,
+                    rb.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.routing_barrier_candidates AS rb
+                    ON rb.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${ROUTING_BARRIER_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'routing_barriers'
             ) AS items
             ORDER BY entity_family ASC, publish_item_id ASC
         `;
@@ -592,6 +756,16 @@ export class ImportReviewPromotionPromoteRepository {
                 after_data: { id: item.promoted_core_id.toString(), skipped: "already_promoted" },
             };
         }
+        if (item.entity_family === "bus_route_stops" && item.promotion_status === "promoted") {
+            return {
+                publish_item_id: args.publishItemId,
+                outcome: "skipped",
+                target_id: null,
+                error_message: null,
+                before_data: null,
+                after_data: { skipped: "already_promoted_relation" },
+            };
+        }
 
         if (item.publish_action === "merge") {
             return {
@@ -611,11 +785,45 @@ export class ImportReviewPromotionPromoteRepository {
             if (item.entity_family === "bus_stops") {
                 return this.busStopsRepo.insertBusStop(args.batchId, args.publishItemId);
             }
+            if (item.entity_family === "bus_routes") {
+                return this.busRoutesRepo.insertBusRoute(
+                    args.batchId,
+                    args.publishItemId,
+                    args.promotedBy
+                );
+            }
+            if (item.entity_family === "bus_route_variants") {
+                return this.busRouteVariantsRepo.insertBusRouteVariant(
+                    args.batchId,
+                    args.publishItemId,
+                    args.promotedBy
+                );
+            }
+            if (item.entity_family === "bus_route_stops") {
+                return this.busRouteStopsRepo.insertBusRouteStop(
+                    args.batchId,
+                    args.publishItemId,
+                    args.promotedBy
+                );
+            }
             if (item.entity_family === "landuse") {
                 return this.landuseRepo.insertLanduse(args.batchId, args.publishItemId);
             }
             if (item.entity_family === "roads") {
                 return this.roadsRepo.insertRoad(args.batchId, args.publishItemId, args.promotedBy);
+            }
+            if (item.entity_family === "admin_areas") {
+                return this.adminAreasRepo.insertAdminArea(
+                    args.batchId,
+                    args.publishItemId,
+                    args.promotedBy
+                );
+            }
+            if (item.entity_family === "routing_barriers") {
+                return this.routingBarriersRepo.insertRoutingBarrier(
+                    args.batchId,
+                    args.publishItemId
+                );
             }
             if (this.mapRepo.isMapEntityFamily(item.entity_family)) {
                 return this.mapRepo.insertMapEntity(item.entity_family, args.batchId, args.publishItemId);
@@ -630,11 +838,45 @@ export class ImportReviewPromotionPromoteRepository {
             if (item.entity_family === "bus_stops") {
                 return this.busStopsRepo.updateBusStop(args.batchId, args.publishItemId);
             }
+            if (item.entity_family === "bus_routes") {
+                return this.busRoutesRepo.updateBusRoute(
+                    args.batchId,
+                    args.publishItemId,
+                    args.promotedBy
+                );
+            }
+            if (item.entity_family === "bus_route_variants") {
+                return this.busRouteVariantsRepo.updateBusRouteVariant(
+                    args.batchId,
+                    args.publishItemId,
+                    args.promotedBy
+                );
+            }
+            if (item.entity_family === "bus_route_stops") {
+                return this.busRouteStopsRepo.updateBusRouteStop(
+                    args.batchId,
+                    args.publishItemId,
+                    args.promotedBy
+                );
+            }
             if (item.entity_family === "landuse") {
                 return this.landuseRepo.updateLanduse(args.batchId, args.publishItemId);
             }
             if (item.entity_family === "roads") {
                 return this.roadsRepo.updateRoad(args.batchId, args.publishItemId, args.promotedBy);
+            }
+            if (item.entity_family === "admin_areas") {
+                return this.adminAreasRepo.updateAdminArea(
+                    args.batchId,
+                    args.publishItemId,
+                    args.promotedBy
+                );
+            }
+            if (item.entity_family === "routing_barriers") {
+                return this.routingBarriersRepo.updateRoutingBarrier(
+                    args.batchId,
+                    args.publishItemId
+                );
             }
             if (this.mapRepo.isMapEntityFamily(item.entity_family)) {
                 return this.mapRepo.updateMapEntity(item.entity_family, args.batchId, args.publishItemId);
@@ -662,11 +904,23 @@ export class ImportReviewPromotionPromoteRepository {
         if (entityFamily === "bus_stops") {
             return this.busStopsRepo.checkBusStopCoreExists(targetId);
         }
+        if (entityFamily === "bus_routes") {
+            return this.busRoutesRepo.checkBusRouteCoreExists(targetId);
+        }
+        if (entityFamily === "bus_route_variants") {
+            return this.busRouteVariantsRepo.checkBusRouteVariantCoreExists(targetId);
+        }
         if (entityFamily === "landuse") {
             return this.landuseRepo.checkLanduseCoreExists(targetId);
         }
         if (entityFamily === "roads") {
             return this.roadsRepo.checkRoadCoreExists(targetId);
+        }
+        if (entityFamily === "admin_areas") {
+            return this.adminAreasRepo.checkAdminAreaCoreExists(targetId);
+        }
+        if (entityFamily === "routing_barriers") {
+            return this.routingBarriersRepo.checkRoutingBarrierExists(targetId);
         }
         if (this.mapRepo.isMapEntityFamily(entityFamily)) {
             return this.mapRepo.checkMapCoreExists(entityFamily, targetId);
@@ -941,18 +1195,19 @@ export class ImportReviewPromotionPromoteRepository {
 
     async applyItemSuccess(args: {
         publishItemId: bigint;
-        targetId: bigint;
+        targetId: bigint | null;
         targetTable: string;
         beforeData: unknown | null;
         afterData: unknown;
     }): Promise<void> {
         const afterJson = JSON.stringify(args.afterData);
         const beforeJson = args.beforeData != null ? JSON.stringify(args.beforeData) : null;
+        const targetSchema = args.targetTable.startsWith("routing.") ? "routing" : "core";
         await this.prisma.$executeRaw`
             UPDATE system.system_publish_items
             SET publish_status = 'success',
                 target_id = ${args.targetId},
-                target_schema = 'core',
+                target_schema = ${targetSchema},
                 target_table = ${args.targetTable},
                 before_data = ${beforeJson}::jsonb,
                 after_data = ${afterJson}::jsonb,
@@ -980,7 +1235,7 @@ export class ImportReviewPromotionPromoteRepository {
     async markCandidatePromoted(args: {
         entityFamily: PromotablePublishEntityFamily;
         reviewCandidateId: bigint;
-        promotedCoreId: bigint;
+        promotedCoreId: bigint | null;
         promotedBy: bigint | null;
     }): Promise<void> {
         const config = IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG[args.entityFamily];
@@ -1146,6 +1401,84 @@ export class ImportReviewPromotionPromoteRepository {
             WHERE spi.publish_batch_id = ${batchId}
               AND spi.entity_family = 'water_polygons'
         `;
+        const busRouteRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint; missing_names: bigint }[]>`
+            SELECT
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND (
+                          spi.target_id IS NULL
+                          OR br.id IS NULL
+                          OR NOT coalesce(br.is_active, true)
+                          OR br.deleted_at IS NOT NULL
+                          OR br.source_refs->>'review_candidate_id' IS NULL
+                          OR br.source_refs->>'publish_batch_id' IS NULL
+                      )
+                )::bigint AS missing,
+                0::bigint AS invalid_geom,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND br.id IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_bus_route_names AS n
+                          WHERE n.route_id = br.id
+                      )
+                )::bigint AS missing_names
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_bus_routes AS br ON br.id = spi.target_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'bus_routes'
+        `;
+        const busRouteVariantRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint }[]>`
+            SELECT
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND (
+                          spi.target_id IS NULL
+                          OR v.id IS NULL
+                          OR NOT coalesce(v.is_active, true)
+                          OR v.deleted_at IS NOT NULL
+                          OR v.route_id IS NULL
+                          OR r.id IS NULL
+                      )
+                )::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND v.id IS NOT NULL
+                      AND (
+                          v.geom IS NULL
+                          OR NOT ST_IsValid(v.geom)
+                          OR ST_SRID(v.geom) <> 4326
+                          OR ST_GeometryType(v.geom) <> 'ST_LineString'
+                      )
+                )::bigint AS invalid_geom
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_bus_route_variants AS v ON v.id = spi.target_id
+            LEFT JOIN core.core_bus_routes AS r ON r.id = v.route_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'bus_route_variants'
+        `;
+        const busRouteStopRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint }[]>`
+            SELECT
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND (
+                          spi.after_data->'relation_key' IS NULL
+                          OR rs.route_variant_id IS NULL
+                          OR v.id IS NULL
+                          OR s.id IS NULL
+                      )
+                )::bigint AS missing,
+                0::bigint AS invalid_geom
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_bus_route_stops AS rs
+                ON rs.route_variant_id = NULLIF(spi.after_data->'relation_key'->>'route_variant_id', '')::bigint
+               AND rs.stop_id = NULLIF(spi.after_data->'relation_key'->>'stop_id', '')::bigint
+               AND rs.stop_sequence = NULLIF(spi.after_data->'relation_key'->>'stop_sequence', '')::integer
+            LEFT JOIN core.core_bus_route_variants AS v ON v.id = rs.route_variant_id
+            LEFT JOIN core.core_bus_stops AS s ON s.id = rs.stop_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'bus_route_stops'
+        `;
         const busStopRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint; missing_names: bigint }[]>`
             SELECT
                 count(*) FILTER (
@@ -1207,6 +1540,72 @@ export class ImportReviewPromotionPromoteRepository {
             WHERE spi.publish_batch_id = ${batchId}
               AND spi.entity_family = 'roads'
         `;
+        const adminAreaRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint; missing_names: bigint }[]>`
+            SELECT
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND (
+                          spi.target_id IS NULL
+                          OR a.id IS NULL
+                          OR NOT coalesce(a.is_active, true)
+                          OR a.deleted_at IS NOT NULL
+                          OR a.source_refs->>'review_candidate_id' IS NULL
+                          OR a.source_refs->>'publish_batch_id' IS NULL
+                      )
+                )::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND a.id IS NOT NULL
+                      AND (
+                          a.geom IS NULL
+                          OR NOT ST_IsValid(a.geom)
+                          OR ST_SRID(a.geom) <> 4326
+                          OR ST_GeometryType(a.geom) <> 'ST_MultiPolygon'
+                          OR a.centroid IS NULL
+                          OR NOT ST_IsValid(a.centroid)
+                          OR ST_SRID(a.centroid) <> 4326
+                      )
+                )::bigint AS invalid_geom,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND a.id IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_admin_area_names AS n
+                          WHERE n.admin_area_id = a.id
+                      )
+                )::bigint AS missing_names
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_admin_areas AS a ON a.id = spi.target_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'admin_areas'
+        `;
+        const routingBarrierRows = await this.prisma.$queryRaw<{ missing: bigint; invalid_geom: bigint }[]>`
+            SELECT
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND (
+                          spi.target_id IS NULL
+                          OR rb.id IS NULL
+                          OR NOT coalesce(rb.is_active, true)
+                          OR rb.source_refs->>'review_candidate_id' IS NULL
+                          OR rb.source_refs->>'publish_batch_id' IS NULL
+                      )
+                )::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND rb.id IS NOT NULL
+                      AND (
+                          rb.geom IS NULL
+                          OR NOT ST_IsValid(rb.geom)
+                          OR ST_SRID(rb.geom) <> 4326
+                          OR ST_GeometryType(rb.geom) <> 'ST_Point'
+                      )
+                )::bigint AS invalid_geom
+            FROM system.system_publish_items AS spi
+            LEFT JOIN routing.routing_barriers AS rb ON rb.id = spi.target_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'routing_barriers'
+        `;
         return {
             missing:
                 Number(buildingRows[0]?.missing ?? 0n) +
@@ -1214,18 +1613,31 @@ export class ImportReviewPromotionPromoteRepository {
                 Number(mapPolygonRows[0]?.missing ?? 0n) +
                 Number(waterLineRows[0]?.missing ?? 0n) +
                 Number(waterPolygonRows[0]?.missing ?? 0n) +
+                Number(busRouteRows[0]?.missing ?? 0n) +
+                Number(busRouteVariantRows[0]?.missing ?? 0n) +
+                Number(busRouteStopRows[0]?.missing ?? 0n) +
                 Number(busStopRows[0]?.missing ?? 0n) +
-                Number(roadRows[0]?.missing ?? 0n),
+                Number(roadRows[0]?.missing ?? 0n) +
+                Number(adminAreaRows[0]?.missing ?? 0n) +
+                Number(routingBarrierRows[0]?.missing ?? 0n),
             invalid_geom:
                 Number(buildingRows[0]?.invalid_geom ?? 0n) +
                 Number(placeRows[0]?.invalid_geom ?? 0n) +
                 Number(mapPolygonRows[0]?.invalid_geom ?? 0n) +
                 Number(waterLineRows[0]?.invalid_geom ?? 0n) +
                 Number(waterPolygonRows[0]?.invalid_geom ?? 0n) +
+                Number(busRouteRows[0]?.invalid_geom ?? 0n) +
+                Number(busRouteVariantRows[0]?.invalid_geom ?? 0n) +
+                Number(busRouteStopRows[0]?.invalid_geom ?? 0n) +
                 Number(busStopRows[0]?.invalid_geom ?? 0n) +
-                Number(roadRows[0]?.invalid_geom ?? 0n),
+                Number(roadRows[0]?.invalid_geom ?? 0n) +
+                Number(adminAreaRows[0]?.invalid_geom ?? 0n) +
+                Number(routingBarrierRows[0]?.invalid_geom ?? 0n),
             missing_names:
-                Number(placeRows[0]?.missing_names ?? 0n) + Number(busStopRows[0]?.missing_names ?? 0n),
+                Number(placeRows[0]?.missing_names ?? 0n) +
+                Number(busRouteRows[0]?.missing_names ?? 0n) +
+                Number(busStopRows[0]?.missing_names ?? 0n) +
+                Number(adminAreaRows[0]?.missing_names ?? 0n),
         };
     }
 
@@ -1285,6 +1697,26 @@ export class ImportReviewPromotionPromoteRepository {
                 UNION ALL
                 SELECT spi.id
                 FROM system.system_publish_items AS spi
+                INNER JOIN import_review.bus_route_candidates AS br
+                    ON br.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${BUS_ROUTE_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND br.promotion_status = 'promoted'
+                  AND br.promoted_core_id IS NOT NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.bus_route_variant_candidates AS brv
+                    ON brv.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${BUS_ROUTE_VARIANT_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND brv.promotion_status = 'promoted'
+                  AND brv.promoted_core_id IS NOT NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
                 INNER JOIN import_review.bus_stop_candidates AS bs
                     ON bs.id = spi.review_candidate_id
                    AND spi.review_candidate_table = ${BUS_STOP_CANDIDATE_TABLE}
@@ -1302,6 +1734,26 @@ export class ImportReviewPromotionPromoteRepository {
                   AND spi.publish_status = 'success'
                   AND r.promotion_status = 'promoted'
                   AND r.promoted_core_id IS NOT NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.admin_area_candidates AS aa
+                    ON aa.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${ADMIN_AREA_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND aa.promotion_status = 'promoted'
+                  AND aa.promoted_core_id IS NOT NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.routing_barrier_candidates AS rb
+                    ON rb.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = ${ROUTING_BARRIER_CANDIDATE_TABLE}
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND rb.promotion_status = 'promoted'
+                  AND rb.promoted_core_id IS NOT NULL
             ) AS marked
         `;
         return Number(rows[0]?.count ?? 0n);
@@ -1483,6 +1935,49 @@ export class ImportReviewPromotionPromoteRepository {
             LEFT JOIN import_review.bus_stop_candidates AS bs ON bs.id = spi.review_candidate_id
             WHERE spi.publish_batch_id = ${batchId} AND spi.entity_family = 'bus_stops'
         `;
+        const adminAreaCoreIssues = await this.prisma.$queryRaw<
+            { missing: bigint; inactive: bigint; lineage: bigint; geom: bigint; missing_names: bigint }[]
+        >`
+            SELECT
+                count(*) FILTER (WHERE spi.publish_status = 'success' AND a.id IS NULL)::bigint AS missing,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND a.id IS NOT NULL
+                      AND (NOT coalesce(a.is_active, true) OR a.deleted_at IS NOT NULL)
+                )::bigint AS inactive,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND a.id IS NOT NULL
+                      AND (
+                          a.source_refs->>'review_candidate_id' IS NULL
+                          OR a.source_refs->>'publish_batch_id' IS NULL
+                      )
+                )::bigint AS lineage,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND a.id IS NOT NULL
+                      AND (
+                          a.geom IS NULL
+                          OR NOT ST_IsValid(a.geom)
+                          OR ST_SRID(a.geom) <> 4326
+                          OR ST_GeometryType(a.geom) <> 'ST_MultiPolygon'
+                          OR a.centroid IS NULL
+                          OR NOT ST_IsValid(a.centroid)
+                          OR ST_SRID(a.centroid) <> 4326
+                      )
+                )::bigint AS geom,
+                count(*) FILTER (
+                    WHERE spi.publish_status = 'success'
+                      AND a.id IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.core_admin_area_names AS n
+                          WHERE n.admin_area_id = a.id
+                      )
+                )::bigint AS missing_names
+            FROM system.system_publish_items AS spi
+            LEFT JOIN core.core_admin_areas AS a ON a.id = spi.target_id
+            WHERE spi.publish_batch_id = ${batchId} AND spi.entity_family = 'admin_areas'
+        `;
         const bi = buildingCoreIssues[0] ?? { missing: 0n, inactive: 0n, lineage: 0n, geom: 0n };
         const pi = placeCoreIssues[0] ?? {
             missing: 0n,
@@ -1492,6 +1987,13 @@ export class ImportReviewPromotionPromoteRepository {
             missing_names: 0n,
         };
         const bsi = busStopCoreIssues[0] ?? {
+            missing: 0n,
+            inactive: 0n,
+            lineage: 0n,
+            geom: 0n,
+            missing_names: 0n,
+        };
+        const aai = adminAreaCoreIssues[0] ?? {
             missing: 0n,
             inactive: 0n,
             lineage: 0n,
@@ -1525,16 +2027,38 @@ export class ImportReviewPromotionPromoteRepository {
                   AND spi.publish_status = 'success'
                   AND bs.promotion_status = 'promoted'
                   AND bs.promoted_core_id IS NULL
+                UNION ALL
+                SELECT spi.id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.admin_area_candidates AS aa ON aa.id = spi.review_candidate_id
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.publish_status = 'success'
+                  AND aa.promotion_status = 'promoted'
+                  AND aa.promoted_core_id IS NULL
             ) AS missing_candidates
         `;
 
         const issues: ImportReviewPublishBatchVerifyResponse["issues"] = [];
         const missingCore =
-            Number(bi.missing ?? 0n) + Number(pi.missing ?? 0n) + Number(bsi.missing ?? 0n);
+            Number(bi.missing ?? 0n) +
+            Number(pi.missing ?? 0n) +
+            Number(bsi.missing ?? 0n) +
+            Number(aai.missing ?? 0n);
         const missingTarget = Number(ic.success_missing_target ?? 0n);
-        const lineage = Number(bi.lineage ?? 0n) + Number(pi.lineage ?? 0n) + Number(bsi.lineage ?? 0n);
-        const geom = Number(bi.geom ?? 0n) + Number(pi.geom ?? 0n) + Number(bsi.geom ?? 0n);
-        const missingNames = Number(pi.missing_names ?? 0n) + Number(bsi.missing_names ?? 0n);
+        const lineage =
+            Number(bi.lineage ?? 0n) +
+            Number(pi.lineage ?? 0n) +
+            Number(bsi.lineage ?? 0n) +
+            Number(aai.lineage ?? 0n);
+        const geom =
+            Number(bi.geom ?? 0n) +
+            Number(pi.geom ?? 0n) +
+            Number(bsi.geom ?? 0n) +
+            Number(aai.geom ?? 0n);
+        const missingNames =
+            Number(pi.missing_names ?? 0n) +
+            Number(bsi.missing_names ?? 0n) +
+            Number(aai.missing_names ?? 0n);
         const cand = Number(candMissing[0]?.count ?? 0n);
 
         if (missingTarget > 0) {
@@ -1574,8 +2098,8 @@ export class ImportReviewPromotionPromoteRepository {
         }
         if (missingNames > 0) {
             issues.push({
-                code: "place_or_bus_stop_names_missing",
-                message: `${missingNames} promoted place(s) or bus stop(s) missing name rows in core.`,
+                code: "core_names_missing",
+                message: `${missingNames} promoted place, bus stop, or admin area row(s) missing name rows in core.`,
                 severity: "error",
             });
         }
@@ -1596,7 +2120,10 @@ export class ImportReviewPromotionPromoteRepository {
             },
             core_rows_missing: missingCore,
             core_rows_inactive:
-                Number(bi.inactive ?? 0n) + Number(pi.inactive ?? 0n) + Number(bsi.inactive ?? 0n),
+                Number(bi.inactive ?? 0n) +
+                Number(pi.inactive ?? 0n) +
+                Number(bsi.inactive ?? 0n) +
+                Number(aai.inactive ?? 0n),
             candidates_promoted_missing_core_id: cand,
             lineage_warnings: lineage,
             geometry_warnings: geom,

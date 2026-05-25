@@ -6,7 +6,7 @@
  *
  * CLI:
  *   --package-name=remote_review_pkg_...
- *   --entity-family=all|buildings,places,roads,bus_stops,landuse,water_lines,water_polygons,addresses,admin_areas,routing_barriers
+ *   --entity-family=all|buildings,places,roads,bus_stops,landuse,water_lines,water_polygons,addresses,address_components,place_address_links,admin_areas,routing_barriers
  *   --max-rows-per-family=N
  *
  * ENV: LOCAL_DATABASE_URL, SUPABASE_DATABASE_URL, REMOTE_REVIEW_UPLOAD_ENABLED,

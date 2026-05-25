@@ -7,9 +7,14 @@ export const IMPORT_REVIEW_PUBLISH_PROMOTION_STAGES = [
     { key: "promote_landuse_to_core", label: "Promote landuse", progressEnd: 48 },
     { key: "promote_water_lines_to_core", label: "Promote water lines", progressEnd: 54 },
     { key: "promote_water_polygons_to_core", label: "Promote water polygons", progressEnd: 60 },
+    { key: "promote_bus_routes_to_core", label: "Promote bus routes", progressEnd: 63 },
+    { key: "promote_bus_route_variants_to_core", label: "Promote bus route variants", progressEnd: 65 },
+    { key: "promote_bus_route_stops_to_core", label: "Promote bus route stops", progressEnd: 65.5 },
     { key: "promote_bus_stops_to_core", label: "Promote bus stops", progressEnd: 66 },
     { key: "promote_roads_to_core", label: "Promote roads", progressEnd: 68 },
-    { key: "write_publish_item_results", label: "Write item results", progressEnd: 70 },
+    { key: "promote_admin_areas_to_core", label: "Promote admin areas", progressEnd: 69 },
+    { key: "promote_routing_barriers_to_routing", label: "Promote routing barriers", progressEnd: 70 },
+    { key: "write_publish_item_results", label: "Write item results", progressEnd: 72 },
     { key: "verify_core_rows", label: "Verify core rows", progressEnd: 80 },
     { key: "mark_import_review_promoted", label: "Mark import review", progressEnd: 90 },
     { key: "update_batch_summary", label: "Update summary", progressEnd: 95 },
@@ -46,6 +51,21 @@ export const IMPORT_REVIEW_PUBLISH_PROMOTION_FAMILY_STAGES = [
         label: "Promote water polygons",
     },
     {
+        key: "promote_bus_routes_to_core" as const,
+        entityFamily: "bus_routes" as const,
+        label: "Promote bus routes",
+    },
+    {
+        key: "promote_bus_route_variants_to_core" as const,
+        entityFamily: "bus_route_variants" as const,
+        label: "Promote bus route variants",
+    },
+    {
+        key: "promote_bus_route_stops_to_core" as const,
+        entityFamily: "bus_route_stops" as const,
+        label: "Promote bus route stops",
+    },
+    {
         key: "promote_bus_stops_to_core" as const,
         entityFamily: "bus_stops" as const,
         label: "Promote bus stops",
@@ -54,6 +74,16 @@ export const IMPORT_REVIEW_PUBLISH_PROMOTION_FAMILY_STAGES = [
         key: "promote_roads_to_core" as const,
         entityFamily: "roads" as const,
         label: "Promote roads",
+    },
+    {
+        key: "promote_admin_areas_to_core" as const,
+        entityFamily: "admin_areas" as const,
+        label: "Promote admin areas",
+    },
+    {
+        key: "promote_routing_barriers_to_routing" as const,
+        entityFamily: "routing_barriers" as const,
+        label: "Promote routing barriers",
     },
 ];
 

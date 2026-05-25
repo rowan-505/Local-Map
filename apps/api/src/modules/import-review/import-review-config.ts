@@ -41,6 +41,27 @@ export function isImportReviewRoadBulkPromotionEnabled(): boolean {
 /** Max road publish items per batch without ENABLE_IMPORT_REVIEW_ROAD_BULK_PROMOTION. */
 export const IMPORT_REVIEW_ROAD_PROMOTION_MAX_ITEMS = 3;
 
+/** When false, admin-area publish batches are limited to {@link IMPORT_REVIEW_ADMIN_AREA_PROMOTION_MAX_ITEMS}. */
+export function isImportReviewAdminAreaBulkPromotionEnabled(): boolean {
+    return process.env.ENABLE_IMPORT_REVIEW_ADMIN_AREA_BULK_PROMOTION === "true";
+}
+
+/** Max admin-area publish items per batch without ENABLE_IMPORT_REVIEW_ADMIN_AREA_BULK_PROMOTION. */
+export const IMPORT_REVIEW_ADMIN_AREA_PROMOTION_MAX_ITEMS = 3;
+
+/** When false, routing barrier promotion dry-run is allowed but live promotion is blocked. */
+export function isImportReviewRoutingBarrierPromotionEnabled(): boolean {
+    return process.env.ENABLE_IMPORT_REVIEW_ROUTING_BARRIER_PROMOTION === "true";
+}
+
+/** When false, routing barrier publish batches are limited to controlled tiny batches. */
+export function isImportReviewRoutingBarrierBulkPromotionEnabled(): boolean {
+    return process.env.ENABLE_IMPORT_REVIEW_ROUTING_BARRIER_BULK_PROMOTION === "true";
+}
+
+/** Max routing barrier publish items per batch without ENABLE_IMPORT_REVIEW_ROUTING_BARRIER_BULK_PROMOTION. */
+export const IMPORT_REVIEW_ROUTING_BARRIER_PROMOTION_MAX_ITEMS = 5;
+
 /** When false, address promotion dry-run is allowed but POST promote is blocked. */
 export function isImportReviewAddressPromotionEnabled(): boolean {
     return process.env.ENABLE_IMPORT_REVIEW_ADDRESS_PROMOTION === "true";
@@ -85,6 +106,9 @@ export const IMPORT_REVIEW_ENTITY_FAMILIES = [
     "buildings",
     "places",
     "roads",
+    "bus_routes",
+    "bus_route_variants",
+    "bus_route_stops",
     "bus_stops",
     "landuse",
     "water_lines",
@@ -291,6 +315,93 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
             levels: null,
             height_m: null,
             area_m2: null,
+        },
+    }),
+    bus_routes: familyConfig({
+        routeFamily: "bus_routes",
+        importReviewTable: "bus_route_candidates",
+        entityFamily: "bus_routes",
+        tableAlias: "br",
+        displayFields: ["route_code", "public_name", "operator_name", "route_type", "directionality"],
+        searchableFields: ["route_code", "public_name", "canonical_name", "external_id"],
+        filterFields: [...COMMON_FILTER_FIELDS],
+        geometryColumns: {},
+        defaultSort: "updated_at_desc",
+        riskLevel: "medium",
+        bulkApprovalAllowed: true,
+        validationRequiredBeforePromotion: false,
+        supportsOverrides: true,
+        roadClassJoin: false,
+        buildingTypeJoin: false,
+        landuseClassJoin: false,
+        effectiveAdminAreaJoin: false,
+        listRowShape: {
+            name: "public_name",
+            building_type: null,
+            building_type_id: null,
+            landuse_class_id: null,
+            admin_area_id: null,
+            levels: null,
+            height_m: null,
+            area_m2: null,
+        },
+    }),
+    bus_route_variants: familyConfig({
+        routeFamily: "bus_route_variants",
+        importReviewTable: "bus_route_variant_candidates",
+        entityFamily: "bus_route_variants",
+        tableAlias: "brv",
+        displayFields: ["route_id", "route_code", "variant_code", "direction_name", "origin_name", "destination_name"],
+        searchableFields: ["route_code", "variant_code", "direction_name", "origin_name", "destination_name", "external_id"],
+        filterFields: [...COMMON_FILTER_FIELDS],
+        geometryColumns: { primary: "geom" },
+        defaultSort: "updated_at_desc",
+        riskLevel: "medium",
+        bulkApprovalAllowed: true,
+        validationRequiredBeforePromotion: false,
+        supportsOverrides: true,
+        roadClassJoin: false,
+        buildingTypeJoin: false,
+        landuseClassJoin: false,
+        effectiveAdminAreaJoin: false,
+        listRowShape: {
+            name: "variant_code",
+            building_type: null,
+            building_type_id: null,
+            landuse_class_id: null,
+            admin_area_id: "route_id",
+            levels: null,
+            height_m: null,
+            area_m2: "distance_m",
+        },
+    }),
+    bus_route_stops: familyConfig({
+        routeFamily: "bus_route_stops",
+        importReviewTable: "bus_route_stop_candidates",
+        entityFamily: "bus_route_stops",
+        tableAlias: "brs",
+        displayFields: ["route_variant_id", "stop_id", "stop_sequence", "distance_from_start_m", "is_timing_point"],
+        searchableFields: ["external_id", "canonical_name"],
+        filterFields: [...COMMON_FILTER_FIELDS],
+        geometryColumns: {},
+        defaultSort: "updated_at_desc",
+        riskLevel: "medium",
+        bulkApprovalAllowed: true,
+        validationRequiredBeforePromotion: false,
+        supportsOverrides: true,
+        roadClassJoin: false,
+        buildingTypeJoin: false,
+        landuseClassJoin: false,
+        effectiveAdminAreaJoin: false,
+        listRowShape: {
+            name: "canonical_name",
+            building_type: null,
+            building_type_id: null,
+            landuse_class_id: null,
+            admin_area_id: "route_variant_id",
+            levels: "stop_sequence",
+            height_m: null,
+            area_m2: "distance_from_start_m",
         },
     }),
     landuse: familyConfig({

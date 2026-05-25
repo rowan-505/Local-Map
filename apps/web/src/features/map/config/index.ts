@@ -11,3 +11,9 @@ export {
   resolveBasemapPmtilesHttpUrl,
 } from './basemapStyle';
 export { MAP_LIBRE_INTERACTION_DEFAULTS } from './mapLibreInteraction';
+export {
+  getSatelliteRasterConfig,
+  isMapModeAvailable,
+  type MapMode,
+  type SatelliteRasterConfig,
+} from './mapModes';

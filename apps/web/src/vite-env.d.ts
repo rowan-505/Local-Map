@@ -19,6 +19,12 @@ interface ImportMetaEnv {
   readonly VITE_BASEMAP_CURRENT_JSON_URL?: string;
   /** Optional direct `.pmtiles` HTTP(S) URL — when set, skips fetching `current.json`. */
   readonly VITE_BASEMAP_PMTILES_URL?: string;
+  /** Optional public satellite raster tile template for future map modes. Do not include private keys in source. */
+  readonly VITE_SATELLITE_RASTER_TILES_URL?: string;
+  /** Optional satellite raster tile size. Defaults to 256. */
+  readonly VITE_SATELLITE_RASTER_TILE_SIZE?: string;
+  /** Optional attribution text for configured satellite raster tiles. */
+  readonly VITE_SATELLITE_RASTER_ATTRIBUTION?: string;
 }
 
 interface ImportMeta {

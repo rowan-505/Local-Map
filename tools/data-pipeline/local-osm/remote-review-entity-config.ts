@@ -12,6 +12,8 @@ export const REMOTE_REVIEW_ENTITY_FAMILIES = [
   'water_lines',
   'water_polygons',
   'addresses',
+  'address_components',
+  'place_address_links',
   'admin_areas',
   'routing_barriers',
 ] as const;
@@ -43,6 +45,8 @@ export type EntityFamilyUploadConfig = {
   requiredImportColumns: string[];
   optionalImportColumns: string[];
   childRelations: ChildStagingRelation[];
+  /** Non-candidate child/link uploads do not use the generic candidate flush path. */
+  uploadMode?: 'candidate' | 'address_components' | 'place_address_links';
 };
 
 const childNameColumns = [
@@ -276,6 +280,55 @@ export const ENTITY_FAMILY_UPLOAD_CONFIG: Record<EntityFamilySlug, EntityFamilyU
         childColumns: [...childAddressComponentColumns],
       },
     ],
+  },
+  address_components: {
+    entityFamily: 'address_components',
+    stagingTable: 'staging_address_component_candidates',
+    importReviewTable: 'address_components',
+    matchedCoreTable: null,
+    diffEntityFamily: 'addresses',
+    primaryGeomColumn: null,
+    stagingGeomMode: 'none',
+    requiredImportColumns: [
+      'address_candidate_id',
+      'component_type_code',
+      'component_value',
+      'language_code',
+      'source_refs',
+      'normalized_data',
+    ],
+    optionalImportColumns: ['source_tag', 'sort_order', 'confidence_score'],
+    childRelations: [],
+    uploadMode: 'address_components',
+  },
+  place_address_links: {
+    entityFamily: 'place_address_links',
+    stagingTable: 'staging_place_address_link_candidates',
+    importReviewTable: 'place_address_links',
+    matchedCoreTable: null,
+    diffEntityFamily: 'addresses',
+    primaryGeomColumn: null,
+    stagingGeomMode: 'none',
+    requiredImportColumns: [
+      'review_batch_id',
+      'place_candidate_id',
+      'address_candidate_id',
+      'relation_type',
+      'source_refs',
+      'normalized_data',
+    ],
+    optionalImportColumns: [
+      'external_id',
+      'is_primary',
+      'confidence_score',
+      'match_status',
+      'auto_action',
+      'review_status',
+      'validation_status',
+      'promotion_status',
+    ],
+    childRelations: [],
+    uploadMode: 'place_address_links',
   },
   admin_areas: {
     entityFamily: 'admin_areas',

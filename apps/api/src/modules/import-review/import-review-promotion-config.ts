@@ -8,7 +8,12 @@ export const VALIDATABLE_PUBLISH_FAMILIES = [
     "landuse",
     "water_lines",
     "water_polygons",
+    "bus_routes",
+    "bus_route_variants",
+    "bus_route_stops",
     "bus_stops",
+    "admin_areas",
+    "routing_barriers",
 ] as const satisfies readonly ImportReviewEntityFamilySlug[];
 
 export type ValidatablePublishEntityFamily = (typeof VALIDATABLE_PUBLISH_FAMILIES)[number];
@@ -24,8 +29,13 @@ export const PROMOTABLE_PUBLISH_FAMILIES = [
     "landuse",
     "water_lines",
     "water_polygons",
+    "bus_routes",
+    "bus_route_variants",
+    "bus_route_stops",
     "bus_stops",
     "roads",
+    "admin_areas",
+    "routing_barriers",
 ] as const satisfies readonly ImportReviewEntityFamilySlug[];
 
 export type PromotablePublishEntityFamily = (typeof PROMOTABLE_PUBLISH_FAMILIES)[number];
@@ -40,6 +50,8 @@ export const DEFAULT_PUBLISH_ENTITY_FAMILIES = [
     "landuse",
     "water_lines",
     "water_polygons",
+    "bus_routes",
+    "bus_route_variants",
     "bus_stops",
 ] as const satisfies readonly ImportReviewEntityFamilySlug[];
 
@@ -68,9 +80,12 @@ const CORE_TARGETS: Record<ImportReviewEntityFamilySlug, string> = {
     landuse: "core.core_map_landuse",
     water_lines: "core.core_map_water_lines",
     water_polygons: "core.core_map_water_polygons",
+    bus_routes: "core.core_bus_routes",
+    bus_route_variants: "core.core_bus_route_variants",
+    bus_route_stops: "core.core_bus_route_stops",
     addresses: "core.core_addresses",
     admin_areas: "core.core_admin_areas",
-    routing_barriers: "core.core_routing_barriers",
+    routing_barriers: "routing.routing_barriers",
 };
 
 function publishFamilyConfig(family: ImportReviewEntityFamilySlug): ImportReviewPublishFamilyConfig {
@@ -100,6 +115,9 @@ export const IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG: Record<
     landuse: publishFamilyConfig("landuse"),
     water_lines: publishFamilyConfig("water_lines"),
     water_polygons: publishFamilyConfig("water_polygons"),
+    bus_routes: publishFamilyConfig("bus_routes"),
+    bus_route_variants: publishFamilyConfig("bus_route_variants"),
+    bus_route_stops: publishFamilyConfig("bus_route_stops"),
     addresses: publishFamilyConfig("addresses"),
     admin_areas: publishFamilyConfig("admin_areas"),
     routing_barriers: publishFamilyConfig("routing_barriers"),

@@ -8,21 +8,29 @@ import {
 
 import { listImportReviewEntityConfigs } from "@/src/features/import-review/config";
 
-import { coreReviewPath, importReviewPath, referencesPath, statsPath } from "@/src/lib/dashboardPaths";
-
-export {
-    CORE_REVIEW_PATH,
-    DASHBOARD_PATH,
-    IMPORT_REVIEW_PATH,
-    REFERENCES_PATH,
-    STATS_PATH,
+import {
     coreReviewPath,
+    coreVerificationPath,
     importReviewPath,
     referencesPath,
     statsPath,
 } from "@/src/lib/dashboardPaths";
 
-export type DashboardSidebarModuleKey = "core-review" | "import-review" | "references" | "stats";
+export {
+    CORE_REVIEW_PATH,
+    CORE_VERIFICATION_PATH,
+    DASHBOARD_PATH,
+    IMPORT_REVIEW_PATH,
+    REFERENCES_PATH,
+    STATS_PATH,
+    coreReviewPath,
+    coreVerificationPath,
+    importReviewPath,
+    referencesPath,
+    statsPath,
+} from "@/src/lib/dashboardPaths";
+
+export type DashboardSidebarModuleKey = "core-review" | "core-verification" | "import-review" | "references" | "stats";
 
 export type FamilyNavTab = {
     label: string;
@@ -42,6 +50,7 @@ export function sidebarModuleFromPathname(pathname: string): DashboardSidebarMod
     const key = match?.[1];
     if (
         key === "core-review" ||
+        key === "core-verification" ||
         key === "import-review" ||
         key === "references" ||
         key === "stats"
@@ -56,6 +65,12 @@ export const dashboardSidebarItems: readonly DashboardSidebarItem[] = [
         moduleKey: "core-review",
         href: coreReviewPath(),
         label: "Core review",
+        Icon: ScanSearch,
+    },
+    {
+        moduleKey: "core-verification",
+        href: coreVerificationPath(),
+        label: "Core verification",
         Icon: ScanSearch,
     },
     {
@@ -91,6 +106,22 @@ export const coreReviewTabs: readonly FamilyNavTab[] = [
     { label: "Water polygons", segment: "water-polygons" },
     { label: "Addresses", segment: "addresses" },
     { label: "Admin areas", segment: "admin-areas" },
+];
+
+export const coreVerificationTabs: readonly FamilyNavTab[] = [
+    { label: "Overview", segment: "", match: "exact" },
+    { label: "Buildings", segment: "buildings" },
+    { label: "Places", segment: "places" },
+    { label: "Roads", segment: "roads" },
+    { label: "Landuse", segment: "landuse" },
+    { label: "Water lines", segment: "water-lines" },
+    { label: "Water polygons", segment: "water-polygons" },
+    { label: "Bus stops", segment: "bus-stops" },
+    { label: "Admin areas", segment: "admin-areas" },
+    { label: "Routing barriers", segment: "routing-barriers" },
+    { label: "Bus routes", segment: "bus-routes" },
+    { label: "Bus route variants", segment: "bus-route-variants" },
+    { label: "Bus route stops", segment: "bus-route-stops" },
 ];
 
 /** Entity slugs/labels for import review top nav (order from entity configs). */

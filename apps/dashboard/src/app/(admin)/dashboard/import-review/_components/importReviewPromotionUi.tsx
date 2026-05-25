@@ -60,15 +60,26 @@ const PUBLISH_ENTITY_FAMILY_LABELS: Record<string, string> = {
     landuse: "Landuse",
     water_lines: "Water lines",
     water_polygons: "Water polygons",
+    bus_routes: "Bus routes",
+    bus_route_variants: "Bus route variants",
+    bus_route_stops: "Bus route stops",
     bus_stops: "Bus stops",
     roads: "Roads",
+    addresses: "Addresses",
+    admin_areas: "Admin areas",
+    routing_barriers: "Routing barriers",
 };
 
 export function publishEntityFamilyLabel(family: string): string {
     return PUBLISH_ENTITY_FAMILY_LABELS[family] ?? family;
 }
 
-const HIGH_RISK_PUBLISH_ENTITY_FAMILIES = new Set(["roads"]);
+const HIGH_RISK_PUBLISH_ENTITY_FAMILIES = new Set([
+    "roads",
+    "addresses",
+    "admin_areas",
+    "routing_barriers",
+]);
 
 export function isHighRiskPublishEntityFamily(family: string): boolean {
     return HIGH_RISK_PUBLISH_ENTITY_FAMILIES.has(family);

@@ -4,6 +4,7 @@ import { PublicMapRepository } from "./public-map.repo.js";
 import { PublicMapService, PublicPlaceNotFoundError } from "./public-map.service.js";
 import {
     publicPlaceIdParamsSchema,
+    publicMapPlacesQuerySchema,
     publicPlacesQuerySchema,
     publicSearchQuerySchema,
 } from "./public-map.schema.js";
@@ -12,6 +13,7 @@ import {
     getPublicGeoAdminAreasSchema,
     getPublicGeoBusRoutesSchema,
     getPublicGeoBusStopsSchema,
+    getPublicMapPlacesSchema,
     getPublicGeoStreetsSchema,
     getPublicPlaceByIdSchema,
     getPublicPlacesSchema,
@@ -58,6 +60,26 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
 
             throw error;
         }
+    });
+
+    app.get("/public/map/places", { schema: getPublicMapPlacesSchema }, async (request, reply) => {
+        const parsed = publicMapPlacesQuerySchema.safeParse(request.query);
+
+        if (!parsed.success) {
+            return reply.code(400).send({
+                message: "Invalid public map places query",
+                issues: parsed.error.flatten(),
+            });
+        }
+
+        const collection = await publicMapService.listViewportPlaces(parsed.data);
+        if (process.env.NODE_ENV !== "production" && collection.metadata.density_debug) {
+            request.log.debug(
+                { publicMapPlacesDensity: collection.metadata.density_debug },
+                "Public map places density",
+            );
+        }
+        return reply.send(collection);
     });
 
     app.get("/public/categories", { schema: getPublicCategoriesSchema }, async (_request, reply) => {

@@ -38,10 +38,18 @@ import {
     getImportReviewReferenceOptions,
     patchImportReviewAddressComponents,
     patchImportReviewAddressMatches,
+    patchImportReviewAddressPlaceStatus,
     patchImportReviewFamilyOverrides,
+    postImportReviewAddressCreatePlaceCandidate,
     postImportReviewAddressPromote,
     postImportReviewAddressPromoteDryRun,
     postImportReviewAddressValidate,
+    postImportReviewPlaceAddressLinkPromote,
+    postImportReviewPlaceAddressLinkPromoteDryRun,
+    postImportReviewPlaceAddressLinkValidate,
+    postImportReviewPlacePromote,
+    postImportReviewPlacePromoteDryRun,
+    postImportReviewPlaceValidate,
 } from "@/src/lib/api";
 import type { Geometry, Point } from "geojson";
 import type { DataReviewGeometryKind } from "@/src/components/map/DataReviewCandidateMap";
@@ -52,6 +60,27 @@ function dash(value: string | null | undefined): string {
         return "—";
     }
     return value;
+}
+
+function classificationReasons(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value
+        .map((item) => {
+            if (typeof item === "string") {
+                return item.trim();
+            }
+            if (item && typeof item === "object") {
+                const record = item as Record<string, unknown>;
+                const code = typeof record.code === "string" ? record.code : null;
+                const reason = typeof record.reason === "string" ? record.reason : null;
+                const message = typeof record.message === "string" ? record.message : null;
+                return (message ?? reason ?? code ?? JSON.stringify(record)).trim();
+            }
+            return "";
+        })
+        .filter((item) => item.length > 0);
 }
 
 export default function ImportReviewAddressDetailDrawer({
@@ -114,6 +143,7 @@ export default function ImportReviewAddressDetailDrawer({
     const [isSavingMatches, setIsSavingMatches] = useState(false);
     const [isValidating, setIsValidating] = useState(false);
     const [isPromoting, setIsPromoting] = useState(false);
+    const [isPlaceWorkflowSaving, setIsPlaceWorkflowSaving] = useState(false);
     const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
     const [componentTypeOptions, setComponentTypeOptions] = useState<ImportReviewReferenceOptionDto[]>([]);
@@ -205,6 +235,22 @@ export default function ImportReviewAddressDetailDrawer({
         () => validationIssuesFromReviewJson(row.promotion_warnings ?? row.validation_warnings, "warning"),
         [row.promotion_warnings, row.validation_warnings]
     );
+    const placeValidationBlockers = useMemo(
+        () => validationIssuesFromReviewJson(row.linked_place_candidate?.validation_errors, "error"),
+        [row.linked_place_candidate?.validation_errors]
+    );
+    const placeValidationWarnings = useMemo(
+        () => validationIssuesFromReviewJson(row.linked_place_candidate?.validation_warnings, "warning"),
+        [row.linked_place_candidate?.validation_warnings]
+    );
+    const linkValidationBlockers = useMemo(
+        () => validationIssuesFromReviewJson(row.place_address_link?.validation_errors, "error"),
+        [row.place_address_link?.validation_errors]
+    );
+    const linkValidationWarnings = useMemo(
+        () => validationIssuesFromReviewJson(row.place_address_link?.validation_warnings, "warning"),
+        [row.place_address_link?.validation_warnings]
+    );
 
     const validationStatus = (row.validation_status ?? "").toLowerCase();
     const validationBlocked = validationStatus === "blocked" || validationStatus === "failed";
@@ -275,6 +321,68 @@ export default function ImportReviewAddressDetailDrawer({
             await onDetailRefetch();
         } catch (err: unknown) {
             setSaveMessage(err instanceof Error ? err.message : "Promotion failed");
+        } finally {
+            setIsPromoting(false);
+        }
+    };
+
+    const handlePromotePlace = async (dryRun: boolean) => {
+        const placeId = row.linked_place_candidate?.id ?? row.linked_place_candidate_id;
+        if (!placeId) {
+            setSaveMessage("No linked place candidate to promote.");
+            return;
+        }
+        setIsPromoting(true);
+        setSaveMessage(null);
+        try {
+            const body = {
+                candidate_ids: [placeId],
+                confirm_warnings: row.linked_place_candidate?.validation_status === "valid_with_warnings",
+            };
+            const res = dryRun
+                ? await postImportReviewPlacePromoteDryRun(body)
+                : await postImportReviewPlacePromote(body);
+            const item = res.items.find((i) => i.candidate_id === placeId);
+            const label = item?.outcome ?? (dryRun ? "dry_run" : "promote");
+            setSaveMessage(
+                dryRun
+                    ? `Place dry-run: ${label}`
+                    : `Place promotion: ${label}${item?.core_id ? ` → core #${item.core_id}` : ""}`
+            );
+            await onDetailRefetch();
+        } catch (err: unknown) {
+            setSaveMessage(err instanceof Error ? err.message : "Place promotion failed");
+        } finally {
+            setIsPromoting(false);
+        }
+    };
+
+    const handlePromoteLink = async (dryRun: boolean) => {
+        const linkId = row.place_address_link?.id;
+        if (!linkId) {
+            setSaveMessage("No place/address link to promote.");
+            return;
+        }
+        setIsPromoting(true);
+        setSaveMessage(null);
+        try {
+            const body = {
+                link_ids: [linkId],
+                confirm_warnings: row.place_address_link?.validation_status === "valid_with_warnings",
+            };
+            const res = dryRun
+                ? await postImportReviewPlaceAddressLinkPromoteDryRun(body)
+                : await postImportReviewPlaceAddressLinkPromote(body);
+            const item = res.items.find((i) => i.candidate_id === linkId);
+            const label = item?.outcome ?? (dryRun ? "dry_run" : "promote");
+            setSaveMessage(
+                dryRun
+                    ? `Link dry-run: ${label}`
+                    : `Link promotion: ${label}${item?.core_id ? ` → ${item.core_id}` : ""}`
+            );
+            await onDetailRefetch();
+        } catch (err: unknown) {
+            setSaveMessage(err instanceof Error ? err.message : "Link promotion failed");
         } finally {
             setIsPromoting(false);
         }
@@ -351,6 +459,101 @@ export default function ImportReviewAddressDetailDrawer({
         }
     };
 
+    const handleValidatePlace = async () => {
+        const placeId = row.linked_place_candidate?.id ?? row.linked_place_candidate_id;
+        if (!placeId) {
+            setSaveMessage("No linked place candidate to validate.");
+            return;
+        }
+        setIsValidating(true);
+        setSaveMessage(null);
+        try {
+            const res = await postImportReviewPlaceValidate({ candidate_ids: [placeId] });
+            const item = res.results.find((r) => r.place_candidate_id === placeId);
+            setSaveMessage(item ? `Place validation: ${item.validation_status}` : "Place validation complete.");
+            await onDetailRefetch();
+        } catch (err: unknown) {
+            setSaveMessage(err instanceof Error ? err.message : "Place validation failed");
+        } finally {
+            setIsValidating(false);
+        }
+    };
+
+    const handleValidateLink = async () => {
+        const linkId = row.place_address_link?.id;
+        if (!linkId) {
+            setSaveMessage("No place/address link to validate.");
+            return;
+        }
+        setIsValidating(true);
+        setSaveMessage(null);
+        try {
+            const res = await postImportReviewPlaceAddressLinkValidate({ link_ids: [linkId] });
+            const item = res.results.find((r) => r.place_address_link_id === linkId);
+            setSaveMessage(item ? `Link validation: ${item.validation_status}` : "Link validation complete.");
+            await onDetailRefetch();
+        } catch (err: unknown) {
+            setSaveMessage(err instanceof Error ? err.message : "Link validation failed");
+        } finally {
+            setIsValidating(false);
+        }
+    };
+
+    const handleCreatePlaceCandidate = async () => {
+        setIsPlaceWorkflowSaving(true);
+        setSaveMessage(null);
+        try {
+            const res = await postImportReviewAddressCreatePlaceCandidate(row.id);
+            setSaveMessage(
+                res.linked_place_candidate_id
+                    ? `Linked place candidate #${res.linked_place_candidate_id}.`
+                    : "Place candidate workflow updated."
+            );
+            await onDetailRefetch();
+        } catch (err: unknown) {
+            setSaveMessage(err instanceof Error ? err.message : "Failed to create place candidate");
+        } finally {
+            setIsPlaceWorkflowSaving(false);
+        }
+    };
+
+    const handleLinkSelectedCorePlace = async () => {
+        const corePlaceId = matchedPlaceId.trim();
+        if (!corePlaceId) {
+            setSaveMessage("Select or enter a core place id first.");
+            return;
+        }
+        setIsPlaceWorkflowSaving(true);
+        setSaveMessage(null);
+        try {
+            await patchImportReviewAddressPlaceStatus(row.id, {
+                matched_core_place_id: corePlaceId,
+            });
+            setSaveMessage(`Linked core place #${corePlaceId}.`);
+            await onDetailRefetch();
+        } catch (err: unknown) {
+            setSaveMessage(err instanceof Error ? err.message : "Failed to link core place");
+        } finally {
+            setIsPlaceWorkflowSaving(false);
+        }
+    };
+
+    const handleIgnorePlaceEvidence = async () => {
+        setIsPlaceWorkflowSaving(true);
+        setSaveMessage(null);
+        try {
+            await patchImportReviewAddressPlaceStatus(row.id, {
+                place_candidate_status: "ignored",
+            });
+            setSaveMessage("Place evidence ignored.");
+            await onDetailRefetch();
+        } catch (err: unknown) {
+            setSaveMessage(err instanceof Error ? err.message : "Failed to ignore place evidence");
+        } finally {
+            setIsPlaceWorkflowSaving(false);
+        }
+    };
+
     const updateRow = (rowKey: string, patch: Partial<AddressComponentEditorRow>) => {
         setComponentRows((prev) => {
             const next = prev.map((r) => {
@@ -403,6 +606,9 @@ export default function ImportReviewAddressDetailDrawer({
     const detailFailed = Boolean(detailError && !detailNotFound);
     const showBody = !detailNotFound && !detailFailed;
     const title = row.display_full_address ?? row.external_id ?? row.id;
+    const reasons = classificationReasons(row.classification_reasons);
+    const createPlaceDisabled =
+        !canEdit || isPlaceWorkflowSaving || row.has_place_evidence !== true;
 
     return (
         <div
@@ -436,7 +642,7 @@ export default function ImportReviewAddressDetailDrawer({
                     {isLoadingDetail ? (
                         <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.loadingCandidateDetail} />
                     ) : null}
-                    {isSaving || isSavingComponents || isSavingMatches || isValidating ? (
+                    {isSaving || isSavingComponents || isSavingMatches || isValidating || isPlaceWorkflowSaving ? (
                         <ImportReviewInlineSpinner label="Saving…" />
                     ) : null}
                     {saveMessage ? (
@@ -471,6 +677,132 @@ export default function ImportReviewAddressDetailDrawer({
                                 externalId={row.external_id}
                                 sourceEntityType={row.source_entity_type}
                             />
+
+                            <section className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/30 p-4">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <h3 className="text-xs font-semibold uppercase tracking-wide text-blue-900">
+                                        Source classification
+                                    </h3>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        <ImportReviewStatusBadge value={row.source_classification ?? "unknown"} />
+                                        <ImportReviewStatusBadge value={row.address_strength ?? "unknown"} />
+                                    </div>
+                                </div>
+                                <div className="grid gap-2 text-sm sm:grid-cols-2">
+                                    <div>
+                                        <span className="text-gray-600">Place evidence</span>
+                                        <p className="font-medium text-gray-900">
+                                            {row.has_place_evidence ? "Yes" : "No"}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-600">Address evidence</span>
+                                        <p className="font-medium text-gray-900">
+                                            {row.has_address_evidence ? "Yes" : "No"}
+                                        </p>
+                                    </div>
+                                </div>
+                                {reasons.length > 0 ? (
+                                    <ul className="list-disc space-y-1 pl-4 text-xs text-blue-950">
+                                        {reasons.map((reason, index) => (
+                                            <li key={`${reason}-${index}`}>{reason}</li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p className="text-xs text-gray-500">No classification reasons recorded.</p>
+                                )}
+                            </section>
+
+                            <section className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/30 p-4">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-900">
+                                        Related place / POI workflow
+                                    </h3>
+                                    <ImportReviewStatusBadge value={row.place_candidate_status ?? "not_applicable"} />
+                                </div>
+                                <div className="grid gap-2 text-sm sm:grid-cols-2">
+                                    <div>
+                                        <span className="text-gray-600">Source name</span>
+                                        <p className="font-medium text-gray-900">{dash(row.source_name)}</p>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-600">Source type</span>
+                                        <p className="font-medium text-gray-900">{dash(row.source_type_hint)}</p>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-600">Linked place candidate</span>
+                                        <p className="font-mono text-xs text-gray-900">
+                                            {row.linked_place_candidate ? (
+                                                <>
+                                                    #{row.linked_place_candidate.id} ·{" "}
+                                                    {dash(
+                                                        row.linked_place_candidate.display_name ??
+                                                            row.linked_place_candidate.canonical_name
+                                                    )}
+                                                </>
+                                            ) : (
+                                                dash(row.linked_place_candidate_id)
+                                            )}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-600">Matched core place</span>
+                                        <p className="font-mono text-xs text-gray-900">
+                                            {row.matched_core_place ? (
+                                                <>
+                                                    #{row.matched_core_place.id} ·{" "}
+                                                    {dash(
+                                                        row.matched_core_place.display_name ??
+                                                            row.matched_core_place.canonical_name
+                                                    )}
+                                                </>
+                                            ) : (
+                                                dash(row.matched_core_place_id)
+                                            )}
+                                        </p>
+                                    </div>
+                                </div>
+                                {row.place_address_link ? (
+                                    <p className="text-xs text-emerald-950">
+                                        Link #{row.place_address_link.id}: {dash(row.place_address_link.relation_type)} ·{" "}
+                                        {dash(row.place_address_link.validation_status)} ·{" "}
+                                        {dash(row.place_address_link.promotion_status)}
+                                    </p>
+                                ) : (
+                                    <p className="text-xs text-gray-500">No place/address link yet.</p>
+                                )}
+                                {canEdit ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={createPlaceDisabled}
+                                            onClick={() => void handleCreatePlaceCandidate()}
+                                            className="rounded-lg border border-emerald-700 bg-white px-3 py-1.5 text-sm text-emerald-950 disabled:opacity-50"
+                                        >
+                                            Create place candidate
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={isPlaceWorkflowSaving || matchedPlaceId.trim() === ""}
+                                            onClick={() => void handleLinkSelectedCorePlace()}
+                                            className="rounded-lg border border-gray-400 bg-white px-3 py-1.5 text-sm disabled:opacity-50"
+                                        >
+                                            Link selected core place
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={isPlaceWorkflowSaving}
+                                            onClick={() => void handleIgnorePlaceEvidence()}
+                                            className="rounded-lg border border-amber-600 bg-white px-3 py-1.5 text-sm text-amber-950 disabled:opacity-50"
+                                        >
+                                            Ignore place evidence
+                                        </button>
+                                    </div>
+                                ) : null}
+                                <p className="text-xs text-gray-500">
+                                    The source/place name is kept as POI context and is not written into address components.
+                                </p>
+                            </section>
 
                             <section className="space-y-2 rounded-xl border border-violet-100 bg-violet-50/40 p-4">
                                 <h3 className="text-xs font-semibold uppercase tracking-wide text-violet-900">
@@ -744,41 +1076,123 @@ export default function ImportReviewAddressDetailDrawer({
                                 ) : null}
                             </section>
 
-                            <section className="space-y-2 rounded-xl border border-gray-200 p-4">
+                            <section className="space-y-4 rounded-xl border border-gray-200 p-4">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                     <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                                         Validation
                                     </h3>
-                                    <ImportReviewStatusBadge value={row.validation_status ?? "not_checked"} />
+                                    <div className="flex flex-wrap gap-1.5">
+                                        <ImportReviewStatusBadge value={row.validation_status ?? "not_checked"} />
+                                        {row.linked_place_candidate ? (
+                                            <ImportReviewStatusBadge
+                                                value={row.linked_place_candidate.validation_status ?? "not_checked"}
+                                            />
+                                        ) : null}
+                                        {row.place_address_link ? (
+                                            <ImportReviewStatusBadge
+                                                value={row.place_address_link.validation_status ?? "not_checked"}
+                                            />
+                                        ) : null}
+                                    </div>
                                 </div>
                                 {row.validated_at ? (
                                     <p className="text-xs text-gray-500">
                                         Last validated: {new Date(row.validated_at).toLocaleString()}
                                     </p>
                                 ) : null}
-                                {blockers.length > 0 ? (
-                                    <ul className="list-disc space-y-1 pl-4 text-xs text-red-800">
-                                        {blockers.map((b, i) => (
-                                            <li key={`${b.code}-${i}`}>{b.message}</li>
-                                        ))}
-                                    </ul>
-                                ) : null}
-                                {warnings.length > 0 ? (
-                                    <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
-                                        {warnings.map((w, i) => (
-                                            <li key={`${w.code}-${i}`}>{w.message}</li>
-                                        ))}
-                                    </ul>
-                                ) : null}
+                                <div className="space-y-3">
+                                    <div>
+                                        <h4 className="text-xs font-semibold text-gray-700">Address validation</h4>
+                                        {blockers.length > 0 ? (
+                                            <ul className="list-disc space-y-1 pl-4 text-xs text-red-800">
+                                                {blockers.map((b, i) => (
+                                                    <li key={`${b.code}-${i}`}>{b.message}</li>
+                                                ))}
+                                            </ul>
+                                        ) : null}
+                                        {warnings.length > 0 ? (
+                                            <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
+                                                {warnings.map((w, i) => (
+                                                    <li key={`${w.code}-${i}`}>{w.message}</li>
+                                                ))}
+                                            </ul>
+                                        ) : null}
+                                        {blockers.length === 0 && warnings.length === 0 ? (
+                                            <p className="text-xs text-gray-500">No address validation issues.</p>
+                                        ) : null}
+                                    </div>
+                                    <div>
+                                        <h4 className="text-xs font-semibold text-gray-700">Place validation</h4>
+                                        {placeValidationBlockers.length > 0 ? (
+                                            <ul className="list-disc space-y-1 pl-4 text-xs text-red-800">
+                                                {placeValidationBlockers.map((b, i) => (
+                                                    <li key={`${b.code}-${i}`}>{b.message}</li>
+                                                ))}
+                                            </ul>
+                                        ) : null}
+                                        {placeValidationWarnings.length > 0 ? (
+                                            <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
+                                                {placeValidationWarnings.map((w, i) => (
+                                                    <li key={`${w.code}-${i}`}>{w.message}</li>
+                                                ))}
+                                            </ul>
+                                        ) : null}
+                                        {!row.linked_place_candidate ? (
+                                            <p className="text-xs text-gray-500">No linked place candidate.</p>
+                                        ) : placeValidationBlockers.length === 0 && placeValidationWarnings.length === 0 ? (
+                                            <p className="text-xs text-gray-500">No place validation issues.</p>
+                                        ) : null}
+                                    </div>
+                                    <div>
+                                        <h4 className="text-xs font-semibold text-gray-700">Link validation</h4>
+                                        {linkValidationBlockers.length > 0 ? (
+                                            <ul className="list-disc space-y-1 pl-4 text-xs text-red-800">
+                                                {linkValidationBlockers.map((b, i) => (
+                                                    <li key={`${b.code}-${i}`}>{b.message}</li>
+                                                ))}
+                                            </ul>
+                                        ) : null}
+                                        {linkValidationWarnings.length > 0 ? (
+                                            <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
+                                                {linkValidationWarnings.map((w, i) => (
+                                                    <li key={`${w.code}-${i}`}>{w.message}</li>
+                                                ))}
+                                            </ul>
+                                        ) : null}
+                                        {!row.place_address_link ? (
+                                            <p className="text-xs text-gray-500">No place/address link.</p>
+                                        ) : linkValidationBlockers.length === 0 && linkValidationWarnings.length === 0 ? (
+                                            <p className="text-xs text-gray-500">No link validation issues.</p>
+                                        ) : null}
+                                    </div>
+                                </div>
                                 {canEdit ? (
-                                    <button
-                                        type="button"
-                                        disabled={isValidating}
-                                        onClick={() => void handleValidate()}
-                                        className="rounded-lg border border-amber-600 px-3 py-1.5 text-sm text-amber-950"
-                                    >
-                                        Validate
-                                    </button>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={isValidating}
+                                            onClick={() => void handleValidate()}
+                                            className="rounded-lg border border-amber-600 px-3 py-1.5 text-sm text-amber-950 disabled:opacity-50"
+                                        >
+                                            Validate address
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={isValidating || !row.linked_place_candidate}
+                                            onClick={() => void handleValidatePlace()}
+                                            className="rounded-lg border border-blue-600 px-3 py-1.5 text-sm text-blue-950 disabled:opacity-50"
+                                        >
+                                            Validate place
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={isValidating || !row.place_address_link}
+                                            onClick={() => void handleValidateLink()}
+                                            className="rounded-lg border border-emerald-600 px-3 py-1.5 text-sm text-emerald-950 disabled:opacity-50"
+                                        >
+                                            Validate link
+                                        </button>
+                                    </div>
                                 ) : null}
                             </section>
 
@@ -814,7 +1228,7 @@ export default function ImportReviewAddressDetailDrawer({
                                             onClick={() => void handlePromote(true)}
                                             className="rounded-lg border border-gray-400 px-3 py-1.5 text-sm"
                                         >
-                                            Dry-run promote
+                                            Dry-run address
                                         </button>
                                         <button
                                             type="button"
@@ -822,7 +1236,39 @@ export default function ImportReviewAddressDetailDrawer({
                                             onClick={() => void handlePromote(false)}
                                             className="rounded-lg border border-emerald-700 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-950 disabled:opacity-50"
                                         >
-                                            Promote to core
+                                            Promote address
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={isPromoting || !row.linked_place_candidate}
+                                            onClick={() => void handlePromotePlace(true)}
+                                            className="rounded-lg border border-gray-400 px-3 py-1.5 text-sm disabled:opacity-50"
+                                        >
+                                            Dry-run place
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={isPromoting || !row.linked_place_candidate}
+                                            onClick={() => void handlePromotePlace(false)}
+                                            className="rounded-lg border border-blue-700 bg-blue-50 px-3 py-1.5 text-sm text-blue-950 disabled:opacity-50"
+                                        >
+                                            Promote place
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={isPromoting || !row.place_address_link}
+                                            onClick={() => void handlePromoteLink(true)}
+                                            className="rounded-lg border border-gray-400 px-3 py-1.5 text-sm disabled:opacity-50"
+                                        >
+                                            Dry-run link
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={isPromoting || !row.place_address_link}
+                                            onClick={() => void handlePromoteLink(false)}
+                                            className="rounded-lg border border-violet-700 bg-violet-50 px-3 py-1.5 text-sm text-violet-950 disabled:opacity-50"
+                                        >
+                                            Promote link
                                         </button>
                                     </div>
                                 ) : null}

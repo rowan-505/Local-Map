@@ -5,14 +5,23 @@ import {
     ImportReviewPublishBatchNotFoundError,
     ImportReviewPublishBatchPromotionConflictError,
     ImportReviewPublishBatchPromotionConfirmationError,
+    ImportReviewAdminAreaPromotionBatchLimitError,
     ImportReviewRoadDryRunRequiredError,
     ImportReviewRoadPromotionBatchLimitError,
     ImportReviewRoadPromotionDisabledError,
+    ImportReviewRoutingBarrierDryRunRequiredError,
+    ImportReviewRoutingBarrierPromotionBatchLimitError,
+    ImportReviewRoutingBarrierPromotionDisabledError,
 } from "./import-review-promotion.errors.js";
 import {
+    IMPORT_REVIEW_ADMIN_AREA_PROMOTION_MAX_ITEMS,
     IMPORT_REVIEW_ROAD_PROMOTION_MAX_ITEMS,
+    IMPORT_REVIEW_ROUTING_BARRIER_PROMOTION_MAX_ITEMS,
+    isImportReviewAdminAreaBulkPromotionEnabled,
     isImportReviewRoadBulkPromotionEnabled,
     isImportReviewRoadPromotionEnabled,
+    isImportReviewRoutingBarrierBulkPromotionEnabled,
+    isImportReviewRoutingBarrierPromotionEnabled,
 } from "./import-review-config.js";
 import {
     DEFAULT_PROMOTE_CHUNK_SIZE,
@@ -51,6 +60,15 @@ function progressBetween(prevEnd: number, nextEnd: number, done: number, total: 
         return nextEnd;
     }
     return prevEnd + (nextEnd - prevEnd) * Math.min(1, Math.max(0, done / total));
+}
+
+function hasRouteStopRelationAfterData(afterData: unknown): boolean {
+    return Boolean(
+        afterData &&
+            typeof afterData === "object" &&
+            "relation_key" in afterData &&
+            (afterData as { relation_key?: unknown }).relation_key
+    );
 }
 
 function parseValidationOutcome(summary: unknown): {
@@ -172,6 +190,39 @@ export class ImportReviewPromotionPromoteRunner {
             const dryRun = await this.repo.readRoadDryRunResult(args.batchId);
             if (!dryRun) {
                 throw new ImportReviewRoadDryRunRequiredError(args.batchId.toString());
+            }
+        }
+
+        const adminAreaItemCount = await this.repo.countAdminAreaPublishItems(args.batchId);
+        if (
+            adminAreaItemCount > IMPORT_REVIEW_ADMIN_AREA_PROMOTION_MAX_ITEMS &&
+            !isImportReviewAdminAreaBulkPromotionEnabled()
+        ) {
+            throw new ImportReviewAdminAreaPromotionBatchLimitError(
+                args.batchId.toString(),
+                adminAreaItemCount,
+                IMPORT_REVIEW_ADMIN_AREA_PROMOTION_MAX_ITEMS
+            );
+        }
+
+        const routingBarrierItemCount = await this.repo.countRoutingBarrierPublishItems(args.batchId);
+        if (routingBarrierItemCount > 0) {
+            if (!isImportReviewRoutingBarrierPromotionEnabled()) {
+                throw new ImportReviewRoutingBarrierPromotionDisabledError(args.batchId.toString());
+            }
+            if (
+                routingBarrierItemCount > IMPORT_REVIEW_ROUTING_BARRIER_PROMOTION_MAX_ITEMS &&
+                !isImportReviewRoutingBarrierBulkPromotionEnabled()
+            ) {
+                throw new ImportReviewRoutingBarrierPromotionBatchLimitError(
+                    args.batchId.toString(),
+                    routingBarrierItemCount,
+                    IMPORT_REVIEW_ROUTING_BARRIER_PROMOTION_MAX_ITEMS
+                );
+            }
+            const dryRun = await this.repo.readRoutingBarrierDryRunResult(args.batchId);
+            if (!dryRun) {
+                throw new ImportReviewRoutingBarrierDryRunRequiredError(args.batchId.toString());
             }
         }
 
@@ -397,7 +448,7 @@ export class ImportReviewPromotionPromoteRunner {
                         });
 
                         if (result.outcome === "inserted" || result.outcome === "updated") {
-                            if (result.target_id && itemRow) {
+                            if (itemRow && (result.target_id != null || itemRow.entity_family === "bus_route_stops")) {
                                 if (result.verification_metadata_applied) {
                                     verificationMetadataApplied += 1;
                                 }
@@ -409,7 +460,9 @@ export class ImportReviewPromotionPromoteRunner {
                                     targetId: result.target_id,
                                     targetTable: itemRow.target_table,
                                     beforeData: result.before_data,
-                                    afterData: result.after_data ?? { id: result.target_id.toString() },
+                                    afterData: result.after_data ?? {
+                                        id: result.target_id?.toString() ?? null,
+                                    },
                                 });
                                 await this.repo.markCandidatePromoted({
                                     entityFamily: itemRow.entity_family,
@@ -428,7 +481,12 @@ export class ImportReviewPromotionPromoteRunner {
                                 familySuccess += 1;
                             }
                         } else if (result.outcome === "skipped") {
-                            if (result.target_id && itemRow) {
+                            if (
+                                itemRow &&
+                                (result.target_id != null ||
+                                    (itemRow.entity_family === "bus_route_stops" &&
+                                        hasRouteStopRelationAfterData(result.after_data)))
+                            ) {
                                 await this.repo.applyItemSuccess({
                                     publishItemId,
                                     targetId: result.target_id,

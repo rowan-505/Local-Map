@@ -11,6 +11,10 @@ export {
   setPlacesGeoJSON,
   setSelectedPoiHighlight,
 } from './maplibre/placesOnMap';
+export {
+  ensureClickedLocationLayer,
+  setClickedLocation,
+} from './maplibre/clickedLocationOnMap';
 export { bindPoiLayerInteractions } from './maplibre/poiMapInteractions';
 export { applyMapOverlayStackOrder } from './maplibre/mapStackOrder';
 export { syncCountryMinZoom } from './maplibre/mapCountryMinZoom';

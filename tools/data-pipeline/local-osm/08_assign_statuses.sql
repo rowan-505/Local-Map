@@ -7,6 +7,8 @@
 --     system.system_diff_items for the requested snapshot_version.
 --   - Assigns staging.match_status, staging.auto_action, and optionally
 --     staging.review_status / staging.updated_at from merged F1/F2 signals.
+--   - Applies classification-specific status defaults for staged places,
+--     addresses, and place-address links created by Stage 05.
 --   - Does not promote to core, touch prod_mirror or Supabase, delete staging,
 --     or modify diff rows.
 --   - staging.confidence_score is on a 0–100 scale (production core–aligned); logic here does not rescale it.
@@ -118,7 +120,87 @@ VALUES
     ('bus_stops', 'staging_bus_stop_candidates'),
     ('bus_routes', 'staging_bus_route_candidates'),
     ('addresses', 'staging_address_candidates'),
+    ('place_address_links', 'staging_place_address_link_candidates'),
     ('routing_barriers', 'staging_routing_barrier_candidates');
+
+DO $stage08_prepare_typed_status_columns$
+DECLARE
+    ctx stage08_context%ROWTYPE;
+BEGIN
+    SELECT *
+    INTO STRICT ctx
+    FROM stage08_context;
+
+    IF to_regclass(format('%I.staging_place_candidates', ctx.staging_schema)) IS NOT NULL THEN
+        EXECUTE format(
+            'ALTER TABLE %I.staging_place_candidates
+                ADD COLUMN IF NOT EXISTS promotion_status text not null default ''not_ready'',
+                ADD COLUMN IF NOT EXISTS source_classification text null,
+                ADD COLUMN IF NOT EXISTS has_place_evidence boolean not null default false,
+                ADD COLUMN IF NOT EXISTS has_address_evidence boolean not null default false,
+                ADD COLUMN IF NOT EXISTS address_strength text null,
+                ADD COLUMN IF NOT EXISTS source_name text null,
+                ADD COLUMN IF NOT EXISTS source_type_hint text null,
+                ADD COLUMN IF NOT EXISTS source_category_hint text null',
+            ctx.staging_schema
+        );
+        EXECUTE format(
+            'CREATE INDEX IF NOT EXISTS staging_place_candidates_promotion_status_idx
+                ON %I.staging_place_candidates (promotion_status)',
+            ctx.staging_schema
+        );
+    END IF;
+
+    IF to_regclass(format('%I.staging_address_candidates', ctx.staging_schema)) IS NOT NULL THEN
+        EXECUTE format(
+            'ALTER TABLE %I.staging_address_candidates
+                ADD COLUMN IF NOT EXISTS validation_status text not null default ''not_ready'',
+                ADD COLUMN IF NOT EXISTS promotion_status text not null default ''not_ready'',
+                ADD COLUMN IF NOT EXISTS source_classification text null,
+                ADD COLUMN IF NOT EXISTS has_place_evidence boolean not null default false,
+                ADD COLUMN IF NOT EXISTS has_address_evidence boolean not null default false,
+                ADD COLUMN IF NOT EXISTS address_strength text null,
+                ADD COLUMN IF NOT EXISTS source_name text null,
+                ADD COLUMN IF NOT EXISTS source_type_hint text null,
+                ADD COLUMN IF NOT EXISTS source_category_hint text null',
+            ctx.staging_schema
+        );
+        EXECUTE format(
+            'CREATE INDEX IF NOT EXISTS staging_address_candidates_validation_status_idx
+                ON %I.staging_address_candidates (validation_status)',
+            ctx.staging_schema
+        );
+        EXECUTE format(
+            'CREATE INDEX IF NOT EXISTS staging_address_candidates_promotion_status_idx
+                ON %I.staging_address_candidates (promotion_status)',
+            ctx.staging_schema
+        );
+    END IF;
+
+    IF to_regclass(format('%I.staging_place_address_link_candidates', ctx.staging_schema)) IS NOT NULL THEN
+        EXECUTE format(
+            'ALTER TABLE %I.staging_place_address_link_candidates
+                ADD COLUMN IF NOT EXISTS validation_status text not null default ''not_ready'',
+                ADD COLUMN IF NOT EXISTS promotion_status text not null default ''not_ready'',
+                ADD COLUMN IF NOT EXISTS match_status text not null default ''new_candidate'',
+                ADD COLUMN IF NOT EXISTS auto_action text null,
+                ADD COLUMN IF NOT EXISTS review_status text not null default ''pending'',
+                ADD COLUMN IF NOT EXISTS updated_at timestamptz not null default now()',
+            ctx.staging_schema
+        );
+        EXECUTE format(
+            'CREATE INDEX IF NOT EXISTS staging_place_address_link_candidates_validation_status_idx
+                ON %I.staging_place_address_link_candidates (validation_status)',
+            ctx.staging_schema
+        );
+        EXECUTE format(
+            'CREATE INDEX IF NOT EXISTS staging_place_address_link_candidates_promotion_status_idx
+                ON %I.staging_place_address_link_candidates (promotion_status)',
+            ctx.staging_schema
+        );
+    END IF;
+END
+$stage08_prepare_typed_status_columns$;
 
 DO $stage08_inspect_manifest$
 DECLARE
@@ -560,6 +642,159 @@ BEGIN
 END
 $stage08_apply_updates$;
 
+DO $stage08_apply_classification_statuses$
+DECLARE
+    ctx stage08_context%ROWTYPE;
+    v_sql text;
+    v_updated bigint;
+BEGIN
+    SELECT *
+    INTO STRICT ctx
+    FROM stage08_context;
+
+    -- Places: only Stage 05 rows with place evidence should exist here. Keep them
+    -- review-ready but not promotion-ready until a reviewer approves and validation
+    -- is run. Address-only rows must not become place rows.
+    IF to_regclass(format('%I.staging_place_candidates', ctx.staging_schema)) IS NOT NULL THEN
+        v_sql := format(
+            $sql$
+            UPDATE %I.staging_place_candidates AS p
+            SET
+                match_status = CASE
+                    WHEN coalesce(p.source_classification, '') IN ('place_only', 'place_with_address') THEN 'new_candidate'
+                    ELSE coalesce(nullif(p.match_status, ''), 'needs_review')
+                END,
+                auto_action = CASE
+                    WHEN coalesce(p.source_classification, '') IN ('place_only', 'place_with_address') THEN 'needs_review'
+                    ELSE coalesce(nullif(p.auto_action, ''), 'needs_review')
+                END,
+                review_status = coalesce(nullif(p.review_status, ''), 'pending'),
+                promotion_status = CASE
+                    WHEN p.promotion_status = 'promoted' THEN p.promotion_status
+                    WHEN coalesce(p.source_classification, '') IN ('place_only', 'place_with_address') THEN 'not_ready'
+                    ELSE 'blocked'
+                END,
+                confidence_score = least(100, greatest(0, coalesce(
+                    p.confidence_score,
+                    CASE
+                        WHEN coalesce(p.source_classification, '') = 'place_with_address' THEN 85
+                        WHEN coalesce(p.source_classification, '') = 'place_only' THEN 70
+                        ELSE 40
+                    END
+                ))),
+                updated_at = now()
+            WHERE p.source_snapshot_id = %s
+            $sql$,
+            ctx.staging_schema,
+            ctx.source_snapshot_id
+        );
+        EXECUTE v_sql;
+        GET DIAGNOSTICS v_updated = ROW_COUNT;
+        RAISE NOTICE 'stage08_classification_statuses entity_family=places rows=%', v_updated;
+    END IF;
+
+    -- Addresses: weak/place-only address rows are explicitly not ready for address
+    -- promotion. Stronger address evidence can be reviewed as an address, but still
+    -- remains promotion not_ready until approval/validation.
+    IF to_regclass(format('%I.staging_address_candidates', ctx.staging_schema)) IS NOT NULL THEN
+        v_sql := format(
+            $sql$
+            UPDATE %I.staging_address_candidates AS a
+            SET
+                match_status = CASE
+                    WHEN coalesce(a.source_classification, '') = 'weak_address' THEN 'needs_review'
+                    WHEN coalesce(a.source_classification, '') = 'place_only' THEN 'needs_review'
+                    WHEN coalesce(a.source_classification, '') IN ('address_only', 'place_with_address') THEN 'new_candidate'
+                    ELSE coalesce(nullif(a.match_status, ''), 'needs_review')
+                END,
+                auto_action = CASE
+                    WHEN coalesce(a.source_classification, '') = 'weak_address' THEN 'needs_review'
+                    WHEN coalesce(a.source_classification, '') = 'place_only' THEN 'needs_review'
+                    WHEN coalesce(a.source_classification, '') IN ('address_only', 'place_with_address') THEN 'needs_review'
+                    ELSE coalesce(nullif(a.auto_action, ''), 'needs_review')
+                END,
+                review_status = coalesce(nullif(a.review_status, ''), 'pending'),
+                validation_status = CASE
+                    WHEN coalesce(a.source_classification, '') = 'place_only' THEN 'blocked'
+                    WHEN coalesce(a.address_strength, '') IN ('none', 'weak') THEN 'blocked'
+                    WHEN coalesce(a.address_strength, '') = 'partial' THEN 'valid_with_warnings'
+                    WHEN coalesce(a.address_strength, '') IN ('strong', 'full') THEN 'valid'
+                    ELSE 'not_ready'
+                END,
+                promotion_status = CASE
+                    WHEN a.promotion_status = 'promoted' THEN a.promotion_status
+                    WHEN coalesce(a.source_classification, '') = 'place_only' THEN 'not_ready'
+                    WHEN coalesce(a.address_strength, '') IN ('none', 'weak') THEN 'not_ready'
+                    ELSE 'not_ready'
+                END,
+                confidence_score = least(100, greatest(0, coalesce(
+                    a.confidence_score,
+                    CASE coalesce(a.address_strength, '')
+                        WHEN 'full' THEN 85
+                        WHEN 'strong' THEN 75
+                        WHEN 'partial' THEN 60
+                        WHEN 'weak' THEN 35
+                        ELSE 0
+                    END
+                ))),
+                updated_at = now()
+            WHERE a.source_snapshot_id = %s
+            $sql$,
+            ctx.staging_schema,
+            ctx.source_snapshot_id
+        );
+        EXECUTE v_sql;
+        GET DIAGNOSTICS v_updated = ROW_COUNT;
+        RAISE NOTICE 'stage08_classification_statuses entity_family=addresses rows=%', v_updated;
+    END IF;
+
+    -- Links: only place_with_address + partial/strong/full rows should be staged.
+    -- Links are valid for review only when both staged sides exist.
+    IF to_regclass(format('%I.staging_place_address_link_candidates', ctx.staging_schema)) IS NOT NULL THEN
+        v_sql := format(
+            $sql$
+            UPDATE %I.staging_place_address_link_candidates AS l
+            SET
+                match_status = 'new_candidate',
+                auto_action = 'needs_review',
+                review_status = coalesce(nullif(l.review_status, ''), 'pending'),
+                validation_status = CASE
+                    WHEN l.place_candidate_id IS NOT NULL
+                         AND l.address_candidate_id IS NOT NULL
+                         AND coalesce(l.source_classification, '') = 'place_with_address'
+                         AND coalesce(l.address_strength, '') IN ('partial', 'strong', 'full')
+                    THEN CASE WHEN coalesce(l.address_strength, '') = 'partial'
+                        THEN 'valid_with_warnings'
+                        ELSE 'valid'
+                    END
+                    ELSE 'blocked'
+                END,
+                promotion_status = CASE
+                    WHEN l.promotion_status = 'promoted' THEN l.promotion_status
+                    ELSE 'not_ready'
+                END,
+                confidence_score = least(100, greatest(0, coalesce(
+                    l.confidence_score,
+                    CASE coalesce(l.address_strength, '')
+                        WHEN 'full' THEN 85
+                        WHEN 'strong' THEN 75
+                        WHEN 'partial' THEN 60
+                        ELSE 0
+                    END
+                ))),
+                updated_at = now()
+            WHERE l.source_snapshot_id = %s
+            $sql$,
+            ctx.staging_schema,
+            ctx.source_snapshot_id
+        );
+        EXECUTE v_sql;
+        GET DIAGNOSTICS v_updated = ROW_COUNT;
+        RAISE NOTICE 'stage08_classification_statuses entity_family=place_address_links rows=%', v_updated;
+    END IF;
+END
+$stage08_apply_classification_statuses$;
+
 SELECT
     'stage08_snapshot_context' AS section,
     source_snapshot_id,
@@ -598,5 +833,124 @@ SELECT
     'stage08_decision_row_count' AS section,
     count(*) AS decision_rows
 FROM stage08_status_decisions;
+
+DO $stage08_typed_verification$
+DECLARE
+    ctx stage08_context%ROWTYPE;
+    v_sql text;
+BEGIN
+    SELECT *
+    INTO STRICT ctx
+    FROM stage08_context;
+
+    CREATE TEMP TABLE IF NOT EXISTS stage08_typed_status_counts (
+        entity_family text,
+        source_classification text,
+        address_strength text,
+        match_status text,
+        auto_action text,
+        review_status text,
+        validation_status text,
+        promotion_status text,
+        row_count bigint
+    ) ON COMMIT DROP;
+
+    TRUNCATE stage08_typed_status_counts;
+
+    IF to_regclass(format('%I.staging_place_candidates', ctx.staging_schema)) IS NOT NULL THEN
+        v_sql := format(
+            $sql$
+            INSERT INTO stage08_typed_status_counts
+            SELECT
+                'places',
+                source_classification,
+                address_strength,
+                match_status,
+                auto_action,
+                review_status,
+                NULL::text,
+                promotion_status,
+                count(*)::bigint
+            FROM %I.staging_place_candidates
+            WHERE source_snapshot_id = %s
+            GROUP BY source_classification, address_strength, match_status, auto_action, review_status, promotion_status
+            $sql$,
+            ctx.staging_schema,
+            ctx.source_snapshot_id
+        );
+        EXECUTE v_sql;
+    END IF;
+
+    IF to_regclass(format('%I.staging_address_candidates', ctx.staging_schema)) IS NOT NULL THEN
+        v_sql := format(
+            $sql$
+            INSERT INTO stage08_typed_status_counts
+            SELECT
+                'addresses',
+                source_classification,
+                address_strength,
+                match_status,
+                auto_action,
+                review_status,
+                validation_status,
+                promotion_status,
+                count(*)::bigint
+            FROM %I.staging_address_candidates
+            WHERE source_snapshot_id = %s
+            GROUP BY source_classification, address_strength, match_status, auto_action, review_status, validation_status, promotion_status
+            $sql$,
+            ctx.staging_schema,
+            ctx.source_snapshot_id
+        );
+        EXECUTE v_sql;
+    END IF;
+
+    IF to_regclass(format('%I.staging_place_address_link_candidates', ctx.staging_schema)) IS NOT NULL THEN
+        v_sql := format(
+            $sql$
+            INSERT INTO stage08_typed_status_counts
+            SELECT
+                'place_address_links',
+                source_classification,
+                address_strength,
+                match_status,
+                auto_action,
+                review_status,
+                validation_status,
+                promotion_status,
+                count(*)::bigint
+            FROM %I.staging_place_address_link_candidates
+            WHERE source_snapshot_id = %s
+            GROUP BY source_classification, address_strength, match_status, auto_action, review_status, validation_status, promotion_status
+            $sql$,
+            ctx.staging_schema,
+            ctx.source_snapshot_id
+        );
+        EXECUTE v_sql;
+    END IF;
+END
+$stage08_typed_verification$;
+
+SELECT
+    'stage08_typed_status_counts' AS section,
+    entity_family,
+    source_classification,
+    address_strength,
+    match_status,
+    auto_action,
+    review_status,
+    validation_status,
+    promotion_status,
+    row_count
+FROM stage08_typed_status_counts
+ORDER BY entity_family, source_classification, address_strength, validation_status, promotion_status;
+
+SELECT
+    'stage08_expected_counts_by_entity_family' AS section,
+    entity_family,
+    sum(row_count)::bigint AS row_count
+FROM stage08_typed_status_counts
+GROUP BY entity_family
+ORDER BY entity_family;
 
 COMMIT;

@@ -112,6 +112,41 @@ export type PublicPlacesParams = {
   readonly limit?: number;
 };
 
+export type PublicMapPlacesParams = {
+  readonly bbox: readonly [number, number, number, number];
+  readonly zoom: number;
+  readonly categoryCode?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+};
+
+export type PublicMapPlacesMetadata = {
+  readonly count: number;
+  readonly limit: number;
+  readonly offset: number;
+  readonly has_more: boolean;
+  readonly bbox: readonly [number, number, number, number];
+  readonly zoom: number;
+  readonly density_debug?: {
+    readonly zoom: number;
+    readonly bbox: readonly [number, number, number, number];
+    readonly threshold_used: number | null;
+    readonly returned_count: number;
+  };
+};
+
+export type PublicMapPlacesResult = {
+  readonly places: readonly Poi[];
+  readonly metadata: PublicMapPlacesMetadata;
+};
+
+type PublicMapPlacesFeatureCollectionDto = GeoJSON.FeatureCollection<
+  GeoJSON.Point,
+  PublicPlaceDto
+> & {
+  readonly metadata: PublicMapPlacesMetadata;
+};
+
 function getApiBaseUrl(): string {
   if (typeof API_BASE_URL !== 'string' || API_BASE_URL.trim() === '') {
     throw new Error('Missing VITE_API_BASE_URL');
@@ -156,6 +191,39 @@ export async function fetchPublicPlaces(
   );
 
   return places.map(publicPlaceToPoi);
+}
+
+export async function fetchPublicMapPlaces(
+  params: PublicMapPlacesParams,
+  signal?: AbortSignal,
+): Promise<PublicMapPlacesResult> {
+  const limit = params.limit ?? publicMapPlacesLimitForZoom(params.zoom);
+  const search = new URLSearchParams({
+    bbox: params.bbox.map((value) => value.toFixed(6)).join(','),
+    zoom: String(Number(params.zoom.toFixed(2))),
+    limit: String(limit),
+    offset: String(params.offset ?? 0),
+  });
+
+  if (params.categoryCode !== undefined && params.categoryCode !== '') {
+    search.set('category', params.categoryCode);
+  }
+
+  const collection = await fetchJson<PublicMapPlacesFeatureCollectionDto>(
+    `/public/map/places?${search.toString()}`,
+    { signal },
+  );
+
+  return {
+    places: collection.features.map((feature) =>
+      publicPlaceToPoi({
+        ...feature.properties,
+        lng: feature.properties.lng ?? feature.geometry.coordinates[0],
+        lat: feature.properties.lat ?? feature.geometry.coordinates[1],
+      }),
+    ),
+    metadata: collection.metadata,
+  };
 }
 
 export async function fetchPublicPlace(publicId: string): Promise<Poi> {
@@ -288,4 +356,11 @@ function hasSearchResults(
   response: PublicSearchResponseDto,
 ): response is { readonly results: readonly PublicSearchResultDto[] } {
   return !Array.isArray(response);
+}
+
+function publicMapPlacesLimitForZoom(zoom: number): number {
+  // Match the public map density bands used by HomePage and the API importance thresholds.
+  if (zoom < 12) return 50;
+  if (zoom < 16) return 100;
+  return 200;
 }

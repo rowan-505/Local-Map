@@ -504,6 +504,18 @@ export const importReviewBuildingItemSchema = {
             description: "Addresses: preferred display full address (en-first by default).",
         },
         source_entity_type: { type: "string", nullable: true },
+        source_classification: { type: "string", nullable: true },
+        has_place_evidence: { type: "boolean" },
+        has_address_evidence: { type: "boolean" },
+        address_strength: { type: "string", nullable: true },
+        place_candidate_status: { type: "string", nullable: true },
+        linked_place_candidate_id: { type: "string", nullable: true },
+        matched_core_place_id: { type: "string", nullable: true },
+        classification_reasons: {
+            type: "array",
+            nullable: true,
+            items: {},
+        },
         source_name: {
             type: "string",
             nullable: true,
@@ -519,6 +531,24 @@ export const importReviewBuildingItemSchema = {
             nullable: true,
             additionalProperties: true,
             description: "Addresses detail: derived OSM source/place evidence.",
+        },
+        linked_place_candidate: {
+            type: "object",
+            nullable: true,
+            additionalProperties: true,
+            description: "Addresses detail: linked import_review.place_candidates summary.",
+        },
+        matched_core_place: {
+            type: "object",
+            nullable: true,
+            additionalProperties: true,
+            description: "Addresses detail: matched core.core_places summary.",
+        },
+        place_address_link: {
+            type: "object",
+            nullable: true,
+            additionalProperties: true,
+            description: "Addresses detail: import_review.place_address_links summary.",
         },
         map_preview_layers: {
             type: "object",
@@ -2498,6 +2528,70 @@ export const patchImportReviewAddressMatchesSchema = {
     },
 } satisfies FastifySchema;
 
+const importReviewAddressPlaceWorkflowResponseSchema = {
+    type: "object",
+    required: ["address_candidate_id", "linked_place_candidate_id", "matched_core_place_id", "place_candidate_status"],
+    properties: {
+        address_candidate_id: { type: "string" },
+        linked_place_candidate_id: { type: "string", nullable: true },
+        matched_core_place_id: { type: "string", nullable: true },
+        place_candidate_status: { type: "string", nullable: true },
+        linked_place_candidate: { type: "object", nullable: true, additionalProperties: true },
+        matched_core_place: { type: "object", nullable: true, additionalProperties: true },
+        place_address_link: { type: "object", nullable: true, additionalProperties: true },
+    },
+    additionalProperties: false,
+} as const;
+
+export const postImportReviewAddressCreatePlaceCandidateSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Create or link a place candidate from address source evidence",
+    description:
+        "Creates an import_review.place_candidates row from address source tags, links it to the address candidate, and creates a review-time place_address_link when address strength is partial, strong, or full. Does not promote to core.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        200: importReviewAddressPlaceWorkflowResponseSchema,
+        400: messageSchema,
+        401: messageSchema,
+        404: messageSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const patchImportReviewAddressPlaceStatusSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Update address place candidate workflow status",
+    description:
+        "Marks place evidence ignored, links a matched core place id, or clears the linked place candidate when no non-clearable place/address link exists. Does not promote to core.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    body: {
+        type: "object",
+        properties: {
+            place_candidate_status: { type: "string", enum: ["ignored"] },
+            matched_core_place_id: { type: "string", nullable: true, pattern: "^\\d+$" },
+            clear_linked_place_candidate: { type: "boolean" },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: importReviewAddressPlaceWorkflowResponseSchema,
+        400: messageSchema,
+        401: messageSchema,
+        404: messageSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
 const addressAdminInferenceVerificationSampleSchema = {
     type: "object",
     required: [
@@ -2577,6 +2671,8 @@ export const postImportReviewAddressValidateSchema = {
                             "validation_status",
                             "promotion_blockers",
                             "promotion_warnings",
+                            "validation_errors",
+                            "validation_warnings",
                             "validated_at",
                         ],
                         properties: {
@@ -2593,6 +2689,143 @@ export const postImportReviewAddressValidateSchema = {
                                 type: "array",
                                 items: addressValidationIssueSchema,
                             },
+                            validation_errors: {
+                                type: "array",
+                                items: addressValidationIssueSchema,
+                            },
+                            validation_warnings: {
+                                type: "array",
+                                items: addressValidationIssueSchema,
+                            },
+                            validated_at: { type: "string", format: "date-time" },
+                        },
+                        additionalProperties: false,
+                    },
+                },
+            },
+            additionalProperties: false,
+        },
+        400: messageSchema,
+        401: messageSchema,
+        404: messageSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+const importReviewValidationSummarySchema = {
+    type: "object",
+    required: ["blocked", "valid_with_warnings", "valid"],
+    properties: {
+        blocked: { type: "integer", minimum: 0 },
+        valid_with_warnings: { type: "integer", minimum: 0 },
+        valid: { type: "integer", minimum: 0 },
+    },
+    additionalProperties: false,
+} as const;
+
+export const postImportReviewPlaceValidateSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Validate place candidates before promotion",
+    description:
+        "Runs review-time promotion-readiness checks on import_review.place_candidates. Persists validation_errors and validation_warnings only. Does not promote to core.",
+    security: [...bearerAuth],
+    body: {
+        type: "object",
+        properties: {
+            review_batch_id: { type: "string", pattern: "^\\d+$" },
+            candidate_ids: {
+                type: "array",
+                items: { type: "string", pattern: "^\\d+$" },
+            },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["review_batch_id", "candidate_count", "summary", "results"],
+            properties: {
+                review_batch_id: { type: "string", nullable: true },
+                candidate_count: { type: "integer", minimum: 0 },
+                summary: importReviewValidationSummarySchema,
+                results: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        required: [
+                            "place_candidate_id",
+                            "validation_status",
+                            "validation_errors",
+                            "validation_warnings",
+                            "validated_at",
+                        ],
+                        properties: {
+                            place_candidate_id: { type: "string" },
+                            validation_status: {
+                                type: "string",
+                                enum: ["blocked", "valid_with_warnings", "valid"],
+                            },
+                            validation_errors: { type: "array", items: addressValidationIssueSchema },
+                            validation_warnings: { type: "array", items: addressValidationIssueSchema },
+                            validated_at: { type: "string", format: "date-time" },
+                        },
+                        additionalProperties: false,
+                    },
+                },
+            },
+            additionalProperties: false,
+        },
+        400: messageSchema,
+        401: messageSchema,
+        404: messageSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewPlaceAddressLinkValidateSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Validate place/address links before promotion",
+    description:
+        "Runs review-time checks on import_review.place_address_links and persists validation_status, validation_errors, and validation_warnings. Does not promote to core.",
+    security: [...bearerAuth],
+    body: {
+        type: "object",
+        properties: {
+            review_batch_id: { type: "string", pattern: "^\\d+$" },
+            link_ids: {
+                type: "array",
+                items: { type: "string", pattern: "^\\d+$" },
+            },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["review_batch_id", "link_count", "summary", "results"],
+            properties: {
+                review_batch_id: { type: "string", nullable: true },
+                link_count: { type: "integer", minimum: 0 },
+                summary: importReviewValidationSummarySchema,
+                results: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        required: [
+                            "place_address_link_id",
+                            "validation_status",
+                            "validation_errors",
+                            "validation_warnings",
+                            "validated_at",
+                        ],
+                        properties: {
+                            place_address_link_id: { type: "string" },
+                            validation_status: {
+                                type: "string",
+                                enum: ["blocked", "valid_with_warnings", "valid"],
+                            },
+                            validation_errors: { type: "array", items: addressValidationIssueSchema },
+                            validation_warnings: { type: "array", items: addressValidationIssueSchema },
                             validated_at: { type: "string", format: "date-time" },
                         },
                         additionalProperties: false,
@@ -2685,6 +2918,73 @@ const addressPromotionBodySchema = {
     additionalProperties: false,
 } as const;
 
+const splitPromotionResponseSchema = {
+    type: "object",
+    required: [
+        "dry_run",
+        "review_batch_id",
+        "candidate_count",
+        "promoted",
+        "skipped",
+        "failed",
+        "warnings",
+        "items",
+        "finished_at",
+    ],
+    properties: {
+        dry_run: { type: "boolean" },
+        review_batch_id: { type: "string", nullable: true },
+        candidate_count: { type: "integer", minimum: 0 },
+        promoted: { type: "integer", minimum: 0 },
+        skipped: { type: "integer", minimum: 0 },
+        failed: { type: "integer", minimum: 0 },
+        warnings: { type: "array", items: { type: "string" } },
+        items: {
+            type: "array",
+            items: {
+                type: "object",
+                required: [
+                    "candidate_id",
+                    "external_id",
+                    "outcome",
+                    "reasons",
+                    "core_id",
+                    "promotion_warnings",
+                    "promotion_blockers",
+                ],
+                properties: {
+                    candidate_id: { type: "string" },
+                    external_id: { type: "string", nullable: true },
+                    outcome: {
+                        type: "string",
+                        enum: ["promoted", "would_promote", "skipped", "failed"],
+                    },
+                    reasons: { type: "array", items: { type: "string" } },
+                    core_id: { type: "string", nullable: true },
+                    promotion_warnings: { type: "array", items: { type: "object" } },
+                    promotion_blockers: { type: "array", items: { type: "object" } },
+                },
+                additionalProperties: false,
+            },
+        },
+        finished_at: { type: "string", format: "date-time" },
+    },
+    additionalProperties: false,
+} as const;
+
+const linkPromotionBodySchema = {
+    type: "object",
+    properties: {
+        review_batch_id: { type: "string", pattern: "^\\d+$" },
+        link_ids: {
+            type: "array",
+            items: { type: "string", pattern: "^\\d+$" },
+        },
+        confirm_warnings: { type: "boolean", default: false },
+    },
+    additionalProperties: false,
+} as const;
+
 export const postImportReviewAddressPromotionDryRunSchema = {
     tags: [Tags.ImportReview],
     summary: "Dry-run address promotion to core",
@@ -2707,7 +3007,7 @@ export const postImportReviewAddressPromotionSchema = {
     summary: "Promote approved address candidates to core",
     description:
         "Transactionally inserts core.core_addresses + core.core_address_components from review components, " +
-        "links core.core_place_addresses when matched_place_id is set, and marks candidates promoted. " +
+        "and marks candidates promoted. Place/address links are promoted separately after both sides exist in core. " +
         "Blocked candidates and duplicates are skipped or flagged duplicate_review_needed.",
     security: [...bearerAuth],
     body: addressPromotionBodySchema,
@@ -2716,6 +3016,38 @@ export const postImportReviewAddressPromotionSchema = {
         400: messageSchema,
         401: messageSchema,
         403: messageSchema,
+        404: messageSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewPlacePromotionSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Promote approved place candidates to core",
+    description:
+        "Promotes import_review.place_candidates to core.core_places and core.core_place_names. Requires approved review status, valid validation result, no blockers, and no existing core duplicate.",
+    security: [...bearerAuth],
+    body: addressPromotionBodySchema,
+    response: {
+        200: splitPromotionResponseSchema,
+        400: messageSchema,
+        401: messageSchema,
+        404: messageSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewPlaceAddressLinkPromotionSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Promote approved place/address links to core",
+    description:
+        "Promotes import_review.place_address_links to core.core_place_addresses only when both sides resolve to existing core rows.",
+    security: [...bearerAuth],
+    body: linkPromotionBodySchema,
+    response: {
+        200: splitPromotionResponseSchema,
+        400: messageSchema,
+        401: messageSchema,
         404: messageSchema,
         500: importReviewApiErrorResponseSchema,
     },
@@ -3017,6 +3349,111 @@ export const getImportReviewPromotionRoadDryRunSchema = {
     },
     response: {
         200: roadDryRunResultSchema,
+        400: messageSchema,
+        401: messageSchema,
+        403: messageSchema,
+        404: messageSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+const routingBarrierDryRunResultSchema = {
+    type: "object",
+    required: [
+        "batch_id",
+        "review_batch_id",
+        "total_count",
+        "safe_to_promote_count",
+        "promote_with_warning_count",
+        "needs_manual_review_count",
+        "blocked_count",
+        "warning_count",
+        "error_count",
+        "duplicate_risk_count",
+        "network_warning_count",
+        "would_insert_count",
+        "would_update_count",
+        "by_warning_code",
+        "by_error_code",
+        "by_barrier_type",
+        "sample_blocked_items",
+        "sample_warning_items",
+        "disabled_because_env_flag_false",
+        "items",
+        "finished_at",
+        "message",
+    ],
+    properties: {
+        batch_id: { type: "string" },
+        review_batch_id: { type: "string", nullable: true },
+        total_count: { type: "integer", minimum: 0 },
+        safe_to_promote_count: { type: "integer", minimum: 0 },
+        promote_with_warning_count: { type: "integer", minimum: 0 },
+        needs_manual_review_count: { type: "integer", minimum: 0 },
+        blocked_count: { type: "integer", minimum: 0 },
+        warning_count: { type: "integer", minimum: 0 },
+        error_count: { type: "integer", minimum: 0 },
+        duplicate_risk_count: { type: "integer", minimum: 0 },
+        network_warning_count: { type: "integer", minimum: 0 },
+        would_insert_count: { type: "integer", minimum: 0 },
+        would_update_count: { type: "integer", minimum: 0 },
+        by_warning_code: { type: "object", additionalProperties: { type: "integer", minimum: 0 } },
+        by_error_code: { type: "object", additionalProperties: { type: "integer", minimum: 0 } },
+        by_barrier_type: { type: "object", additionalProperties: { type: "integer", minimum: 0 } },
+        sample_blocked_items: { type: "array", items: { type: "object", additionalProperties: true } },
+        sample_warning_items: { type: "array", items: { type: "object", additionalProperties: true } },
+        disabled_because_env_flag_false: { type: "boolean" },
+        items: { type: "array", items: { type: "object", additionalProperties: true } },
+        finished_at: { type: "string" },
+        message: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+export const postImportReviewPromotionRoutingBarrierDryRunSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Run routing barrier promotion dry-run for a publish batch",
+    description:
+        "Evaluates routing barrier publish items with blocking checks and network impact warnings. Does not write routing graph rows.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    body: {
+        type: "object",
+        properties: {
+            include_warnings: { type: "boolean", default: false },
+            revalidate: { type: "boolean", default: true },
+            use_review_overrides: { type: "boolean", default: true },
+            nearby_core_road_threshold_m: { type: "number", minimum: 1, maximum: 250, default: 30 },
+            nearby_review_road_threshold_m: { type: "number", minimum: 1, maximum: 250, default: 30 },
+            duplicate_threshold_m: { type: "number", minimum: 1, maximum: 100, default: 10 },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: routingBarrierDryRunResultSchema,
+        400: messageSchema,
+        401: messageSchema,
+        403: messageSchema,
+        404: messageSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const getImportReviewPromotionRoutingBarrierDryRunSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Get cached routing barrier promotion dry-run result",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        200: routingBarrierDryRunResultSchema,
         400: messageSchema,
         401: messageSchema,
         403: messageSchema,

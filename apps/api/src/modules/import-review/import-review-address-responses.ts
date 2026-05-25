@@ -38,6 +38,14 @@ export type ImportReviewAddressListItem = {
     id: string;
     external_id: string | null;
     source_entity_type: string | null;
+    source_classification: string | null;
+    has_place_evidence: boolean;
+    has_address_evidence: boolean;
+    address_strength: string | null;
+    place_candidate_status: string | null;
+    linked_place_candidate_id: string | null;
+    matched_core_place_id: string | null;
+    classification_reasons: unknown;
     generated_full_address_en: string | null;
     generated_full_address_my: string | null;
     display_full_address: string | null;
@@ -56,6 +64,41 @@ export type ImportReviewAddressListItem = {
     updated_at: string;
     source_name: string | null;
     source_type_hint: string | null;
+};
+
+export type ImportReviewAddressLinkedPlaceSummary = {
+    id: string;
+    external_id: string | null;
+    canonical_name: string | null;
+    display_name: string | null;
+    class_code: string | null;
+    review_status: string | null;
+    promotion_status: string | null;
+    validation_status: string | null;
+    validation_errors: unknown;
+    validation_warnings: unknown;
+};
+
+export type ImportReviewAddressMatchedCorePlaceSummary = {
+    id: string;
+    display_name: string | null;
+    canonical_name: string | null;
+    category_name: string | null;
+};
+
+export type ImportReviewAddressPlaceAddressLinkSummary = {
+    id: string;
+    place_candidate_id: string | null;
+    address_candidate_id: string;
+    relation_type: string | null;
+    is_primary: boolean | null;
+    confidence_score: number | null;
+    match_status: string | null;
+    review_status: string | null;
+    validation_status: string | null;
+    promotion_status: string | null;
+    validation_errors: unknown;
+    validation_warnings: unknown;
 };
 
 export type ImportReviewAddressDetailItem = ImportReviewAddressListItem & {
@@ -98,6 +141,9 @@ export type ImportReviewAddressDetailItem = ImportReviewAddressListItem & {
     geometry: ImportReviewGeoJson | null;
     entrance_geometry: ImportReviewGeoJson | null;
     map_preview_layers?: AddressMapPreviewLayers | null;
+    linked_place_candidate?: ImportReviewAddressLinkedPlaceSummary | null;
+    matched_core_place?: ImportReviewAddressMatchedCorePlaceSummary | null;
+    place_address_link?: ImportReviewAddressPlaceAddressLinkSummary | null;
 };
 
 export type AddressMapPreviewLayers = {
@@ -240,6 +286,14 @@ function addressRowBase(row: BuildingListRowDb) {
         id: row.id.toString(),
         external_id: row.external_id,
         source_entity_type: row.source_entity_type ?? null,
+        source_classification: row.source_classification ?? null,
+        has_place_evidence: row.has_place_evidence === true,
+        has_address_evidence: row.has_address_evidence === true,
+        address_strength: row.address_strength ?? null,
+        place_candidate_status: row.place_candidate_status ?? null,
+        linked_place_candidate_id: bigStr(row.linked_place_candidate_id),
+        matched_core_place_id: bigStr(row.matched_core_place_id),
+        classification_reasons: row.classification_reasons ?? [],
         confidence_score: numOrNull(row.confidence_score),
         match_status: row.match_status,
         auto_action: row.auto_action,
@@ -356,6 +410,14 @@ export function enrichAddressListItem(
             "quarter"
         ),
         source_entity_type: address.source_entity_type,
+        source_classification: address.source_classification,
+        has_place_evidence: address.has_place_evidence,
+        has_address_evidence: address.has_address_evidence,
+        address_strength: address.address_strength,
+        place_candidate_status: address.place_candidate_status,
+        linked_place_candidate_id: address.linked_place_candidate_id,
+        matched_core_place_id: address.matched_core_place_id,
+        classification_reasons: address.classification_reasons,
         source_name: address.source_name,
         source_type_hint: address.source_type_hint,
         validation_status: address.validation_status,

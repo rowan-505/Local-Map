@@ -48,6 +48,103 @@ const publicPlaceSchema = {
     additionalProperties: false,
 } as const;
 
+const publicMapPlaceFeatureSchema = {
+    type: "object",
+    required: ["type", "id", "geometry", "properties"],
+    properties: {
+        type: { type: "string", enum: ["Feature"] },
+        id: { type: "string", format: "uuid" },
+        geometry: {
+            type: "object",
+            required: ["type", "coordinates"],
+            properties: {
+                type: { type: "string", enum: ["Point"] },
+                coordinates: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+            },
+            additionalProperties: false,
+        },
+        properties: {
+            type: "object",
+            required: [
+                "id",
+                "public_id",
+                "publicId",
+                "display_name",
+                "primary_name",
+                "name",
+                "name_mm",
+                "name_en",
+                "category_code",
+                "category_name",
+                "categoryCode",
+                "categoryName",
+                "importance_score",
+                "importanceScore",
+                "is_verified",
+                "isVerified",
+                "lat",
+                "lng",
+            ],
+            properties: {
+                id: { type: "string" },
+                public_id: { type: "string", format: "uuid" },
+                publicId: { type: "string", format: "uuid" },
+                display_name: { type: "string", nullable: true },
+                primary_name: { type: "string", nullable: true },
+                name: { type: "string" },
+                name_mm: { type: "string", nullable: true },
+                name_en: { type: "string", nullable: true },
+                category_code: { type: "string", nullable: true },
+                category_name: { type: "string", nullable: true },
+                categoryCode: { type: "string", nullable: true },
+                categoryName: { type: "string", nullable: true },
+                importance_score: { type: "number", nullable: true },
+                importanceScore: { type: "number", nullable: true },
+                is_verified: { type: "boolean" },
+                isVerified: { type: "boolean" },
+                lat: { type: "number" },
+                lng: { type: "number" },
+            },
+            additionalProperties: false,
+        },
+    },
+    additionalProperties: false,
+} as const;
+
+const publicMapPlacesFeatureCollectionSchema = {
+    type: "object",
+    required: ["type", "features", "metadata"],
+    properties: {
+        type: { type: "string", enum: ["FeatureCollection"] },
+        features: { type: "array", items: publicMapPlaceFeatureSchema },
+        metadata: {
+            type: "object",
+            required: ["count", "limit", "offset", "has_more", "bbox", "zoom"],
+            properties: {
+                count: { type: "integer", minimum: 0 },
+                limit: { type: "integer", minimum: 1, maximum: 300 },
+                offset: { type: "integer", minimum: 0 },
+                has_more: { type: "boolean" },
+                bbox: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4 },
+                zoom: { type: "number" },
+                density_debug: {
+                    type: "object",
+                    required: ["zoom", "bbox", "threshold_used", "returned_count"],
+                    properties: {
+                        zoom: { type: "number" },
+                        bbox: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4 },
+                        threshold_used: { type: "number", nullable: true },
+                        returned_count: { type: "integer", minimum: 0 },
+                    },
+                    additionalProperties: false,
+                },
+            },
+            additionalProperties: false,
+        },
+    },
+    additionalProperties: false,
+} as const;
+
 const cameraTargetPointSchema = {
     type: "object",
     required: ["type", "center", "zoom"],
@@ -156,6 +253,32 @@ export const getPublicPlaceByIdSchema = {
         200: publicPlaceSchema,
         400: badRequestSchema,
         404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+export const getPublicMapPlacesSchema = {
+    tags: [Tags.Places],
+    summary: "List public places in a map viewport",
+    description: "GeoJSON FeatureCollection of lightweight public place points inside the requested bbox.",
+    querystring: {
+        type: "object",
+        required: ["bbox", "zoom"],
+        properties: {
+            bbox: {
+                type: "string",
+                pattern: "^-?\\d+(?:\\.\\d+)?,-?\\d+(?:\\.\\d+)?,-?\\d+(?:\\.\\d+)?,-?\\d+(?:\\.\\d+)?$",
+                description: "minLng,minLat,maxLng,maxLat",
+            },
+            zoom: { type: "number", minimum: 0, maximum: 24 },
+            category: { type: "string", minLength: 1 },
+            limit: { type: "integer", minimum: 1, maximum: 300, default: 100 },
+            offset: { type: "integer", minimum: 0, default: 0 },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: publicMapPlacesFeatureCollectionSchema,
+        400: badRequestSchema,
     },
 } satisfies FastifySchema;
 

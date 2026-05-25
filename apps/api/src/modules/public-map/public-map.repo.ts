@@ -12,6 +12,14 @@ type SearchPublicMapParams = {
     limit: number;
 };
 
+export type ViewportPublicPlacesParams = {
+    bbox: [number, number, number, number];
+    zoom: number;
+    category?: string;
+    limit: number;
+    offset: number;
+};
+
 /** Kyauktan operational bbox (4326); keep aligned with apps/web REGION_SCOPE. */
 const PUBLIC_MAP_BOUNDS_ENVELOPE_SQL = Prisma.sql`ST_MakeEnvelope(96.12, 16.48, 96.52, 16.78, 4326)`;
 
@@ -44,6 +52,12 @@ export type PublicPlaceRow = {
     lng: number;
     importance_score: number | null;
     is_verified: boolean;
+};
+
+export type PublicMapViewportPlaceRow = PublicPlaceRow & {
+    effective_importance_score: number;
+    geom: unknown;
+    updated_at: Date;
 };
 
 export type PublicCategoryRow = {
@@ -139,6 +153,94 @@ export class PublicMapRepository {
             WHERE ${Prisma.join(conditions, " AND ")}
             ORDER BY p.importance_score DESC, p.display_name ASC, p.public_id ASC
             LIMIT ${params.limit}
+        `);
+    }
+
+    async listViewportPlaces(params: ViewportPublicPlacesParams): Promise<PublicMapViewportPlaceRow[]> {
+        const conditions = buildViewportPlaceConditions(params);
+        const [minLng, minLat, maxLng, maxLat] = params.bbox;
+        const resultLimit = params.limit + 1;
+
+        return this.prisma.$queryRaw<PublicMapViewportPlaceRow[]>(Prisma.sql`
+            WITH viewport AS (
+                SELECT ST_MakeEnvelope(${minLng}, ${minLat}, ${maxLng}, ${maxLat}, 4326) AS geom
+            )
+            SELECT
+                p.id,
+                p.public_id,
+                p.display_name,
+                p.primary_name,
+                name_mm.name AS name_mm,
+                name_en.name AS name_en,
+                p.category_id,
+                c.code AS category_code,
+                c.name AS category_name,
+                p.lat,
+                p.lng,
+                p.importance_score::double precision AS importance_score,
+                score.effective_importance_score,
+                p.is_verified,
+                p.updated_at,
+                ST_AsGeoJSON(p.point_geom)::json AS geom
+            FROM core.core_places AS p
+            CROSS JOIN viewport
+            CROSS JOIN LATERAL (
+                SELECT GREATEST(
+                    COALESCE(p.importance_score, 0),
+                    CASE
+                        WHEN p.is_verified = true THEN 60
+                        ELSE 30
+                    END
+                )::double precision AS effective_importance_score
+            ) AS score
+            LEFT JOIN ref.ref_poi_categories AS c
+                ON c.id = p.category_id
+            LEFT JOIN LATERAL (
+                SELECT pn.name
+                FROM core.core_place_names AS pn
+                WHERE pn.place_id = p.id
+                  AND (
+                      pn.language_code IN ('my', 'mm')
+                      OR upper(trim(coalesce(pn.script_code, ''))) = 'MYMR'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN pn.name_type = 'official' AND pn.is_primary = true THEN 1
+                        WHEN pn.is_primary = true THEN 2
+                        WHEN pn.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    pn.search_weight DESC NULLS LAST,
+                    pn.name ASC
+                LIMIT 1
+            ) AS name_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT pn.name
+                FROM core.core_place_names AS pn
+                WHERE pn.place_id = p.id
+                  AND (
+                      pn.language_code = 'en'
+                      OR upper(trim(coalesce(pn.script_code, ''))) = 'LATN'
+                  )
+                ORDER BY
+                    CASE
+                        WHEN pn.name_type = 'official' AND pn.is_primary = true THEN 1
+                        WHEN pn.is_primary = true THEN 2
+                        WHEN pn.name_type = 'official' THEN 3
+                        ELSE 4
+                    END,
+                    pn.search_weight DESC NULLS LAST,
+                    pn.name ASC
+                LIMIT 1
+            ) AS name_en ON true
+            WHERE ${Prisma.join(conditions, " AND ")}
+            ORDER BY
+                score.effective_importance_score DESC,
+                p.is_verified DESC,
+                p.updated_at DESC,
+                p.id ASC
+            LIMIT ${resultLimit}
+            OFFSET ${params.offset}
         `);
     }
 
@@ -563,7 +665,7 @@ function buildPublicPlaceConditions(params: ListPublicPlacesParams) {
 
     const categoryCode = params.category?.trim();
 
-    if (categoryCode && categoryCode !== "all") {
+    if (categoryCode && categoryCode.toLowerCase() !== "all") {
         conditions.push(Prisma.sql`p.category_id IN (
             WITH RECURSIVE category_tree AS (
                 SELECT id
@@ -584,6 +686,54 @@ function buildPublicPlaceConditions(params: ListPublicPlacesParams) {
     }
 
     return conditions;
+}
+
+function buildViewportPlaceConditions(params: ViewportPublicPlacesParams) {
+    const conditions: Prisma.Sql[] = [
+        Prisma.sql`p.deleted_at IS NULL`,
+        Prisma.sql`p.is_public = true`,
+        Prisma.sql`p.point_geom IS NOT NULL`,
+        Prisma.sql`p.point_geom && viewport.geom`,
+        Prisma.sql`ST_Intersects(p.point_geom, viewport.geom)`,
+    ];
+
+    const categoryCode = params.category?.trim();
+
+    if (categoryCode && categoryCode !== "all") {
+        conditions.push(Prisma.sql`p.category_id IN (
+            WITH RECURSIVE category_tree AS (
+                SELECT id
+                FROM ref.ref_poi_categories
+                WHERE code = ${categoryCode}
+
+                UNION ALL
+
+                SELECT child.id
+                FROM ref.ref_poi_categories AS child
+                INNER JOIN category_tree AS parent
+                    ON child.parent_id = parent.id
+            )
+            SELECT id FROM category_tree
+        )`);
+    }
+
+    const minImportanceScore = effectiveImportanceThresholdForZoom(params.zoom);
+    if (minImportanceScore !== null) {
+        conditions.push(Prisma.sql`score.effective_importance_score >= ${minImportanceScore}`);
+    }
+
+    return conditions;
+}
+
+export function effectiveImportanceThresholdForZoom(zoom: number): number | null {
+    // Public map density tuning uses effective importance on a 0-100 scale:
+    // max(raw importance, verified=60, unverified=30). This keeps verified places
+    // visible at mid zoom even before raw importance scoring is fully populated.
+    if (zoom < 11) return 75;
+    if (zoom < 13) return 60;
+    if (zoom < 15) return 45;
+    if (zoom < 17) return 30;
+    return null;
 }
 
 function buildSearchWithStreetNamesQuery(params: SearchPublicMapParams) {

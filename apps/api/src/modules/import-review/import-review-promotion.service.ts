@@ -51,6 +51,12 @@ import {
 } from "./import-review-promotion-road-dry-run.service.js";
 import type { ImportReviewPromotionRoadDryRunResult } from "./import-review-promotion-road-dry-run.types.js";
 import type { PostImportReviewPromotionRoadDryRunBody } from "./import-review-promotion-road-dry-run.schema.js";
+import {
+    createImportReviewPromotionRoutingBarrierDryRunService,
+    ImportReviewPromotionRoutingBarrierDryRunService,
+} from "./import-review-promotion-routing-barrier-dry-run.service.js";
+import type { ImportReviewPromotionRoutingBarrierDryRunResult } from "./import-review-promotion-routing-barrier-dry-run.types.js";
+import type { PostImportReviewPromotionRoutingBarrierDryRunBody } from "./import-review-promotion-routing-barrier-dry-run.schema.js";
 
 function reviewedByUserId(user: JwtUser): bigint | null {
     const sub = user.sub?.trim();
@@ -274,6 +280,7 @@ export class ImportReviewPromotionService {
     private readonly publishSummaryRepo: ImportReviewPublishBatchSummaryRepository;
     private readonly reviewSummaryRepo: ImportReviewReviewBatchSummaryRepository;
     private readonly roadDryRunService: ImportReviewPromotionRoadDryRunService;
+    private readonly routingBarrierDryRunService: ImportReviewPromotionRoutingBarrierDryRunService;
 
     constructor(
         private readonly repo: ImportReviewPromotionRepository,
@@ -286,6 +293,7 @@ export class ImportReviewPromotionService {
         this.publishSummaryRepo = new ImportReviewPublishBatchSummaryRepository(prisma);
         this.reviewSummaryRepo = new ImportReviewReviewBatchSummaryRepository(prisma);
         this.roadDryRunService = createImportReviewPromotionRoadDryRunService(prisma);
+        this.routingBarrierDryRunService = createImportReviewPromotionRoutingBarrierDryRunService(prisma);
     }
 
     private async computeBatchSummary(batchId: bigint): Promise<PublishBatchComputedSummary | null> {
@@ -715,6 +723,17 @@ export class ImportReviewPromotionService {
 
     async getRoadDryRun(batchId: bigint): Promise<ImportReviewPromotionRoadDryRunResult> {
         return this.roadDryRunService.getDryRunResult(batchId);
+    }
+
+    async runRoutingBarrierDryRun(
+        batchId: bigint,
+        body: PostImportReviewPromotionRoutingBarrierDryRunBody
+    ): Promise<ImportReviewPromotionRoutingBarrierDryRunResult> {
+        return this.routingBarrierDryRunService.runDryRun(batchId, body);
+    }
+
+    async getRoutingBarrierDryRun(batchId: bigint): Promise<ImportReviewPromotionRoutingBarrierDryRunResult> {
+        return this.routingBarrierDryRunService.getDryRunResult(batchId);
     }
 
     async getBatchLogs(batchId: bigint): Promise<ImportReviewPublishBatchLogsResponse> {

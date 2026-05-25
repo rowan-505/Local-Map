@@ -1,8 +1,11 @@
 import {
+    effectiveImportanceThresholdForZoom,
     PublicMapRepository,
     type PublicMapGeoLabelRow,
+    type PublicMapViewportPlaceRow,
     type PublicPlaceRow,
     type PublicSearchRow,
+    type ViewportPublicPlacesParams,
 } from "./public-map.repo.js";
 
 /** GeoJSON for MapLibre — include `name_mm` / `name_en` so clients drive `text-field` by language mode. */
@@ -14,6 +17,49 @@ export type PublicMapGeoJsonFeatureCollection = {
         readonly geometry: unknown;
         readonly properties: Record<string, string | boolean>;
     }>;
+};
+
+export type PublicMapPlacesFeatureCollection = {
+    readonly type: "FeatureCollection";
+    readonly features: ReadonlyArray<{
+        readonly type: "Feature";
+        readonly id: string;
+        readonly geometry: unknown;
+        readonly properties: {
+            readonly id: string;
+            readonly public_id: string;
+            readonly publicId: string;
+            readonly display_name: string | null;
+            readonly primary_name: string | null;
+            readonly name: string;
+            readonly name_mm: string | null;
+            readonly name_en: string | null;
+            readonly category_code: string | null;
+            readonly category_name: string | null;
+            readonly categoryCode: string | null;
+            readonly categoryName: string | null;
+            readonly importance_score: number | null;
+            readonly importanceScore: number | null;
+            readonly is_verified: boolean;
+            readonly isVerified: boolean;
+            readonly lat: number;
+            readonly lng: number;
+        };
+    }>;
+    readonly metadata: {
+        readonly count: number;
+        readonly limit: number;
+        readonly offset: number;
+        readonly has_more: boolean;
+        readonly bbox: readonly [number, number, number, number];
+        readonly zoom: number;
+        readonly density_debug?: {
+            readonly zoom: number;
+            readonly bbox: readonly [number, number, number, number];
+            readonly threshold_used: number | null;
+            readonly returned_count: number;
+        };
+    };
 };
 
 export class PublicPlaceNotFoundError extends Error {
@@ -34,6 +80,36 @@ export class PublicMapService {
     }) {
         const places = await this.publicMapRepo.listPlaces(input);
         return places.map((place) => serializePlace(place));
+    }
+
+    async listViewportPlaces(input: ViewportPublicPlacesParams): Promise<PublicMapPlacesFeatureCollection> {
+        const rows = await this.publicMapRepo.listViewportPlaces(input);
+        const hasMore = rows.length > input.limit;
+        const pageRows = hasMore ? rows.slice(0, input.limit) : rows;
+        const thresholdUsed = effectiveImportanceThresholdForZoom(input.zoom);
+
+        return {
+            type: "FeatureCollection",
+            features: pageRows.map((place) => viewportPlaceFeature(place)),
+            metadata: {
+                count: pageRows.length,
+                limit: input.limit,
+                offset: input.offset,
+                has_more: hasMore,
+                bbox: input.bbox,
+                zoom: input.zoom,
+                ...(isDevelopmentRuntime()
+                    ? {
+                          density_debug: {
+                              zoom: input.zoom,
+                              bbox: input.bbox,
+                              threshold_used: thresholdUsed,
+                              returned_count: pageRows.length,
+                          },
+                      }
+                    : {}),
+            },
+        };
     }
 
     async getPlaceByPublicId(publicId: string) {
@@ -151,9 +227,47 @@ function serializePlace(place: PublicPlaceRow) {
     };
 }
 
+function viewportPlaceFeature(place: PublicMapViewportPlaceRow) {
+    const mm = normalizeName(place.name_mm);
+    const en = normalizeName(place.name_en);
+    const display = normalizeName(place.display_name);
+    const primary = normalizeName(place.primary_name);
+    const publicId = place.public_id;
+
+    return {
+        type: "Feature" as const,
+        id: publicId,
+        geometry: place.geom,
+        properties: {
+            id: place.id.toString(),
+            public_id: publicId,
+            publicId,
+            display_name: display,
+            primary_name: primary,
+            name: mm ?? en ?? display ?? primary ?? "Unnamed",
+            name_mm: mm,
+            name_en: en,
+            category_code: place.category_code,
+            category_name: place.category_name,
+            categoryCode: place.category_code,
+            categoryName: place.category_name,
+            importance_score: place.importance_score,
+            importanceScore: place.importance_score,
+            is_verified: place.is_verified,
+            isVerified: place.is_verified,
+            lat: place.lat,
+            lng: place.lng,
+        },
+    };
+}
+
 function normalizeName(value: string | null) {
     const trimmed = value?.trim();
     return trimmed ? trimmed : null;
+}
+
+function isDevelopmentRuntime() {
+    return process.env.NODE_ENV !== "production";
 }
 
 function serializeSearchResult(result: PublicSearchRow) {

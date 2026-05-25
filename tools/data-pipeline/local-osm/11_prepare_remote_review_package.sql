@@ -3,6 +3,8 @@
 -- -----------------------------------------------------------------------------
 -- After Stage G, copy staging review-ready candidates plus latest F2 diff slice
 -- into system.system_remote_review_packages / *_items for outbound tooling.
+-- Classified review packages also emit explicit address_components and
+-- place_address_links package rows for Stage K remote upload.
 -- Each `_items.payload` echoes `source_snapshot_version`, `snapshot_version`,
 -- `source_snapshot_id_local`, and `family` for Stage `14_verify_lineage_alignment.sql`.
 --
@@ -217,6 +219,8 @@ VALUES
     ('water_lines', true),
     ('water_polygons', true),
     ('addresses', true),
+    ('address_components', true),
+    ('place_address_links', true),
     ('admin_areas', true),
     ('routing_barriers', true);
 
@@ -253,7 +257,7 @@ VALUES
      'coalesce(nullif(trim(s.class_code::text), ''''), nullif(trim(s.normalized_data ->> ''class_code''), ''''))',
      's.canonical_name::text', 'staging_place_name_candidates', 'place_candidate_id', 'place_name_candidates', NULL,
      's.point_geom IS NOT NULL',
-     'jsonb_build_object(''place_class_id'', s.place_class_id, ''poi_category_id'', s.poi_category_id, ''source_entity_type'', s.source_entity_type)'),
+     'jsonb_build_object(''place_class_id'', s.place_class_id, ''poi_category_id'', s.poi_category_id, ''source_entity_type'', s.source_entity_type, ''source_name'', to_jsonb(s) ->> ''source_name'', ''source_type_hint'', to_jsonb(s) ->> ''source_type_hint'', ''source_category_hint'', to_jsonb(s) ->> ''source_category_hint'', ''source_classification'', to_jsonb(s) ->> ''source_classification'', ''address_strength'', to_jsonb(s) ->> ''address_strength'', ''promotion_status'', to_jsonb(s) ->> ''promotion_status'')'),
     ('roads', 'staging_road_candidates', 'roads', 'core_streets', 'matched_core_edge_id',
      'CASE WHEN s.geom IS NOT NULL THEN ST_AsGeoJSON(s.geom)::jsonb END',
      'coalesce(nullif(trim(s.class_code::text), ''''), nullif(trim(s.normalized_data ->> ''class_code''), ''''), nullif(trim(s.normalized_data ->> ''highway''), ''''))',
@@ -287,7 +291,7 @@ VALUES
      'NULL::text', 'coalesce(nullif(trim(s.full_address), ''''), s.external_id::text)',
      'staging_address_component_candidates', 'address_candidate_id', 'address_components', 'address_components',
      '(s.point_geom IS NOT NULL OR s.geom IS NOT NULL)',
-     'jsonb_build_object(''full_address'', s.full_address, ''house_number'', s.house_number, ''unit_number'', s.normalized_data ->> ''unit_number'', ''street_id'', s.normalized_data ->> ''street_id'', ''admin_area_id'', s.normalized_data ->> ''admin_area_id'', ''street_name'', s.street_name, ''quarter'', s.quarter, ''suburb'', s.suburb, ''township'', s.township, ''city'', s.city, ''district'', s.district, ''state_region'', s.state_region, ''postcode'', s.postcode, ''country'', s.country, ''postal_code'', coalesce(s.normalized_data ->> ''postal_code'', s.postcode), ''plus_code'', s.normalized_data ->> ''plus_code'', ''entrance_geom_geojson'', s.normalized_data -> ''entrance_geom_geojson'')'),
+     'jsonb_build_object(''full_address'', s.full_address, ''house_number'', s.house_number, ''unit_number'', s.normalized_data ->> ''unit_number'', ''street_id'', s.normalized_data ->> ''street_id'', ''admin_area_id'', s.normalized_data ->> ''admin_area_id'', ''street_name'', s.street_name, ''quarter'', s.quarter, ''suburb'', s.suburb, ''township'', s.township, ''city'', s.city, ''district'', s.district, ''state_region'', s.state_region, ''postcode'', s.postcode, ''country'', s.country, ''postal_code'', coalesce(s.normalized_data ->> ''postal_code'', s.postcode), ''plus_code'', s.normalized_data ->> ''plus_code'', ''entrance_geom_geojson'', s.normalized_data -> ''entrance_geom_geojson'', ''source_name'', to_jsonb(s) ->> ''source_name'', ''source_type_hint'', to_jsonb(s) ->> ''source_type_hint'', ''source_category_hint'', to_jsonb(s) ->> ''source_category_hint'', ''source_classification'', to_jsonb(s) ->> ''source_classification'', ''address_strength'', to_jsonb(s) ->> ''address_strength'', ''place_candidate_status'', coalesce(to_jsonb(s) ->> ''place_candidate_status'', case when to_jsonb(s) ->> ''source_classification'' = ''place_with_address'' then ''needs_place_candidate'' end), ''linked_place_candidate_id'', to_jsonb(s) ->> ''matched_place_candidate_id'', ''validation_status'', to_jsonb(s) ->> ''validation_status'', ''promotion_status'', to_jsonb(s) ->> ''promotion_status'')'),
     ('admin_areas', 'staging_admin_area_candidates', 'admin_areas', 'core_admin_areas', 'matched_core_admin_area_id',
      'CASE WHEN s.geom IS NOT NULL THEN ST_AsGeoJSON(s.geom)::jsonb END',
      'NULL::text', 's.canonical_name::text', 'staging_admin_area_name_candidates', 'admin_area_candidate_id', 'names', 'names',
@@ -373,6 +377,20 @@ BEGIN
         INNER JOIN stage11_manifest mf
             ON mf.entity_family = fe.entity_family AND mf.implemented
         WHERE to_regclass(format('%I.%I', v_schema, fe.staging_table)) IS NOT NULL
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM stage11_manifest mf
+        WHERE mf.implemented
+          AND mf.entity_family = 'address_components'
+          AND to_regclass(format('%I.staging_address_component_candidates', v_schema)) IS NOT NULL
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM stage11_manifest mf
+        WHERE mf.implemented
+          AND mf.entity_family = 'place_address_links'
+          AND to_regclass(format('%I.staging_place_address_link_candidates', v_schema)) IS NOT NULL
     ) THEN
         RAISE EXCEPTION
             'staging schema "%" has no implemented candidate tables for Stage J export.',
@@ -667,6 +685,265 @@ $ex$,
             v_fe.entity_family, v_schema, v_fe.staging_table;
     END LOOP;
 
+    ------------------------------------------------------------------
+    -- Explicit classified child/link exports.
+    -- Address components and place-address links need their own package
+    -- rows because Stage K uploads them to non-generic import_review tables.
+    ------------------------------------------------------------------
+    IF EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'address_components' AND implemented)
+       AND to_regclass(format('%I.staging_address_component_candidates', v_schema)) IS NOT NULL
+       AND to_regclass(format('%I.staging_address_candidates', v_schema)) IS NOT NULL THEN
+        v_sql := format(
+            $ac$
+            WITH ranked AS (
+                SELECT
+                    comp.id AS local_staging_id,
+                    'address_components'::text AS entity_family,
+                    'staging_address_component_candidates'::text AS source_table,
+                    concat_ws(
+                        ':',
+                        address.external_id,
+                        'component',
+                        comp.component_type_code,
+                        comp.language_code,
+                        md5(comp.component_value)
+                    ) AS external_id,
+                    'new_candidate'::text AS match_status,
+                    'needs_review'::text AS auto_action,
+                    coalesce(nullif(trim(address.review_status), ''), 'pending') AS review_status,
+                    NULL::text AS review_decision_text,
+                    NULL::numeric AS confidence_score,
+                    comp.component_value AS canonical_name,
+                    comp.component_type_code AS class_code_text,
+                    coalesce(comp.normalized_data, '{}'::jsonb)
+                        || jsonb_build_object(
+                            'address_local_staging_id', address.id,
+                            'address_external_id', address.external_id,
+                            'component_type_code', comp.component_type_code,
+                            'component_value', comp.component_value,
+                            'language_code', comp.language_code,
+                            'source_tag', comp.source_tag,
+                            'sort_order', comp.sort_order
+                        ) AS normalized_data,
+                    coalesce(comp.source_refs, '{}'::jsonb)
+                        || jsonb_build_object(
+                            'source_snapshot_id', ctx.source_snapshot_id,
+                            'snapshot_version', ctx.snapshot_version,
+                            'address_local_staging_id', address.id,
+                            'address_external_id', address.external_id,
+                            'promoted_from', 'staging.staging_address_component_candidates'
+                        ) AS source_refs,
+                    NULL::jsonb AS geometry_geojson,
+                    jsonb_build_object(
+                        'address_local_staging_id', address.id,
+                        'address_external_id', address.external_id,
+                        'component_type_code', comp.component_type_code,
+                        'component_value', comp.component_value,
+                        'language_code', comp.language_code,
+                        'source_tag', comp.source_tag,
+                        'sort_order', comp.sort_order
+                    ) AS payload_extra,
+                    row_number() OVER (ORDER BY comp.id) AS rn
+                FROM %I.staging_address_component_candidates AS comp
+                INNER JOIN %I.staging_address_candidates AS address
+                    ON address.id = comp.address_candidate_id
+                CROSS JOIN stage11_context AS ctx
+                WHERE comp.source_snapshot_id = ctx.source_snapshot_id
+                  AND address.source_snapshot_id = ctx.source_snapshot_id
+                  AND NOT (
+                      to_jsonb(comp) ? 'is_deleted'
+                      AND to_jsonb(comp) ->> 'is_deleted' = 'true'
+                  )
+            ),
+            lim AS (
+                SELECT * FROM ranked WHERE $3::bigint IS NULL OR rn <= $3::bigint
+            )
+            INSERT INTO system.system_remote_review_package_items (
+                package_id, entity_family, source_table, local_staging_id, external_id,
+                match_status, auto_action, review_status, review_decision, confidence_score,
+                canonical_name, class_code, normalized_data, source_refs, review_overrides,
+                matched_core_id, matched_core_table, matched_core_data, f2_comparison,
+                geometry_geojson, payload
+            )
+            SELECT
+                $2::bigint,
+                entity_family,
+                source_table,
+                local_staging_id,
+                external_id,
+                match_status,
+                auto_action,
+                review_status,
+                NULLIF(trim(review_decision_text), ''),
+                confidence_score,
+                canonical_name,
+                class_code_text,
+                normalized_data,
+                source_refs,
+                '{}'::jsonb,
+                NULL::bigint,
+                NULL::text,
+                NULL::jsonb,
+                NULL::jsonb,
+                geometry_geojson,
+                jsonb_strip_nulls(
+                    jsonb_build_object(
+                        'package_name', $5::text,
+                        'package_id', $2::bigint,
+                        'source_snapshot_version', $4::text,
+                        'snapshot_version', $4::text,
+                        'source_snapshot_id_local', $1::bigint,
+                        'region_code', $6::text,
+                        'entity_family', entity_family,
+                        'source_table', source_table,
+                        'local_staging_id', local_staging_id,
+                        'external_id', external_id,
+                        'match_status', match_status,
+                        'auto_action', auto_action,
+                        'review_status', review_status,
+                        'confidence_score', confidence_score,
+                        'canonical_name', canonical_name,
+                        'class_code', class_code_text,
+                        'normalized_data', normalized_data,
+                        'source_refs', source_refs,
+                        '_lineage_stage', 'J_prepare_remote_review_package'
+                    ) || payload_extra
+                )
+            FROM lim
+            $ac$,
+            v_schema,
+            v_schema
+        );
+        EXECUTE v_sql USING ctx.source_snapshot_id, v_pkg_id, prm.max_rows_per_family, ctx.snapshot_version, v_pkg_name, ctx.region_code;
+        RAISE NOTICE 'stage11_export family=address_components table=%.staging_address_component_candidates', v_schema;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'place_address_links' AND implemented)
+       AND to_regclass(format('%I.staging_place_address_link_candidates', v_schema)) IS NOT NULL THEN
+        v_sql := format(
+            $pal$
+            WITH ranked AS (
+                SELECT
+                    link.id AS local_staging_id,
+                    'place_address_links'::text AS entity_family,
+                    'staging_place_address_link_candidates'::text AS source_table,
+                    link.external_id,
+                    coalesce(nullif(trim(link.match_status), ''), 'new_candidate') AS match_status,
+                    coalesce(nullif(trim(link.auto_action), ''), 'needs_review') AS auto_action,
+                    coalesce(nullif(trim(link.review_status), ''), 'pending') AS review_status,
+                    NULL::text AS review_decision_text,
+                    link.confidence_score,
+                    coalesce(place.canonical_name, link.external_id) AS canonical_name,
+                    link.relation_type AS class_code_text,
+                    coalesce(link.normalized_data, '{}'::jsonb)
+                        || jsonb_build_object(
+                            'place_local_staging_id', link.place_candidate_id,
+                            'place_external_id', place.external_id,
+                            'address_local_staging_id', link.address_candidate_id,
+                            'address_external_id', address.external_id,
+                            'relation_type', link.relation_type,
+                            'is_primary', link.is_primary,
+                            'source_classification', link.source_classification,
+                            'address_strength', link.address_strength,
+                            'validation_status', link.validation_status,
+                            'promotion_status', link.promotion_status
+                        ) AS normalized_data,
+                    coalesce(link.source_refs, '{}'::jsonb)
+                        || jsonb_build_object(
+                            'source_snapshot_id', ctx.source_snapshot_id,
+                            'snapshot_version', ctx.snapshot_version,
+                            'place_local_staging_id', link.place_candidate_id,
+                            'place_external_id', place.external_id,
+                            'address_local_staging_id', link.address_candidate_id,
+                            'address_external_id', address.external_id,
+                            'promoted_from', 'staging.staging_place_address_link_candidates'
+                        ) AS source_refs,
+                    NULL::jsonb AS geometry_geojson,
+                    jsonb_build_object(
+                        'place_local_staging_id', link.place_candidate_id,
+                        'place_external_id', place.external_id,
+                        'address_local_staging_id', link.address_candidate_id,
+                        'address_external_id', address.external_id,
+                        'relation_type', link.relation_type,
+                        'is_primary', link.is_primary,
+                        'source_classification', link.source_classification,
+                        'address_strength', link.address_strength,
+                        'validation_status', link.validation_status,
+                        'promotion_status', link.promotion_status
+                    ) AS payload_extra,
+                    row_number() OVER (ORDER BY link.id) AS rn
+                FROM %I.staging_place_address_link_candidates AS link
+                LEFT JOIN %I.staging_place_candidates AS place
+                    ON place.id = link.place_candidate_id
+                LEFT JOIN %I.staging_address_candidates AS address
+                    ON address.id = link.address_candidate_id
+                CROSS JOIN stage11_context AS ctx
+                WHERE link.source_snapshot_id = ctx.source_snapshot_id
+            ),
+            lim AS (
+                SELECT * FROM ranked WHERE $3::bigint IS NULL OR rn <= $3::bigint
+            )
+            INSERT INTO system.system_remote_review_package_items (
+                package_id, entity_family, source_table, local_staging_id, external_id,
+                match_status, auto_action, review_status, review_decision, confidence_score,
+                canonical_name, class_code, normalized_data, source_refs, review_overrides,
+                matched_core_id, matched_core_table, matched_core_data, f2_comparison,
+                geometry_geojson, payload
+            )
+            SELECT
+                $2::bigint,
+                entity_family,
+                source_table,
+                local_staging_id,
+                external_id,
+                match_status,
+                auto_action,
+                review_status,
+                NULLIF(trim(review_decision_text), ''),
+                confidence_score,
+                canonical_name,
+                class_code_text,
+                normalized_data,
+                source_refs,
+                '{}'::jsonb,
+                NULL::bigint,
+                NULL::text,
+                NULL::jsonb,
+                NULL::jsonb,
+                geometry_geojson,
+                jsonb_strip_nulls(
+                    jsonb_build_object(
+                        'package_name', $5::text,
+                        'package_id', $2::bigint,
+                        'source_snapshot_version', $4::text,
+                        'snapshot_version', $4::text,
+                        'source_snapshot_id_local', $1::bigint,
+                        'region_code', $6::text,
+                        'entity_family', entity_family,
+                        'source_table', source_table,
+                        'local_staging_id', local_staging_id,
+                        'external_id', external_id,
+                        'match_status', match_status,
+                        'auto_action', auto_action,
+                        'review_status', review_status,
+                        'confidence_score', confidence_score,
+                        'canonical_name', canonical_name,
+                        'class_code', class_code_text,
+                        'normalized_data', normalized_data,
+                        'source_refs', source_refs,
+                        '_lineage_stage', 'J_prepare_remote_review_package'
+                    ) || payload_extra
+                )
+            FROM lim
+            $pal$,
+            v_schema,
+            v_schema,
+            v_schema
+        );
+        EXECUTE v_sql USING ctx.source_snapshot_id, v_pkg_id, prm.max_rows_per_family, ctx.snapshot_version, v_pkg_name, ctx.region_code;
+        RAISE NOTICE 'stage11_export family=place_address_links table=%.staging_place_address_link_candidates', v_schema;
+    END IF;
+
     SELECT count(*) INTO STRICT v_tot
     FROM system.system_remote_review_package_items
     WHERE package_id = v_pkg_id;
@@ -758,6 +1035,28 @@ $ex$,
         EXECUTE v_eligible_sql INTO v_staging_cnt USING ctx.source_snapshot_id;
         j_staging := j_staging || jsonb_build_object(v_fe.entity_family, v_staging_cnt);
     END LOOP;
+
+    IF EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'address_components' AND implemented)
+       AND to_regclass(format('%I.staging_address_component_candidates', v_schema)) IS NOT NULL THEN
+        EXECUTE format(
+            'SELECT count(*)::bigint FROM %I.staging_address_component_candidates WHERE source_snapshot_id = $1',
+            v_schema
+        )
+        INTO v_staging_cnt
+        USING ctx.source_snapshot_id;
+        j_staging := j_staging || jsonb_build_object('address_components', v_staging_cnt);
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'place_address_links' AND implemented)
+       AND to_regclass(format('%I.staging_place_address_link_candidates', v_schema)) IS NOT NULL THEN
+        EXECUTE format(
+            'SELECT count(*)::bigint FROM %I.staging_place_address_link_candidates WHERE source_snapshot_id = $1',
+            v_schema
+        )
+        INTO v_staging_cnt
+        USING ctx.source_snapshot_id;
+        j_staging := j_staging || jsonb_build_object('place_address_links', v_staging_cnt);
+    END IF;
 
     UPDATE system.system_remote_review_packages p
     SET total_item_count = v_tot::integer,

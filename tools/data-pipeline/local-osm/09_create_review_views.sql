@@ -325,6 +325,264 @@ BEGIN
 END
 $stage09_build$;
 
+DO $stage09_typed_review_views$
+DECLARE
+    p stage09_params%ROWTYPE;
+    v_has_places boolean;
+    v_has_addresses boolean;
+    v_has_links boolean;
+BEGIN
+    SELECT *
+    INTO STRICT p
+    FROM stage09_params;
+
+    v_has_places := to_regclass(format('%I.staging_place_candidates', p.staging_schema)) IS NOT NULL;
+    v_has_addresses := to_regclass(format('%I.staging_address_candidates', p.staging_schema)) IS NOT NULL;
+    v_has_links := to_regclass(format('%I.staging_place_address_link_candidates', p.staging_schema)) IS NOT NULL;
+
+    IF v_has_places THEN
+        EXECUTE format(
+            $sql$
+            CREATE OR REPLACE VIEW %I.review_places_v AS
+            SELECT
+                NULL::bigint AS review_batch_id,
+                p.source_snapshot_id,
+                snap.snapshot_version,
+                snap.region_code,
+                p.id AS candidate_id,
+                p.external_id,
+                p.source_entity_type,
+                coalesce(to_jsonb(p)->>'source_name', p.canonical_name) AS source_name,
+                coalesce(to_jsonb(p)->>'source_type_hint', p.class_code) AS source_type_hint,
+                to_jsonb(p)->>'source_category_hint' AS source_category_hint,
+                to_jsonb(p)->>'source_classification' AS source_classification,
+                (to_jsonb(p)->>'has_place_evidence')::boolean AS has_place_evidence,
+                (to_jsonb(p)->>'has_address_evidence')::boolean AS has_address_evidence,
+                to_jsonb(p)->>'address_strength' AS address_strength,
+                p.canonical_name,
+                p.class_code,
+                p.place_class_id,
+                p.poi_category_id,
+                p.admin_area_candidate_id,
+                p.matched_core_place_id,
+                p.match_status,
+                p.auto_action,
+                p.review_status,
+                to_jsonb(p)->>'promotion_status' AS promotion_status,
+                p.confidence_score,
+                p.source_refs,
+                p.normalized_data,
+                CASE
+                    WHEN p.point_geom IS NOT NULL THEN ST_AsGeoJSON(p.point_geom)::jsonb
+                    ELSE NULL::jsonb
+                END AS geometry_geojson,
+                p.created_at,
+                p.updated_at,
+                to_jsonb(p)->>'review_decision' AS review_decision,
+                to_jsonb(p)->>'review_note' AS review_note
+            FROM %I.staging_place_candidates AS p
+            LEFT JOIN %I.system_source_snapshots AS snap
+                ON snap.id = p.source_snapshot_id
+            WHERE coalesce(to_jsonb(p)->>'source_classification', '') IN ('place_only', 'place_with_address')
+               OR coalesce((to_jsonb(p)->>'has_place_evidence')::boolean, false) IS TRUE
+            $sql$,
+            p.staging_schema,
+            p.staging_schema,
+            p.system_schema
+        );
+
+        INSERT INTO stage09_created_views (view_schema, view_name)
+        VALUES (p.staging_schema, 'review_places_v')
+        ON CONFLICT DO NOTHING;
+    ELSE
+        INSERT INTO stage09_skipped (entity_family, base_table, reason)
+        VALUES ('places_typed', 'staging_place_candidates', 'typed review view skipped; table missing');
+    END IF;
+
+    IF v_has_addresses THEN
+        EXECUTE format(
+            $sql$
+            CREATE OR REPLACE VIEW %I.review_addresses_v AS
+            SELECT
+                NULL::bigint AS review_batch_id,
+                a.source_snapshot_id,
+                snap.snapshot_version,
+                snap.region_code,
+                a.id AS candidate_id,
+                a.external_id,
+                a.source_feature_family,
+                to_jsonb(a)->>'source_name' AS source_name,
+                to_jsonb(a)->>'source_type_hint' AS source_type_hint,
+                to_jsonb(a)->>'source_category_hint' AS source_category_hint,
+                to_jsonb(a)->>'source_classification' AS source_classification,
+                (to_jsonb(a)->>'has_place_evidence')::boolean AS has_place_evidence,
+                (to_jsonb(a)->>'has_address_evidence')::boolean AS has_address_evidence,
+                to_jsonb(a)->>'address_strength' AS address_strength,
+                a.full_address,
+                a.house_number,
+                a.street_name,
+                a.quarter,
+                a.suburb,
+                a.township,
+                a.city,
+                a.district,
+                a.state_region,
+                a.postcode,
+                a.country,
+                a.matched_core_address_id,
+                a.matched_place_candidate_id,
+                a.matched_building_candidate_id,
+                a.matched_road_candidate_id,
+                a.match_status,
+                a.auto_action,
+                a.review_status,
+                to_jsonb(a)->>'validation_status' AS validation_status,
+                to_jsonb(a)->>'promotion_status' AS promotion_status,
+                a.confidence_score,
+                a.source_refs,
+                a.normalized_data,
+                CASE
+                    WHEN a.point_geom IS NOT NULL THEN ST_AsGeoJSON(a.point_geom)::jsonb
+                    WHEN a.geom IS NOT NULL THEN ST_AsGeoJSON(a.geom)::jsonb
+                    ELSE NULL::jsonb
+                END AS geometry_geojson,
+                a.created_at,
+                a.updated_at,
+                to_jsonb(a)->>'review_decision' AS review_decision,
+                to_jsonb(a)->>'review_note' AS review_note
+            FROM %I.staging_address_candidates AS a
+            LEFT JOIN %I.system_source_snapshots AS snap
+                ON snap.id = a.source_snapshot_id
+            WHERE coalesce(to_jsonb(a)->>'source_classification', '') IN (
+                'address_only',
+                'place_with_address',
+                'weak_address'
+            )
+               OR coalesce((to_jsonb(a)->>'has_address_evidence')::boolean, false) IS TRUE
+            $sql$,
+            p.staging_schema,
+            p.staging_schema,
+            p.system_schema
+        );
+
+        INSERT INTO stage09_created_views (view_schema, view_name)
+        VALUES (p.staging_schema, 'review_addresses_v')
+        ON CONFLICT DO NOTHING;
+    ELSE
+        INSERT INTO stage09_skipped (entity_family, base_table, reason)
+        VALUES ('addresses_typed', 'staging_address_candidates', 'typed review view skipped; table missing');
+    END IF;
+
+    IF v_has_links THEN
+        EXECUTE format(
+            $sql$
+            CREATE OR REPLACE VIEW %I.review_place_address_links_v AS
+            SELECT
+                NULL::bigint AS review_batch_id,
+                l.source_snapshot_id,
+                snap.snapshot_version,
+                snap.region_code,
+                l.id AS candidate_id,
+                l.external_id,
+                l.place_candidate_id,
+                place.external_id AS place_external_id,
+                coalesce(to_jsonb(place)->>'source_name', place.canonical_name) AS source_name,
+                coalesce(to_jsonb(place)->>'source_type_hint', place.class_code) AS source_type_hint,
+                to_jsonb(place)->>'source_category_hint' AS source_category_hint,
+                l.address_candidate_id,
+                address.external_id AS address_external_id,
+                l.relation_type,
+                l.is_primary,
+                l.source_classification,
+                l.address_strength,
+                l.match_status,
+                l.auto_action,
+                l.review_status,
+                l.validation_status,
+                l.promotion_status,
+                l.confidence_score,
+                l.source_refs,
+                l.normalized_data,
+                CASE
+                    WHEN place.point_geom IS NOT NULL THEN ST_AsGeoJSON(place.point_geom)::jsonb
+                    ELSE NULL::jsonb
+                END AS place_geometry_geojson,
+                CASE
+                    WHEN address.point_geom IS NOT NULL THEN ST_AsGeoJSON(address.point_geom)::jsonb
+                    WHEN address.geom IS NOT NULL THEN ST_AsGeoJSON(address.geom)::jsonb
+                    ELSE NULL::jsonb
+                END AS address_geometry_geojson,
+                l.created_at,
+                l.updated_at,
+                to_jsonb(l)->>'review_decision' AS review_decision,
+                to_jsonb(l)->>'review_note' AS review_note
+            FROM %I.staging_place_address_link_candidates AS l
+            LEFT JOIN %I.staging_place_candidates AS place
+                ON place.id = l.place_candidate_id
+            LEFT JOIN %I.staging_address_candidates AS address
+                ON address.id = l.address_candidate_id
+            LEFT JOIN %I.system_source_snapshots AS snap
+                ON snap.id = l.source_snapshot_id
+            $sql$,
+            p.staging_schema,
+            p.staging_schema,
+            p.staging_schema,
+            p.staging_schema,
+            p.system_schema
+        );
+
+        INSERT INTO stage09_created_views (view_schema, view_name)
+        VALUES (p.staging_schema, 'review_place_address_links_v')
+        ON CONFLICT DO NOTHING;
+    ELSE
+        INSERT INTO stage09_skipped (entity_family, base_table, reason)
+        VALUES ('place_address_links_typed', 'staging_place_address_link_candidates', 'typed review view skipped; table missing');
+    END IF;
+END
+$stage09_typed_review_views$;
+
+DO $stage09_typed_counts$
+DECLARE
+    p stage09_params%ROWTYPE;
+    v_sql text;
+BEGIN
+    SELECT *
+    INTO STRICT p
+    FROM stage09_params;
+
+    CREATE TEMP TABLE IF NOT EXISTS stage09_typed_view_counts (
+        entity_family text,
+        row_count bigint
+    ) ON COMMIT DROP;
+
+    TRUNCATE stage09_typed_view_counts;
+
+    IF to_regclass(format('%I.review_places_v', p.staging_schema)) IS NOT NULL THEN
+        v_sql := format(
+            'INSERT INTO stage09_typed_view_counts SELECT ''places'', count(*)::bigint FROM %I.review_places_v',
+            p.staging_schema
+        );
+        EXECUTE v_sql;
+    END IF;
+
+    IF to_regclass(format('%I.review_addresses_v', p.staging_schema)) IS NOT NULL THEN
+        v_sql := format(
+            'INSERT INTO stage09_typed_view_counts SELECT ''addresses'', count(*)::bigint FROM %I.review_addresses_v',
+            p.staging_schema
+        );
+        EXECUTE v_sql;
+    END IF;
+
+    IF to_regclass(format('%I.review_place_address_links_v', p.staging_schema)) IS NOT NULL THEN
+        v_sql := format(
+            'INSERT INTO stage09_typed_view_counts SELECT ''place_address_links'', count(*)::bigint FROM %I.review_place_address_links_v',
+            p.staging_schema
+        );
+        EXECUTE v_sql;
+    END IF;
+END
+$stage09_typed_counts$;
+
 SELECT
     'stage09_created_or_replaced_views' AS section,
     format('%I.%I', view_schema, view_name) AS full_view_name
@@ -337,6 +595,13 @@ SELECT
     base_table,
     reason
 FROM stage09_skipped
+ORDER BY entity_family;
+
+SELECT
+    'stage09_expected_counts_by_entity_family' AS section,
+    entity_family,
+    row_count
+FROM stage09_typed_view_counts
 ORDER BY entity_family;
 
 COMMIT;

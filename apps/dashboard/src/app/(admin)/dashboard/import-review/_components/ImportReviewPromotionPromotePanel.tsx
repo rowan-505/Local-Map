@@ -22,6 +22,7 @@ import {
     type ImportReviewPublishBatchProgressResponse,
     type ImportReviewPublishBatchVerifyResponse,
     type ImportReviewPromotionRoadDryRunResult,
+    type ImportReviewPromotionRoutingBarrierDryRunResult,
     type ImportReviewPublishStageLogItem,
 } from "@/src/lib/api";
 
@@ -36,31 +37,19 @@ const STAGE_ORDER = [
     "promote_landuse_to_core",
     "promote_water_lines_to_core",
     "promote_water_polygons_to_core",
+    "promote_bus_routes_to_core",
+    "promote_bus_route_variants_to_core",
+    "promote_bus_route_stops_to_core",
     "promote_bus_stops_to_core",
     "promote_roads_to_core",
+    "promote_admin_areas_to_core",
+    "promote_routing_barriers_to_routing",
     "write_publish_item_results",
     "verify_core_rows",
     "mark_import_review_promoted",
     "update_batch_summary",
     "promotion_final_response",
 ] as const;
-
-function stageStatusColor(status: string): string {
-    switch (status) {
-        case "success":
-            return "text-emerald-700 bg-emerald-50";
-        case "warning":
-            return "text-amber-800 bg-amber-50";
-        case "failed":
-            return "text-red-800 bg-red-50";
-        case "running":
-            return "text-blue-800 bg-blue-50";
-        case "skipped":
-            return "text-gray-600 bg-gray-100";
-        default:
-            return "text-gray-500 bg-gray-50";
-    }
-}
 
 function sortLogs(items: ImportReviewPublishStageLogItem[]): ImportReviewPublishStageLogItem[] {
     const order = new Map(STAGE_ORDER.map((k, i) => [k, i]));
@@ -78,7 +67,10 @@ type Props = {
     batchId: string;
     batchStatus: string;
     hasRoadItems?: boolean;
+    hasAdminAreaItems?: boolean;
+    hasRoutingBarrierItems?: boolean;
     roadDryRunResult?: ImportReviewPromotionRoadDryRunResult | null;
+    routingBarrierDryRunResult?: ImportReviewPromotionRoutingBarrierDryRunResult | null;
     onBatchUpdated: (detail: ImportReviewPublishBatchDetail) => void;
     formatError: (err: unknown) => string;
 };
@@ -87,7 +79,10 @@ export default function ImportReviewPromotionPromotePanel({
     batchId,
     batchStatus,
     hasRoadItems = false,
+    hasAdminAreaItems = false,
+    hasRoutingBarrierItems = false,
     roadDryRunResult = null,
+    routingBarrierDryRunResult = null,
     onBatchUpdated,
     formatError,
 }: Props) {
@@ -220,14 +215,25 @@ export default function ImportReviewPromotionPromotePanel({
             : 0;
     const roadPromoteBlocked =
         hasRoadItems && (!roadDryRunResult || roadDryRunResult.disabled_because_env_flag_false);
+    const routingBarrierPromotionEnvEnabled =
+        routingBarrierDryRunResult !== null &&
+        routingBarrierDryRunResult.disabled_because_env_flag_false === false;
+    const routingBarrierPromoteBlocked =
+        hasRoutingBarrierItems &&
+        (!routingBarrierDryRunResult || routingBarrierDryRunResult.disabled_because_env_flag_false);
     const canPromote =
         status === "ready" &&
         validationForModal?.can_promote !== false &&
-        !roadPromoteBlocked;
+        !roadPromoteBlocked &&
+        !routingBarrierPromoteBlocked;
     const promoteDisabledReason = roadPromoteBlocked
         ? !roadDryRunResult
             ? "Run road dry-run first. Road batches require routing validation preview before promotion."
             : "Road promotion is disabled. Run road dry-run and complete routing validation first."
+        : routingBarrierPromoteBlocked
+          ? !routingBarrierDryRunResult
+              ? "Run routing barrier dry-run first. Barrier batches require network impact preview before promotion."
+              : "Routing barrier promotion is disabled. Enable the API env gate before promotion."
         : null;
     const canConfirmPromote =
         confirmText === "PROMOTE" &&
@@ -309,6 +315,41 @@ export default function ImportReviewPromotionPromotePanel({
                         </p>
                     ) : null}
                     {!roadPromotionEnvEnabled ? <p>{promoteDisabledReason}</p> : null}
+                </div>
+            ) : null}
+
+            {hasRoutingBarrierItems ? (
+                <div className="space-y-2 rounded-md border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-950">
+                    <p className="font-semibold">High-risk routing barrier promotion</p>
+                    <p>
+                        Barriers write to{" "}
+                        <code className="rounded bg-white/80 px-1">routing.routing_barriers</code> only.
+                        They do not directly edit <code className="rounded bg-white/80 px-1">routing_edges</code>
+                        or rebuild the graph.
+                    </p>
+                    <p>
+                        Env gate:{" "}
+                        {routingBarrierPromotionEnvEnabled ? (
+                            <span className="font-semibold text-emerald-800">ENABLED</span>
+                        ) : (
+                            <span className="font-semibold">DISABLED</span>
+                        )}{" "}
+                        (
+                        <code className="rounded bg-white/80 px-1">
+                            ENABLE_IMPORT_REVIEW_ROUTING_BARRIER_PROMOTION
+                        </code>
+                        )
+                    </p>
+                    {routingBarrierDryRunResult ? (
+                        <p>
+                            Dry-run promotable:{" "}
+                            {routingBarrierDryRunResult.safe_to_promote_count +
+                                routingBarrierDryRunResult.promote_with_warning_count}{" "}
+                            of {routingBarrierDryRunResult.total_count} · blocked{" "}
+                            {routingBarrierDryRunResult.blocked_count}
+                        </p>
+                    ) : null}
+                    {!routingBarrierPromotionEnvEnabled ? <p>{promoteDisabledReason}</p> : null}
                 </div>
             ) : null}
 
@@ -439,8 +480,18 @@ export default function ImportReviewPromotionPromotePanel({
                             This will write approved items to core. Road batches also write{" "}
                             <code className="rounded bg-gray-100 px-1 text-xs">core.core_streets</code> and{" "}
                             <code className="rounded bg-gray-100 px-1 text-xs">core.core_street_names</code> when
-                            names exist. Routing graph is not built yet.
+                            names exist. Admin area batches write{" "}
+                            <code className="rounded bg-gray-100 px-1 text-xs">core.core_admin_areas</code> and{" "}
+                            <code className="rounded bg-gray-100 px-1 text-xs">core.core_admin_area_names</code>.
+                            Routing graph is not built yet.
                         </p>
+                        {hasAdminAreaItems ? (
+                            <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                                High-risk admin area promotion can change search, address hierarchy, clipping,
+                                analytics, routing region selection, and dashboard filters. Promote only a tiny
+                                reviewed batch unless the bulk env flag is explicitly enabled.
+                            </p>
+                        ) : null}
                         {validationForModal ? (
                             <ul className="mt-3 space-y-1 text-sm text-gray-700">
                                 <li>Total items: {validationForModal.total_items}</li>

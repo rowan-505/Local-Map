@@ -31,6 +31,9 @@ const STATUS_COLUMNS = new Set([
     "review_decision",
     "promotion_status",
     "validation_status",
+    "source_classification",
+    "address_strength",
+    "place_candidate_status",
 ]);
 
 function OverrideEditedBadge() {

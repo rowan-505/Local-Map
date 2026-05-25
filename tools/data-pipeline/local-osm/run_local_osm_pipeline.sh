@@ -9,11 +9,14 @@
 # Optional:
 #   14_verify_lineage_alignment.sql — after J/L when REMOTE_LINEAGE_ALIGNMENT_VERIFY=true
 #     (staging ↔ package lineage + payload mirrors; FAIL stops the runner if checks fail).
+#   15_entity_coverage_report.sql — final read-only staging/package health report
+#     when LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=true.
 #
 # Modes:
 #   REMOTE_REVIEW_UPLOAD_ENABLED=true     → runs J → K → L (requires SUPABASE_DATABASE_URL).
 #   REMOTE_REVIEW_PREPARE_VERIFY_ONLY=true→ runs J → L only (no Supabase).
 #   REMOTE_LINEAGE_ALIGNMENT_VERIFY=true  → optional 14_verify_lineage_alignment.sql after Stage L when J/K/L path runs
+#   LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=true → optional Stage 15 after Stage 14/final verification
 #
 # Usage:
 #   ./run_local_osm_pipeline.sh imports/kyauktan_2026_07_v4.env
@@ -39,6 +42,9 @@ See README.md / README_REMOTE_REVIEW.md for lineage fields and REMOTE_LINEAGE_AL
 
 Optional after 11→13 completes (same env gated flags above):
   REMOTE_LINEAGE_ALIGNMENT_VERIFY=true → 14_verify_lineage_alignment.sql after Stage L (local staging + package payload lineage).
+
+Optional final read-only report:
+  LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=true → 15_entity_coverage_report.sql after Stage 14/final verification.
 EOF
 }
 
@@ -112,6 +118,7 @@ TMP_IMPORT_SCHEMA="${TMP_IMPORT_SCHEMA:-tmp_import}"
 RAW_SCHEMA="${RAW_SCHEMA:-raw}"
 STAGING_SCHEMA="${STAGING_SCHEMA:-staging}"
 SYSTEM_SCHEMA="${SYSTEM_SCHEMA:-system}"
+IMPORT_REVIEW_SCHEMA="${IMPORT_REVIEW_SCHEMA:-import_review}"
 
 mask_database_url() {
   local url="$1"
@@ -154,11 +161,16 @@ print_resolved_config() {
   log "RAW_SCHEMA=${RAW_SCHEMA}"
   log "STAGING_SCHEMA=${STAGING_SCHEMA}"
   log "SYSTEM_SCHEMA=${SYSTEM_SCHEMA}"
-  if [[ -n "${REMOTE_REVIEW_UPLOAD_ENABLED:-}" || -n "${REMOTE_REVIEW_PREPARE_VERIFY_ONLY:-}" || -n "${REMOTE_REVIEW_PACKAGE_NAME:-}" || -n "${REMOTE_LINEAGE_ALIGNMENT_VERIFY:-}" ]]; then
+  log "IMPORT_REVIEW_SCHEMA=${IMPORT_REVIEW_SCHEMA}"
+  if [[ -n "${REMOTE_REVIEW_UPLOAD_ENABLED:-}" || -n "${REMOTE_REVIEW_PREPARE_VERIFY_ONLY:-}" || -n "${REMOTE_REVIEW_PACKAGE_NAME:-}" || -n "${REMOTE_LINEAGE_ALIGNMENT_VERIFY:-}" || -n "${LOCAL_ENTITY_COVERAGE_REPORT_ENABLED:-}" ]]; then
     log "REMOTE_REVIEW_UPLOAD_ENABLED=${REMOTE_REVIEW_UPLOAD_ENABLED:-}"
     log "REMOTE_REVIEW_PREPARE_VERIFY_ONLY=${REMOTE_REVIEW_PREPARE_VERIFY_ONLY:-}"
     log "REMOTE_REVIEW_PACKAGE_NAME=${REMOTE_REVIEW_PACKAGE_NAME:-}"
+    log "REMOTE_REVIEW_ENTITY_FAMILY=${REMOTE_REVIEW_ENTITY_FAMILY:-}"
+    log "REMOTE_REVIEW_MAX_ROWS_PER_FAMILY=${REMOTE_REVIEW_MAX_ROWS_PER_FAMILY:-}"
+    log "REMOTE_REVIEW_BATCH_ID=${REMOTE_REVIEW_BATCH_ID:-}"
     log "REMOTE_LINEAGE_ALIGNMENT_VERIFY=${REMOTE_LINEAGE_ALIGNMENT_VERIFY:-}"
+    log "LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=${LOCAL_ENTITY_COVERAGE_REPORT_ENABLED:-}"
     if is_remote_review_upload_requested; then
       log "SUPABASE_DATABASE_URL=$(mask_database_url "${SUPABASE_DATABASE_URL:-}")"
     fi
@@ -189,6 +201,17 @@ is_remote_review_prepare_verify_only_requested() {
 
 is_remote_lineage_alignment_verify_requested() {
   case "$(printf '%s' "${REMOTE_LINEAGE_ALIGNMENT_VERIFY:-false}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+is_entity_coverage_report_requested() {
+  case "$(printf '%s' "${LOCAL_ENTITY_COVERAGE_REPORT_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')" in
     1|true|yes)
       return 0
       ;;
@@ -254,6 +277,10 @@ run_stage_13_verify_remote_review_l() {
   PAGER=cat psql "${LOCAL_DATABASE_URL}" \
     -v ON_ERROR_STOP=1 \
     -v package_name="${REMOTE_REVIEW_PACKAGE_NAME}" \
+    -v snapshot_version="${SNAPSHOT_VERSION}" \
+    -v staging_schema="${STAGING_SCHEMA}" \
+    -v import_review_schema="${IMPORT_REVIEW_SCHEMA}" \
+    -v entity_family="${REMOTE_REVIEW_ENTITY_FAMILY:-}" \
     ${PSQL_EXTRA_ARGS:-} \
     -f "${SCRIPT_DIR}/13_verify_remote_review_upload.sql" \
     2>&1 | tee -a "${LOG_FILE}"
@@ -268,6 +295,22 @@ run_stage_14_verify_lineage_alignment() {
     -v snapshot_version="${SNAPSHOT_VERSION}" \
     ${PSQL_EXTRA_ARGS:-} \
     -f "${SCRIPT_DIR}/14_verify_lineage_alignment.sql" \
+    2>&1 | tee -a "${LOG_FILE}"
+}
+
+run_stage_15_entity_coverage_report() {
+  run_stage "15_entity_coverage_report"
+  PAGER=cat psql "${LOCAL_DATABASE_URL}" \
+    -v ON_ERROR_STOP=1 \
+    -v snapshot_version="${SNAPSHOT_VERSION}" \
+    -v region_code="${REGION_CODE}" \
+    -v staging_schema="${STAGING_SCHEMA}" \
+    -v import_review_schema="${IMPORT_REVIEW_SCHEMA}" \
+    -v review_batch_id="${REMOTE_REVIEW_BATCH_ID:-}" \
+    -v package_name="${REMOTE_REVIEW_PACKAGE_NAME:-}" \
+    -v entity_family="${REMOTE_REVIEW_ENTITY_FAMILY:-}" \
+    ${PSQL_EXTRA_ARGS:-} \
+    -f "${SCRIPT_DIR}/15_entity_coverage_report.sql" \
     2>&1 | tee -a "${LOG_FILE}"
 }
 
@@ -422,17 +465,20 @@ run_sql "${SCRIPT_DIR}/06_diff_current_vs_previous.sql"
 run_stage "07_compare_with_prod_mirror"
 run_sql "${SCRIPT_DIR}/07_compare_with_prod_mirror.sql"
 
-# Post-F2 local review (staging statuses, views, summary): minimal psql vars; scripts supply defaults for schemas.
+# Post-F2 local review (staging statuses, views, summary).
 run_stage "08_assign_statuses"
 PAGER=cat psql "${LOCAL_DATABASE_URL}" \
   -v ON_ERROR_STOP=1 \
   -v snapshot_version="${SNAPSHOT_VERSION}" \
+  -v staging_schema="${STAGING_SCHEMA}" \
   -f "${SCRIPT_DIR}/08_assign_statuses.sql" \
   2>&1 | tee -a "${LOG_FILE}"
 
 run_stage "09_create_review_views"
 PAGER=cat psql "${LOCAL_DATABASE_URL}" \
   -v ON_ERROR_STOP=1 \
+  -v staging_schema="${STAGING_SCHEMA}" \
+  -v system_schema="${SYSTEM_SCHEMA}" \
   -f "${SCRIPT_DIR}/09_create_review_views.sql" \
   2>&1 | tee -a "${LOG_FILE}"
 
@@ -440,10 +486,16 @@ run_stage "10_summary_report"
 PAGER=cat psql "${LOCAL_DATABASE_URL}" \
   -v ON_ERROR_STOP=1 \
   -v snapshot_version="${SNAPSHOT_VERSION}" \
+  -v staging_schema="${STAGING_SCHEMA}" \
+  -v system_schema="${SYSTEM_SCHEMA}" \
   -f "${SCRIPT_DIR}/10_summary_report.sql" \
   2>&1 | tee -a "${LOG_FILE}"
 
 finalize_remote_review_stages
+
+if is_entity_coverage_report_requested; then
+  run_stage_15_entity_coverage_report
+fi
 
 log ""
 log "local-osm pipeline finished (no core promotion)."
