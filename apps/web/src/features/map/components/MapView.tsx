@@ -30,9 +30,12 @@ import {
   syncCountryMinZoom,
   type MapEngine,
 } from '../lib/mapEngine';
+import {
+  logAdminLabelLayersInDev,
+  logAdminSourceFeaturesInDev,
+} from '../lib/maplibre/adminLabelLayerDebug';
 import { applyAllLocalizedMapLabels } from '../lib/maplibre/localizedBasemapLabels';
 import {
-  ADMIN_LABEL_SOURCE_ID,
   BUS_ROUTE_LABEL_SOURCE_ID,
   BUS_STOP_LABEL_SOURCE_ID,
   ensurePublicMapGeoJsonLabelLayers,
@@ -78,7 +81,7 @@ function MapViewInner({
   }, [cameraLayout]);
 
   const geoLayerResults = usePublicMapGeoLabelQueries();
-  const [streetsGeo, adminGeo, busStopsGeo, busRoutesGeo] = geoLayerResults;
+  const [streetsGeo, , busStopsGeo, busRoutesGeo] = geoLayerResults;
 
   const geojson = useMemo(() => poisToFeatureCollection(pois), [pois]);
 
@@ -130,6 +133,8 @@ function MapViewInner({
           ensureClickedLocationLayer(map, clickedLocationRef.current);
           applyMapOverlayStackOrder(map);
           applyAllLocalizedMapLabels(map, languageModeRef.current);
+          logAdminLabelLayersInDev(map);
+          logAdminSourceFeaturesInDev(map);
           fitKyauktanStartup(map, containerRef.current, cameraLayoutRef.current);
           setMapReady(true);
           emitViewportChange(map, onViewportChangeRef.current);
@@ -172,13 +177,6 @@ function MapViewInner({
     );
     setPublicMapGeoJsonSourceData(
       map,
-      ADMIN_LABEL_SOURCE_ID,
-      adminGeo.status === 'success'
-        ? featureCollectionOrEmpty(adminGeo.data)
-        : { ...PUBLIC_MAP_EMPTY_FC },
-    );
-    setPublicMapGeoJsonSourceData(
-      map,
       BUS_STOP_LABEL_SOURCE_ID,
       busStopsGeo.status === 'success'
         ? featureCollectionOrEmpty(busStopsGeo.data)
@@ -195,8 +193,6 @@ function MapViewInner({
     mapReady,
     streetsGeo.status,
     streetsGeo.data,
-    adminGeo.status,
-    adminGeo.data,
     busStopsGeo.status,
     busStopsGeo.data,
     busRoutesGeo.status,

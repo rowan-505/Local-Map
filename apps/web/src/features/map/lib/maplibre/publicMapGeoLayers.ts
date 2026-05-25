@@ -16,25 +16,36 @@ export const PUBLIC_MAP_EMPTY_FC = Object.freeze({
 });
 
 export const STREET_LABEL_SOURCE_ID = 'public-map-street-labels-src';
-export const ADMIN_LABEL_SOURCE_ID = 'public-map-admin-labels-src';
 export const BUS_ROUTE_LABEL_SOURCE_ID = 'public-map-bus-route-labels-src';
 export const BUS_STOP_LABEL_SOURCE_ID = 'public-map-bus-stop-labels-src';
 
 const STREET_LAYER_ID = 'public-map-street-labels';
-const ADMIN_LAYER_ID = 'public-map-admin-labels';
-const VILLAGE_ADMIN_LAYER_ID = 'public-map-village-labels';
 const BUS_ROUTE_LAYER_ID = 'public-map-bus-route-labels';
 const BUS_STOP_LAYER_ID = 'public-map-bus-stop-labels';
 
 const TEXT_GET_NAME = ['get', 'name'] as ExpressionSpecification;
-
-
-
+const CLEAN_ROAD_LABEL_FILTER: ExpressionSpecification = [
+  '!',
+  [
+    'match',
+    ['downcase', ['coalesce', ['get', 'name_en'], ['get', 'name'], '']],
+    [
+      'unnamed street',
+      'unnamed road',
+      'unnamed tertiary',
+      'unnamed tertiary road',
+      'unnamed residential',
+      'unnamed residential road',
+      'unnamed unclassified',
+      'unnamed service',
+    ],
+    true,
+    false,
+  ],
+] as ExpressionSpecification;
 
 export const PUBLIC_MAP_GEO_LABEL_LAYER_IDS = [
   STREET_LAYER_ID,
-  ADMIN_LAYER_ID,
-  VILLAGE_ADMIN_LAYER_ID,
   BUS_ROUTE_LAYER_ID,
   BUS_STOP_LAYER_ID,
 ] as const;
@@ -84,6 +95,7 @@ function streetLineSymbolLayer(): SymbolLayerSpecification {
     type: 'symbol',
     source: STREET_LABEL_SOURCE_ID,
     minzoom: 12,
+    filter: CLEAN_ROAD_LABEL_FILTER,
     layout: {
       ...LINE_LAYOUT_SHARED,
       'symbol-spacing': 400,
@@ -172,63 +184,6 @@ export function ensurePublicMapGeoJsonLabelLayers(map: MapEngine): void {
     addSymbolLayerRelative(map, streetLineSymbolLayer(), 'buildings');
   }
 
-  if (!map.getSource(ADMIN_LABEL_SOURCE_ID)) {
-    map.addSource(ADMIN_LABEL_SOURCE_ID, {
-      type: 'geojson',
-      data: { ...PUBLIC_MAP_EMPTY_FC },
-    });
-    addSymbolLayerRelative(
-      map,
-      {
-        ...pointSymbolLayer(ADMIN_LAYER_ID, ADMIN_LABEL_SOURCE_ID, 8, {
-          'text-color': '#6f7670',
-          'text-halo-color': '#f3f4f1',
-          'text-halo-width': 1.4,
-          'text-halo-blur': 0.2,
-          'text-opacity': [
-            'interpolate',
-            ['linear'],
-            ['zoom'],
-            8,
-            0.35,
-            11,
-            0.55,
-            14,
-            0.75,
-          ],
-        }),
-        filter: ['!=', ['get', 'admin_level_code'], 'village'],
-      },
-      'buildings',
-    );
-    addSymbolLayerRelative(
-      map,
-      {
-        ...pointSymbolLayer(VILLAGE_ADMIN_LAYER_ID, ADMIN_LABEL_SOURCE_ID, 12, {
-          'text-color': '#5c635d',
-          'text-halo-color': '#f3f4f1',
-          'text-halo-width': 1.5,
-          'text-halo-blur': 0.25,
-          'text-opacity': [
-            'interpolate',
-            ['linear'],
-            ['zoom'],
-            12,
-            0.45,
-            13,
-            0.62,
-            14,
-            0.78,
-            16,
-            0.88,
-          ],
-        }),
-        filter: ['==', ['get', 'admin_level_code'], 'village'],
-      },
-      'buildings',
-    );
-  }
-
   if (!map.getSource(BUS_ROUTE_LABEL_SOURCE_ID)) {
     map.addSource(BUS_ROUTE_LABEL_SOURCE_ID, {
       type: 'geojson',
@@ -262,7 +217,6 @@ export function restorePublicMapLayersUnderPlaces(map: MapEngine): void {
   if (!map.getLayer(PLACES_LAYER_ID)) return;
   const labelStack = [
     STREET_LAYER_ID,
-    ADMIN_LAYER_ID,
     BUS_ROUTE_LAYER_ID,
     BUS_STOP_LAYER_ID,
   ] as const;

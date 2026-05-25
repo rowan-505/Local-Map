@@ -52,29 +52,52 @@ export function MapSidebar({
   if (!isOpen) return null;
 
   return (
-    <aside
-      className={`pointer-events-auto absolute bottom-0 left-0 right-0 z-30 flex min-h-0 flex-col overflow-visible rounded-t-4xl border border-white/85 bg-white/95 shadow-[0_-16px_40px_rgba(15,23,42,0.14)] backdrop-blur-xl transition-all duration-300 ease-out lg:bottom-4 lg:left-22 lg:right-auto lg:top-4 lg:h-auto lg:w-96 lg:rounded-3xl lg:shadow-[0_18px_50px_rgba(15,23,42,0.16)] ${bottomSheetHeightClass(
+    <div
+      className={`pointer-events-auto absolute bottom-0 left-0 right-0 z-30 min-h-0 transition-all duration-300 ease-out lg:bottom-4 lg:left-22 lg:right-auto lg:top-4 lg:w-96 ${bottomSheetHeightClass(
         bottomSheetState,
       )}`}
-      aria-label="Map sidebar"
-      aria-expanded={isOpen}
     >
-      <div className="shrink-0 border-b border-neutral-100 bg-white/90 px-4 py-2.5 lg:py-3">
-        <button
-          type="button"
-          className="mx-auto mb-2 block h-1.5 w-11 rounded-full bg-neutral-300 transition-colors hover:bg-neutral-400 lg:hidden"
-          aria-label="Set bottom sheet to half height"
-          onClick={() => onBottomSheetStateChange('half')}
-        />
-        <SidebarHeader
-          eyebrow={meta.eyebrow}
-          title={meta.title}
-        />
-        <BottomSheetControls
-          state={bottomSheetState}
-          onStateChange={onBottomSheetStateChange}
-        />
-      </div>
+      <aside
+        className="flex h-full min-h-0 flex-col overflow-hidden rounded-t-4xl border border-white/85 bg-white/95 shadow-[0_-16px_40px_rgba(15,23,42,0.14)] backdrop-blur-xl lg:rounded-3xl lg:shadow-[0_18px_50px_rgba(15,23,42,0.16)]"
+        aria-label="Map sidebar"
+        aria-expanded={isOpen}
+      >
+        <div className="shrink-0 border-b border-neutral-100 bg-white/90 px-4 py-2.5 lg:py-3">
+          <button
+            type="button"
+            className="mx-auto mb-2 block h-1.5 w-11 rounded-full bg-neutral-300 transition-colors hover:bg-neutral-400 lg:hidden"
+            aria-label="Set bottom sheet to half height"
+            onClick={() => onBottomSheetStateChange('half')}
+          />
+          <SidebarHeader
+            eyebrow={meta.eyebrow}
+            title={meta.title}
+          />
+          <BottomSheetControls
+            state={bottomSheetState}
+            onStateChange={onBottomSheetStateChange}
+          />
+        </div>
+
+        <div
+          className={`min-h-0 flex-1 overflow-y-auto overscroll-contain transition-opacity ${
+            bottomSheetState === 'collapsed'
+              ? 'pointer-events-none opacity-0 lg:pointer-events-auto lg:opacity-100'
+              : 'opacity-100'
+          }`}
+        >
+          <SidebarModeContent
+            activeMode={activeMode}
+            searchPanel={searchPanel}
+            placeDetailPanel={placeDetailPanel}
+            addressPanel={addressPanel}
+            routePanel={routePanel ?? <RoutePanelPlaceholder destination={routeDestination} />}
+            busPanel={busPanel}
+            savedPanel={savedPanel}
+            morePanel={morePanel}
+          />
+        </div>
+      </aside>
 
       <button
         type="button"
@@ -84,33 +107,14 @@ export function MapSidebar({
       >
         <ChevronLeftIcon />
       </button>
-
-      <div
-        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain transition-opacity ${
-          bottomSheetState === 'collapsed'
-            ? 'pointer-events-none opacity-0 lg:pointer-events-auto lg:opacity-100'
-            : 'opacity-100'
-        }`}
-      >
-        <SidebarModeContent
-          activeMode={activeMode}
-          searchPanel={searchPanel}
-          placeDetailPanel={placeDetailPanel}
-          addressPanel={addressPanel}
-          routePanel={routePanel ?? <RoutePanelPlaceholder destination={routeDestination} />}
-          busPanel={busPanel}
-          savedPanel={savedPanel}
-          morePanel={morePanel}
-        />
-      </div>
-    </aside>
+    </div>
   );
 }
 
 function bottomSheetHeightClass(state: BottomSheetState): string {
-  if (state === 'collapsed') return 'h-[5.75rem]';
-  if (state === 'expanded') return 'h-[86vh]';
-  return 'h-[48vh]';
+  if (state === 'collapsed') return 'h-[5.75rem] lg:h-auto';
+  if (state === 'expanded') return 'h-[86vh] lg:h-auto';
+  return 'h-[48vh] lg:h-auto';
 }
 
 export function SidebarHeader({

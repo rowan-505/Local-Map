@@ -144,43 +144,47 @@
       "type": "symbol",
       "source": "local-basemap",
       "source-layer": "admin_areas",
-      "minzoom": 8,
+      "minzoom": 12,
+      "maxzoom": 19,
       "filter": ["!=", ["get", "admin_level_code"], "village"],
       "layout": {
         "text-field": [
           "coalesce",
           ["get", "name_mm"],
+          ["get", "name"],
           ["get", "name_en"],
-          ["get", "name"]
+          ["get", "canonical_name"]
         ],
+        "visibility": "visible",
         "text-font": ["NotoSansMyanmar-Regular"],
         "text-size": [
           "interpolate",
           ["linear"],
           ["zoom"],
-          8, 9,
           12, 11,
-          16, 13,
-          20, 15
+          15, 12.5,
+          17, 14,
+          19, 15
         ],
         "text-max-width": 8,
-        "text-padding": 6,
+        "text-padding": 80,
         "text-allow-overlap": false,
         "text-ignore-placement": false,
         "text-optional": true
       },
       "paint": {
-        "text-color": "#6f7670",
-        "text-halo-color": "#f3f4f1",
-        "text-halo-width": 1.4,
-        "text-halo-blur": 0.2,
+        "text-color": "#475569",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 2.5,
+        "text-halo-blur": 0.5,
         "text-opacity": [
           "interpolate",
           ["linear"],
           ["zoom"],
-          8, 0.35,
-          11, 0.55,
-          14, 0.75
+          12, 0.35,
+          14, 0.68,
+          17, 0.84,
+          19, 0.8
         ]
       }
     },
@@ -190,42 +194,42 @@
       "source": "local-basemap",
       "source-layer": "village_labels",
       "minzoom": 12,
+      "maxzoom": 14,
       "layout": {
         "text-field": [
           "coalesce",
           ["get", "name_mm"],
+          ["get", "name"],
           ["get", "name_en"],
-          ["get", "name"]
+          ["get", "canonical_name"]
         ],
+        "visibility": "visible",
         "text-font": ["NotoSansMyanmar-Regular"],
         "text-size": [
           "interpolate",
           ["linear"],
           ["zoom"],
-          12, 10,
-          14, 11.5,
-          17, 13,
-          20, 14.5
+          12, 9,
+          14, 10.2
         ],
         "text-max-width": 10,
-        "text-padding": 8,
+        "text-padding": 80,
         "text-allow-overlap": false,
         "text-ignore-placement": false,
         "text-optional": true
       },
       "paint": {
-        "text-color": "#5c635d",
-        "text-halo-color": "#f3f4f1",
-        "text-halo-width": 1.5,
-        "text-halo-blur": 0.25,
+        "text-color": "#475569",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 2.5,
+        "text-halo-blur": 0.5,
         "text-opacity": [
           "interpolate",
           ["linear"],
           ["zoom"],
-          12, 0.45,
-          13, 0.62,
-          14, 0.78,
-          16, 0.88
+          12, 0.35,
+          13, 0.68,
+          14, 0.78
         ]
       }
     },
@@ -313,11 +317,147 @@
       }
     },
     {
+      "id": "admin-neighborhood-labels",
+      "type": "symbol",
+      "source": "local-basemap",
+      "source-layer": "village_labels",
+      "minzoom": 14,
+      "maxzoom": 19,
+      "layout": {
+        "symbol-placement": "point",
+        "symbol-avoid-edges": true,
+        "text-field": [
+          "let",
+          "primary",
+          ["coalesce", ["get", "name_en"], ["get", "name"], ["get", "canonical_name"], ""],
+          "mm",
+          ["coalesce", ["get", "name_mm"], ""],
+          [
+            "case",
+            ["all", ["!=", ["var", "primary"], ""], ["!=", ["var", "mm"], ""], ["!=", ["var", "primary"], ["var", "mm"]]],
+            ["concat", ["var", "primary"], "\n", ["var", "mm"]],
+            ["!=", ["var", "primary"], ""],
+            ["var", "primary"],
+            ["var", "mm"]
+          ]
+        ],
+        "visibility": "visible",
+        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-size": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          13, 12,
+          15, 15,
+          17, 17,
+          19, 18
+        ],
+        "text-line-height": 1.15,
+        "text-max-width": 10,
+        "text-padding": 80,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#475569",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 2.5,
+        "text-halo-blur": 0.5,
+        "text-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          14, 0.42,
+          15, 0.74,
+          17, 0.84,
+          19, 0.78
+        ]
+      }
+    },
+    {
+      "id": "admin-area-label-points",
+      "type": "symbol",
+      "source": "local-basemap",
+      "source-layer": "admin_area_label_points",
+      "minzoom": 13,
+      "maxzoom": 19,
+      "layout": {
+        "symbol-placement": "point",
+        "symbol-avoid-edges": true,
+        "text-field": [
+          "let",
+          "primary",
+          ["coalesce", ["get", "name_en"], ["get", "name"], ["get", "canonical_name"], ""],
+          "mm",
+          ["coalesce", ["get", "name_mm"], ""],
+          [
+            "case",
+            ["all", ["!=", ["var", "primary"], ""], ["!=", ["var", "mm"], ""], ["!=", ["var", "primary"], ["var", "mm"]]],
+            ["concat", ["var", "primary"], "\n", ["var", "mm"]],
+            ["!=", ["var", "mm"], ""],
+            ["var", "mm"],
+            ["var", "primary"]
+          ]
+        ],
+        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-size": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          13, 11.5,
+          15, 13,
+          17, 14.5,
+          19, 15.5
+        ],
+        "text-line-height": 1.15,
+        "text-max-width": 10,
+        "text-padding": 88,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#475569",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 2.8,
+        "text-halo-blur": 0.5,
+        "text-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          13, 0.35,
+          14, 0.68,
+          17, 0.84,
+          19, 0.8
+        ]
+      }
+    },
+    {
       "id": "road-labels",
       "type": "symbol",
       "source": "local-basemap",
       "source-layer": "road_labels",
       "minzoom": 13,
+      "filter": [
+        "!",
+        [
+          "match",
+          ["downcase", ["coalesce", ["get", "name_en"], ["get", "name"], ""]],
+          [
+            "unnamed street",
+            "unnamed road",
+            "unnamed tertiary",
+            "unnamed tertiary road",
+            "unnamed residential",
+            "unnamed residential road",
+            "unnamed unclassified",
+            "unnamed service"
+          ],
+          true,
+          false
+        ]
+      ],
       "layout": {
         "symbol-placement": "line",
         "symbol-spacing": 350,
