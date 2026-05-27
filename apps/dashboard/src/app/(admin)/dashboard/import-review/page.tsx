@@ -6,13 +6,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import StatsCard from "@/src/components/dashboard/StatsCard";
 import { Card, CardContent } from "@/src/components/ui/card";
-import {
-    getImportReviewSummary,
-    isAbortError,
-    isImportReviewBatchAmbiguousError,
-    type ImportReviewBatchChoice,
-    type ImportReviewSummaryResponse,
-} from "@/src/lib/api";
+import { useImportReviewSummary } from "@/src/features/import-review/hooks/useImportReviewSummary";
 import ImportReviewBatchPicker from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewBatchPicker";
 import ImportReviewErrorState from "@/src/features/import-review/components/ImportReviewErrorState";
 import ImportReviewInlineSpinner from "@/src/features/import-review/components/ImportReviewInlineSpinner";
@@ -22,6 +16,7 @@ import ImportReviewStatusBanner from "@/src/features/import-review/components/Im
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import {
     applyImportReviewScopeSearchParams,
+    importReviewScopeQueryFromSearch,
     reviewBatchIdFromImportReviewSearch,
     snapshotVersionFromImportReviewSearch,
     syncImportReviewUrlToResolvedBatch,
@@ -31,6 +26,13 @@ import {
     getImportReviewEntityByApiFamily,
     importReviewEntityHref,
 } from "@/src/lib/importReviewEntityConfig";
+import { replaceImportReviewSearchParams } from "@/src/features/import-review/navigation/replaceImportReviewSearchParams";
+import {
+    logImportReviewPageRender,
+    logImportReviewUrlSync,
+    logImportReviewUserAction,
+    diffImportReviewSearchKeys,
+} from "@/src/features/import-review/utils/importReviewRequestDebug";
 import { aggregateBy, familyBucketRows } from "@/src/lib/importReviewSummaryRollups";
 import type { ImportReviewFamilySummaryMetrics } from "@/src/lib/api";
 
@@ -109,6 +111,7 @@ function snapshotOptionsFromEnv(): string[] {
     return [...new Set(raw.split(",").map((s) => s.trim()).filter(Boolean))];
 }
 
+/** Overview-only: loads GET /api/import-review/summary — no entity list/filter/options hooks. */
 function ImportReviewSummaryInner() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -121,13 +124,65 @@ function ImportReviewSummaryInner() {
         () => (urlBatch ? "" : urlVersion || envDefault || presetOptions[0] || "")
     );
     const [batchInput, setBatchInput] = useState(() => urlBatch || "");
-    const [data, setData] = useState<ImportReviewSummaryResponse | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState("");
-    const [ambiguousBatches, setAmbiguousBatches] = useState<ImportReviewBatchChoice[] | null>(null);
-    const [ambiguousSnapshot, setAmbiguousSnapshot] = useState("");
-    const [lastLoaded, setLastLoaded] = useState<LoadedScope | null>(null);
-    const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+    const searchKey = searchParams.toString();
+    const prevSearchKeyRef = useRef<string | null>(null);
+
+    const apiScope = useMemo(
+        () => importReviewScopeQueryFromSearch(searchParams, envDefault, { useEnvDefault: true }),
+        [searchParams, envDefault]
+    );
+
+    useEffect(() => {
+        logImportReviewPageRender({
+            component: "ImportReviewSummaryInner",
+            route_slug: "overview",
+            route_family: null,
+            pathname: importReviewPath(),
+            route_active: true,
+            scope: {
+                review_batch_id: urlBatch || null,
+                source_snapshot_version: urlVersion || null,
+            },
+        });
+    }, [urlBatch, urlVersion]);
+
+    useEffect(() => {
+        const prev = prevSearchKeyRef.current;
+        if (prev !== null && prev !== searchKey) {
+            logImportReviewUrlSync({
+                source: "ImportReviewSummaryInner",
+                reason: "searchParams_changed",
+                pathname: importReviewPath(),
+                previous_query: prev,
+                next_query: searchKey,
+                changed_keys: diffImportReviewSearchKeys(prev, searchKey),
+            });
+        }
+        prevSearchKeyRef.current = searchKey;
+    }, [searchKey]);
+
+    const {
+        data,
+        isLoading,
+        isFetching,
+        error,
+        ambiguousBatches,
+        ambiguousSnapshot,
+        dataUpdatedAt,
+    } = useImportReviewSummary(apiScope);
+
+    const lastUpdated = dataUpdatedAt > 0 ? new Date(dataUpdatedAt) : null;
+    const lastLoaded = useMemo((): LoadedScope | null => {
+        if (!data) {
+            return null;
+        }
+        const batch = data.review_batch_id?.trim();
+        if (batch) {
+            return { kind: "review_batch", value: batch };
+        }
+        const snap = data.source_snapshot_version?.trim();
+        return snap ? { kind: "source_snapshot", value: snap } : null;
+    }, [data]);
 
     useEffect(() => {
         setVersionInput(urlBatch ? "" : urlVersion || envDefault || presetOptions[0] || "");
@@ -137,156 +192,60 @@ function ImportReviewSummaryInner() {
         setBatchInput(urlBatch || "");
     }, [urlBatch]);
 
-    const load = useCallback(
-        async (
-            opts: {
-                snapshotVersion: string;
-                reviewBatchId: string;
-                latest?: boolean;
-                signal?: AbortSignal;
-                syncUrl: boolean;
-            }
-        ): Promise<boolean> => {
+    const applyScopeToUrl = useCallback(
+        (opts: { snapshotVersion: string; reviewBatchId: string; latest?: boolean }) => {
             const snap = opts.snapshotVersion.trim();
             const batch = opts.reviewBatchId.trim();
-
-            if (!snap && !batch) {
-                setError("Provide source_snapshot_version or review_batch_id.");
-                setData(null);
-                setLastLoaded(null);
-                setLastUpdated(null);
-                return false;
-            }
-            if (snap && batch) {
-                setError("Use only one of source_snapshot_version or review_batch_id.");
-                setData(null);
-                setLastLoaded(null);
-                setLastUpdated(null);
-                return false;
-            }
-
-            const query = snap
-                ? { source_snapshot_version: snap, ...(opts.latest ? { latest: true } : {}) }
-                : { review_batch_id: batch };
-
-            setIsLoading(true);
-            setError("");
-            setAmbiguousBatches(null);
-            setAmbiguousSnapshot("");
-
-            try {
-                const response = await getImportReviewSummary(
-                    query,
-                    opts.signal ? { signal: opts.signal } : undefined
-                );
-                setData(response);
-                const resolvedBatch = response.review_batch_id?.trim() ?? batch;
-                setLastLoaded(
-                    resolvedBatch
-                        ? { kind: "review_batch", value: resolvedBatch }
-                        : snap
-                          ? { kind: "source_snapshot", value: snap }
-                          : null
-                );
-                setLastUpdated(new Date());
-                if (opts.syncUrl) {
-                    const params = new URLSearchParams(searchParams.toString());
-                    if (snap && response.review_batch_id) {
-                        syncImportReviewUrlToResolvedBatch(params, response.review_batch_id);
+            logImportReviewUserAction({
+                action: "apply_scope",
+                source: "overview:apply_scope",
+                route_slug: "overview",
+                scope: {
+                    review_batch_id: batch || null,
+                    source_snapshot_version: snap || null,
+                },
+            });
+            replaceImportReviewSearchParams(
+                router,
+                importReviewPath(),
+                searchParams,
+                (params) => {
+                    applyImportReviewScopeSearchParams(params, snap, batch);
+                    if (opts.latest) {
+                        params.set("latest", "true");
                     } else {
-                        applyImportReviewScopeSearchParams(params, snap, batch);
+                        params.delete("latest");
                     }
-                    router.replace(`${importReviewPath()}?${params.toString()}`, { scroll: false });
-                }
-                return true;
-            } catch (err) {
-                if (isAbortError(err)) {
-                    return false;
-                }
-                if (isImportReviewBatchAmbiguousError(err)) {
-                    setAmbiguousBatches(err.batches);
-                    setAmbiguousSnapshot(err.sourceSnapshotVersion || snap);
-                    setError("");
-                    setData(null);
-                    setLastLoaded(null);
-                    setLastUpdated(null);
-                    return false;
-                }
-                setAmbiguousBatches(null);
-                setAmbiguousSnapshot("");
-                setError(formatImportReviewUiError(err));
-                setData(null);
-                setLastLoaded(null);
-                setLastUpdated(null);
-                return false;
-            } finally {
-                setIsLoading(false);
-            }
+                },
+                { source: "overview:apply_scope" }
+            );
         },
         [router, searchParams]
     );
-
-    function formatImportReviewUiError(err: unknown): string {
-        if (!(err instanceof Error)) {
-            return "Failed to load import review summary.";
-        }
-        const m = err.message;
-        if (m.includes("401") || m.toLowerCase().includes("authentication")) {
-            return "Unauthorized — sign in as an admin. Import review endpoints are admin-only.";
-        }
-        if (m.includes("403") || m.toLowerCase().includes("admin")) {
-            return "Forbidden — import review requires an admin-capable token.";
-        }
-        return m;
-    }
-
-    const loadRef = useRef(load);
-    loadRef.current = load;
-
-    const firstPreset = presetOptions[0] ?? "";
-    const chosenSnapshot = urlBatch ? "" : urlVersion || envDefault || firstPreset;
-    const chosenBatch = urlBatch;
-    const latestFromUrl = (() => {
-        const raw = searchParams.get("latest")?.trim().toLowerCase();
-        return raw === "true" || raw === "1";
-    })();
-
-    useEffect(() => {
-        if (chosenBatch) {
-            const controller = new AbortController();
-            void loadRef.current({
-                snapshotVersion: "",
-                reviewBatchId: chosenBatch,
-                signal: controller.signal,
-                syncUrl: false,
-            });
-            return () => controller.abort();
-        }
-        const v = chosenSnapshot.trim();
-        if (!v) {
-            return;
-        }
-        const controller = new AbortController();
-        void loadRef.current({
-            snapshotVersion: v,
-            reviewBatchId: "",
-            latest: latestFromUrl,
-            signal: controller.signal,
-            syncUrl: false,
-        });
-        return () => controller.abort();
-    }, [chosenBatch, chosenSnapshot, latestFromUrl]);
 
     useEffect(() => {
         const resolvedBatch = data?.review_batch_id?.trim();
         if (!resolvedBatch || urlBatch) {
             return;
         }
-        const params = new URLSearchParams(searchParams.toString());
-        if (syncImportReviewUrlToResolvedBatch(params, resolvedBatch)) {
-            router.replace(`${importReviewPath()}?${params.toString()}`, { scroll: false });
-        }
-    }, [data?.review_batch_id, urlBatch, router, searchParams]);
+        logImportReviewUrlSync({
+            source: "ImportReviewSummaryInner",
+            reason: "sync_summary_review_batch_id",
+            pathname: importReviewPath(),
+            previous_query: searchKey,
+            next_query: `${searchKey}${searchKey ? "&" : ""}review_batch_id=${resolvedBatch}`,
+            changed_keys: ["review_batch_id"],
+        });
+        replaceImportReviewSearchParams(
+            router,
+            importReviewPath(),
+            searchParams,
+            (params) => {
+                syncImportReviewUrlToResolvedBatch(params, resolvedBatch);
+            },
+            { source: "overview:sync_summary_batch" }
+        );
+    }, [data?.review_batch_id, urlBatch, router, searchParams, searchKey]);
 
     const rollup = data?.rollup ?? null;
     const familySummaries = useMemo(
@@ -428,13 +387,12 @@ function ImportReviewSummaryInner() {
                             <button
                                 type="button"
                                 onClick={() =>
-                                    void load({
+                                    applyScopeToUrl({
                                         snapshotVersion: versionInput,
                                         reviewBatchId: batchInput,
-                                        syncUrl: true,
                                     })
                                 }
-                                disabled={isLoading}
+                                disabled={isLoading || isFetching}
                                 className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-gray-800 disabled:opacity-50"
                             >
                                 {isLoading ? IMPORT_REVIEW_LOADING.loadingOverviewSummary : "Load summary"}
@@ -455,10 +413,9 @@ function ImportReviewSummaryInner() {
                         onSelectBatch={(batchId) => {
                             setVersionInput("");
                             setBatchInput(batchId);
-                            void load({
+                            applyScopeToUrl({
                                 snapshotVersion: "",
                                 reviewBatchId: batchId,
-                                syncUrl: true,
                             });
                         }}
                         onUseLatest={() => {
@@ -466,11 +423,10 @@ function ImportReviewSummaryInner() {
                                 ambiguousSnapshot ||
                                 snapshotVersionFromImportReviewSearch(searchParams) ||
                                 versionInput.trim();
-                            void load({
+                            applyScopeToUrl({
                                 snapshotVersion: snap,
                                 reviewBatchId: "",
                                 latest: true,
-                                syncUrl: true,
                             });
                         }}
                     />
@@ -479,7 +435,7 @@ function ImportReviewSummaryInner() {
 
                 {error ? <ImportReviewErrorState message={error} /> : null}
 
-                {isLoading && data ? (
+                {isFetching && data ? (
                     <div className="flex justify-end">
                         <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.loadingOverviewSummary} />
                     </div>
@@ -559,6 +515,7 @@ function ImportReviewSummaryInner() {
                                                 {f.slug ? (
                                                     <Link
                                                         href={entityReviewHref(f.slug)}
+                                                        prefetch={false}
                                                         className="shrink-0 text-xs font-medium text-blue-700 underline"
                                                     >
                                                         Open queue

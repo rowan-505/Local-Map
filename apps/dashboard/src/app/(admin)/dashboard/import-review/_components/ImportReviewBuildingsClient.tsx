@@ -57,6 +57,7 @@ import { formatImportReviewScopeFetchError } from "@/src/lib/importReviewScopeUi
 import { IMPORT_REVIEW_PATH } from "@/src/lib/dashboardPaths";
 import ImportReviewBatchPicker from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewBatchPicker";
 import { buildingDrawerMapInput } from "@/src/lib/importReviewDrawerMapGeometry";
+import { replaceImportReviewSearchParams } from "@/src/features/import-review/navigation/replaceImportReviewSearchParams";
 import ImportReviewReviewActionsMenu from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewReviewActionsMenu";
 import {
     IMPORT_REVIEW_TABLE_MIN_WIDTH_CLASS,
@@ -268,10 +269,13 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
 
     const replaceQuery = useCallback(
         (mutate: (p: URLSearchParams) => void) => {
-            const p = new URLSearchParams(searchParams.toString());
-            mutate(p);
-            const qs = p.toString();
-            router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+            replaceImportReviewSearchParams(
+                router,
+                pathname ?? "",
+                searchParams,
+                mutate,
+                { source: "ImportReviewBuildingsClient:replace_query" }
+            );
         },
         [router, pathname, searchParams]
     );
@@ -938,6 +942,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                                   ? "/data-review"
                                   : IMPORT_REVIEW_PATH
                         }
+                        prefetch={false}
                         className="inline-flex shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50"
                     >
                         Back to summary

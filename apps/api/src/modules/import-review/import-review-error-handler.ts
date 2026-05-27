@@ -13,6 +13,7 @@ import {
     ImportReviewRoadOverridesWarningsPendingError,
 } from "./import-review-errors.js";
 import {
+    importReviewInternalErrorMessage,
     logImportReviewServerError,
     sendImportReviewApiError,
     sendImportReviewMultipleBatchesError,
@@ -278,7 +279,14 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
 
     if (error instanceof Error) {
         logImportReviewServerError(reply, error, "sendImportReviewError");
-        sendImportReviewApiError(reply, 500, "INTERNAL_ERROR", error.message);
+        const message = importReviewInternalErrorMessage(error);
+        const details =
+            process.env.NODE_ENV !== "production" && error.message.trim() !== message
+                ? { technical_message: error.message }
+                : process.env.NODE_ENV !== "production"
+                  ? { name: error.name }
+                  : null;
+        sendImportReviewApiError(reply, 500, "INTERNAL_ERROR", message, details);
         return true;
     }
 

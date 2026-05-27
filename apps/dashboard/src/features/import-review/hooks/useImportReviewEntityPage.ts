@@ -1,19 +1,25 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useClearSelectionOnListQueryChange } from "./useClearSelectionOnListQueryChange";
 
 import {
     formatImportReviewApiError,
     getEntityCandidateDetail,
-    getEntityCandidates,
-    getEntityFilterOptions,
-    importReviewAmbiguousFromError,
     patchEntityDecision,
     patchEntityOverrides,
 } from "@/src/features/import-review/api";
+import {
+    formatImportReviewTechnicalError,
+    formatImportReviewUserError,
+    isImportReviewDevMode,
+} from "@/src/features/import-review/utils/importReviewDetailErrors";
+import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
+import { useImportReviewEntityList } from "./useImportReviewEntityList";
+import { useImportReviewFamilyFilterOptions } from "./useImportReviewFamilyFilterOptions";
 import { useImportReviewFormOptions } from "./useImportReviewFormOptions";
 import { isImportReviewDetailNotFound } from "@/src/features/import-review/utils/detailDrawerUtils";
 import { getImportReviewEntityConfigBySlug, toDataReviewGeometryKind } from "@/src/features/import-review/config";
@@ -21,26 +27,35 @@ import type { ImportReviewEntityConfig } from "@/src/features/import-review/conf
 import { entityDrawerMapInput } from "@/src/lib/importReviewDrawerMapGeometry";
 import {
     isAbortError,
-    type ImportReviewBatchChoice,
     type ImportReviewBuildingListItem,
     type ImportReviewBuildingsListResponse,
     type ImportReviewDecision,
-    type ImportReviewFamilyFilterOptionsResponse,
 } from "@/src/lib/api";
 import { deriveImportReviewEditorUxCanMutate } from "@/src/lib/importReviewEditorUx";
 import { importReviewOverviewHref } from "@/src/lib/importReviewEntityConfig";
 import {
     applyImportReviewScopeSearchParams,
-    importReviewScopeQueryForApi,
-    importReviewScopeQueryFromSearch,
-    preserveImportReviewScopeInParams,
+    reviewBatchIdFromApiScopeQuery,
     reviewBatchIdFromImportReviewSearch,
     snapshotVersionFromImportReviewSearch,
     type ImportReviewScopeQueryParams,
 } from "@/src/lib/importReviewSnapshot";
 
+import { getImportReviewEntitySlugFromPathname } from "../navigation/importReviewRoutes";
+import {
+    replaceImportReviewSearchParams,
+    type ReplaceImportReviewSearchParamsMeta,
+} from "../navigation/replaceImportReviewSearchParams";
+import {
+    diffImportReviewSearchKeys,
+    logImportReviewPageRender,
+    logImportReviewUrlSync,
+    logImportReviewQueryKeyChange,
+    logImportReviewUserAction,
+} from "../utils/importReviewRequestDebug";
 import { useImportReviewBatchContext } from "./useImportReviewBatchContext";
 import { useImportReviewBulkActions } from "./useImportReviewBulkActions";
+import { importReviewQueryKeys } from "./importReviewQueryKeys";
 import {
     buildImportReviewListQueryKey,
     IMPORT_REVIEW_LIMIT_CHOICES,
@@ -69,6 +84,11 @@ function mutationScope(
 export type UseImportReviewEntityPageOptions = {
     /** Sticky sidebar map (data-review layout). Loads list geometries when config.supportsMapPreview. */
     showMapPreview?: boolean;
+    /**
+     * When false, skips batch resolution and all entity list/detail/options fetches.
+     * Defaults to true only when the current pathname is this entity's route.
+     */
+    enabled?: boolean;
 };
 
 export function useImportReviewEntityPage(
@@ -76,6 +96,10 @@ export function useImportReviewEntityPage(
     options: UseImportReviewEntityPageOptions = {}
 ) {
     const showMapPreview = options.showMapPreview ?? false;
+    const pathname = usePathname();
+    const routeActive =
+        options.enabled ??
+        getImportReviewEntitySlugFromPathname(pathname ?? "") === slug.trim().toLowerCase();
     const config = getImportReviewEntityConfigBySlug(slug);
     const needsFormOptions = Boolean(
         config?.supportsOverrideEditor || (config?.overrideEditableFields.length ?? 0) > 0
@@ -84,14 +108,16 @@ export function useImportReviewEntityPage(
         formOptions,
         isLoading: formOptionsLoading,
         error: formOptionsError,
-    } = useImportReviewFormOptions(needsFormOptions);
+    } = useImportReviewFormOptions(needsFormOptions && routeActive);
     const router = useRouter();
-    const pathname = usePathname();
+    const queryClient = useQueryClient();
     const searchParams = useSearchParams();
 
     const batchContext = useImportReviewBatchContext({
-        resolveSnapshotScope: true,
+        /** Entity pages require review_batch_id in URL — skip summary probe that refetches scope. */
+        resolveSnapshotScope: false,
         useEnvDefault: false,
+        enabled: routeActive,
     });
 
     const snapshotUrl = snapshotVersionFromImportReviewSearch(searchParams);
@@ -123,23 +149,9 @@ export function useImportReviewEntityPage(
             searchParams.get("include_promoted") === "1"
     );
 
-    const [filterOptions, setFilterOptions] = useState<ImportReviewFamilyFilterOptionsResponse | null>(
-        null
-    );
-    const [isLoadingFilters, setIsLoadingFilters] = useState(false);
     const [isApplyingFilters, setIsApplyingFilters] = useState(false);
-    const [list, setList] = useState<ImportReviewBuildingsListResponse | null>(null);
-    const [isLoadingCandidates, setIsLoadingCandidates] = useState(() => {
-        const scope = importReviewScopeQueryFromSearch(searchParams, ENV_SNAPSHOT_DEFAULT, {
-            useEnvDefault: false,
-        });
-        return importReviewScopeQueryForApi(scope) !== null;
-    });
-    const [listError, setListError] = useState("");
-    const [listAmbiguousBatches, setListAmbiguousBatches] = useState<ImportReviewBatchChoice[] | null>(
-        null
-    );
-    const [listAmbiguousSnapshot, setListAmbiguousSnapshot] = useState("");
+    const [cachedListTotal, setCachedListTotal] = useState<number | null>(null);
+    const [mapPreviewRow, setMapPreviewRow] = useState<ImportReviewBuildingListItem | null>(null);
 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
     const [rowActionBusyId, setRowActionBusyId] = useState<string | null>(null);
@@ -148,7 +160,11 @@ export function useImportReviewEntityPage(
     const [drawerRow, setDrawerRow] = useState<ImportReviewBuildingListItem | null>(null);
     const [isLoadingDetail, setIsLoadingDetail] = useState(false);
     const [detailError, setDetailError] = useState("");
+    const [detailTechnicalError, setDetailTechnicalError] = useState("");
+    const [geometryError, setGeometryError] = useState("");
+    const [geometryTechnicalError, setGeometryTechnicalError] = useState("");
     const [detailNotFound, setDetailNotFound] = useState(false);
+    const [isLoadingGeometry, setIsLoadingGeometry] = useState(false);
     const [drawerNote, setDrawerNote] = useState("");
     const [drawerDecision, setDrawerDecision] = useState<ImportReviewDecision>("needs_more_review");
     const [isSaving, setIsSaving] = useState(false);
@@ -157,7 +173,19 @@ export function useImportReviewEntityPage(
     const [decisionSaveMessage, setDecisionSaveMessage] = useState<string | null>(null);
 
     const apiScopeQuery = batchContext.apiScopeQuery;
+    const resolvedReviewBatchId = reviewBatchIdFromApiScopeQuery(apiScopeQuery);
     const syncResolvedBatchToUrl = batchContext.syncResolvedBatchToUrl;
+    const detailCacheScope = resolvedReviewBatchId ?? "none";
+    const detailQueryKeyFor = useCallback(
+        (candidateId: string) =>
+            ["import-review", "detail", config?.apiFamily ?? "", candidateId, detailCacheScope] as const,
+        [config?.apiFamily, detailCacheScope]
+    );
+    const geometryQueryKeyFor = useCallback(
+        (candidateId: string) =>
+            ["import-review", "geometry", config?.apiFamily ?? "", candidateId, detailCacheScope] as const,
+        [config?.apiFamily, detailCacheScope]
+    );
 
     const listQueryKey = useMemo(
         () =>
@@ -171,26 +199,164 @@ export function useImportReviewEntityPage(
                 showPromoted,
                 apiFamily: config?.apiFamily,
             }),
-        [apiScopeQuery, limit, offset, sort, filters, qApplied, showPromoted, config?.apiFamily]
+        [resolvedReviewBatchId, limit, offset, sort, filters, qApplied, showPromoted, config?.apiFamily]
     );
 
     useClearSelectionOnListQueryChange(listQueryKey, setSelectedIds);
 
+    useEffect(() => {
+        setCachedListTotal(null);
+    }, [listQueryKey]);
+
     const hasValidScope =
+        routeActive &&
         apiScopeQuery !== null &&
         config !== null &&
         !batchContext.isLoadingBatchContext &&
         batchContext.status !== "multiple_batches";
 
+    const listParams = useMemo(() => {
+        if (!hasValidScope || !apiScopeQuery || !config) {
+            return null;
+        }
+        return {
+            apiFamily: config.apiFamily,
+            apiScopeQuery,
+            limit,
+            offset,
+            sort,
+            filters,
+            qApplied,
+            showPromoted,
+        };
+    }, [hasValidScope, apiScopeQuery, resolvedReviewBatchId, config, limit, offset, sort, filters, qApplied, showPromoted]);
+
+    const candidatesQueryKey = useMemo(
+        () =>
+            importReviewQueryKeys.candidatesList(
+                listParams
+                    ? {
+                          apiFamily: listParams.apiFamily,
+                          apiScopeQuery: listParams.apiScopeQuery,
+                          limit: listParams.limit,
+                          offset: listParams.offset,
+                          sort: listParams.sort,
+                          filters: listParams.filters,
+                          qApplied: listParams.qApplied,
+                          showPromoted: listParams.showPromoted,
+                      }
+                    : null
+            ),
+        [listParams]
+    );
+
+    useEffect(() => {
+        if (!routeActive || !config) {
+            return;
+        }
+        logImportReviewQueryKeyChange({
+            source: "useImportReviewEntityPage",
+            route_slug: slug,
+            list_query_key: listQueryKey,
+            react_query_key: candidatesQueryKey,
+        });
+    }, [routeActive, slug, config, listQueryKey, candidatesQueryKey]);
+
+    const {
+        list,
+        totalCount,
+        isLoading: isLoadingCandidates,
+        isFetching: isRefreshingList,
+        error: listError,
+        ambiguousBatches: listAmbiguousBatches,
+        ambiguousSnapshot: listAmbiguousSnapshot,
+        refetch: refetchList,
+        patchListItem,
+        patchListItemEverywhere,
+    } = useImportReviewEntityList(listParams, hasValidScope);
+
+    useEffect(() => {
+        if (list?.total !== undefined) {
+            setCachedListTotal(list.total);
+        }
+        if (totalCount !== null) {
+            setCachedListTotal(totalCount);
+        }
+        const batchFromList = list?.review_batch_id?.trim();
+        if (batchFromList && batchFromList !== batchUrl.trim()) {
+            syncResolvedBatchToUrl(batchFromList);
+        }
+    }, [list, totalCount, syncResolvedBatchToUrl, batchUrl]);
+
+    useEffect(() => {
+        if (!isRefreshingList) {
+            setIsApplyingFilters(false);
+        }
+    }, [isRefreshingList]);
+
+    const filterOptionsReady =
+        hasValidScope && (list !== null || (!isLoadingCandidates && !listError));
+
+    const {
+        filterOptions,
+        isLoadingFilters,
+        ambiguousBatches: filterAmbiguousBatches,
+        ambiguousSnapshot: filterAmbiguousSnapshot,
+    } = useImportReviewFamilyFilterOptions({
+        apiFamily: config?.apiFamily,
+        apiScopeQuery,
+        enabled: routeActive && Boolean(config) && filterOptionsReady,
+    });
+
     const replaceQuery = useCallback(
-        (mutate: (p: URLSearchParams) => void) => {
-            const p = new URLSearchParams(searchParams.toString());
-            mutate(p);
-            const qs = p.toString();
-            router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+        (mutate: (p: URLSearchParams) => void, meta?: ReplaceImportReviewSearchParamsMeta) => {
+            replaceImportReviewSearchParams(router, pathname ?? "", searchParams, mutate, meta);
         },
         [router, pathname, searchParams]
     );
+
+    const searchKey = searchParams.toString();
+    const prevSearchKeyRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        if (!routeActive) {
+            return;
+        }
+        logImportReviewPageRender({
+            component: "useImportReviewEntityPage",
+            route_slug: slug,
+            route_family: config?.apiFamily ?? null,
+            pathname: pathname ?? "",
+            route_active: routeActive,
+            scope: {
+                review_batch_id: batchUrl || null,
+                source_snapshot_version: snapshotUrl || null,
+            },
+        });
+    }, [routeActive, slug, config?.apiFamily, pathname, batchUrl, snapshotUrl]);
+
+    useEffect(() => {
+        if (!routeActive) {
+            prevSearchKeyRef.current = searchKey;
+            return;
+        }
+        const prev = prevSearchKeyRef.current;
+        if (prev !== null && prev !== searchKey) {
+            logImportReviewUrlSync({
+                source: "useImportReviewEntityPage",
+                reason: "searchParams_changed",
+                pathname: pathname ?? "",
+                previous_query: prev,
+                next_query: searchKey,
+                changed_keys: diffImportReviewSearchKeys(prev, searchKey),
+            });
+        }
+        prevSearchKeyRef.current = searchKey;
+    }, [routeActive, searchKey, pathname]);
+    const overviewHref = useMemo(() => {
+        const sp = new URLSearchParams(searchKey);
+        return importReviewOverviewHref(sp);
+    }, [searchKey]);
 
     useEffect(() => {
         setCanEditImportReview(deriveImportReviewEditorUxCanMutate());
@@ -227,136 +393,81 @@ export function useImportReviewEntityPage(
     }, [searchParams, config?.defaultSort]);
 
     useEffect(() => {
-        if (!hasValidScope || !apiScopeQuery || !config) {
-            setFilterOptions(null);
-            return;
+        if (!routeActive) {
+            setIsApplyingFilters(false);
+            setSelectedIds(new Set());
+            setDrawerRow(null);
+            setMapPreviewRow(null);
         }
-        const c = new AbortController();
-        setIsLoadingFilters(true);
-        getEntityFilterOptions(config.apiFamily, { ...apiScopeQuery }, { signal: c.signal })
-            .then(setFilterOptions)
-            .catch((err) => {
-                if (isAbortError(err)) {
-                    return;
-                }
-                const ambiguous = importReviewAmbiguousFromError(err);
-                if (ambiguous) {
-                    setListAmbiguousBatches(ambiguous.batches);
-                    setListAmbiguousSnapshot(ambiguous.sourceSnapshotVersion);
-                    setFilterOptions(null);
-                    return;
-                }
-                setFilterOptions(null);
-            })
-            .finally(() => {
-                if (!c.signal.aborted) {
-                    setIsLoadingFilters(false);
-                }
-            });
-        return () => c.abort();
-    }, [hasValidScope, apiScopeQuery, config]);
-
-    const fetchList = useCallback(
-        async (signal?: AbortSignal) => {
-            if (!hasValidScope || !apiScopeQuery || !config) {
-                setList(null);
-                setListError("");
-                setIsLoadingCandidates(false);
-                setIsApplyingFilters(false);
-                return;
-            }
-
-            setIsLoadingCandidates(true);
-            setListError("");
-            setListAmbiguousBatches(null);
-            setListAmbiguousSnapshot("");
-
-            try {
-                const params = {
-                    ...apiScopeQuery,
-                    limit,
-                    offset,
-                    sort,
-                    include_geometry: Boolean(config.supportsMapPreview && showMapPreview),
-                    include_promoted: showPromoted,
-                };
-                const rest = { ...params } as typeof params & Record<string, string | undefined>;
-                if (filters.match_status) rest.match_status = filters.match_status;
-                if (filters.auto_action) rest.auto_action = filters.auto_action;
-                if (filters.review_status) rest.review_status = filters.review_status;
-                if (filters.review_decision) rest.review_decision = filters.review_decision;
-                if (filters.promotion_status) rest.promotion_status = filters.promotion_status;
-                if (filters.class_code) rest.class_code = filters.class_code;
-                if (qApplied) rest.q = qApplied;
-
-                const res = await getEntityCandidates(config.apiFamily, rest, signal ? { signal } : undefined);
-                setList(res);
-                syncResolvedBatchToUrl(res.review_batch_id);
-            } catch (err) {
-                if (isAbortError(err)) {
-                    return;
-                }
-                const ambiguous = importReviewAmbiguousFromError(err);
-                if (ambiguous) {
-                    setListAmbiguousBatches(ambiguous.batches);
-                    setListAmbiguousSnapshot(ambiguous.sourceSnapshotVersion);
-                    setList(null);
-                    setListError("");
-                    return;
-                }
-                setList(null);
-                setListError(formatImportReviewApiError(err, "Failed to load candidates."));
-            } finally {
-                if (!signal?.aborted) {
-                    setIsLoadingCandidates(false);
-                    setIsApplyingFilters(false);
-                }
-            }
-        },
-        [
-            hasValidScope,
-            apiScopeQuery,
-            config,
-            limit,
-            offset,
-            sort,
-            filters,
-            qApplied,
-            showPromoted,
-            showMapPreview,
-            syncResolvedBatchToUrl,
-        ]
-    );
-
-    useEffect(() => {
-        if (!hasValidScope) {
-            setList(null);
-            setIsLoadingCandidates(false);
-            return;
-        }
-        setIsLoadingCandidates(true);
-        const c = new AbortController();
-        void fetchList(c.signal);
-        return () => c.abort();
-    }, [fetchList, hasValidScope]);
+    }, [routeActive]);
 
     const openDrawer = useCallback((row: ImportReviewBuildingListItem) => {
         setDetailError("");
+        setDetailTechnicalError("");
+        setGeometryError("");
+        setGeometryTechnicalError("");
         setDetailNotFound(false);
+        setIsLoadingDetail(false);
+        setIsLoadingGeometry(false);
         setDrawerRow(row);
     }, []);
 
     const closeDrawer = useCallback(() => {
         setDrawerRow(null);
         setDetailError("");
+        setDetailTechnicalError("");
+        setGeometryError("");
+        setGeometryTechnicalError("");
         setDetailNotFound(false);
         setIsLoadingDetail(false);
+        setIsLoadingGeometry(false);
         setOverrideSaveMessage(null);
         setDecisionSaveMessage(null);
     }, []);
 
+    const fetchDrawerGeometry = useCallback(
+        async (candidateId: string, signal?: AbortSignal) => {
+            if (!config?.supportsMapPreview || !apiScopeQuery) {
+                return;
+            }
+            const cachedGeometry = queryClient.getQueryData<ImportReviewBuildingListItem>(
+                geometryQueryKeyFor(candidateId)
+            );
+            if (cachedGeometry) {
+                setDrawerRow((prev) => (prev && prev.id === candidateId ? cachedGeometry : prev));
+            }
+            setIsLoadingGeometry(true);
+            setGeometryError("");
+            setGeometryTechnicalError("");
+            try {
+                const withGeometry = await getEntityCandidateDetail(
+                    config.apiFamily,
+                    candidateId,
+                    { ...apiScopeQuery, include_geometry: true },
+                    signal ? { signal } : undefined
+                );
+                queryClient.setQueryData(geometryQueryKeyFor(candidateId), withGeometry);
+                queryClient.setQueryData(detailQueryKeyFor(candidateId), withGeometry);
+                setDrawerRow(withGeometry);
+            } catch (err) {
+                if (isAbortError(err)) {
+                    return;
+                }
+                setGeometryError(
+                    formatImportReviewUserError(err, IMPORT_REVIEW_LOADING.geometryFailedToLoad)
+                );
+                setGeometryTechnicalError(formatImportReviewTechnicalError(err));
+            } finally {
+                if (!signal?.aborted) {
+                    setIsLoadingGeometry(false);
+                }
+            }
+        },
+        [config, apiScopeQuery, queryClient, detailQueryKeyFor, geometryQueryKeyFor]
+    );
+
     useEffect(() => {
-        if (!drawerRow || !config || !apiScopeQuery) {
+        if (!routeActive || !drawerRow || !config || !apiScopeQuery) {
             return;
         }
         setDrawerNote(drawerRow.review_note ?? "");
@@ -373,64 +484,130 @@ export function useImportReviewEntityPage(
             setDrawerDecision("needs_more_review");
         }
 
+        const candidateId = drawerRow.id;
         const c = new AbortController();
         setIsLoadingDetail(true);
+        setIsLoadingGeometry(false);
         setDetailError("");
+        setDetailTechnicalError("");
+        setGeometryError("");
+        setGeometryTechnicalError("");
         setDetailNotFound(false);
-        getEntityCandidateDetail(
-            config.apiFamily,
-            drawerRow.id,
-            { ...apiScopeQuery, include_geometry: true },
-            { signal: c.signal }
-        )
-            .then((detail) => {
-                setDrawerRow(detail);
+
+        void (async () => {
+            try {
+                const cachedDetail = queryClient.getQueryData<ImportReviewBuildingListItem>(
+                    detailQueryKeyFor(candidateId)
+                );
+                if (cachedDetail && !c.signal.aborted) {
+                    setDrawerRow(cachedDetail);
+                    setDetailError("");
+                    setDetailTechnicalError("");
+                    setDetailNotFound(false);
+                    setIsLoadingDetail(false);
+                    if (config.supportsMapPreview && !(cachedDetail.geometry || cachedDetail.geom)) {
+                        await fetchDrawerGeometry(candidateId, c.signal);
+                    }
+                    return;
+                }
+                const metadata = await getEntityCandidateDetail(
+                    config.apiFamily,
+                    candidateId,
+                    { ...apiScopeQuery, include_geometry: false },
+                    { signal: c.signal }
+                );
+                if (c.signal.aborted) {
+                    return;
+                }
+                queryClient.setQueryData(detailQueryKeyFor(candidateId), metadata);
+                setDrawerRow(metadata);
                 setDetailError("");
+                setDetailTechnicalError("");
                 setDetailNotFound(false);
-            })
-            .catch((err) => {
+                setIsLoadingDetail(false);
+
+                if (config.supportsMapPreview) {
+                    await fetchDrawerGeometry(candidateId, c.signal);
+                }
+            } catch (err) {
                 if (isAbortError(err)) {
                     return;
                 }
                 if (isImportReviewDetailNotFound(err)) {
                     setDetailNotFound(true);
                     setDetailError("");
+                    setDetailTechnicalError("");
                     return;
                 }
-                setDetailError(formatImportReviewApiError(err, "Failed to load candidate detail."));
-            })
-            .finally(() => {
+                setDetailError(
+                    formatImportReviewUserError(err, IMPORT_REVIEW_LOADING.metadataFailedToLoad)
+                );
+                setDetailTechnicalError(formatImportReviewTechnicalError(err));
+            } finally {
                 if (!c.signal.aborted) {
                     setIsLoadingDetail(false);
+                    setIsLoadingGeometry(false);
                 }
-            });
+            }
+        })();
+
         return () => c.abort();
         // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when opening another row
-    }, [drawerRow?.id, config?.apiFamily, apiScopeQuery]);
+    }, [
+        routeActive,
+        drawerRow?.id,
+        config?.apiFamily,
+        config?.supportsMapPreview,
+        apiScopeQuery,
+        fetchDrawerGeometry,
+        queryClient,
+        detailQueryKeyFor,
+    ]);
 
     const mergeRow = (updated: ImportReviewBuildingListItem) => {
         setDrawerRow(updated);
-        setList((prev) => {
-            if (!prev) {
-                return prev;
-            }
-            return {
-                ...prev,
-                items: prev.items.map((r) => (r.id === updated.id ? updated : r)),
-            };
-        });
+        queryClient.setQueryData(detailQueryKeyFor(updated.id), updated);
+        queryClient.setQueryData(geometryQueryKeyFor(updated.id), updated);
+        patchListItemEverywhere(updated.id, () => updated);
+        if (mapPreviewRow?.id === updated.id) {
+            setMapPreviewRow(updated);
+        }
     };
 
     const refetchDrawerDetail = useCallback(async () => {
         if (!drawerRow || !config || !apiScopeQuery) {
             return;
         }
-        const detail = await getEntityCandidateDetail(config.apiFamily, drawerRow.id, {
-            ...apiScopeQuery,
-            include_geometry: true,
-        });
-        mergeRow(detail);
-    }, [drawerRow, config, apiScopeQuery]);
+        setDetailError("");
+        setDetailTechnicalError("");
+        setGeometryError("");
+        setGeometryTechnicalError("");
+        setIsLoadingDetail(true);
+        try {
+            const metadata = await getEntityCandidateDetail(config.apiFamily, drawerRow.id, {
+                ...apiScopeQuery,
+                include_geometry: false,
+            });
+            mergeRow(metadata);
+            setIsLoadingDetail(false);
+            if (config.supportsMapPreview) {
+                await fetchDrawerGeometry(drawerRow.id);
+            }
+        } catch (err) {
+            setDetailError(
+                formatImportReviewUserError(err, IMPORT_REVIEW_LOADING.metadataFailedToLoad)
+            );
+            setDetailTechnicalError(formatImportReviewTechnicalError(err));
+            setIsLoadingDetail(false);
+        }
+    }, [drawerRow, config, apiScopeQuery, fetchDrawerGeometry]);
+
+    const retryDrawerGeometry = useCallback(() => {
+        if (!drawerRow || !config?.supportsMapPreview) {
+            return;
+        }
+        void fetchDrawerGeometry(drawerRow.id);
+    }, [drawerRow, config, fetchDrawerGeometry]);
 
     const patchDecision = async (
         row: ImportReviewBuildingListItem,
@@ -455,15 +632,33 @@ export function useImportReviewEntityPage(
     };
 
     const applyScopeToUrl = () => {
-        replaceQuery((p) => {
-            applyImportReviewScopeSearchParams(p, snapshotInput.trim(), batchInput.trim());
-            p.set("offset", "0");
+        logImportReviewUserAction({
+            action: "apply_scope",
+            source: "entity_page:apply_scope",
+            route_slug: slug,
+            scope: {
+                review_batch_id: batchInput.trim() || null,
+                source_snapshot_version: snapshotInput.trim() || null,
+            },
         });
+        replaceQuery(
+            (p) => {
+                applyImportReviewScopeSearchParams(p, snapshotInput.trim(), batchInput.trim());
+                p.set("offset", "0");
+            },
+            { source: "entity_page:apply_scope" }
+        );
     };
 
     const applyFiltersToUrl = () => {
+        logImportReviewUserAction({
+            action: "apply_filters",
+            source: "entity_page:apply_filters",
+            route_slug: slug,
+        });
         setIsApplyingFilters(true);
-        replaceQuery((p) => {
+        replaceQuery(
+            (p) => {
             applyImportReviewScopeSearchParams(p, snapshotInput.trim(), batchInput.trim());
             for (const key of [
                 "match_status",
@@ -493,11 +688,18 @@ export function useImportReviewEntityPage(
             } else {
                 p.delete("include_promoted");
             }
-        });
+            },
+            { source: "entity_page:apply_filters" }
+        );
         setQApplied(qDraft.trim());
     };
 
     const clearFilters = () => {
+        logImportReviewUserAction({
+            action: "clear_filters",
+            source: "entity_page:clear_filters",
+            route_slug: slug,
+        });
         setFilters({
             match_status: "",
             auto_action: "",
@@ -507,26 +709,32 @@ export function useImportReviewEntityPage(
             class_code: "",
         });
         setQDraft("");
-        replaceQuery((p) => {
-            applyImportReviewScopeSearchParams(p, snapshotInput.trim(), batchInput.trim());
-            [
-                "match_status",
-                "auto_action",
-                "review_status",
-                "review_decision",
-                "promotion_status",
-                "class_code",
-                "q",
-            ].forEach((k) => p.delete(k));
-            p.set("offset", "0");
-        });
+        replaceQuery(
+            (p) => {
+                applyImportReviewScopeSearchParams(p, snapshotInput.trim(), batchInput.trim());
+                [
+                    "match_status",
+                    "auto_action",
+                    "review_status",
+                    "review_decision",
+                    "promotion_status",
+                    "class_code",
+                    "q",
+                ].forEach((k) => p.delete(k));
+                p.set("offset", "0");
+            },
+            { source: "entity_page:clear_filters" }
+        );
         setQApplied("");
     };
 
     const ambiguousBatches =
-        listAmbiguousBatches ?? batchContext.ambiguousBatches;
+        listAmbiguousBatches ?? filterAmbiguousBatches ?? batchContext.ambiguousBatches;
     const ambiguousSnapshot =
-        listAmbiguousSnapshot || batchContext.ambiguousSnapshot || snapshotInput.trim();
+        listAmbiguousSnapshot ||
+        filterAmbiguousSnapshot ||
+        batchContext.ambiguousSnapshot ||
+        snapshotInput.trim();
 
     const drawerMap = useMemo(() => {
         if (!drawerRow || !config) {
@@ -535,7 +743,7 @@ export function useImportReviewEntityPage(
         return entityDrawerMapInput(drawerRow, toDataReviewGeometryKind(config.geometryType));
     }, [drawerRow, config]);
 
-    const sidebarMapRow = useMemo(() => {
+    const sidebarSelectionRow = useMemo(() => {
         if (drawerRow) {
             return drawerRow;
         }
@@ -543,19 +751,47 @@ export function useImportReviewEntityPage(
             return null;
         }
         const id = [...selectedIds][0];
-        return list.items.find((r) => r.id === id) ?? null;
+        return list.items.find((r: ImportReviewBuildingListItem) => r.id === id) ?? null;
     }, [drawerRow, selectedIds, list]);
 
+    useEffect(() => {
+        if (!showMapPreview || !config?.supportsMapPreview || !sidebarSelectionRow || drawerRow) {
+            setMapPreviewRow(null);
+            return;
+        }
+        const hasGeom =
+            Boolean(sidebarSelectionRow.geometry) || Boolean(sidebarSelectionRow.geom);
+        if (hasGeom) {
+            setMapPreviewRow(sidebarSelectionRow);
+            return;
+        }
+        if (!apiScopeQuery || !config) {
+            return;
+        }
+        const apiFamily = config.apiFamily;
+        const c = new AbortController();
+        void getEntityCandidateDetail(
+            apiFamily,
+            sidebarSelectionRow.id,
+            { ...apiScopeQuery, include_geometry: true },
+            { signal: c.signal }
+        )
+            .then((detail) => {
+                setMapPreviewRow(detail);
+            })
+            .catch(() => {
+                setMapPreviewRow(sidebarSelectionRow);
+            });
+        return () => c.abort();
+    }, [showMapPreview, config, sidebarSelectionRow, drawerRow, apiScopeQuery]);
+
     const sidebarMap = useMemo(() => {
-        if (!showMapPreview || !config?.supportsMapPreview || !sidebarMapRow) {
+        const row = drawerRow ?? mapPreviewRow;
+        if (!showMapPreview || !config?.supportsMapPreview || !row) {
             return null;
         }
-        return entityDrawerMapInput(sidebarMapRow, toDataReviewGeometryKind(config.geometryType));
-    }, [showMapPreview, config, sidebarMapRow]);
-
-    const isLoadingGeometry = Boolean(
-        config?.supportsMapPreview && isLoadingDetail && !detailNotFound && !detailError
-    );
+        return entityDrawerMapInput(row, toDataReviewGeometryKind(config.geometryType));
+    }, [showMapPreview, config, drawerRow, mapPreviewRow]);
 
     const handleRowAction = async (row: ImportReviewBuildingListItem, decision: ImportReviewDecision) => {
         if (!canEditImportReview || !config) {
@@ -605,12 +841,22 @@ export function useImportReviewEntityPage(
         setIsSavingOverrides(true);
         setOverrideSaveMessage(null);
         try {
+            const geometryTouched = Object.keys(overridesPatch).some((key) =>
+                key.toLowerCase().includes("geom")
+            );
             const updated = await patchEntityOverrides(config.apiFamily, drawerRow.id, {
                 ...scopeBody,
                 review_overrides: overridesPatch,
                 review_note: reviewNote,
             });
             mergeRow(updated);
+            if (geometryTouched) {
+                queryClient.setQueryData(geometryQueryKeyFor(updated.id), updated);
+                void queryClient.invalidateQueries({
+                    queryKey: geometryQueryKeyFor(updated.id),
+                    exact: true,
+                });
+            }
             setOverrideSaveMessage("Overrides saved.");
         } catch (err) {
             setOverrideSaveMessage(formatImportReviewApiError(err, "Failed to save overrides."));
@@ -644,8 +890,7 @@ export function useImportReviewEntityPage(
         }
     };
 
-    const isRefreshingCandidates =
-        hasValidScope && isLoadingCandidates && list !== null && (list.items.length ?? 0) > 0;
+    const isRefreshingCandidates = hasValidScope && isRefreshingList && list !== null;
     const showCandidatesSkeleton =
         hasValidScope &&
         list === null &&
@@ -664,13 +909,13 @@ export function useImportReviewEntityPage(
         supportsBulkActions: config?.supportsBulkActions ?? false,
         canEdit: canEditImportReview,
         onListRefresh: () => {
-            void fetchList();
+            void refetchList();
         },
     });
 
     return {
         config: config as ImportReviewEntityConfig | null,
-        overviewHref: importReviewOverviewHref(searchParams),
+        overviewHref,
         batchContext,
         apiScopeQuery,
         hasValidScope,
@@ -692,6 +937,8 @@ export function useImportReviewEntityPage(
         isLoadingFilters,
         isApplyingFilters,
         list,
+        listTotal: list?.total ?? cachedListTotal ?? 0,
+        hasMore: list?.has_more ?? false,
         isLoadingCandidates,
         isRefreshingCandidates,
         isInitialCandidatesLoad,
@@ -709,6 +956,10 @@ export function useImportReviewEntityPage(
         isLoadingDetail,
         isLoadingGeometry,
         detailError,
+        detailTechnicalError: isImportReviewDevMode ? detailTechnicalError : "",
+        geometryError,
+        geometryTechnicalError: isImportReviewDevMode ? geometryTechnicalError : "",
+        retryDrawerGeometry,
         detailNotFound,
         drawerNote,
         setDrawerNote,
@@ -725,12 +976,12 @@ export function useImportReviewEntityPage(
         applyScopeToUrl,
         applyFiltersToUrl,
         clearFilters,
-        fetchList,
+        refetchList,
         mergeRow,
         patchDecision,
         drawerMap,
         sidebarMap,
-        sidebarMapRow,
+        sidebarSelectionRow,
         showMapPreview,
         handleRowAction,
         handleDrawerSave,

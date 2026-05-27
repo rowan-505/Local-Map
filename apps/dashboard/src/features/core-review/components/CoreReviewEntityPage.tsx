@@ -165,10 +165,9 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
         (message: string) => {
             setLifecycleError("");
             setLifecycleMessage(message);
-            list.reload();
             setSelectedId(null);
         },
-        [list]
+        []
     );
 
     const handleLifecycleError = useCallback((message: string) => {
@@ -213,6 +212,7 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
         return (
             <Link
                 href={config.newPath}
+                prefetch={false}
                 className="inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
             >
                 {coreReviewCreateButtonLabel(config.title)}

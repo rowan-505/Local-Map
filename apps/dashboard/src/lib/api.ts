@@ -831,7 +831,9 @@ export type ImportReviewBuildingListItem = {
 
 export type ImportReviewBuildingsListResponse = ImportReviewEnvelopeFields & {
     items: ImportReviewBuildingListItem[];
-    total: number;
+    /** Present when the request used include_total=true (typically offset=0). */
+    total?: number;
+    has_more: boolean;
     limit: number;
     offset: number;
 };
@@ -866,6 +868,7 @@ export type ImportReviewBuildingsListParams = ImportReviewEnvelopeQuery & {
     offset?: number;
     sort?: string;
     include_geometry?: boolean;
+    include_total?: boolean;
     include_promoted?: boolean;
 };
 
@@ -1191,6 +1194,15 @@ async function getErrorMessage(response: Response): Promise<string> {
             return `Request failed with status ${response.status}`;
         }
 
+        if (data.ok === false) {
+            const { formatImportReviewApiErrorBody } = await import(
+                "@/src/features/import-review/api/importReviewApiErrors"
+            );
+            return formatImportReviewApiErrorBody(data, `Request failed with status ${response.status}`, {
+                includeTechnicalDetails: true,
+            });
+        }
+
         const headline: string[] = [];
 
         if (typeof data.message === "string" && data.message.trim()) {
@@ -1327,11 +1339,14 @@ export async function apiFetch<T>(
                 throw ambiguous;
             }
 
-            const headline: string[] = [];
-            if (typeof data.message === "string" && data.message.trim()) {
-                headline.push(data.message.trim());
-            }
-            throw new Error(headline.length > 0 ? headline.join(" — ") : `Request failed with status 409`);
+            const { formatImportReviewApiErrorBody } = await import(
+                "@/src/features/import-review/api/importReviewApiErrors"
+            );
+            throw new Error(
+                formatImportReviewApiErrorBody(data, `Request failed with status 409`, {
+                    includeTechnicalDetails: true,
+                })
+            );
         }
 
         const message = await getErrorMessage(response);

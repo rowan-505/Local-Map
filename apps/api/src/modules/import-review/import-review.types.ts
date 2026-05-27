@@ -208,13 +208,20 @@ export type ImportReviewBuildingListItem = {
     effective_barrier_type?: string | null;
     has_overrides?: boolean;
     overridden_fields?: string[];
+    /** List projection: geometry exists without loading GeoJSON. */
+    has_geometry?: boolean;
 };
 
 export type ImportReviewCandidateListItem = ImportReviewBuildingListItem;
 
+export type { ImportReviewCandidateListRepoResult } from "./import-review-data-repository.js";
+
 export type ImportReviewBuildingsListResponse = ImportReviewSummaryEnvelope & {
     items: ImportReviewBuildingListItem[];
-    total: number;
+    /** Omitted when `include_total=false` (client should cache from first page). */
+    total?: number;
+    /** Accurate next-page hint from LIMIT+1 fetch; always set on list responses. */
+    has_more: boolean;
     limit: number;
     offset: number;
 };

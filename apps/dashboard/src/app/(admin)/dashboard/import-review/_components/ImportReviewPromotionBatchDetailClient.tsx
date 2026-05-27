@@ -123,7 +123,7 @@ export default function ImportReviewPromotionBatchDetailClient() {
     return (
         <main className="p-6">
             <p className="text-sm text-gray-600">
-                <Link href={backHref} className="font-medium text-emerald-800 hover:underline">
+                <Link href={backHref} prefetch={false} className="font-medium text-emerald-800 hover:underline">
                     ← Promotion
                 </Link>
             </p>

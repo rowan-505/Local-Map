@@ -51,7 +51,6 @@ export default function CoreReviewEntityFormLifecycleActions({
                 recordId={recordId}
                 onSuccess={(message) => {
                     onSuccess?.(message);
-                    void onReload();
                 }}
                 onError={onError}
             />

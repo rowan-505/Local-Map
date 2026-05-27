@@ -1,20 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import DataTableToolbar, { type DataTableSortOption } from "@/src/components/dashboard/DataTableToolbar";
 import CoreReviewFilterCard from "@/src/components/core-review/CoreReviewFilterCard";
-import {
-    getAdminAreaOptions,
-    getBuildingTypes,
-    getCategories,
-    getCoreReviewList,
-    getRefLanduseClasses,
-    getRoadClasses,
-    isAbortError,
-} from "@/src/lib/api";
-
 import type { CoreReviewBusRouteRow } from "../config/types";
+
+import {
+    useCoreReviewRefAdminAreas,
+    useCoreReviewRefBuildingTypes,
+    useCoreReviewRefBusRoutes,
+    useCoreReviewRefCategories,
+    useCoreReviewRefLanduseClasses,
+    useCoreReviewRefRoadClasses,
+} from "../hooks/coreReviewRefQueries";
 
 import type { CoreReviewFilterSupport } from "../config/entity-config-types";
 import type { CoreReviewLifecycleStatusFilter } from "../lifecycle/coreReviewLifecycleUtils";
@@ -50,117 +49,92 @@ export default function CoreReviewEntityFilters({
     extraFilters?: React.ReactNode;
     showRoutePicker?: boolean;
 }) {
-    const [buildingTypes, setBuildingTypes] = useState<Option[]>([]);
-    const [categories, setCategories] = useState<Option[]>([]);
-    const [roadClasses, setRoadClasses] = useState<Option[]>([]);
-    const [adminAreas, setAdminAreas] = useState<Option[]>([]);
-    const [routes, setRoutes] = useState<Option[]>([]);
-    const [landuseClasses, setLanduseClasses] = useState<Option[]>([]);
+    // Lazily enable each reference query on first interaction with its control.
+    const [refsEnabled, setRefsEnabled] = useState({
+        buildingTypes: false,
+        categories: false,
+        roadClasses: false,
+        adminAreas: false,
+        routes: false,
+        landuseClasses: false,
+    });
 
-    useEffect(() => {
-        const c = new AbortController();
-        const tasks: Promise<void>[] = [];
+    const enableRef = useCallback((key: keyof typeof refsEnabled) => {
+        setRefsEnabled((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+    }, []);
 
-        if (filterSupport.buildingTypeId) {
-            tasks.push(
-                getBuildingTypes({ signal: c.signal })
-                    .then((rows) =>
-                        setBuildingTypes(
-                            rows.map((r) => ({
-                                id: r.id,
-                                label: r.name_mm ? `${r.name} (${r.name_mm})` : r.name,
-                            }))
-                        )
-                    )
-                    .catch((e) => {
-                        if (!isAbortError(e)) {
-                            setBuildingTypes([]);
-                        }
-                    })
-            );
-        }
-        if (filterSupport.categoryId) {
-            tasks.push(
-                getCategories()
-                    .then((rows) =>
-                        setCategories(rows.map((r) => ({ id: r.id, label: r.name })))
-                    )
-                    .catch((e) => {
-                        if (!isAbortError(e)) {
-                            setCategories([]);
-                        }
-                    })
-            );
-        }
-        if (filterSupport.roadClassId) {
-            tasks.push(
-                getRoadClasses({ signal: c.signal })
-                    .then((rows) =>
-                        setRoadClasses(rows.map((r) => ({ id: r.id, label: r.name })))
-                    )
-                    .catch((e) => {
-                        if (!isAbortError(e)) {
-                            setRoadClasses([]);
-                        }
-                    })
-            );
-        }
-        if (filterSupport.adminAreaId) {
-            tasks.push(
-                Promise.resolve(getAdminAreaOptions({ limit: 200 }))
-                    .then((rows) =>
-                        setAdminAreas(
-                            rows.map((r) => ({
-                                id: r.id,
-                                label: r.canonical_name,
-                            }))
-                        )
-                    )
-                    .catch((e) => {
-                        if (!isAbortError(e)) {
-                            setAdminAreas([]);
-                        }
-                    })
-            );
-        }
-        if (showRoutePicker && filterSupport.routeId) {
-            tasks.push(
-                getCoreReviewList<CoreReviewBusRouteRow>("bus-routes", { pageSize: 100 })
-                    .then((res) =>
-                        setRoutes(
-                            res.data.map((r) => ({
-                                id: r.id,
-                                label: r.publicName?.trim() || r.routeCode?.trim() || r.id,
-                            }))
-                        )
-                    )
-                    .catch(() => setRoutes([]))
-            );
-        }
-        if (filterSupport.landuseClassId) {
-            tasks.push(
-                getRefLanduseClasses({ signal: c.signal })
-                    .then((rows) =>
-                        setLanduseClasses(
-                            rows
-                                .filter((r) => r.is_active)
-                                .map((r) => ({
-                                    id: r.id,
-                                    label: r.name_mm ? `${r.name_en} — ${r.name_mm}` : r.name_en,
-                                }))
-                        )
-                    )
-                    .catch((e) => {
-                        if (!isAbortError(e)) {
-                            setLanduseClasses([]);
-                        }
-                    })
-            );
-        }
+    /**
+     * Lazy-load option lists on first interaction instead of page mount.
+     * This reduces "unrelated" requests when opening a core-review tab.
+     */
+    const buildingTypesQuery = useCoreReviewRefBuildingTypes(
+        Boolean(filterSupport.buildingTypeId) && refsEnabled.buildingTypes
+    );
+    const categoriesQuery = useCoreReviewRefCategories(
+        Boolean(filterSupport.categoryId) && refsEnabled.categories
+    );
+    const roadClassesQuery = useCoreReviewRefRoadClasses(
+        Boolean(filterSupport.roadClassId) && refsEnabled.roadClasses
+    );
+    const adminAreasQuery = useCoreReviewRefAdminAreas(
+        200,
+        Boolean(filterSupport.adminAreaId) && refsEnabled.adminAreas
+    );
+    const routesQuery = useCoreReviewRefBusRoutes(
+        100,
+        Boolean(showRoutePicker && filterSupport.routeId) && refsEnabled.routes
+    );
+    const landuseClassesQuery = useCoreReviewRefLanduseClasses(
+        Boolean(filterSupport.landuseClassId) && refsEnabled.landuseClasses
+    );
 
-        void Promise.all(tasks);
-        return () => c.abort();
-    }, [filterSupport, showRoutePicker]);
+    const buildingTypes: Option[] = useMemo(
+        () =>
+            (buildingTypesQuery.data ?? []).map((r) => ({
+                id: r.id,
+                label: r.name_mm ? `${r.name} (${r.name_mm})` : r.name,
+            })),
+        [buildingTypesQuery.data]
+    );
+
+    const categories: Option[] = useMemo(
+        () => (categoriesQuery.data ?? []).map((r) => ({ id: r.id, label: r.name })),
+        [categoriesQuery.data]
+    );
+
+    const roadClasses: Option[] = useMemo(
+        () => (roadClassesQuery.data ?? []).map((r) => ({ id: r.id, label: r.name })),
+        [roadClassesQuery.data]
+    );
+
+    const adminAreas: Option[] = useMemo(
+        () =>
+            (adminAreasQuery.data ?? []).map((r) => ({
+                id: r.id,
+                label: r.canonical_name,
+            })),
+        [adminAreasQuery.data]
+    );
+
+    const routes: Option[] = useMemo(
+        () =>
+            (routesQuery.data ?? []).map((r: CoreReviewBusRouteRow) => ({
+                id: r.id,
+                label: r.publicName?.trim() || r.routeCode?.trim() || r.id,
+            })),
+        [routesQuery.data]
+    );
+
+    const landuseClasses: Option[] = useMemo(
+        () =>
+            (landuseClassesQuery.data ?? [])
+                .filter((r) => r.is_active)
+                .map((r) => ({
+                    id: r.id,
+                    label: r.name_mm ? `${r.name_en} — ${r.name_mm}` : r.name_en,
+                })),
+        [landuseClassesQuery.data]
+    );
 
     return (
         <CoreReviewFilterCard>
@@ -227,6 +201,7 @@ export default function CoreReviewEntityFilters({
                         label="Building type"
                         value={draft.buildingTypeId}
                         options={buildingTypes}
+                        onOpen={() => enableRef("buildingTypes")}
                         onChange={(v) => setDraft((d) => ({ ...d, buildingTypeId: v }))}
                     />
                 ) : null}
@@ -236,6 +211,7 @@ export default function CoreReviewEntityFilters({
                         label="Category"
                         value={draft.categoryId}
                         options={categories}
+                        onOpen={() => enableRef("categories")}
                         onChange={(v) => setDraft((d) => ({ ...d, categoryId: v }))}
                     />
                 ) : null}
@@ -245,6 +221,7 @@ export default function CoreReviewEntityFilters({
                         label="Road class"
                         value={draft.roadClassId}
                         options={roadClasses}
+                        onOpen={() => enableRef("roadClasses")}
                         onChange={(v) => setDraft((d) => ({ ...d, roadClassId: v }))}
                     />
                 ) : null}
@@ -254,6 +231,7 @@ export default function CoreReviewEntityFilters({
                         label="Admin area"
                         value={draft.adminAreaId}
                         options={adminAreas}
+                        onOpen={() => enableRef("adminAreas")}
                         onChange={(v) => setDraft((d) => ({ ...d, adminAreaId: v }))}
                     />
                 ) : null}
@@ -276,6 +254,7 @@ export default function CoreReviewEntityFilters({
                         label="Route"
                         value={draft.routeId}
                         options={[{ id: "", label: "All routes" }, ...routes]}
+                        onOpen={() => enableRef("routes")}
                         onChange={(v) => setDraft((d) => ({ ...d, routeId: v }))}
                     />
                 ) : null}
@@ -285,6 +264,7 @@ export default function CoreReviewEntityFilters({
                         label="Landuse class"
                         value={draft.landuseClassId}
                         options={landuseClasses}
+                        onOpen={() => enableRef("landuseClasses")}
                         onChange={(v) => setDraft((d) => ({ ...d, landuseClassId: v }))}
                     />
                 ) : null}
@@ -350,11 +330,13 @@ function FilterSelect({
     value,
     options,
     onChange,
+    onOpen,
 }: {
     label: string;
     value: string;
     options: Option[];
     onChange: (value: string) => void;
+    onOpen?: () => void;
 }) {
     return (
         <label className="flex flex-col gap-1">
@@ -362,6 +344,8 @@ function FilterSelect({
             <select
                 className={SELECT_CLASS}
                 value={value}
+                onFocus={onOpen}
+                onMouseDown={onOpen}
                 onChange={(e) => onChange(e.target.value)}
             >
                 <option value="">All</option>

@@ -137,7 +137,8 @@ import { createImportReviewPlaceValidationService } from "./import-review-place-
 import { postImportReviewPlaceValidateBodySchema } from "./import-review-place-validation.schema.js";
 import { createImportReviewPlaceAddressLinkValidationService } from "./import-review-place-address-link-validation.service.js";
 import { postImportReviewPlaceAddressLinkValidateBodySchema } from "./import-review-place-address-link-validation.schema.js";
-import { registerImportReviewRoadsRequestLogging } from "./import-review-roads-request-logging.js";
+import { registerImportReviewPluginErrorHandler } from "./import-review-plugin-error-handler.js";
+import { registerImportReviewRequestLogging } from "./import-review-request-timing.js";
 import {
     importReviewAddressCandidateIdParamsSchema,
     patchImportReviewAddressMatchesBodySchema,
@@ -176,6 +177,7 @@ function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0]
 
             try {
                 const options = await service.getFilterOptions(familyRaw, parsed.data);
+                reply.header("Cache-Control", "private, max-age=300");
                 return reply.send(options);
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {
@@ -359,7 +361,8 @@ function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0]
 const importReviewRoutes: FastifyPluginAsync = async (app) => {
     app.log.info(`import-review admin guard enabled: ${isImportReviewHeaderTokenGuardEnabled()}`);
 
-    registerImportReviewRoadsRequestLogging(app);
+    registerImportReviewPluginErrorHandler(app);
+    registerImportReviewRequestLogging(app);
 
     app.addHook("onRequest", async (request, reply) => {
         await authenticateImportReview(request, reply);
@@ -546,7 +549,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
         async (_request, reply) => {
             try {
                 const options = await importReviewService.getFormOptions();
-                reply.header("Cache-Control", "private, max-age=300");
+                reply.header("Cache-Control", "private, max-age=600");
                 return reply.send(options);
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {
@@ -617,7 +620,9 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
 
             try {
                 const summary = await importReviewService.getSummary(parsed.data);
-                return reply.send(summary);
+                return reply
+                    .header("Cache-Control", "private, max-age=60, stale-while-revalidate=120")
+                    .send(summary);
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {
                     return;
@@ -642,6 +647,7 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
 
             try {
                 const options = await importReviewService.getBuildingFilterOptions(parsed.data);
+                reply.header("Cache-Control", "private, max-age=300");
                 return reply.send(options);
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {

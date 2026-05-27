@@ -13,6 +13,7 @@ import type { ImportReviewGeoJson } from "@/src/lib/api";
 
 import ImportReviewInlineSpinner from "./ImportReviewInlineSpinner";
 import { IMPORT_REVIEW_LOADING } from "../utils/loadingMessages";
+import { isImportReviewDevMode } from "../utils/importReviewDetailErrors";
 import {
     getImportReviewMapPreviewStatus,
     parseImportReviewMapGeometry,
@@ -30,6 +31,9 @@ export type ImportReviewMapPreviewProps = {
     /** When true, detail/geometry fetch is in progress — map is not mounted. */
     isLoadingDetail?: boolean;
     isLoadingGeometry?: boolean;
+    geometryError?: string | null;
+    geometryTechnicalError?: string | null;
+    onRetryGeometry?: () => void;
     /** Mixed-layer preview (e.g. address point + matched building/street). */
     previewFeatureCollection?: FeatureCollection<Geometry> | null;
     onPointPick?: (coords: { lat: number; lng: number }) => void;
@@ -72,6 +76,9 @@ export default function ImportReviewMapPreview({
     fallbackNote = null,
     isLoadingDetail = false,
     isLoadingGeometry = false,
+    geometryError = null,
+    geometryTechnicalError = null,
+    onRetryGeometry,
     previewFeatureCollection = null,
     onPointPick,
     pointPickDisabled = false,
@@ -98,6 +105,9 @@ export default function ImportReviewMapPreview({
             if (!enabled) {
                 return "disabled" as const;
             }
+            if (geometryError?.trim()) {
+                return "geometry_error" as const;
+            }
             if (isLoadingDetail || isLoadingGeometry) {
                 return "loading_geometry" as const;
             }
@@ -107,6 +117,7 @@ export default function ImportReviewMapPreview({
             enabled,
             isLoadingDetail,
             isLoadingGeometry,
+            geometryError,
             rawGeometry: geometry,
             parsedGeometry,
             effectiveKind,
@@ -117,6 +128,7 @@ export default function ImportReviewMapPreview({
         enabled,
         isLoadingDetail,
         isLoadingGeometry,
+        geometryError,
         geometry,
         parsedGeometry,
         effectiveKind,
@@ -154,6 +166,31 @@ export default function ImportReviewMapPreview({
                     size="md"
                     className="justify-center w-full"
                 />
+            </div>
+        );
+    }
+
+    if (status === "geometry_error") {
+        return (
+            <div className={`space-y-2 ${className ?? ""}`}>
+                <MapPreviewMessage
+                    message={geometryError?.trim() || IMPORT_REVIEW_LOADING.geometryFailedToLoad}
+                    tone="error"
+                />
+                {onRetryGeometry ? (
+                    <button
+                        type="button"
+                        onClick={onRetryGeometry}
+                        className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50"
+                    >
+                        {IMPORT_REVIEW_LOADING.retryGeometry}
+                    </button>
+                ) : null}
+                {isImportReviewDevMode && geometryTechnicalError?.trim() ? (
+                    <pre className="max-h-32 overflow-auto rounded border border-red-100 bg-red-50/80 p-2 text-[10px] text-red-950 whitespace-pre-wrap">
+                        {geometryTechnicalError}
+                    </pre>
+                ) : null}
             </div>
         );
     }

@@ -247,6 +247,16 @@ const includeGeometryListQuerySchema = z.preprocess((value) => {
 /** @deprecated use includeGeometryListQuerySchema or includeGeometryDetailQuerySchema */
 const includeGeometryQuerySchema = includeGeometryListQuerySchema;
 
+/** When false, list skips COUNT(*) — use `has_more` and cache `total` from the first page. */
+const includeTotalListQuerySchema = z
+    .preprocess((v) => {
+        if (v === undefined) {
+            return true;
+        }
+        return !(v === false || v === "false" || v === "0" || v === 0);
+    }, z.boolean())
+    .default(true);
+
 export const importReviewEntityFamilyParamSchema = z.enum(IMPORT_REVIEW_ENTITY_FAMILIES);
 
 export type ImportReviewEntityFamilyParam = z.infer<typeof importReviewEntityFamilyParamSchema>;
@@ -268,6 +278,7 @@ const importReviewCandidatesListQueryBaseInner = importReviewScopeObjectSchema
         offset: z.coerce.number().int().min(0).default(0),
         sort: importReviewBuildingSortSchema.default("updated_at_desc"),
         include_geometry: includeGeometryListQuerySchema.default(false),
+        include_total: includeTotalListQuerySchema,
     })
     .superRefine(refineImportReviewSnapshotBatchScope);
 
@@ -297,6 +308,7 @@ const importReviewBuildingsQueryBaseInner = importReviewScopeObjectSchema.extend
     offset: z.coerce.number().int().min(0).default(0),
     sort: importReviewBuildingSortSchema.default("updated_at_desc"),
     include_geometry: includeGeometryListQuerySchema.default(false),
+    include_total: includeTotalListQuerySchema,
 }).superRefine(refineImportReviewSnapshotBatchScope);
 
 export const importReviewBuildingsQuerySchema = z.preprocess(
@@ -316,6 +328,7 @@ const importReviewPlacesRoadsQueryBaseInner = importReviewScopeObjectSchema
         offset: z.coerce.number().int().min(0).default(0),
         sort: importReviewBuildingSortSchema.default("updated_at_desc"),
         include_geometry: includeGeometryListQuerySchema.default(false),
+        include_total: includeTotalListQuerySchema,
     })
     .superRefine(refineImportReviewSnapshotBatchScope);
 

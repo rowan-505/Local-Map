@@ -5,8 +5,6 @@ import {
     buildBulkJoinedClassifyCaseSql,
     buildBulkModeBWhere,
     buildBulkUpdateSetClause,
-    buildCandidateCommonSelect,
-    buildCandidateFromClause,
     buildCandidateListQueryParts,
     buildCandidateOrderBy,
     buildCandidateRowQueryParts,
@@ -18,6 +16,15 @@ import {
     type CandidateListFilters,
     sqlBigintArray,
 } from "./import-review-candidate-sql.js";
+import {
+    buildCandidateDetailFromClause,
+    buildCandidateDetailSelect,
+} from "./import-review-candidate-detail-sql.js";
+import { buildCandidateGeometrySelect } from "./import-review-candidate-geometry-sql.js";
+import {
+    createImportReviewListTimingSink,
+    timeImportReviewListStep,
+} from "./import-review-list-timing.js";
 import {
     getImportReviewEntityConfig,
     type ImportReviewEntityFamilySlug,
@@ -71,11 +78,14 @@ export class GenericImportReviewCandidateRepository {
         }
 
         const where = buildCandidateWhereClause(config, reviewBatchId, filters);
-        const rows = await this.prisma.$queryRaw<[{ count: bigint }]>`
-            SELECT count(*)::bigint AS count
-            FROM ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(config.tableAlias)}
-            WHERE ${where}
-        `;
+        const timing = createImportReviewListTimingSink({ family, reviewBatchId });
+        const rows = await timeImportReviewListStep("list_count", timing, () =>
+            this.prisma.$queryRaw<[{ count: bigint }]>`
+                SELECT count(*)::bigint AS count
+                FROM ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(config.tableAlias)}
+                WHERE ${where}
+            `
+        );
         return rows[0]?.count ?? 0n;
     }
 
@@ -83,23 +93,30 @@ export class GenericImportReviewCandidateRepository {
         family: ImportReviewEntityFamilySlug,
         reviewBatchId: bigint,
         filters: CandidateListFilters
-    ): Promise<BuildingListRowDb[]> {
+    ): Promise<{ rows: BuildingListRowDb[]; hasMore: boolean }> {
         const config = getImportReviewEntityConfig(family);
         if (!(await this.pgRegclassExists(`import_review.${config.importReviewTable}`))) {
-            return [];
+            return { rows: [], hasMore: false };
         }
 
         const parts = buildCandidateListQueryParts(config, reviewBatchId, filters);
         const limit = filters.limit ?? 50;
         const offset = filters.offset ?? 0;
+        const fetchLimit = limit + 1;
+        const timing = createImportReviewListTimingSink({ family, reviewBatchId });
 
-        return this.prisma.$queryRaw<BuildingListRowDb[]>`
-            SELECT ${parts.select}
-            FROM ${parts.from}
-            WHERE ${parts.where}
-            ORDER BY ${parts.orderBy}
-            LIMIT ${limit} OFFSET ${offset}
-        `;
+        const rows = await timeImportReviewListStep("list_select", timing, () =>
+            this.prisma.$queryRaw<BuildingListRowDb[]>`
+                SELECT ${parts.select}
+                FROM ${parts.from}
+                WHERE ${parts.where}
+                ORDER BY ${parts.orderBy}
+                LIMIT ${fetchLimit} OFFSET ${offset}
+            `
+        );
+
+        const hasMore = rows.length > limit;
+        return { rows: hasMore ? rows.slice(0, limit) : rows, hasMore };
     }
 
     async getCandidateById(
@@ -114,16 +131,43 @@ export class GenericImportReviewCandidateRepository {
         }
 
         const where = buildCandidateScopeWhere(config, reviewBatchId, id);
-        const select = buildCandidateCommonSelect(config, includeGeometry);
-        const from = buildCandidateFromClause(config);
+        const detailFrom = buildCandidateDetailFromClause(config);
+        const detailSelect = buildCandidateDetailSelect(config);
 
-        const rows = await this.prisma.$queryRaw<BuildingListRowDb[]>`
-            SELECT ${select}
-            FROM ${from}
+        const detailRows = await this.prisma.$queryRaw<BuildingListRowDb[]>`
+            SELECT ${detailSelect}
+            FROM ${detailFrom}
             WHERE ${where}
             LIMIT 1
         `;
-        return rows[0] ?? null;
+        const detail = detailRows[0];
+        if (detail === undefined) {
+            return null;
+        }
+        if (!includeGeometry) {
+            return detail;
+        }
+
+        const geometrySelect = buildCandidateGeometrySelect(config);
+        const geometryFrom = Prisma.sql`${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(config.tableAlias)}`;
+        const geometryRows = await this.prisma.$queryRaw<
+            Pick<BuildingListRowDb, "id" | "geometry" | "centroid">[]
+        >`
+            SELECT ${geometrySelect}
+            FROM ${geometryFrom}
+            WHERE ${where}
+            LIMIT 1
+        `;
+        const geometry = geometryRows[0];
+        if (geometry === undefined) {
+            return detail;
+        }
+
+        return {
+            ...detail,
+            geometry: geometry.geometry,
+            centroid: geometry.centroid,
+        };
     }
 
     async fetchCandidateFilterOptions(

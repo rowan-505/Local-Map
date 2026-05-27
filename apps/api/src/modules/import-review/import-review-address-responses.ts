@@ -389,6 +389,40 @@ export function mapAddressDetailItem(
     };
 }
 
+/** List projection: table fields from row scalars only (no address_components query). */
+export function enrichAddressListItemLight(
+    item: ImportReviewBuildingListItem,
+    row: BuildingListRowDb
+): ImportReviewBuildingListItem {
+    const sourceContext = deriveAddressSourceContextFromCandidate(row);
+    const display =
+        item.name?.trim() ||
+        item.canonical_name?.trim() ||
+        `Address ${item.id}`;
+
+    return {
+        ...item,
+        generated_full_address_en: display,
+        display_full_address: display,
+        effective_full_address: display,
+        source_entity_type: row.source_entity_type ?? null,
+        source_classification: row.source_classification ?? null,
+        address_strength: row.address_strength ?? null,
+        place_candidate_status: row.place_candidate_status ?? null,
+        linked_place_candidate_id:
+            row.linked_place_candidate_id !== null && row.linked_place_candidate_id !== undefined
+                ? row.linked_place_candidate_id.toString()
+                : null,
+        matched_core_place_id:
+            row.matched_core_place_id !== null && row.matched_core_place_id !== undefined
+                ? row.matched_core_place_id.toString()
+                : null,
+        validation_status: row.validation_status ?? null,
+        source_name: sourceContext.source_name,
+        source_type_hint: sourceContext.source_type_hint,
+    };
+}
+
 /** Enrich generic list item with composed address fields (backward compatible). */
 export function enrichAddressListItem(
     item: ImportReviewBuildingListItem,

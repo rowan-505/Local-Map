@@ -6,11 +6,13 @@ import type {
     BuildingListRowDb,
     CandidateReviewGuardContext,
     CandidateReviewRoadDecisionContext,
+    ImportReviewCandidateListRepoResult,
     ImportReviewDataRepository,
     ImportReviewScopeQuery,
     ImportReviewScopeResolved,
     ReviewActor,
 } from "./import-review-data-repository.js";
+import type { CandidateListFilters } from "./import-review-candidate-sql.js";
 import {
     ImportReviewBatchAmbiguousError,
     ImportReviewBatchNotFoundError,
@@ -34,6 +36,10 @@ import {
     normalizeLegacyNameOverrides,
     reviewOverridesPersistPatch,
 } from "./import-review-legacy-name-overrides.js";
+import {
+    createImportReviewSummaryTimingSink,
+    timeImportReviewSummaryStep,
+} from "./import-review-summary-timing.js";
 import { sanitizeReviewOverridesPatch } from "./import-review-overrides-sanitize.js";
 import { normalizeReviewOverridesForJsonStorage } from "./import-review-overrides-normalize.js";
 import {
@@ -100,6 +106,7 @@ import { ImportReviewAddressPlaceWorkflowRepository } from "./import-review-addr
 import {
     composeFromComponentRows,
     enrichAddressListItem,
+    enrichAddressListItemLight,
     indexComponentsByCandidateId,
     mapAddressDetailItem,
     resolveAddressDisplayName,
@@ -237,7 +244,10 @@ function mapBuildingRow(
 ): ImportReviewBuildingListItem {
     const geom = (row.geometry as ImportReviewGeoJson | null) ?? null;
     const centroid = (row.centroid as ImportReviewGeoJson | null) ?? null;
-    const isRoadListProjection = family === "roads" && row.is_road_list_projection === true;
+    const isListProjection =
+        row.is_list_projection === true ||
+        row.is_road_list_projection === true ||
+        row.is_building_list_projection === true;
 
     const base: ImportReviewBuildingListItem = {
         id: row.id.toString(),
@@ -273,15 +283,15 @@ function mapBuildingRow(
         reviewed_by: row.reviewed_by,
         reviewed_at: toIso(row.reviewed_at),
         review_note: row.review_note,
-        normalized_data: row.normalized_data,
-        source_refs: isRoadListProjection ? {} : row.source_refs,
-        review_overrides: row.review_overrides,
+        normalized_data: isListProjection ? {} : row.normalized_data,
+        source_refs: isListProjection ? {} : row.source_refs,
+        review_overrides: isListProjection ? {} : row.review_overrides,
         matched_core_id: bigStr(row.matched_core_id),
         matched_core_table: row.matched_core_table,
-        matched_core_data: isRoadListProjection ? {} : row.matched_core_data,
-        f2_comparison: isRoadListProjection ? {} : row.f2_comparison,
-        validation_warnings: row.validation_warnings,
-        validation_errors: row.validation_errors,
+        matched_core_data: isListProjection ? {} : row.matched_core_data,
+        f2_comparison: isListProjection ? {} : row.f2_comparison,
+        validation_warnings: isListProjection ? [] : row.validation_warnings,
+        validation_errors: isListProjection ? [] : row.validation_errors,
         promotion_status: row.promotion_status,
         promoted_core_id: bigStr(row.promoted_core_id),
         created_at: row.created_at.toISOString(),
@@ -289,6 +299,7 @@ function mapBuildingRow(
         geometry: geom,
         geom,
         centroid,
+        has_geometry: row.has_geometry === true || geom !== null,
         road_candidate_road_class_id:
             row.road_candidate_road_class_id !== undefined && row.road_candidate_road_class_id !== null
                 ? row.road_candidate_road_class_id.toString()
@@ -306,6 +317,27 @@ function mapBuildingRow(
     };
 
     return applyImportReviewEffectiveFields(family, base, toEffectiveRawRow(row));
+}
+
+async function buildImportReviewCandidateListResponse(args: {
+    scope: ImportReviewScopeResolved;
+    envelopeLists: (scope: ImportReviewScopeResolved) => ImportReviewSummaryEnvelope;
+    listResult: ImportReviewCandidateListRepoResult;
+    total?: number;
+    mapItems: (rows: BuildingListRowDb[]) => ImportReviewBuildingListItem[] | Promise<ImportReviewBuildingListItem[]>;
+    limit: number;
+    offset: number;
+}): Promise<ImportReviewBuildingsListResponse> {
+    const items = await args.mapItems(args.listResult.rows);
+
+    return {
+        ...args.envelopeLists(args.scope),
+        items,
+        ...(args.total !== undefined ? { total: args.total } : {}),
+        has_more: args.listResult.hasMore,
+        limit: args.limit,
+        offset: args.offset,
+    };
 }
 
 function reviewStatusForDecision(decision: ImportReviewDecisionValue): string {
@@ -618,15 +650,16 @@ export class ImportReviewService {
 
     async getSummary(q: ImportReviewScopeQuery): Promise<ImportReviewSummaryResponse> {
         const scope = await this.resolveScopeChecked(q);
-        const [{ rows: buckets, warnings: bucketWarnings }, { rows: familyRows, warnings: familyWarnings }] =
-            await Promise.all([
-                this.repo.fetchSummaryBuckets(scope),
-                this.repo.fetchFamilySummaryMetrics(scope),
-            ]);
+        const timing = createImportReviewSummaryTimingSink(scope.reviewBatchId);
+        const {
+            buckets: bucketRows,
+            familyMetrics: familyRows,
+            warnings,
+        } = await timeImportReviewSummaryStep("scope_summary_total", timing, () =>
+            this.repo.fetchScopeSummary(scope)
+        );
 
-        const warnings = [...bucketWarnings, ...familyWarnings];
-
-        const entitySummaries = buckets.map((row) => ({
+        const entitySummaries = bucketRows.map((row) => ({
             entity_family: row.entity_family,
             review_batch_id: row.review_batch_id.toString(),
             source_snapshot_version: row.source_snapshot_version,
@@ -728,20 +761,25 @@ export class ImportReviewService {
             offset: query.offset,
             sort: query.sort,
             include_geometry: query.include_geometry,
+            include_total: query.include_total,
         };
 
-        const [total, rows] = await Promise.all([
-            this.repo.countBuildingCandidates(scope, filterSlice),
+        const [listResult, total] = await Promise.all([
             this.repo.listBuildingCandidates(scope, listFilters),
+            query.include_total
+                ? this.repo.countBuildingCandidates(scope, filterSlice)
+                : Promise.resolve(null),
         ]);
 
-        return {
-            ...this.envelopeLists(scope),
-            items: rows.map((r) => mapBuildingRow(r, "buildings")),
-            total: Number(total),
+        return buildImportReviewCandidateListResponse({
+            scope,
+            envelopeLists: (s) => this.envelopeLists(s),
+            listResult,
+            total: total !== null ? Number(total) : undefined,
+            mapItems: (rows) => rows.map((r) => mapBuildingRow(r, "buildings")),
             limit: query.limit,
             offset: query.offset,
-        };
+        });
     }
 
     async getBuildingById(params: {
@@ -1180,20 +1218,23 @@ export class ImportReviewService {
             offset: query.offset,
             sort: query.sort,
             include_geometry: query.include_geometry,
+            include_total: query.include_total,
         };
 
-        const [total, rows] = await Promise.all([
-            this.repo.countPlaceCandidates(scope, filterSlice),
+        const [listResult, total] = await Promise.all([
             this.repo.listPlaceCandidates(scope, listFilters),
+            query.include_total ? this.repo.countPlaceCandidates(scope, filterSlice) : Promise.resolve(null),
         ]);
 
-        return {
-            ...this.envelopeLists(scope),
-            items: rows.map((r) => mapBuildingRow(r, "places")),
-            total: Number(total),
+        return buildImportReviewCandidateListResponse({
+            scope,
+            envelopeLists: (s) => this.envelopeLists(s),
+            listResult,
+            total: total !== null ? Number(total) : undefined,
+            mapItems: (rows) => rows.map((r) => mapBuildingRow(r, "places")),
             limit: query.limit,
             offset: query.offset,
-        };
+        });
     }
 
     async listRoads(query: ImportReviewRoadsQuery): Promise<ImportReviewBuildingsListResponse> {
@@ -1216,20 +1257,23 @@ export class ImportReviewService {
             offset: query.offset,
             sort: query.sort,
             include_geometry: query.include_geometry,
+            include_total: query.include_total,
         };
 
-        const [total, rows] = await Promise.all([
-            this.repo.countRoadCandidates(scope, filterSlice),
+        const [listResult, total] = await Promise.all([
             this.repo.listRoadCandidates(scope, listFilters),
+            query.include_total ? this.repo.countRoadCandidates(scope, filterSlice) : Promise.resolve(null),
         ]);
 
-        return {
-            ...this.envelopeLists(scope),
-            items: rows.map((r) => mapBuildingRow(r, "roads")),
-            total: Number(total),
+        return buildImportReviewCandidateListResponse({
+            scope,
+            envelopeLists: (s) => this.envelopeLists(s),
+            listResult,
+            total: total !== null ? Number(total) : undefined,
+            mapItems: (rows) => rows.map((r) => mapBuildingRow(r, "roads")),
             limit: query.limit,
             offset: query.offset,
-        };
+        });
     }
 
     async getRoadDryRunSummary(
@@ -1466,31 +1510,43 @@ export class ImportReviewService {
             offset: query.offset,
             sort: query.sort,
             include_geometry: query.include_geometry,
+            include_total: query.include_total,
         };
 
-        const [total, rows] = await Promise.all([
-            this.repo.countCandidates(family, scope, filterSlice),
+        const [listResult, total] = await Promise.all([
             this.repo.listCandidates(family, scope, listFilters),
+            query.include_total
+                ? this.repo.countCandidates(family, scope, filterSlice)
+                : Promise.resolve(null),
         ]);
 
-        const items =
-            family === "addresses"
-                ? await this.mapAddressListItems(rows)
-                : rows.map((r) => mapCandidateRow(r, family));
-
-        return {
-            ...this.envelopeLists(scope),
-            items,
-            total: Number(total),
+        return buildImportReviewCandidateListResponse({
+            scope,
+            envelopeLists: (s) => this.envelopeLists(s),
+            listResult,
+            total: total !== null ? Number(total) : undefined,
+            mapItems: (rows) =>
+                family === "addresses"
+                    ? this.mapAddressListItems(rows)
+                    : rows.map((r) => mapCandidateRow(r, family)),
             limit: query.limit,
             offset: query.offset,
-        };
+        });
     }
 
     private async mapAddressListItems(rows: BuildingListRowDb[]): Promise<ImportReviewBuildingListItem[]> {
         if (rows.length === 0) {
             return [];
         }
+
+        const useLightList = rows.every((row) => row.is_list_projection === true);
+
+        if (useLightList) {
+            return rows.map((row) =>
+                enrichAddressListItemLight(mapCandidateRow(row, "addresses"), row)
+            );
+        }
+
         const componentRepo = new ImportReviewAddressComponentsRepository(getImportReviewPrisma());
         const componentRows = await componentRepo.listByCandidateIds(rows.map((r) => r.id));
         const byCandidate = indexComponentsByCandidateId(componentRows);
@@ -1885,8 +1941,17 @@ export class ImportReviewService {
     }
 
     async getFormOptions(): Promise<ImportReviewFormOptionsResponse> {
+        const { readCachedFormOptions, writeCachedFormOptions } = await import(
+            "./import-review-form-options-cache.js"
+        );
+        const hit = readCachedFormOptions();
+        if (hit) {
+            return hit;
+        }
         const repo = new ImportReviewOptionsRepository(getImportReviewPrisma());
-        return repo.fetchAll();
+        const data = await repo.fetchStaticFormOptions();
+        writeCachedFormOptions(data);
+        return data;
     }
 
     async getReferenceOptions() {

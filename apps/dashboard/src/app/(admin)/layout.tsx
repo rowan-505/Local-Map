@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import DashboardQueryProvider from "@/src/components/providers/DashboardQueryProvider";
 import DashboardSidebar from "@/src/components/layout/DashboardSidebar";
 import { BuildingTileVersionProvider } from "@/src/components/map/BuildingTileVersionContext";
 
@@ -9,11 +10,13 @@ import { BuildingTileVersionProvider } from "@/src/components/map/BuildingTileVe
  */
 export default function AdminModuleLayout({ children }: { children: ReactNode }) {
     return (
-        <BuildingTileVersionProvider>
-            <div className="flex min-h-screen bg-gray-100">
-                <DashboardSidebar />
-                <div className="min-w-0 flex-1">{children}</div>
-            </div>
-        </BuildingTileVersionProvider>
+        <DashboardQueryProvider>
+            <BuildingTileVersionProvider>
+                <div className="flex min-h-screen bg-gray-100">
+                    <DashboardSidebar />
+                    <div className="min-w-0 flex-1">{children}</div>
+                </div>
+            </BuildingTileVersionProvider>
+        </DashboardQueryProvider>
     );
 }

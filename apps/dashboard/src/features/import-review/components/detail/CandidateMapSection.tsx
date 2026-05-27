@@ -10,6 +10,9 @@ export default function CandidateMapSection({
     supportsMapPreview,
     isLoadingDetail,
     isLoadingGeometry,
+    geometryError,
+    geometryTechnicalError,
+    onRetryGeometry,
     geometry,
     geometryKind,
     mapEntityType,
@@ -20,6 +23,9 @@ export default function CandidateMapSection({
     supportsMapPreview: boolean;
     isLoadingDetail: boolean;
     isLoadingGeometry: boolean;
+    geometryError?: string | null;
+    geometryTechnicalError?: string | null;
+    onRetryGeometry?: () => void;
     geometry: ImportReviewGeoJson | null;
     geometryKind: DataReviewGeometryKind;
     mapEntityType: ImportReviewEntityType;
@@ -50,6 +56,9 @@ export default function CandidateMapSection({
                 fallbackNote={fallbackNote}
                 isLoadingDetail={isLoadingDetail}
                 isLoadingGeometry={isLoadingGeometry}
+                geometryError={geometryError}
+                geometryTechnicalError={geometryTechnicalError}
+                onRetryGeometry={onRetryGeometry}
                 size="drawer"
             />
         </section>

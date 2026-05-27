@@ -93,6 +93,10 @@ export default function ImportReviewAddressDetailDrawer({
     isLoadingDetail,
     isLoadingGeometry,
     detailError,
+    detailTechnicalError,
+    geometryError,
+    geometryTechnicalError,
+    onRetryGeometry,
     detailNotFound,
     isSaving,
     decisionSaveMessage,
@@ -115,6 +119,10 @@ export default function ImportReviewAddressDetailDrawer({
     isLoadingDetail: boolean;
     isLoadingGeometry: boolean;
     detailError: string;
+    detailTechnicalError?: string;
+    geometryError?: string | null;
+    geometryTechnicalError?: string;
+    onRetryGeometry?: () => void;
     detailNotFound: boolean;
     isSaving: boolean;
     decisionSaveMessage: string | null;
@@ -603,8 +611,8 @@ export default function ImportReviewAddressDetailDrawer({
         ]);
     };
 
-    const detailFailed = Boolean(detailError && !detailNotFound);
-    const showBody = !detailNotFound && !detailFailed;
+    const metadataWarning = Boolean(detailError && !detailNotFound);
+    const showBody = !detailNotFound;
     const title = row.display_full_address ?? row.external_id ?? row.id;
     const reasons = classificationReasons(row.classification_reasons);
     const createPlaceDisabled =
@@ -665,12 +673,21 @@ export default function ImportReviewAddressDetailDrawer({
                     {detailNotFound ? (
                         <ImportReviewErrorState message="Candidate not found." />
                     ) : null}
-                    {detailFailed ? (
-                        <ImportReviewErrorState message={detailError} />
-                    ) : null}
-
                     {showBody ? (
                         <>
+                            {metadataWarning ? (
+                                <ImportReviewStatusBanner
+                                    message={detailError}
+                                    tone="warning"
+                                    compact
+                                />
+                            ) : null}
+                            {detailTechnicalError?.trim() ? (
+                                <pre className="max-h-28 overflow-auto rounded border border-amber-100 bg-amber-50/80 p-2 text-[10px] text-amber-950 whitespace-pre-wrap">
+                                    {detailTechnicalError}
+                                </pre>
+                            ) : null}
+
                             <AddressSourceContextSection
                                 sourceContext={row.source_context}
                                 sourceTags={row.source_tags}
@@ -1287,9 +1304,6 @@ export default function ImportReviewAddressDetailDrawer({
                                 {fallbackNote ? (
                                     <p className="text-xs text-amber-800">{fallbackNote}</p>
                                 ) : null}
-                                {isLoadingGeometry || isLoadingDetail ? (
-                                    <ImportReviewInlineSpinner label="Loading map…" />
-                                ) : null}
                                 {locationSaving ? (
                                     <ImportReviewInlineSpinner label="Saving location…" />
                                 ) : null}
@@ -1310,6 +1324,9 @@ export default function ImportReviewAddressDetailDrawer({
                                             previewFeatureCollection={addressPreviewCollection}
                                             isLoadingDetail={isLoadingDetail}
                                             isLoadingGeometry={isLoadingGeometry}
+                                            geometryError={geometryError}
+                                            geometryTechnicalError={geometryTechnicalError}
+                                            onRetryGeometry={onRetryGeometry}
                                             fitButtonLabel="Fit to location"
                                             onPointPick={
                                                 canEdit

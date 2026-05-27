@@ -6,6 +6,7 @@ import { normalizeImportReviewGeoJson } from "@/src/lib/importReviewDrawerMapGeo
 
 export type ImportReviewMapPreviewStatus =
     | "loading_geometry"
+    | "geometry_error"
     | "no_geometry"
     | "invalid_geometry"
     | "ready";
@@ -59,6 +60,7 @@ export function getImportReviewMapPreviewStatus({
     enabled,
     isLoadingDetail,
     isLoadingGeometry,
+    geometryError,
     rawGeometry,
     parsedGeometry,
     effectiveKind,
@@ -67,6 +69,7 @@ export function getImportReviewMapPreviewStatus({
     enabled: boolean;
     isLoadingDetail?: boolean;
     isLoadingGeometry?: boolean;
+    geometryError?: string | null;
     rawGeometry: ImportReviewGeoJson | null | undefined;
     parsedGeometry: Geometry | null;
     effectiveKind: DataReviewGeometryKind;
@@ -74,6 +77,9 @@ export function getImportReviewMapPreviewStatus({
 }): ImportReviewMapPreviewStatus | "disabled" {
     if (!enabled) {
         return "disabled";
+    }
+    if (geometryError?.trim()) {
+        return "geometry_error";
     }
     if (isLoadingDetail || isLoadingGeometry) {
         return "loading_geometry";

@@ -178,12 +178,14 @@ const COMMON_FILTER_FIELDS = [
 ] as const satisfies readonly ImportReviewEntityFilterField[];
 
 function familyConfig(
-    config: Omit<ImportReviewEntityFamilyConfig, "listIncludeGeometryDefault"> & {
+    config: Omit<ImportReviewEntityFamilyConfig, "listIncludeGeometryDefault" | "listSelectMode"> & {
         listIncludeGeometryDefault?: boolean;
+        listSelectMode?: "summary" | "full";
     }
 ): ImportReviewEntityFamilyConfig {
     return {
         listIncludeGeometryDefault: false,
+        listSelectMode: "summary",
         ...config,
     };
 }
@@ -218,6 +220,7 @@ export const IMPORT_REVIEW_ENTITY_FAMILY_CONFIG: Record<
         buildingTypeJoin: true,
         landuseClassJoin: false,
         effectiveAdminAreaJoin: true,
+        listSelectMode: "summary",
         listRowShape: {
             name: "name",
             building_type: "building_type",

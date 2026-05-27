@@ -1,6 +1,3 @@
-import { ImportReviewCandidatesPageShell } from "../_components/ImportReviewCandidatesClient";
+import { createImportReviewEntityRoutePage } from "@/src/features/import-review/routes/importReviewEntityRoutePage";
 
-/** Legacy roads client — routing validation / confirm_routing_warnings drawer UX. See roads entity config TODO. */
-export default function ImportReviewRoadsPage() {
-    return <ImportReviewCandidatesPageShell family="roads" />;
-}
+export default createImportReviewEntityRoutePage("roads");

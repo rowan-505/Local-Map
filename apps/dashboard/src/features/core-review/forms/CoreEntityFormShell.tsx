@@ -51,6 +51,7 @@ export default function CoreEntityFormShell({
                 <div className="mb-6">
                     <Link
                         href={backHref}
+                        prefetch={false}
                         className="text-sm font-medium text-sky-800 hover:text-sky-950"
                     >
                         ← {backLabel}

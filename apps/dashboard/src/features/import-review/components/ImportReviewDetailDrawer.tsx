@@ -31,6 +31,10 @@ export default function ImportReviewDetailDrawer({
     isLoadingDetail,
     isLoadingGeometry,
     detailError,
+    detailTechnicalError,
+    geometryError,
+    geometryTechnicalError,
+    onRetryGeometry,
     detailNotFound,
     isSaving,
     isSavingOverrides,
@@ -58,6 +62,10 @@ export default function ImportReviewDetailDrawer({
     isLoadingDetail: boolean;
     isLoadingGeometry: boolean;
     detailError: string;
+    detailTechnicalError?: string;
+    geometryError?: string | null;
+    geometryTechnicalError?: string;
+    onRetryGeometry?: () => void;
     detailNotFound: boolean;
     isSaving: boolean;
     isSavingOverrides: boolean;
@@ -81,8 +89,8 @@ export default function ImportReviewDetailDrawer({
     const showMatchedCore =
         jsonishSignalsPresent(row.matched_core_data) || Boolean(row.matched_core_id?.trim());
 
-    const detailFailed = Boolean(detailError && !detailNotFound);
-    const showBody = !detailNotFound && !detailFailed;
+    const metadataWarning = Boolean(detailError && !detailNotFound);
+    const showBody = !detailNotFound;
 
     return (
         <div
@@ -117,7 +125,7 @@ export default function ImportReviewDetailDrawer({
                     {isLoadingDetail ? (
                         <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.loadingCandidateDetail} size="md" />
                     ) : null}
-                    {isLoadingGeometry && !isLoadingDetail ? (
+                    {isLoadingGeometry ? (
                         <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.loadingGeometry} />
                     ) : null}
                     {isSaving ? (
@@ -140,20 +148,30 @@ export default function ImportReviewDetailDrawer({
                         <ImportReviewErrorState message="Candidate not found — it may have been removed from this batch." />
                     ) : null}
 
-                    {detailFailed ? (
-                        <ImportReviewErrorState
-                            message={detailError || IMPORT_REVIEW_LOADING.failedToLoadDetail}
-                        />
-                    ) : null}
-
                     {showBody ? (
                         <>
+                            {metadataWarning ? (
+                                <ImportReviewStatusBanner
+                                    message={detailError}
+                                    tone="warning"
+                                    compact
+                                />
+                            ) : null}
+                            {detailTechnicalError?.trim() ? (
+                                <pre className="max-h-28 overflow-auto rounded border border-amber-100 bg-amber-50/80 p-2 text-[10px] text-amber-950 whitespace-pre-wrap">
+                                    {detailTechnicalError}
+                                </pre>
+                            ) : null}
+
                             <CandidateSummarySection config={config} row={row} />
 
                             <CandidateMapSection
                                 supportsMapPreview={config.supportsMapPreview}
                                 isLoadingDetail={isLoadingDetail}
                                 isLoadingGeometry={isLoadingGeometry}
+                                geometryError={geometryError}
+                                geometryTechnicalError={geometryTechnicalError}
+                                onRetryGeometry={onRetryGeometry}
                                 geometry={geometry}
                                 geometryKind={geometryKind}
                                 mapEntityType={mapEntityType}

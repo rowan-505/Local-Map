@@ -3,6 +3,27 @@ import type { FastifyReply } from "fastify";
 import { buildApiErrorResponse } from "../../lib/api-error-response.js";
 import type { ImportReviewBatchChoice } from "./import-review-batch-resolver.js";
 
+/** Client-safe message for 5xx import-review errors; dev keeps the original message in `details`. */
+export function importReviewInternalErrorMessage(error: unknown, fallback = "An unexpected error occurred"): string {
+    if (!(error instanceof Error)) {
+        return fallback;
+    }
+    const raw = error.message.trim();
+    if (!raw) {
+        return fallback;
+    }
+    if (process.env.NODE_ENV !== "production") {
+        return raw;
+    }
+    if (/prisma|\$queryRaw|syntax error|connector:/i.test(raw)) {
+        return fallback;
+    }
+    if (raw.length > 240) {
+        return fallback;
+    }
+    return raw;
+}
+
 export function sendImportReviewApiError(
     reply: FastifyReply,
     statusCode: number,

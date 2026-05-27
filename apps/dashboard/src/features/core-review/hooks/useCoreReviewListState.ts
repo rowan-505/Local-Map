@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { DataTableArrange } from "@/src/components/dashboard/DataTableToolbar";
@@ -8,6 +9,7 @@ import {
     getCoreReviewList,
     isAbortError,
     type CoreReviewEntitySlug,
+    type CoreReviewListResponse,
     type CoreReviewListParams,
     type CoreReviewPagination,
 } from "@/src/lib/api";
@@ -43,6 +45,9 @@ export type CoreReviewListDraft = {
 };
 
 const PAGE_SIZE_CHOICES = [25, 50, 100] as const;
+
+const CORE_REVIEW_LIST_STALE_MS = 5 * 60 * 1000;
+const CORE_REVIEW_LIST_GC_MS = 30 * 60 * 1000;
 
 function parseVerified(raw: string | null): CoreReviewVerifiedFilter {
     if (raw === "true") {
@@ -175,6 +180,54 @@ export function buildListParamsFromDraft(
     return params;
 }
 
+function buildCoreReviewListQueryKey(input: {
+    apiSlug: CoreReviewEntitySlug;
+    page: number;
+    pageSize: number;
+    sortBy: string;
+    sortOrder: string;
+    search: string;
+    status: string;
+    isVerified: string;
+    adminAreaId: string;
+    categoryId: string;
+    buildingTypeId: string;
+    roadClassId: string;
+    isPublic: string;
+    routeId: string;
+    landuseClassId: string;
+    detailLevel: string;
+    cropCode: string;
+    boundaryStatus: string;
+    addressUsage: string;
+    isOfficialBoundary: string;
+}) {
+    return [
+        "core-review",
+        "list",
+        input.apiSlug,
+        input.page,
+        input.pageSize,
+        input.sortBy,
+        input.sortOrder,
+        input.search,
+        input.status,
+        input.isVerified,
+        input.adminAreaId,
+        input.categoryId,
+        input.buildingTypeId,
+        input.roadClassId,
+        input.isPublic,
+        input.routeId,
+        input.landuseClassId,
+        input.detailLevel,
+        input.cropCode,
+        input.boundaryStatus,
+        input.addressUsage,
+        input.isOfficialBoundary,
+    ] as const;
+}
+
 function draftToUrlParams(draft: CoreReviewListDraft, page: number): Record<string, string> {
     const p: Record<string, string> = {
         page: String(page),
@@ -243,27 +296,122 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
     const pathname = usePathname() ?? "";
     const router = useRouter();
 
-    const appliedPage = Math.max(1, Number(searchParams.get("page")) || 1);
+    const queryClient = useQueryClient();
+
+    const searchKey = searchParams.toString();
+
+    const appliedPage = useMemo(() => {
+        const sp = new URLSearchParams(searchKey);
+        return Math.max(1, Number(sp.get("page")) || 1);
+    }, [searchKey]);
 
     const appliedDraft = useMemo(
-        () => readDraftFromSearchParams(searchParams, { defaultSortBy }),
-        [searchParams, defaultSortBy]
+        () => readDraftFromSearchParams(new URLSearchParams(searchKey), { defaultSortBy }),
+        [searchKey, defaultSortBy]
     );
 
     const [draft, setDraft] = useState<CoreReviewListDraft>(appliedDraft);
-    const [rows, setRows] = useState<T[]>([]);
-    const [pagination, setPagination] = useState<CoreReviewPagination>({
-        page: 1,
-        pageSize: 50,
-        total: 0,
-        totalPages: 1,
-    });
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState("");
 
     useEffect(() => {
         setDraft(appliedDraft);
     }, [appliedDraft]);
+
+    const listParams = useMemo(() => {
+        const params = buildListParamsFromDraft(appliedDraft, appliedPage, filterSupport);
+        return {
+            ...params,
+            search: params.search?.trim() ?? "",
+        };
+    }, [appliedDraft, appliedPage, filterSupport]);
+
+    const queryKey = useMemo(() => {
+        const sortOrder = listParams.sortOrder ?? "desc";
+        return buildCoreReviewListQueryKey({
+            apiSlug,
+            page: listParams.page ?? appliedPage,
+            pageSize: listParams.pageSize ?? appliedDraft.pageSize,
+            sortBy: listParams.sortBy ?? defaultSortBy,
+            sortOrder,
+            search: (listParams.search ?? "").trim(),
+            status: listParams.status ?? "active",
+            isVerified:
+                listParams.isVerified === true ? "true" : listParams.isVerified === false ? "false" : "",
+            adminAreaId: listParams.adminAreaId?.trim() ?? "",
+            categoryId: listParams.categoryId?.trim() ?? "",
+            buildingTypeId: listParams.buildingTypeId?.trim() ?? "",
+            roadClassId: listParams.roadClassId?.trim() ?? "",
+            isPublic:
+                listParams.isPublic === true ? "true" : listParams.isPublic === false ? "false" : "",
+            routeId: listParams.routeId?.trim() ?? "",
+            landuseClassId: listParams.landuseClassId?.trim() ?? "",
+            detailLevel: listParams.detailLevel?.trim() ?? "",
+            cropCode: listParams.cropCode?.trim() ?? "",
+            boundaryStatus: listParams.boundaryStatus?.trim() ?? "",
+            addressUsage: listParams.addressUsage?.trim() ?? "",
+            isOfficialBoundary:
+                listParams.isOfficialBoundary === true
+                    ? "true"
+                    : listParams.isOfficialBoundary === false
+                      ? "false"
+                      : "",
+        });
+    }, [
+        apiSlug,
+        appliedDraft.pageSize,
+        appliedPage,
+        defaultSortBy,
+        listParams.addressUsage,
+        listParams.adminAreaId,
+        listParams.boundaryStatus,
+        listParams.buildingTypeId,
+        listParams.categoryId,
+        listParams.cropCode,
+        listParams.detailLevel,
+        listParams.isOfficialBoundary,
+        listParams.isPublic,
+        listParams.isVerified,
+        listParams.landuseClassId,
+        listParams.page,
+        listParams.pageSize,
+        listParams.roadClassId,
+        listParams.routeId,
+        listParams.search,
+        listParams.sortBy,
+        listParams.sortOrder,
+        listParams.status,
+    ]);
+
+    const query = useQuery({
+        queryKey,
+        queryFn: async ({ signal }) => {
+            try {
+                return await getCoreReviewList<T>(apiSlug, listParams, { signal });
+            } catch (err) {
+                if (isAbortError(err)) {
+                    throw err;
+                }
+                const msg = err instanceof Error ? err.message : "Failed to load data";
+                if (msg.includes("404") || msg.toLowerCase().includes("not found")) {
+                    throw new Error("API not implemented yet for this entity.");
+                }
+                throw new Error(msg);
+            }
+        },
+        staleTime: CORE_REVIEW_LIST_STALE_MS,
+        gcTime: CORE_REVIEW_LIST_GC_MS,
+        refetchOnWindowFocus: false,
+        refetchOnMount: false,
+        placeholderData: keepPreviousData,
+    });
+
+    const rows = query.data?.data ?? [];
+    const pagination: CoreReviewPagination =
+        query.data?.pagination ?? {
+            page: appliedPage,
+            pageSize: appliedDraft.pageSize,
+            total: 0,
+            totalPages: 1,
+        };
 
     const pushDraft = useCallback(
         (nextDraft: CoreReviewListDraft, page = 1) => {
@@ -301,57 +449,24 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
 
     const patchRow = useCallback(
         (rowId: string, updater: (row: T) => T) => {
-            setRows((prev) =>
-                prev.map((row) => (getRowId(row) === rowId ? updater(row) : row)),
-            );
-        },
-        [getRowId],
-    );
-
-    useEffect(() => {
-        const controller = new AbortController();
-        setIsLoading(true);
-        setError("");
-
-        const params = buildListParamsFromDraft(appliedDraft, appliedPage, filterSupport);
-
-        void getCoreReviewList<T>(apiSlug, params, { signal: controller.signal })
-            .then((res) => {
-                setRows(res.data);
-                setPagination(res.pagination);
-            })
-            .catch((err) => {
-                if (isAbortError(err)) {
-                    return;
+            queryClient.setQueryData<CoreReviewListResponse<T>>(queryKey, (prev) => {
+                if (!prev) {
+                    return prev;
                 }
-                const msg = err instanceof Error ? err.message : "Failed to load data";
-                if (msg.includes("404") || msg.toLowerCase().includes("not found")) {
-                    setError("API not implemented yet for this entity.");
-                } else {
-                    setError(msg);
-                }
-                setRows([]);
-                setPagination({
-                    page: appliedPage,
-                    pageSize: appliedDraft.pageSize,
-                    total: 0,
-                    totalPages: 1,
-                });
-            })
-            .finally(() => {
-                if (!controller.signal.aborted) {
-                    setIsLoading(false);
-                }
+                return {
+                    ...prev,
+                    data: prev.data.map((row: T) => (getRowId(row) === rowId ? updater(row) : row)),
+                };
             });
-
-        return () => controller.abort();
-    }, [apiSlug, appliedDraft, appliedPage, filterSupport]);
+        },
+        [getRowId, queryClient, queryKey],
+    );
 
     return {
         rows,
         pagination,
-        isLoading,
-        error,
+        isLoading: query.isPending && !query.data,
+        error: query.error instanceof Error ? query.error.message : query.error ? String(query.error) : "",
         draft,
         setDraft,
         appliedDraft,
@@ -362,5 +477,6 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
         reload,
         patchRow,
         pageSizeChoices: PAGE_SIZE_CHOICES,
+        isFetching: query.isFetching,
     };
 }

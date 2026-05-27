@@ -3,17 +3,16 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getImportReviewSummaryClient } from "@/src/features/import-review/api/importReviewApiClient";
-import {
-    formatImportReviewApiError,
-    importReviewAmbiguousFromError,
-} from "@/src/features/import-review/api/importReviewApiErrors";
+import { useImportReviewSummary } from "@/src/features/import-review/hooks/useImportReviewSummary";
 import {
     buildImportReviewEntityUrl,
     type ImportReviewEntityUrlFilters,
 } from "@/src/features/import-review/navigation/buildImportReviewEntityUrl";
+import {
+    replaceImportReviewSearchParams,
+    type ReplaceImportReviewSearchParamsMeta,
+} from "@/src/features/import-review/navigation/replaceImportReviewSearchParams";
 import type { ImportReviewBatchChoice } from "@/src/lib/api";
-import { isAbortError } from "@/src/lib/api";
 import {
     applyImportReviewScopeSearchParams,
     importReviewScopeQueryForApi,
@@ -38,6 +37,8 @@ export type UseImportReviewBatchContextOptions = {
     resolveSnapshotScope?: boolean;
     /** Pass false on entity pages that should not use env default snapshot. */
     useEnvDefault?: boolean;
+    /** When false, no summary probe or scope resolution runs (entity route not active). */
+    enabled?: boolean;
 };
 
 export type ImportReviewBatchContext = {
@@ -64,6 +65,7 @@ export type ImportReviewBatchContext = {
 export function useImportReviewBatchContext(
     options: UseImportReviewBatchContextOptions = {}
 ): ImportReviewBatchContext {
+    const enabled = options.enabled !== false;
     const resolveSnapshotScope = options.resolveSnapshotScope !== false;
     const useEnvDefault = options.useEnvDefault !== false;
 
@@ -77,23 +79,20 @@ export function useImportReviewBatchContext(
     const [ambiguousSnapshot, setAmbiguousSnapshot] = useState("");
     const [resolvedScope, setResolvedScope] = useState<ImportReviewScopeQueryParams | null>(null);
 
+    const searchKey = searchParams.toString();
     const urlBatch = reviewBatchIdFromImportReviewSearch(searchParams);
     const urlSnapshot = snapshotVersionFromImportReviewSearch(searchParams);
 
-    const urlScopeQuery = useMemo(
-        () =>
-            importReviewScopeQueryFromSearch(searchParams, ENV_SNAPSHOT_DEFAULT, {
-                useEnvDefault,
-            }),
-        [searchParams, useEnvDefault]
-    );
+    const urlScopeQuery = useMemo(() => {
+        const sp = new URLSearchParams(searchKey);
+        return importReviewScopeQueryFromSearch(sp, ENV_SNAPSHOT_DEFAULT, {
+            useEnvDefault,
+        });
+    }, [searchKey, useEnvDefault]);
 
     const replaceQuery = useCallback(
-        (mutate: (p: URLSearchParams) => void) => {
-            const p = new URLSearchParams(searchParams.toString());
-            mutate(p);
-            const qs = p.toString();
-            router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+        (mutate: (p: URLSearchParams) => void, meta?: ReplaceImportReviewSearchParamsMeta) => {
+            replaceImportReviewSearchParams(router, pathname, searchParams, mutate, meta);
         },
         [router, pathname, searchParams]
     );
@@ -104,19 +103,25 @@ export function useImportReviewBatchContext(
             if (!id) {
                 return;
             }
-            replaceQuery((p) => {
-                applyImportReviewScopeSearchParams(p, "", id);
-            });
+            replaceQuery(
+                (p) => {
+                    applyImportReviewScopeSearchParams(p, "", id);
+                },
+                { source: "batch_context:select_batch" }
+            );
         },
         [replaceQuery]
     );
 
     const selectLatestForSnapshot = useCallback(() => {
         const snap = ambiguousSnapshot || urlSnapshot || ENV_SNAPSHOT_DEFAULT;
-        replaceQuery((p) => {
-            applyImportReviewScopeSearchParams(p, snap, "");
-            p.set("latest", "true");
-        });
+        replaceQuery(
+            (p) => {
+                applyImportReviewScopeSearchParams(p, snap, "");
+                p.set("latest", "true");
+            },
+            { source: "batch_context:select_latest_snapshot" }
+        );
     }, [ambiguousSnapshot, urlSnapshot, replaceQuery]);
 
     const syncResolvedBatchToUrl = useCallback(
@@ -125,9 +130,12 @@ export function useImportReviewBatchContext(
             if (!id || urlBatch.trim()) {
                 return;
             }
-            replaceQuery((p) => {
-                syncImportReviewUrlToResolvedBatch(p, id);
-            });
+            replaceQuery(
+                (p) => {
+                    syncImportReviewUrlToResolvedBatch(p, id);
+                },
+                { source: "batch_context:sync_resolved_batch" }
+            );
         },
         [replaceQuery, urlBatch]
     );
@@ -155,85 +163,87 @@ export function useImportReviewBatchContext(
         [resolvedScope, urlScopeQuery]
     );
 
+    const snapshotProbeScope = useMemo(() => {
+        if (!enabled || !urlScopeQuery) {
+            return null;
+        }
+        if ("review_batch_id" in urlScopeQuery) {
+            return null;
+        }
+        if (!resolveSnapshotScope) {
+            return null;
+        }
+        return importReviewScopeQueryForApi(urlScopeQuery);
+    }, [enabled, urlScopeQuery, resolveSnapshotScope]);
+
+    const snapshotSummary = useImportReviewSummary(snapshotProbeScope, {
+        enabled: snapshotProbeScope !== null,
+    });
+
     useEffect(() => {
-        const controller = new AbortController();
-        let active = true;
+        setAmbiguousBatches(null);
+        setAmbiguousSnapshot("");
+        setError("");
 
-        queueMicrotask(() => {
-            if (!active) {
-                return;
-            }
+        if (!enabled) {
+            setResolvedScope(null);
+            setIsLoadingBatchContext(false);
+            return;
+        }
 
-            setAmbiguousBatches(null);
-            setAmbiguousSnapshot("");
-            setError("");
+        if (!urlScopeQuery) {
+            setResolvedScope(null);
+            setIsLoadingBatchContext(false);
+            return;
+        }
 
-            if (!urlScopeQuery) {
-                setResolvedScope(null);
-                setIsLoadingBatchContext(false);
-                return;
-            }
+        if ("review_batch_id" in urlScopeQuery) {
+            setResolvedScope(urlScopeQuery);
+            setIsLoadingBatchContext(false);
+            return;
+        }
 
-            if ("review_batch_id" in urlScopeQuery) {
-                setResolvedScope(urlScopeQuery);
-                setIsLoadingBatchContext(false);
-                return;
-            }
+        if (!resolveSnapshotScope) {
+            setResolvedScope(urlScopeQuery);
+            setIsLoadingBatchContext(false);
+            return;
+        }
 
-            if (!resolveSnapshotScope) {
-                setResolvedScope(urlScopeQuery);
-                setIsLoadingBatchContext(false);
-                return;
-            }
+        setIsLoadingBatchContext(snapshotSummary.isLoading);
 
-            const apiScope = importReviewScopeQueryForApi(urlScopeQuery);
-            if (!apiScope) {
-                setResolvedScope(null);
-                setIsLoadingBatchContext(false);
-                return;
-            }
+        if (snapshotSummary.ambiguousBatches && snapshotSummary.ambiguousBatches.length > 0) {
+            setAmbiguousBatches(snapshotSummary.ambiguousBatches);
+            setAmbiguousSnapshot(snapshotSummary.ambiguousSnapshot || urlSnapshot);
+            setResolvedScope(null);
+            return;
+        }
 
-            setIsLoadingBatchContext(true);
+        if (snapshotSummary.error) {
+            setResolvedScope(null);
+            setError(snapshotSummary.error);
+            return;
+        }
 
-            void getImportReviewSummaryClient(apiScope, { signal: controller.signal })
-                .then((summary) => {
-                    if (!active) {
-                        return;
-                    }
-                    const batchId = summary.review_batch_id?.trim();
-                    if (batchId) {
-                        setResolvedScope({ review_batch_id: batchId });
-                    } else {
-                        setResolvedScope(urlScopeQuery);
-                    }
-                })
-                .catch((err) => {
-                    if (!active || isAbortError(err)) {
-                        return;
-                    }
-                    const ambiguous = importReviewAmbiguousFromError(err);
-                    if (ambiguous) {
-                        setAmbiguousBatches(ambiguous.batches);
-                        setAmbiguousSnapshot(ambiguous.sourceSnapshotVersion || urlSnapshot);
-                        setResolvedScope(null);
-                        setError("");
-                        return;
-                    }
-                    setResolvedScope(null);
-                    setError(formatImportReviewApiError(err, "Failed to resolve review batch context."));
-                })
-                .finally(() => {
-                    if (active && !controller.signal.aborted) {
-                        setIsLoadingBatchContext(false);
-                    }
-                });
-        });
+        if (snapshotSummary.data) {
+            const batchId = snapshotSummary.data.review_batch_id?.trim();
+            setResolvedScope(batchId ? { review_batch_id: batchId } : urlScopeQuery);
+            return;
+        }
 
-        return () => {
-            active = false;
-            controller.abort();
-        };
-    }, [urlScopeQuery, urlSnapshot, resolveSnapshotScope]);
+        if (!snapshotSummary.isLoading) {
+            setResolvedScope(urlScopeQuery);
+        }
+    }, [
+        enabled,
+        urlScopeQuery,
+        urlSnapshot,
+        resolveSnapshotScope,
+        snapshotSummary.isLoading,
+        snapshotSummary.data,
+        snapshotSummary.error,
+        snapshotSummary.ambiguousBatches,
+        snapshotSummary.ambiguousSnapshot,
+    ]);
 
     const apiScopeQuery = useMemo(() => {
         if (ambiguousBatches && ambiguousBatches.length > 0) {

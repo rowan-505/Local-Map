@@ -1,15 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
-import {
-    getImportReviewFormOptions,
-    type ImportReviewFormOptionsResponse,
-} from "@/src/lib/api";
-import { formatImportReviewApiError } from "../api/importReviewApiErrors";
-import { isAbortError } from "@/src/lib/api";
+import { getImportReviewFormOptions, type ImportReviewFormOptionsResponse } from "@/src/lib/api";
 
 import type { ImportReviewReferenceOptionsBundle } from "../api/importReviewApiClient";
+import { formatImportReviewApiError } from "../api/importReviewApiErrors";
+import { importReviewOptionsQueryDefaults } from "./importReviewQueryConfig";
+import { importReviewQueryKeys } from "./importReviewQueryKeys";
 
 export type ImportReviewFormOptionsBundle = ImportReviewFormOptionsResponse;
 
@@ -53,55 +51,27 @@ export function toLegacyReferenceBundle(
     };
 }
 
+/**
+ * Cached GET /api/import-review/options — deduped across all import-review entity UIs.
+ */
 export function useImportReviewFormOptions(enabled: boolean) {
-    const [formOptions, setFormOptions] = useState<ImportReviewFormOptionsBundle>(EMPTY_FORM_OPTIONS);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState("");
+    const query = useQuery({
+        queryKey: importReviewQueryKeys.formOptions(),
+        queryFn: ({ signal }) => getImportReviewFormOptions({ signal }),
+        enabled,
+        ...importReviewOptionsQueryDefaults,
+        refetchOnMount: false,
+    });
 
-    useEffect(() => {
-        if (!enabled) {
-            return;
-        }
-        const c = new AbortController();
-        let active = true;
-
-        void getImportReviewFormOptions({ signal: c.signal })
-            .then((data) => {
-                if (active) {
-                    setFormOptions(data);
-                    setError("");
-                }
-            })
-            .catch((err) => {
-                if (!active || isAbortError(err)) {
-                    return;
-                }
-                setFormOptions(EMPTY_FORM_OPTIONS);
-                setError(formatImportReviewApiError(err, "Failed to load form options."));
-            })
-            .finally(() => {
-                if (active) {
-                    setIsLoading(false);
-                }
-            });
-
-        queueMicrotask(() => {
-            if (active) {
-                setIsLoading(true);
-            }
-        });
-
-        return () => {
-            active = false;
-            c.abort();
-        };
-    }, [enabled]);
+    const formOptions = enabled ? (query.data ?? EMPTY_FORM_OPTIONS) : EMPTY_FORM_OPTIONS;
 
     return {
         formOptions,
         legacyBundle: toLegacyReferenceBundle(formOptions),
-        isLoading,
-        error,
+        isLoading: enabled && query.isPending && !query.data,
+        error: query.error
+            ? formatImportReviewApiError(query.error, "Failed to load form options.")
+            : "",
     };
 }
 

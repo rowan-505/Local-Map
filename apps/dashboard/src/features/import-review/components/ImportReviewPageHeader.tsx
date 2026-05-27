@@ -34,6 +34,7 @@ export default function ImportReviewPageHeader({
             actions={
                 <Link
                     href={overviewHref}
+                    prefetch={false}
                     className={`inline-flex shrink-0 rounded-lg border ${p.inputBorder} ${p.cardBg} px-4 py-2 text-sm font-medium shadow-sm hover:bg-gray-50 ${p.title}`}
                 >
                     Back to overview

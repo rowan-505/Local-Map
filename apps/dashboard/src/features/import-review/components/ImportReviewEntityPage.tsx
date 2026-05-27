@@ -1,9 +1,11 @@
 "use client";
 
 import { Suspense } from "react";
+import { usePathname } from "next/navigation";
 
 import ImportReviewBatchPicker from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewBatchPicker";
 import { useImportReviewEntityPage } from "@/src/features/import-review/hooks/useImportReviewEntityPage";
+import { getImportReviewEntitySlugFromPathname } from "@/src/features/import-review/navigation/importReviewRoutes";
 import { toDataReviewGeometryKind } from "@/src/features/import-review/config";
 import { preserveImportReviewScopeInParams } from "@/src/lib/importReviewSnapshot";
 
@@ -30,7 +32,13 @@ function ImportReviewEntityPageInner({
     slug: string;
     showMapPreview?: boolean;
 }) {
-    const page = useImportReviewEntityPage(slug, { showMapPreview });
+    const pathname = usePathname() ?? "";
+    const routeActive = getImportReviewEntitySlugFromPathname(pathname) === slug.trim().toLowerCase();
+    const page = useImportReviewEntityPage(slug, { showMapPreview, enabled: routeActive });
+
+    if (!routeActive) {
+        return null;
+    }
 
     if (!page.config) {
         return (
@@ -43,7 +51,8 @@ function ImportReviewEntityPageInner({
     }
 
     const config = page.config;
-    const total = page.list?.total ?? 0;
+    const total = page.listTotal;
+    const hasMore = page.hasMore;
     const items = page.list?.items ?? [];
     const displayColumns = config.tableColumns.filter((c) => c.key !== "id");
 
@@ -68,19 +77,19 @@ function ImportReviewEntityPageInner({
         showMapPreview && config.supportsMapPreview ? (
             <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:w-[min(420px,40vw)]">
                 <ImportReviewMapPreview
-                    enabled={Boolean(page.sidebarMapRow)}
+                    enabled={Boolean(page.sidebarSelectionRow)}
                     geometry={page.sidebarMap?.geometry ?? null}
                     geometryKind={
                         page.sidebarMap?.geometryKind ?? toDataReviewGeometryKind(config.geometryType)
                     }
                     entityType={config.mapEntityType}
-                    externalId={page.sidebarMapRow?.external_id ?? null}
+                    externalId={page.sidebarSelectionRow?.external_id ?? null}
                     title={`${config.label} geometry`}
                     fallbackNote={page.sidebarMap?.fallbackNote}
                     isLoadingDetail={page.isLoadingDetail && Boolean(page.drawerRow)}
                     size="default"
                 />
-                {!page.sidebarMapRow ? (
+                {!page.sidebarSelectionRow ? (
                     <p className="mt-2 text-center text-xs text-gray-500">
                         Open a row or select exactly one candidate to preview on the map.
                     </p>
@@ -256,7 +265,7 @@ function ImportReviewEntityPageInner({
                             />
                         )}
 
-                        {total > page.limit ? (
+                        {hasMore || page.offset > 0 || total > page.limit ? (
                             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
                                 <span className="text-sm text-gray-600">
                                     Showing {page.offset + 1}–{Math.min(page.offset + page.limit, total)} of{" "}
@@ -272,10 +281,16 @@ function ImportReviewEntityPageInner({
                                         type="button"
                                         disabled={page.offset <= 0 || page.isLoadingCandidates}
                                         onClick={() =>
-                                            page.replaceQuery((p) => {
-                                                preserveImportReviewScopeInParams(p, page.searchParams);
-                                                p.set("offset", String(Math.max(0, page.offset - page.limit)));
-                                            })
+                                            page.replaceQuery(
+                                                (p) => {
+                                                    preserveImportReviewScopeInParams(p, page.searchParams);
+                                                    p.set(
+                                                        "offset",
+                                                        String(Math.max(0, page.offset - page.limit))
+                                                    );
+                                                },
+                                                { source: "entity_page:pagination_prev" }
+                                            )
                                         }
                                         className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-40"
                                     >
@@ -283,14 +298,15 @@ function ImportReviewEntityPageInner({
                                     </button>
                                     <button
                                         type="button"
-                                        disabled={
-                                            page.offset + page.limit >= total || page.isLoadingCandidates
-                                        }
+                                        disabled={(!hasMore && page.offset + page.limit >= total) || page.isLoadingCandidates}
                                         onClick={() =>
-                                            page.replaceQuery((p) => {
-                                                preserveImportReviewScopeInParams(p, page.searchParams);
-                                                p.set("offset", String(page.offset + page.limit));
-                                            })
+                                            page.replaceQuery(
+                                                (p) => {
+                                                    preserveImportReviewScopeInParams(p, page.searchParams);
+                                                    p.set("offset", String(page.offset + page.limit));
+                                                },
+                                                { source: "entity_page:pagination_next" }
+                                            )
                                         }
                                         className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-40"
                                     >
@@ -317,6 +333,10 @@ function ImportReviewEntityPageInner({
                         isLoadingDetail={page.isLoadingDetail}
                         isLoadingGeometry={page.isLoadingGeometry}
                         detailError={page.detailError}
+                        detailTechnicalError={page.detailTechnicalError}
+                        geometryError={page.geometryError}
+                        geometryTechnicalError={page.geometryTechnicalError}
+                        onRetryGeometry={page.retryDrawerGeometry}
                         detailNotFound={page.detailNotFound}
                         isSaving={page.isSaving}
                         decisionSaveMessage={page.decisionSaveMessage}
@@ -341,6 +361,10 @@ function ImportReviewEntityPageInner({
                         isLoadingDetail={page.isLoadingDetail}
                         isLoadingGeometry={page.isLoadingGeometry}
                         detailError={page.detailError}
+                        detailTechnicalError={page.detailTechnicalError}
+                        geometryError={page.geometryError}
+                        geometryTechnicalError={page.geometryTechnicalError}
+                        onRetryGeometry={page.retryDrawerGeometry}
                         detailNotFound={page.detailNotFound}
                         isSaving={page.isSaving}
                         isSavingOverrides={page.isSavingOverrides}

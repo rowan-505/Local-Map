@@ -32,6 +32,8 @@ import {
     buildFamilySummaryMetricsSql,
     type ImportReviewFamilySummaryMetricsDb,
 } from "./import-review-summary-counts.js";
+import { fetchImportReviewScopeSummary } from "./import-review-summary-fetch.js";
+import { createImportReviewSummaryTimingSink } from "./import-review-summary-timing.js";
 
 export type { BuildingListRowDb } from "./import-review-data-repository.js";
 
@@ -120,7 +122,7 @@ export class RemoteImportReviewRepositoryCore {
         family: ImportReviewEntityFamilySlug,
         reviewBatchId: bigint,
         filters: CandidateListFilters
-    ): Promise<BuildingListRowDb[]> {
+    ) {
         return this.genericCandidates.listCandidates(family, reviewBatchId, filters);
     }
 
@@ -217,64 +219,25 @@ export class RemoteImportReviewRepositoryCore {
         return resolveImportReviewBatchScope(this.prisma, query);
     }
 
+    async fetchScopeSummary(scope: ImportReviewScopeResolved) {
+        const timing = createImportReviewSummaryTimingSink(scope.reviewBatchId);
+        return fetchImportReviewScopeSummary(this.prisma, scope, timing);
+    }
+
     async fetchSummaryBuckets(scope: ImportReviewScopeResolved): Promise<{
         rows: ImportReviewSummaryBucketDb[];
         warnings: string[];
     }> {
-        const warnings: string[] = [];
-        const parts: Prisma.Sql[] = [];
-        const reviewBatchId = scope.reviewBatchId;
-
-        for (const family of IMPORT_REVIEW_ENTITY_FAMILIES) {
-            const config = getImportReviewEntityConfig(family);
-            const tableName = `import_review.${config.importReviewTable}`;
-            if (await this.pgRegclassExists(tableName)) {
-                parts.push(buildSummaryAggregationSql(config, reviewBatchId));
-            } else {
-                warnings.push(
-                    `Summary skipped optional family ${family}: table ${tableName} not found.`
-                );
-            }
-        }
-
-        if (parts.length === 0) {
-            return { rows: [], warnings };
-        }
-
-        const rows = await this.prisma.$queryRaw<ImportReviewSummaryBucketDb[]>(
-            Prisma.join(parts, " UNION ALL ")
-        );
-        return { rows, warnings };
+        const data = await this.fetchScopeSummary(scope);
+        return { rows: data.buckets, warnings: data.warnings };
     }
 
     async fetchFamilySummaryMetrics(scope: ImportReviewScopeResolved): Promise<{
         rows: ImportReviewFamilySummaryMetricsDb[];
         warnings: string[];
     }> {
-        const warnings: string[] = [];
-        const parts: Prisma.Sql[] = [];
-        const reviewBatchId = scope.reviewBatchId;
-
-        for (const family of IMPORT_REVIEW_ENTITY_FAMILIES) {
-            const config = getImportReviewEntityConfig(family);
-            const tableName = `import_review.${config.importReviewTable}`;
-            if (await this.pgRegclassExists(tableName)) {
-                parts.push(buildFamilySummaryMetricsSql(config, reviewBatchId));
-            } else {
-                warnings.push(
-                    `Family metrics skipped optional family ${family}: table ${tableName} not found.`
-                );
-            }
-        }
-
-        if (parts.length === 0) {
-            return { rows: [], warnings };
-        }
-
-        const rows = await this.prisma.$queryRaw<ImportReviewFamilySummaryMetricsDb[]>(
-            Prisma.join(parts, " UNION ALL ")
-        );
-        return { rows, warnings };
+        const data = await this.fetchScopeSummary(scope);
+        return { rows: data.familyMetrics, warnings: data.warnings };
     }
 
     async fetchBuildingFilterOptions(reviewBatchId: bigint): Promise<{
@@ -509,8 +472,9 @@ export class RemoteImportReviewRepositoryCore {
             | "offset"
             | "sort"
             | "include_geometry"
+            | "include_total"
         >
-    ): Promise<BuildingListRowDb[]> {
+    ) {
         return this.listCandidates("buildings", reviewBatchId, filters);
     }
 
@@ -563,8 +527,9 @@ export class RemoteImportReviewRepositoryCore {
             | "offset"
             | "sort"
             | "include_geometry"
+            | "include_total"
         >
-    ): Promise<BuildingListRowDb[]> {
+    ) {
         return this.listCandidates("places", reviewBatchId, filters);
     }
 
@@ -609,8 +574,9 @@ export class RemoteImportReviewRepositoryCore {
             | "offset"
             | "sort"
             | "include_geometry"
+            | "include_total"
         >
-    ): Promise<BuildingListRowDb[]> {
+    ) {
         return this.listCandidates("roads", reviewBatchId, filters);
     }
 

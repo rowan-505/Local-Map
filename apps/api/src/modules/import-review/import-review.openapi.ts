@@ -1,6 +1,7 @@
 import type { FastifySchema } from "fastify";
 
 import { apiErrorResponseSchema } from "../../lib/api-error-response.js";
+import { IMPORT_REVIEW_ENTITY_FAMILIES } from "./import-review-config.js";
 import {
     Tags,
     bearerAuth,
@@ -75,6 +76,11 @@ export const importReviewMultipleBatchesErrorResponseSchema = {
         batches: { type: "array", items: importReviewBatchChoiceSchema },
     },
     additionalProperties: false,
+} as const;
+
+/** Scope ambiguity (409) or standard API error envelope. */
+export const importReview409ResponseSchema = {
+    anyOf: [importReviewApiErrorResponseSchema, importReviewMultipleBatchesErrorResponseSchema],
 } as const;
 
 const importReviewBatchesListResponseSchema = {
@@ -619,14 +625,30 @@ export const importReviewBuildingItemSchema = {
 
 const importReviewBuildingsListResponseSchema = {
     type: "object",
-    required: ["source_snapshot_version", "review_batch_id", "source_snapshot_id_local", "items", "total", "limit", "offset"],
+    required: [
+        "source_snapshot_version",
+        "review_batch_id",
+        "source_snapshot_id_local",
+        "items",
+        "has_more",
+        "limit",
+        "offset",
+    ],
     properties: {
         ...importReviewEnvelopeResponseProperties,
         items: {
             type: "array",
             items: importReviewBuildingItemSchema,
         },
-        total: { type: "integer", minimum: 0 },
+        total: {
+            type: "integer",
+            minimum: 0,
+            description: "Exact COUNT(*) when include_total=true; omitted on later pages when include_total=false.",
+        },
+        has_more: {
+            type: "boolean",
+            description: "True when another page exists (LIMIT+1 probe).",
+        },
         limit: { type: "integer", minimum: 1 },
         offset: { type: "integer", minimum: 0 },
     },
@@ -667,9 +689,7 @@ export const getImportReviewSummarySchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: {
-            anyOf: [importReviewApiErrorResponseSchema, importReviewMultipleBatchesErrorResponseSchema],
-        },
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -710,6 +730,11 @@ export const getImportReviewBuildingsSchema = {
             offset: { type: "integer", minimum: 0, default: 0 },
             sort: { type: "string", enum: [...importReviewBuildingSortEnum], default: "updated_at_desc" },
             include_geometry: { type: "boolean", default: false },
+            include_total: {
+                type: "boolean",
+                default: true,
+                description: "When false, skips COUNT(*) (use has_more; cache total from offset=0).",
+            },
         },
         additionalProperties: false,
     },
@@ -719,7 +744,7 @@ export const getImportReviewBuildingsSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -746,7 +771,12 @@ const importReviewPlacesRoadsListQuerystring = {
         limit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
         offset: { type: "integer", minimum: 0, default: 0 },
         sort: { type: "string", enum: [...importReviewBuildingSortEnum], default: "updated_at_desc" },
-        include_geometry: { type: "boolean", default: true },
+        include_geometry: { type: "boolean", default: false },
+        include_total: {
+            type: "boolean",
+            default: true,
+            description: "When false, skips COUNT(*) (use has_more; cache total from offset=0).",
+        },
     },
     additionalProperties: false,
 } as const;
@@ -783,7 +813,7 @@ export const getImportReviewRoadDryRunSummarySchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -801,7 +831,7 @@ export const getImportReviewPlacesSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -819,7 +849,7 @@ export const getImportReviewRoadsSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -882,7 +912,7 @@ export const getImportReviewBuildingsFilterOptionsSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -914,7 +944,7 @@ export const getImportReviewBuildingByIdSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -968,7 +998,7 @@ export const patchImportReviewBuildingDecisionSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1055,7 +1085,7 @@ export const patchImportReviewBuildingOverridesSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1108,7 +1138,7 @@ export const patchImportReviewRoadOverridesSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1134,7 +1164,7 @@ export const patchImportReviewPlaceDecisionSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1253,7 +1283,7 @@ export const patchImportReviewRoadDecisionSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1333,7 +1363,7 @@ export const postBulkImportReviewBuildingDecisionSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1350,7 +1380,7 @@ export const postBulkImportReviewPlacesDecisionSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1367,7 +1397,7 @@ export const postBulkImportReviewRoadsDecisionSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1513,7 +1543,7 @@ export const getImportReviewPromotionReadySchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1607,7 +1637,7 @@ export const getImportReviewPromotionReadyCandidatesSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1640,7 +1670,7 @@ export const getImportReviewPromotionBatchesSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1750,7 +1780,7 @@ export const getImportReviewPromotionBatchEligibilitySchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1872,7 +1902,7 @@ export const postImportReviewPromotionBatchSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -1991,7 +2021,7 @@ export const postImportReviewPromotionBatchValidateSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -3176,7 +3206,7 @@ export const postImportReviewPromotionBatchPromoteSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
-        409: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -3557,18 +3587,7 @@ export const getImportReviewPromotionBatchLogsSchema = {
 const importReviewFamilyParamProperties = {
     family: {
         type: "string",
-        enum: [
-            "buildings",
-            "places",
-            "roads",
-            "bus_stops",
-            "landuse",
-            "water_lines",
-            "water_polygons",
-            "addresses",
-            "admin_areas",
-            "routing_barriers",
-        ],
+        enum: [...IMPORT_REVIEW_ENTITY_FAMILIES],
     },
 } as const;
 
@@ -3587,6 +3606,11 @@ const importReviewFamilyCandidatesListQuerystring = {
         offset: { type: "integer", minimum: 0, default: 0 },
         sort: { type: "string", enum: [...importReviewBuildingSortEnum], default: "updated_at_desc" },
         include_geometry: { type: "boolean", default: false },
+        include_total: {
+            type: "boolean",
+            default: true,
+            description: "When false, skips COUNT(*) (use has_more; cache total from offset=0).",
+        },
     },
     additionalProperties: false,
 } as const;

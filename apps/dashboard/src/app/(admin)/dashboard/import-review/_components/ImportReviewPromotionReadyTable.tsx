@@ -177,6 +177,7 @@ export default function ImportReviewPromotionReadyTable({
                                         {scope ? (
                                             <Link
                                                 href={buildingsReviewHref(scope, row)}
+                                                prefetch={false}
                                                 className="text-left text-xs text-gray-600 hover:underline"
                                             >
                                                 Open in review

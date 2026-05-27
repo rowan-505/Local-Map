@@ -118,6 +118,162 @@ export function buildFamilySummaryMetricsSql(
     `;
 }
 
+/**
+ * One table scan per family: status buckets (json array) + family metric aggregates.
+ * Uses a materialized CTE so buckets + metrics share the same filtered rowset.
+ */
+/** Active / promoted predicates on `base` CTE columns (unqualified). */
+function summaryIsPromotedBaseSql(): Prisma.Sql {
+    return Prisma.sql`(promotion_status = 'promoted' OR review_status = 'promoted')`;
+}
+
+function summaryIsActiveBaseSql(): Prisma.Sql {
+    return Prisma.sql`NOT ${summaryIsPromotedBaseSql()}`;
+}
+
+function summaryHasValidationErrorsBaseSql(): Prisma.Sql {
+    return Prisma.sql`(
+        validation_errors IS NOT NULL
+        AND jsonb_typeof(validation_errors) = 'array'
+        AND jsonb_array_length(validation_errors) > 0
+    )`;
+}
+
+function summaryHasValidationWarningsBaseSql(): Prisma.Sql {
+    return Prisma.sql`(
+        validation_warnings IS NOT NULL
+        AND jsonb_typeof(validation_warnings) = 'array'
+        AND jsonb_array_length(validation_warnings) > 0
+    )`;
+}
+
+export function buildCombinedFamilySummarySql(
+    config: ImportReviewEntityFamilyConfig,
+    reviewBatchId: bigint
+): Prisma.Sql {
+    const a = config.tableAlias;
+    const active = summaryIsActiveBaseSql();
+    const promoted = summaryIsPromotedBaseSql();
+
+    return Prisma.sql`
+        WITH base AS MATERIALIZED (
+            SELECT
+                ${col(a, "review_batch_id")} AS review_batch_id,
+                ${col(a, "source_snapshot_version")} AS source_snapshot_version,
+                ${col(a, "match_status")} AS match_status,
+                ${col(a, "auto_action")} AS auto_action,
+                ${col(a, "review_status")} AS review_status,
+                ${col(a, "review_decision")} AS review_decision,
+                ${col(a, "promotion_status")} AS promotion_status,
+                ${col(a, "validation_errors")} AS validation_errors,
+                ${col(a, "validation_warnings")} AS validation_warnings
+            FROM ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(a)}
+            WHERE ${col(a, "review_batch_id")} = ${reviewBatchId}
+              AND ${col(a, "entity_family")} = ${config.entityFamily}
+        )
+        SELECT
+            COALESCE(
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'entity_family', ${config.entityFamily},
+                            'review_batch_id', bucket_rows.review_batch_id,
+                            'source_snapshot_version', bucket_rows.source_snapshot_version,
+                            'match_status', bucket_rows.match_status,
+                            'auto_action', bucket_rows.auto_action,
+                            'review_status', bucket_rows.review_status,
+                            'review_decision', bucket_rows.review_decision,
+                            'promotion_status', bucket_rows.promotion_status,
+                            'row_count', bucket_rows.row_count
+                        )
+                        ORDER BY
+                            bucket_rows.source_snapshot_version,
+                            bucket_rows.match_status,
+                            bucket_rows.auto_action,
+                            bucket_rows.review_status,
+                            bucket_rows.review_decision,
+                            bucket_rows.promotion_status
+                    )
+                    FROM (
+                        SELECT
+                            review_batch_id,
+                            source_snapshot_version,
+                            match_status,
+                            auto_action,
+                            review_status,
+                            review_decision,
+                            promotion_status,
+                            count(*)::bigint AS row_count
+                        FROM base
+                        GROUP BY
+                            review_batch_id,
+                            source_snapshot_version,
+                            match_status,
+                            auto_action,
+                            review_status,
+                            review_decision,
+                            promotion_status
+                    ) AS bucket_rows
+                ),
+                '[]'::json
+            ) AS buckets,
+            ${config.entityFamily}::text AS entity_family,
+            ${Prisma.raw(`'import_review.${config.importReviewTable}'`)}::text AS table_name,
+            count(*)::bigint AS batch_total,
+            count(*) FILTER (WHERE ${active})::bigint AS active,
+            count(*) FILTER (
+                WHERE ${active}
+                  AND review_status IN ('pending', 'needs_review')
+            )::bigint AS pending_review,
+            count(*) FILTER (
+                WHERE ${active}
+                  AND review_decision = 'approved'
+            )::bigint AS approved,
+            count(*) FILTER (
+                WHERE ${active}
+                  AND review_decision = 'rejected'
+            )::bigint AS rejected,
+            count(*) FILTER (
+                WHERE ${active}
+                  AND (
+                      review_status = 'needs_review'
+                      OR review_decision = 'needs_more_review'
+                  )
+            )::bigint AS needs_review,
+            count(*) FILTER (
+                WHERE ${active}
+                  AND review_decision = 'ignored'
+            )::bigint AS ignored,
+            count(*) FILTER (
+                WHERE ${active}
+                  AND review_decision = 'merged'
+            )::bigint AS merged,
+            count(*) FILTER (
+                WHERE ${active}
+                  AND review_status = 'approved'
+                  AND review_decision = 'approved'
+                  AND NOT ${summaryHasValidationErrorsBaseSql()}
+                  AND (
+                      promotion_status IS NULL
+                      OR trim(coalesce(promotion_status::text, '')) = ''
+                      OR promotion_status NOT IN ('promoted', 'failed')
+                  )
+            )::bigint AS ready_for_publish,
+            count(*) FILTER (WHERE ${promoted})::bigint AS promoted,
+            count(*) FILTER (
+                WHERE promotion_status = 'failed'
+                   OR review_status = 'promotion_failed'
+            )::bigint AS promotion_failed,
+            count(*) FILTER (WHERE ${summaryHasValidationErrorsBaseSql()})::bigint AS validation_error_count,
+            count(*) FILTER (WHERE ${summaryHasValidationWarningsBaseSql()})::bigint AS validation_warning_count
+        FROM base
+    `;
+}
+
+export type ImportReviewCombinedFamilySummaryDb = ImportReviewFamilySummaryMetricsDb & {
+    buckets: unknown;
+};
+
 /** Per-batch family metrics for history list pages (`review_batch_id IN (...)`). */
 export function buildFamilySummaryMetricsForBatchIdsSql(
     config: ImportReviewEntityFamilyConfig,

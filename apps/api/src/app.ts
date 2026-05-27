@@ -24,6 +24,7 @@ import routingRoutes from "./modules/routing/routing.routes.js";
 import refRoutes from "./modules/ref/ref.routes.js";
 import addressesRoutes from "./modules/addresses/addresses.routes.js";
 import { IMPORT_REVIEW_ADMIN_TOKEN_HEADER } from "./modules/import-review/import-review-admin.guard.js";
+import { buildApiErrorResponse } from "./lib/api-error-response.js";
 import { healthGetSchema } from "./lib/openapi/health.openapi.js";
 
 const LOCAL_DASHBOARD_ORIGIN = "http://localhost:3000";
@@ -136,6 +137,30 @@ function registerPublicErrorHandler(app: FastifyInstance) {
             prismaUnknown,
             prismaInit,
         });
+
+        const url = request.url.split("?")[0] ?? request.url;
+        if (url.startsWith("/api/import-review")) {
+            const fastifyValidation = fastifyErr.validation;
+            const errorCode =
+                statusCode === 400
+                    ? "VALIDATION_ERROR"
+                    : statusCode === 404
+                      ? "NOT_FOUND"
+                      : statusCode === 401
+                        ? "UNAUTHORIZED"
+                        : statusCode === 403
+                          ? "FORBIDDEN"
+                          : "INTERNAL_ERROR";
+            return reply
+                .code(statusCode)
+                .send(
+                    buildApiErrorResponse(
+                        errorCode,
+                        message,
+                        fastifyValidation === undefined ? null : { issues: fastifyValidation }
+                    )
+                );
+        }
 
         return reply.code(statusCode).send({ message });
     });

@@ -16,6 +16,7 @@ import ImportReviewInlineSpinner from "@/src/features/import-review/components/I
 import ImportReviewSkeletonTable from "@/src/features/import-review/components/ImportReviewSkeletonTable";
 import { useClearSelectionOnListQueryChange } from "@/src/features/import-review/hooks/useClearSelectionOnListQueryChange";
 import { useImportReviewBulkActions } from "@/src/features/import-review/hooks/useImportReviewBulkActions";
+import { useImportReviewFamilyFilterOptions } from "@/src/features/import-review/hooks/useImportReviewFamilyFilterOptions";
 import { useImportReviewFormOptions } from "@/src/features/import-review/hooks/useImportReviewFormOptions";
 import { roadClassOptionsFromFormOptions } from "@/src/features/import-review/utils/formOptionsUtils";
 import { buildImportReviewListQueryKey } from "@/src/features/import-review/utils/entityPageUtils";
@@ -26,24 +27,23 @@ import {
     getImportReviewFamilyCandidateById,
     getImportReviewPlaces,
     getImportReviewRoads,
-    getImportReviewSummary,
     isAbortError,
     isImportReviewBatchAmbiguousError,
     patchImportReviewPlaceDecision,
     patchImportReviewRoadDecision,
     type ImportReviewBatchChoice,
     type ImportReviewBuildingListItem,
-    type ImportReviewBuildingsFilterOptionsResponse,
     type ImportReviewBuildingsListResponse,
     type ImportReviewDecision,
     type ImportReviewGeoJson,
     type ImportReviewRoadRoutingValidationResponse,
     type ImportReviewRoadsListParams,
-    type ImportReviewSummaryResponse,
     type RoadDryRunItemResult,
 } from "@/src/lib/api";
 import ImportReviewRoadDryRunStatusBadge from "@/src/features/import-review/components/ImportReviewRoadDryRunStatusBadge";
 import { useImportReviewRoadDryRunSummary } from "@/src/features/import-review/hooks/useImportReviewRoadDryRunSummary";
+import { isImportReviewCandidatesRoute } from "@/src/features/import-review/navigation/importReviewRoutes";
+import { replaceImportReviewSearchParams } from "@/src/features/import-review/navigation/replaceImportReviewSearchParams";
 import {
     collectDryRunStatusOptions,
     collectIssueCodeOptions,
@@ -262,34 +262,6 @@ function readListFilters(sp: URLSearchParams): ListFilters {
     };
 }
 
-function filterOptionsFromSummary(
-    summary: ImportReviewSummaryResponse,
-    family: ImportReviewCandidateFamily,
-): ImportReviewBuildingsFilterOptionsResponse {
-    const rows = summary.entity_summaries.filter((r) => r.entity_family === family);
-    const uniqStrings = (pick: (row: (typeof rows)[number]) => string | null | undefined) => {
-        const s = new Set<string>();
-        for (const r of rows) {
-            const v = pick(r);
-            if (v !== null && v !== undefined && String(v).trim() !== "") {
-                s.add(String(v).trim());
-            }
-        }
-        return [...s].sort((a, b) => a.localeCompare(b));
-    };
-    return {
-        source_snapshot_version: summary.source_snapshot_version,
-        review_batch_id: summary.review_batch_id,
-        source_snapshot_id_local: summary.source_snapshot_id_local,
-        match_status: uniqStrings((r) => r.match_status),
-        auto_action: uniqStrings((r) => r.auto_action),
-        review_status: uniqStrings((r) => r.review_status),
-        review_decision: uniqStrings((r) => r.review_decision),
-        class_code: [],
-        promotion_status: uniqStrings((r) => r.promotion_status),
-    };
-}
-
 function Pill({ children, tone }: { children: React.ReactNode; tone: "slate" | "blue" | "amber" | "violet" | "red" | "emerald" }) {
     const cls =
         tone === "blue"
@@ -354,8 +326,9 @@ export function ImportReviewCandidatesClient({
     showMapPreview?: boolean;
 }) {
     const router = useRouter();
-    const pathname = usePathname();
+    const pathname = usePathname() ?? "";
     const searchParams = useSearchParams();
+    const routeActive = isImportReviewCandidatesRoute(pathname, family);
 
     const snapshotUrl = snapshotVersionFromImportReviewSearch(searchParams);
     const batchUrl = reviewBatchIdFromImportReviewSearch(searchParams);
@@ -377,11 +350,11 @@ export function ImportReviewCandidatesClient({
         return Number.isFinite(raw) && raw >= 0 ? raw : 0;
     });
 
-    const [filterOptions, setFilterOptions] = useState<ImportReviewBuildingsFilterOptionsResponse | null>(null);
-    const [filterOptionsLoading, setFilterOptionsLoading] = useState(false);
-
     const [list, setList] = useState<ImportReviewBuildingsListResponse | null>(null);
     const [isLoading, setIsLoading] = useState(() => {
+        if (!routeActive) {
+            return false;
+        }
         const scope = importReviewScopeQueryFromSearch(searchParams, ENV_SNAPSHOT_DEFAULT, {
             useEnvDefault: false,
         });
@@ -410,7 +383,7 @@ export function ImportReviewCandidatesClient({
         formOptions,
         isLoading: formOptionsLoading,
         error: formOptionsError,
-    } = useImportReviewFormOptions(needsFormOptions);
+    } = useImportReviewFormOptions(needsFormOptions && routeActive);
 
     const roadClassOptions = useMemo(
         () => roadClassOptionsFromFormOptions(formOptions),
@@ -434,10 +407,13 @@ export function ImportReviewCandidatesClient({
 
     const replaceQuery = useCallback(
         (mutate: (p: URLSearchParams) => void) => {
-            const p = new URLSearchParams(searchParams.toString());
-            mutate(p);
-            const qs = p.toString();
-            router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+            replaceImportReviewSearchParams(
+                router,
+                pathname ?? "",
+                searchParams,
+                mutate,
+                { source: "ImportReviewCandidatesClient:replace_query" }
+            );
         },
         [router, pathname, searchParams],
     );
@@ -476,7 +452,26 @@ export function ImportReviewCandidatesClient({
 
     useClearSelectionOnListQueryChange(listQueryKey, setSelectedIds);
 
-    const hasValidScope = apiScopeQuery !== null;
+    const hasValidScope = routeActive && apiScopeQuery !== null;
+
+    const {
+        filterOptions,
+        isLoadingFilters: filterOptionsLoading,
+        ambiguousBatches: filterAmbiguousBatches,
+        ambiguousSnapshot: filterAmbiguousSnapshot,
+    } = useImportReviewFamilyFilterOptions({
+        apiFamily: family,
+        apiScopeQuery,
+        enabled: hasValidScope,
+    });
+
+    useEffect(() => {
+        if (!filterAmbiguousBatches?.length) {
+            return;
+        }
+        setAmbiguousBatches(filterAmbiguousBatches);
+        setAmbiguousSnapshot(filterAmbiguousSnapshot);
+    }, [filterAmbiguousBatches, filterAmbiguousSnapshot]);
 
     const {
         summary: roadDryRunSummary,
@@ -547,67 +542,9 @@ export function ImportReviewCandidatesClient({
         setOffset(Number.isFinite(off) && off >= 0 ? off : 0);
     }, [searchParams]);
 
-    useEffect(() => {
-        if (!hasValidScope || !apiScopeQuery) {
-            setFilterOptions(null);
-            return;
-        }
-        const c = new AbortController();
-        setFilterOptionsLoading(true);
-        const startedAt = performance.now();
-        logImportReviewClientFetch({
-            phase: "filter-options",
-            family,
-            status: "start",
-            query: { ...apiScopeQuery },
-        });
-        getImportReviewSummary({ ...apiScopeQuery }, { signal: c.signal })
-            .then((s) => {
-                logImportReviewClientFetch({
-                    phase: "filter-options",
-                    family,
-                    status: "success",
-                    durationMs: Math.round(performance.now() - startedAt),
-                });
-                setFilterOptions(filterOptionsFromSummary(s, family));
-            })
-            .catch((err) => {
-                if (isAbortError(err)) {
-                    logImportReviewClientFetch({
-                        phase: "filter-options",
-                        family,
-                        status: "abort",
-                        durationMs: Math.round(performance.now() - startedAt),
-                    });
-                    return;
-                }
-                logImportReviewClientFetch({
-                    phase: "filter-options",
-                    family,
-                    status: "error",
-                    durationMs: Math.round(performance.now() - startedAt),
-                    error: err instanceof Error ? err.message : String(err),
-                });
-                if (isImportReviewBatchAmbiguousError(err)) {
-                    setAmbiguousBatches(err.batches);
-                    setAmbiguousSnapshot(err.sourceSnapshotVersion);
-                    setFilterOptions(null);
-                    setError("");
-                    return;
-                }
-                setFilterOptions(null);
-            })
-            .finally(() => {
-                if (!c.signal.aborted) {
-                    setFilterOptionsLoading(false);
-                }
-            });
-        return () => c.abort();
-    }, [hasValidScope, apiScopeQuery, family]);
-
     const fetchList = useCallback(
         async (signal?: AbortSignal) => {
-            if (!hasValidScope || !apiScopeQuery) {
+            if (!routeActive || !hasValidScope || !apiScopeQuery) {
                 setList(null);
                 setError("");
                 setIsLoading(false);
@@ -629,7 +566,8 @@ export function ImportReviewCandidatesClient({
                     limit,
                     offset,
                     sort,
-                    include_geometry: family !== "roads",
+                    include_geometry: false,
+                    include_total: offset === 0,
                 },
             });
 
@@ -639,7 +577,8 @@ export function ImportReviewCandidatesClient({
                     limit,
                     offset,
                     sort,
-                    include_geometry: family !== "roads",
+                    include_geometry: false,
+                    include_total: offset === 0,
                 };
                 const rest: ImportReviewRoadsListParams = { ...params };
                 if (filters.match_status) {
@@ -721,11 +660,25 @@ export function ImportReviewCandidatesClient({
                 }
             }
         },
-        [hasValidScope, apiScopeQuery, limit, offset, sort, filters, qApplied, family, batchUrl, replaceQuery, roadClientFilters.promotion_status, roadClientFilters.class_code],
+        [
+            routeActive,
+            hasValidScope,
+            apiScopeQuery,
+            limit,
+            offset,
+            sort,
+            filters,
+            qApplied,
+            family,
+            batchUrl,
+            replaceQuery,
+            roadClientFilters.promotion_status,
+            roadClientFilters.class_code,
+        ],
     );
 
     useEffect(() => {
-        if (!hasValidScope) {
+        if (!routeActive || !hasValidScope) {
             setList(null);
             setIsLoading(false);
             return;
@@ -734,7 +687,19 @@ export function ImportReviewCandidatesClient({
         const c = new AbortController();
         void fetchList(c.signal);
         return () => c.abort();
-    }, [fetchList, hasValidScope]);
+    }, [fetchList, routeActive, hasValidScope]);
+
+    useEffect(() => {
+        if (!routeActive) {
+            setList(null);
+            setError("");
+            setAmbiguousBatches(null);
+            setAmbiguousSnapshot("");
+            setIsLoading(false);
+            setSelectedIds(new Set());
+            setDrawerRow(null);
+        }
+    }, [routeActive]);
 
     const showCandidatesSkeleton =
         hasValidScope &&
@@ -1337,6 +1302,10 @@ export function ImportReviewCandidatesClient({
         return roadDryRunSummary.items_by_candidate_id[drawerRow.id] ?? null;
     }, [family, drawerRow, roadDryRunSummary]);
 
+    if (!routeActive) {
+        return null;
+    }
+
     return (
         <main className="min-h-screen overflow-x-hidden bg-gray-50/80 p-6">
             <div
@@ -1390,6 +1359,7 @@ export function ImportReviewCandidatesClient({
                             const qs = p.toString();
                             return qs ? `${base}?${qs}` : base;
                         })()}
+                        prefetch={false}
                         className="inline-flex shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50"
                     >
                         Back to summary

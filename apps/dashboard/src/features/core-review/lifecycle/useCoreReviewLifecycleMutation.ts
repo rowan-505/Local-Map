@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 import { DASHBOARD_STREET_MVT_SESSION_BUST_KEY, scheduleBuildingTileRefresh } from "@/src/components/map/placeMapConfig";
@@ -11,6 +12,7 @@ import {
 } from "@/src/lib/api";
 
 import { coreReviewEntityLabel } from "./coreReviewLifecycleUtils";
+import { patchCoreReviewLifecycleEverywhere } from "../hooks/coreReviewCache";
 
 function sanitizeLifecycleError(err: unknown): string {
     const raw = err instanceof Error ? err.message : "Request failed";
@@ -23,6 +25,7 @@ function sanitizeLifecycleError(err: unknown): string {
 export function useCoreReviewLifecycleMutation(apiSlug: CoreReviewEntitySlug) {
     const { bumpPlaceTileVersion, bumpBuildingTileVersion, bumpStreetTileVersion, bumpRoadLabelTileVersion } =
         useDashboardTileVersions();
+    const queryClient = useQueryClient();
     const [isBusy, setIsBusy] = useState(false);
     const [error, setError] = useState("");
 
@@ -59,6 +62,7 @@ export function useCoreReviewLifecycleMutation(apiSlug: CoreReviewEntitySlug) {
             setError("");
             try {
                 await softDeleteCoreReviewEntity(apiSlug, id);
+                patchCoreReviewLifecycleEverywhere(queryClient, apiSlug, id, "soft-delete");
                 bumpTilesAfterLifecycle();
                 return {
                     ok: true as const,
@@ -72,7 +76,7 @@ export function useCoreReviewLifecycleMutation(apiSlug: CoreReviewEntitySlug) {
                 setIsBusy(false);
             }
         },
-        [apiSlug, bumpTilesAfterLifecycle]
+        [apiSlug, bumpTilesAfterLifecycle, queryClient]
     );
 
     const runRestore = useCallback(
@@ -81,6 +85,7 @@ export function useCoreReviewLifecycleMutation(apiSlug: CoreReviewEntitySlug) {
             setError("");
             try {
                 await restoreCoreReviewEntity(apiSlug, id);
+                patchCoreReviewLifecycleEverywhere(queryClient, apiSlug, id, "restore");
                 bumpTilesAfterLifecycle();
                 return {
                     ok: true as const,
@@ -94,7 +99,7 @@ export function useCoreReviewLifecycleMutation(apiSlug: CoreReviewEntitySlug) {
                 setIsBusy(false);
             }
         },
-        [apiSlug, bumpTilesAfterLifecycle]
+        [apiSlug, bumpTilesAfterLifecycle, queryClient]
     );
 
     return { isBusy, error, setError, runSoftDelete, runRestore };

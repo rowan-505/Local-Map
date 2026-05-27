@@ -73,6 +73,15 @@ export function importReviewScopeQueryFromSearch(
     return latest ? { source_snapshot_version: snap, latest: true } : { source_snapshot_version: snap };
 }
 
+/** Batch id from resolved API scope, if present (required for filter-options). */
+export function reviewBatchIdFromApiScopeQuery(scope: ImportReviewScopeQueryParams | null): string | null {
+    if (!scope || !("review_batch_id" in scope)) {
+        return null;
+    }
+    const id = scope.review_batch_id.trim();
+    return id || null;
+}
+
 /** Scope params safe for `/api/import-review/*` — never send snapshot when batch id is set. */
 export function importReviewScopeQueryForApi(
     scope: ImportReviewScopeQueryParams | null

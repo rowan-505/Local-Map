@@ -1,5 +1,22 @@
-import { ImportReviewEntityPageShell } from "../components/ImportReviewEntityPage";
+import dynamic from "next/dynamic";
+
+import { ImportReviewLoadingBannerWithSpinner } from "../components/ImportReviewLoadingState";
+import { IMPORT_REVIEW_LOADING } from "../utils/loadingMessages";
 import type { ImportReviewEntitySlug } from "../config/types";
+
+const ImportReviewEntityPageShell = dynamic(
+    () =>
+        import("../components/ImportReviewEntityPage").then((mod) => ({
+            default: mod.ImportReviewEntityPageShell,
+        })),
+    {
+        loading: () => (
+            <main className="min-h-screen bg-gray-50 p-6">
+                <ImportReviewLoadingBannerWithSpinner message={IMPORT_REVIEW_LOADING.loadingBatchContext} />
+            </main>
+        ),
+    }
+);
 
 export type ImportReviewEntityRoutePageOptions = {
     showMapPreview?: boolean;

@@ -2,20 +2,29 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import type { PlaceFormOption, RefBuildingType, RefLanduseClass, RoadClassOption, Street, ImportReviewReferenceOptionDto } from "@/src/lib/api";
+import type {
+    PlaceFormOption,
+    RefBuildingType,
+    RefLanduseClass,
+    RoadClassOption,
+    Street,
+    ImportReviewReferenceOptionDto,
+} from "@/src/lib/api";
 import {
-    getBuildingTypes,
-    getCoreReviewList,
     getImportReviewReferenceOptions,
     getPlaceFormOptions,
-    getRefLanduseClasses,
-    getRoadClasses,
-    getStreets,
     type PlaceFormOptions,
 } from "@/src/lib/api";
-import type { CoreReviewBusRouteRow } from "@/src/features/core-review/config/types";
 
 import type { CoreRefSourceKind } from "@/src/lib/core-review/entityConfigs/types";
+import type { CoreReviewBusRouteRow } from "@/src/features/core-review/config/types";
+import {
+    useCoreReviewRefBuildingTypes,
+    useCoreReviewRefBusRoutes,
+    useCoreReviewRefLanduseClasses,
+    useCoreReviewRefRoadClasses,
+    useCoreReviewRefStreets,
+} from "../hooks/coreReviewRefQueries";
 
 export type CoreRefOption = {
     value: string;
@@ -157,35 +166,12 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
     const needsStreets = sources.includes("streets");
     const needsLanduseClasses = sources.includes("landuse-classes");
 
-    const loadBuildingTypes = useCallback(async () => {
-        if (!needsBuildingTypes) return;
-        setBuildingTypesLoading(true);
-        setBuildingTypesError(null);
-        try {
-            const data = await getBuildingTypes();
-            setBuildingTypes(mapBuildingTypes(data));
-        } catch (err) {
-            setBuildingTypes([]);
-            setBuildingTypesError(err instanceof Error ? err.message : "Could not load building types.");
-        } finally {
-            setBuildingTypesLoading(false);
-        }
-    }, [needsBuildingTypes]);
-
-    const loadRoadClasses = useCallback(async () => {
-        if (!needsRoadClasses) return;
-        setRoadClassesLoading(true);
-        setRoadClassesError(null);
-        try {
-            const data = await getRoadClasses();
-            setRoadClasses(mapRoadClasses(data));
-        } catch (err) {
-            setRoadClasses([]);
-            setRoadClassesError(err instanceof Error ? err.message : "Could not load road classes.");
-        } finally {
-            setRoadClassesLoading(false);
-        }
-    }, [needsRoadClasses]);
+    // Global cached reference data (React Query).
+    const buildingTypesQuery = useCoreReviewRefBuildingTypes(needsBuildingTypes);
+    const roadClassesQuery = useCoreReviewRefRoadClasses(needsRoadClasses);
+    const busRoutesQuery = useCoreReviewRefBusRoutes(200, needsBusRoutes);
+    const streetsQuery = useCoreReviewRefStreets(100, needsStreets);
+    const landuseClassesQuery = useCoreReviewRefLanduseClasses(needsLanduseClasses);
 
     const loadPlaceFormOptions = useCallback(async () => {
         if (!needsPlaceForm) return;
@@ -217,61 +203,41 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
         }
     }, [needsReferenceOptions]);
 
-    const loadBusRoutes = useCallback(async () => {
-        if (!needsBusRoutes) return;
-        setBusRoutesLoading(true);
-        setBusRoutesError(null);
-        try {
-            const response = await getCoreReviewList<CoreReviewBusRouteRow>("bus-routes", {
-                page: 1,
-                pageSize: 200,
-            });
-            setBusRoutes(mapBusRoutes(response.data));
-        } catch (err) {
-            setBusRoutes([]);
-            setBusRoutesError(err instanceof Error ? err.message : "Could not load bus routes.");
-        } finally {
-            setBusRoutesLoading(false);
+    useEffect(() => {
+        if (!needsBuildingTypes) {
+            setBuildingTypes([]);
+            setBuildingTypesLoading(false);
+            setBuildingTypesError(null);
+            return;
         }
-    }, [needsBusRoutes]);
-
-    const loadStreets = useCallback(async () => {
-        if (!needsStreets) return;
-        setStreetsLoading(true);
-        setStreetsError(null);
-        try {
-            const data = await getStreets({ limit: 100 });
-            setStreets(mapStreets(data));
-        } catch (err) {
-            setStreets([]);
-            setStreetsError(err instanceof Error ? err.message : "Could not load streets.");
-        } finally {
-            setStreetsLoading(false);
-        }
-    }, [needsStreets]);
-
-    const loadLanduseClasses = useCallback(async () => {
-        if (!needsLanduseClasses) return;
-        setLanduseClassesLoading(true);
-        setLanduseClassesError(null);
-        try {
-            const data = await getRefLanduseClasses();
-            setLanduseClasses(mapLanduseClasses(data));
-        } catch (err) {
-            setLanduseClasses([]);
-            setLanduseClassesError(err instanceof Error ? err.message : "Could not load landuse classes.");
-        } finally {
-            setLanduseClassesLoading(false);
-        }
-    }, [needsLanduseClasses]);
+        setBuildingTypes(mapBuildingTypes(buildingTypesQuery.data ?? []));
+        setBuildingTypesLoading(buildingTypesQuery.isFetching && !(buildingTypesQuery.data?.length));
+        setBuildingTypesError(
+            buildingTypesQuery.error instanceof Error
+                ? buildingTypesQuery.error.message
+                : buildingTypesQuery.error
+                  ? String(buildingTypesQuery.error)
+                  : null
+        );
+    }, [needsBuildingTypes, buildingTypesQuery.data, buildingTypesQuery.error, buildingTypesQuery.isFetching]);
 
     useEffect(() => {
-        void loadBuildingTypes();
-    }, [loadBuildingTypes]);
-
-    useEffect(() => {
-        void loadRoadClasses();
-    }, [loadRoadClasses]);
+        if (!needsRoadClasses) {
+            setRoadClasses([]);
+            setRoadClassesLoading(false);
+            setRoadClassesError(null);
+            return;
+        }
+        setRoadClasses(mapRoadClasses(roadClassesQuery.data ?? []));
+        setRoadClassesLoading(roadClassesQuery.isFetching && !(roadClassesQuery.data?.length));
+        setRoadClassesError(
+            roadClassesQuery.error instanceof Error
+                ? roadClassesQuery.error.message
+                : roadClassesQuery.error
+                  ? String(roadClassesQuery.error)
+                  : null
+        );
+    }, [needsRoadClasses, roadClassesQuery.data, roadClassesQuery.error, roadClassesQuery.isFetching]);
 
     useEffect(() => {
         void loadPlaceFormOptions();
@@ -282,16 +248,58 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
     }, [loadReferenceOptions]);
 
     useEffect(() => {
-        void loadBusRoutes();
-    }, [loadBusRoutes]);
+        if (!needsBusRoutes) {
+            setBusRoutes([]);
+            setBusRoutesLoading(false);
+            setBusRoutesError(null);
+            return;
+        }
+        setBusRoutes(mapBusRoutes(busRoutesQuery.data ?? []));
+        setBusRoutesLoading(busRoutesQuery.isFetching && !(busRoutesQuery.data?.length));
+        setBusRoutesError(
+            busRoutesQuery.error instanceof Error
+                ? busRoutesQuery.error.message
+                : busRoutesQuery.error
+                  ? String(busRoutesQuery.error)
+                  : null
+        );
+    }, [needsBusRoutes, busRoutesQuery.data, busRoutesQuery.error, busRoutesQuery.isFetching]);
 
     useEffect(() => {
-        void loadStreets();
-    }, [loadStreets]);
+        if (!needsStreets) {
+            setStreets([]);
+            setStreetsLoading(false);
+            setStreetsError(null);
+            return;
+        }
+        setStreets(mapStreets(streetsQuery.data ?? []));
+        setStreetsLoading(streetsQuery.isFetching && !(streetsQuery.data?.length));
+        setStreetsError(
+            streetsQuery.error instanceof Error
+                ? streetsQuery.error.message
+                : streetsQuery.error
+                  ? String(streetsQuery.error)
+                  : null
+        );
+    }, [needsStreets, streetsQuery.data, streetsQuery.error, streetsQuery.isFetching]);
 
     useEffect(() => {
-        void loadLanduseClasses();
-    }, [loadLanduseClasses]);
+        if (!needsLanduseClasses) {
+            setLanduseClasses([]);
+            setLanduseClassesLoading(false);
+            setLanduseClassesError(null);
+            return;
+        }
+        setLanduseClasses(mapLanduseClasses(landuseClassesQuery.data ?? []));
+        setLanduseClassesLoading(landuseClassesQuery.isFetching && !(landuseClassesQuery.data?.length));
+        setLanduseClassesError(
+            landuseClassesQuery.error instanceof Error
+                ? landuseClassesQuery.error.message
+                : landuseClassesQuery.error
+                  ? String(landuseClassesQuery.error)
+                  : null
+        );
+    }, [needsLanduseClasses, landuseClassesQuery.data, landuseClassesQuery.error, landuseClassesQuery.isFetching]);
 
     const adminAreasState = emptyRefState();
 
@@ -300,13 +308,13 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
             options: buildingTypes,
             isLoading: buildingTypesLoading,
             error: buildingTypesError,
-            reload: () => void loadBuildingTypes(),
+            reload: () => void buildingTypesQuery.refetch(),
         },
         "road-classes": {
             options: roadClasses,
             isLoading: roadClassesLoading,
             error: roadClassesError,
-            reload: () => void loadRoadClasses(),
+            reload: () => void roadClassesQuery.refetch(),
         },
         "place-form-options:categories": {
             options: placeFormOptions ? optionsFromPlaceFormOptions(placeFormOptions, "categories") : [],
@@ -347,20 +355,20 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
             options: busRoutes,
             isLoading: busRoutesLoading,
             error: busRoutesError,
-            reload: () => void loadBusRoutes(),
+            reload: () => void busRoutesQuery.refetch(),
         },
         streets: {
             options: streets,
             isLoading: streetsLoading,
             error: streetsError,
-            reload: () => void loadStreets(),
+            reload: () => void streetsQuery.refetch(),
             // Note: first 100 streets only; dedicated search combobox TODO when street count grows.
         },
         "landuse-classes": {
             options: landuseClasses,
             isLoading: landuseClassesLoading,
             error: landuseClassesError,
-            reload: () => void loadLanduseClasses(),
+            reload: () => void landuseClassesQuery.refetch(),
         },
     };
 }

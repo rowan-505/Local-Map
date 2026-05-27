@@ -6,6 +6,9 @@ import {
 /** Dashboard route slug (hyphen) → API entity family (underscore). */
 const ROUTE_SLUG_TO_API_FAMILY: Readonly<Record<string, string>> = {
     "bus-stops": "bus_stops",
+    "bus-routes": "bus_routes",
+    "bus-route-variants": "bus_route_variants",
+    "bus-route-stops": "bus_route_stops",
     "admin-areas": "admin_areas",
     "water-lines": "water_lines",
     "water-polygons": "water_polygons",

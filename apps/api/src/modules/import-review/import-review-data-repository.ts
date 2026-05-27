@@ -94,6 +94,12 @@ export type BuildingListRowDb = {
     layer?: number | null;
     /** Internal marker from lightweight roads list SELECT — not serialized to API */
     is_road_list_projection?: boolean | null;
+    /** Internal marker from lightweight buildings list SELECT */
+    is_building_list_projection?: boolean | null;
+    /** Lightweight list SELECT across all families */
+    is_list_projection?: boolean | null;
+    /** List projection: geom present without ST_AsGeoJSON */
+    has_geometry?: boolean | null;
     routing_status?: string | null;
     /** Address candidates (042 repair columns) */
     source_entity_type?: string | null;
@@ -119,6 +125,11 @@ export type BuildingListRowDb = {
     admin_match_confidence?: unknown;
     street_match_confidence?: unknown;
     promoted_core_address_id?: bigint | null;
+};
+
+export type ImportReviewCandidateListRepoResult = {
+    rows: BuildingListRowDb[];
+    hasMore: boolean;
 };
 
 import type { ImportReviewScopeQuery, ImportReviewScopeResolved } from "./import-review-batch-resolver.js";
@@ -174,6 +185,13 @@ export interface ImportReviewDataRepository {
         warnings: string[];
     }>;
 
+    /** Single pass: buckets + family metrics (preferred for GET /summary). */
+    fetchScopeSummary(scope: ImportReviewScopeResolved): Promise<{
+        buckets: ImportReviewSummaryBucketDb[];
+        familyMetrics: ImportReviewFamilySummaryMetricsDb[];
+        warnings: string[];
+    }>;
+
     fetchBuildingFilterOptions(scope: ImportReviewScopeResolved): Promise<{
         match_status: string[];
         auto_action: string[];
@@ -214,8 +232,9 @@ export interface ImportReviewDataRepository {
             | "offset"
             | "sort"
             | "include_geometry"
+            | "include_total"
         >
-    ): Promise<BuildingListRowDb[]>;
+    ): Promise<ImportReviewCandidateListRepoResult>;
 
     getBuildingById(
         scope: ImportReviewScopeResolved,
@@ -279,8 +298,9 @@ export interface ImportReviewDataRepository {
             | "offset"
             | "sort"
             | "include_geometry"
+            | "include_total"
         >
-    ): Promise<BuildingListRowDb[]>;
+    ): Promise<ImportReviewCandidateListRepoResult>;
 
     findPlaceCandidateReviewContext(
         scope: ImportReviewScopeResolved,
@@ -330,8 +350,9 @@ export interface ImportReviewDataRepository {
             | "offset"
             | "sort"
             | "include_geometry"
+            | "include_total"
         >
-    ): Promise<BuildingListRowDb[]>;
+    ): Promise<ImportReviewCandidateListRepoResult>;
 
     findRoadCandidateReviewContext(
         scope: ImportReviewScopeResolved,
@@ -410,7 +431,7 @@ export interface ImportReviewDataRepository {
         family: ImportReviewEntityFamilySlug,
         scope: ImportReviewScopeResolved,
         filters: CandidateListFilters
-    ): Promise<BuildingListRowDb[]>;
+    ): Promise<ImportReviewCandidateListRepoResult>;
 
     getCandidateById(
         family: ImportReviewEntityFamilySlug,

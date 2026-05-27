@@ -35,6 +35,18 @@ export type ImportReviewListFilters = {
     class_code: string;
 };
 
+/** Stable string for React Query keys — avoids refetch from object identity churn. */
+export function serializeImportReviewListFilters(filters: ImportReviewListFilters): string {
+    return [
+        filters.match_status,
+        filters.auto_action,
+        filters.review_status,
+        filters.review_decision,
+        filters.promotion_status,
+        filters.class_code,
+    ].join("|");
+}
+
 /** Stable key for list fetches — selection clears only when this changes. */
 export function buildImportReviewListQueryKey(input: {
     apiScopeQuery: ImportReviewScopeQueryParams | null;

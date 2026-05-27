@@ -105,7 +105,7 @@ export default function ImportReviewHistoryPublishBatchDetailClient() {
         <main className="p-6">
             <div className="mx-auto max-w-7xl space-y-6">
                 <p className="text-sm text-gray-600">
-                    <Link href={importReviewHistoryHref()} className="font-medium text-blue-700 hover:underline">
+                    <Link href={importReviewHistoryHref()} prefetch={false} className="font-medium text-blue-700 hover:underline">
                         ← History
                     </Link>
                 </p>
@@ -130,6 +130,7 @@ export default function ImportReviewHistoryPublishBatchDetailClient() {
                                             Review batch{" "}
                                             <Link
                                                 href={importReviewHistoryReviewBatchHref(data.source_review_batch.id)}
+                                                prefetch={false}
                                                 className="font-medium text-blue-700 hover:underline"
                                             >
                                                 #{data.source_review_batch.id} · {data.source_review_batch.batch_name}

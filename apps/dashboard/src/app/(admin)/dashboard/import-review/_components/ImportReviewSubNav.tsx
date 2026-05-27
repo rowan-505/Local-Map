@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import FamilyTopNav from "@/src/components/dashboard/FamilyTopNav";
 import {
@@ -12,10 +12,17 @@ import {
     IMPORT_REVIEW_NAV_ENTITIES,
 } from "@/src/lib/importReviewEntityConfig";
 import { reviewBatchIdFromImportReviewSearch } from "@/src/lib/importReviewSnapshot";
+import { isImportReviewRequestDebugEnabled } from "@/src/features/import-review/utils/importReviewRequestDebug";
 
 export default function ImportReviewSubNav() {
     const searchParams = useSearchParams();
-    const reviewBatchId = reviewBatchIdFromImportReviewSearch(searchParams);
+    const searchKey = searchParams.toString();
+    const reviewBatchId = useMemo(
+        () => reviewBatchIdFromImportReviewSearch(searchParams),
+        [searchKey]
+    );
+
+    const pathname = usePathname() ?? "";
 
     const tabs = useMemo(
         () => [
@@ -40,8 +47,20 @@ export default function ImportReviewSubNav() {
                 match: "prefix" as const,
             },
         ],
-        [searchParams, reviewBatchId]
+        [searchKey, reviewBatchId]
     );
+
+    useEffect(() => {
+        if (!isImportReviewRequestDebugEnabled()) {
+            return;
+        }
+        console.debug("[import-review:requests]", "subnav_tabs", {
+            pathname,
+            review_batch_id: reviewBatchId || null,
+            tab_count: tabs.length,
+            tab_hrefs: tabs.map((t) => t.href.split("?")[0]),
+        });
+    }, [pathname, reviewBatchId, tabs]);
 
     return <FamilyTopNav ariaLabel="Import review sections" tabs={tabs} />;
 }

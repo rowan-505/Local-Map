@@ -29,6 +29,7 @@ export default function CoreReviewOverviewPage() {
                     <Link
                         key={module.segment}
                         href={module.href}
+                        prefetch={false}
                         className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md"
                     >
                         <div className="mb-3 flex items-start justify-between gap-2">

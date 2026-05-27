@@ -15,6 +15,11 @@ import ImportReviewSkeletonCards from "@/src/features/import-review/components/I
 import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import {
+    logImportReviewRouterCall,
+    logImportReviewUserAction,
+} from "@/src/features/import-review/utils/importReviewRequestDebug";
+import { replaceImportReviewSearchParams } from "@/src/features/import-review/navigation/replaceImportReviewSearchParams";
+import {
     PromotionCardBody,
     PromotionSectionHeading,
     PromotionStatusBadge,
@@ -235,17 +240,23 @@ export default function ImportReviewPromotionClient() {
                 setBatchesTotal(listRes.total);
                 setLastLoaded(scope);
                 if (opts.syncUrl) {
-                    const params = new URLSearchParams(searchParams.toString());
                     const resolvedBatch =
                         batch ||
                         candidatesRes.items[0]?.review_batch_id?.trim() ||
                         "";
-                    if (snap && resolvedBatch) {
-                        syncImportReviewUrlToResolvedBatch(params, resolvedBatch);
-                    } else {
-                        applyImportReviewScopeSearchParams(params, snap, batch);
-                    }
-                    router.replace(`${importReviewPath("promotion")}?${params.toString()}`, { scroll: false });
+                    replaceImportReviewSearchParams(
+                        router,
+                        importReviewPath("promotion"),
+                        searchParams,
+                        (params) => {
+                            if (snap && resolvedBatch) {
+                                syncImportReviewUrlToResolvedBatch(params, resolvedBatch);
+                            } else {
+                                applyImportReviewScopeSearchParams(params, snap, batch);
+                            }
+                        },
+                        { source: "ImportReviewPromotionClient:loadAll_sync_url" }
+                    );
                 }
                 return true;
             } catch (err) {
@@ -315,6 +326,11 @@ export default function ImportReviewPromotionClient() {
     }, [chosenBatch, chosenSnapshot]);
 
     async function handleApplyScope() {
+        logImportReviewUserAction({
+            action: "apply_scope",
+            source: "ImportReviewPromotionClient:apply_scope",
+            route_slug: "promotion",
+        });
         setCandidateOffset(0);
         await loadAll({
             snapshotVersion: versionInput,
@@ -349,9 +365,15 @@ export default function ImportReviewPromotionClient() {
             syncUrl: false,
         });
         const detailQuery = searchParams.toString();
-        router.push(
-            `${importReviewPath("promotion")}/${result.batch.id}${detailQuery ? `?${detailQuery}` : ""}`
-        );
+        const detailHref = `${importReviewPath("promotion")}/${result.batch.id}${detailQuery ? `?${detailQuery}` : ""}`;
+        logImportReviewRouterCall({
+            method: "push",
+            source: "ImportReviewPromotionClient:batch_created",
+            pathname: importReviewPath("promotion"),
+            from_query: searchParams.toString(),
+            to_href: detailHref,
+        });
+        router.push(detailHref);
     }
 
     const scopeLabel = useMemo(() => {
@@ -383,12 +405,14 @@ export default function ImportReviewPromotionClient() {
                         <div className="flex flex-wrap gap-2">
                             <Link
                                 href={importReviewPath()}
+                                prefetch={false}
                                 className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50"
                             >
                                 Import review
                             </Link>
                             <Link
                                 href={importReviewPath("buildings")}
+                                prefetch={false}
                                 className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50"
                             >
                                 Review buildings
@@ -596,6 +620,7 @@ export default function ImportReviewPromotionClient() {
                                                 <td className="px-4 py-3">
                                                     <Link
                                                         href={`${importReviewPath("promotion")}/${b.id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`}
+                                                        prefetch={false}
                                                         className="text-sm font-medium text-emerald-800 hover:underline"
                                                     >
                                                         View details

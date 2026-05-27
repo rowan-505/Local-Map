@@ -72,7 +72,11 @@ function formatAdminAreaLabel(row: {
 export class ImportReviewOptionsRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
-    async fetchAll(): Promise<ImportReviewFormOptionsResponse> {
+    /**
+     * Static form dropdowns — ref tables and admin areas only.
+     * Does not scan import_review.*_candidates (those DISTINCT scans belong in per-batch filter-options).
+     */
+    async fetchStaticFormOptions(): Promise<ImportReviewFormOptionsResponse> {
         const [
             admin_areas,
             admin_levels,
@@ -80,30 +84,18 @@ export class ImportReviewOptionsRepository {
             poi_categories,
             building_types,
             landuse_classes,
-            waterway_classes,
-            water_classes,
             barrier_types,
-            observedSurfaces,
         ] = await Promise.all([
             this.fetchAdminAreas(),
             this.fetchRefTable("ref.ref_admin_levels", "rank ASC NULLS LAST, name ASC"),
             this.fetchRefTable("ref.ref_road_classes", "code ASC"),
             this.fetchRefTable("ref.ref_poi_categories", "sort_order ASC NULLS LAST, name ASC"),
             this.fetchBuildingTypes(),
-            this.fetchLanduseClasses(),
-            this.fetchDistinctClassValues("import_review.water_line_candidates", ["waterway"]),
-            this.fetchDistinctClassValues("import_review.water_polygon_candidates", ["water", "natural"]),
-            this.fetchDistinctBarrierValues(),
-            this.fetchDistinctSurfaceValues(),
+            this.fetchLanduseClassesFromRefOnly(),
+            this.fetchBarrierTypesFromRefOnly(),
         ]);
 
-        const surfaceSet = new Set<string>(STATIC_SURFACE_PRESETS);
-        for (const s of observedSurfaces) {
-            surfaceSet.add(s);
-        }
-        const surface_presets = stringValuesToOptions(
-            [...surfaceSet].sort((a, b) => a.localeCompare(b))
-        );
+        const surface_presets = stringValuesToOptions([...STATIC_SURFACE_PRESETS]);
 
         return {
             admin_areas,
@@ -112,11 +104,17 @@ export class ImportReviewOptionsRepository {
             poi_categories,
             building_types,
             landuse_classes,
-            waterway_classes,
-            water_classes,
+            /** Observed values are per-batch — use GET /:family/filter-options class_code. */
+            waterway_classes: [],
+            water_classes: [],
             barrier_types,
             surface_presets,
         };
+    }
+
+    /** @deprecated Use fetchStaticFormOptions */
+    async fetchAll(): Promise<ImportReviewFormOptionsResponse> {
+        return this.fetchStaticFormOptions();
     }
 
     private async fetchAdminAreas(): Promise<ImportReviewAdminAreaFormOption[]> {
@@ -226,9 +224,9 @@ export class ImportReviewOptionsRepository {
         return rows.map((row) => refRowToOption(row));
     }
 
-    private async fetchLanduseClasses(): Promise<ImportReviewFormOption[]> {
+    private async fetchLanduseClassesFromRefOnly(): Promise<ImportReviewFormOption[]> {
         if (!(await tableExists(this.prisma, "ref.ref_landuse_classes"))) {
-            return this.fetchDistinctClassValues("import_review.landuse_candidates", ["landuse"]);
+            return [];
         }
 
         const rows = await this.prisma.$queryRaw<
@@ -250,6 +248,13 @@ export class ImportReviewOptionsRepository {
                 code: row.code,
             };
         });
+    }
+
+    private async fetchBarrierTypesFromRefOnly(): Promise<ImportReviewFormOption[]> {
+        if (!(await tableExists(this.prisma, "ref.ref_barrier_types"))) {
+            return [];
+        }
+        return this.fetchRefTable("ref.ref_barrier_types", "code ASC");
     }
 
     private async fetchDistinctClassValues(

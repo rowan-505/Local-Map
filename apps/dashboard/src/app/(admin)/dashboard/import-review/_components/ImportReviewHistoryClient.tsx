@@ -53,6 +53,7 @@ function ReviewBatchTable({ items }: { items: ImportReviewHistoryReviewBatchList
                             <td className="px-4 py-3">
                                 <Link
                                     href={importReviewHistoryReviewBatchHref(row.id)}
+                                    prefetch={false}
                                     className="font-medium text-blue-700 hover:underline"
                                 >
                                     {row.batch_name}
@@ -111,6 +112,7 @@ function PublishBatchTable({ items }: { items: ImportReviewHistoryPublishBatchLi
                             <td className="px-4 py-3">
                                 <Link
                                     href={importReviewHistoryPublishBatchHref(row.id)}
+                                    prefetch={false}
                                     className="font-medium text-blue-700 hover:underline"
                                 >
                                     {row.batch_name}
@@ -121,6 +123,7 @@ function PublishBatchTable({ items }: { items: ImportReviewHistoryPublishBatchLi
                                 {row.source_review_batch_id ? (
                                     <Link
                                         href={importReviewHistoryReviewBatchHref(row.source_review_batch_id)}
+                                        prefetch={false}
                                         className="text-blue-700 hover:underline"
                                     >
                                         #{row.source_review_batch_id}

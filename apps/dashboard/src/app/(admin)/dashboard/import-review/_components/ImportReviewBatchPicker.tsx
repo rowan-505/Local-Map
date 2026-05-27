@@ -2,6 +2,8 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { replaceImportReviewSearchParams } from "@/src/features/import-review/navigation/replaceImportReviewSearchParams";
+import { logImportReviewUserAction } from "@/src/features/import-review/utils/importReviewRequestDebug";
 import type { ImportReviewBatchChoice } from "@/src/lib/api";
 import { applyImportReviewScopeSearchParams } from "@/src/lib/importReviewSnapshot";
 
@@ -35,9 +37,19 @@ export default function ImportReviewBatchPicker({
             onSelectBatch(batchId);
             return;
         }
-        const params = new URLSearchParams(searchParams.toString());
-        applyImportReviewScopeSearchParams(params, "", batchId);
-        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+        logImportReviewUserAction({
+            action: "select_batch",
+            source: "ImportReviewBatchPicker:select_batch",
+        });
+        replaceImportReviewSearchParams(
+            router,
+            pathname ?? "",
+            searchParams,
+            (params) => {
+                applyImportReviewScopeSearchParams(params, "", batchId);
+            },
+            { source: "ImportReviewBatchPicker:select_batch" }
+        );
     }
 
     return (

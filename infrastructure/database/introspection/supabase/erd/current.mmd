@@ -35,6 +35,13 @@ erDiagram
     text component_type_code
     text language_code
     timestamp_with_time_zone created_at
+    jsonb source_refs
+    numeric confidence_score
+    text match_type
+    bigint source_admin_area_id
+    text boundary_status
+    text address_usage
+    timestamp_with_time_zone updated_at
   }
   core_core_addresses {
     bigint id PK
@@ -68,6 +75,10 @@ erDiagram
     jsonb source_refs
     jsonb normalized_data
     timestamp_with_time_zone deleted_at
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
   }
   core_core_admin_area_names {
     bigint id PK
@@ -95,6 +106,17 @@ erDiagram
     text external_id
     jsonb source_refs
     jsonb normalized_data
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    timestamp_with_time_zone deleted_at
+    text boundary_status
+    boolean is_official_boundary
+    numeric boundary_confidence_score
+    text address_usage
+    text boundary_note
   }
   core_core_bus_route_names {
     bigint id PK
@@ -110,6 +132,11 @@ erDiagram
     integer stop_sequence PK
     numeric distance_from_start_m
     boolean is_timing_point
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
   }
   core_core_bus_route_variants {
     bigint id PK
@@ -121,6 +148,12 @@ erDiagram
     geometry geom
     numeric distance_m
     boolean is_active
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    timestamp_with_time_zone deleted_at
   }
   core_core_bus_routes {
     bigint id PK
@@ -136,6 +169,12 @@ erDiagram
     text external_id
     jsonb source_refs
     jsonb normalized_data
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    timestamp_with_time_zone deleted_at
   }
   core_core_bus_stop_names {
     bigint id PK
@@ -160,13 +199,30 @@ erDiagram
     text external_id
     jsonb source_refs
     jsonb normalized_data
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    timestamp_with_time_zone deleted_at
+  }
+  core_core_map_building_names {
+    bigint id PK
+    bigint building_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
   }
   core_core_map_buildings {
     bigint id PK
     bigint source_staging_id
     text external_id
     text name
-    text class_code
     jsonb normalized_data
     jsonb source_refs
     geometry geom
@@ -174,7 +230,6 @@ erDiagram
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
     uuid public_id
-    text building_type
     geometry centroid
     numeric area_m2
     integer levels
@@ -186,6 +241,10 @@ erDiagram
     timestamp_with_time_zone deleted_at
     bigint building_type_id FK
     bigint admin_area_id FK
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
   }
   core_core_map_landuse {
     bigint id PK
@@ -197,6 +256,50 @@ erDiagram
     jsonb source_refs
     geometry geom
     boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    timestamp_with_time_zone deleted_at
+    uuid public_id
+    bigint landuse_class_id FK
+    bigint admin_area_id FK
+    geometry centroid
+    numeric area_m2
+    numeric confidence_score
+    boolean manual_override
+    jsonb source_tags
+    bigint created_by
+    bigint updated_by
+    text crop_code
+    boolean irrigated
+    text seasonality
+    text detail_level
+  }
+  core_core_map_landuse_names {
+    bigint id PK
+    bigint landuse_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_core_map_water_line_names {
+    bigint id PK
+    bigint water_line_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
@@ -212,6 +315,24 @@ erDiagram
     boolean is_active
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    timestamp_with_time_zone deleted_at
+  }
+  core_core_map_water_polygon_names {
+    bigint id PK
+    bigint water_polygon_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
   }
   core_core_map_water_polygons {
     bigint id PK
@@ -225,6 +346,12 @@ erDiagram
     boolean is_active
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    timestamp_with_time_zone deleted_at
   }
   core_core_place_addresses {
     bigint place_id PK, FK
@@ -308,6 +435,10 @@ erDiagram
     text external_id
     jsonb source_refs
     jsonb normalized_data
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
   }
   core_core_street_names {
     bigint id PK
@@ -356,12 +487,34 @@ erDiagram
     text external_id
     jsonb source_refs
     jsonb normalized_data
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
   }
   ref_ref_address_component_types {
     bigint id PK
     text code
     text name
     integer rank
+    text name_en
+    text name_my
+    boolean is_admin_component
+    boolean is_street_component
+    boolean is_required_for_search
+    boolean is_public
+  }
+  ref_ref_address_usage_types {
+    bigint id PK
+    text code
+    text name_en
+    text name_mm
+    text helper_en
+    text helper_mm
+    integer sort_order
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
   }
   ref_ref_admin_levels {
     bigint id PK
@@ -370,6 +523,21 @@ erDiagram
     integer rank
     timestamp_with_time_zone created_at
   }
+  ref_ref_boundary_statuses {
+    bigint id PK
+    text code
+    text name_en
+    text name_mm
+    text helper_en
+    text helper_mm
+    integer sort_order
+    boolean default_is_official_boundary
+    numeric default_boundary_confidence_score
+    text default_address_usage_code FK
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
   ref_ref_building_types {
     bigint id PK
     text code
@@ -377,6 +545,20 @@ erDiagram
     text name_mm
     bigint parent_id FK
     integer sort_order
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  ref_ref_landuse_classes {
+    bigint id PK
+    text code
+    text name_en
+    text name_mm
+    bigint parent_id FK
+    integer sort_order
+    numeric min_zoom
+    numeric default_import_confidence
+    boolean is_public
     boolean is_active
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
@@ -443,34 +625,59 @@ erDiagram
     timestamp_with_time_zone created_at
   }
   %% VIEWS
+  tiles_tiles_admin_area_label_points_v {
+    bigint id
+    text public_id
+    text name
+    text name_mm
+    text name_en
+    bigint admin_level_id
+    text admin_level_code
+    geometry geom
+  }
+  tiles_tiles_admin_area_labels_v {
+    bigint id
+    text name
+    geometry geom
+    text name_mm
+    text name_en
+    text admin_level_code
+  }
   tiles_tiles_admin_areas_v {
     bigint id
     text name
     geometry geom
     text name_mm
     text name_en
+    text admin_level_code
   }
   tiles_tiles_admin_boundaries_v {
     bigint id
     text name
     bigint admin_level_id
+    text admin_level_code
+    text boundary_status
+    text address_usage
+    boolean is_official_boundary
     geometry geom
   }
   tiles_tiles_buildings_v {
     bigint id
     uuid public_id
+    text name_mm
+    text name_en
     text name
+    bigint building_type_id
     text building_type
-    text class_code
+    text building_type_code
+    text building_type_name
+    text building_type_name_mm
     integer levels
     numeric height_m
     numeric area_m2
     numeric confidence_score
     boolean is_verified
     geometry geom
-    text building_type_code
-    text building_type_name
-    text building_type_name_mm
     bigint admin_area_id
     text admin_area_name
   }
@@ -492,6 +699,12 @@ erDiagram
     geometry geom
     text name_mm
     text name_en
+    text name_local
+    bigint admin_area_id
+    bigint source_type_id
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
   }
   tiles_tiles_landuse_v {
     bigint id
@@ -520,6 +733,12 @@ erDiagram
     text name_mm
     text name_en
   }
+  tiles_tiles_roads_v {
+    bigint id
+    text name
+    geometry geom
+    text layer_type
+  }
   tiles_tiles_streets_v {
     bigint id
     text public_id
@@ -540,6 +759,19 @@ erDiagram
     boolean bridge
     boolean tunnel
     integer layer
+  }
+  tiles_tiles_village_labels_v {
+    bigint id
+    text public_id
+    text name
+    text name_mm
+    text name_en
+    text admin_level_code
+    text boundary_status
+    text address_usage
+    boolean is_official_boundary
+    double_precision boundary_confidence_score
+    geometry geom
   }
   tiles_tiles_water_lines_v {
     bigint id
@@ -572,8 +804,14 @@ erDiagram
   core_core_bus_stops ||--o{ core_core_bus_stop_names : "stop_id"
   core_core_admin_areas ||--o{ core_core_bus_stops : "admin_area_id"
   ref_ref_source_types ||--o{ core_core_bus_stops : "source_type_id"
+  core_core_map_buildings ||--o{ core_core_map_building_names : "building_id"
   core_core_admin_areas ||--o{ core_core_map_buildings : "admin_area_id"
   ref_ref_building_types ||--o{ core_core_map_buildings : "building_type_id"
+  core_core_admin_areas ||--o{ core_core_map_landuse : "admin_area_id"
+  ref_ref_landuse_classes ||--o{ core_core_map_landuse : "landuse_class_id"
+  core_core_map_landuse ||--o{ core_core_map_landuse_names : "landuse_id"
+  core_core_map_water_lines ||--o{ core_core_map_water_line_names : "water_line_id"
+  core_core_map_water_polygons ||--o{ core_core_map_water_polygon_names : "water_polygon_id"
   core_core_addresses ||--o{ core_core_place_addresses : "address_id"
   core_core_places ||--o{ core_core_place_addresses : "place_id"
   core_core_map_buildings ||--o{ core_core_place_buildings : "building_id"
@@ -595,5 +833,7 @@ erDiagram
   ref_ref_road_classes ||--o{ core_core_streets : "road_class_id"
   ref_ref_source_types ||--o{ core_core_streets : "source_type_id"
   core_core_admin_areas ||--o{ core_core_map_buildings : "admin_area_id"
+  ref_ref_address_usage_types ||--o{ ref_ref_boundary_statuses : "default_address_usage_code"
   ref_ref_building_types ||--o{ ref_ref_building_types : "parent_id"
+  ref_ref_landuse_classes ||--o{ ref_ref_landuse_classes : "parent_id"
   ref_ref_poi_categories ||--o{ ref_ref_poi_categories : "parent_id"

@@ -63,7 +63,7 @@ export default function ImportReviewHistoryReviewBatchDetailClient() {
         <main className="p-6">
             <div className="mx-auto max-w-7xl space-y-6">
                 <p className="text-sm text-gray-600">
-                    <Link href={importReviewHistoryHref()} className="font-medium text-blue-700 hover:underline">
+                    <Link href={importReviewHistoryHref()} prefetch={false} className="font-medium text-blue-700 hover:underline">
                         ← History
                     </Link>
                 </p>
@@ -161,6 +161,7 @@ export default function ImportReviewHistoryReviewBatchDetailClient() {
                                                                 k === "review_batch_id" ? data.id : null,
                                                             toString: () => `review_batch_id=${data.id}`,
                                                         })}
+                                                        prefetch={false}
                                                         className="text-xs text-blue-700 underline"
                                                     >
                                                         Open queue
@@ -205,6 +206,7 @@ export default function ImportReviewHistoryReviewBatchDetailClient() {
                                         <li key={pb.id} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
                                             <Link
                                                 href={importReviewHistoryPublishBatchHref(pb.id)}
+                                                prefetch={false}
                                                 className="font-medium text-blue-700 hover:underline"
                                             >
                                                 {pb.batch_name}

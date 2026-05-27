@@ -1,0 +1,2685 @@
+.
+├── AGENTS.md
+├── apps
+│   ├── api
+│   │   ├── README.md
+│   │   ├── docs
+│   │   │   ├── API.md
+│   │   │   ├── import-review-auth.md
+│   │   │   └── openapi.md
+│   │   ├── package-lock.json
+│   │   ├── package.json
+│   │   ├── prisma
+│   │   │   └── schema.prisma
+│   │   ├── scripts
+│   │   │   ├── check-street-name-normalization.ts
+│   │   │   ├── generate-api-docs.ts
+│   │   │   ├── import-review-admin-curl-examples.sh
+│   │   │   └── test-validate-geometry.sh
+│   │   ├── src
+│   │   │   ├── app.ts
+│   │   │   ├── config
+│   │   │   │   └── env.ts
+│   │   │   ├── db
+│   │   │   │   ├── pg.ts
+│   │   │   │   └── prisma.ts
+│   │   │   ├── lib
+│   │   │   │   ├── api-error-response.ts
+│   │   │   │   ├── core-review
+│   │   │   │   │   └── ref-validation.ts
+│   │   │   │   ├── entity-names
+│   │   │   │   │   ├── building-detail-select-sql.ts
+│   │   │   │   │   ├── derive-display-name.ts
+│   │   │   │   │   ├── entity-names.test.ts
+│   │   │   │   │   ├── landuse-detail-select-sql.ts
+│   │   │   │   │   └── sync-primary-names.ts
+│   │   │   │   ├── geo
+│   │   │   │   │   ├── core-geometry.schema.ts
+│   │   │   │   │   ├── normalize-polygon-geojson.ts
+│   │   │   │   │   └── postgis-geometry.ts
+│   │   │   │   ├── import-review-prisma.ts
+│   │   │   │   ├── openapi
+│   │   │   │   │   ├── common.ts
+│   │   │   │   │   └── health.openapi.ts
+│   │   │   │   └── prisma.ts
+│   │   │   ├── modules
+│   │   │   │   ├── addresses
+│   │   │   │   │   ├── address-composer.test.ts
+│   │   │   │   │   ├── address-composer.ts
+│   │   │   │   │   ├── address-composer.types.ts
+│   │   │   │   │   ├── address-index.repo.ts
+│   │   │   │   │   ├── address-index.ts
+│   │   │   │   │   ├── address-search.openapi.ts
+│   │   │   │   │   ├── address-search.schema.ts
+│   │   │   │   │   ├── address-search.service.ts
+│   │   │   │   │   ├── addresses.routes.ts
+│   │   │   │   │   ├── index.ts
+│   │   │   │   │   ├── reverse-address.constants.ts
+│   │   │   │   │   ├── reverse-address.openapi.ts
+│   │   │   │   │   ├── reverse-address.repo.ts
+│   │   │   │   │   ├── reverse-address.resolver.test.ts
+│   │   │   │   │   ├── reverse-address.resolver.ts
+│   │   │   │   │   ├── reverse-address.schema.ts
+│   │   │   │   │   └── reverse-address.types.ts
+│   │   │   │   ├── admin-araeas
+│   │   │   │   ├── admin-areas
+│   │   │   │   │   ├── admin-areas.openapi.ts
+│   │   │   │   │   ├── admin-areas.repo.ts
+│   │   │   │   │   ├── admin-areas.routes.ts
+│   │   │   │   │   ├── admin-areas.schema.ts
+│   │   │   │   │   └── admin-areas.service.ts
+│   │   │   │   ├── auth
+│   │   │   │   │   ├── auth.openapi.ts
+│   │   │   │   │   ├── auth.repo.ts
+│   │   │   │   │   ├── auth.routes.ts
+│   │   │   │   │   ├── auth.schema.ts
+│   │   │   │   │   └── auth.service.ts
+│   │   │   │   ├── buildings
+│   │   │   │   │   ├── buildings.openapi.ts
+│   │   │   │   │   ├── buildings.repo.ts
+│   │   │   │   │   ├── buildings.routes.ts
+│   │   │   │   │   ├── buildings.schema.ts
+│   │   │   │   │   └── buildings.service.ts
+│   │   │   │   ├── bus
+│   │   │   │   ├── categories
+│   │   │   │   │   ├── categories.openapi.ts
+│   │   │   │   │   ├── categories.repo.ts
+│   │   │   │   │   ├── categories.routes.ts
+│   │   │   │   │   ├── categories.schema.ts
+│   │   │   │   │   └── categories.service.ts
+│   │   │   │   ├── core-review
+│   │   │   │   │   ├── admin-area-boundary-fields.ts
+│   │   │   │   │   ├── core-review-entities-write.repo.ts
+│   │   │   │   │   ├── core-review-entities.repo.ts
+│   │   │   │   │   ├── core-review-generic-write.service.ts
+│   │   │   │   │   ├── core-review-lifecycle.config.ts
+│   │   │   │   │   ├── core-review-lifecycle.repo.ts
+│   │   │   │   │   ├── core-review-lifecycle.service.ts
+│   │   │   │   │   ├── core-review-list-status.ts
+│   │   │   │   │   ├── core-review-serializers.ts
+│   │   │   │   │   ├── core-review-write.errors.ts
+│   │   │   │   │   ├── core-review-write.helpers.test.ts
+│   │   │   │   │   ├── core-review-write.helpers.ts
+│   │   │   │   │   ├── core-review-write.mappers.ts
+│   │   │   │   │   ├── core-review-write.schema.ts
+│   │   │   │   │   ├── core-review.entity-registry.ts
+│   │   │   │   │   ├── core-review.openapi.ts
+│   │   │   │   │   ├── core-review.pagination.ts
+│   │   │   │   │   ├── core-review.routes.ts
+│   │   │   │   │   ├── core-review.schema.ts
+│   │   │   │   │   ├── core-review.service.ts
+│   │   │   │   │   ├── core-review.types.ts
+│   │   │   │   │   └── entities
+│   │   │   │   │       ├── addresses-components.repo.ts
+│   │   │   │   │       ├── addresses-compose.ts
+│   │   │   │   │       ├── addresses-write.service.ts
+│   │   │   │   │       ├── addresses.handler.ts
+│   │   │   │   │       ├── addresses.repo.ts
+│   │   │   │   │       ├── addresses.serializer.ts
+│   │   │   │   │       ├── buildings-write.handler.ts
+│   │   │   │   │       ├── buildings.handler.ts
+│   │   │   │   │       ├── landuse.handler.ts
+│   │   │   │   │       ├── landuse.repo.ts
+│   │   │   │   │       ├── places-write.handler.ts
+│   │   │   │   │       ├── places.handler.ts
+│   │   │   │   │       ├── streets-write.handler.ts
+│   │   │   │   │       └── streets.handler.ts
+│   │   │   │   ├── core-verification
+│   │   │   │   │   ├── core-verification.config.ts
+│   │   │   │   │   ├── core-verification.repo.ts
+│   │   │   │   │   ├── core-verification.routes.ts
+│   │   │   │   │   └── core-verification.schema.ts
+│   │   │   │   ├── dashboard
+│   │   │   │   │   ├── dashboard.openapi.ts
+│   │   │   │   │   ├── dashboard.repo.ts
+│   │   │   │   │   ├── dashboard.routes.ts
+│   │   │   │   │   ├── dashboard.service.ts
+│   │   │   │   │   └── dashboard.types.ts
+│   │   │   │   ├── import-review
+│   │   │   │   │   ├── import-review-address-admin-inference.repo.ts
+│   │   │   │   │   ├── import-review-address-admin-inference.schema.ts
+│   │   │   │   │   ├── import-review-address-admin-inference.service.ts
+│   │   │   │   │   ├── import-review-address-components-mutation.repo.ts
+│   │   │   │   │   ├── import-review-address-components-mutation.schema.ts
+│   │   │   │   │   ├── import-review-address-components-mutation.service.ts
+│   │   │   │   │   ├── import-review-address-components.repo.ts
+│   │   │   │   │   ├── import-review-address-map-preview.repo.ts
+│   │   │   │   │   ├── import-review-address-matches.repo.ts
+│   │   │   │   │   ├── import-review-address-matches.schema.ts
+│   │   │   │   │   ├── import-review-address-matches.service.ts
+│   │   │   │   │   ├── import-review-address-place-match.ts
+│   │   │   │   │   ├── import-review-address-place-workflow.repo.ts
+│   │   │   │   │   ├── import-review-address-place-workflow.schema.ts
+│   │   │   │   │   ├── import-review-address-place-workflow.service.ts
+│   │   │   │   │   ├── import-review-address-promotion-eligibility.ts
+│   │   │   │   │   ├── import-review-address-promotion.errors.ts
+│   │   │   │   │   ├── import-review-address-promotion.repo.ts
+│   │   │   │   │   ├── import-review-address-promotion.schema.ts
+│   │   │   │   │   ├── import-review-address-promotion.service.ts
+│   │   │   │   │   ├── import-review-address-promotion.types.ts
+│   │   │   │   │   ├── import-review-address-responses.ts
+│   │   │   │   │   ├── import-review-address-source-context.test.ts
+│   │   │   │   │   ├── import-review-address-source-context.ts
+│   │   │   │   │   ├── import-review-address-street-match.ts
+│   │   │   │   │   ├── import-review-address-validation.repo.ts
+│   │   │   │   │   ├── import-review-address-validation.schema.ts
+│   │   │   │   │   ├── import-review-address-validation.service.ts
+│   │   │   │   │   ├── import-review-address-validation.ts
+│   │   │   │   │   ├── import-review-address-validation.types.ts
+│   │   │   │   │   ├── import-review-admin.guard.ts
+│   │   │   │   │   ├── import-review-batch-resolver.ts
+│   │   │   │   │   ├── import-review-batches.repo.ts
+│   │   │   │   │   ├── import-review-bootstrap.ts
+│   │   │   │   │   ├── import-review-candidate-column-registry.test.ts
+│   │   │   │   │   ├── import-review-candidate-column-registry.ts
+│   │   │   │   │   ├── import-review-candidate-sql.ts
+│   │   │   │   │   ├── import-review-cleanup-promoted.errors.ts
+│   │   │   │   │   ├── import-review-cleanup-promoted.repo.ts
+│   │   │   │   │   ├── import-review-cleanup-promoted.schema.ts
+│   │   │   │   │   ├── import-review-cleanup-promoted.service.ts
+│   │   │   │   │   ├── import-review-cleanup-promoted.types.ts
+│   │   │   │   │   ├── import-review-config.ts
+│   │   │   │   │   ├── import-review-data-repository.ts
+│   │   │   │   │   ├── import-review-database-url.ts
+│   │   │   │   │   ├── import-review-effective-values.ts
+│   │   │   │   │   ├── import-review-error-handler.ts
+│   │   │   │   │   ├── import-review-error-response.ts
+│   │   │   │   │   ├── import-review-errors.ts
+│   │   │   │   │   ├── import-review-essential-defaults.repo.ts
+│   │   │   │   │   ├── import-review-essential-defaults.ts
+│   │   │   │   │   ├── import-review-essential-fields.test.ts
+│   │   │   │   │   ├── import-review-essential-fields.ts
+│   │   │   │   │   ├── import-review-generic-candidate.repo.ts
+│   │   │   │   │   ├── import-review-history.errors.ts
+│   │   │   │   │   ├── import-review-history.repo.ts
+│   │   │   │   │   ├── import-review-history.schema.ts
+│   │   │   │   │   ├── import-review-history.service.ts
+│   │   │   │   │   ├── import-review-history.types.ts
+│   │   │   │   │   ├── import-review-legacy-name-overrides.test.ts
+│   │   │   │   │   ├── import-review-legacy-name-overrides.ts
+│   │   │   │   │   ├── import-review-name-fields.test.ts
+│   │   │   │   │   ├── import-review-name-fields.ts
+│   │   │   │   │   ├── import-review-options.repo.ts
+│   │   │   │   │   ├── import-review-options.types.ts
+│   │   │   │   │   ├── import-review-overrides-allowlist.ts
+│   │   │   │   │   ├── import-review-overrides-merge.ts
+│   │   │   │   │   ├── import-review-overrides-normalize.test.ts
+│   │   │   │   │   ├── import-review-overrides-normalize.ts
+│   │   │   │   │   ├── import-review-overrides-sanitize.ts
+│   │   │   │   │   ├── import-review-overrides-validator.ts
+│   │   │   │   │   ├── import-review-overrides.test.ts
+│   │   │   │   │   ├── import-review-place-address-link-promotion.repo.ts
+│   │   │   │   │   ├── import-review-place-address-link-promotion.schema.ts
+│   │   │   │   │   ├── import-review-place-address-link-promotion.service.ts
+│   │   │   │   │   ├── import-review-place-address-link-validation.repo.ts
+│   │   │   │   │   ├── import-review-place-address-link-validation.schema.ts
+│   │   │   │   │   ├── import-review-place-address-link-validation.service.ts
+│   │   │   │   │   ├── import-review-place-promotion.repo.ts
+│   │   │   │   │   ├── import-review-place-promotion.schema.ts
+│   │   │   │   │   ├── import-review-place-promotion.service.ts
+│   │   │   │   │   ├── import-review-place-validation.repo.ts
+│   │   │   │   │   ├── import-review-place-validation.schema.ts
+│   │   │   │   │   ├── import-review-place-validation.service.ts
+│   │   │   │   │   ├── import-review-promotion-config.ts
+│   │   │   │   │   ├── import-review-promotion-core-verification.test.ts
+│   │   │   │   │   ├── import-review-promotion-core-verification.ts
+│   │   │   │   │   ├── import-review-promotion-eligibility.ts
+│   │   │   │   │   ├── import-review-promotion-place-category.ts
+│   │   │   │   │   ├── import-review-promotion-promote-admin-areas.repo.ts
+│   │   │   │   │   ├── import-review-promotion-promote-bus-route-stops.repo.ts
+│   │   │   │   │   ├── import-review-promotion-promote-bus-route-variants.repo.ts
+│   │   │   │   │   ├── import-review-promotion-promote-bus-routes.repo.ts
+│   │   │   │   │   ├── import-review-promotion-promote-bus-stops.repo.ts
+│   │   │   │   │   ├── import-review-promotion-promote-landuse-sql.ts
+│   │   │   │   │   ├── import-review-promotion-promote-landuse.repo.ts
+│   │   │   │   │   ├── import-review-promotion-promote-map.repo.ts
+│   │   │   │   │   ├── import-review-promotion-promote-places.repo.ts
+│   │   │   │   │   ├── import-review-promotion-promote-roads-sql.ts
+│   │   │   │   │   ├── import-review-promotion-promote-roads.repo.ts
+│   │   │   │   │   ├── import-review-promotion-promote-routing-barriers.repo.ts
+│   │   │   │   │   ├── import-review-promotion-promote-sql.ts
+│   │   │   │   │   ├── import-review-promotion-promote.repo.ts
+│   │   │   │   │   ├── import-review-promotion-promote.ts
+│   │   │   │   │   ├── import-review-promotion-promote.types.ts
+│   │   │   │   │   ├── import-review-promotion-road-batch-limit.test.ts
+│   │   │   │   │   ├── import-review-promotion-road-dry-run.errors.ts
+│   │   │   │   │   ├── import-review-promotion-road-dry-run.helpers.ts
+│   │   │   │   │   ├── import-review-promotion-road-dry-run.repo.ts
+│   │   │   │   │   ├── import-review-promotion-road-dry-run.schema.ts
+│   │   │   │   │   ├── import-review-promotion-road-dry-run.service.ts
+│   │   │   │   │   ├── import-review-promotion-road-dry-run.stages.ts
+│   │   │   │   │   ├── import-review-promotion-road-dry-run.test.ts
+│   │   │   │   │   ├── import-review-promotion-road-dry-run.types.ts
+│   │   │   │   │   ├── import-review-promotion-routing-barrier-dry-run.errors.ts
+│   │   │   │   │   ├── import-review-promotion-routing-barrier-dry-run.helpers.ts
+│   │   │   │   │   ├── import-review-promotion-routing-barrier-dry-run.repo.ts
+│   │   │   │   │   ├── import-review-promotion-routing-barrier-dry-run.schema.ts
+│   │   │   │   │   ├── import-review-promotion-routing-barrier-dry-run.service.ts
+│   │   │   │   │   ├── import-review-promotion-routing-barrier-dry-run.stages.ts
+│   │   │   │   │   ├── import-review-promotion-routing-barrier-dry-run.types.ts
+│   │   │   │   │   ├── import-review-promotion-stage-status.ts
+│   │   │   │   │   ├── import-review-promotion-validation-rules.ts
+│   │   │   │   │   ├── import-review-promotion-validation.repo.ts
+│   │   │   │   │   ├── import-review-promotion-validation.ts
+│   │   │   │   │   ├── import-review-promotion-validation.types.ts
+│   │   │   │   │   ├── import-review-promotion.errors.ts
+│   │   │   │   │   ├── import-review-promotion.repo.ts
+│   │   │   │   │   ├── import-review-promotion.schema.ts
+│   │   │   │   │   ├── import-review-promotion.service.ts
+│   │   │   │   │   ├── import-review-promotion.types.ts
+│   │   │   │   │   ├── import-review-publish-batch-core-verification.test.ts
+│   │   │   │   │   ├── import-review-publish-batch-core-verification.ts
+│   │   │   │   │   ├── import-review-publish-batch-summary.ts
+│   │   │   │   │   ├── import-review-reference-options.repo.ts
+│   │   │   │   │   ├── import-review-remote.adapter.ts
+│   │   │   │   │   ├── import-review-remote.repo.ts
+│   │   │   │   │   ├── import-review-repository.factory.ts
+│   │   │   │   │   ├── import-review-review-batch-summary.ts
+│   │   │   │   │   ├── import-review-road-admin-area-sql.ts
+│   │   │   │   │   ├── import-review-road-dry-run-summary.repo.ts
+│   │   │   │   │   ├── import-review-road-dry-run-summary.types.ts
+│   │   │   │   │   ├── import-review-road-length.test.ts
+│   │   │   │   │   ├── import-review-road-list-sql.ts
+│   │   │   │   │   ├── import-review-road-names.test.ts
+│   │   │   │   │   ├── import-review-road-overrides-validator.ts
+│   │   │   │   │   ├── import-review-road-overrides.types.ts
+│   │   │   │   │   ├── import-review-road-routing-validation.ts
+│   │   │   │   │   ├── import-review-road-routing-validation.types.ts
+│   │   │   │   │   ├── import-review-roads-request-logging.ts
+│   │   │   │   │   ├── import-review-schema-capabilities.ts
+│   │   │   │   │   ├── import-review-split-promotion.types.ts
+│   │   │   │   │   ├── import-review-summary-counts.ts
+│   │   │   │   │   ├── import-review.openapi.ts
+│   │   │   │   │   ├── import-review.routes.ts
+│   │   │   │   │   ├── import-review.schema.ts
+│   │   │   │   │   ├── import-review.service.ts
+│   │   │   │   │   └── import-review.types.ts
+│   │   │   │   ├── place-buildings
+│   │   │   │   │   ├── place-buildings.openapi.ts
+│   │   │   │   │   ├── place-buildings.repo.ts
+│   │   │   │   │   ├── place-buildings.routes.ts
+│   │   │   │   │   ├── place-buildings.schema.ts
+│   │   │   │   │   └── place-buildings.service.ts
+│   │   │   │   ├── place-form-options
+│   │   │   │   │   ├── place-form-options.repo.ts
+│   │   │   │   │   ├── place-form-options.routes.ts
+│   │   │   │   │   ├── place-form-options.schema.ts
+│   │   │   │   │   └── place-form-options.service.ts
+│   │   │   │   ├── places
+│   │   │   │   │   ├── places.openapi.ts
+│   │   │   │   │   ├── places.repo.ts
+│   │   │   │   │   ├── places.routes.ts
+│   │   │   │   │   ├── places.schema.ts
+│   │   │   │   │   └── places.service.ts
+│   │   │   │   ├── public-map
+│   │   │   │   │   ├── public-map.openapi.ts
+│   │   │   │   │   ├── public-map.repo.ts
+│   │   │   │   │   ├── public-map.routes.ts
+│   │   │   │   │   ├── public-map.schema.ts
+│   │   │   │   │   └── public-map.service.ts
+│   │   │   │   ├── ref
+│   │   │   │   │   ├── ref-address-usage-types.repo.ts
+│   │   │   │   │   ├── ref-boundary-statuses.repo.ts
+│   │   │   │   │   ├── ref-landuse-classes.repo.ts
+│   │   │   │   │   ├── ref-landuse-classes.service.ts
+│   │   │   │   │   ├── ref.openapi.ts
+│   │   │   │   │   └── ref.routes.ts
+│   │   │   │   ├── routing
+│   │   │   │   │   ├── index.ts
+│   │   │   │   │   ├── routing-graph-build.config.test.ts
+│   │   │   │   │   ├── routing-graph-build.repo.ts
+│   │   │   │   │   ├── routing-graph-build.service.ts
+│   │   │   │   │   ├── routing.config.ts
+│   │   │   │   │   ├── routing.errors.ts
+│   │   │   │   │   ├── routing.openapi.ts
+│   │   │   │   │   ├── routing.routes.ts
+│   │   │   │   │   ├── routing.schema.ts
+│   │   │   │   │   └── routing.types.ts
+│   │   │   │   ├── search
+│   │   │   │   └── streets
+│   │   │   │       ├── streets.openapi.ts
+│   │   │   │       ├── streets.repo.ts
+│   │   │   │       ├── streets.routes.ts
+│   │   │   │       ├── streets.schema.ts
+│   │   │   │       └── streets.service.ts
+│   │   │   ├── plugins
+│   │   │   │   ├── auth.ts
+│   │   │   │   ├── cors.ts
+│   │   │   │   ├── prisma.ts
+│   │   │   │   └── swagger.ts
+│   │   │   ├── scripts
+│   │   │   │   └── build-routing-graph.ts
+│   │   │   ├── server.ts
+│   │   │   ├── services
+│   │   │   │   ├── geo.service.ts
+│   │   │   │   └── search.service.ts
+│   │   │   ├── types
+│   │   │   └── utils
+│   │   └── tsconfig.json
+│   ├── dashboard
+│   │   ├── AGENTS.md
+│   │   ├── CLAUDE.md
+│   │   ├── README.md
+│   │   ├── docs
+│   │   │   └── manual-qa-street-editor.md
+│   │   ├── eslint.config.mjs
+│   │   ├── next-env.d.ts
+│   │   ├── next.config.ts
+│   │   ├── package-lock.json
+│   │   ├── package.json
+│   │   ├── postcss.config.mjs
+│   │   ├── public
+│   │   │   ├── font-source
+│   │   │   │   ├── NotoSans-Regular.ttf
+│   │   │   │   └── NotoSansMyanmar-Regular.ttf
+│   │   │   ├── fonts
+│   │   │   │   ├── NotoSans-Regular
+│   │   │   │   │   ├── 0-255.pbf
+│   │   │   │   │   ├── 1024-1279.pbf
+│   │   │   │   │   ├── 10240-10495.pbf
+│   │   │   │   │   ├── 10496-10751.pbf
+│   │   │   │   │   ├── 10752-11007.pbf
+│   │   │   │   │   ├── 11008-11263.pbf
+│   │   │   │   │   ├── 11264-11519.pbf
+│   │   │   │   │   ├── 11520-11775.pbf
+│   │   │   │   │   ├── 11776-12031.pbf
+│   │   │   │   │   ├── 12032-12287.pbf
+│   │   │   │   │   ├── 12288-12543.pbf
+│   │   │   │   │   ├── 12544-12799.pbf
+│   │   │   │   │   ├── 1280-1535.pbf
+│   │   │   │   │   ├── 12800-13055.pbf
+│   │   │   │   │   ├── 13056-13311.pbf
+│   │   │   │   │   ├── 13312-13567.pbf
+│   │   │   │   │   ├── 13568-13823.pbf
+│   │   │   │   │   ├── 13824-14079.pbf
+│   │   │   │   │   ├── 14080-14335.pbf
+│   │   │   │   │   ├── 14336-14591.pbf
+│   │   │   │   │   ├── 14592-14847.pbf
+│   │   │   │   │   ├── 14848-15103.pbf
+│   │   │   │   │   ├── 15104-15359.pbf
+│   │   │   │   │   ├── 1536-1791.pbf
+│   │   │   │   │   ├── 15360-15615.pbf
+│   │   │   │   │   ├── 15616-15871.pbf
+│   │   │   │   │   ├── 15872-16127.pbf
+│   │   │   │   │   ├── 16128-16383.pbf
+│   │   │   │   │   ├── 16384-16639.pbf
+│   │   │   │   │   ├── 16640-16895.pbf
+│   │   │   │   │   ├── 16896-17151.pbf
+│   │   │   │   │   ├── 17152-17407.pbf
+│   │   │   │   │   ├── 17408-17663.pbf
+│   │   │   │   │   ├── 17664-17919.pbf
+│   │   │   │   │   ├── 1792-2047.pbf
+│   │   │   │   │   ├── 17920-18175.pbf
+│   │   │   │   │   ├── 18176-18431.pbf
+│   │   │   │   │   ├── 18432-18687.pbf
+│   │   │   │   │   ├── 18688-18943.pbf
+│   │   │   │   │   ├── 18944-19199.pbf
+│   │   │   │   │   ├── 19200-19455.pbf
+│   │   │   │   │   ├── 19456-19711.pbf
+│   │   │   │   │   ├── 19712-19967.pbf
+│   │   │   │   │   ├── 19968-20223.pbf
+│   │   │   │   │   ├── 20224-20479.pbf
+│   │   │   │   │   ├── 2048-2303.pbf
+│   │   │   │   │   ├── 20480-20735.pbf
+│   │   │   │   │   ├── 20736-20991.pbf
+│   │   │   │   │   ├── 20992-21247.pbf
+│   │   │   │   │   ├── 21248-21503.pbf
+│   │   │   │   │   ├── 21504-21759.pbf
+│   │   │   │   │   ├── 21760-22015.pbf
+│   │   │   │   │   ├── 22016-22271.pbf
+│   │   │   │   │   ├── 22272-22527.pbf
+│   │   │   │   │   ├── 22528-22783.pbf
+│   │   │   │   │   ├── 22784-23039.pbf
+│   │   │   │   │   ├── 2304-2559.pbf
+│   │   │   │   │   ├── 23040-23295.pbf
+│   │   │   │   │   ├── 23296-23551.pbf
+│   │   │   │   │   ├── 23552-23807.pbf
+│   │   │   │   │   ├── 23808-24063.pbf
+│   │   │   │   │   ├── 24064-24319.pbf
+│   │   │   │   │   ├── 24320-24575.pbf
+│   │   │   │   │   ├── 24576-24831.pbf
+│   │   │   │   │   ├── 24832-25087.pbf
+│   │   │   │   │   ├── 25088-25343.pbf
+│   │   │   │   │   ├── 25344-25599.pbf
+│   │   │   │   │   ├── 256-511.pbf
+│   │   │   │   │   ├── 2560-2815.pbf
+│   │   │   │   │   ├── 25600-25855.pbf
+│   │   │   │   │   ├── 25856-26111.pbf
+│   │   │   │   │   ├── 26112-26367.pbf
+│   │   │   │   │   ├── 26368-26623.pbf
+│   │   │   │   │   ├── 26624-26879.pbf
+│   │   │   │   │   ├── 26880-27135.pbf
+│   │   │   │   │   ├── 27136-27391.pbf
+│   │   │   │   │   ├── 27392-27647.pbf
+│   │   │   │   │   ├── 27648-27903.pbf
+│   │   │   │   │   ├── 27904-28159.pbf
+│   │   │   │   │   ├── 2816-3071.pbf
+│   │   │   │   │   ├── 28160-28415.pbf
+│   │   │   │   │   ├── 28416-28671.pbf
+│   │   │   │   │   ├── 28672-28927.pbf
+│   │   │   │   │   ├── 28928-29183.pbf
+│   │   │   │   │   ├── 29184-29439.pbf
+│   │   │   │   │   ├── 29440-29695.pbf
+│   │   │   │   │   ├── 29696-29951.pbf
+│   │   │   │   │   ├── 29952-30207.pbf
+│   │   │   │   │   ├── 30208-30463.pbf
+│   │   │   │   │   ├── 30464-30719.pbf
+│   │   │   │   │   ├── 3072-3327.pbf
+│   │   │   │   │   ├── 30720-30975.pbf
+│   │   │   │   │   ├── 30976-31231.pbf
+│   │   │   │   │   ├── 31232-31487.pbf
+│   │   │   │   │   ├── 31488-31743.pbf
+│   │   │   │   │   ├── 31744-31999.pbf
+│   │   │   │   │   ├── 32000-32255.pbf
+│   │   │   │   │   ├── 32256-32511.pbf
+│   │   │   │   │   ├── 32512-32767.pbf
+│   │   │   │   │   ├── 32768-33023.pbf
+│   │   │   │   │   ├── 33024-33279.pbf
+│   │   │   │   │   ├── 3328-3583.pbf
+│   │   │   │   │   ├── 33280-33535.pbf
+│   │   │   │   │   ├── 33536-33791.pbf
+│   │   │   │   │   ├── 33792-34047.pbf
+│   │   │   │   │   ├── 34048-34303.pbf
+│   │   │   │   │   ├── 34304-34559.pbf
+│   │   │   │   │   ├── 34560-34815.pbf
+│   │   │   │   │   ├── 34816-35071.pbf
+│   │   │   │   │   ├── 35072-35327.pbf
+│   │   │   │   │   ├── 35328-35583.pbf
+│   │   │   │   │   ├── 35584-35839.pbf
+│   │   │   │   │   ├── 3584-3839.pbf
+│   │   │   │   │   ├── 35840-36095.pbf
+│   │   │   │   │   ├── 36096-36351.pbf
+│   │   │   │   │   ├── 36352-36607.pbf
+│   │   │   │   │   ├── 36608-36863.pbf
+│   │   │   │   │   ├── 36864-37119.pbf
+│   │   │   │   │   ├── 37120-37375.pbf
+│   │   │   │   │   ├── 37376-37631.pbf
+│   │   │   │   │   ├── 37632-37887.pbf
+│   │   │   │   │   ├── 37888-38143.pbf
+│   │   │   │   │   ├── 38144-38399.pbf
+│   │   │   │   │   ├── 3840-4095.pbf
+│   │   │   │   │   ├── 38400-38655.pbf
+│   │   │   │   │   ├── 38656-38911.pbf
+│   │   │   │   │   ├── 38912-39167.pbf
+│   │   │   │   │   ├── 39168-39423.pbf
+│   │   │   │   │   ├── 39424-39679.pbf
+│   │   │   │   │   ├── 39680-39935.pbf
+│   │   │   │   │   ├── 39936-40191.pbf
+│   │   │   │   │   ├── 40192-40447.pbf
+│   │   │   │   │   ├── 40448-40703.pbf
+│   │   │   │   │   ├── 40704-40959.pbf
+│   │   │   │   │   ├── 4096-4351.pbf
+│   │   │   │   │   ├── 40960-41215.pbf
+│   │   │   │   │   ├── 41216-41471.pbf
+│   │   │   │   │   ├── 41472-41727.pbf
+│   │   │   │   │   ├── 41728-41983.pbf
+│   │   │   │   │   ├── 41984-42239.pbf
+│   │   │   │   │   ├── 42240-42495.pbf
+│   │   │   │   │   ├── 42496-42751.pbf
+│   │   │   │   │   ├── 42752-43007.pbf
+│   │   │   │   │   ├── 43008-43263.pbf
+│   │   │   │   │   ├── 43264-43519.pbf
+│   │   │   │   │   ├── 4352-4607.pbf
+│   │   │   │   │   ├── 43520-43775.pbf
+│   │   │   │   │   ├── 43776-44031.pbf
+│   │   │   │   │   ├── 44032-44287.pbf
+│   │   │   │   │   ├── 44288-44543.pbf
+│   │   │   │   │   ├── 44544-44799.pbf
+│   │   │   │   │   ├── 44800-45055.pbf
+│   │   │   │   │   ├── 45056-45311.pbf
+│   │   │   │   │   ├── 45312-45567.pbf
+│   │   │   │   │   ├── 45568-45823.pbf
+│   │   │   │   │   ├── 45824-46079.pbf
+│   │   │   │   │   ├── 4608-4863.pbf
+│   │   │   │   │   ├── 46080-46335.pbf
+│   │   │   │   │   ├── 46336-46591.pbf
+│   │   │   │   │   ├── 46592-46847.pbf
+│   │   │   │   │   ├── 46848-47103.pbf
+│   │   │   │   │   ├── 47104-47359.pbf
+│   │   │   │   │   ├── 47360-47615.pbf
+│   │   │   │   │   ├── 47616-47871.pbf
+│   │   │   │   │   ├── 47872-48127.pbf
+│   │   │   │   │   ├── 48128-48383.pbf
+│   │   │   │   │   ├── 48384-48639.pbf
+│   │   │   │   │   ├── 4864-5119.pbf
+│   │   │   │   │   ├── 48640-48895.pbf
+│   │   │   │   │   ├── 48896-49151.pbf
+│   │   │   │   │   ├── 49152-49407.pbf
+│   │   │   │   │   ├── 49408-49663.pbf
+│   │   │   │   │   ├── 49664-49919.pbf
+│   │   │   │   │   ├── 49920-50175.pbf
+│   │   │   │   │   ├── 50176-50431.pbf
+│   │   │   │   │   ├── 50432-50687.pbf
+│   │   │   │   │   ├── 50688-50943.pbf
+│   │   │   │   │   ├── 50944-51199.pbf
+│   │   │   │   │   ├── 512-767.pbf
+│   │   │   │   │   ├── 5120-5375.pbf
+│   │   │   │   │   ├── 51200-51455.pbf
+│   │   │   │   │   ├── 51456-51711.pbf
+│   │   │   │   │   ├── 51712-51967.pbf
+│   │   │   │   │   ├── 51968-52223.pbf
+│   │   │   │   │   ├── 52224-52479.pbf
+│   │   │   │   │   ├── 52480-52735.pbf
+│   │   │   │   │   ├── 52736-52991.pbf
+│   │   │   │   │   ├── 52992-53247.pbf
+│   │   │   │   │   ├── 53248-53503.pbf
+│   │   │   │   │   ├── 53504-53759.pbf
+│   │   │   │   │   ├── 5376-5631.pbf
+│   │   │   │   │   ├── 53760-54015.pbf
+│   │   │   │   │   ├── 54016-54271.pbf
+│   │   │   │   │   ├── 54272-54527.pbf
+│   │   │   │   │   ├── 54528-54783.pbf
+│   │   │   │   │   ├── 54784-55039.pbf
+│   │   │   │   │   ├── 55040-55295.pbf
+│   │   │   │   │   ├── 55296-55551.pbf
+│   │   │   │   │   ├── 55552-55807.pbf
+│   │   │   │   │   ├── 55808-56063.pbf
+│   │   │   │   │   ├── 56064-56319.pbf
+│   │   │   │   │   ├── 5632-5887.pbf
+│   │   │   │   │   ├── 56320-56575.pbf
+│   │   │   │   │   ├── 56576-56831.pbf
+│   │   │   │   │   ├── 56832-57087.pbf
+│   │   │   │   │   ├── 57088-57343.pbf
+│   │   │   │   │   ├── 57344-57599.pbf
+│   │   │   │   │   ├── 57600-57855.pbf
+│   │   │   │   │   ├── 57856-58111.pbf
+│   │   │   │   │   ├── 58112-58367.pbf
+│   │   │   │   │   ├── 58368-58623.pbf
+│   │   │   │   │   ├── 58624-58879.pbf
+│   │   │   │   │   ├── 5888-6143.pbf
+│   │   │   │   │   ├── 58880-59135.pbf
+│   │   │   │   │   ├── 59136-59391.pbf
+│   │   │   │   │   ├── 59392-59647.pbf
+│   │   │   │   │   ├── 59648-59903.pbf
+│   │   │   │   │   ├── 59904-60159.pbf
+│   │   │   │   │   ├── 60160-60415.pbf
+│   │   │   │   │   ├── 60416-60671.pbf
+│   │   │   │   │   ├── 60672-60927.pbf
+│   │   │   │   │   ├── 60928-61183.pbf
+│   │   │   │   │   ├── 61184-61439.pbf
+│   │   │   │   │   ├── 6144-6399.pbf
+│   │   │   │   │   ├── 61440-61695.pbf
+│   │   │   │   │   ├── 61696-61951.pbf
+│   │   │   │   │   ├── 61952-62207.pbf
+│   │   │   │   │   ├── 62208-62463.pbf
+│   │   │   │   │   ├── 62464-62719.pbf
+│   │   │   │   │   ├── 62720-62975.pbf
+│   │   │   │   │   ├── 62976-63231.pbf
+│   │   │   │   │   ├── 63232-63487.pbf
+│   │   │   │   │   ├── 63488-63743.pbf
+│   │   │   │   │   ├── 63744-63999.pbf
+│   │   │   │   │   ├── 6400-6655.pbf
+│   │   │   │   │   ├── 64000-64255.pbf
+│   │   │   │   │   ├── 64256-64511.pbf
+│   │   │   │   │   ├── 64512-64767.pbf
+│   │   │   │   │   ├── 64768-65023.pbf
+│   │   │   │   │   ├── 65024-65279.pbf
+│   │   │   │   │   ├── 65280-65535.pbf
+│   │   │   │   │   ├── 6656-6911.pbf
+│   │   │   │   │   ├── 6912-7167.pbf
+│   │   │   │   │   ├── 7168-7423.pbf
+│   │   │   │   │   ├── 7424-7679.pbf
+│   │   │   │   │   ├── 768-1023.pbf
+│   │   │   │   │   ├── 7680-7935.pbf
+│   │   │   │   │   ├── 7936-8191.pbf
+│   │   │   │   │   ├── 8192-8447.pbf
+│   │   │   │   │   ├── 8448-8703.pbf
+│   │   │   │   │   ├── 8704-8959.pbf
+│   │   │   │   │   ├── 8960-9215.pbf
+│   │   │   │   │   ├── 9216-9471.pbf
+│   │   │   │   │   ├── 9472-9727.pbf
+│   │   │   │   │   ├── 9728-9983.pbf
+│   │   │   │   │   └── 9984-10239.pbf
+│   │   │   │   ├── NotoSansMyanmar-Regular
+│   │   │   │   │   ├── 0-255.pbf
+│   │   │   │   │   ├── 1024-1279.pbf
+│   │   │   │   │   ├── 10240-10495.pbf
+│   │   │   │   │   ├── 10496-10751.pbf
+│   │   │   │   │   ├── 10752-11007.pbf
+│   │   │   │   │   ├── 11008-11263.pbf
+│   │   │   │   │   ├── 11264-11519.pbf
+│   │   │   │   │   ├── 11520-11775.pbf
+│   │   │   │   │   ├── 11776-12031.pbf
+│   │   │   │   │   ├── 12032-12287.pbf
+│   │   │   │   │   ├── 12288-12543.pbf
+│   │   │   │   │   ├── 12544-12799.pbf
+│   │   │   │   │   ├── 1280-1535.pbf
+│   │   │   │   │   ├── 12800-13055.pbf
+│   │   │   │   │   ├── 13056-13311.pbf
+│   │   │   │   │   ├── 13312-13567.pbf
+│   │   │   │   │   ├── 13568-13823.pbf
+│   │   │   │   │   ├── 13824-14079.pbf
+│   │   │   │   │   ├── 14080-14335.pbf
+│   │   │   │   │   ├── 14336-14591.pbf
+│   │   │   │   │   ├── 14592-14847.pbf
+│   │   │   │   │   ├── 14848-15103.pbf
+│   │   │   │   │   ├── 15104-15359.pbf
+│   │   │   │   │   ├── 1536-1791.pbf
+│   │   │   │   │   ├── 15360-15615.pbf
+│   │   │   │   │   ├── 15616-15871.pbf
+│   │   │   │   │   ├── 15872-16127.pbf
+│   │   │   │   │   ├── 16128-16383.pbf
+│   │   │   │   │   ├── 16384-16639.pbf
+│   │   │   │   │   ├── 16640-16895.pbf
+│   │   │   │   │   ├── 16896-17151.pbf
+│   │   │   │   │   ├── 17152-17407.pbf
+│   │   │   │   │   ├── 17408-17663.pbf
+│   │   │   │   │   ├── 17664-17919.pbf
+│   │   │   │   │   ├── 1792-2047.pbf
+│   │   │   │   │   ├── 17920-18175.pbf
+│   │   │   │   │   ├── 18176-18431.pbf
+│   │   │   │   │   ├── 18432-18687.pbf
+│   │   │   │   │   ├── 18688-18943.pbf
+│   │   │   │   │   ├── 18944-19199.pbf
+│   │   │   │   │   ├── 19200-19455.pbf
+│   │   │   │   │   ├── 19456-19711.pbf
+│   │   │   │   │   ├── 19712-19967.pbf
+│   │   │   │   │   ├── 19968-20223.pbf
+│   │   │   │   │   ├── 20224-20479.pbf
+│   │   │   │   │   ├── 2048-2303.pbf
+│   │   │   │   │   ├── 20480-20735.pbf
+│   │   │   │   │   ├── 20736-20991.pbf
+│   │   │   │   │   ├── 20992-21247.pbf
+│   │   │   │   │   ├── 21248-21503.pbf
+│   │   │   │   │   ├── 21504-21759.pbf
+│   │   │   │   │   ├── 21760-22015.pbf
+│   │   │   │   │   ├── 22016-22271.pbf
+│   │   │   │   │   ├── 22272-22527.pbf
+│   │   │   │   │   ├── 22528-22783.pbf
+│   │   │   │   │   ├── 22784-23039.pbf
+│   │   │   │   │   ├── 2304-2559.pbf
+│   │   │   │   │   ├── 23040-23295.pbf
+│   │   │   │   │   ├── 23296-23551.pbf
+│   │   │   │   │   ├── 23552-23807.pbf
+│   │   │   │   │   ├── 23808-24063.pbf
+│   │   │   │   │   ├── 24064-24319.pbf
+│   │   │   │   │   ├── 24320-24575.pbf
+│   │   │   │   │   ├── 24576-24831.pbf
+│   │   │   │   │   ├── 24832-25087.pbf
+│   │   │   │   │   ├── 25088-25343.pbf
+│   │   │   │   │   ├── 25344-25599.pbf
+│   │   │   │   │   ├── 256-511.pbf
+│   │   │   │   │   ├── 2560-2815.pbf
+│   │   │   │   │   ├── 25600-25855.pbf
+│   │   │   │   │   ├── 25856-26111.pbf
+│   │   │   │   │   ├── 26112-26367.pbf
+│   │   │   │   │   ├── 26368-26623.pbf
+│   │   │   │   │   ├── 26624-26879.pbf
+│   │   │   │   │   ├── 26880-27135.pbf
+│   │   │   │   │   ├── 27136-27391.pbf
+│   │   │   │   │   ├── 27392-27647.pbf
+│   │   │   │   │   ├── 27648-27903.pbf
+│   │   │   │   │   ├── 27904-28159.pbf
+│   │   │   │   │   ├── 2816-3071.pbf
+│   │   │   │   │   ├── 28160-28415.pbf
+│   │   │   │   │   ├── 28416-28671.pbf
+│   │   │   │   │   ├── 28672-28927.pbf
+│   │   │   │   │   ├── 28928-29183.pbf
+│   │   │   │   │   ├── 29184-29439.pbf
+│   │   │   │   │   ├── 29440-29695.pbf
+│   │   │   │   │   ├── 29696-29951.pbf
+│   │   │   │   │   ├── 29952-30207.pbf
+│   │   │   │   │   ├── 30208-30463.pbf
+│   │   │   │   │   ├── 30464-30719.pbf
+│   │   │   │   │   ├── 3072-3327.pbf
+│   │   │   │   │   ├── 30720-30975.pbf
+│   │   │   │   │   ├── 30976-31231.pbf
+│   │   │   │   │   ├── 31232-31487.pbf
+│   │   │   │   │   ├── 31488-31743.pbf
+│   │   │   │   │   ├── 31744-31999.pbf
+│   │   │   │   │   ├── 32000-32255.pbf
+│   │   │   │   │   ├── 32256-32511.pbf
+│   │   │   │   │   ├── 32512-32767.pbf
+│   │   │   │   │   ├── 32768-33023.pbf
+│   │   │   │   │   ├── 33024-33279.pbf
+│   │   │   │   │   ├── 3328-3583.pbf
+│   │   │   │   │   ├── 33280-33535.pbf
+│   │   │   │   │   ├── 33536-33791.pbf
+│   │   │   │   │   ├── 33792-34047.pbf
+│   │   │   │   │   ├── 34048-34303.pbf
+│   │   │   │   │   ├── 34304-34559.pbf
+│   │   │   │   │   ├── 34560-34815.pbf
+│   │   │   │   │   ├── 34816-35071.pbf
+│   │   │   │   │   ├── 35072-35327.pbf
+│   │   │   │   │   ├── 35328-35583.pbf
+│   │   │   │   │   ├── 35584-35839.pbf
+│   │   │   │   │   ├── 3584-3839.pbf
+│   │   │   │   │   ├── 35840-36095.pbf
+│   │   │   │   │   ├── 36096-36351.pbf
+│   │   │   │   │   ├── 36352-36607.pbf
+│   │   │   │   │   ├── 36608-36863.pbf
+│   │   │   │   │   ├── 36864-37119.pbf
+│   │   │   │   │   ├── 37120-37375.pbf
+│   │   │   │   │   ├── 37376-37631.pbf
+│   │   │   │   │   ├── 37632-37887.pbf
+│   │   │   │   │   ├── 37888-38143.pbf
+│   │   │   │   │   ├── 38144-38399.pbf
+│   │   │   │   │   ├── 3840-4095.pbf
+│   │   │   │   │   ├── 38400-38655.pbf
+│   │   │   │   │   ├── 38656-38911.pbf
+│   │   │   │   │   ├── 38912-39167.pbf
+│   │   │   │   │   ├── 39168-39423.pbf
+│   │   │   │   │   ├── 39424-39679.pbf
+│   │   │   │   │   ├── 39680-39935.pbf
+│   │   │   │   │   ├── 39936-40191.pbf
+│   │   │   │   │   ├── 40192-40447.pbf
+│   │   │   │   │   ├── 40448-40703.pbf
+│   │   │   │   │   ├── 40704-40959.pbf
+│   │   │   │   │   ├── 4096-4351.pbf
+│   │   │   │   │   ├── 40960-41215.pbf
+│   │   │   │   │   ├── 41216-41471.pbf
+│   │   │   │   │   ├── 41472-41727.pbf
+│   │   │   │   │   ├── 41728-41983.pbf
+│   │   │   │   │   ├── 41984-42239.pbf
+│   │   │   │   │   ├── 42240-42495.pbf
+│   │   │   │   │   ├── 42496-42751.pbf
+│   │   │   │   │   ├── 42752-43007.pbf
+│   │   │   │   │   ├── 43008-43263.pbf
+│   │   │   │   │   ├── 43264-43519.pbf
+│   │   │   │   │   ├── 4352-4607.pbf
+│   │   │   │   │   ├── 43520-43775.pbf
+│   │   │   │   │   ├── 43776-44031.pbf
+│   │   │   │   │   ├── 44032-44287.pbf
+│   │   │   │   │   ├── 44288-44543.pbf
+│   │   │   │   │   ├── 44544-44799.pbf
+│   │   │   │   │   ├── 44800-45055.pbf
+│   │   │   │   │   ├── 45056-45311.pbf
+│   │   │   │   │   ├── 45312-45567.pbf
+│   │   │   │   │   ├── 45568-45823.pbf
+│   │   │   │   │   ├── 45824-46079.pbf
+│   │   │   │   │   ├── 4608-4863.pbf
+│   │   │   │   │   ├── 46080-46335.pbf
+│   │   │   │   │   ├── 46336-46591.pbf
+│   │   │   │   │   ├── 46592-46847.pbf
+│   │   │   │   │   ├── 46848-47103.pbf
+│   │   │   │   │   ├── 47104-47359.pbf
+│   │   │   │   │   ├── 47360-47615.pbf
+│   │   │   │   │   ├── 47616-47871.pbf
+│   │   │   │   │   ├── 47872-48127.pbf
+│   │   │   │   │   ├── 48128-48383.pbf
+│   │   │   │   │   ├── 48384-48639.pbf
+│   │   │   │   │   ├── 4864-5119.pbf
+│   │   │   │   │   ├── 48640-48895.pbf
+│   │   │   │   │   ├── 48896-49151.pbf
+│   │   │   │   │   ├── 49152-49407.pbf
+│   │   │   │   │   ├── 49408-49663.pbf
+│   │   │   │   │   ├── 49664-49919.pbf
+│   │   │   │   │   ├── 49920-50175.pbf
+│   │   │   │   │   ├── 50176-50431.pbf
+│   │   │   │   │   ├── 50432-50687.pbf
+│   │   │   │   │   ├── 50688-50943.pbf
+│   │   │   │   │   ├── 50944-51199.pbf
+│   │   │   │   │   ├── 512-767.pbf
+│   │   │   │   │   ├── 5120-5375.pbf
+│   │   │   │   │   ├── 51200-51455.pbf
+│   │   │   │   │   ├── 51456-51711.pbf
+│   │   │   │   │   ├── 51712-51967.pbf
+│   │   │   │   │   ├── 51968-52223.pbf
+│   │   │   │   │   ├── 52224-52479.pbf
+│   │   │   │   │   ├── 52480-52735.pbf
+│   │   │   │   │   ├── 52736-52991.pbf
+│   │   │   │   │   ├── 52992-53247.pbf
+│   │   │   │   │   ├── 53248-53503.pbf
+│   │   │   │   │   ├── 53504-53759.pbf
+│   │   │   │   │   ├── 5376-5631.pbf
+│   │   │   │   │   ├── 53760-54015.pbf
+│   │   │   │   │   ├── 54016-54271.pbf
+│   │   │   │   │   ├── 54272-54527.pbf
+│   │   │   │   │   ├── 54528-54783.pbf
+│   │   │   │   │   ├── 54784-55039.pbf
+│   │   │   │   │   ├── 55040-55295.pbf
+│   │   │   │   │   ├── 55296-55551.pbf
+│   │   │   │   │   ├── 55552-55807.pbf
+│   │   │   │   │   ├── 55808-56063.pbf
+│   │   │   │   │   ├── 56064-56319.pbf
+│   │   │   │   │   ├── 5632-5887.pbf
+│   │   │   │   │   ├── 56320-56575.pbf
+│   │   │   │   │   ├── 56576-56831.pbf
+│   │   │   │   │   ├── 56832-57087.pbf
+│   │   │   │   │   ├── 57088-57343.pbf
+│   │   │   │   │   ├── 57344-57599.pbf
+│   │   │   │   │   ├── 57600-57855.pbf
+│   │   │   │   │   ├── 57856-58111.pbf
+│   │   │   │   │   ├── 58112-58367.pbf
+│   │   │   │   │   ├── 58368-58623.pbf
+│   │   │   │   │   ├── 58624-58879.pbf
+│   │   │   │   │   ├── 5888-6143.pbf
+│   │   │   │   │   ├── 58880-59135.pbf
+│   │   │   │   │   ├── 59136-59391.pbf
+│   │   │   │   │   ├── 59392-59647.pbf
+│   │   │   │   │   ├── 59648-59903.pbf
+│   │   │   │   │   ├── 59904-60159.pbf
+│   │   │   │   │   ├── 60160-60415.pbf
+│   │   │   │   │   ├── 60416-60671.pbf
+│   │   │   │   │   ├── 60672-60927.pbf
+│   │   │   │   │   ├── 60928-61183.pbf
+│   │   │   │   │   ├── 61184-61439.pbf
+│   │   │   │   │   ├── 6144-6399.pbf
+│   │   │   │   │   ├── 61440-61695.pbf
+│   │   │   │   │   ├── 61696-61951.pbf
+│   │   │   │   │   ├── 61952-62207.pbf
+│   │   │   │   │   ├── 62208-62463.pbf
+│   │   │   │   │   ├── 62464-62719.pbf
+│   │   │   │   │   ├── 62720-62975.pbf
+│   │   │   │   │   ├── 62976-63231.pbf
+│   │   │   │   │   ├── 63232-63487.pbf
+│   │   │   │   │   ├── 63488-63743.pbf
+│   │   │   │   │   ├── 63744-63999.pbf
+│   │   │   │   │   ├── 6400-6655.pbf
+│   │   │   │   │   ├── 64000-64255.pbf
+│   │   │   │   │   ├── 64256-64511.pbf
+│   │   │   │   │   ├── 64512-64767.pbf
+│   │   │   │   │   ├── 64768-65023.pbf
+│   │   │   │   │   ├── 65024-65279.pbf
+│   │   │   │   │   ├── 65280-65535.pbf
+│   │   │   │   │   ├── 6656-6911.pbf
+│   │   │   │   │   ├── 6912-7167.pbf
+│   │   │   │   │   ├── 7168-7423.pbf
+│   │   │   │   │   ├── 7424-7679.pbf
+│   │   │   │   │   ├── 768-1023.pbf
+│   │   │   │   │   ├── 7680-7935.pbf
+│   │   │   │   │   ├── 7936-8191.pbf
+│   │   │   │   │   ├── 8192-8447.pbf
+│   │   │   │   │   ├── 8448-8703.pbf
+│   │   │   │   │   ├── 8704-8959.pbf
+│   │   │   │   │   ├── 8960-9215.pbf
+│   │   │   │   │   ├── 9216-9471.pbf
+│   │   │   │   │   ├── 9472-9727.pbf
+│   │   │   │   │   ├── 9728-9983.pbf
+│   │   │   │   │   └── 9984-10239.pbf
+│   │   │   │   └── README.md
+│   │   │   └── maplibre-gl-complex-text.js
+│   │   ├── src
+│   │   │   ├── app
+│   │   │   │   ├── (admin)
+│   │   │   │   │   ├── categories
+│   │   │   │   │   ├── dashboard
+│   │   │   │   │   │   ├── core-review
+│   │   │   │   │   │   │   ├── addresses
+│   │   │   │   │   │   │   │   ├── [id]
+│   │   │   │   │   │   │   │   │   └── edit
+│   │   │   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   │   │   ├── new
+│   │   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── admin-areas
+│   │   │   │   │   │   │   │   ├── [id]
+│   │   │   │   │   │   │   │   │   └── edit
+│   │   │   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   │   │   ├── new
+│   │   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── buildings
+│   │   │   │   │   │   │   │   ├── [id]
+│   │   │   │   │   │   │   │   │   └── edit
+│   │   │   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   │   │   ├── new
+│   │   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── bus-route-variants
+│   │   │   │   │   │   │   │   ├── [id]
+│   │   │   │   │   │   │   │   │   └── edit
+│   │   │   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   │   │   ├── new
+│   │   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── bus-routes
+│   │   │   │   │   │   │   │   ├── [id]
+│   │   │   │   │   │   │   │   │   └── edit
+│   │   │   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   │   │   ├── new
+│   │   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── bus-stops
+│   │   │   │   │   │   │   │   ├── [id]
+│   │   │   │   │   │   │   │   │   └── edit
+│   │   │   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   │   │   ├── new
+│   │   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── landuse
+│   │   │   │   │   │   │   │   ├── [id]
+│   │   │   │   │   │   │   │   │   └── edit
+│   │   │   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   │   │   ├── new
+│   │   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── layout.tsx
+│   │   │   │   │   │   │   ├── page.tsx
+│   │   │   │   │   │   │   ├── places
+│   │   │   │   │   │   │   │   ├── [id]
+│   │   │   │   │   │   │   │   │   └── edit
+│   │   │   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   │   │   ├── new
+│   │   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── roads
+│   │   │   │   │   │   │   │   ├── [id]
+│   │   │   │   │   │   │   │   │   └── edit
+│   │   │   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   │   │   ├── new
+│   │   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── water-lines
+│   │   │   │   │   │   │   │   ├── [id]
+│   │   │   │   │   │   │   │   │   └── edit
+│   │   │   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   │   │   ├── new
+│   │   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   └── water-polygons
+│   │   │   │   │   │   │       ├── [id]
+│   │   │   │   │   │   │       │   └── edit
+│   │   │   │   │   │   │       │       └── page.tsx
+│   │   │   │   │   │   │       ├── new
+│   │   │   │   │   │   │       │   └── page.tsx
+│   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   ├── core-verification
+│   │   │   │   │   │   │   ├── [family]
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── layout.tsx
+│   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   ├── import-review
+│   │   │   │   │   │   │   ├── [family]
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── _components
+│   │   │   │   │   │   │   │   ├── ImportReviewBatchPicker.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewBuildingsClient.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewBulkDecisionResultPanel.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewCandidatesClient.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewEntityPage.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewHistoryClient.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewHistoryPublishBatchDetailClient.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewHistoryReviewBatchDetailClient.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewPromotionBatchDetailClient.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewPromotionCleanupPanel.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewPromotionClient.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewPromotionCreateBatchPanel.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewPromotionPromotePanel.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewPromotionReadyTable.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewPromotionRoadDryRunPanel.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewPromotionRoutingBarrierDryRunPanel.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewPromotionValidationPanel.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewReviewActionsMenu.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewRoadOverridesPanel.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewRouteAuthGate.tsx
+│   │   │   │   │   │   │   │   ├── ImportReviewSubNav.tsx
+│   │   │   │   │   │   │   │   ├── importReviewHistoryUi.tsx
+│   │   │   │   │   │   │   │   ├── importReviewPromotionUi.tsx
+│   │   │   │   │   │   │   │   └── importReviewTableUi.tsx
+│   │   │   │   │   │   │   ├── addresses
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── admin-areas
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── buildings
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── bus-route-stops
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── bus-route-variants
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── bus-stops
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── history
+│   │   │   │   │   │   │   │   ├── page.tsx
+│   │   │   │   │   │   │   │   ├── publish-batches
+│   │   │   │   │   │   │   │   │   └── [id]
+│   │   │   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   │   │   └── review-batches
+│   │   │   │   │   │   │   │       └── [id]
+│   │   │   │   │   │   │   │           └── page.tsx
+│   │   │   │   │   │   │   ├── landuse
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── layout.tsx
+│   │   │   │   │   │   │   ├── page.tsx
+│   │   │   │   │   │   │   ├── places
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── promotion
+│   │   │   │   │   │   │   │   ├── [batchId]
+│   │   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── roads
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── routing-barriers
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── water-lines
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   └── water-polygons
+│   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   ├── page.tsx
+│   │   │   │   │   │   ├── references
+│   │   │   │   │   │   │   ├── address-component-types
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── admin-levels
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── building-types
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── languages
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── layout.tsx
+│   │   │   │   │   │   │   ├── page.tsx
+│   │   │   │   │   │   │   ├── place-classes
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── poi-categories
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── publish-statuses
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── report-statuses
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── report-types
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── road-classes
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── source-types
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   ├── validation-statuses
+│   │   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   │   └── validation-task-types
+│   │   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   │   └── stats
+│   │   │   │   │   │       ├── core
+│   │   │   │   │   │       │   └── page.tsx
+│   │   │   │   │   │       ├── data-quality
+│   │   │   │   │   │       │   └── page.tsx
+│   │   │   │   │   │       ├── import
+│   │   │   │   │   │       │   └── page.tsx
+│   │   │   │   │   │       ├── layout.tsx
+│   │   │   │   │   │       ├── page.tsx
+│   │   │   │   │   │       └── promotion
+│   │   │   │   │   │           └── page.tsx
+│   │   │   │   │   ├── data-review
+│   │   │   │   │   │   ├── buildings
+│   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   ├── page.tsx
+│   │   │   │   │   │   ├── places
+│   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   └── roads
+│   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   └── layout.tsx
+│   │   │   │   ├── api
+│   │   │   │   │   ├── buildings
+│   │   │   │   │   │   └── route.ts
+│   │   │   │   │   └── pois
+│   │   │   │   │       └── route.ts
+│   │   │   │   ├── favicon.ico
+│   │   │   │   ├── globals.css
+│   │   │   │   ├── layout.tsx
+│   │   │   │   ├── login
+│   │   │   │   │   ├── LoginPageClient.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── page.tsx
+│   │   │   │   └── signup
+│   │   │   │       └── page.tsx
+│   │   │   ├── components
+│   │   │   │   ├── MapView.tsx
+│   │   │   │   ├── admin-areas
+│   │   │   │   │   ├── AdminAreaCombobox.tsx
+│   │   │   │   │   └── adminAreaLabels.ts
+│   │   │   │   ├── buildings
+│   │   │   │   │   ├── BuildingEditorForm.tsx
+│   │   │   │   │   ├── BuildingEditorMap.tsx
+│   │   │   │   │   └── BuildingLinkedPlacesPanel.tsx
+│   │   │   │   ├── core-review
+│   │   │   │   │   ├── CoreReviewDataTableCard.tsx
+│   │   │   │   │   ├── CoreReviewFilterCard.tsx
+│   │   │   │   │   ├── CoreReviewHeaderCard.tsx
+│   │   │   │   │   ├── CoreReviewMapPreview.tsx
+│   │   │   │   │   ├── CoreReviewPageShell.tsx
+│   │   │   │   │   ├── CoreReviewStateCard.tsx
+│   │   │   │   │   ├── CoreReviewStatusBadge.tsx
+│   │   │   │   │   ├── coreReviewMapGeometry.ts
+│   │   │   │   │   ├── coreReviewOverviewModules.ts
+│   │   │   │   │   ├── coreReviewUi.ts
+│   │   │   │   │   ├── geometry
+│   │   │   │   │   │   ├── CoreGeometryEditor.tsx
+│   │   │   │   │   │   ├── coreGeometryUtils.ts
+│   │   │   │   │   │   └── index.ts
+│   │   │   │   │   └── index.ts
+│   │   │   │   ├── dashboard
+│   │   │   │   │   ├── DataTableToolbar.tsx
+│   │   │   │   │   ├── FamilyPlaceholderPage.tsx
+│   │   │   │   │   ├── FamilyTopNav.tsx
+│   │   │   │   │   ├── FamilyTopNavFromConfig.tsx
+│   │   │   │   │   ├── HighlightMatch.tsx
+│   │   │   │   │   └── StatsCard.tsx
+│   │   │   │   ├── forms
+│   │   │   │   ├── layout
+│   │   │   │   │   └── DashboardSidebar.tsx
+│   │   │   │   ├── map
+│   │   │   │   │   ├── BuildingPreviewMap.tsx
+│   │   │   │   │   ├── BuildingTileVersionContext.tsx
+│   │   │   │   │   ├── DataReviewCandidateMap.tsx
+│   │   │   │   │   ├── DataReviewMapCard.tsx
+│   │   │   │   │   ├── DataReviewMapHeaderControls.tsx
+│   │   │   │   │   ├── MapPreviewCard.tsx
+│   │   │   │   │   ├── PlaceCreateMapPicker.tsx
+│   │   │   │   │   ├── PlacePointMapPicker.tsx
+│   │   │   │   │   ├── PlacePreviewMap.tsx
+│   │   │   │   │   ├── StreetPreviewMap.tsx
+│   │   │   │   │   ├── createPlaceBaseMap.ts
+│   │   │   │   │   ├── createPreviewBaseMap.ts
+│   │   │   │   │   ├── dashboardBasemapStyle.ts
+│   │   │   │   │   ├── dashboardPreviewPlacesLayers.ts
+│   │   │   │   │   ├── dataReviewBasemap.ts
+│   │   │   │   │   ├── mapErrorHandlers.ts
+│   │   │   │   │   ├── mapPreviewUi.ts
+│   │   │   │   │   ├── mapVertexPreview.ts
+│   │   │   │   │   └── placeMapConfig.ts
+│   │   │   │   ├── places
+│   │   │   │   │   ├── PlaceEditModal.tsx
+│   │   │   │   │   └── PlaceLinkedBuildingsPanel.tsx
+│   │   │   │   ├── review
+│   │   │   │   │   ├── ReviewDetailDrawer.tsx
+│   │   │   │   │   ├── ReviewDetailField.tsx
+│   │   │   │   │   ├── ReviewEmptyState.tsx
+│   │   │   │   │   ├── ReviewErrorState.tsx
+│   │   │   │   │   ├── ReviewFamilyPageShell.tsx
+│   │   │   │   │   ├── ReviewFilterCard.tsx
+│   │   │   │   │   ├── ReviewHeaderCard.tsx
+│   │   │   │   │   ├── ReviewLoadingState.tsx
+│   │   │   │   │   ├── ReviewPagination.tsx
+│   │   │   │   │   ├── ReviewStatusBadge.tsx
+│   │   │   │   │   ├── ReviewTableCard.tsx
+│   │   │   │   │   ├── ReviewTopNav.tsx
+│   │   │   │   │   ├── index.ts
+│   │   │   │   │   └── reviewPalette.ts
+│   │   │   │   ├── streets
+│   │   │   │   │   ├── StreetEditorMap.tsx
+│   │   │   │   │   └── StreetGeometryValidationFeedback.tsx
+│   │   │   │   └── ui
+│   │   │   │       └── card.tsx
+│   │   │   ├── config
+│   │   │   │   ├── env.ts
+│   │   │   │   └── map.ts
+│   │   │   ├── features
+│   │   │   │   ├── addresses
+│   │   │   │   │   ├── AddressLocationMapPicker.tsx
+│   │   │   │   │   ├── CoreAddressFormExtras.tsx
+│   │   │   │   │   ├── ReverseAddressSuggestionPanel.tsx
+│   │   │   │   │   ├── reverseAddress.types.ts
+│   │   │   │   │   ├── reverseAddressToRows.ts
+│   │   │   │   │   ├── reverseAddressUi.ts
+│   │   │   │   │   └── useReverseAddressSuggestion.ts
+│   │   │   │   ├── core-review
+│   │   │   │   │   ├── admin-areas
+│   │   │   │   │   │   ├── AdminAreaBoundaryFields.tsx
+│   │   │   │   │   │   ├── AdminAreaBoundaryFilters.tsx
+│   │   │   │   │   │   ├── adminAreaBoundaryBadges.tsx
+│   │   │   │   │   │   └── adminAreaBoundaryDefaults.ts
+│   │   │   │   │   ├── components
+│   │   │   │   │   │   ├── CoreReviewAddressDrawerView.tsx
+│   │   │   │   │   │   ├── CoreReviewEntityFilters.tsx
+│   │   │   │   │   │   └── CoreReviewEntityPage.tsx
+│   │   │   │   │   ├── config
+│   │   │   │   │   │   ├── applyInlineEditDetailToListRow.ts
+│   │   │   │   │   │   ├── detailListRowUtils.ts
+│   │   │   │   │   │   ├── entity-config-types.ts
+│   │   │   │   │   │   ├── entity-configs.tsx
+│   │   │   │   │   │   ├── tableColumns.tsx
+│   │   │   │   │   │   └── types.ts
+│   │   │   │   │   ├── drawer
+│   │   │   │   │   │   ├── CoreEntityDrawerEditForm.tsx
+│   │   │   │   │   │   ├── CoreReviewDrawerActions.tsx
+│   │   │   │   │   │   ├── CoreReviewDrawerShell.tsx
+│   │   │   │   │   │   ├── CoreReviewEntityDrawer.tsx
+│   │   │   │   │   │   ├── CoreReviewEntityDrawerView.tsx
+│   │   │   │   │   │   ├── entityKeyFromSegment.ts
+│   │   │   │   │   │   ├── index.ts
+│   │   │   │   │   │   ├── sanitizeSaveError.ts
+│   │   │   │   │   │   ├── types.ts
+│   │   │   │   │   │   ├── useCoreEntityEditForm.ts
+│   │   │   │   │   │   ├── useCoreReviewDrawerDetail.ts
+│   │   │   │   │   │   ├── useCoreReviewDrawerState.ts
+│   │   │   │   │   │   └── useCoreReviewInlineEditDiscardGuard.ts
+│   │   │   │   │   ├── forms
+│   │   │   │   │   │   ├── CoreEntityEditFormSections.tsx
+│   │   │   │   │   │   ├── CoreEntityFieldRenderer.tsx
+│   │   │   │   │   │   ├── CoreEntityFormPage.tsx
+│   │   │   │   │   │   ├── CoreEntityFormRoutePage.tsx
+│   │   │   │   │   │   ├── CoreEntityFormShell.tsx
+│   │   │   │   │   │   ├── CoreEntityGeometrySection.tsx
+│   │   │   │   │   │   ├── CoreEntityMapSections.tsx
+│   │   │   │   │   │   ├── CoreEntityNamesMetadata.tsx
+│   │   │   │   │   │   ├── CoreEntityValidationPanel.tsx
+│   │   │   │   │   │   ├── CoreEntityWriteApiBanner.tsx
+│   │   │   │   │   │   ├── CoreFormActions.tsx
+│   │   │   │   │   │   ├── CorePlaceCoordinatesField.tsx
+│   │   │   │   │   │   ├── CoreReadonlyMetadata.tsx
+│   │   │   │   │   │   ├── CoreRefDropdown.tsx
+│   │   │   │   │   │   ├── StreetEditExtras.tsx
+│   │   │   │   │   │   ├── index.ts
+│   │   │   │   │   │   ├── streetGeometryEditContext.ts
+│   │   │   │   │   │   └── useCoreEntityRefs.ts
+│   │   │   │   │   ├── hooks
+│   │   │   │   │   │   ├── useCoreReviewListState.ts
+│   │   │   │   │   │   └── useCoreReviewVerificationTotals.ts
+│   │   │   │   │   ├── lifecycle
+│   │   │   │   │   │   ├── CoreReviewConfirmDialog.tsx
+│   │   │   │   │   │   ├── CoreReviewEntityFormLifecycleActions.tsx
+│   │   │   │   │   │   ├── CoreReviewLifecycleDrawerActions.tsx
+│   │   │   │   │   │   ├── CoreReviewLifecycleRowAction.tsx
+│   │   │   │   │   │   ├── CoreReviewLifecycleStatusCell.tsx
+│   │   │   │   │   │   ├── CoreReviewRestoreButton.tsx
+│   │   │   │   │   │   ├── CoreReviewSoftDeleteButton.tsx
+│   │   │   │   │   │   ├── coreReviewLifecycleUtils.ts
+│   │   │   │   │   │   └── useCoreReviewLifecycleMutation.ts
+│   │   │   │   │   ├── pages
+│   │   │   │   │   │   ├── CoreReviewBuildingsPage.tsx
+│   │   │   │   │   │   ├── CoreReviewPlacesPage.tsx
+│   │   │   │   │   │   └── CoreReviewRoadsPage.tsx
+│   │   │   │   │   ├── streets
+│   │   │   │   │   │   ├── applyStreetDetailToListRow.ts
+│   │   │   │   │   │   └── streetRoutingBadges.tsx
+│   │   │   │   │   └── utils
+│   │   │   │   │       ├── createButtonLabel.ts
+│   │   │   │   │       ├── formatters.ts
+│   │   │   │   │       ├── listHeaderMeta.tsx
+│   │   │   │   │       └── rowGeometry.ts
+│   │   │   │   ├── core-verification
+│   │   │   │   │   ├── CoreVerificationFamilyClient.tsx
+│   │   │   │   │   ├── CoreVerificationOverviewClient.tsx
+│   │   │   │   │   └── config.ts
+│   │   │   │   ├── import-review
+│   │   │   │   │   ├── api
+│   │   │   │   │   │   ├── importReviewApiClient.ts
+│   │   │   │   │   │   ├── importReviewApiErrors.ts
+│   │   │   │   │   │   └── index.ts
+│   │   │   │   │   ├── components
+│   │   │   │   │   │   ├── AddressSourceContextSection.tsx
+│   │   │   │   │   │   ├── ImportReviewAddressDetailDrawer.tsx
+│   │   │   │   │   │   ├── ImportReviewBatchScopeBar.tsx
+│   │   │   │   │   │   ├── ImportReviewCandidatesTable.tsx
+│   │   │   │   │   │   ├── ImportReviewDetailDrawer.tsx
+│   │   │   │   │   │   ├── ImportReviewEmptyState.tsx
+│   │   │   │   │   │   ├── ImportReviewEntityPage.tsx
+│   │   │   │   │   │   ├── ImportReviewErrorState.tsx
+│   │   │   │   │   │   ├── ImportReviewFiltersPanel.tsx
+│   │   │   │   │   │   ├── ImportReviewInlineSpinner.tsx
+│   │   │   │   │   │   ├── ImportReviewLoadingState.tsx
+│   │   │   │   │   │   ├── ImportReviewMapPreview.tsx
+│   │   │   │   │   │   ├── ImportReviewOperationLogPanel.tsx
+│   │   │   │   │   │   ├── ImportReviewOverrideEditor.tsx
+│   │   │   │   │   │   ├── ImportReviewPageHeader.tsx
+│   │   │   │   │   │   ├── ImportReviewProgressMini.tsx
+│   │   │   │   │   │   ├── ImportReviewRoadDryRunStatusBadge.tsx
+│   │   │   │   │   │   ├── ImportReviewRoadStructuredValidation.tsx
+│   │   │   │   │   │   ├── ImportReviewSelectedActionBar.tsx
+│   │   │   │   │   │   ├── ImportReviewSkeletonCards.tsx
+│   │   │   │   │   │   ├── ImportReviewSkeletonTable.tsx
+│   │   │   │   │   │   ├── ImportReviewStatusBadge.tsx
+│   │   │   │   │   │   ├── ImportReviewStatusBanner.tsx
+│   │   │   │   │   │   ├── detail
+│   │   │   │   │   │   │   ├── CandidateJsonSection.tsx
+│   │   │   │   │   │   │   ├── CandidateMapSection.tsx
+│   │   │   │   │   │   │   ├── CandidateOverrideSection.tsx
+│   │   │   │   │   │   │   ├── CandidateReviewActionsSection.tsx
+│   │   │   │   │   │   │   ├── CandidateSummarySection.tsx
+│   │   │   │   │   │   │   └── CandidateValidationSection.tsx
+│   │   │   │   │   │   └── index.ts
+│   │   │   │   │   ├── config
+│   │   │   │   │   │   ├── constants.ts
+│   │   │   │   │   │   ├── createEntityConfig.ts
+│   │   │   │   │   │   ├── entities
+│   │   │   │   │   │   │   ├── addresses.ts
+│   │   │   │   │   │   │   ├── admin-areas.ts
+│   │   │   │   │   │   │   ├── buildings.ts
+│   │   │   │   │   │   │   ├── bus-route-stops.ts
+│   │   │   │   │   │   │   ├── bus-route-variants.ts
+│   │   │   │   │   │   │   ├── bus-routes.ts
+│   │   │   │   │   │   │   ├── bus-stops.ts
+│   │   │   │   │   │   │   ├── index.ts
+│   │   │   │   │   │   │   ├── landuse.ts
+│   │   │   │   │   │   │   ├── places.ts
+│   │   │   │   │   │   │   ├── roads.ts
+│   │   │   │   │   │   │   ├── routing-barriers.ts
+│   │   │   │   │   │   │   ├── water-lines.ts
+│   │   │   │   │   │   │   └── water-polygons.ts
+│   │   │   │   │   │   ├── essentialFields.ts
+│   │   │   │   │   │   ├── importReviewEntityConfigs.ts
+│   │   │   │   │   │   ├── index.ts
+│   │   │   │   │   │   ├── legacyAdapter.ts
+│   │   │   │   │   │   ├── overrideAllowlist.ts
+│   │   │   │   │   │   ├── overrideFieldDefs.ts
+│   │   │   │   │   │   ├── refSources.ts
+│   │   │   │   │   │   └── types.ts
+│   │   │   │   │   ├── hooks
+│   │   │   │   │   │   ├── index.ts
+│   │   │   │   │   │   ├── useClearSelectionOnListQueryChange.ts
+│   │   │   │   │   │   ├── useImportReviewBatchContext.ts
+│   │   │   │   │   │   ├── useImportReviewBulkActions.ts
+│   │   │   │   │   │   ├── useImportReviewDebouncedValue.ts
+│   │   │   │   │   │   ├── useImportReviewEntityPage.ts
+│   │   │   │   │   │   ├── useImportReviewFormOptions.ts
+│   │   │   │   │   │   └── useImportReviewRoadDryRunSummary.ts
+│   │   │   │   │   ├── navigation
+│   │   │   │   │   │   ├── buildImportReviewEntityUrl.ts
+│   │   │   │   │   │   └── index.ts
+│   │   │   │   │   ├── routes
+│   │   │   │   │   │   └── importReviewEntityRoutePage.tsx
+│   │   │   │   │   └── utils
+│   │   │   │   │       ├── bulkSelectionAnalysis.ts
+│   │   │   │   │       ├── detailDrawerUtils.ts
+│   │   │   │   │       ├── entityPageUtils.ts
+│   │   │   │   │       ├── formOptionsUtils.ts
+│   │   │   │   │       ├── importReviewAddressComponentRows.ts
+│   │   │   │   │       ├── importReviewAddressListDisplay.tsx
+│   │   │   │   │       ├── importReviewAddressMapGeometry.ts
+│   │   │   │   │       ├── importReviewApiFamily.test.ts
+│   │   │   │   │       ├── importReviewApiFamily.ts
+│   │   │   │   │       ├── importReviewClassificationFields.ts
+│   │   │   │   │       ├── importReviewClientFetchLog.ts
+│   │   │   │   │       ├── importReviewLanduseListDisplay.ts
+│   │   │   │   │       ├── importReviewMessageTone.ts
+│   │   │   │   │       ├── importReviewNameFields.ts
+│   │   │   │   │       ├── importReviewRoadClientFilters.ts
+│   │   │   │   │       ├── importReviewRoadDryRunUi.ts
+│   │   │   │   │       ├── importReviewRoadListDisplay.ts
+│   │   │   │   │       ├── importReviewRoadOverridesPayload.test.ts
+│   │   │   │   │       ├── importReviewRoadOverridesPayload.ts
+│   │   │   │   │       ├── loadingMessages.ts
+│   │   │   │   │       ├── mapPreviewUtils.ts
+│   │   │   │   │       ├── normalizeNullableNumber.ts
+│   │   │   │   │       └── overrideEditorUtils.ts
+│   │   │   │   ├── places
+│   │   │   │   │   ├── placeForm.ts
+│   │   │   │   │   └── usePlaces.ts
+│   │   │   │   └── streets
+│   │   │   │       ├── normalizeStreetLineString.ts
+│   │   │   │       ├── streetMapConfig.ts
+│   │   │   │       ├── streetSaveLocalChecks.ts
+│   │   │   │       └── streetSurfaces.ts
+│   │   │   ├── hooks
+│   │   │   │   └── useClientMounted.ts
+│   │   │   ├── lib
+│   │   │   │   ├── api.ts
+│   │   │   │   ├── buildings.ts
+│   │   │   │   ├── cn.ts
+│   │   │   │   ├── core-review
+│   │   │   │   │   ├── entityConfigs
+│   │   │   │   │   │   ├── buildings.ts
+│   │   │   │   │   │   ├── extendedEntities.tsx
+│   │   │   │   │   │   ├── index.ts
+│   │   │   │   │   │   ├── landuse.ts
+│   │   │   │   │   │   ├── places.ts
+│   │   │   │   │   │   ├── shared.ts
+│   │   │   │   │   │   ├── streets.ts
+│   │   │   │   │   │   └── types.ts
+│   │   │   │   │   ├── geometryFieldUtils.ts
+│   │   │   │   │   └── savePayloadUtils.ts
+│   │   │   │   ├── dashDevLog.ts
+│   │   │   │   ├── dashboardBasemapCurrentJsonUrl.ts
+│   │   │   │   ├── dashboardListFilter.ts
+│   │   │   │   ├── dashboardNavigation.ts
+│   │   │   │   ├── dashboardPaths.ts
+│   │   │   │   ├── importReviewDevAccess.ts
+│   │   │   │   ├── importReviewDevAdminHeader.ts
+│   │   │   │   ├── importReviewDrawerMapGeometry.ts
+│   │   │   │   ├── importReviewEditorUx.ts
+│   │   │   │   ├── importReviewEntityConfig.ts
+│   │   │   │   ├── importReviewRoadDrawerValidation.tsx
+│   │   │   │   ├── importReviewRoadEditorState.ts
+│   │   │   │   ├── importReviewScopeUi.ts
+│   │   │   │   ├── importReviewSnapshot.ts
+│   │   │   │   ├── importReviewSummaryRollups.ts
+│   │   │   │   ├── importReviewValidationMessages.ts
+│   │   │   │   ├── jwtRoles.ts
+│   │   │   │   ├── listToolbarSortOrder.ts
+│   │   │   │   ├── map
+│   │   │   │   │   ├── dashboardGlyphDevCheck.ts
+│   │   │   │   │   ├── dashboardMapFonts.ts
+│   │   │   │   │   ├── dashboardMaplibreComplexText.ts
+│   │   │   │   │   ├── liveOverlays.ts
+│   │   │   │   │   └── placeLinkedBuildingOverlays.ts
+│   │   │   │   ├── mapLibreDebug.ts
+│   │   │   │   ├── mapLocalizedName.ts
+│   │   │   │   ├── overpass.ts
+│   │   │   │   └── placePreviewDisplayName.ts
+│   │   │   └── types
+│   │   ├── tsconfig.json
+│   │   ├── tsconfig.tsbuildinfo
+│   │   └── vercel.json
+│   ├── mobile
+│   │   └── andriod-kotlin
+│   │       ├── Pixel-9a-(2)-Android-16_2026-04-01_031044.logcat
+│   │       ├── app
+│   │       │   ├── build.gradle.kts
+│   │       │   ├── proguard-rules.pro
+│   │       │   └── src
+│   │       │       ├── androidTest
+│   │       │       │   └── java
+│   │       │       │       └── com
+│   │       │       │           └── rowan
+│   │       │       │               └── townmap
+│   │       │       │                   └── ExampleInstrumentedTest.kt
+│   │       │       ├── main
+│   │       │       │   ├── AndroidManifest.xml
+│   │       │       │   ├── java
+│   │       │       │   │   └── com
+│   │       │       │   │       └── rowan
+│   │       │       │   │           └── townmap
+│   │       │       │   │               ├── app
+│   │       │       │   │               │   ├── MainActivity.kt
+│   │       │       │   │               │   ├── TownMapApp.kt
+│   │       │       │   │               │   └── TownMapRoot.kt
+│   │       │       │   │               └── navigation
+│   │       │       │   │                   ├── TownMapNavHost.kt
+│   │       │       │   │                   └── TownMapRoutes.kt
+│   │       │       │   └── res
+│   │       │       │       ├── drawable
+│   │       │       │       │   ├── ic_launcher_background.xml
+│   │       │       │       │   └── ic_launcher_foreground.xml
+│   │       │       │       ├── mipmap-anydpi
+│   │       │       │       │   ├── ic_launcher.xml
+│   │       │       │       │   └── ic_launcher_round.xml
+│   │       │       │       ├── mipmap-hdpi
+│   │       │       │       │   ├── ic_launcher.webp
+│   │       │       │       │   └── ic_launcher_round.webp
+│   │       │       │       ├── mipmap-mdpi
+│   │       │       │       │   ├── ic_launcher.webp
+│   │       │       │       │   └── ic_launcher_round.webp
+│   │       │       │       ├── mipmap-xhdpi
+│   │       │       │       │   ├── ic_launcher.webp
+│   │       │       │       │   └── ic_launcher_round.webp
+│   │       │       │       ├── mipmap-xxhdpi
+│   │       │       │       │   ├── ic_launcher.webp
+│   │       │       │       │   └── ic_launcher_round.webp
+│   │       │       │       ├── mipmap-xxxhdpi
+│   │       │       │       │   ├── ic_launcher.webp
+│   │       │       │       │   └── ic_launcher_round.webp
+│   │       │       │       ├── values
+│   │       │       │       │   ├── colors.xml
+│   │       │       │       │   ├── mapbox_access_token.xml
+│   │       │       │       │   ├── strings.xml
+│   │       │       │       │   └── themes.xml
+│   │       │       │       └── xml
+│   │       │       │           ├── backup_rules.xml
+│   │       │       │           └── data_extraction_rules.xml
+│   │       │       └── test
+│   │       │           └── java
+│   │       │               └── com
+│   │       │                   └── rowan
+│   │       │                       └── townmap
+│   │       │                           └── ExampleUnitTest.kt
+│   │       ├── build.gradle.kts
+│   │       ├── core
+│   │       │   ├── common
+│   │       │   │   ├── bin
+│   │       │   │   │   └── main
+│   │       │   │   │       └── com
+│   │       │   │   │           └── rowan
+│   │       │   │   │               └── townmap
+│   │       │   │   │                   └── core
+│   │       │   │   │                       └── common
+│   │       │   │   │                           ├── AppError.kt
+│   │       │   │   │                           └── AppResult.kt
+│   │       │   │   ├── build.gradle.kts
+│   │       │   │   └── src
+│   │       │   │       └── main
+│   │       │   │           └── kotlin
+│   │       │   │               └── com
+│   │       │   │                   └── rowan
+│   │       │   │                       └── townmap
+│   │       │   │                           └── core
+│   │       │   │                               └── common
+│   │       │   │                                   ├── AppError.kt
+│   │       │   │                                   └── AppResult.kt
+│   │       │   ├── database
+│   │       │   │   ├── build.gradle.kts
+│   │       │   │   └── src
+│   │       │   │       └── main
+│   │       │   │           └── kotlin
+│   │       │   │               └── com
+│   │       │   │                   └── rowan
+│   │       │   │                       └── townmap
+│   │       │   │                           └── core
+│   │       │   │                               └── database
+│   │       │   │                                   ├── PlaceDao.kt
+│   │       │   │                                   ├── PlaceEntity.kt
+│   │       │   │                                   ├── PlaceMappers.kt
+│   │       │   │                                   └── TownMapDatabase.kt
+│   │       │   ├── location
+│   │       │   │   ├── build.gradle.kts
+│   │       │   │   └── src
+│   │       │   │       └── main
+│   │       │   │           └── kotlin
+│   │       │   │               └── com
+│   │       │   │                   └── rowan
+│   │       │   │                       └── townmap
+│   │       │   │                           └── core
+│   │       │   │                               └── location
+│   │       │   │                                   ├── DefaultLocationProvider.kt
+│   │       │   │                                   ├── LocationCoordinate.kt
+│   │       │   │                                   └── LocationProvider.kt
+│   │       │   ├── model
+│   │       │   │   ├── bin
+│   │       │   │   │   └── main
+│   │       │   │   │       └── com
+│   │       │   │   │           └── rowan
+│   │       │   │   │               └── townmap
+│   │       │   │   │                   └── core
+│   │       │   │   │                       └── model
+│   │       │   │   │                           ├── MapMarker.kt
+│   │       │   │   │                           ├── OfflineRegion.kt
+│   │       │   │   │                           ├── Place.kt
+│   │       │   │   │                           └── RouteInfo.kt
+│   │       │   │   ├── build.gradle.kts
+│   │       │   │   └── src
+│   │       │   │       └── main
+│   │       │   │           └── kotlin
+│   │       │   │               └── com
+│   │       │   │                   └── rowan
+│   │       │   │                       └── townmap
+│   │       │   │                           └── core
+│   │       │   │                               └── model
+│   │       │   │                                   ├── MapMarker.kt
+│   │       │   │                                   ├── OfflineRegion.kt
+│   │       │   │                                   ├── Place.kt
+│   │       │   │                                   └── RouteInfo.kt
+│   │       │   ├── network
+│   │       │   │   ├── build.gradle.kts
+│   │       │   │   └── src
+│   │       │   │       └── main
+│   │       │   │           └── kotlin
+│   │       │   │               └── com
+│   │       │   │                   └── rowan
+│   │       │   │                       └── townmap
+│   │       │   │                           └── core
+│   │       │   │                               └── network
+│   │       │   │                                   └── overpass
+│   │       │   │                                       ├── KyauktanBoundingBox.kt
+│   │       │   │                                       ├── OverpassApi.kt
+│   │       │   │                                       ├── OverpassClient.kt
+│   │       │   │                                       ├── OverpassJson.kt
+│   │       │   │                                       ├── OverpassMapper.kt
+│   │       │   │                                       ├── OverpassQuery.kt
+│   │       │   │                                       └── internal
+│   │       │   │                                           └── OverpassRetrofit.kt
+│   │       │   └── ui
+│   │       │       ├── build.gradle.kts
+│   │       │       └── src
+│   │       │           └── main
+│   │       │               └── kotlin
+│   │       │                   └── com
+│   │       │                       └── rowan
+│   │       │                           └── townmap
+│   │       │                               └── core
+│   │       │                                   └── ui
+│   │       │                                       ├── components
+│   │       │                                       │   └── TownMapScreenScaffold.kt
+│   │       │                                       └── theme
+│   │       │                                           ├── Color.kt
+│   │       │                                           ├── Theme.kt
+│   │       │                                           └── Type.kt
+│   │       ├── docs
+│   │       │   ├── architecture.md
+│   │       │   ├── coding_rules.md
+│   │       │   ├── cursor_tasks.md
+│   │       │   └── product_scope_v1.md
+│   │       ├── feature
+│   │       │   ├── map
+│   │       │   │   ├── build.gradle.kts
+│   │       │   │   └── src
+│   │       │   │       └── main
+│   │       │   │           └── kotlin
+│   │       │   │               └── com
+│   │       │   │                   └── rowan
+│   │       │   │                       └── townmap
+│   │       │   │                           └── feature
+│   │       │   │                               └── map
+│   │       │   │                                   ├── MapboxAccess.kt
+│   │       │   │                                   ├── data
+│   │       │   │                                   ├── domain
+│   │       │   │                                   └── presentation
+│   │       │   │                                       ├── MapScreen.kt
+│   │       │   │                                       ├── MapUiState.kt
+│   │       │   │                                       ├── MapViewModel.kt
+│   │       │   │                                       └── TownMapInteractiveMap.kt
+│   │       │   ├── offline
+│   │       │   │   ├── build.gradle.kts
+│   │       │   │   └── src
+│   │       │   │       └── main
+│   │       │   │           └── kotlin
+│   │       │   │               └── com
+│   │       │   │                   └── rowan
+│   │       │   │                       └── townmap
+│   │       │   │                           └── feature
+│   │       │   │                               └── offline
+│   │       │   │                                   ├── data
+│   │       │   │                                   │   └── OfflineRepositoryImpl.kt
+│   │       │   │                                   ├── domain
+│   │       │   │                                   │   └── OfflineRepository.kt
+│   │       │   │                                   └── presentation
+│   │       │   │                                       ├── OfflineScreen.kt
+│   │       │   │                                       └── OfflineViewModel.kt
+│   │       │   ├── places
+│   │       │   │   ├── build.gradle.kts
+│   │       │   │   └── src
+│   │       │   │       └── main
+│   │       │   │           └── kotlin
+│   │       │   │               └── com
+│   │       │   │                   └── rowan
+│   │       │   │                       └── townmap
+│   │       │   │                           └── feature
+│   │       │   │                               └── places
+│   │       │   │                                   ├── data
+│   │       │   │                                   │   ├── PlacesRepositoryImpl.kt
+│   │       │   │                                   │   └── dev
+│   │       │   │                                   │       ├── DevPlacesDataSource.kt
+│   │       │   │                                   │       ├── DevPlacesRepository.kt
+│   │       │   │                                   │       └── DevRepositoryHolder.kt
+│   │       │   │                                   ├── domain
+│   │       │   │                                   │   └── PlacesRepository.kt
+│   │       │   │                                   ├── navigation
+│   │       │   │                                   │   └── PlaceNavigationStore.kt
+│   │       │   │                                   └── presentation
+│   │       │   │                                       ├── PlaceDetailScreen.kt
+│   │       │   │                                       ├── PlaceDetailUiState.kt
+│   │       │   │                                       └── PlaceDetailViewModel.kt
+│   │       │   ├── routing
+│   │       │   │   ├── build.gradle.kts
+│   │       │   │   └── src
+│   │       │   │       └── main
+│   │       │   │           └── kotlin
+│   │       │   │               └── com
+│   │       │   │                   └── rowan
+│   │       │   │                       └── townmap
+│   │       │   │                           └── feature
+│   │       │   │                               └── routing
+│   │       │   │                                   ├── data
+│   │       │   │                                   │   └── RoutingRepositoryImpl.kt
+│   │       │   │                                   ├── domain
+│   │       │   │                                   │   └── RoutingRepository.kt
+│   │       │   │                                   └── presentation
+│   │       │   │                                       ├── RoutingScreen.kt
+│   │       │   │                                       └── RoutingViewModel.kt
+│   │       │   ├── search
+│   │       │   │   ├── build.gradle.kts
+│   │       │   │   └── src
+│   │       │   │       └── main
+│   │       │   │           └── kotlin
+│   │       │   │               └── com
+│   │       │   │                   └── rowan
+│   │       │   │                       └── townmap
+│   │       │   │                           └── feature
+│   │       │   │                               └── search
+│   │       │   │                                   ├── data
+│   │       │   │                                   │   └── dev
+│   │       │   │                                   ├── domain
+│   │       │   │                                   └── presentation
+│   │       │   │                                       ├── SearchScreen.kt
+│   │       │   │                                       ├── SearchUiState.kt
+│   │       │   │                                       └── SearchViewModel.kt
+│   │       │   └── settings
+│   │       │       ├── build.gradle.kts
+│   │       │       └── src
+│   │       │           └── main
+│   │       │               └── kotlin
+│   │       │                   └── com
+│   │       │                       └── rowan
+│   │       │                           └── townmap
+│   │       │                               └── feature
+│   │       │                                   └── settings
+│   │       │                                       └── presentation
+│   │       │                                           ├── SettingsScreen.kt
+│   │       │                                           ├── SettingsUiState.kt
+│   │       │                                           └── SettingsViewModel.kt
+│   │       ├── gradle
+│   │       │   ├── gradle-daemon-jvm.properties
+│   │       │   ├── libs.versions.toml
+│   │       │   └── wrapper
+│   │       │       ├── gradle-wrapper.jar
+│   │       │       └── gradle-wrapper.properties
+│   │       ├── gradle.properties
+│   │       ├── gradlew
+│   │       ├── gradlew.bat
+│   │       ├── local.properties
+│   │       ├── local.properties.example
+│   │       ├── settings.gradle.kts
+│   │       └── sync
+│   │           ├── build.gradle.kts
+│   │           └── src
+│   │               └── main
+│   │                   └── kotlin
+│   │                       └── com
+│   │                           └── rowan
+│   │                               └── townmap
+│   │                                   └── sync
+│   │                                       ├── SyncCoordinator.kt
+│   │                                       ├── offline
+│   │                                       │   └── OfflineRegionManager.kt
+│   │                                       └── scheduler
+│   │                                           ├── DataRefreshScheduler.kt
+│   │                                           └── DataRefreshWorker.kt
+│   └── web
+│       ├── README.md
+│       ├── eslint.config.js
+│       ├── index.html
+│       ├── package-lock.json
+│       ├── package.json
+│       ├── public
+│       │   ├── favicon.svg
+│       │   ├── font-source
+│       │   │   ├── NotoSans-Regular.ttf
+│       │   │   └── NotoSansMyanmar-Regular.ttf
+│       │   ├── fonts
+│       │   │   ├── NotoSans-Regular
+│       │   │   │   ├── 0-255.pbf
+│       │   │   │   ├── 1024-1279.pbf
+│       │   │   │   ├── 10240-10495.pbf
+│       │   │   │   ├── 10496-10751.pbf
+│       │   │   │   ├── 10752-11007.pbf
+│       │   │   │   ├── 11008-11263.pbf
+│       │   │   │   ├── 11264-11519.pbf
+│       │   │   │   ├── 11520-11775.pbf
+│       │   │   │   ├── 11776-12031.pbf
+│       │   │   │   ├── 12032-12287.pbf
+│       │   │   │   ├── 12288-12543.pbf
+│       │   │   │   ├── 12544-12799.pbf
+│       │   │   │   ├── 1280-1535.pbf
+│       │   │   │   ├── 12800-13055.pbf
+│       │   │   │   ├── 13056-13311.pbf
+│       │   │   │   ├── 13312-13567.pbf
+│       │   │   │   ├── 13568-13823.pbf
+│       │   │   │   ├── 13824-14079.pbf
+│       │   │   │   ├── 14080-14335.pbf
+│       │   │   │   ├── 14336-14591.pbf
+│       │   │   │   ├── 14592-14847.pbf
+│       │   │   │   ├── 14848-15103.pbf
+│       │   │   │   ├── 15104-15359.pbf
+│       │   │   │   ├── 1536-1791.pbf
+│       │   │   │   ├── 15360-15615.pbf
+│       │   │   │   ├── 15616-15871.pbf
+│       │   │   │   ├── 15872-16127.pbf
+│       │   │   │   ├── 16128-16383.pbf
+│       │   │   │   ├── 16384-16639.pbf
+│       │   │   │   ├── 16640-16895.pbf
+│       │   │   │   ├── 16896-17151.pbf
+│       │   │   │   ├── 17152-17407.pbf
+│       │   │   │   ├── 17408-17663.pbf
+│       │   │   │   ├── 17664-17919.pbf
+│       │   │   │   ├── 1792-2047.pbf
+│       │   │   │   ├── 17920-18175.pbf
+│       │   │   │   ├── 18176-18431.pbf
+│       │   │   │   ├── 18432-18687.pbf
+│       │   │   │   ├── 18688-18943.pbf
+│       │   │   │   ├── 18944-19199.pbf
+│       │   │   │   ├── 19200-19455.pbf
+│       │   │   │   ├── 19456-19711.pbf
+│       │   │   │   ├── 19712-19967.pbf
+│       │   │   │   ├── 19968-20223.pbf
+│       │   │   │   ├── 20224-20479.pbf
+│       │   │   │   ├── 2048-2303.pbf
+│       │   │   │   ├── 20480-20735.pbf
+│       │   │   │   ├── 20736-20991.pbf
+│       │   │   │   ├── 20992-21247.pbf
+│       │   │   │   ├── 21248-21503.pbf
+│       │   │   │   ├── 21504-21759.pbf
+│       │   │   │   ├── 21760-22015.pbf
+│       │   │   │   ├── 22016-22271.pbf
+│       │   │   │   ├── 22272-22527.pbf
+│       │   │   │   ├── 22528-22783.pbf
+│       │   │   │   ├── 22784-23039.pbf
+│       │   │   │   ├── 2304-2559.pbf
+│       │   │   │   ├── 23040-23295.pbf
+│       │   │   │   ├── 23296-23551.pbf
+│       │   │   │   ├── 23552-23807.pbf
+│       │   │   │   ├── 23808-24063.pbf
+│       │   │   │   ├── 24064-24319.pbf
+│       │   │   │   ├── 24320-24575.pbf
+│       │   │   │   ├── 24576-24831.pbf
+│       │   │   │   ├── 24832-25087.pbf
+│       │   │   │   ├── 25088-25343.pbf
+│       │   │   │   ├── 25344-25599.pbf
+│       │   │   │   ├── 256-511.pbf
+│       │   │   │   ├── 2560-2815.pbf
+│       │   │   │   ├── 25600-25855.pbf
+│       │   │   │   ├── 25856-26111.pbf
+│       │   │   │   ├── 26112-26367.pbf
+│       │   │   │   ├── 26368-26623.pbf
+│       │   │   │   ├── 26624-26879.pbf
+│       │   │   │   ├── 26880-27135.pbf
+│       │   │   │   ├── 27136-27391.pbf
+│       │   │   │   ├── 27392-27647.pbf
+│       │   │   │   ├── 27648-27903.pbf
+│       │   │   │   ├── 27904-28159.pbf
+│       │   │   │   ├── 2816-3071.pbf
+│       │   │   │   ├── 28160-28415.pbf
+│       │   │   │   ├── 28416-28671.pbf
+│       │   │   │   ├── 28672-28927.pbf
+│       │   │   │   ├── 28928-29183.pbf
+│       │   │   │   ├── 29184-29439.pbf
+│       │   │   │   ├── 29440-29695.pbf
+│       │   │   │   ├── 29696-29951.pbf
+│       │   │   │   ├── 29952-30207.pbf
+│       │   │   │   ├── 30208-30463.pbf
+│       │   │   │   ├── 30464-30719.pbf
+│       │   │   │   ├── 3072-3327.pbf
+│       │   │   │   ├── 30720-30975.pbf
+│       │   │   │   ├── 30976-31231.pbf
+│       │   │   │   ├── 31232-31487.pbf
+│       │   │   │   ├── 31488-31743.pbf
+│       │   │   │   ├── 31744-31999.pbf
+│       │   │   │   ├── 32000-32255.pbf
+│       │   │   │   ├── 32256-32511.pbf
+│       │   │   │   ├── 32512-32767.pbf
+│       │   │   │   ├── 32768-33023.pbf
+│       │   │   │   ├── 33024-33279.pbf
+│       │   │   │   ├── 3328-3583.pbf
+│       │   │   │   ├── 33280-33535.pbf
+│       │   │   │   ├── 33536-33791.pbf
+│       │   │   │   ├── 33792-34047.pbf
+│       │   │   │   ├── 34048-34303.pbf
+│       │   │   │   ├── 34304-34559.pbf
+│       │   │   │   ├── 34560-34815.pbf
+│       │   │   │   ├── 34816-35071.pbf
+│       │   │   │   ├── 35072-35327.pbf
+│       │   │   │   ├── 35328-35583.pbf
+│       │   │   │   ├── 35584-35839.pbf
+│       │   │   │   ├── 3584-3839.pbf
+│       │   │   │   ├── 35840-36095.pbf
+│       │   │   │   ├── 36096-36351.pbf
+│       │   │   │   ├── 36352-36607.pbf
+│       │   │   │   ├── 36608-36863.pbf
+│       │   │   │   ├── 36864-37119.pbf
+│       │   │   │   ├── 37120-37375.pbf
+│       │   │   │   ├── 37376-37631.pbf
+│       │   │   │   ├── 37632-37887.pbf
+│       │   │   │   ├── 37888-38143.pbf
+│       │   │   │   ├── 38144-38399.pbf
+│       │   │   │   ├── 3840-4095.pbf
+│       │   │   │   ├── 38400-38655.pbf
+│       │   │   │   ├── 38656-38911.pbf
+│       │   │   │   ├── 38912-39167.pbf
+│       │   │   │   ├── 39168-39423.pbf
+│       │   │   │   ├── 39424-39679.pbf
+│       │   │   │   ├── 39680-39935.pbf
+│       │   │   │   ├── 39936-40191.pbf
+│       │   │   │   ├── 40192-40447.pbf
+│       │   │   │   ├── 40448-40703.pbf
+│       │   │   │   ├── 40704-40959.pbf
+│       │   │   │   ├── 4096-4351.pbf
+│       │   │   │   ├── 40960-41215.pbf
+│       │   │   │   ├── 41216-41471.pbf
+│       │   │   │   ├── 41472-41727.pbf
+│       │   │   │   ├── 41728-41983.pbf
+│       │   │   │   ├── 41984-42239.pbf
+│       │   │   │   ├── 42240-42495.pbf
+│       │   │   │   ├── 42496-42751.pbf
+│       │   │   │   ├── 42752-43007.pbf
+│       │   │   │   ├── 43008-43263.pbf
+│       │   │   │   ├── 43264-43519.pbf
+│       │   │   │   ├── 4352-4607.pbf
+│       │   │   │   ├── 43520-43775.pbf
+│       │   │   │   ├── 43776-44031.pbf
+│       │   │   │   ├── 44032-44287.pbf
+│       │   │   │   ├── 44288-44543.pbf
+│       │   │   │   ├── 44544-44799.pbf
+│       │   │   │   ├── 44800-45055.pbf
+│       │   │   │   ├── 45056-45311.pbf
+│       │   │   │   ├── 45312-45567.pbf
+│       │   │   │   ├── 45568-45823.pbf
+│       │   │   │   ├── 45824-46079.pbf
+│       │   │   │   ├── 4608-4863.pbf
+│       │   │   │   ├── 46080-46335.pbf
+│       │   │   │   ├── 46336-46591.pbf
+│       │   │   │   ├── 46592-46847.pbf
+│       │   │   │   ├── 46848-47103.pbf
+│       │   │   │   ├── 47104-47359.pbf
+│       │   │   │   ├── 47360-47615.pbf
+│       │   │   │   ├── 47616-47871.pbf
+│       │   │   │   ├── 47872-48127.pbf
+│       │   │   │   ├── 48128-48383.pbf
+│       │   │   │   ├── 48384-48639.pbf
+│       │   │   │   ├── 4864-5119.pbf
+│       │   │   │   ├── 48640-48895.pbf
+│       │   │   │   ├── 48896-49151.pbf
+│       │   │   │   ├── 49152-49407.pbf
+│       │   │   │   ├── 49408-49663.pbf
+│       │   │   │   ├── 49664-49919.pbf
+│       │   │   │   ├── 49920-50175.pbf
+│       │   │   │   ├── 50176-50431.pbf
+│       │   │   │   ├── 50432-50687.pbf
+│       │   │   │   ├── 50688-50943.pbf
+│       │   │   │   ├── 50944-51199.pbf
+│       │   │   │   ├── 512-767.pbf
+│       │   │   │   ├── 5120-5375.pbf
+│       │   │   │   ├── 51200-51455.pbf
+│       │   │   │   ├── 51456-51711.pbf
+│       │   │   │   ├── 51712-51967.pbf
+│       │   │   │   ├── 51968-52223.pbf
+│       │   │   │   ├── 52224-52479.pbf
+│       │   │   │   ├── 52480-52735.pbf
+│       │   │   │   ├── 52736-52991.pbf
+│       │   │   │   ├── 52992-53247.pbf
+│       │   │   │   ├── 53248-53503.pbf
+│       │   │   │   ├── 53504-53759.pbf
+│       │   │   │   ├── 5376-5631.pbf
+│       │   │   │   ├── 53760-54015.pbf
+│       │   │   │   ├── 54016-54271.pbf
+│       │   │   │   ├── 54272-54527.pbf
+│       │   │   │   ├── 54528-54783.pbf
+│       │   │   │   ├── 54784-55039.pbf
+│       │   │   │   ├── 55040-55295.pbf
+│       │   │   │   ├── 55296-55551.pbf
+│       │   │   │   ├── 55552-55807.pbf
+│       │   │   │   ├── 55808-56063.pbf
+│       │   │   │   ├── 56064-56319.pbf
+│       │   │   │   ├── 5632-5887.pbf
+│       │   │   │   ├── 56320-56575.pbf
+│       │   │   │   ├── 56576-56831.pbf
+│       │   │   │   ├── 56832-57087.pbf
+│       │   │   │   ├── 57088-57343.pbf
+│       │   │   │   ├── 57344-57599.pbf
+│       │   │   │   ├── 57600-57855.pbf
+│       │   │   │   ├── 57856-58111.pbf
+│       │   │   │   ├── 58112-58367.pbf
+│       │   │   │   ├── 58368-58623.pbf
+│       │   │   │   ├── 58624-58879.pbf
+│       │   │   │   ├── 5888-6143.pbf
+│       │   │   │   ├── 58880-59135.pbf
+│       │   │   │   ├── 59136-59391.pbf
+│       │   │   │   ├── 59392-59647.pbf
+│       │   │   │   ├── 59648-59903.pbf
+│       │   │   │   ├── 59904-60159.pbf
+│       │   │   │   ├── 60160-60415.pbf
+│       │   │   │   ├── 60416-60671.pbf
+│       │   │   │   ├── 60672-60927.pbf
+│       │   │   │   ├── 60928-61183.pbf
+│       │   │   │   ├── 61184-61439.pbf
+│       │   │   │   ├── 6144-6399.pbf
+│       │   │   │   ├── 61440-61695.pbf
+│       │   │   │   ├── 61696-61951.pbf
+│       │   │   │   ├── 61952-62207.pbf
+│       │   │   │   ├── 62208-62463.pbf
+│       │   │   │   ├── 62464-62719.pbf
+│       │   │   │   ├── 62720-62975.pbf
+│       │   │   │   ├── 62976-63231.pbf
+│       │   │   │   ├── 63232-63487.pbf
+│       │   │   │   ├── 63488-63743.pbf
+│       │   │   │   ├── 63744-63999.pbf
+│       │   │   │   ├── 6400-6655.pbf
+│       │   │   │   ├── 64000-64255.pbf
+│       │   │   │   ├── 64256-64511.pbf
+│       │   │   │   ├── 64512-64767.pbf
+│       │   │   │   ├── 64768-65023.pbf
+│       │   │   │   ├── 65024-65279.pbf
+│       │   │   │   ├── 65280-65535.pbf
+│       │   │   │   ├── 6656-6911.pbf
+│       │   │   │   ├── 6912-7167.pbf
+│       │   │   │   ├── 7168-7423.pbf
+│       │   │   │   ├── 7424-7679.pbf
+│       │   │   │   ├── 768-1023.pbf
+│       │   │   │   ├── 7680-7935.pbf
+│       │   │   │   ├── 7936-8191.pbf
+│       │   │   │   ├── 8192-8447.pbf
+│       │   │   │   ├── 8448-8703.pbf
+│       │   │   │   ├── 8704-8959.pbf
+│       │   │   │   ├── 8960-9215.pbf
+│       │   │   │   ├── 9216-9471.pbf
+│       │   │   │   ├── 9472-9727.pbf
+│       │   │   │   ├── 9728-9983.pbf
+│       │   │   │   └── 9984-10239.pbf
+│       │   │   ├── NotoSansMyanmar-Regular
+│       │   │   │   ├── 0-255.pbf
+│       │   │   │   ├── 1024-1279.pbf
+│       │   │   │   ├── 10240-10495.pbf
+│       │   │   │   ├── 10496-10751.pbf
+│       │   │   │   ├── 10752-11007.pbf
+│       │   │   │   ├── 11008-11263.pbf
+│       │   │   │   ├── 11264-11519.pbf
+│       │   │   │   ├── 11520-11775.pbf
+│       │   │   │   ├── 11776-12031.pbf
+│       │   │   │   ├── 12032-12287.pbf
+│       │   │   │   ├── 12288-12543.pbf
+│       │   │   │   ├── 12544-12799.pbf
+│       │   │   │   ├── 1280-1535.pbf
+│       │   │   │   ├── 12800-13055.pbf
+│       │   │   │   ├── 13056-13311.pbf
+│       │   │   │   ├── 13312-13567.pbf
+│       │   │   │   ├── 13568-13823.pbf
+│       │   │   │   ├── 13824-14079.pbf
+│       │   │   │   ├── 14080-14335.pbf
+│       │   │   │   ├── 14336-14591.pbf
+│       │   │   │   ├── 14592-14847.pbf
+│       │   │   │   ├── 14848-15103.pbf
+│       │   │   │   ├── 15104-15359.pbf
+│       │   │   │   ├── 1536-1791.pbf
+│       │   │   │   ├── 15360-15615.pbf
+│       │   │   │   ├── 15616-15871.pbf
+│       │   │   │   ├── 15872-16127.pbf
+│       │   │   │   ├── 16128-16383.pbf
+│       │   │   │   ├── 16384-16639.pbf
+│       │   │   │   ├── 16640-16895.pbf
+│       │   │   │   ├── 16896-17151.pbf
+│       │   │   │   ├── 17152-17407.pbf
+│       │   │   │   ├── 17408-17663.pbf
+│       │   │   │   ├── 17664-17919.pbf
+│       │   │   │   ├── 1792-2047.pbf
+│       │   │   │   ├── 17920-18175.pbf
+│       │   │   │   ├── 18176-18431.pbf
+│       │   │   │   ├── 18432-18687.pbf
+│       │   │   │   ├── 18688-18943.pbf
+│       │   │   │   ├── 18944-19199.pbf
+│       │   │   │   ├── 19200-19455.pbf
+│       │   │   │   ├── 19456-19711.pbf
+│       │   │   │   ├── 19712-19967.pbf
+│       │   │   │   ├── 19968-20223.pbf
+│       │   │   │   ├── 20224-20479.pbf
+│       │   │   │   ├── 2048-2303.pbf
+│       │   │   │   ├── 20480-20735.pbf
+│       │   │   │   ├── 20736-20991.pbf
+│       │   │   │   ├── 20992-21247.pbf
+│       │   │   │   ├── 21248-21503.pbf
+│       │   │   │   ├── 21504-21759.pbf
+│       │   │   │   ├── 21760-22015.pbf
+│       │   │   │   ├── 22016-22271.pbf
+│       │   │   │   ├── 22272-22527.pbf
+│       │   │   │   ├── 22528-22783.pbf
+│       │   │   │   ├── 22784-23039.pbf
+│       │   │   │   ├── 2304-2559.pbf
+│       │   │   │   ├── 23040-23295.pbf
+│       │   │   │   ├── 23296-23551.pbf
+│       │   │   │   ├── 23552-23807.pbf
+│       │   │   │   ├── 23808-24063.pbf
+│       │   │   │   ├── 24064-24319.pbf
+│       │   │   │   ├── 24320-24575.pbf
+│       │   │   │   ├── 24576-24831.pbf
+│       │   │   │   ├── 24832-25087.pbf
+│       │   │   │   ├── 25088-25343.pbf
+│       │   │   │   ├── 25344-25599.pbf
+│       │   │   │   ├── 256-511.pbf
+│       │   │   │   ├── 2560-2815.pbf
+│       │   │   │   ├── 25600-25855.pbf
+│       │   │   │   ├── 25856-26111.pbf
+│       │   │   │   ├── 26112-26367.pbf
+│       │   │   │   ├── 26368-26623.pbf
+│       │   │   │   ├── 26624-26879.pbf
+│       │   │   │   ├── 26880-27135.pbf
+│       │   │   │   ├── 27136-27391.pbf
+│       │   │   │   ├── 27392-27647.pbf
+│       │   │   │   ├── 27648-27903.pbf
+│       │   │   │   ├── 27904-28159.pbf
+│       │   │   │   ├── 2816-3071.pbf
+│       │   │   │   ├── 28160-28415.pbf
+│       │   │   │   ├── 28416-28671.pbf
+│       │   │   │   ├── 28672-28927.pbf
+│       │   │   │   ├── 28928-29183.pbf
+│       │   │   │   ├── 29184-29439.pbf
+│       │   │   │   ├── 29440-29695.pbf
+│       │   │   │   ├── 29696-29951.pbf
+│       │   │   │   ├── 29952-30207.pbf
+│       │   │   │   ├── 30208-30463.pbf
+│       │   │   │   ├── 30464-30719.pbf
+│       │   │   │   ├── 3072-3327.pbf
+│       │   │   │   ├── 30720-30975.pbf
+│       │   │   │   ├── 30976-31231.pbf
+│       │   │   │   ├── 31232-31487.pbf
+│       │   │   │   ├── 31488-31743.pbf
+│       │   │   │   ├── 31744-31999.pbf
+│       │   │   │   ├── 32000-32255.pbf
+│       │   │   │   ├── 32256-32511.pbf
+│       │   │   │   ├── 32512-32767.pbf
+│       │   │   │   ├── 32768-33023.pbf
+│       │   │   │   ├── 33024-33279.pbf
+│       │   │   │   ├── 3328-3583.pbf
+│       │   │   │   ├── 33280-33535.pbf
+│       │   │   │   ├── 33536-33791.pbf
+│       │   │   │   ├── 33792-34047.pbf
+│       │   │   │   ├── 34048-34303.pbf
+│       │   │   │   ├── 34304-34559.pbf
+│       │   │   │   ├── 34560-34815.pbf
+│       │   │   │   ├── 34816-35071.pbf
+│       │   │   │   ├── 35072-35327.pbf
+│       │   │   │   ├── 35328-35583.pbf
+│       │   │   │   ├── 35584-35839.pbf
+│       │   │   │   ├── 3584-3839.pbf
+│       │   │   │   ├── 35840-36095.pbf
+│       │   │   │   ├── 36096-36351.pbf
+│       │   │   │   ├── 36352-36607.pbf
+│       │   │   │   ├── 36608-36863.pbf
+│       │   │   │   ├── 36864-37119.pbf
+│       │   │   │   ├── 37120-37375.pbf
+│       │   │   │   ├── 37376-37631.pbf
+│       │   │   │   ├── 37632-37887.pbf
+│       │   │   │   ├── 37888-38143.pbf
+│       │   │   │   ├── 38144-38399.pbf
+│       │   │   │   ├── 3840-4095.pbf
+│       │   │   │   ├── 38400-38655.pbf
+│       │   │   │   ├── 38656-38911.pbf
+│       │   │   │   ├── 38912-39167.pbf
+│       │   │   │   ├── 39168-39423.pbf
+│       │   │   │   ├── 39424-39679.pbf
+│       │   │   │   ├── 39680-39935.pbf
+│       │   │   │   ├── 39936-40191.pbf
+│       │   │   │   ├── 40192-40447.pbf
+│       │   │   │   ├── 40448-40703.pbf
+│       │   │   │   ├── 40704-40959.pbf
+│       │   │   │   ├── 4096-4351.pbf
+│       │   │   │   ├── 40960-41215.pbf
+│       │   │   │   ├── 41216-41471.pbf
+│       │   │   │   ├── 41472-41727.pbf
+│       │   │   │   ├── 41728-41983.pbf
+│       │   │   │   ├── 41984-42239.pbf
+│       │   │   │   ├── 42240-42495.pbf
+│       │   │   │   ├── 42496-42751.pbf
+│       │   │   │   ├── 42752-43007.pbf
+│       │   │   │   ├── 43008-43263.pbf
+│       │   │   │   ├── 43264-43519.pbf
+│       │   │   │   ├── 4352-4607.pbf
+│       │   │   │   ├── 43520-43775.pbf
+│       │   │   │   ├── 43776-44031.pbf
+│       │   │   │   ├── 44032-44287.pbf
+│       │   │   │   ├── 44288-44543.pbf
+│       │   │   │   ├── 44544-44799.pbf
+│       │   │   │   ├── 44800-45055.pbf
+│       │   │   │   ├── 45056-45311.pbf
+│       │   │   │   ├── 45312-45567.pbf
+│       │   │   │   ├── 45568-45823.pbf
+│       │   │   │   ├── 45824-46079.pbf
+│       │   │   │   ├── 4608-4863.pbf
+│       │   │   │   ├── 46080-46335.pbf
+│       │   │   │   ├── 46336-46591.pbf
+│       │   │   │   ├── 46592-46847.pbf
+│       │   │   │   ├── 46848-47103.pbf
+│       │   │   │   ├── 47104-47359.pbf
+│       │   │   │   ├── 47360-47615.pbf
+│       │   │   │   ├── 47616-47871.pbf
+│       │   │   │   ├── 47872-48127.pbf
+│       │   │   │   ├── 48128-48383.pbf
+│       │   │   │   ├── 48384-48639.pbf
+│       │   │   │   ├── 4864-5119.pbf
+│       │   │   │   ├── 48640-48895.pbf
+│       │   │   │   ├── 48896-49151.pbf
+│       │   │   │   ├── 49152-49407.pbf
+│       │   │   │   ├── 49408-49663.pbf
+│       │   │   │   ├── 49664-49919.pbf
+│       │   │   │   ├── 49920-50175.pbf
+│       │   │   │   ├── 50176-50431.pbf
+│       │   │   │   ├── 50432-50687.pbf
+│       │   │   │   ├── 50688-50943.pbf
+│       │   │   │   ├── 50944-51199.pbf
+│       │   │   │   ├── 512-767.pbf
+│       │   │   │   ├── 5120-5375.pbf
+│       │   │   │   ├── 51200-51455.pbf
+│       │   │   │   ├── 51456-51711.pbf
+│       │   │   │   ├── 51712-51967.pbf
+│       │   │   │   ├── 51968-52223.pbf
+│       │   │   │   ├── 52224-52479.pbf
+│       │   │   │   ├── 52480-52735.pbf
+│       │   │   │   ├── 52736-52991.pbf
+│       │   │   │   ├── 52992-53247.pbf
+│       │   │   │   ├── 53248-53503.pbf
+│       │   │   │   ├── 53504-53759.pbf
+│       │   │   │   ├── 5376-5631.pbf
+│       │   │   │   ├── 53760-54015.pbf
+│       │   │   │   ├── 54016-54271.pbf
+│       │   │   │   ├── 54272-54527.pbf
+│       │   │   │   ├── 54528-54783.pbf
+│       │   │   │   ├── 54784-55039.pbf
+│       │   │   │   ├── 55040-55295.pbf
+│       │   │   │   ├── 55296-55551.pbf
+│       │   │   │   ├── 55552-55807.pbf
+│       │   │   │   ├── 55808-56063.pbf
+│       │   │   │   ├── 56064-56319.pbf
+│       │   │   │   ├── 5632-5887.pbf
+│       │   │   │   ├── 56320-56575.pbf
+│       │   │   │   ├── 56576-56831.pbf
+│       │   │   │   ├── 56832-57087.pbf
+│       │   │   │   ├── 57088-57343.pbf
+│       │   │   │   ├── 57344-57599.pbf
+│       │   │   │   ├── 57600-57855.pbf
+│       │   │   │   ├── 57856-58111.pbf
+│       │   │   │   ├── 58112-58367.pbf
+│       │   │   │   ├── 58368-58623.pbf
+│       │   │   │   ├── 58624-58879.pbf
+│       │   │   │   ├── 5888-6143.pbf
+│       │   │   │   ├── 58880-59135.pbf
+│       │   │   │   ├── 59136-59391.pbf
+│       │   │   │   ├── 59392-59647.pbf
+│       │   │   │   ├── 59648-59903.pbf
+│       │   │   │   ├── 59904-60159.pbf
+│       │   │   │   ├── 60160-60415.pbf
+│       │   │   │   ├── 60416-60671.pbf
+│       │   │   │   ├── 60672-60927.pbf
+│       │   │   │   ├── 60928-61183.pbf
+│       │   │   │   ├── 61184-61439.pbf
+│       │   │   │   ├── 6144-6399.pbf
+│       │   │   │   ├── 61440-61695.pbf
+│       │   │   │   ├── 61696-61951.pbf
+│       │   │   │   ├── 61952-62207.pbf
+│       │   │   │   ├── 62208-62463.pbf
+│       │   │   │   ├── 62464-62719.pbf
+│       │   │   │   ├── 62720-62975.pbf
+│       │   │   │   ├── 62976-63231.pbf
+│       │   │   │   ├── 63232-63487.pbf
+│       │   │   │   ├── 63488-63743.pbf
+│       │   │   │   ├── 63744-63999.pbf
+│       │   │   │   ├── 6400-6655.pbf
+│       │   │   │   ├── 64000-64255.pbf
+│       │   │   │   ├── 64256-64511.pbf
+│       │   │   │   ├── 64512-64767.pbf
+│       │   │   │   ├── 64768-65023.pbf
+│       │   │   │   ├── 65024-65279.pbf
+│       │   │   │   ├── 65280-65535.pbf
+│       │   │   │   ├── 6656-6911.pbf
+│       │   │   │   ├── 6912-7167.pbf
+│       │   │   │   ├── 7168-7423.pbf
+│       │   │   │   ├── 7424-7679.pbf
+│       │   │   │   ├── 768-1023.pbf
+│       │   │   │   ├── 7680-7935.pbf
+│       │   │   │   ├── 7936-8191.pbf
+│       │   │   │   ├── 8192-8447.pbf
+│       │   │   │   ├── 8448-8703.pbf
+│       │   │   │   ├── 8704-8959.pbf
+│       │   │   │   ├── 8960-9215.pbf
+│       │   │   │   ├── 9216-9471.pbf
+│       │   │   │   ├── 9472-9727.pbf
+│       │   │   │   ├── 9728-9983.pbf
+│       │   │   │   └── 9984-10239.pbf
+│       │   │   ├── README.md
+│       │   │   └── fonts.json
+│       │   └── icons.svg
+│       ├── scripts
+│       │   ├── README-generate-glyphs.md
+│       │   └── fetchKyauktanOsmPois.ts
+│       ├── src
+│       │   ├── app
+│       │   │   ├── App.tsx
+│       │   │   ├── layouts
+│       │   │   │   └── RootLayout.tsx
+│       │   │   ├── providers
+│       │   │   │   └── QueryProvider.tsx
+│       │   │   ├── router.tsx
+│       │   │   └── styles
+│       │   │       └── global.css
+│       │   ├── config
+│       │   │   └── regionScope.ts
+│       │   ├── data
+│       │   │   ├── categoryMeta.ts
+│       │   │   ├── geo
+│       │   │   │   ├── featureCollectionBounds.ts
+│       │   │   │   ├── kyauktan-township.json
+│       │   │   │   ├── kyauktanTownshipData.ts
+│       │   │   │   └── myanmar-admin0-ne50m.json
+│       │   │   ├── osm
+│       │   │   │   └── kyauktan
+│       │   │   │       └── raw
+│       │   │   │           └── kyauktan-overpass.json
+│       │   │   └── poi
+│       │   │       ├── kyauktan
+│       │   │       │   ├── cleanupKyauktanPois.ts
+│       │   │       │   ├── kyauktanPoisFromOsm.ts
+│       │   │       │   ├── normalizeKyauktanOsm.ts
+│       │   │       │   ├── osmTagsToCategory.ts
+│       │   │       │   ├── overpassTypes.ts
+│       │   │       │   ├── parseKyauktanOverpass.ts
+│       │   │       │   └── processed
+│       │   │       │       └── kyauktan-pois.json
+│       │   │       └── mvpPoiSource.ts
+│       │   ├── features
+│       │   │   ├── filters
+│       │   │   │   ├── components
+│       │   │   │   │   └── SearchPanel.tsx
+│       │   │   │   ├── filterPois.ts
+│       │   │   │   ├── useCategoryFilter.ts
+│       │   │   │   └── useDebouncedValue.ts
+│       │   │   ├── map
+│       │   │   │   ├── components
+│       │   │   │   │   ├── AddressLocationPanel.tsx
+│       │   │   │   │   ├── MapFloatingControls.tsx
+│       │   │   │   │   ├── MapLeftRail.tsx
+│       │   │   │   │   ├── MapSidebar.tsx
+│       │   │   │   │   ├── MapView.tsx
+│       │   │   │   │   └── RoutePlannerPanel.tsx
+│       │   │   │   ├── config
+│       │   │   │   │   ├── basemapStyle.ts
+│       │   │   │   │   ├── index.ts
+│       │   │   │   │   ├── mapLibreInteraction.ts
+│       │   │   │   │   ├── mapModes.ts
+│       │   │   │   │   └── webBasemapCurrentJsonUrl.ts
+│       │   │   │   ├── lib
+│       │   │   │   │   ├── geojson
+│       │   │   │   │   ├── mapCameraPadding.ts
+│       │   │   │   │   ├── mapEngine.ts
+│       │   │   │   │   ├── mapEngineTypes.ts
+│       │   │   │   │   ├── maplibre
+│       │   │   │   │   │   ├── adminLabelLayerDebug.ts
+│       │   │   │   │   │   ├── basemapMvpStyle.ts
+│       │   │   │   │   │   ├── clickedLocationOnMap.ts
+│       │   │   │   │   │   ├── glyphDevCheck.ts
+│       │   │   │   │   │   ├── kyauktanTownshipOverlay.ts
+│       │   │   │   │   │   ├── localizedBasemapLabels.ts
+│       │   │   │   │   │   ├── mapCountryMinZoom.ts
+│       │   │   │   │   │   ├── mapInstance.ts
+│       │   │   │   │   │   ├── mapStackOrder.ts
+│       │   │   │   │   │   ├── maplibreComplexText.ts
+│       │   │   │   │   │   ├── placesOnMap.ts
+│       │   │   │   │   │   ├── poiMapInteractions.ts
+│       │   │   │   │   │   └── publicMapGeoLayers.ts
+│       │   │   │   │   └── poisToGeoJSON.ts
+│       │   │   │   ├── mapDefaults.ts
+│       │   │   │   ├── state
+│       │   │   │   │   └── mapUiStore.ts
+│       │   │   │   └── types.ts
+│       │   │   └── poi
+│       │   │       ├── api
+│       │   │       │   ├── publicMapApi.ts
+│       │   │       │   └── usePublicMapData.ts
+│       │   │       ├── categoryLabel.ts
+│       │   │       ├── components
+│       │   │       │   ├── PlaceDetailPanel.tsx
+│       │   │       │   ├── PoiDetail.tsx
+│       │   │       │   ├── PoiList.tsx
+│       │   │       │   └── PoiPanel.tsx
+│       │   │       └── selectPoi.ts
+│       │   ├── index.css
+│       │   ├── main.tsx
+│       │   ├── pages
+│       │   │   ├── HomePage.tsx
+│       │   │   └── HomePageLayout.tsx
+│       │   ├── types
+│       │   │   ├── coordinates.ts
+│       │   │   ├── filters.ts
+│       │   │   ├── index.ts
+│       │   │   ├── poi-category.ts
+│       │   │   ├── poi.ts
+│       │   │   └── selection.ts
+│       │   └── vite-env.d.ts
+│       ├── style.json-files-versions
+│       │   ├── map_style_v1.json
+│       │   ├── map_style_v2.json
+│       │   ├── map_style_v3.json
+│       │   ├── map_style_v4.json
+│       │   ├── map_style_v5_comb_own_dynamic_and_sample_pmtiles.json
+│       │   └── map_style_v6_own_dynamic.json
+│       ├── tsconfig.app.json
+│       ├── tsconfig.json
+│       ├── tsconfig.node.json
+│       └── vite.config.ts
+├── backups
+│   ├── README.md
+│   └── database
+│       └── 20260514
+│           ├── 20260514_prod_yangon_checkpoint_before_thanlyin_import_v1.dump
+│           └── 20260514_prod_yangon_checkpoint_before_thanlyin_import_v1.sql
+├── docs
+│   ├── address-architecture.md
+│   ├── address-search-index.md
+│   ├── admin-area-boundary-and-address-usage.md
+│   ├── api-route-inventory.md
+│   ├── database
+│   │   └── current-erd.md
+│   ├── import-review
+│   │   ├── entity-coverage-matrix.md
+│   │   ├── import-review-ui-consistency-checklist.md
+│   │   └── import-review-ui-feature-matrix.md
+│   ├── import-review-address-admin-inference.md
+│   ├── import-review-address-promotion.md
+│   ├── import-review-address-street-matching.md
+│   ├── import-review-address-validation.md
+│   ├── import-review-override-smoke-test.md
+│   ├── import-review-road-promotion.md
+│   ├── reverse-address-resolver.md
+│   ├── routing-graph-build.md
+│   └── tiles
+│       ├── pmtiles
+│       │   └── pmtiles-release-workflow.md
+│       └── pmtiles-r2-beginner-guide.md
+├── glyph-source
+│   ├── NotoSans-Regular
+│   │   └── NotoSans-Regular.ttf
+│   └── NotoSansMyanmar-Regular
+│       └── NotoSansMyanmar-Regular.ttf
+├── infrastructure
+│   ├── cloud
+│   │   └── r2
+│   │       ├── README.md
+│   │       └── cors.json
+│   ├── database
+│   │   ├── README.md
+│   │   ├── checks
+│   │   │   ├── local
+│   │   │   │   └── check_local_system_tracking.sql
+│   │   │   └── supabase
+│   │   │       └── check_supabase_system_tracking.sql
+│   │   ├── docs
+│   │   │   ├── core_promotion_quality_rules.md
+│   │   │   ├── core_rules.md
+│   │   │   ├── database_pipeline_context.md
+│   │   │   ├── database_rules.md
+│   │   │   ├── local
+│   │   │   ├── staging_to_core_mapping.md
+│   │   │   ├── supabase
+│   │   │   ├── system_tracking_workflow.md
+│   │   │   └── tech-stack.md
+│   │   ├── introspection
+│   │   │   ├── local
+│   │   │   │   ├── erd
+│   │   │   │   │   └── local-current-db.mmd
+│   │   │   │   ├── schema
+│   │   │   │   │   └── local-db-schema.sql
+│   │   │   │   └── scripts
+│   │   │   │       ├── env.sh
+│   │   │   │       ├── export-context.sh
+│   │   │   │       └── export-erd.sh
+│   │   │   └── supabase
+│   │   │       ├── erd
+│   │   │       │   └── current.mmd
+│   │   │       ├── scripts
+│   │   │       │   ├── env.sh
+│   │   │       │   └── export-erd.sh
+│   │   │       └── snapshots
+│   │   │           └── supabase_live_introspection_2026-05-04.json
+│   │   ├── migrations
+│   │   │   ├── cursor_rules.md
+│   │   │   ├── local
+│   │   │   │   ├── 000_baseline_current_local_schema.sql
+│   │   │   │   ├── 001_upgrade_local_system_tracking.sql
+│   │   │   │   ├── 002_create_system_import_boundaries.sql
+│   │   │   │   ├── 003_prepare_stage_e_staging_candidates.sql
+│   │   │   │   ├── 004_patch_stage_e_review_columns.sql
+│   │   │   │   ├── 005_local_confidence_score_scale_0_100.sql
+│   │   │   │   └── 005_prepare_review_workflow.sql
+│   │   │   └── supabase
+│   │   │       ├── 001_place_multilingual_cleanup.sql
+│   │   │       ├── 002_multilingual_tile_views.sql
+│   │   │       ├── 003_tile_symbol_label_views.sql
+│   │   │       ├── 004_core_map_buildings_dashboard_extensions.sql
+│   │   │       ├── 005_tiles_buildings_v.sql
+│   │   │       ├── 006_core_map_buildings_nullable_dashboard.sql
+│   │   │       ├── 007_tiles_buildings_v_include_null_active.sql
+│   │   │       ├── 008_core_place_buildings.sql
+│   │   │       ├── 009_tiles_buildings_v_strict_active.sql
+│   │   │       ├── 010_ref_building_types.sql
+│   │   │       ├── 011_tiles_buildings_v_building_type_ref.sql
+│   │   │       ├── 012_drop_core_map_buildings_building_type.sql
+│   │   │       ├── 013_core_map_buildings_admin_area.sql
+│   │   │       ├── 014_tiles_buildings_v_admin_area.sql
+│   │   │       ├── 015_routing_street_hierarchy.sql
+│   │   │       ├── 016_core_street_versions.sql
+│   │   │       ├── 017_street_names_normalization.sql
+│   │   │       ├── 018_tiles_streets_v.sql
+│   │   │       ├── 019_tiles_streets_v_maplibre_attrs.sql
+│   │   │       ├── 020_tiles_streets_v_line_multilinestring.sql
+│   │   │       ├── 021_system_import_lineage_tracking.sql
+│   │   │       ├── 022_upgrade_supabase_system_tracking.sql
+│   │   │       ├── 023_prepare_core_search_routing_address.sql
+│   │   │       ├── 024_create_import_review_schema.sql
+│   │   │       ├── 025_system_publish_stage_logs.sql
+│   │   │       ├── 026_add_core_verification_columns.sql
+│   │   │       ├── 027_repair_import_review_promotion_state.sql
+│   │   │       ├── 028_add_names_tables.sql
+│   │   │       ├── 029_tiles_buildings_v_names.sql
+│   │   │       ├── 030_core_review_soft_delete_columns_and_tile_filters.sql
+│   │   │       ├── 031_ref_landuse_classes.sql
+│   │   │       ├── 032_import_review_landuse_class_id.sql
+│   │   │       ├── 033_backfill_import_review_landuse_class_id.sql
+│   │   │       ├── 034_core_map_landuse_names.sql
+│   │   │       ├── 035_core_map_landuse_management.sql
+│   │   │       ├── 036_core_map_features_nullable_dashboard.sql
+│   │   │       ├── 037_core_admin_areas_boundary_metadata.sql
+│   │   │       ├── 038_ref_admin_area_boundary_metadata.sql
+│   │   │       ├── 039_tiles_village_labels_admin_boundaries.sql
+│   │   │       ├── 040_ref_address_component_types.sql
+│   │   │       ├── 041_import_review_address_components.sql
+│   │   │       ├── 042_import_review_address_candidates_repair.sql
+│   │   │       ├── 043_backfill_import_review_address_components_from_tags.sql
+│   │   │       ├── 044_infer_address_admin_components.sql
+│   │   │       ├── 045_address_validation_status_codes.sql
+│   │   │       ├── 046_core_address_promotion_columns.sql
+│   │   │       ├── 047_reverse_address_spatial_indexes.sql
+│   │   │       ├── 048_search_address_index.sql
+│   │   │       ├── 049_routing_graph_foundation.sql
+│   │   │       ├── 050_routing_table_name_standardization.sql
+│   │   │       ├── 051_import_review_road_candidates_list_indexes.sql
+│   │   │       ├── 052_routing_barriers.sql
+│   │   │       ├── 053_import_review_address_source_classification.sql
+│   │   │       ├── 054_import_review_address_source_classification_backfill.sql
+│   │   │       ├── 055_import_review_place_address_links.sql
+│   │   │       ├── 056_import_review_create_place_candidates_from_addresses.sql
+│   │   │       ├── 057_public_map_places_viewport_indexes.sql
+│   │   │       └── 058_tiles_admin_area_label_points.sql
+│   │   ├── seeds
+│   │   │   ├── local
+│   │   │   │   └── 001_seed_system_source_registry.sql
+│   │   │   └── supabase
+│   │   │       └── 001_seed_system_source_registry.sql
+│   │   └── snapshots
+│   │       ├── local
+│   │       │   ├── local_schema_baseline_2026_05_15.sql
+│   │       │   ├── local_system_data_baseline_2026_05_15.sql
+│   │       │   └── local_system_schema_baseline_2026_05_15.sql
+│   │       └── supabase
+│   ├── docker
+│   └── tiles
+│       ├── martin
+│       │   ├── Dockerfile
+│       │   ├── README.md
+│       │   ├── config.yaml
+│       │   ├── config.yaml.example
+│       │   ├── fly.toml
+│       │   └── martin_config.yaml
+│       └── pmtiles
+│           ├── README.md
+│           ├── exports
+│           │   └── yangon
+│           │       ├── admin_areas.geojson
+│           │       ├── admin_boundaries.geojson
+│           │       ├── buildings.geojson
+│           │       ├── landuse.geojson
+│           │       ├── road_labels.geojson
+│           │       ├── streets.geojson
+│           │       ├── water_lines.geojson
+│           │       └── water_polygons.geojson
+│           ├── regions
+│           │   └── yangon
+│           │       ├── current.json
+│           │       └── yangon-v1.pmtiles
+│           └── scripts
+│               ├── build-region.sh
+│               ├── check-pmtiles-url.sh
+│               ├── export-region.sh
+│               ├── load-root-env.sh
+│               ├── rebuild-region.sh
+│               ├── serve-local.sh
+│               └── upload-r2.sh
+├── logs
+│   └── data-pipeline
+│       ├── README.md
+│       ├── stage-k-upload-2026-05-19T19-45-22-534Z.json
+│       ├── stage-k-upload-2026-05-19T20-04-17-515Z.json
+│       ├── stage-k-upload-2026-05-19T20-07-56-154Z.json
+│       ├── stage-k-upload-2026-05-19T20-14-04-988Z.json
+│       ├── stage-k-upload-2026-05-19T20-19-04-468Z.json
+│       ├── stage-k-upload-2026-05-20T01-25-48-276Z.json
+│       ├── stage-k-upload-2026-05-20T01-31-09-996Z.json
+│       ├── stage-k-upload-2026-05-20T01-34-01-223Z.json
+│       └── stage-k-upload-2026-05-20T01-35-25-408Z.json
+├── package-lock.json
+├── package.json
+├── packages
+│   ├── api-client
+│   ├── localized-name
+│   │   └── index.ts
+│   ├── map-style
+│   │   ├── base-map.json
+│   │   ├── basemapSource.ts
+│   │   ├── package-lock.json
+│   │   ├── package.json
+│   │   └── registerPmtilesProtocol.ts
+│   └── shared-types
+├── pnpm-workspace.yaml
+├── project-structure.txt
+├── render.yaml
+├── skills-lock.json
+└── tools
+    ├── core-review-api-regression.mjs
+    ├── data-pipeline
+    │   ├── local-osm
+    │   │   ├── 00_register_boundary.sh
+    │   │   ├── 00_register_boundary.sql
+    │   │   ├── 01_create_snapshot.sql
+    │   │   ├── 02_import_to_tmp.sh
+    │   │   ├── 03_validate_tmp.sql
+    │   │   ├── 04_tmp_to_raw.sql
+    │   │   ├── 05_raw_to_staging.sql
+    │   │   ├── 06_diff_current_vs_previous.sql
+    │   │   ├── 07_compare_with_prod_mirror.sql
+    │   │   ├── 08_assign_statuses.sql
+    │   │   ├── 09_create_review_views.sql
+    │   │   ├── 10_summary_report.sql
+    │   │   ├── 11_prepare_remote_review_package.sql
+    │   │   ├── 12_upload_remote_review_package.ts
+    │   │   ├── 13_verify_remote_review_upload.sql
+    │   │   ├── 14_verify_lineage_alignment.sql
+    │   │   ├── 15_entity_coverage_report.sql
+    │   │   ├── NAMINGENV.md
+    │   │   ├── README.md
+    │   │   ├── README_REMOTE_REVIEW.md
+    │   │   ├── data
+    │   │   │   ├── boundaries
+    │   │   │   │   ├── v1
+    │   │   │   │   │   ├── kyauktan_boundary.geojson
+    │   │   │   │   │   └── kyauktan_boundary.qmd
+    │   │   │   │   └── v2
+    │   │   │   │       ├── kyauktan-custom-boundary.geojson
+    │   │   │   │       ├── kyauktan-custom-boundary.gpkg
+    │   │   │   │       └── kyauktan-custom-boundary.qmd
+    │   │   │   └── osm
+    │   │   │       ├── v1
+    │   │   │       │   └── myanmar-latest-260414.osm.pbf
+    │   │   │       └── v2
+    │   │   │           └── myanmar-260513.osm.pbf
+    │   │   ├── imports
+    │   │   │   ├── kyauktan_2026_05_15_v2.env
+    │   │   │   └── template.full.env
+    │   │   ├── logs
+    │   │   │   ├── prod-mirror-refresh_20260515T194942Z.log
+    │   │   │   ├── prod-mirror-refresh_20260515T195506Z.log
+    │   │   │   ├── prod-mirror-refresh_20260515T195528Z.log
+    │   │   │   ├── prod-mirror-refresh_20260515T195728Z.log
+    │   │   │   ├── prod-mirror-refresh_20260515T200145Z.log
+    │   │   │   ├── prod-mirror-refresh_20260515T200422Z.log
+    │   │   │   ├── prod-mirror-refresh_20260515T200547Z.log
+    │   │   │   └── prod-mirror-refresh_20260515T200740Z.log
+    │   │   ├── lua
+    │   │   │   └── osm2pgsql_tmp_import.lua
+    │   │   ├── remote-review-entity-config.ts
+    │   │   ├── remote-review-upload-flush.ts
+    │   │   ├── run_local_osm_pipeline.sh
+    │   │   └── setup
+    │   │       ├── check_score_scale_0_100.sql
+    │   │       ├── force_fix_remaining_scores_0_100.sql
+    │   │       └── normalize_existing_staging_scores_0_100.sql
+    │   └── prod-mirror
+    │       ├── 00_env.example.sh
+    │       ├── 00_env.sh
+    │       ├── 01_setup_fdw.sql
+    │       ├── 02_import_foreign_tables.sql
+    │       ├── 03_refresh_prod_mirror.sql
+    │       ├── 04_validate_prod_mirror.sql
+    │       ├── README.md
+    │       └── refresh_prod_mirror.sh
+    └── database
+        └── generate-erd.ts
+
+494 directories, 2189 files

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type Resolver } from "react-hook-form";
+import { useQueryClient } from "@tanstack/react-query";
 
 import type { CoreGeometryValidationResult } from "@/src/components/core-review/geometry";
 import { useBuildingTileVersion, useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
@@ -25,6 +26,7 @@ import { collectRefSources, useCoreEntityRefs } from "../forms/useCoreEntityRefs
 import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
 import { SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM } from "../forms/CoreEntityGeometrySection";
 import { sanitizeSaveError } from "./sanitizeSaveError";
+import { patchCoreReviewListRowEverywhere } from "../hooks/coreReviewCache";
 
 export type UseCoreEntityEditFormOptions = {
     entityKey: CoreEntityKey;
@@ -42,6 +44,7 @@ export function useCoreEntityEditForm({
     const config = getCoreEntityConfig(entityKey);
     const { bumpPlaceTileVersion, bumpStreetTileVersion, bumpRoadLabelTileVersion } = useDashboardTileVersions();
     const { bumpBuildingTileVersion } = useBuildingTileVersion();
+    const queryClient = useQueryClient();
 
     const [detail, setDetail] = useState<Record<string, unknown> | null>(
         initialDetail ? (initialDetail as Record<string, unknown>) : null,
@@ -198,6 +201,12 @@ export function useCoreEntityEditForm({
                 setDetail(fresh as Record<string, unknown>);
                 reset(config.detailToFormValues(fresh));
                 config.onAfterUpdate?.(fresh);
+                patchCoreReviewListRowEverywhere(
+                    queryClient,
+                    config.coreReviewSlug ?? entityKey,
+                    recordId,
+                    () => fresh as Record<string, unknown> as any
+                );
                 setSaveSuccess(`${config.label} saved successfully.`);
                 bumpTilesAfterUpdate();
                 resolved = fresh;
@@ -216,6 +225,7 @@ export function useCoreEntityEditForm({
         entityKey,
         geometryFieldKey,
         handleSubmit,
+        queryClient,
         recordId,
         reset,
     ]);

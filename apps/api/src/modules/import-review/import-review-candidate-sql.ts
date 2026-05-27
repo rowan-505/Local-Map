@@ -12,9 +12,10 @@ import {
     roadResolvedAdminAreaNameExpr,
 } from "./import-review-road-admin-area-sql.js";
 import {
-    buildRoadCandidateListFromClause,
-    buildRoadCandidateListSelect,
-} from "./import-review-road-list-sql.js";
+    buildLightweightListFromClause,
+    buildLightweightListSelect,
+    shouldUseLightweightListQuery,
+} from "./import-review-list-query.js";
 import { effectiveRoadLengthMExpr } from "./import-review-promotion-promote-sql.js";
 import type { ImportReviewBuildingSort, ImportReviewBulkFilters } from "./import-review.schema.js";
 
@@ -33,6 +34,8 @@ export type CandidateListFilters = {
     offset?: number | undefined;
     sort?: ImportReviewBuildingSort | undefined;
     include_geometry?: boolean | undefined;
+    /** When false, list query skips COUNT(*) (use has_more from limit+1 fetch). */
+    include_total?: boolean | undefined;
 };
 
 function colRef(config: ImportReviewEntityFamilyConfig, column: string): Prisma.Sql {
@@ -47,7 +50,7 @@ function tableFrom(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
     return Prisma.sql`${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(config.tableAlias)}`;
 }
 
-function shapeColumn(
+export function shapeColumn(
     config: ImportReviewEntityFamilyConfig,
     column: keyof ImportReviewEntityFamilyConfig["listRowShape"],
     sqlType: string
@@ -198,7 +201,7 @@ export function buildCandidateOrderBy(
     return Prisma.raw(`${config.tableAlias}.${expr}`);
 }
 
-function buildGeometrySelect(
+export function buildGeometrySelect(
     config: ImportReviewEntityFamilyConfig,
     includeGeometry: boolean,
     column: string,
@@ -447,17 +450,6 @@ export function buildCandidateRowQueryParts(
     };
 }
 
-function useRoadListSelect(
-    config: ImportReviewEntityFamilyConfig,
-    includeGeometry: boolean
-): boolean {
-    return (
-        config.routeFamily === "roads" &&
-        !includeGeometry &&
-        (config.listSelectMode ?? "summary") === "summary"
-    );
-}
-
 export function buildCandidateListQueryParts(
     config: ImportReviewEntityFamilyConfig,
     reviewBatchId: bigint,
@@ -469,13 +461,13 @@ export function buildCandidateListQueryParts(
     orderBy: Prisma.Sql;
 } {
     const includeGeometry = filters.include_geometry ?? false;
-    const summaryList = useRoadListSelect(config, includeGeometry);
+    const lightweightList = shouldUseLightweightListQuery(config, includeGeometry);
 
     return {
-        select: summaryList
-            ? buildRoadCandidateListSelect(config)
+        select: lightweightList
+            ? buildLightweightListSelect(config)
             : buildCandidateCommonSelect(config, includeGeometry),
-        from: summaryList ? buildRoadCandidateListFromClause(config) : buildCandidateFromClause(config),
+        from: lightweightList ? buildLightweightListFromClause(config) : buildCandidateFromClause(config),
         where: buildCandidateWhereClause(config, reviewBatchId, filters),
         orderBy: buildCandidateOrderBy(config, filters.sort ?? config.defaultSort),
     };

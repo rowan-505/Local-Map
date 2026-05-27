@@ -34,6 +34,10 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
         return this.core.fetchFamilySummaryMetrics(scope);
     }
 
+    fetchScopeSummary(scope: ImportReviewScopeResolved) {
+        return this.core.fetchScopeSummary(scope);
+    }
+
     fetchBuildingFilterOptions(scope: ImportReviewScopeResolved) {
         return this.core.fetchBuildingFilterOptions(scope.reviewBatchId);
     }
@@ -71,6 +75,7 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
             | "offset"
             | "sort"
             | "include_geometry"
+            | "include_total"
         >
     ) {
         return this.core.listBuildingCandidates(scope.reviewBatchId, filters);
@@ -170,6 +175,7 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
             | "offset"
             | "sort"
             | "include_geometry"
+            | "include_total"
         >
     ) {
         return this.core.listPlaceCandidates(scope.reviewBatchId, filters);
@@ -249,6 +255,7 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
             | "offset"
             | "sort"
             | "include_geometry"
+            | "include_total"
         >
     ) {
         return this.core.listRoadCandidates(scope.reviewBatchId, filters);
