@@ -1,5 +1,5 @@
 /**
- * Basemap → API GeoJSON labels → POI circles → POI labels (top).
+ * Basemap roads → route overlay → basemap/API labels → POI markers → click pin (top).
  */
 import type { MapEngine } from '../mapEngineTypes';
 import { restorePublicMapLayersUnderPlaces } from './publicMapGeoLayers';

@@ -153,3 +153,59 @@ infrastructure/routing/valhalla/data/builds/*
 infrastructure/database/introspection/**/snapshots/
 
 
+# ============================================================
+# CoreMap - local GIS source data and generated tile outputs
+# ============================================================
+
+# Downloaded/raw GIS data for tile building.
+# These files are large, reproducible, and should not be committed.
+/infrastructure/tiles/data/**
+
+# Keep folder structure placeholders and documentation.
+!/infrastructure/tiles/data/
+!/infrastructure/tiles/data/.gitkeep
+!/infrastructure/tiles/data/README.md
+
+# Generated static tile outputs.
+/infrastructure/tiles/**/*.pmtiles
+/infrastructure/tiles/**/*.mbtiles
+
+# Temporary/intermediate tile build outputs.
+/infrastructure/tiles/**/*.geojsonseq
+/infrastructure/tiles/**/*.geojsonl
+/infrastructure/tiles/**/*.ndjson
+/infrastructure/tiles/**/*.tmp
+/infrastructure/tiles/**/*.temp
+
+# OSM / GIS source formats.
+/infrastructure/tiles/**/*.osm.pbf
+/infrastructure/tiles/**/*.pbf
+/infrastructure/tiles/**/*.gpkg
+/infrastructure/tiles/**/*.shp
+/infrastructure/tiles/**/*.shx
+/infrastructure/tiles/**/*.dbf
+/infrastructure/tiles/**/*.prj
+/infrastructure/tiles/**/*.cpg
+/infrastructure/tiles/**/*.qpj
+/infrastructure/tiles/**/*.cst
+/infrastructure/tiles/**/*.kml
+/infrastructure/tiles/**/*.kmz
+
+# Download archives.
+/infrastructure/tiles/**/*.zip
+/infrastructure/tiles/**/*.7z
+/infrastructure/tiles/**/*.tar
+/infrastructure/tiles/**/*.tar.gz
+/infrastructure/tiles/**/*.gz
+
+# MIMU / tabular source downloads.
+/infrastructure/tiles/**/*.xlsx
+/infrastructure/tiles/**/*.xls
+/infrastructure/tiles/**/*.xlsm
+/infrastructure/tiles/**/*.csv
+
+# Local build/cache folders.
+/infrastructure/tiles/**/unzipped/
+/infrastructure/tiles/**/processed/
+/infrastructure/tiles/**/tmp/
+/infrastructure/tiles/**/cache/

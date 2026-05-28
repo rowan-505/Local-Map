@@ -24,6 +24,8 @@ export type MapViewProps = {
   readonly cameraLayout: MapCameraLayout;
   readonly clickedLocation?: MapClickedLocation | null;
   readonly directionsOverlay?: DirectionsMapOverlay | null;
+  /** When set, the next map click sets a route endpoint instead of opening place/address UI. */
+  readonly routePickMode?: 'from' | 'to' | null;
   /** Called when a POI marker is clicked, or when the map is clicked away from markers. */
   readonly onSelectPoiId: (id: string | null) => void;
   readonly onEmptyMapClick?: (location: MapClickedLocation) => void;

@@ -4,13 +4,13 @@
 --
 -- Purpose:
 --   Point core.core_map_buildings and import_review.building_candidates at flat
---   final ref codes so 063_ref_building_types_hard_clean.sql can delete unused
---   detailed rows. Does not delete ref rows.
+--   final ref codes so 065_ref_building_types_delete_unused_non_final.sql can delete
+--   unused detailed rows. Does not delete ref rows.
 --
 -- Requires:
 --   - ref.ref_building_type_merge_map (from 061_ref_building_types_simplification.sql)
 --
--- Run order: 061 → 064 → 063
+-- Run order: 061 → 064 → 065
 --
 -- Supabase note: no session temp tables (editor/pooler may split statements).
 --

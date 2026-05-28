@@ -7,6 +7,7 @@ import {
 } from "../routing.errors.js";
 import {
     buildValhallaRouteRequest,
+    isValhallaNoRouteErrorCode,
     mapValhallaRouteResponse,
     type ValhallaRouteRequestPayload,
 } from "../mappers/valhalla-route.mapper.js";
@@ -187,6 +188,13 @@ export class ValhallaRoutingEngineAdapter implements RoutingEngineAdapter {
         }
 
         if (!response.ok) {
+            const errorCode =
+                raw && typeof raw === "object" && "error_code" in raw
+                    ? (raw as { error_code?: number }).error_code
+                    : undefined;
+            if (isValhallaNoRouteErrorCode(errorCode)) {
+                return mapValhallaRouteResponse(raw, request, { extraWarnings: profileWarnings });
+            }
             throw mapHttpRouteFailure(response.status, raw);
         }
 

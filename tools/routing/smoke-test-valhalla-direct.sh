@@ -50,6 +50,16 @@ EOF
 
     echo "==> ${name} (costing=${costing}, HTTP ${http})"
     if [[ "${http}" != "${expect_http}" ]]; then
+        # Valhalla returns HTTP 400 for unroutable long trips (e.g. walk > 250km) — not a service outage.
+        if [[ "${http}" == "400" ]]; then
+            local err_code
+            err_code="$(routing_json_get "${resp}" "error_code" 2>/dev/null || echo "")"
+            if [[ "${err_code}" == "154" || "${err_code}" == "171" || "${err_code}" == "442" ]]; then
+                routing_pass "${name} engine no_route (HTTP 400, error_code=${err_code})"
+                rm -f "${resp}"
+                return 0
+            fi
+        fi
         routing_fail "${name} expected HTTP ${expect_http}, got ${http}"
         head -c 600 "${resp}" >&2 || true
         echo "" >&2

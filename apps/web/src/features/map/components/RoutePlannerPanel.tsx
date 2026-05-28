@@ -1,243 +1,276 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import {
-  isRoutingApiError,
-  requestRoute,
-  submitRoutingFeedback,
-} from '@/features/routing/api/routingApi';
-import type { RouteResponse } from '@/features/routing/types';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { requestRoute, submitRoutingFeedback } from '@/features/routing/api/routingApi';
 import {
   formatRouteDistance,
   formatRouteDuration,
-  parseCoordinateInput,
-  resolveRoutePointCoordinates,
-  routePointFromCoordinates,
   toApiRoutingProfile,
-  toRouteWaypoint,
-  type DirectionsUiProfile,
-  type RouteDraft,
-  type RoutePoint,
 } from '@/features/routing/lib/routePoint';
-import type { MapClickedLocation } from '@/features/map/types';
-import type { PlaceLanguageMode, PublicSearchResult } from '@/features/poi/api/publicMapApi';
-import type { Poi } from '@/types';
-import { getLocalizedName } from '@local-map/localized-name';
+import {
+  filterUserFacingRouteWarnings,
+  routingEngineDisplayHint,
+  routingProfileDisplayLabel,
+} from '@/features/routing/lib/routeDisplayWarnings';
+import { DisabledTransitModeButton } from '@/features/map/components/DisabledTransitModeButton';
+import { RouteFeedbackOverlay } from '@/features/map/components/RouteFeedbackOverlay';
+import { buildRoutingFeedbackMessage } from '@/features/routing/lib/buildRoutingFeedbackMessage';
+import { defaultFeedbackProblemType } from '@/features/routing/lib/routeFeedbackLabels';
+import {
+  formatRoutingClientError,
+  ROUTING_NO_ROUTE_MESSAGE,
+  ROUTING_SERVICE_UNAVAILABLE_MESSAGE,
+  routingInvalidCoordinatesMessage,
+} from '@/features/routing/lib/formatRoutingClientMessage';
+import type { RouteResponse, RoutingFeedbackProblemType } from '@/features/routing/types';
+import {
+  endpointFromManualInput,
+  manualEndpointFromLabel,
+  endpointToWaypoint,
+} from '@/features/routing/routeState';
+import type { RouteInputField } from '@/features/routing/routeState';
+import type { UseRouteStateReturn } from '@/features/routing/useRouteState';
+import { RouteEndpointSearchOverlay } from '@/features/map/components/RouteEndpointSearchOverlay';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
 
 export type { RouteDraft, RoutePoint } from '@/features/routing/lib/routePoint';
 
 type RoutePlannerPanelProps = {
-  readonly clickedLocation?: MapClickedLocation | null;
-  readonly selectedPoi?: Poi | null;
-  readonly selectedSearchResult?: PublicSearchResult | null;
-  readonly draft: RouteDraft;
-  readonly onDraftChange: (draft: RouteDraft) => void;
-  readonly onRouteResultChange: (result: RouteResponse | null) => void;
+  readonly route: UseRouteStateReturn;
+  /** Map center `[lng, lat]` for optional distance labels in route search. */
+  readonly searchReferenceCoordinates?: readonly [number, number] | null;
 };
 
 type RequestPhase = 'idle' | 'loading' | 'success' | 'no_route' | 'error';
 
 const ENABLED_PROFILES: readonly {
-  readonly id: DirectionsUiProfile;
+  readonly id: UseRouteStateReturn['selectedMode'];
   readonly label: string;
   readonly icon: ReactNode;
 }[] = [
   { id: 'walk', label: 'Walk', icon: <WalkIcon /> },
-  { id: 'motorbike', label: 'Motorbike', icon: <MotorbikeIcon /> },
+  { id: 'motorcycle', label: 'Motorbike', icon: <MotorbikeIcon /> },
   { id: 'car', label: 'Car', icon: <CarIcon /> },
 ];
 
-const DISABLED_PROFILES: readonly { readonly id: string; readonly label: string; readonly icon: ReactNode }[] =
-  [
-    { id: 'bus', label: 'Bus', icon: <BusIcon /> },
-    { id: 'train', label: 'Train', icon: <TrainIcon /> },
-  ];
+const DISABLED_TRANSIT_MODES: readonly {
+  readonly id: string;
+  readonly label: string;
+  readonly hint: string;
+  readonly icon: ReactNode;
+}[] = [
+  { id: 'bus', label: 'Bus', hint: 'Bus routing is coming later.', icon: <BusIcon /> },
+  {
+    id: 'train',
+    label: 'Train',
+    hint: 'Train routing is coming later.',
+    icon: <TrainIcon />,
+  },
+];
 
 export function RoutePlannerPanel({
-  clickedLocation = null,
-  selectedPoi = null,
-  selectedSearchResult = null,
-  draft,
-  onDraftChange,
-  onRouteResultChange,
+  route,
+  searchReferenceCoordinates = null,
 }: RoutePlannerPanelProps) {
   const languageMode = useMapUiStore((s) => s.languageMode);
-  const [phase, setPhase] = useState<RequestPhase>('idle');
-  const [routeResult, setRouteResult] = useState<RouteResponse | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackProblemType, setFeedbackProblemType] =
+    useState<RoutingFeedbackProblemType>('wrong_route');
+  const [feedbackDetail, setFeedbackDetail] = useState('');
+  const [feedbackSubmitError, setFeedbackSubmitError] = useState<string | null>(null);
   const [feedbackPending, setFeedbackPending] = useState(false);
+  const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
 
-  const fromCoords = resolveRoutePointCoordinates(draft.from);
-  const toCoords = resolveRoutePointCoordinates(draft.to);
-  const canGetRoute = Boolean(fromCoords && toCoords);
+  const routeRequestAbortRef = useRef<AbortController | null>(null);
+  const routeRequestGenerationRef = useRef(0);
 
-  const setFrom = useCallback(
-    (nextFrom: RoutePoint | null) => {
-      onDraftChange({ ...draft, from: nextFrom });
-    },
-    [draft, onDraftChange],
-  );
+  const cancelInFlightRouteRequest = useCallback(() => {
+    routeRequestAbortRef.current?.abort();
+    routeRequestAbortRef.current = null;
+    routeRequestGenerationRef.current += 1;
+  }, []);
 
-  const setTo = useCallback(
-    (nextTo: RoutePoint | null) => {
-      onDraftChange({ ...draft, to: nextTo });
-    },
-    [draft, onDraftChange],
-  );
+  const { canGetRoute, routeResult } = route;
 
-  const setProfile = (nextProfile: DirectionsUiProfile) => {
-    onDraftChange({ ...draft, profile: nextProfile });
-  };
+  const phase: RequestPhase = useMemo(() => {
+    if (route.isLoading) return 'loading';
+    if (route.error) return 'error';
+    if (route.routeResult?.status === 'no_route') return 'no_route';
+    if (route.routeResult?.status === 'ok') return 'success';
+    return 'idle';
+  }, [route.error, route.isLoading, route.routeResult?.status]);
 
-  const clearRoute = useCallback(() => {
-    setPhase('idle');
-    setRouteResult(null);
-    setErrorMessage(null);
-    setFeedbackMessage(null);
-    onRouteResultChange(null);
-    onDraftChange({ from: null, to: null, profile: draft.profile });
-  }, [draft.profile, onDraftChange, onRouteResultChange]);
+  const errorMessage = route.error;
+
+  const closeFeedbackOverlay = useCallback(() => {
+    setFeedbackOpen(false);
+    setFeedbackSubmitError(null);
+  }, []);
+
+  const handleClearAll = useCallback(() => {
+    cancelInFlightRouteRequest();
+    setFeedbackOpen(false);
+    setFeedbackSubmitError(null);
+    setFeedbackDetail('');
+    setFeedbackToast(null);
+    setFeedbackPending(false);
+    route.clearAll();
+  }, [cancelInFlightRouteRequest, route]);
 
   const handleGetRoute = useCallback(async () => {
-    setFeedbackMessage(null);
-    const origin = draft.from ? toRouteWaypoint(draft.from) : null;
-    const destination = draft.to ? toRouteWaypoint(draft.to) : null;
+    if (route.isLoading) return;
+
+    setFeedbackToast(null);
+    const origin = endpointToWaypoint(route.from);
+    const destination = endpointToWaypoint(route.to);
 
     if (!origin || !destination) {
-      setPhase('error');
-      setErrorMessage('Enter valid coordinates as "latitude, longitude" for both points.');
-      setRouteResult(null);
-      onRouteResultChange(null);
+      route.setError(routingInvalidCoordinatesMessage());
+      route.setRouteResult(null);
       return;
     }
 
-    setPhase('loading');
-    setErrorMessage(null);
-    setRouteResult(null);
-    onRouteResultChange(null);
+    cancelInFlightRouteRequest();
+    const requestGeneration = routeRequestGenerationRef.current;
+    const abortController = new AbortController();
+    routeRequestAbortRef.current = abortController;
+
+    route.setIsLoading(true);
+    route.setError(null);
+    route.setRouteResult(null);
+
+    const applyIfCurrent = (apply: () => void) => {
+      if (requestGeneration !== routeRequestGenerationRef.current) return;
+      if (abortController.signal.aborted) return;
+      apply();
+    };
 
     try {
-      const response = await requestRoute({
-        origin,
-        destination,
-        profile: toApiRoutingProfile(draft.profile),
-        preference: 'fastest',
+      const response = await requestRoute(
+        {
+          origin,
+          destination,
+          profile: toApiRoutingProfile(route.selectedMode),
+          preference: 'fastest',
+        },
+        { signal: abortController.signal },
+      );
+
+      applyIfCurrent(() => {
+        if (response.status === 'no_route') {
+          route.setRouteResult(response);
+          route.setIsLoading(false);
+          return;
+        }
+
+        if (response.status === 'error') {
+          route.setRouteResult(response);
+          route.setError(ROUTING_SERVICE_UNAVAILABLE_MESSAGE);
+          route.setIsLoading(false);
+          return;
+        }
+
+        route.setRouteResult(response);
+        route.setIsLoading(false);
       });
-
-      if (response.status === 'no_route') {
-        setPhase('no_route');
-        setRouteResult(response);
-        onRouteResultChange(response);
-        return;
-      }
-
-      if (response.status === 'error') {
-        setPhase('error');
-        setErrorMessage('The routing service could not build a route. Try another profile or points.');
-        setRouteResult(response);
-        onRouteResultChange(response);
-        return;
-      }
-
-      setPhase('success');
-      setRouteResult(response);
-      onRouteResultChange(response);
     } catch (error) {
-      setPhase('error');
-      setRouteResult(null);
-      onRouteResultChange(null);
-      setErrorMessage(formatRoutingClientError(error));
-    }
-  }, [draft.from, draft.profile, draft.to, onRouteResultChange]);
+      if (abortController.signal.aborted) return;
+      if (requestGeneration !== routeRequestGenerationRef.current) return;
+      if (error instanceof DOMException && error.name === 'AbortError') return;
 
-  const handleReportIssue = useCallback(async () => {
-    const origin = draft.from ? toRouteWaypoint(draft.from) : null;
-    const destination = draft.to ? toRouteWaypoint(draft.to) : null;
+      route.setRouteResult(null);
+      route.setError(formatRoutingClientError(error));
+      route.setIsLoading(false);
+    }
+  }, [cancelInFlightRouteRequest, route]);
+
+  const handleSwapEndpoints = useCallback(() => {
+    cancelInFlightRouteRequest();
+    setFeedbackToast(null);
+    route.swapEndpoints();
+  }, [cancelInFlightRouteRequest, route]);
+
+  useEffect(() => () => cancelInFlightRouteRequest(), [cancelInFlightRouteRequest]);
+
+  const handleOpenFeedback = useCallback(() => {
+    setFeedbackProblemType(defaultFeedbackProblemType(phase));
+    setFeedbackSubmitError(null);
+    setFeedbackOpen(true);
+  }, [phase]);
+
+  const handleSubmitFeedback = useCallback(async () => {
+    const origin = endpointToWaypoint(route.from);
+    const destination = endpointToWaypoint(route.to);
     if (!origin || !destination) {
-      setFeedbackMessage('Set valid from and to points before reporting an issue.');
+      setFeedbackSubmitError('Set valid from and to points before sending a report.');
+      return;
+    }
+
+    const trimmedDetail = feedbackDetail.trim();
+    if (!trimmedDetail) {
+      setFeedbackSubmitError('Add a short description of the issue.');
       return;
     }
 
     setFeedbackPending(true);
-    setFeedbackMessage(null);
+    setFeedbackSubmitError(null);
     try {
-      const result = await submitRoutingFeedback({
-        requestId: routeResult?.debug?.requestId,
+      await submitRoutingFeedback({
+        requestId: route.routeResult?.debug?.requestId,
         origin: { lat: origin.lat, lng: origin.lng },
         destination: { lat: destination.lat, lng: destination.lng },
-        profile: toApiRoutingProfile(draft.profile),
-        problemType: phase === 'no_route' ? 'cannot_route' : 'wrong_route',
-        message:
-          phase === 'no_route'
-            ? 'No route returned from directions panel.'
-            : 'User reported route issue from directions panel.',
+        profile: toApiRoutingProfile(route.selectedMode),
+        problemType: feedbackProblemType,
+        message: buildRoutingFeedbackMessage(trimmedDetail, route.routeResult),
       });
-      setFeedbackMessage(
-        result.stored
-          ? 'Thanks — your report was saved.'
-          : 'Thanks — report received (offline storage).',
-      );
+      setFeedbackOpen(false);
+      setFeedbackDetail('');
+      setFeedbackToast('Report sent');
     } catch (error) {
-      setFeedbackMessage(
-        isRoutingApiError(error)
-          ? error.message
-          : 'Could not submit report. Try again later.',
-      );
+      setFeedbackSubmitError(formatRoutingClientError(error));
     } finally {
       setFeedbackPending(false);
     }
-  }, [draft.from, draft.profile, draft.to, phase, routeResult?.debug?.requestId]);
+  }, [
+    feedbackDetail,
+    feedbackProblemType,
+    route.from,
+    route.routeResult,
+    route.selectedMode,
+    route.to,
+  ]);
 
-  const selectionActions = useMemo(() => {
-    const actions: { key: string; label: string; onClick: () => void }[] = [];
-
-    const poiPoint = poiToRoutePoint(selectedPoi, languageMode);
-    if (poiPoint) {
-      actions.push({
-        key: 'poi-from',
-        label: 'Place → From',
-        onClick: () => setFrom(poiPoint),
-      });
-      actions.push({
-        key: 'poi-to',
-        label: 'Place → To',
-        onClick: () => setTo(poiPoint),
-      });
-    }
-
-    const searchPoint = searchResultToRoutePoint(selectedSearchResult, languageMode);
-    if (searchPoint) {
-      actions.push({
-        key: 'search-from',
-        label: 'Search → From',
-        onClick: () => setFrom(searchPoint),
-      });
-      actions.push({
-        key: 'search-to',
-        label: 'Search → To',
-        onClick: () => setTo(searchPoint),
-      });
-    }
-
-    return actions;
-  }, [languageMode, selectedPoi, selectedSearchResult, setFrom, setTo]);
+  useEffect(() => {
+    if (!feedbackToast) return;
+    const timer = window.setTimeout(() => setFeedbackToast(null), 1000);
+    return () => window.clearTimeout(timer);
+  }, [feedbackToast]);
 
   const steps = useMemo(() => collectRouteSteps(routeResult), [routeResult]);
 
+  const userFacingWarnings = useMemo(
+    () => (routeResult ? filterUserFacingRouteWarnings(routeResult.warnings) : []),
+    [routeResult],
+  );
+
+  const engineHint = useMemo(
+    () => (routeResult ? routingEngineDisplayHint(routeResult.routingEngine) : null),
+    [routeResult],
+  );
+
   return (
-    <section className="space-y-3 p-3.5" aria-label="Directions">
+    <section className="relative space-y-3 p-3.5" aria-label="Directions">
       <div className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-sm shadow-neutral-950/3">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold leading-5 text-neutral-950">Directions</h2>
             <p className="mt-0.5 text-xs text-neutral-500">
-              Enter coordinates or use a place, search result, or map click.
+              Search for a place or street, or enter coordinates.
             </p>
           </div>
           <button
             type="button"
             className="rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-50"
-            onClick={() => clearRoute()}
+            aria-label="Clear directions and route"
+            onClick={() => handleClearAll()}
           >
             Clear
           </button>
@@ -247,28 +280,34 @@ export function RoutePlannerPanel({
           <div className="space-y-1.5">
             <RouteInput
               label="From"
-              value={draft.from?.label ?? ''}
-              placeholder="16.8661, 96.1951"
+              value={route.from.label}
+              placeholder="Search or 16.8661, 96.1951"
               markerClassName="bg-emerald-500"
-              onChange={(value) => setFrom(value ? { label: value } : null)}
+              isActive={route.activeInput === 'from'}
+              onFocus={() => route.setActiveInput('from')}
+              onChange={(value) => {
+                route.setFrom(manualEndpointFromLabel(value));
+                route.setActiveInput('from');
+              }}
               onBlur={(value) => {
-                const coords = parseCoordinateInput(value);
-                if (coords && value.trim()) {
-                  setFrom({ label: value.trim(), coordinates: coords });
-                }
+                if (route.activeInput === 'from') return;
+                route.setFrom(endpointFromManualInput(value));
               }}
             />
             <RouteInput
               label="To"
-              value={draft.to?.label ?? ''}
-              placeholder="16.8710, 96.2010"
+              value={route.to.label}
+              placeholder="Search or 16.8710, 96.2010"
               markerClassName="bg-orange-500"
-              onChange={(value) => setTo(value ? { label: value } : null)}
+              isActive={route.activeInput === 'to'}
+              onFocus={() => route.setActiveInput('to')}
+              onChange={(value) => {
+                route.setTo(manualEndpointFromLabel(value));
+                route.setActiveInput('to');
+              }}
               onBlur={(value) => {
-                const coords = parseCoordinateInput(value);
-                if (coords && value.trim()) {
-                  setTo({ label: value.trim(), coordinates: coords });
-                }
+                if (route.activeInput === 'to') return;
+                route.setTo(endpointFromManualInput(value));
               }}
             />
           </div>
@@ -276,33 +315,37 @@ export function RoutePlannerPanel({
             type="button"
             className="mt-8 grid h-9 w-9 place-items-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-sm transition-colors hover:bg-neutral-50 hover:text-neutral-950"
             aria-label="Swap start and destination"
-            onClick={() => {
-              onDraftChange({ ...draft, from: draft.to, to: draft.from });
-            }}
+            onClick={handleSwapEndpoints}
           >
             <SwapIcon />
           </button>
         </div>
 
-        <p className="mt-2 text-[11px] leading-4 text-neutral-500">
-          Coordinates: latitude, longitude (e.g. 16.8661, 96.1951).
-        </p>
-
-        {(selectionActions.length > 0 || clickedLocation) && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {selectionActions.map((action) => (
-              <SmallActionButton key={action.key} onClick={action.onClick}>
-                {action.label}
+        {route.pickMode ? (
+          <RouteMapPickBanner pickMode={route.pickMode} onCancel={() => route.cancelMapPick()} />
+        ) : route.activeInput ? (
+          <RouteEndpointSearchOverlay
+            field={route.activeInput}
+            route={route}
+            languageMode={languageMode}
+            referenceCoordinates={searchReferenceCoordinates}
+          />
+        ) : (
+          <>
+            <p className="mt-2 text-[11px] leading-4 text-neutral-500">
+              Tap From or To to search, or choose a point on the map.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <SmallActionButton onClick={() => route.startMapPick('from')}>
+                Choose From on map
               </SmallActionButton>
-            ))}
-            {clickedLocation ? (
-              <>
-                <SmallActionButton onClick={() => setFrom(clickedLocation)}>Map → From</SmallActionButton>
-                <SmallActionButton onClick={() => setTo(clickedLocation)}>Map → To</SmallActionButton>
-              </>
-            ) : null}
-          </div>
+              <SmallActionButton onClick={() => route.startMapPick('to')}>
+                Choose To on map
+              </SmallActionButton>
+            </div>
+          </>
         )}
+
       </div>
 
       <div className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-sm shadow-neutral-950/3">
@@ -313,42 +356,39 @@ export function RoutePlannerPanel({
               type="button"
               key={option.id}
               className={`flex min-h-12 min-w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-xl px-2 py-1.5 text-[10px] font-semibold transition-colors ${
-                draft.profile === option.id
+                route.selectedMode === option.id
                   ? 'bg-sky-600 text-white shadow-sm shadow-sky-900/20'
                   : 'text-neutral-600 hover:bg-white/75 hover:text-neutral-950'
               }`}
-              onClick={() => setProfile(option.id)}
+              onClick={() => route.setSelectedMode(option.id)}
             >
               <span className="grid h-4 w-4 place-items-center">{option.icon}</span>
               {option.label}
             </button>
           ))}
-          {DISABLED_PROFILES.map((option) => (
-            <button
-              type="button"
+          {DISABLED_TRANSIT_MODES.map((option) => (
+            <DisabledTransitModeButton
               key={option.id}
-              disabled
-              className="flex min-h-12 min-w-20 shrink-0 cursor-not-allowed flex-col items-center justify-center gap-1 rounded-xl px-2 py-1.5 text-[10px] font-semibold text-neutral-400 opacity-55"
-              title="Transit routing coming later"
-            >
-              <span className="grid h-4 w-4 place-items-center">{option.icon}</span>
-              {option.label}
-            </button>
+              label={option.label}
+              icon={option.icon}
+              hint={option.hint}
+            />
           ))}
         </div>
 
         <button
           type="button"
           className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-neutral-950 text-sm font-semibold text-white shadow-sm transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={!canGetRoute || phase === 'loading'}
+          disabled={!canGetRoute || route.isLoading}
+          aria-busy={route.isLoading}
           onClick={() => {
             void handleGetRoute();
           }}
         >
-          {phase === 'loading' ? (
+          {route.isLoading ? (
             <>
               <Spinner />
-              Getting route…
+              Finding route...
             </>
           ) : (
             'Get route'
@@ -356,47 +396,43 @@ export function RoutePlannerPanel({
         </button>
       </div>
 
-      {phase === 'loading' ? (
-        <StateBanner tone="info" title="Finding route…" body="Requesting directions from CoreMap." />
-      ) : null}
-
       {phase === 'error' && errorMessage ? (
         <StateBanner tone="error" title="Could not get route" body={errorMessage} />
       ) : null}
 
       {phase === 'no_route' ? (
-        <StateBanner
-          tone="warning"
-          title="No route found"
-          body="Try different points, a nearby road, or another travel mode."
-        />
+        <StateBanner tone="warning" title="No route found" body={ROUTING_NO_ROUTE_MESSAGE} />
       ) : null}
 
       {phase === 'success' && routeResult ? (
         <div className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-sm shadow-neutral-950/3">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-neutral-950">Route summary</h3>
-              <p className="mt-0.5 text-xs capitalize text-neutral-500">
-                {routeResult.profile} · {routeResult.routingEngine}
-              </p>
-            </div>
-            {routeResult.debug?.requestId ? (
-              <span
-                className="max-w-[9rem] truncate rounded-full bg-neutral-100 px-2 py-1 font-mono text-[10px] text-neutral-500"
-                title={routeResult.debug.requestId}
-              >
-                {routeResult.debug.requestId.slice(0, 8)}…
-              </span>
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold text-neutral-950">Route summary</h3>
+            <p className="mt-1 text-sm font-medium text-neutral-800">
+              {routingProfileDisplayLabel(routeResult.profile)}
+            </p>
+            {engineHint ? (
+              <p className="mt-0.5 text-[11px] text-neutral-400">{engineHint}</p>
             ) : null}
           </div>
           <div className="grid grid-cols-2 gap-2">
             <MetricCard label="Distance" value={formatRouteDistance(routeResult.summary.distanceMeters)} />
             <MetricCard label="Est. time" value={formatRouteDuration(routeResult.summary.durationSeconds)} />
           </div>
-          {routeResult.warnings.length > 0 ? (
+          <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-500">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white" aria-hidden />
+              Start
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-orange-500 ring-2 ring-white" aria-hidden />
+              Destination
+            </span>
+            <span className="text-neutral-400">Follow steps below for turns.</span>
+          </p>
+          {userFacingWarnings.length > 0 ? (
             <ul className="mt-3 space-y-1 text-xs text-amber-800">
-              {routeResult.warnings.map((warning) => (
+              {userFacingWarnings.map((warning) => (
                 <li key={warning} className="rounded-xl bg-amber-50 px-3 py-2 ring-1 ring-amber-100">
                   {warning}
                 </li>
@@ -408,60 +444,65 @@ export function RoutePlannerPanel({
 
       {steps.length > 0 ? (
         <div className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-sm shadow-neutral-950/3">
-          <h3 className="text-sm font-semibold text-neutral-950">Steps</h3>
+          <h3 className="text-sm font-semibold text-neutral-950">Turn-by-turn</h3>
           <ol className="mt-2 space-y-2 text-xs leading-5 text-neutral-700">
             {steps.map((step, index) => (
-              <li key={`${index}-${step}`} className="flex gap-2">
-                <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-sky-100 text-[10px] font-bold text-sky-800">
+              <li
+                key={`${index}-${step}`}
+                className={`flex gap-2 ${index === 0 ? 'rounded-xl bg-emerald-50/80 px-2 py-1.5 ring-1 ring-emerald-100/80' : ''}`}
+              >
+                <span
+                  className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-bold ${
+                    index === 0
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-sky-100 text-sky-800'
+                  }`}
+                >
                   {index + 1}
                 </span>
-                <span>{step}</span>
+                <span className={index === 0 ? 'font-medium text-neutral-900' : undefined}>
+                  {index === 0 ? `Start: ${step}` : step}
+                </span>
               </li>
             ))}
           </ol>
         </div>
       ) : null}
 
-      {(phase === 'success' || phase === 'no_route' || phase === 'error') && canGetRoute ? (
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            className="h-10 flex-1 rounded-2xl border border-neutral-200 bg-white text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50"
-            onClick={() => clearRoute()}
-          >
-            Clear route
-          </button>
-          <button
-            type="button"
-            className="h-10 flex-1 rounded-2xl border border-amber-200 bg-amber-50 text-sm font-semibold text-amber-900 transition-colors hover:bg-amber-100 disabled:opacity-50"
-            disabled={feedbackPending}
-            onClick={() => {
-              void handleReportIssue();
-            }}
-          >
-            {feedbackPending ? 'Sending…' : 'Report route issue'}
-          </button>
-        </div>
+      {route.routeResult ? (
+        <button
+          type="button"
+          className="h-10 w-full rounded-2xl border border-amber-200 bg-amber-50 text-sm font-semibold text-amber-900 transition-colors hover:bg-amber-100"
+          onClick={handleOpenFeedback}
+        >
+          Report route issue
+        </button>
       ) : null}
 
-      {feedbackMessage ? (
-        <p className="rounded-2xl bg-neutral-50 px-3 py-2 text-xs leading-5 text-neutral-700 ring-1 ring-neutral-100">
-          {feedbackMessage}
+      {feedbackToast ? (
+        <p
+          className="rounded-2xl bg-emerald-50 px-3 py-2 text-center text-xs leading-5 text-emerald-900 ring-1 ring-emerald-100"
+          role="status"
+        >
+          {feedbackToast}
         </p>
       ) : null}
+
+      <RouteFeedbackOverlay
+        open={feedbackOpen}
+        problemType={feedbackProblemType}
+        detail={feedbackDetail}
+        submitError={feedbackSubmitError}
+        pending={feedbackPending}
+        onProblemTypeChange={setFeedbackProblemType}
+        onDetailChange={setFeedbackDetail}
+        onCancel={closeFeedbackOverlay}
+        onSubmit={() => {
+          void handleSubmitFeedback();
+        }}
+      />
     </section>
   );
-}
-
-function formatRoutingClientError(error: unknown): string {
-  if (isRoutingApiError(error)) {
-    if (error.code === 'ROUTING_DISABLED') {
-      return 'Directions are disabled on the server. Enable ROUTING_ENABLED for the API.';
-    }
-    return error.message;
-  }
-  if (error instanceof Error) return error.message;
-  return 'Something went wrong while requesting directions.';
 }
 
 function collectRouteSteps(route: RouteResponse | null): readonly string[] {
@@ -475,48 +516,44 @@ function collectRouteSteps(route: RouteResponse | null): readonly string[] {
   return steps;
 }
 
-function poiToRoutePoint(poi: Poi | null, languageMode: PlaceLanguageMode): RoutePoint | null {
-  if (!poi) return null;
-  const label = getLocalizedName(
-    {
-      myanmar_name: poi.nameMm ?? poi.myanmarName,
-      english_name: poi.nameEn ?? poi.englishName,
-      display_name: poi.displayName,
-      primary_name: poi.primaryName,
-      name: poi.name,
-    },
-    languageMode,
+function RouteMapPickBanner({
+  pickMode,
+  onCancel,
+}: {
+  readonly pickMode: RouteInputField;
+  readonly onCancel: () => void;
+}) {
+  const isFrom = pickMode === 'from';
+  const toneClass = isFrom
+    ? 'border-emerald-200 bg-emerald-50 ring-emerald-100'
+    : 'border-orange-200 bg-orange-50 ring-orange-100';
+  const markerClass = isFrom ? 'bg-emerald-500' : 'bg-orange-500';
+  const label = isFrom ? 'From' : 'To';
+
+  return (
+    <div
+      className={`mt-3 flex items-start justify-between gap-3 rounded-2xl border px-3 py-2.5 ring-1 ${toneClass}`}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex min-w-0 items-start gap-2">
+        <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${markerClass}`} aria-hidden />
+        <p className="text-xs leading-5 text-neutral-900">
+          <span className="font-semibold">Picking {label} on map</span>
+          <span className="mt-0.5 block text-neutral-600">
+            Click once on the map. Map pick ends automatically.
+          </span>
+        </p>
+      </div>
+      <button
+        type="button"
+        className="shrink-0 rounded-full border border-neutral-200 bg-white px-3 py-1 text-[11px] font-semibold text-neutral-700 transition-colors hover:bg-neutral-50"
+        onClick={onCancel}
+      >
+        Cancel
+      </button>
+    </div>
   );
-  return routePointFromCoordinates(poi.longitude, poi.latitude, label);
-}
-
-function searchResultToRoutePoint(
-  result: PublicSearchResult | null,
-  languageMode: PlaceLanguageMode,
-): RoutePoint | null {
-  if (!result) return null;
-
-  const lng =
-    result.lng ??
-    (result.center ? result.center[0] : undefined);
-  const lat =
-    result.lat ??
-    (result.center ? result.center[1] : undefined);
-
-  if (typeof lng !== 'number' || typeof lat !== 'number') return null;
-
-  const label = getLocalizedName(
-    {
-      myanmar_name: result.name_mm ?? result.myanmar_name,
-      english_name: result.name_en ?? result.english_name,
-      display_name: result.display_name,
-      primary_name: result.primary_name,
-      canonical_name: result.canonical_name,
-    },
-    languageMode,
-  );
-
-  return routePointFromCoordinates(lng, lat, label || result.subtitle || result.type);
 }
 
 function RouteInput({
@@ -524,6 +561,8 @@ function RouteInput({
   value,
   placeholder,
   markerClassName,
+  isActive = false,
+  onFocus,
   onChange,
   onBlur,
 }: {
@@ -531,6 +570,8 @@ function RouteInput({
   readonly value: string;
   readonly placeholder: string;
   readonly markerClassName: string;
+  readonly isActive?: boolean;
+  readonly onFocus?: () => void;
   readonly onChange: (value: string) => void;
   readonly onBlur: (value: string) => void;
 }) {
@@ -539,11 +580,18 @@ function RouteInput({
       <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
         {label}
       </span>
-      <span className="flex h-10 items-center gap-2 rounded-2xl border border-neutral-200 bg-white px-3 shadow-sm shadow-neutral-950/3 focus-within:border-sky-300 focus-within:ring-4 focus-within:ring-sky-100">
+      <span
+        className={`flex h-10 items-center gap-2 rounded-2xl border bg-white px-3 shadow-sm shadow-neutral-950/3 focus-within:ring-4 focus-within:ring-sky-100 ${
+          isActive
+            ? 'border-sky-400 ring-2 ring-sky-100'
+            : 'border-neutral-200 focus-within:border-sky-300'
+        }`}
+      >
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${markerClassName}`} />
         <input
           type="text"
           value={value}
+          onFocus={onFocus}
           onChange={(event) => onChange(event.target.value)}
           onBlur={(event) => onBlur(event.target.value)}
           placeholder={placeholder}

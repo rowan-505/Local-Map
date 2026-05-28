@@ -85,6 +85,22 @@ describe("valhalla route mapper", () => {
         assert.equal(response.geometry, null);
     });
 
+    it("returns no_route when path exceeds Valhalla max distance (error 154)", () => {
+        const response = mapValhallaRouteResponse(
+            {
+                error: "Path distance exceeds the max distance limit: 250000 meters",
+                error_code: 154,
+            },
+            {
+                origin: { lat: 16.8, lng: 96.1 },
+                destination: { lat: 21.9, lng: 96.1 },
+                profile: "walk",
+            }
+        );
+        assert.equal(response.status, "no_route");
+        assert.match(response.warnings[0] ?? "", /max distance/i);
+    });
+
     it("decodes encoded polyline shapes when geojson is absent", () => {
         const coords = decodeValhallaPolyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@");
         assert.ok(coords.length >= 2);

@@ -1,6 +1,8 @@
+import type { RoutingTravelMode } from '@/features/routing/routeState';
 import type { RouteWaypoint } from '@/features/routing/types';
 import type { RoutingRouteProfileCode } from '@/features/routing/types';
 
+/** @deprecated Prefer {@link RoutingTravelMode} from `routeState`. */
 export type DirectionsUiProfile = 'walk' | 'motorbike' | 'car';
 
 export type RoutePoint = {
@@ -82,8 +84,10 @@ export function toRouteWaypoint(point: RoutePoint): RouteWaypoint | null {
   };
 }
 
-export function toApiRoutingProfile(profile: DirectionsUiProfile): RoutingRouteProfileCode {
-  if (profile === 'motorbike') return 'motorcycle';
+export function toApiRoutingProfile(
+  profile: DirectionsUiProfile | RoutingTravelMode,
+): RoutingRouteProfileCode {
+  if (profile === 'motorbike' || profile === 'motorcycle') return 'motorcycle';
   return profile;
 }
 

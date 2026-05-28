@@ -62,6 +62,7 @@ function MapViewInner({
   cameraLayout,
   clickedLocation,
   directionsOverlay = null,
+  routePickMode = null,
   onSelectPoiId,
   onEmptyMapClick,
   onViewportChange,
@@ -93,6 +94,7 @@ function MapViewInner({
   const selectedRef = useRef(selectedPoiId);
   const clickedLocationRef = useRef(clickedLocation ?? null);
   const directionsOverlayRef = useRef(directionsOverlay ?? null);
+  const routePickModeRef = useRef(routePickMode);
 
   useEffect(() => {
     geojsonRef.current = geojson;
@@ -104,6 +106,9 @@ function MapViewInner({
   useEffect(() => {
     directionsOverlayRef.current = directionsOverlay ?? null;
   }, [directionsOverlay]);
+  useEffect(() => {
+    routePickModeRef.current = routePickMode;
+  }, [routePickMode]);
 
   const onSelectRef = useRef(onSelectPoiId);
   const onEmptyMapClickRef = useRef(onEmptyMapClick);
@@ -341,6 +346,18 @@ function MapViewInner({
     });
   }, [cameraLayout, mapReady]);
 
+  /** Crosshair while choosing a route endpoint on the map. */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    const canvas = map?.getCanvas();
+    if (!canvas?.style) return;
+    canvas.style.cursor = routePickMode ? 'crosshair' : '';
+    return () => {
+      canvas.style.cursor = '';
+    };
+  }, [mapReady, routePickMode]);
+
   /** Clicks / hover — stable subscription (handler reads latest callback via ref). */
   useEffect(() => {
     if (!mapReady) return;
@@ -353,6 +370,9 @@ function MapViewInner({
       },
       (location) => {
         onEmptyMapClickRef.current?.(location);
+      },
+      {
+        getRoutePickMode: () => routePickModeRef.current,
       },
     );
   }, [mapReady]);

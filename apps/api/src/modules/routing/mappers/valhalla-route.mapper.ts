@@ -69,6 +69,39 @@ export type MapValhallaRouteOptions = {
     extraWarnings?: string[];
 };
 
+/**
+ * Valhalla codes meaning "no path" / unroutable request — not an engine outage.
+ * @see https://valhalla.github.io/valhalla/api/turn-by-turn/api-reference/#errors
+ */
+export const VALHALLA_NO_ROUTE_ERROR_CODES: ReadonlySet<number> = new Set([
+    154, // path distance exceeds max distance limit (costing-specific)
+    160, // no suitable edges near location
+    171, // no path could be found
+    442, // no path could be found for input
+    443, // no path could be found — partial
+    444, // no path could be found — try other modes
+]);
+
+export function isValhallaNoRouteErrorCode(errorCode: number | undefined): boolean {
+    return errorCode !== undefined && VALHALLA_NO_ROUTE_ERROR_CODES.has(errorCode);
+}
+
+function buildValhallaNoRouteResponse(
+    request: NormalizedRouteRequest,
+    message: string,
+    warnings: string[]
+): NormalizedRouteResponse {
+    return {
+        status: "no_route",
+        routingEngine: "valhalla",
+        profile: request.profile,
+        summary: { distanceMeters: 0, durationSeconds: 0, transferCount: 0 },
+        geometry: null,
+        legs: [],
+        warnings: [message, ...warnings],
+    };
+}
+
 function toValhallaLocation(waypoint: RouteWaypoint): ValhallaLocation {
     return { lat: waypoint.lat, lon: waypoint.lng };
 }
@@ -235,16 +268,8 @@ export function mapValhallaRouteResponse(
 
     if (body.error || body.error_code) {
         const message = body.error ?? "Valhalla returned an error.";
-        if (body.error_code === 442 || body.error_code === 443 || body.error_code === 444) {
-            return {
-                status: "no_route",
-                routingEngine: "valhalla",
-                profile: request.profile,
-                summary: { distanceMeters: 0, durationSeconds: 0, transferCount: 0 },
-                geometry: null,
-                legs: [],
-                warnings: [message],
-            };
+        if (isValhallaNoRouteErrorCode(body.error_code)) {
+            return buildValhallaNoRouteResponse(request, message, warnings);
         }
         throw new RoutingEngineUpstreamError("valhalla", message, {
             statusCode: 502,

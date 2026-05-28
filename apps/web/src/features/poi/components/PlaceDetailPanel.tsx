@@ -6,16 +6,19 @@ import type { Poi } from '@/types';
 import { getLocalizedName } from '@local-map/localized-name';
 import { poiCategoryLabel } from '../categoryLabel';
 
+export type RoutePlacePayload = {
+  readonly label: string;
+  readonly coordinates: readonly [number, number];
+  readonly placeId?: string;
+};
+
 export type PlaceDetailPanelProps = {
   readonly selectedPoi: Poi | undefined;
   readonly detailLoading?: boolean;
   readonly detailError?: Error | null;
   readonly selectedSearchResult?: PublicSearchResult | null;
   readonly onBack: () => void;
-  readonly onRouteToPlace: (destination: {
-    readonly label: string;
-    readonly coordinates: readonly [number, number];
-  }) => void;
+  readonly onRoutePlace: (field: 'from' | 'to', place: RoutePlacePayload) => void;
 };
 
 function PlaceDetailPanelInner({
@@ -24,7 +27,7 @@ function PlaceDetailPanelInner({
   detailError = null,
   selectedSearchResult = null,
   onBack,
-  onRouteToPlace,
+  onRoutePlace,
 }: PlaceDetailPanelProps) {
   const languageMode = useMapUiStore((s) => s.languageMode);
   const detail = buildPlaceDetail({
@@ -89,11 +92,29 @@ function PlaceDetailPanelInner({
             disabled={!detail.coordinates}
             onClick={() => {
               if (detail.coordinates) {
-                onRouteToPlace({ label: detail.title, coordinates: detail.coordinates });
+                onRoutePlace('from', {
+                  label: detail.title,
+                  coordinates: detail.coordinates,
+                  placeId: detail.placeId,
+                });
               }
             }}
           >
-            Route
+            From
+          </PrimaryActionButton>
+          <PrimaryActionButton
+            disabled={!detail.coordinates}
+            onClick={() => {
+              if (detail.coordinates) {
+                onRoutePlace('to', {
+                  label: detail.title,
+                  coordinates: detail.coordinates,
+                  placeId: detail.placeId,
+                });
+              }
+            }}
+          >
+            To
           </PrimaryActionButton>
           <PrimaryActionButton onClick={() => sharePlace(detail)}>Share</PrimaryActionButton>
           <PrimaryActionButton
@@ -104,7 +125,6 @@ function PlaceDetailPanelInner({
           >
             Coords
           </PrimaryActionButton>
-          <PrimaryActionButton onClick={() => undefined}>Suggest</PrimaryActionButton>
         </div>
       </div>
 
@@ -237,6 +257,7 @@ type PlaceDetail = {
   readonly area?: string;
   readonly address?: string;
   readonly coordinates: readonly [number, number] | null;
+  readonly placeId?: string;
   readonly verified: boolean;
 };
 
@@ -256,6 +277,7 @@ function buildPlaceDetail({
       area: poi.address,
       address: poi.address,
       coordinates: [poi.longitude, poi.latitude],
+      placeId: poi.publicId ?? poi.id,
       verified: poi.isVerified === true,
     };
   }
@@ -263,12 +285,18 @@ function buildPlaceDetail({
   if (!searchResult) return null;
 
   const typeLabel = searchResultTypeLabel(searchResult.type);
+  const placeId =
+    searchResult.type === 'place'
+      ? (searchResult.publicId ?? searchResult.id)
+      : undefined;
+
   return {
     title: getLocalizedName(searchResult, languageMode),
     category: searchResult.categoryName ?? searchResult.categoryCode ?? typeLabel,
     area: searchResult.subtitle,
     address: searchResult.subtitle,
     coordinates: getSearchResultCenter(searchResult),
+    placeId,
     verified: false,
   };
 }

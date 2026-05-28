@@ -15,14 +15,15 @@ import {
   type SidebarMode,
 } from '@/features/map/components/MapSidebar';
 import MapView from '@/features/map/components/MapView';
-import { RoutePlannerPanel, type RouteDraft } from '@/features/map/components/RoutePlannerPanel';
+import { RoutePlannerPanel } from '@/features/map/components/RoutePlannerPanel';
 import type { DirectionsMapOverlay } from '@/features/map/lib/maplibre/directionsRouteGeoJson';
+import { bboxFromRouteGeometry } from '@/features/routing/lib/routePoint';
 import {
-  bboxFromRouteGeometry,
-  resolveRoutePointCoordinates,
-  type RoutePoint,
-} from '@/features/routing/lib/routePoint';
-import type { RouteResponse } from '@/features/routing/types';
+  endpointFromRoutePoint,
+  placeEndpoint,
+} from '@/features/routing/routeState';
+import { useRouteState } from '@/features/routing/useRouteState';
+import type { RoutePoint } from '@/features/routing/lib/routePoint';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import type { MapClickedLocation } from '@/features/map/types';
 import type { MapViewportState } from '@/features/map/types';
@@ -61,12 +62,7 @@ export default function HomePage() {
   const [bottomSheetState, setBottomSheetState] = useState<BottomSheetState>('half');
   const [mapViewport, setMapViewport] = useState<MapViewportState | null>(null);
   const [routeDestination, setRouteDestination] = useState<RouteDestination | null>(null);
-  const [routeDraft, setRouteDraft] = useState<RouteDraft>({
-    from: null,
-    to: null,
-    profile: 'motorbike',
-  });
-  const [routeResult, setRouteResult] = useState<RouteResponse | null>(null);
+  const route = useRouteState('motorcycle');
   const [clickedLocation, setClickedLocation] = useState<MapClickedLocation | null>(null);
   const debouncedSearchQuery = useDebouncedValue(filterState.searchQuery, 300);
   const debouncedMapViewport = useDebouncedValue(mapViewport, 250);
@@ -124,17 +120,23 @@ export default function HomePage() {
     [bottomSheetState, isSidebarOpen],
   );
 
+  const searchReferenceCoordinates = useMemo((): readonly [number, number] | null => {
+    if (!mapViewport) return null;
+    const [minLng, minLat, maxLng, maxLat] = mapViewport.bbox;
+    return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+  }, [mapViewport]);
+
   const directionsOverlay = useMemo((): DirectionsMapOverlay | null => {
-    const from = resolveRoutePointCoordinates(routeDraft.from);
-    const to = resolveRoutePointCoordinates(routeDraft.to);
-    const geometry = routeResult?.geometry ?? null;
+    const from = route.fromCoordinates;
+    const to = route.toCoordinates;
+    const geometry = route.routeResult?.geometry ?? null;
     if (!from && !to && !geometry) return null;
     return { from, to, geometry };
-  }, [routeDraft.from, routeDraft.to, routeResult?.geometry]);
+  }, [route.fromCoordinates, route.toCoordinates, route.routeResult?.geometry]);
 
   useEffect(() => {
-    if (routeResult?.status !== 'ok' || !routeResult.geometry) return;
-    const bbox = bboxFromRouteGeometry(routeResult.geometry);
+    if (route.routeResult?.status !== 'ok' || !route.routeResult.geometry) return;
+    const bbox = bboxFromRouteGeometry(route.routeResult.geometry);
     if (!bbox) return;
     setCameraTarget({
       type: 'bounds',
@@ -142,7 +144,7 @@ export default function HomePage() {
       padding: 72,
       duration: 900,
     });
-  }, [routeResult]);
+  }, [route.routeResult]);
 
   const onSelectPoiId = useCallback((id: string | null) => {
     setSelectedPoiId(id);
@@ -213,49 +215,79 @@ export default function HomePage() {
     setIsSidebarOpen(true);
   }, []);
 
-  const onRouteToPlace = useCallback((destination: RouteDestination) => {
-    setRouteDestination(destination);
-    setRouteResult(null);
-    setRouteDraft((draft) => ({
-      ...draft,
-      to: { label: destination.label, coordinates: destination.coordinates },
-    }));
-    setActiveSidebarMode('route');
-    setIsSidebarOpen(true);
-    setBottomSheetState('half');
-    setCameraTarget({
-      type: 'point',
-      center: destination.coordinates,
-      zoom: 16,
-      duration: 700,
-    });
-  }, []);
+  const onRoutePlace = useCallback(
+    (
+      field: 'from' | 'to',
+      place: {
+        readonly label: string;
+        readonly coordinates: readonly [number, number];
+        readonly placeId?: string;
+      },
+    ) => {
+      const [lng, lat] = place.coordinates;
+      const endpoint = placeEndpoint(place.label, lng, lat, {
+        placeId: place.placeId,
+        source: 'place_detail',
+      });
 
-  const onEmptyMapClick = useCallback((location: MapClickedLocation) => {
-    setSelectedPoiId(null);
-    setSelectedSearchResult(null);
-    setClickedLocation(location);
-    setActiveSidebarMode('address');
-    setIsSidebarOpen(true);
-  }, []);
+      if (field === 'from') {
+        route.setFrom(endpoint);
+      } else {
+        route.setTo(endpoint);
+        setRouteDestination({ label: place.label, coordinates: place.coordinates });
+      }
+
+      route.cancelMapPick();
+      setActiveSidebarMode('route');
+      setIsSidebarOpen(true);
+      setBottomSheetState('half');
+      setCameraTarget({
+        type: 'point',
+        center: place.coordinates,
+        zoom: 16,
+        duration: 700,
+      });
+    },
+    [route],
+  );
+
+  const onEmptyMapClick = useCallback(
+    (location: MapClickedLocation) => {
+      if (route.pickMode) {
+        const [lng, lat] = location.coordinates;
+        route.applyMapPickedPoint(lat, lng);
+        setActiveSidebarMode('route');
+        setIsSidebarOpen(true);
+        setBottomSheetState('half');
+        return;
+      }
+
+      setSelectedPoiId(null);
+      setSelectedSearchResult(null);
+      setClickedLocation(location);
+      setActiveSidebarMode('address');
+      setIsSidebarOpen(true);
+    },
+    [route],
+  );
 
   const onUseAddressAsRoutePoint = useCallback(
     (field: 'from' | 'to', point: RoutePoint) => {
-      setRouteResult(null);
-      setRouteDraft((draft) => ({ ...draft, [field]: point }));
-      if (field === 'to' && point.coordinates) {
-        setRouteDestination({ label: point.label, coordinates: point.coordinates });
+      const endpoint = endpointFromRoutePoint(point, 'map_click');
+      if (field === 'from') {
+        route.setFrom(endpoint);
+      } else {
+        route.setTo(endpoint);
+        if (point.coordinates) {
+          setRouteDestination({ label: point.label, coordinates: point.coordinates });
+        }
       }
       setActiveSidebarMode('route');
       setIsSidebarOpen(true);
       setBottomSheetState('half');
     },
-    [],
+    [route],
   );
-
-  const onRouteResultChange = useCallback((result: RouteResponse | null) => {
-    setRouteResult(result);
-  }, []);
 
   return (
     <MapShell
@@ -278,6 +310,7 @@ export default function HomePage() {
             cameraLayout={mapCameraLayout}
             clickedLocation={clickedLocation}
             directionsOverlay={directionsOverlay}
+            routePickMode={route.pickMode}
             onSelectPoiId={onSelectPoiId}
             onEmptyMapClick={onEmptyMapClick}
             onViewportChange={setMapViewport}
@@ -327,7 +360,7 @@ export default function HomePage() {
               detailError={selectedPlaceQuery.error}
               selectedSearchResult={selectedSearchResult}
               onBack={onBackToSearch}
-              onRouteToPlace={onRouteToPlace}
+              onRoutePlace={onRoutePlace}
             />
           }
           addressPanel={
@@ -340,12 +373,8 @@ export default function HomePage() {
           routeDestination={routeDestination}
           routePanel={
             <RoutePlannerPanel
-              clickedLocation={clickedLocation}
-              selectedPoi={selectedPoi}
-              selectedSearchResult={selectedSearchResult}
-              draft={routeDraft}
-              onDraftChange={setRouteDraft}
-              onRouteResultChange={onRouteResultChange}
+              route={route}
+              searchReferenceCoordinates={searchReferenceCoordinates}
             />
           }
           busPanel={<BusPanelPlaceholder />}

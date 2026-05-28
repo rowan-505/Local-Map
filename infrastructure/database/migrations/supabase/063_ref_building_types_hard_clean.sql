@@ -9,6 +9,9 @@
 --
 -- Depends on: 010, 061, 064 (if FK remap needed)
 --
+-- Note: If you already run 064, prefer 065_ref_building_types_delete_unused_non_final.sql
+-- instead of this file (same delete logic; 065 runs after 064 in the intended order).
+--
 -- Supabase note: no session temp tables (editor/pooler may split statements).
 --
 -- =============================================================================

@@ -17,12 +17,26 @@ const POI_HIT_LAYERS = [
   PLACES_LAYER_ID,
 ] as const;
 
+export type RoutePickMode = 'from' | 'to' | null;
+
 export function bindPoiLayerInteractions(
   map: MapEngine,
   onSelectPoiId: (id: string | null) => void,
   onEmptyMapClick?: (location: MapClickedLocation) => void,
+  options?: {
+    readonly getRoutePickMode?: () => RoutePickMode;
+  },
 ): () => void {
   const onMapClick = (e: MapMouseEvent) => {
+    const pickMode = options?.getRoutePickMode?.() ?? null;
+    if (pickMode) {
+      onEmptyMapClick?.({
+        label: 'Selected map point',
+        coordinates: [e.lngLat.lng, e.lngLat.lat],
+      });
+      return;
+    }
+
     const hits = map.queryRenderedFeatures(e.point, { layers: [...POI_HIT_LAYERS] });
     const first = hits[0];
     const raw = first?.properties?.id;
