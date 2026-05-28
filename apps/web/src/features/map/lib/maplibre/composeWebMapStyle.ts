@@ -7,7 +7,6 @@
 import type { LayerSpecification, StyleSpecification } from 'maplibre-gl';
 import {
   BASEMAP_ZOOM_VISIBILITY_RULES,
-  OVERVIEW_TILE_MAX_ZOOM,
   REGIONAL_BASE_APPEAR_ZOOM,
   patchOverviewLayersForProgressiveDetail,
   patchRegionalLayersForProgressiveDetail,

@@ -143,13 +143,8 @@ function patchOverviewLayerVisibility(layer: LayerSpecification): LayerSpecifica
     return layer;
   }
 
-  const next: LayerSpecification = {
-    ...layer,
-    maxzoom: OVERVIEW_LABELS_END_ZOOM,
-  };
-
-  if (layer.type !== 'symbol' || !next.paint) {
-    return next;
+  if (layer.type !== 'symbol') {
+    return { ...layer, maxzoom: OVERVIEW_LABELS_END_ZOOM };
   }
 
   const textOpacity =
@@ -158,9 +153,10 @@ function patchOverviewLayerVisibility(layer: LayerSpecification): LayerSpecifica
       : OVERVIEW_ADMIN_LABEL_OPACITY;
 
   return {
-    ...next,
+    ...layer,
+    maxzoom: OVERVIEW_LABELS_END_ZOOM,
     paint: {
-      ...next.paint,
+      ...layer.paint,
       'text-opacity': textOpacity,
     },
   };

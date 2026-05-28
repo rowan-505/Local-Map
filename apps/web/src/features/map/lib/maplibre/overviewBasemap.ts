@@ -516,7 +516,7 @@ export function validateOverviewLayerDefinitions(layers: LayerSpecification[]): 
 
   let seenSymbol = false;
   for (const layer of layers) {
-    if (layer.source !== undefined && layer.source !== OVERVIEW_SOURCE_ID) {
+    if ('source' in layer && layer.source !== undefined && layer.source !== OVERVIEW_SOURCE_ID) {
       issues.push(`layer "${layer.id}" must use source "${OVERVIEW_SOURCE_ID}"`);
     }
     const sl = 'source-layer' in layer ? layer['source-layer'] : undefined;
