@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { MapClickedLocation } from '@/features/map/types';
-import type { RoutePoint } from './RoutePlannerPanel';
+import type { RoutePoint } from '@/features/routing/lib/routePoint';
 
 type AddressLocationPanelProps = {
   readonly location: MapClickedLocation | null;

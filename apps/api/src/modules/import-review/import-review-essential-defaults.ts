@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 
+import { classifyBuildingTypeCode } from "../../lib/building-type/classify-building-type-code.js";
 import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
 import { ImportReviewDecisionRuleError } from "./import-review-errors.js";
 import { pickEffectiveString } from "./import-review-effective-values.js";
@@ -129,12 +130,19 @@ async function resolveBuildingTypeId(
         return explicit;
     }
 
-    const classCode =
+    const tags = normPick(ctx.normalized_data, "tags");
+    const osmBuildingTag =
+        tags && typeof tags === "object" && !Array.isArray(tags)
+            ? trimString((tags as Record<string, unknown>).building)
+            : null;
+    const rawClassCode =
         pickEffectiveString("class_code", overrides, ctx.class_code, normPick(ctx.normalized_data, "class_code")) ??
         trimString(ctx.building_type) ??
-        trimString(normPick(ctx.normalized_data, "building_type"));
-    if (classCode) {
-        const byCode = await refRepo.findActiveBuildingTypeIdByCode(classCode);
+        trimString(normPick(ctx.normalized_data, "building_type")) ??
+        osmBuildingTag;
+    if (rawClassCode) {
+        const classified = classifyBuildingTypeCode(rawClassCode);
+        const byCode = await refRepo.findActiveBuildingTypeIdByCode(classified.code);
         if (byCode !== null) {
             return byCode;
         }

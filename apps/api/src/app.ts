@@ -21,6 +21,7 @@ import importReviewRoutes from "./modules/import-review/import-review.routes.js"
 import coreVerificationRoutes from "./modules/core-verification/core-verification.routes.js";
 import coreReviewRoutes from "./modules/core-review/core-review.routes.js";
 import routingRoutes from "./modules/routing/routing.routes.js";
+import routingAdminRoutes from "./modules/routing/routing-admin.routes.js";
 import refRoutes from "./modules/ref/ref.routes.js";
 import addressesRoutes from "./modules/addresses/addresses.routes.js";
 import { IMPORT_REVIEW_ADMIN_TOKEN_HEADER } from "./modules/import-review/import-review-admin.guard.js";
@@ -89,6 +90,7 @@ export async function buildApp() {
     await app.register(importReviewRoutes, { prefix: "/api/import-review" });
     await app.register(coreVerificationRoutes, { prefix: "/api/core-verification" });
     await app.register(routingRoutes, { prefix: "/api/routing" });
+    await app.register(routingAdminRoutes, { prefix: "/admin/routing" });
     await app.register(refRoutes, { prefix: "/admin/ref" });
     await app.register(coreReviewRoutes, { prefix: "/core-review" });
 

@@ -92,7 +92,7 @@ export default function CoreReviewEntityFilters({
         () =>
             (buildingTypesQuery.data ?? []).map((r) => ({
                 id: r.id,
-                label: r.name_mm ? `${r.name} (${r.name_mm})` : r.name,
+                label: r.name_mm ? `${r.code} — ${r.name} (${r.name_mm})` : `${r.code} — ${r.name}`,
             })),
         [buildingTypesQuery.data]
     );

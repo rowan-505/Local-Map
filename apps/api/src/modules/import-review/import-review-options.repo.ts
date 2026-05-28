@@ -219,6 +219,7 @@ export class ImportReviewOptionsRepository {
             SELECT id, code, name
             FROM ref.ref_building_types
             WHERE is_active IS TRUE
+              AND parent_id IS NULL
             ORDER BY sort_order ASC NULLS LAST, name ASC
         `;
         return rows.map((row) => refRowToOption(row));

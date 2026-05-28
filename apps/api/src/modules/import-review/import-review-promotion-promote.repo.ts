@@ -86,7 +86,7 @@ import {
     ImportReviewPromotionRoutingBarrierDryRunRepository,
 } from "./import-review-promotion-routing-barrier-dry-run.repo.js";
 import {
-    buildingClassCodeExpr,
+    simplifiedBuildingClassCodeExpr,
     geomSourceExpr,
     nameExpr,
     normalizedDataMergeExpr,
@@ -994,7 +994,7 @@ export class ImportReviewPromotionPromoteRepository {
                 g.local_staging_id,
                 nullif(trim(g.external_id), ''),
                 ${nameExpr("g")},
-                ${buildingClassCodeExpr("g")},
+                ${simplifiedBuildingClassCodeExpr("g")},
                 ${normalizedDataMergeExpr("g", batchId)},
                 ${sourceRefsMergeExpr("g", batchId, "buildings")},
                 g.geom,
@@ -1123,7 +1123,7 @@ export class ImportReviewPromotionPromoteRepository {
                 source_staging_id = r.local_staging_id,
                 external_id = nullif(trim(r.external_id), ''),
                 name = ${nameExpr("r")},
-                class_code = ${buildingClassCodeExpr("r")},
+                class_code = ${simplifiedBuildingClassCodeExpr("r")},
                 normalized_data = ${normalizedDataMergeExpr("r", batchId)},
                 source_refs = ${sourceRefsMergeExpr("r", batchId, "buildings")},
                 geom = r.geom,

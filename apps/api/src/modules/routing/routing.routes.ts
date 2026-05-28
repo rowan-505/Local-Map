@@ -6,7 +6,17 @@ import {
     RoutingGraphBuildMaxRoadsError,
 } from "./routing.errors.js";
 import { RoutingGraphBuildService } from "./routing-graph-build.service.js";
-import { postRoutingAdminBuildGraphSchema } from "./routing.openapi.js";
+import { postRoutingFeedbackBodySchema } from "./routing-feedback.schema.js";
+import { sendRoutingError } from "./routing-error-response.js";
+import {
+    getRoutingHealthSchema,
+    getRoutingProfilesSchema,
+    postRoutingAdminBuildGraphSchema,
+    postRoutingFeedbackSchema,
+    postRoutingRouteSchema,
+} from "./routing.openapi.js";
+import { RoutingRepository } from "./routing.repo.js";
+import { createRoutingService } from "./routing.service.js";
 import { buildRoutingGraphBodySchema } from "./routing.schema.js";
 import type { RoutingGraphBuildInput } from "./routing.types.js";
 
@@ -44,7 +54,61 @@ function mapBodyToInput(
 }
 
 const routingRoutes: FastifyPluginAsync = async (app) => {
-    const service = new RoutingGraphBuildService(app.prisma);
+    const graphBuildService = new RoutingGraphBuildService(app.prisma);
+    const routingRepo = new RoutingRepository(app.prisma);
+    const routingService = createRoutingService(routingRepo);
+
+    app.get("/health", { schema: getRoutingHealthSchema }, async (_request, reply) => {
+        const result = await routingService.getHealth();
+        return reply.send(result);
+    });
+
+    app.get("/profiles", { schema: getRoutingProfilesSchema }, async (_request, reply) => {
+        const result = await routingService.listProfiles();
+        return reply.send(result);
+    });
+
+    app.post("/route", { schema: postRoutingRouteSchema }, async (request, reply) => {
+        const userIdRaw = request.user?.id ?? request.user?.sub;
+        const userId = userIdRaw && /^\d+$/.test(userIdRaw) ? BigInt(userIdRaw) : null;
+
+        try {
+            const result = await routingService.route(request.body, {
+                userId,
+                warn: (message, meta) => {
+                    request.log.warn(meta ?? {}, message);
+                },
+            });
+            return reply.send(result);
+        } catch (error) {
+            const handled = sendRoutingError(reply, error);
+            if (handled) {
+                return handled;
+            }
+            throw error;
+        }
+    });
+
+    app.post("/feedback", { schema: postRoutingFeedbackSchema }, async (request, reply) => {
+        const parsed = postRoutingFeedbackBodySchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.code(400).send({
+                message: "Invalid routing feedback body",
+                code: "ROUTING_VALIDATION_ERROR",
+                issues: parsed.error.flatten(),
+            });
+        }
+
+        const userIdRaw = request.user?.id ?? request.user?.sub;
+        const userId = userIdRaw && /^\d+$/.test(userIdRaw) ? BigInt(userIdRaw) : null;
+
+        const result = await routingService.submitFeedback(parsed.data, { userId });
+        return reply.send({
+            publicId: result.publicId,
+            status: result.status,
+            stored: result.stored,
+        });
+    });
 
     app.post(
         "/admin/build-graph",
@@ -70,7 +134,9 @@ const routingRoutes: FastifyPluginAsync = async (app) => {
                 createdByRaw && /^\d+$/.test(createdByRaw) ? BigInt(createdByRaw) : null;
 
             try {
-                const result = await service.buildGraph(mapBodyToInput(parsed.data, createdBy));
+                const result = await graphBuildService.buildGraph(
+                    mapBodyToInput(parsed.data, createdBy)
+                );
                 return reply.send(result);
             } catch (error) {
                 if (error instanceof RoutingGraphBuildDisabledError) {

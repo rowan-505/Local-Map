@@ -5,6 +5,8 @@ import { Controller, type Control, type FieldErrors } from "react-hook-form";
 import { isStreetSurfacePreset, STREET_SURFACE_PRESETS } from "@/src/features/streets/streetSurfaces";
 import type { CoreEntityFieldDef, CoreEntityFormMode } from "@/src/lib/core-review/entityConfigs/types";
 
+import { formatBuildingTypeDisplay } from "@/src/lib/building-type/display";
+
 import CoreRefDropdown from "./CoreRefDropdown";
 import type { CoreRefLoadState } from "./useCoreEntityRefs";
 import type { CoreRefSourceKind } from "@/src/lib/core-review/entityConfigs/types";
@@ -19,7 +21,38 @@ export type CoreEntityFieldRendererProps = {
     errors: FieldErrors<Record<string, unknown>>;
     disabled?: boolean;
     refStates: Record<CoreRefSourceKind, CoreRefLoadState>;
+    editDetail?: unknown | null;
 };
+
+function buildingTypeOrphanLabel(detail: unknown | null | undefined): string | null {
+    if (!detail || typeof detail !== "object") {
+        return null;
+    }
+    const d = detail as Record<string, unknown>;
+    const embedded =
+        d.building_type && typeof d.building_type === "object" && !Array.isArray(d.building_type)
+            ? (d.building_type as Record<string, unknown>)
+            : null;
+    const label = formatBuildingTypeDisplay({
+        buildingTypeCode:
+            (typeof d.building_type_code === "string" ? d.building_type_code : null) ??
+            (typeof d.buildingTypeCode === "string" ? d.buildingTypeCode : null) ??
+            (typeof embedded?.code === "string" ? embedded.code : null),
+        buildingTypeName:
+            (typeof d.building_type_name === "string" ? d.building_type_name : null) ??
+            (typeof d.buildingTypeName === "string" ? d.buildingTypeName : null) ??
+            (typeof embedded?.name === "string" ? embedded.name : null),
+        legacyBuildingType: typeof d.building_type === "string" ? d.building_type : null,
+        buildingTypeId:
+            d.building_type_id != null
+                ? String(d.building_type_id)
+                : d.buildingTypeId != null
+                  ? String(d.buildingTypeId)
+                  : null,
+        normalizedData: d.normalized_data ?? d.normalizedData,
+    });
+    return label || null;
+}
 
 function fieldError(errors: FieldErrors<Record<string, unknown>>, key: string): string | undefined {
     const err = errors[key];
@@ -33,6 +66,7 @@ export default function CoreEntityFieldRenderer({
     errors,
     disabled,
     refStates,
+    editDetail,
 }: CoreEntityFieldRendererProps) {
     if (field.createOnly && mode === "edit") return null;
     if (field.editOnly && mode === "create") return null;
@@ -58,6 +92,9 @@ export default function CoreEntityFieldRenderer({
                         error={error}
                         refSource={field.refSource!}
                         refState={refStates[field.refSource!]}
+                        orphanOptionLabel={
+                            field.key === "building_type_id" ? buildingTypeOrphanLabel(editDetail) : null
+                        }
                     />
                 )}
             />

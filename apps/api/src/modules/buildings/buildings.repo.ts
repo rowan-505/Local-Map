@@ -1,5 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import { classifyBuildingTypeCode } from "../../lib/building-type/classify-building-type-code.js";
+
 import {
     coreReviewListStatusClause,
     type CoreReviewListStatus,
@@ -821,7 +823,7 @@ export class BuildingsRepository {
         return rows[0] ?? null;
     }
 
-    /** Active taxonomy rows for GET /building-types. */
+    /** Active flat taxonomy rows for GET /building-types (post-061 simplification). */
     async listActiveRefBuildingTypes(): Promise<RefBuildingTypeRow[]> {
         return this.prisma.$queryRaw<RefBuildingTypeRow[]>(Prisma.sql`
             SELECT
@@ -832,12 +834,9 @@ export class BuildingsRepository {
                 r.parent_id::text AS parent_id,
                 r.sort_order
             FROM ref.ref_building_types AS r
-            LEFT JOIN ref.ref_building_types AS p ON p.id = r.parent_id
             WHERE r.is_active IS TRUE
-            ORDER BY COALESCE(p.sort_order, r.sort_order),
-                (r.parent_id IS NOT NULL),
-                r.sort_order,
-                r.name
+              AND r.parent_id IS NULL
+            ORDER BY r.sort_order ASC NULLS LAST, r.code ASC
         `);
     }
 
@@ -847,6 +846,7 @@ export class BuildingsRepository {
             FROM ref.ref_building_types
             WHERE id = ${id}
               AND is_active IS TRUE
+              AND parent_id IS NULL
             LIMIT 1
         `);
 
@@ -854,12 +854,13 @@ export class BuildingsRepository {
     }
 
     async findBuildingTypeByCode(code: string): Promise<{ id: bigint; code: string } | null> {
-        const normalized = code.trim().toLowerCase();
+        const classified = classifyBuildingTypeCode(code);
         const rows = await this.prisma.$queryRaw<{ id: bigint; code: string }[]>(Prisma.sql`
             SELECT id, code
             FROM ref.ref_building_types
-            WHERE lower(code) = ${normalized}
+            WHERE lower(code) = ${classified.code}
               AND is_active IS TRUE
+              AND parent_id IS NULL
             LIMIT 1
         `);
 

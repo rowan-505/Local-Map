@@ -1,0 +1,49 @@
+# CoreMap local Valhalla road routing.
+#
+# Important:
+# The gis-ops Valhalla image expects local .osm.pbf files directly inside /custom_files.
+# Therefore, VALHALLA_DATA_DIR must point to a host folder that directly contains:
+#   - myanmar-260526.osm.pbf
+#   - generated valhalla_tiles/ or valhalla_tiles.tar after build
+#
+# Recommended local folder:
+#   infrastructure/routing/valhalla/data/work/
+
+services:
+  valhalla:
+    image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+    container_name: coremap-valhalla
+
+    ports:
+      - "${VALHALLA_PORT:-8002}:8002"
+
+    volumes:
+      - type: bind
+        source: ${VALHALLA_DATA_DIR:-./data/work}
+        target: /custom_files
+
+    environment:
+      # First build should read the local PBF and create routing tiles.
+      use_tiles_ignore_pbf: ${use_tiles_ignore_pbf:-False}
+      force_rebuild: ${force_rebuild:-False}
+
+      # Keep first local build simple. Enable later only if needed.
+      force_rebuild_elevation: ${force_rebuild_elevation:-False}
+      build_elevation: ${build_elevation:-False}
+      build_admins: ${build_admins:-False}
+      build_time_zones: ${build_time_zones:-False}
+      build_transit: ${build_transit:-False}
+
+      # Myanmar bbox. Optional; keeps build focused on Myanmar region.
+      min_x: ${VALHALLA_MIN_X:-92.0}
+      min_y: ${VALHALLA_MIN_Y:-9.5}
+      max_x: ${VALHALLA_MAX_X:-101.5}
+      max_y: ${VALHALLA_MAX_Y:-28.5}
+
+      # Basic local performance settings.
+      server_threads: ${VALHALLA_SERVER_THREADS:-2}
+
+    shm_size: "1g"
+
+    # Use "no" while debugging. Change back to unless-stopped after it works.
+    restart: "no"

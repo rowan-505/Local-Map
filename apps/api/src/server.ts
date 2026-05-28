@@ -8,10 +8,14 @@ const repoRoot = resolve(apiRoot, "../..");
 config({ path: resolve(repoRoot, ".env") });
 config({ path: resolve(apiRoot, ".env"), override: true });
 
+import { getApiEnv, loadApiEnv } from "./config/env.js";
+
+loadApiEnv();
+
 async function start() {
     const { buildApp } = await import("./app.js");
     const app = await buildApp();
-    const port = Number(process.env.PORT ?? 3001);
+    const port = getApiEnv().port;
 
     try {
         await app.listen({

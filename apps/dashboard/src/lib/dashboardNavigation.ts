@@ -2,6 +2,7 @@ import {
     BarChart3,
     ClipboardList,
     Library,
+    Route,
     ScanSearch,
     type LucideIcon,
 } from "lucide-react";
@@ -13,6 +14,7 @@ import {
     coreVerificationPath,
     importReviewPath,
     referencesPath,
+    routingAdminPath,
     statsPath,
 } from "@/src/lib/dashboardPaths";
 
@@ -30,7 +32,13 @@ export {
     statsPath,
 } from "@/src/lib/dashboardPaths";
 
-export type DashboardSidebarModuleKey = "core-review" | "core-verification" | "import-review" | "references" | "stats";
+export type DashboardSidebarModuleKey =
+    | "core-review"
+    | "core-verification"
+    | "import-review"
+    | "references"
+    | "routing"
+    | "stats";
 
 export type FamilyNavTab = {
     label: string;
@@ -53,6 +61,7 @@ export function sidebarModuleFromPathname(pathname: string): DashboardSidebarMod
         key === "core-verification" ||
         key === "import-review" ||
         key === "references" ||
+        key === "routing" ||
         key === "stats"
     ) {
         return key;
@@ -84,6 +93,12 @@ export const dashboardSidebarItems: readonly DashboardSidebarItem[] = [
         href: referencesPath(),
         label: "References",
         Icon: Library,
+    },
+    {
+        moduleKey: "routing",
+        href: routingAdminPath(),
+        label: "Routing",
+        Icon: Route,
     },
     {
         moduleKey: "stats",

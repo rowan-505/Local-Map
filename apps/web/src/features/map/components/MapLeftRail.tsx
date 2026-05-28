@@ -14,7 +14,7 @@ const RAIL_ITEMS: readonly {
   readonly icon: ReactNode;
 }[] = [
   { mode: 'search', label: 'Search', icon: <SearchIcon /> },
-  { mode: 'route', label: 'Route', icon: <RouteIcon /> },
+  { mode: 'route', label: 'Directions', icon: <RouteIcon /> },
   // TODO: Surface bus transit inside Route results instead of the main map rail.
   { mode: 'saved', label: 'Saved', icon: <SavedIcon /> },
   { mode: 'more', label: 'More', icon: <MoreIcon /> },

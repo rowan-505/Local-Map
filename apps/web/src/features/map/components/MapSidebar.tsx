@@ -275,7 +275,7 @@ function sidebarModeMeta(mode: SidebarMode): {
     case 'address':
       return { eyebrow: 'Location', title: 'Inspect location' };
     case 'route':
-      return { eyebrow: 'Route', title: 'Route planner' };
+      return { eyebrow: 'Directions', title: 'Directions' };
     case 'bus':
       return { eyebrow: 'Bus', title: 'Bus and transit' };
     case 'saved':

@@ -149,7 +149,18 @@ const FILTER_ADMIN_AREAS: CoreReviewFilterSupport = {
 };
 
 function buildingTypeLabel(row: CoreReviewBuildingRow): string {
-    return row.buildingTypeName?.trim() || row.buildingTypeCode?.trim() || "Unclassified";
+    const code = row.buildingTypeCode?.trim();
+    const name = row.buildingTypeName?.trim();
+    if (code && name) {
+        return `${code} — ${name}`;
+    }
+    if (code) {
+        return code;
+    }
+    if (name) {
+        return name;
+    }
+    return "unknown";
 }
 
 function roadClassLabel(row: CoreReviewStreetRow): string {

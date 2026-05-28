@@ -37,7 +37,7 @@ describe("import-review-essential-fields", () => {
 
     it("lists safe ref fallback codes without inventing ids", () => {
         assert.ok(POI_CATEGORY_FALLBACK_CODES.includes("unknown"));
-        assert.ok(BUILDING_TYPE_FALLBACK_CODES.includes("yes"));
+        assert.ok(BUILDING_TYPE_FALLBACK_CODES.includes("unknown"));
         assert.ok(ROAD_CLASS_FALLBACK_CODES.length > 0);
     });
 

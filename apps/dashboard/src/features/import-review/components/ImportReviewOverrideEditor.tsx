@@ -15,12 +15,14 @@ import { isFieldEssentialForEntity, labelWithEssentialMarker } from "../config/e
 import type { ImportReviewFormOptionsBundle } from "../hooks/useImportReviewFormOptions";
 import { IMPORT_REVIEW_SELECT_CLASS } from "../utils/entityPageUtils";
 import {
+    buildingTypeSelectOptionsForRow,
     fieldUsesSelectOptions,
     formOptionsKeyForField,
     selectOptionsForField,
     selectOptionsWithCurrentValue,
     toAdminAreaComboboxOptions,
 } from "../utils/formOptionsUtils";
+import { formatImportReviewBuildingTypeLabel } from "@/src/lib/building-type/display";
 import { safeJson as formatStoredJson } from "../utils/detailDrawerUtils";
 import {
     asOverrideRecord,
@@ -73,9 +75,11 @@ function OverrideFieldGrid({
             {defs.map((def) => {
                 const importedForPatch = readImportedValue(row, def, config.apiFamily);
                 const importedDisplay =
-                    def.patchKey === "landuse_class_id" && config.apiFamily === "landuse"
-                        ? (deriveImportedClassCode(row, config.apiFamily) ?? "")
-                        : importedForPatch;
+                    def.configKey === "building_type_id"
+                        ? formatImportReviewBuildingTypeLabel(row)
+                        : def.patchKey === "landuse_class_id" && config.apiFamily === "landuse"
+                          ? (deriveImportedClassCode(row, config.apiFamily) ?? "")
+                          : importedForPatch;
                 const importedLabel =
                     def.patchKey === "landuse_class_id" && config.apiFamily === "landuse"
                         ? "Imported class:"
@@ -84,10 +88,13 @@ function OverrideFieldGrid({
                 const essential = isFieldEssentialForEntity(config, def.configKey);
                 const usesSelect = fieldUsesSelectOptions(config, def);
                 const optionKey = formOptionsKeyForField(config, def);
-                const selectOptions = selectOptionsWithCurrentValue(
-                    selectOptionsForField(formOptions, optionKey),
-                    value
-                );
+                const selectOptions =
+                    def.configKey === "building_type_id"
+                        ? buildingTypeSelectOptionsForRow(formOptions, row)
+                        : selectOptionsWithCurrentValue(
+                              selectOptionsForField(formOptions, optionKey),
+                              value
+                          );
                 const disabled = !canEdit || promoted || isSaving;
 
                 return (

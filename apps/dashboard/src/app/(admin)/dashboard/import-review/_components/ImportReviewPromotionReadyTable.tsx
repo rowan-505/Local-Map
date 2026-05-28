@@ -12,6 +12,7 @@ import { PromotionStatusBadge } from "@/src/app/(admin)/dashboard/import-review/
 import ImportReviewSkeletonTable from "@/src/features/import-review/components/ImportReviewSkeletonTable";
 import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
+import { formatBuildingTypeDisplay } from "@/src/lib/building-type/display";
 import type { ImportReviewPromotionReadyCandidateItem } from "@/src/lib/api";
 import { importReviewPath } from "@/src/lib/dashboardNavigation";
 import { applyImportReviewScopeSearchParams } from "@/src/lib/importReviewSnapshot";
@@ -134,15 +135,19 @@ export default function ImportReviewPromotionReadyTable({
                                 <td className="px-3 py-2 text-gray-700">{row.class_code ?? "—"}</td>
                                 <td
                                     className="max-w-[8rem] truncate px-3 py-2 text-gray-700"
-                                    title={
-                                        row.building_type_code && row.building_type_name
-                                            ? `${row.building_type_code} — ${row.building_type_name}`
-                                            : row.building_type_code ?? row.building_type_name ?? row.building_type ?? ""
-                                    }
+                                    title={formatBuildingTypeDisplay({
+                                        buildingTypeCode: row.building_type_code,
+                                        buildingTypeName: row.building_type_name,
+                                        legacyBuildingType: row.building_type,
+                                        buildingTypeId: row.building_type_id,
+                                    })}
                                 >
-                                    {row.building_type_code && row.building_type_name
-                                        ? `${row.building_type_code} — ${row.building_type_name}`
-                                        : row.building_type_code ?? row.building_type_name ?? row.building_type ?? "—"}
+                                    {formatBuildingTypeDisplay({
+                                        buildingTypeCode: row.building_type_code,
+                                        buildingTypeName: row.building_type_name,
+                                        legacyBuildingType: row.building_type,
+                                        buildingTypeId: row.building_type_id,
+                                    }) || "—"}
                                 </td>
                                 <td className="px-3 py-2 tabular-nums text-gray-700">
                                     {row.confidence_score != null ? row.confidence_score.toFixed(2) : "—"}

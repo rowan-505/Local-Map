@@ -1,3 +1,4 @@
+import { resolveBuildingTypeCode } from "../../lib/building-type/building-type-response.js";
 import { mapBuildingNameFields } from "../../lib/entity-names/building-detail-select-sql.js";
 import type { BuildingDetailRow } from "../buildings/buildings.repo.js";
 import type { PlaceDetailRow, PlaceNameRow, PlaceRow } from "../places/places.repo.js";
@@ -36,7 +37,7 @@ export function serializeCoreReviewBuilding(row: BuildingDetailRow) {
         nameMm: names.name_mm,
         nameEn: names.name_en,
         buildingTypeId: row.building_type_id,
-        buildingTypeCode: row.building_type_code,
+        buildingTypeCode: resolveBuildingTypeCode(row),
         buildingTypeName: row.building_type_name,
         adminAreaId: row.admin_area_id,
         adminAreaName: row.admin_area_canonical_name,

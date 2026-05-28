@@ -10,6 +10,7 @@ import type {
     Street,
     ImportReviewReferenceOptionDto,
 } from "@/src/lib/api";
+import { mapRefBuildingTypesToSelectOptions } from "@/src/lib/building-type/display";
 import {
     getImportReviewReferenceOptions,
     getPlaceFormOptions,
@@ -40,11 +41,7 @@ export type CoreRefLoadState = {
 };
 
 function mapBuildingTypes(items: RefBuildingType[]): CoreRefOption[] {
-    return items.map((item) => ({
-        value: item.id,
-        label: item.name_mm ? `${item.name} (${item.name_mm})` : item.name,
-        code: item.code,
-    }));
+    return mapRefBuildingTypesToSelectOptions(items);
 }
 
 function mapRoadClasses(items: RoadClassOption[]): CoreRefOption[] {

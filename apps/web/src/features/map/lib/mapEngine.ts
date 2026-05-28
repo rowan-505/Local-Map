@@ -15,6 +15,19 @@ export {
   ensureClickedLocationLayer,
   setClickedLocation,
 } from './maplibre/clickedLocationOnMap';
+export {
+  bboxFromDirectionsOverlay,
+  ensureDirectionsRouteLayer,
+  ensureDirectionsRouteLayers,
+  positionActiveRouteLayers,
+  setDirectionsRouteOverlay,
+  ROUTE_ACTIVE_CASING_LAYER_ID,
+  ROUTE_ACTIVE_LINE_LAYER_ID,
+  ROUTE_ACTIVE_SOURCE_ID,
+  ROUTE_END_POINT_LAYER_ID,
+  ROUTE_START_POINT_LAYER_ID,
+  type DirectionsMapOverlay,
+} from './maplibre/directionsRouteOnMap';
 export { bindPoiLayerInteractions } from './maplibre/poiMapInteractions';
 export { applyMapOverlayStackOrder } from './maplibre/mapStackOrder';
 export { syncCountryMinZoom } from './maplibre/mapCountryMinZoom';

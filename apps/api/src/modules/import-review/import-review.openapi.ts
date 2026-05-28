@@ -3801,7 +3801,12 @@ export const getImportReviewReferenceOptionsSchema = {
             properties: {
                 ref_poi_categories: { type: "array", items: importReviewReferenceOptionItemSchema },
                 ref_road_classes: { type: "array", items: importReviewReferenceOptionItemSchema },
-                ref_building_types: { type: "array", items: importReviewReferenceOptionItemSchema },
+                ref_building_types: {
+                    type: "array",
+                    items: importReviewReferenceOptionItemSchema,
+                    description:
+                        "Active flat building types only (ref.ref_building_types where is_active and parent_id IS NULL).",
+                },
                 ref_admin_levels: { type: "array", items: importReviewReferenceOptionItemSchema },
                 ref_address_component_types: { type: "array", items: importReviewReferenceOptionItemSchema },
                 ref_source_types: { type: "array", items: importReviewReferenceOptionItemSchema },

@@ -218,6 +218,7 @@ export function CoreEntityEditFieldsSection({
     errors,
     refStates,
     disabled,
+    detail,
 }: Pick<
     CoreEntityEditFormSectionsProps,
     | "entityKey"
@@ -230,6 +231,7 @@ export function CoreEntityEditFieldsSection({
     | "errors"
     | "refStates"
     | "disabled"
+    | "detail"
 >) {
     const adminLevelId = watch("admin_level_id") as string | undefined;
     const boundaryStatus = watch("boundary_status") as string | undefined;
@@ -258,6 +260,7 @@ export function CoreEntityEditFieldsSection({
                     errors={errors}
                     disabled={disabled}
                     refStates={refStates}
+                    editDetail={detail}
                 />
             ))}
             {entityKey === "admin-areas" ? (

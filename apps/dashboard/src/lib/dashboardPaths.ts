@@ -5,6 +5,7 @@ export const CORE_VERIFICATION_PATH = `${DASHBOARD_PATH}/core-verification`;
 export const IMPORT_REVIEW_PATH = `${DASHBOARD_PATH}/import-review`;
 export const REFERENCES_PATH = `${DASHBOARD_PATH}/references`;
 export const STATS_PATH = `${DASHBOARD_PATH}/stats`;
+export const ROUTING_ADMIN_PATH = `${DASHBOARD_PATH}/routing`;
 
 function joinPath(base: string, segment?: string): string {
     const seg = segment?.replace(/^\/+|\/+$/g, "") ?? "";
@@ -29,4 +30,8 @@ export function referencesPath(segment?: string): string {
 
 export function statsPath(segment?: string): string {
     return joinPath(STATS_PATH, segment);
+}
+
+export function routingAdminPath(segment?: string): string {
+    return joinPath(ROUTING_ADMIN_PATH, segment);
 }

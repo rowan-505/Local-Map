@@ -139,7 +139,9 @@ export class CoreReviewRefValidator {
             return [];
         }
         const row = await this.buildingsRepo.getActiveBuildingTypeById(buildingTypeId);
-        return row ? [] : [{ path, message: "building_type_id is invalid or inactive" }];
+        return row
+            ? []
+            : [{ path, message: "building_type_id is invalid, inactive, or not a flat active type" }];
     }
 
     async validateBoundaryStatusCode(

@@ -131,5 +131,25 @@ tools/data-pipeline/prod-mirror/00_env.sh
 # Martin: optional local override with a hardcoded connection string (never commit)
 infrastructure/tiles/martin/config.local.yaml
 
+# ========================
+# Valhalla local routing (large OSM + tile artifacts)
+# ========================
+infrastructure/routing/valhalla/.env
+infrastructure/routing/valhalla/data/osm/*
+!infrastructure/routing/valhalla/data/osm/.gitkeep
+infrastructure/routing/valhalla/data/builds/*
+!infrastructure/routing/valhalla/data/builds/.gitkeep
+infrastructure/routing/valhalla/data/builds/**/*.tar
+infrastructure/routing/valhalla/data/builds/**/valhalla_tiles/
+# Valhalla local routing data
+infrastructure/routing/valhalla/data/work/*
+infrastructure/routing/valhalla/data/osm/*.osm.pbf
+infrastructure/routing/valhalla/data/builds/*
+!infrastructure/routing/valhalla/data/work/.gitkeep
+!infrastructure/routing/valhalla/data/osm/.gitkeep
+!infrastructure/routing/valhalla/data/builds/.gitkeep
+
 # DB introspection exports (schema metadata, not source)
 infrastructure/database/introspection/**/snapshots/
+
+

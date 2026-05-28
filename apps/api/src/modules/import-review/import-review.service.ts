@@ -1828,7 +1828,7 @@ export class ImportReviewService {
                 const refRow = await refRepo.getActiveBuildingTypeById(id);
                 if (refRow === null) {
                     throw new ImportReviewDecisionRuleError(
-                        `Unknown or inactive building_type_id=${id.toString()} (must match ref.ref_building_types where is_active = true).`
+                        `Unknown or inactive building_type_id=${id.toString()} (must match ref.ref_building_types where is_active = true and parent_id IS NULL).`
                     );
                 }
             }

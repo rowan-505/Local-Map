@@ -1,5 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import { classifyBuildingTypeCode } from "../../lib/building-type/classify-building-type-code.js";
+
 export type ImportReviewReferenceOptionRow = {
     id: string;
     code: string | null;
@@ -68,6 +70,7 @@ export class ImportReviewReferenceOptionsRepository {
                 SELECT id, code, name
                 FROM ref.ref_building_types
                 WHERE is_active IS TRUE
+                  AND parent_id IS NULL
                 ORDER BY sort_order ASC NULLS LAST, name ASC
             `;
             empty.ref_building_types = mapIdLabel(rows);
@@ -123,6 +126,7 @@ export class ImportReviewReferenceOptionsRepository {
             FROM ref.ref_building_types
             WHERE id = ${id}
               AND is_active IS TRUE
+              AND parent_id IS NULL
             LIMIT 1
         `;
         return rows[0] ?? null;
@@ -163,11 +167,13 @@ export class ImportReviewReferenceOptionsRepository {
         if (!(await tableExists(this.prisma, "ref.ref_building_types"))) {
             return null;
         }
+        const classified = classifyBuildingTypeCode(code);
         const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
             SELECT id
             FROM ref.ref_building_types
-            WHERE lower(code) = lower(${code})
+            WHERE lower(code) = lower(${classified.code})
               AND is_active IS TRUE
+              AND parent_id IS NULL
             ORDER BY sort_order ASC NULLS LAST, id ASC
             LIMIT 1
         `;

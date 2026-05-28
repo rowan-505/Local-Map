@@ -11,7 +11,8 @@ export const IMPORT_REVIEW_DEFAULT_CONFIDENCE_SCORE = 65;
 export const IMPORT_REVIEW_BUS_STOP_UNNAMED_NAME_MM = "Unnamed bus stop";
 
 export const POI_CATEGORY_FALLBACK_CODES = ["unknown", "other"] as const;
-export const BUILDING_TYPE_FALLBACK_CODES = ["yes", "unknown", "building"] as const;
+/** Resolved via classifyBuildingTypeCode before ref lookup (yes/building → unknown). */
+export const BUILDING_TYPE_FALLBACK_CODES = ["unknown"] as const;
 export const ROAD_CLASS_FALLBACK_CODES = [
     "local",
     "residential",

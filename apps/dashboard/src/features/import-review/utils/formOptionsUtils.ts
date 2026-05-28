@@ -2,7 +2,13 @@ import type { ImportReviewEntityConfig } from "../config/types";
 import type { ImportReviewOverrideFieldDef } from "../config/overrideFieldDefs";
 import type { AdminAreaOption } from "@/src/components/admin-areas/adminAreaLabels";
 import type { RoadClassOption } from "@/src/lib/api";
+import {
+    formatImportReviewBuildingTypeLabel,
+    mergeBuildingTypeSelectOptions,
+} from "@/src/lib/building-type/display";
+
 import type { ImportReviewFormOptionsBundle } from "../hooks/useImportReviewFormOptions";
+import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
 export type ImportReviewFormOptionsKey = keyof ImportReviewFormOptionsBundle;
 
@@ -111,13 +117,38 @@ export function surfacePresetOptionsFromFormOptions(
 
 export function selectOptionsWithCurrentValue(
     options: Array<{ value: string; label: string }>,
-    current: string
+    current: string,
+    currentLabel?: string | null
 ): Array<{ value: string; label: string }> {
     const trimmed = current.trim();
     if (!trimmed || options.some((opt) => opt.value === trimmed)) {
         return options;
     }
-    return [...options, { value: trimmed, label: `${trimmed} (imported)` }];
+    return [
+        ...options,
+        {
+            value: trimmed,
+            label: currentLabel?.trim() || `${trimmed} (imported)`,
+        },
+    ];
+}
+
+export function buildingTypeSelectOptionsForRow(
+    formOptions: ImportReviewFormOptionsBundle | null | undefined,
+    row?: ImportReviewBuildingListItem | null
+): Array<{ value: string; label: string }> {
+    const active = (formOptions?.building_types ?? []).map((rowOption) => ({
+        value: String(rowOption.value),
+        label: rowOption.label,
+    }));
+    if (!row) {
+        return active;
+    }
+    return mergeBuildingTypeSelectOptions(
+        active,
+        row.building_type_id ?? "",
+        formatImportReviewBuildingTypeLabel(row) || null
+    ).map((opt) => ({ value: opt.value, label: opt.label }));
 }
 
 export function fieldUsesSelectOptions(

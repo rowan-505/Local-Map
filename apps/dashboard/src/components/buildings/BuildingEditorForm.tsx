@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Map as MaplibreMap } from "maplibre-gl";
 
 import AdminAreaCombobox from "@/src/components/admin-areas/AdminAreaCombobox";
@@ -25,6 +25,11 @@ import {
     type PlaceFormOptions,
     type RefBuildingType,
 } from "@/src/lib/api";
+import {
+    formatActiveBuildingTypeOptionLabel,
+    formatBuildingTypeDisplay,
+    mergeBuildingTypeSelectOptions,
+} from "@/src/lib/building-type/display";
 import { scheduleBuildingTileRefresh } from "@/src/components/map/placeMapConfig";
 import { useBuildingTileVersion } from "@/src/components/map/BuildingTileVersionContext";
 import { dashDevLog } from "@/src/lib/dashDevLog";
@@ -96,6 +101,26 @@ export default function BuildingEditorForm({
 
     const parsedFootprint = parsePolygonOrMultiPolygon(geometryJson.trim());
     const hasRenderableFootprint = parsedFootprint !== null;
+
+    const buildingTypeSelectOptions = useMemo(() => {
+        const active = refTypes.map((t) => ({
+            value: t.id,
+            label: formatActiveBuildingTypeOptionLabel(t),
+        }));
+        return mergeBuildingTypeSelectOptions(
+            active,
+            buildingTypeId,
+            initialBuilding
+                ? formatBuildingTypeDisplay({
+                      buildingTypeCode: initialBuilding.building_type?.code ?? initialBuilding.building_type_code,
+                      buildingTypeName: initialBuilding.building_type?.name ?? initialBuilding.building_type_name,
+                      legacyBuildingType: null,
+                      buildingTypeId: initialBuilding.building_type_id ?? initialBuilding.building_type?.id,
+                      normalizedData: initialBuilding.normalized_data,
+                  })
+                : null
+        );
+    }, [buildingTypeId, initialBuilding, refTypes]);
 
     const handleFitGeometry = useCallback(() => {
         const map = editorMapSurfaceRef.current;
@@ -444,9 +469,9 @@ export default function BuildingEditorForm({
                             className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 disabled:cursor-not-allowed disabled:bg-gray-50"
                         >
                             <option value="">Select building type</option>
-                            {refTypes.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                    {t.parent_id ? `— ${t.name}` : t.name}
+                            {buildingTypeSelectOptions.map((t) => (
+                                <option key={t.value} value={t.value}>
+                                    {t.label}
                                 </option>
                             ))}
                         </select>

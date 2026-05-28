@@ -2,7 +2,7 @@ import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
 import type { ImportReviewOverrideFieldDef } from "../config/overrideFieldDefs";
 import { filterOverridePatchForFamily } from "../config/overrideAllowlist";
-import { formatBuildingTypeLabel, normPick } from "./entityPageUtils";
+import { normPick } from "./entityPageUtils";
 import {
     deriveImportedClassCode,
     readEffectiveAdminLevelId,
@@ -51,10 +51,6 @@ export function readImportedValue(
     apiFamily?: string
 ): string {
     if (def.configKey === "building_type_id") {
-        const effective = formatBuildingTypeLabel(row);
-        if (effective) {
-            return effective;
-        }
         if (row.building_type_id) {
             return row.building_type_id;
         }

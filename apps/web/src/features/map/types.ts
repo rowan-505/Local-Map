@@ -3,6 +3,7 @@
  */
 import type { Poi } from '@/types';
 import type { SearchCameraTarget } from '@/features/poi/api/publicMapApi';
+import type { DirectionsMapOverlay } from './lib/maplibre/directionsRouteGeoJson';
 import type { MapCameraLayout } from './lib/mapCameraPadding';
 
 export type MapClickedLocation = {
@@ -22,6 +23,7 @@ export type MapViewProps = {
   readonly cameraTarget?: SearchCameraTarget;
   readonly cameraLayout: MapCameraLayout;
   readonly clickedLocation?: MapClickedLocation | null;
+  readonly directionsOverlay?: DirectionsMapOverlay | null;
   /** Called when a POI marker is clicked, or when the map is clicked away from markers. */
   readonly onSelectPoiId: (id: string | null) => void;
   readonly onEmptyMapClick?: (location: MapClickedLocation) => void;

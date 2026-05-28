@@ -13,6 +13,8 @@ declare global {
 
 /* eslint-disable @typescript-eslint/no-unused-vars -- module augmentation for Vite `import.meta.env` */
 interface ImportMetaEnv {
+  /** Fastify API origin (e.g. `http://localhost:3001`). Required for map data and routing clients. */
+  readonly VITE_API_BASE_URL: string;
   /** Optional origin + base path if you self-host multiscript `.pbf` ranges (otherwise the default GitHub Pages mirror is used). */
   readonly VITE_MULTISCRIPT_GLYPH_BASE_URL?: string;
   /** Optional `current.json` URL (defaults to Yangon on `localhost:8080`). */

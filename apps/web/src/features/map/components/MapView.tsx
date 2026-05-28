@@ -23,8 +23,10 @@ import {
   bindPoiLayerInteractions,
   createMapEngine,
   ensureClickedLocationLayer,
+  ensureDirectionsRouteLayers,
   ensurePlacesLayer,
   setClickedLocation,
+  setDirectionsRouteOverlay,
   setPlacesGeoJSON,
   setSelectedPoiHighlight,
   syncCountryMinZoom,
@@ -59,6 +61,7 @@ function MapViewInner({
   cameraTarget,
   cameraLayout,
   clickedLocation,
+  directionsOverlay = null,
   onSelectPoiId,
   onEmptyMapClick,
   onViewportChange,
@@ -89,6 +92,7 @@ function MapViewInner({
   const geojsonRef = useRef(geojson);
   const selectedRef = useRef(selectedPoiId);
   const clickedLocationRef = useRef(clickedLocation ?? null);
+  const directionsOverlayRef = useRef(directionsOverlay ?? null);
 
   useEffect(() => {
     geojsonRef.current = geojson;
@@ -97,6 +101,9 @@ function MapViewInner({
   useEffect(() => {
     clickedLocationRef.current = clickedLocation ?? null;
   }, [clickedLocation]);
+  useEffect(() => {
+    directionsOverlayRef.current = directionsOverlay ?? null;
+  }, [directionsOverlay]);
 
   const onSelectRef = useRef(onSelectPoiId);
   const onEmptyMapClickRef = useRef(onEmptyMapClick);
@@ -130,6 +137,8 @@ function MapViewInner({
         const onLoad = () => {
           ensurePublicMapGeoJsonLabelLayers(map);
           ensurePlacesLayer(map, geojsonRef.current, selectedRef.current, languageModeRef.current);
+          ensureDirectionsRouteLayers(map);
+          setDirectionsRouteOverlay(map, directionsOverlayRef.current ?? null);
           ensureClickedLocationLayer(map, clickedLocationRef.current);
           applyMapOverlayStackOrder(map);
           applyAllLocalizedMapLabels(map, languageModeRef.current);
@@ -223,6 +232,27 @@ function MapViewInner({
     setClickedLocation(map, clickedLocation ?? null);
     applyMapOverlayStackOrder(map);
   }, [clickedLocation, mapReady]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    const syncRoute = () => {
+      setDirectionsRouteOverlay(map, directionsOverlayRef.current ?? null);
+      applyMapOverlayStackOrder(map);
+    };
+
+    if (map.isStyleLoaded()) {
+      syncRoute();
+      return;
+    }
+
+    map.once('load', syncRoute);
+    return () => {
+      map.off('load', syncRoute);
+    };
+  }, [directionsOverlay, mapReady]);
 
   useEffect(() => {
     if (cameraTarget) return;

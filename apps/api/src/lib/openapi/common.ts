@@ -14,6 +14,7 @@ export const Tags = {
     Search: "Search",
     ImportReview: "Import Review",
     Ref: "Reference Data",
+    Routing: "Routing",
 } as const;
 
 export const bearerAuth = [{ bearerAuth: [] }] as const;

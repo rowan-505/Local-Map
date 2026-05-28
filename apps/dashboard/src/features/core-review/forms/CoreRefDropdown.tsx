@@ -1,6 +1,9 @@
 "use client";
 
+import { useMemo } from "react";
+
 import AdminAreaCombobox from "@/src/components/admin-areas/AdminAreaCombobox";
+import { mergeBuildingTypeSelectOptions } from "@/src/lib/building-type/display";
 
 import type { CoreRefLoadState } from "./useCoreEntityRefs";
 
@@ -16,6 +19,8 @@ export type CoreRefDropdownProps = {
     error?: string;
     refSource: "admin-areas" | Exclude<string, "admin-areas">;
     refState?: CoreRefLoadState;
+    /** Shown when value is not in active ref options (inactive/deleted building type). */
+    orphanOptionLabel?: string | null;
 };
 
 export default function CoreRefDropdown({
@@ -30,6 +35,7 @@ export default function CoreRefDropdown({
     error,
     refSource,
     refState,
+    orphanOptionLabel,
 }: CoreRefDropdownProps) {
     if (refSource === "admin-areas") {
         return (
@@ -54,6 +60,23 @@ export default function CoreRefDropdown({
     const isLoading = refState?.isLoading ?? false;
     const loadError = refState?.error ?? null;
     const options = refState?.options ?? [];
+
+    const displayOptions = useMemo(() => {
+        if (refSource !== "building-types") {
+            const trimmed = value.trim();
+            if (!trimmed || options.some((opt) => opt.value === trimmed)) {
+                return options;
+            }
+            return [
+                ...options,
+                {
+                    value: trimmed,
+                    label: orphanOptionLabel?.trim() || `ID ${trimmed} (inactive — choose active type)`,
+                },
+            ];
+        }
+        return mergeBuildingTypeSelectOptions(options, value, orphanOptionLabel);
+    }, [options, orphanOptionLabel, refSource, value]);
 
     return (
         <label className="block" htmlFor={id}>
@@ -84,7 +107,7 @@ export default function CoreRefDropdown({
                 className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:bg-slate-50"
             >
                 <option value="">{placeholder}</option>
-                {options.map((opt) => (
+                {displayOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                         {opt.label}
                     </option>

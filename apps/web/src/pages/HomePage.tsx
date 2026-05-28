@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SearchPanel } from '@/features/filters/components/SearchPanel';
 import { useDebouncedValue } from '@/features/filters/useDebouncedValue';
 import { useCategoryFilter } from '@/features/filters/useCategoryFilter';
@@ -15,11 +15,14 @@ import {
   type SidebarMode,
 } from '@/features/map/components/MapSidebar';
 import MapView from '@/features/map/components/MapView';
+import { RoutePlannerPanel, type RouteDraft } from '@/features/map/components/RoutePlannerPanel';
+import type { DirectionsMapOverlay } from '@/features/map/lib/maplibre/directionsRouteGeoJson';
 import {
-  RoutePlannerPanel,
-  type RouteDraft,
+  bboxFromRouteGeometry,
+  resolveRoutePointCoordinates,
   type RoutePoint,
-} from '@/features/map/components/RoutePlannerPanel';
+} from '@/features/routing/lib/routePoint';
+import type { RouteResponse } from '@/features/routing/types';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import type { MapClickedLocation } from '@/features/map/types';
 import type { MapViewportState } from '@/features/map/types';
@@ -63,6 +66,7 @@ export default function HomePage() {
     to: null,
     profile: 'motorbike',
   });
+  const [routeResult, setRouteResult] = useState<RouteResponse | null>(null);
   const [clickedLocation, setClickedLocation] = useState<MapClickedLocation | null>(null);
   const debouncedSearchQuery = useDebouncedValue(filterState.searchQuery, 300);
   const debouncedMapViewport = useDebouncedValue(mapViewport, 250);
@@ -119,6 +123,26 @@ export default function HomePage() {
     () => ({ isSidebarOpen, bottomSheetState }),
     [bottomSheetState, isSidebarOpen],
   );
+
+  const directionsOverlay = useMemo((): DirectionsMapOverlay | null => {
+    const from = resolveRoutePointCoordinates(routeDraft.from);
+    const to = resolveRoutePointCoordinates(routeDraft.to);
+    const geometry = routeResult?.geometry ?? null;
+    if (!from && !to && !geometry) return null;
+    return { from, to, geometry };
+  }, [routeDraft.from, routeDraft.to, routeResult?.geometry]);
+
+  useEffect(() => {
+    if (routeResult?.status !== 'ok' || !routeResult.geometry) return;
+    const bbox = bboxFromRouteGeometry(routeResult.geometry);
+    if (!bbox) return;
+    setCameraTarget({
+      type: 'bounds',
+      bbox,
+      padding: 72,
+      duration: 900,
+    });
+  }, [routeResult]);
 
   const onSelectPoiId = useCallback((id: string | null) => {
     setSelectedPoiId(id);
@@ -191,9 +215,14 @@ export default function HomePage() {
 
   const onRouteToPlace = useCallback((destination: RouteDestination) => {
     setRouteDestination(destination);
-    setRouteDraft((draft) => ({ ...draft, to: destination }));
+    setRouteResult(null);
+    setRouteDraft((draft) => ({
+      ...draft,
+      to: { label: destination.label, coordinates: destination.coordinates },
+    }));
     setActiveSidebarMode('route');
     setIsSidebarOpen(true);
+    setBottomSheetState('half');
     setCameraTarget({
       type: 'point',
       center: destination.coordinates,
@@ -212,15 +241,21 @@ export default function HomePage() {
 
   const onUseAddressAsRoutePoint = useCallback(
     (field: 'from' | 'to', point: RoutePoint) => {
+      setRouteResult(null);
       setRouteDraft((draft) => ({ ...draft, [field]: point }));
       if (field === 'to' && point.coordinates) {
         setRouteDestination({ label: point.label, coordinates: point.coordinates });
       }
       setActiveSidebarMode('route');
       setIsSidebarOpen(true);
+      setBottomSheetState('half');
     },
     [],
   );
+
+  const onRouteResultChange = useCallback((result: RouteResponse | null) => {
+    setRouteResult(result);
+  }, []);
 
   return (
     <MapShell
@@ -242,6 +277,7 @@ export default function HomePage() {
             cameraTarget={cameraTarget}
             cameraLayout={mapCameraLayout}
             clickedLocation={clickedLocation}
+            directionsOverlay={directionsOverlay}
             onSelectPoiId={onSelectPoiId}
             onEmptyMapClick={onEmptyMapClick}
             onViewportChange={setMapViewport}
@@ -305,8 +341,11 @@ export default function HomePage() {
           routePanel={
             <RoutePlannerPanel
               clickedLocation={clickedLocation}
+              selectedPoi={selectedPoi}
+              selectedSearchResult={selectedSearchResult}
               draft={routeDraft}
               onDraftChange={setRouteDraft}
+              onRouteResultChange={onRouteResultChange}
             />
           }
           busPanel={<BusPanelPlaceholder />}

@@ -1,5 +1,6 @@
 import type { FastifySchema } from "fastify";
 
+import { ACTIVE_BUILDING_TYPE_CODES } from "../../lib/building-type/classify-building-type-code.js";
 import {
     Tags,
     badRequestSchema,
@@ -183,8 +184,18 @@ const createBuildingBodyOpenApi = {
         name: { type: "string", nullable: true, description: "Fallback/imported label (core_map_buildings.name)" },
         name_mm: { type: "string", nullable: true },
         name_en: { type: "string", nullable: true },
-        building_type: { type: "string", minLength: 1 },
-        building_type_id: { type: "string", description: "Bigint id string" },
+        building_type: {
+            type: "string",
+            minLength: 1,
+            description:
+                "Legacy label or OSM tag; classified to a flat active code before save. Allowed codes: " +
+                ACTIVE_BUILDING_TYPE_CODES.join(", "),
+        },
+        building_type_id: {
+            type: "string",
+            description:
+                "Bigint id string; must reference ref.ref_building_types where is_active = true and parent_id IS NULL",
+        },
         admin_area_id: { type: "string" },
         levels: { type: "integer", minimum: 0 },
         height_m: { type: "number", minimum: 0 },
@@ -202,8 +213,19 @@ const updateBuildingBodyOpenApi = {
         name: { type: "string", nullable: true, description: "Fallback/imported label (core_map_buildings.name)" },
         name_mm: { type: "string", nullable: true },
         name_en: { type: "string", nullable: true },
-        building_type: { type: "string", minLength: 1 },
-        building_type_id: { type: "string", nullable: true },
+        building_type: {
+            type: "string",
+            minLength: 1,
+            description:
+                "Classified to a flat active ref code on update. Allowed codes: " +
+                ACTIVE_BUILDING_TYPE_CODES.join(", "),
+        },
+        building_type_id: {
+            type: "string",
+            nullable: true,
+            description:
+                "Bigint id string; null clears FK. Active flat ref rows only (is_active, parent_id IS NULL).",
+        },
         admin_area_id: { type: "string", nullable: true },
         levels: { type: "integer", minimum: 0, nullable: true },
         height_m: { type: "number", minimum: 0, nullable: true },
@@ -216,13 +238,17 @@ const updateBuildingBodyOpenApi = {
 const buildingTypeListRowSchema = {
     type: "object",
     required: ["id", "code", "name", "name_mm", "parent_id", "sort_order"],
+    description: "Flat active building type (parent_id is always null after taxonomy simplification).",
     properties: {
         id: { type: "string" },
-        code: { type: "string" },
+        code: {
+            type: "string",
+            description: "Flat active code; one of: " + ACTIVE_BUILDING_TYPE_CODES.join(", "),
+        },
         name: { type: "string" },
         name_mm: { type: "string", nullable: true },
         parent_id: { type: "string", nullable: true },
-        sort_order: { type: "number" },
+        sort_order: { type: "number", nullable: true },
     },
     additionalProperties: false,
 } as const;
@@ -243,7 +269,9 @@ const serverErrorMessageSchema = {
 
 export const getBuildingTypesSchema = {
     tags: [Tags.Buildings],
-    summary: "List building types",
+    summary: "List active flat building types",
+    description:
+        "Returns ref.ref_building_types where is_active = true and parent_id IS NULL (16 simplified codes for create/update dropdowns).",
     security: [...bearerAuth],
     response: {
         200: { type: "array", items: buildingTypeListRowSchema },

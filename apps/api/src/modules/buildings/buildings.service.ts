@@ -1,5 +1,16 @@
 import type { z } from "zod";
 
+import { BUILDING_TYPE_ID_VALIDATION_MESSAGE } from "../../lib/building-type/active-building-type-sql.js";
+import {
+    buildBuildingTypeRef,
+    resolveBuildingTypeCode,
+    resolveBuildingTypeName,
+    resolveBuildingTypeNameMm,
+} from "../../lib/building-type/building-type-response.js";
+import {
+    buildingTypeClassificationNormalizedPatch,
+    classifyBuildingTypeCode,
+} from "../../lib/building-type/classify-building-type-code.js";
 import { mapBuildingNameFields } from "../../lib/entity-names/building-detail-select-sql.js";
 import type { BuildingValidationIssue } from "./buildings.schema.js";
 import {
@@ -182,16 +193,8 @@ export class BuildingsService {
 
     private serializeBuilding(row: BuildingDetailRow) {
         const names = mapBuildingNameFields(row);
-        const buildingType =
-            row.ref_bt_id && row.ref_bt_code && row.ref_bt_name
-                ? {
-                      id: row.ref_bt_id,
-                      code: row.ref_bt_code,
-                      name: row.ref_bt_name,
-                      name_mm: row.ref_bt_name_mm,
-                      parent_id: row.ref_bt_parent_id,
-                  }
-                : null;
+        const buildingTypeCode = resolveBuildingTypeCode(row);
+        const buildingType = buildBuildingTypeRef(row);
 
         return {
             id: row.id,
@@ -204,9 +207,9 @@ export class BuildingsService {
             name: names.name,
             building_type_id: row.building_type_id,
             building_type: buildingType,
-            building_type_code: row.building_type_code,
-            building_type_name: row.building_type_name,
-            building_type_name_mm: row.building_type_name_mm,
+            building_type_code: buildingTypeCode,
+            building_type_name: resolveBuildingTypeName(row, buildingTypeCode),
+            building_type_name_mm: resolveBuildingTypeNameMm(row),
             admin_area_id: row.admin_area_id,
             admin_area:
                 row.admin_area_row_id !== null && row.admin_area_row_id !== undefined
@@ -250,7 +253,7 @@ export class BuildingsService {
                 throw new BuildingValidationError("Invalid building type", [
                     {
                         path: "building_type_id",
-                        message: "Not found or inactive.",
+                        message: BUILDING_TYPE_ID_VALIDATION_MESSAGE,
                     },
                 ]);
             }
@@ -274,9 +277,19 @@ export class BuildingsService {
             };
         }
 
-        const normalizedLabel = normalizeBuildingType(body.building_type);
-        const matched = await this.buildingsRepo.findBuildingTypeByCode(normalizedLabel);
-        const label = matched?.code ?? normalizedLabel;
+        const classified = classifyBuildingTypeCode(body.building_type);
+        const matched = await this.buildingsRepo.findBuildingTypeByCode(classified.code);
+
+        if (!matched) {
+            throw new BuildingValidationError("Invalid building type", [
+                {
+                    path: "building_type",
+                    message: BUILDING_TYPE_ID_VALIDATION_MESSAGE,
+                },
+            ]);
+        }
+
+        const label = matched.code;
 
         return {
             name: body.name ?? null,
@@ -284,10 +297,13 @@ export class BuildingsService {
             name_en: body.name_en,
             class_code: label,
             building_type_column: label,
-            building_type_id: matched?.id ?? null,
+            building_type_id: matched.id,
             admin_area_resolve_spatial,
             admin_area_id,
-            normalized_data: normalizedFromCreate(body, label, matched?.id ?? null),
+            normalized_data: {
+                ...normalizedFromCreate(body, label, matched.id),
+                ...buildingTypeClassificationNormalizedPatch(classified),
+            },
             levels: body.levels ?? null,
             height_m: body.height_m ?? null,
             confidence_score: body.confidence_score ?? 80,
@@ -312,7 +328,7 @@ export class BuildingsService {
                 throw new BuildingValidationError("Invalid building type", [
                     {
                         path: "building_type_id",
-                        message: "Not found or inactive.",
+                        message: BUILDING_TYPE_ID_VALIDATION_MESSAGE,
                     },
                 ]);
             }
@@ -320,12 +336,20 @@ export class BuildingsService {
             building_type_id = ref.id;
             resolvedType = ref.code;
         } else if (patch.building_type !== undefined) {
-            resolvedType = normalizeBuildingType(patch.building_type);
-            const matched = await this.buildingsRepo.findBuildingTypeByCode(resolvedType);
-            building_type_id = matched?.id ?? null;
-            if (matched) {
-                resolvedType = matched.code;
+            const classified = classifyBuildingTypeCode(patch.building_type);
+            const matched = await this.buildingsRepo.findBuildingTypeByCode(classified.code);
+
+            if (!matched) {
+                throw new BuildingValidationError("Invalid building type", [
+                    {
+                        path: "building_type",
+                        message: BUILDING_TYPE_ID_VALIDATION_MESSAGE,
+                    },
+                ]);
             }
+
+            building_type_id = matched.id;
+            resolvedType = matched.code;
         } else {
             resolvedType = coalesceBuildingTypeFromRow(existing.building_type_code, existing.class_code);
         }
@@ -347,12 +371,20 @@ export class BuildingsService {
 
         const is_verified = patch.is_verified !== undefined ? patch.is_verified : existing.is_verified;
 
-        const normalized_data = mergeNormalizedForPatch(
-            coerceRecord(existing.normalized_data),
-            resolvedType,
-            building_type_id,
-            patch
-        );
+        const classificationPatch =
+            patch.building_type !== undefined
+                ? buildingTypeClassificationNormalizedPatch(classifyBuildingTypeCode(patch.building_type))
+                : {};
+
+        const normalized_data = {
+            ...mergeNormalizedForPatch(
+                coerceRecord(existing.normalized_data),
+                resolvedType,
+                building_type_id,
+                patch
+            ),
+            ...classificationPatch,
+        };
 
         let admin_area_id: bigint | null =
             existing.admin_area_id !== null &&
@@ -463,8 +495,7 @@ export class BuildingsService {
 }
 
 function normalizeBuildingType(input?: string | null): string {
-    const trimmed = input?.trim();
-    return trimmed && trimmed.length > 0 ? trimmed : "yes";
+    return classifyBuildingTypeCode(input).code;
 }
 
 /** Label for class_code when no FK: COALESCE(ref code via join, class_code, 'yes'). */

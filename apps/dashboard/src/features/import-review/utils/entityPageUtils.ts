@@ -114,14 +114,12 @@ export function normPick(data: unknown, key: string): unknown {
     return undefined;
 }
 
-export function formatBuildingTypeLabel(row: ImportReviewBuildingListItem): string {
-    const code = row.building_type_code?.trim();
-    const name = row.building_type_name?.trim();
-    if (code && name) {
-        return `${code} — ${name}`;
-    }
-    return code || name || row.building_type?.trim() || "";
-}
+import {
+    formatImportReviewBuildingTypeLabel,
+    formatImportReviewBuildingTypeLabel as formatBuildingTypeLabel,
+} from "@/src/lib/building-type/display";
+
+export { formatBuildingTypeLabel };
 
 export function importReviewRowHasOverrides(row: ImportReviewBuildingListItem): boolean {
     return row.has_overrides === true;

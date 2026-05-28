@@ -14,6 +14,7 @@ import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-revi
 import ImportReviewSkeletonCards from "@/src/features/import-review/components/ImportReviewSkeletonCards";
 import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
+import { formatBuildingTypeDisplay } from "@/src/lib/building-type/display";
 import {
     logImportReviewRouterCall,
     logImportReviewUserAction,
@@ -105,9 +106,13 @@ function CandidateDetailModal({
                         <dd>{row.class_code ?? "—"}</dd>
                         <dt className="text-gray-500">Building type</dt>
                         <dd>
-                            {row.building_type_code && row.building_type_name
-                                ? `${row.building_type_code} — ${row.building_type_name}`
-                                : row.building_type_code ?? row.building_type_name ?? row.building_type ?? "—"}
+                            {formatBuildingTypeDisplay({
+                                buildingTypeCode: row.building_type_code,
+                                buildingTypeName: row.building_type_name,
+                                legacyBuildingType: row.building_type,
+                                buildingTypeId: row.building_type_id,
+                                normalizedData: row.normalized_data,
+                            }) || "—"}
                         </dd>
                         <dt className="text-gray-500">Confidence</dt>
                         <dd>{row.confidence_score ?? "—"}</dd>
