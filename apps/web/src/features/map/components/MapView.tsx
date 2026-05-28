@@ -12,7 +12,13 @@ import type { FeatureCollection } from 'geojson';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import { usePublicMapGeoLabelQueries } from '@/features/poi/api/usePublicMapData';
 import type { MapViewProps } from '../types';
-import { MAP_KYAUKTAN_STARTUP_BOUNDS } from '../mapDefaults';
+import {
+  clampPublicMapFlyToTarget,
+  fitPublicMapOverviewViewport,
+  getPublicMapOverviewStartupFitPadding,
+  persistPublicMapViewport,
+  shouldFitPublicMapOverviewOnLoad,
+} from '../config/publicMapViewport';
 import {
   DEFAULT_MAP_CAMERA_LAYOUT,
   visibleMapCameraPadding,
@@ -29,7 +35,6 @@ import {
   setDirectionsRouteOverlay,
   setPlacesGeoJSON,
   setSelectedPoiHighlight,
-  syncCountryMinZoom,
   type MapEngine,
 } from '../lib/mapEngine';
 import {
@@ -76,6 +81,8 @@ function MapViewInner({
   const utilityCommand = useMapUiStore((s) => s.utilityCommand);
   const languageModeRef = useRef(languageMode);
   const cameraLayoutRef = useRef(cameraLayout ?? DEFAULT_MAP_CAMERA_LAYOUT);
+  /** After manual pan/zoom, startup/sidebar auto-fit must not recenter the camera. */
+  const hasUserInteractedRef = useRef(false);
 
   useEffect(() => {
     languageModeRef.current = languageMode;
@@ -123,6 +130,20 @@ function MapViewInner({
     onViewportChangeRef.current = onViewportChange;
   }, [onViewportChange]);
 
+  /** Startup overview fit — container must have size and style must be loaded. */
+  const applyStartupOverviewFit = () => {
+    const map = mapRef.current;
+    const el = containerRef.current;
+    if (!map || !el || !map.isStyleLoaded()) return;
+    if (hasUserInteractedRef.current || !shouldFitPublicMapOverviewOnLoad()) return;
+    if (el.clientWidth < 1 || el.clientHeight < 1) return;
+
+    fitPublicMapOverviewViewport(
+      map,
+      getPublicMapOverviewStartupFitPadding(cameraLayoutRef.current.isSidebarOpen),
+    );
+  };
+
   /** One-time map engine; teardown on unmount (StrictMode-safe). */
   useEffect(() => {
     const el = containerRef.current;
@@ -149,7 +170,10 @@ function MapViewInner({
           applyAllLocalizedMapLabels(map, languageModeRef.current);
           logAdminLabelLayersInDev(map);
           logAdminSourceFeaturesInDev(map);
-          fitKyauktanStartup(map, containerRef.current, cameraLayoutRef.current);
+          applyStartupOverviewFit();
+          requestAnimationFrame(() => {
+            applyStartupOverviewFit();
+          });
           setMapReady(true);
           emitViewportChange(map, onViewportChangeRef.current);
         };
@@ -265,9 +289,13 @@ function MapViewInner({
     const map = mapRef.current;
     if (!map) return;
 
+    const fly = clampPublicMapFlyToTarget(
+      [selectedPoi.longitude, selectedPoi.latitude],
+      16,
+    );
     map.flyTo({
-      center: [selectedPoi.longitude, selectedPoi.latitude],
-      zoom: 16,
+      center: fly.center,
+      zoom: fly.zoom,
       padding: visibleMapCameraPadding(cameraLayoutRef.current, containerRef.current),
       essential: true,
     });
@@ -279,9 +307,10 @@ function MapViewInner({
     if (!map) return;
 
     if (cameraTarget.type === 'point') {
+      const fly = clampPublicMapFlyToTarget(cameraTarget.center, cameraTarget.zoom ?? 16);
       map.flyTo({
-        center: [cameraTarget.center[0], cameraTarget.center[1]],
-        zoom: cameraTarget.zoom ?? 16,
+        center: fly.center,
+        zoom: fly.zoom,
         duration: 900,
         padding: visibleMapCameraPadding(cameraLayoutRef.current, containerRef.current),
         essential: true,
@@ -338,13 +367,42 @@ function MapViewInner({
     const map = mapRef.current;
     if (!map) return;
 
-    map.easeTo({
-      center: map.getCenter(),
-      padding: visibleMapCameraPadding(cameraLayout, containerRef.current),
-      duration: 280,
-      essential: true,
-    });
+    map.resize();
+    if (!hasUserInteractedRef.current && shouldFitPublicMapOverviewOnLoad()) {
+      const layout = cameraLayout ?? DEFAULT_MAP_CAMERA_LAYOUT;
+      fitPublicMapOverviewViewport(
+        map,
+        getPublicMapOverviewStartupFitPadding(layout.isSidebarOpen),
+      );
+    }
   }, [cameraLayout, mapReady]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    const markUserInteracted = () => {
+      hasUserInteractedRef.current = true;
+    };
+    const onGestureStart = (e: { originalEvent?: Event }) => {
+      if (e.originalEvent) markUserInteracted();
+    };
+
+    map.on('dragstart', markUserInteracted);
+    map.on('movestart', onGestureStart);
+    map.on('zoomstart', onGestureStart);
+    map.on('wheel', onGestureStart);
+    map.on('touchstart', onGestureStart);
+
+    return () => {
+      map.off('dragstart', markUserInteracted);
+      map.off('movestart', onGestureStart);
+      map.off('zoomstart', onGestureStart);
+      map.off('wheel', onGestureStart);
+      map.off('touchstart', onGestureStart);
+    };
+  }, [mapReady]);
 
   /** Crosshair while choosing a route endpoint on the map. */
   useEffect(() => {
@@ -382,7 +440,11 @@ function MapViewInner({
     const map = mapRef.current;
     if (!map) return;
 
-    const onViewportSettled = () => emitViewportChange(map, onViewportChangeRef.current);
+    const onViewportSettled = () => {
+      emitViewportChange(map, onViewportChangeRef.current);
+      const c = map.getCenter();
+      persistPublicMapViewport({ center: [c.lng, c.lat], zoom: map.getZoom() });
+    };
     onViewportSettled();
     map.on('moveend', onViewportSettled);
     map.on('zoomend', onViewportSettled);
@@ -403,10 +465,14 @@ function MapViewInner({
     const el = containerRef.current;
     if (!map || !el) return;
     const ro = new ResizeObserver(() => {
-      syncCountryMinZoom(map);
+      map.resize();
+      if (!hasUserInteractedRef.current) {
+        applyStartupOverviewFit();
+      }
     });
     ro.observe(el);
-    syncCountryMinZoom(map);
+    map.resize();
+    applyStartupOverviewFit();
     return () => ro.disconnect();
   }, [mapReady]);
 
@@ -416,18 +482,6 @@ function MapViewInner({
 export const MapView = memo(MapViewInner);
 
 export default MapView;
-
-function fitKyauktanStartup(
-  map: MapEngine,
-  container: HTMLElement | null,
-  cameraLayout: MapViewProps['cameraLayout'],
-): void {
-  map.fitBounds(MAP_KYAUKTAN_STARTUP_BOUNDS, {
-    padding: visibleMapCameraPadding(cameraLayout, container),
-    duration: 0,
-    essential: true,
-  });
-}
 
 function emitViewportChange(
   map: MapEngine,

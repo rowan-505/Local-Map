@@ -1,15 +1,29 @@
 /**
- * Map viewport — Myanmar country fit + zoom floor, wide pan limits (`maxBounds`).
+ * Map defaults for apps/web — operational/Kyauktan helpers and re-exports.
+ * Myanmar overview viewport lives in `config/publicMapViewport.ts` (public map only).
  */
 import { REGION_SCOPE } from '@/config/regionScope';
 
-/** Reference bbox for initial fit, `cameraForBounds`, and `setMinZoom` (same as `REGION_SCOPE.country.boundsLngLat`). */
+export {
+  MAP_MAX_BOUNDS,
+  MAP_MAX_ZOOM,
+  MAP_MIN_ZOOM,
+  MYANMAR_OVERVIEW_CENTER,
+  MYANMAR_OVERVIEW_MAX_BOUNDS,
+  MYANMAR_OVERVIEW_MIN_ZOOM,
+  MYANMAR_OVERVIEW_ZOOM,
+  PUBLIC_MAP_MAX_ZOOM,
+  PUBLIC_MAP_OVERVIEW_BOUNDS,
+  PUBLIC_MAP_OVERVIEW_CENTER,
+  PUBLIC_MAP_OVERVIEW_INITIAL_ZOOM,
+  PUBLIC_MAP_OVERVIEW_MAX_BOUNDS,
+  PUBLIC_MAP_OVERVIEW_MIN_ZOOM,
+} from './config/publicMapViewport';
+
+/** Reference bbox for optional country `cameraForBounds` helpers (API scope, not public map init). */
 export const MAP_COUNTRY_BOUNDS = REGION_SCOPE.country.boundsLngLat;
 
-/**
- * Pixel padding when fitting Myanmar (initial `bounds` + `syncCountryMinZoom` / `cameraForBounds`).
- * Single source so opening view and min zoom-out limit match.
- */
+/** Pixel padding for township / sidebar `fitBounds` (not used for overview opening view). */
 export const MAP_COUNTRY_VIEW_PADDING = {
   top: 40,
   right: 40,
@@ -21,15 +35,6 @@ export const MAP_CAMERA_BOUNDS_RIGHT_INSET_PX = 0;
 
 /** Places panel — kept for optional township / sidebar fits elsewhere; not used for country opening view. */
 export const MAP_SIDEBAR_WIDTH_PX = 320;
-
-/**
- * Pan limits only — wider than Myanmar so users can pan in all directions into nearby regions.
- * (Suggested regional box; not used for initial camera or min zoom.)
- */
-export const MAP_MAX_BOUNDS: readonly [[number, number], [number, number]] = [
-  [80.0, -2.0],
-  [115.0, 36.0],
-];
 
 const TOWNSHIP_PAD = 48;
 
@@ -55,12 +60,5 @@ export const MAP_KYAUKTAN_STARTUP_BOUNDS: [[number, number], [number, number]] =
 
 export const MAP_DEFAULT_CENTER = REGION_SCOPE.operationalArea.centerLngLat;
 export const MAP_DEFAULT_ZOOM = 14;
-
-/**
- * Passed to `new Map({ minZoom })` only until `syncCountryMinZoom` runs — must stay low so we never
- * cap zoom-out above the true country-fit zoom from `cameraForBounds`.
- */
-export const MAP_MIN_ZOOM = 1;
-export const MAP_MAX_ZOOM = 22;
 
 export const MAP_OPERATIONAL_BOUNDS = REGION_SCOPE.operationalArea.boundsLngLat;

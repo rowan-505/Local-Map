@@ -1,12 +1,13 @@
 /**
- * Country-fit zoom floor from Myanmar bounds + actual map canvas size (via `resize` + `cameraForBounds`).
+ * Optional `cameraForBounds` helpers for Myanmar country bbox (API scope, tests, future UX).
+ * Public map init uses fixed overview center/zoom from `overviewConstants` instead.
  */
 import maplibregl from 'maplibre-gl';
+import { getEffectivePublicMapMinZoom } from '../../config/publicMapViewport';
 import {
   MAP_CAMERA_BOUNDS_RIGHT_INSET_PX,
   MAP_COUNTRY_BOUNDS,
   MAP_COUNTRY_VIEW_PADDING,
-  MAP_MIN_ZOOM,
 } from '../../mapDefaults';
 import type { MapEngine } from '../mapEngineTypes';
 
@@ -39,6 +40,10 @@ export type SyncCountryMinZoomOptions = {
 };
 
 
+/**
+ * Resizes the map canvas and re-applies the overview zoom floor.
+ * Prefer `map.resize()` alone in `MapView` unless something reset `minZoom`.
+ */
 export function syncCountryMinZoom(map: MapEngine, opts?: SyncCountryMinZoomOptions): void {
   const el = map.getContainer();
   if (!el.isConnected) return;
@@ -48,10 +53,8 @@ export function syncCountryMinZoom(map: MapEngine, opts?: SyncCountryMinZoomOpti
       map.resize();
     }
 
-    // Allow zooming out beyond the Myanmar country-fit opening view.
-    // Use the fixed global floor from mapDefaults instead of locking
-    // minZoom to cameraForBounds(MAP_COUNTRY_BOUNDS).
-    map.setMinZoom(MAP_MIN_ZOOM);
+    // Overview PMTiles coverage — do not relax below the country overview framing.
+    map.setMinZoom(getEffectivePublicMapMinZoom());
   } catch {
     /* map removed or style not ready */
   }

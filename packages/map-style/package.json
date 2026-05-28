@@ -3,7 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "node --import tsx --test overviewStyleValidation.test.ts"
+  },
   "dependencies": {
     "pmtiles": "^4.4.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
   }
 }

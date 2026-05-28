@@ -1,0 +1,28 @@
+{
+  "region": "overview",
+  "type": "overview",
+  "version": "v1",
+  "filename": "myanmar-overview-v1.pmtiles",
+  "url": "http://localhost:8080/overview/myanmar-overview-v1.pmtiles",
+  "minZoom": 0,
+  "maxZoom": 8,
+  "center": [96.2, 20.5],
+  "initialZoom": 4.7,
+  "minMapZoom": 4.3,
+  "maxBounds": [
+    [78.0, 3.0],
+    [112.0, 34.0]
+  ],
+  "layers": [
+    "land",
+    "ocean",
+    "coastline",
+    "countries",
+    "country_boundaries",
+    "populated_places",
+    "lakes",
+    "rivers",
+    "mmr_admin0",
+    "mmr_admin1"
+  ]
+}

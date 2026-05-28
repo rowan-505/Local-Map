@@ -1,0 +1,428 @@
+{
+  "version": 8,
+  "name": "CoreMap Myanmar Overview",
+  "metadata": {
+    "local-map:purpose": "Natural Earth + MIMU overview basemap for z0–z8 only. No OSM detail.",
+    "local-map:zoom-range": "0-8",
+    "local-map:visibility": "z0-4: ocean, land, countries, boundaries, country labels, Myanmar outline | z4-6: + mmr_admin1 | z5-8: major cities | z6-8: major lakes/rivers",
+    "local-map:glyphs": "Self-hosted NotoSansMyanmar-Regular at /fonts/{fontstack}/{range}.pbf",
+    "local-map:pmtiles-url": "Template only — pmtiles://__OVERVIEW_PMTILES_URL__. Web injects VITE_OVERVIEW_PMTILES_URL at runtime; use createOverviewStyle(httpUrl) elsewhere."
+  },
+  "glyphs": "/fonts/{fontstack}/{range}.pbf",
+  "sources": {
+    "overview": {
+      "type": "vector",
+      "url": "pmtiles://__OVERVIEW_PMTILES_URL__",
+      "minzoom": 0,
+      "maxzoom": 8
+    }
+  },
+  "layers": [
+    {
+      "id": "overview-ocean",
+      "type": "fill",
+      "source": "overview",
+      "source-layer": "ocean",
+      "maxzoom": 9,
+      "paint": {
+        "fill-color": "#b8ddea",
+        "fill-opacity": 1
+      }
+    },
+    {
+      "id": "overview-land",
+      "type": "fill",
+      "source": "overview",
+      "source-layer": "land",
+      "maxzoom": 9,
+      "paint": {
+        "fill-color": "#e8ebe0",
+        "fill-opacity": 1
+      }
+    },
+    {
+      "id": "overview-lakes",
+      "type": "fill",
+      "source": "overview",
+      "source-layer": "lakes",
+      "minzoom": 6,
+      "maxzoom": 9,
+      "filter": [
+        "all",
+        ["<=", ["coalesce", ["get", "min_zoom"], 0], ["zoom"]],
+        ["<=", ["coalesce", ["get", "scalerank"], 99], 6]
+      ],
+      "paint": {
+        "fill-color": "#c5dde8",
+        "fill-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          6, 0.45,
+          7, 0.62,
+          8, 0.72
+        ]
+      }
+    },
+    {
+      "id": "overview-rivers",
+      "type": "line",
+      "source": "overview",
+      "source-layer": "rivers",
+      "minzoom": 6,
+      "maxzoom": 9,
+      "filter": [
+        "all",
+        ["<=", ["coalesce", ["get", "min_zoom"], 0], ["zoom"]],
+        ["<=", ["coalesce", ["get", "scalerank"], 99], 6]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#9cc6d8",
+        "line-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          6, 0.4,
+          7, 0.58,
+          8, 0.7
+        ],
+        "line-width": [
+          "interpolate",
+          ["exponential", 1.2],
+          ["zoom"],
+          6, 0.4,
+          7, 0.65,
+          8, 0.95
+        ]
+      }
+    },
+    {
+      "id": "overview-countries-fill",
+      "type": "fill",
+      "source": "overview",
+      "source-layer": "countries",
+      "maxzoom": 9,
+      "paint": {
+        "fill-color": "#e4e2dc",
+        "fill-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          0, 0.16,
+          4, 0.2,
+          8, 0.26
+        ]
+      }
+    },
+    {
+      "id": "overview-mmr-admin1-fill",
+      "type": "fill",
+      "source": "overview",
+      "source-layer": "mmr_admin1",
+      "minzoom": 4,
+      "maxzoom": 9,
+      "paint": {
+        "fill-color": [
+          "interpolate",
+          ["linear"],
+          ["%", ["to-number", ["coalesce", ["get", "PCode_V"], 0]], 16],
+          0, "#e8e8f0",
+          8, "#dfe8e4",
+          15, "#ece6ea"
+        ],
+        "fill-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          4, 0.26,
+          5, 0.34,
+          7, 0.4,
+          8, 0.42
+        ]
+      }
+    },
+    {
+      "id": "overview-coastline",
+      "type": "line",
+      "source": "overview",
+      "source-layer": "coastline",
+      "minzoom": 5,
+      "maxzoom": 9,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#8fb8c8",
+        "line-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          5, 0.5,
+          7, 0.75,
+          8, 0.85
+        ],
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          5, 0.35,
+          7, 0.6,
+          8, 0.85
+        ]
+      }
+    },
+    {
+      "id": "overview-country-boundaries",
+      "type": "line",
+      "source": "overview",
+      "source-layer": "country_boundaries",
+      "maxzoom": 9,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#a8a3b0",
+        "line-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          0, 0.4,
+          4, 0.52,
+          8, 0.62
+        ],
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          0, 0.4,
+          4, 0.55,
+          8, 0.72
+        ]
+      }
+    },
+    {
+      "id": "overview-mmr-admin0-outline",
+      "type": "line",
+      "source": "overview",
+      "source-layer": "mmr_admin0",
+      "maxzoom": 9,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#6b5b7a",
+        "line-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          0, 0.62,
+          4, 0.78,
+          8, 0.9
+        ],
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          0, 0.9,
+          4, 1.4,
+          6, 1.8,
+          8, 2.2
+        ]
+      }
+    },
+    {
+      "id": "overview-mmr-admin1-boundaries",
+      "type": "line",
+      "source": "overview",
+      "source-layer": "mmr_admin1",
+      "minzoom": 4,
+      "maxzoom": 9,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#9a94a8",
+        "line-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          4, 0.42,
+          6, 0.58,
+          8, 0.68
+        ],
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          4, 0.5,
+          6, 0.72,
+          8, 0.9
+        ]
+      }
+    },
+    {
+      "id": "overview-country-labels",
+      "type": "symbol",
+      "source": "overview",
+      "source-layer": "countries",
+      "minzoom": 0,
+      "maxzoom": 9,
+      "filter": [
+        "all",
+        ["!=", ["coalesce", ["get", "TINY"], 0], 1],
+        ["<=", ["coalesce", ["get", "LABELRANK"], 10], 6]
+      ],
+      "layout": {
+        "text-field": [
+          "coalesce",
+          ["get", "NAME_EN"],
+          ["get", "NAME"],
+          ["get", "ADMIN"],
+          ["get", "BRK_NAME"]
+        ],
+        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-size": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          0, 8.5,
+          3, 9.5,
+          5, 11,
+          7, 12.5,
+          8, 13
+        ],
+        "text-max-width": 7,
+        "text-padding": 36,
+        "text-allow-overlap": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#4a5568",
+        "text-halo-color": "#f7f8f6",
+        "text-halo-width": 1.8,
+        "text-halo-blur": 0.4,
+        "text-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          0, 0.7,
+          4, 0.85,
+          8, 0.92
+        ]
+      }
+    },
+    {
+      "id": "overview-mmr-admin1-labels",
+      "type": "symbol",
+      "source": "overview",
+      "source-layer": "mmr_admin1",
+      "minzoom": 4,
+      "maxzoom": 9,
+      "layout": {
+        "text-field": ["coalesce", ["get", "ST_MMR"], ["get", "ST"], ["get", "ST_RG"]],
+        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-size": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          4, 9,
+          5, 10,
+          7, 11.5,
+          8, 12
+        ],
+        "text-max-width": 9,
+        "text-padding": 40,
+        "text-allow-overlap": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#5c5670",
+        "text-halo-color": "#f7f8f6",
+        "text-halo-width": 1.6,
+        "text-halo-blur": 0.35,
+        "text-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          4, 0.55,
+          6, 0.75,
+          8, 0.85
+        ]
+      }
+    },
+    {
+      "id": "overview-populated-places",
+      "type": "symbol",
+      "source": "overview",
+      "source-layer": "populated_places",
+      "minzoom": 5,
+      "maxzoom": 9,
+      "filter": [
+        "any",
+        ["<=", ["to-number", ["coalesce", ["get", "SCALERANK"], ["get", "scalerank"], 99]], 4],
+        ["==", ["to-number", ["coalesce", ["get", "ADM0CAP"], ["get", "adm0cap"], 0]], 1]
+      ],
+      "layout": {
+        "text-field": [
+          "coalesce",
+          ["get", "NAME_EN"],
+          ["get", "NAMEASCII"],
+          ["get", "NAME"]
+        ],
+        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-size": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          5,
+          [
+            "case",
+            ["==", ["coalesce", ["get", "ADM0CAP"], 0], 1],
+            10.5,
+            9
+          ],
+          7,
+          [
+            "case",
+            ["==", ["coalesce", ["get", "ADM0CAP"], 0], 1],
+            12,
+            10.5
+          ],
+          8,
+          [
+            "case",
+            ["==", ["coalesce", ["get", "ADM0CAP"], 0], 1],
+            13,
+            11.5
+          ]
+        ],
+        "text-max-width": 7,
+        "text-padding": 44,
+        "text-allow-overlap": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#3d4a5c",
+        "text-halo-color": "#f7f8f6",
+        "text-halo-width": 1.6,
+        "text-halo-blur": 0.35,
+        "text-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          5, 0.65,
+          7, 0.82,
+          8, 0.9
+        ]
+      }
+    }
+  ]
+}

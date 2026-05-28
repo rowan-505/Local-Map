@@ -11,7 +11,9 @@
     "tiles:export:yangon:v1": "npm run tiles:export -- yangon v1",
     "tiles:build:yangon:v1": "npm run tiles:build -- yangon v1",
     "tiles:rebuild:yangon:v1": "npm run tiles:rebuild -- yangon v1",
-    "tiles:serve": "bash infrastructure/tiles/pmtiles/scripts/serve-local.sh"
+    "tiles:serve": "bash infrastructure/tiles/pmtiles/scripts/serve-local.sh",
+    "tiles:verify:overview": "bash infrastructure/tiles/pmtiles/scripts/verify-overview-local.sh",
+    "test:overview-style": "npm test --prefix packages/map-style"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

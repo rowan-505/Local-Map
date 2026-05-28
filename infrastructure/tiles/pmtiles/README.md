@@ -140,3 +140,15 @@ Serve **`infrastructure/tiles/pmtiles`** and check:
 
 - `GET /regions/yangon/current.json` → **200**
 - `GET /regions/yangon/yangon-v1.pmtiles` (byte range) → **200** or **206**, body starts with **`PMTiles`** archive header.
+
+### Myanmar overview (z0–z8)
+
+Place **`overview/regions/myanmar-overview-v1.pmtiles`** locally (gitignored), then:
+
+```bash
+npm run tiles:verify:overview
+npm run tiles:serve
+cd apps/web && VITE_MAP_BASEMAP=overview npm run dev
+```
+
+See **[docs/tiles/pmtiles/overview-local-dev.md](../../../docs/tiles/pmtiles/overview-local-dev.md)** and **`overview/README.md`**.

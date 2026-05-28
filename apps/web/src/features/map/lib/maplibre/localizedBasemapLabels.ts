@@ -1,10 +1,12 @@
 /**
- * Applies bilingual `text-field` to every symbol layer in the loaded style that defines one.
+ * Applies bilingual `text-field` to symbol layers in the loaded style.
+ * Overview Natural Earth/MIMU layers use dedicated field names (not `name_mm` / `name_en`).
  */
 import type { ExpressionSpecification, LayerSpecification } from 'maplibre-gl';
 import type { LanguageMode } from '@local-map/localized-name';
 import { getMapTextFieldExpression } from '@local-map/localized-name';
 import type { MapEngine } from '../mapEngineTypes';
+import { getOverviewLabelTextField } from './overviewLabelTextFields';
 
 const ADMIN_LABEL_LAYER_IDS = new Set([
   'admin-labels',
@@ -26,6 +28,24 @@ function specHasTextField(layout: LayerSpecification['layout']): layout is NonNu
 }
 
 /**
+ * Resolves `text-field` for a symbol layer — overview layers keep Natural Earth/MIMU fields.
+ * Exported for unit tests without a MapLibre runtime.
+ */
+export function resolveSymbolLayerTextField(
+  layerId: string,
+  mode: LanguageMode,
+): ExpressionSpecification {
+  const overviewExpr = getOverviewLabelTextField(layerId);
+  if (overviewExpr) {
+    return overviewExpr;
+  }
+  if (ADMIN_LABEL_LAYER_IDS.has(layerId)) {
+    return adminAreaLabelPointTextFieldExpression(mode);
+  }
+  return getMapTextFieldExpression(mode) as ExpressionSpecification;
+}
+
+/**
  * Walks `map.getStyle().layers` and updates `text-field` for each symbol layer that has one.
  * Vector tiles should expose `name_mm`, `name_en`, and `name` (see `003_tile_symbol_label_views.sql`).
  */
@@ -33,8 +53,6 @@ export function applyAllSymbolLayerTextFieldsForLanguage(map: MapEngine, mode: L
   const style = map.getStyle();
   const layers = style?.layers;
   if (layers === undefined || layers.length === 0) return;
-
-  const expr = getMapTextFieldExpression(mode) as ExpressionSpecification;
 
   for (const layer of layers as LayerSpecification[]) {
     if (layer.type !== 'symbol') continue;
@@ -44,16 +62,9 @@ export function applyAllSymbolLayerTextFieldsForLanguage(map: MapEngine, mode: L
     if (!map.getLayer(layerId)) continue;
 
     try {
-      map.setLayoutProperty(
-        layerId,
-        'text-field',
-        ADMIN_LABEL_LAYER_IDS.has(layerId)
-          ? adminAreaLabelPointTextFieldExpression(mode)
-          : expr,
-      );
-      console.log('Updated label language layer:', layerId);
+      map.setLayoutProperty(layerId, 'text-field', resolveSymbolLayerTextField(layerId, mode));
     } catch {
-      /* e.g. layer does not support this layout property */
+      /* layer does not support this layout property */
     }
   }
 }

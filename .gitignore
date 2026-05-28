@@ -62,16 +62,11 @@ tiles/output/
 
 
 infrastructure/tiles/pmtiles/exports/
-infrastructure/tiles/pmtiles/regions/**/*.pmtiles
-
-
 
 # Cloudflare / Wrangler
 .wrangler/
 .dev.vars
 
-# PMTiles outputs
-*.pmtiles
 infrastructure/tiles/pmtiles/output/
 
 # Logs
@@ -154,30 +149,28 @@ infrastructure/database/introspection/**/snapshots/
 
 
 # ============================================================
-# CoreMap - local GIS source data and generated tile outputs
+# CoreMap — local GIS source data and generated tile outputs
+# (see infrastructure/tiles/data/README.md)
 # ============================================================
 
-# Downloaded/raw GIS data for tile building.
-# These files are large, reproducible, and should not be committed.
+# Downloaded GIS inputs: Natural Earth ZIPs, MIMU ZIPs, shapefiles, spreadsheets, etc.
 /infrastructure/tiles/data/**
 
-# Keep folder structure placeholders and documentation.
+# Keep folder placeholder and documentation only.
 !/infrastructure/tiles/data/
 !/infrastructure/tiles/data/.gitkeep
 !/infrastructure/tiles/data/README.md
 
-# Generated static tile outputs.
+# Generated static tile archives (overview + regional).
 /infrastructure/tiles/**/*.pmtiles
 /infrastructure/tiles/**/*.mbtiles
 
-# Temporary/intermediate tile build outputs.
+# Intermediate vector build outputs.
 /infrastructure/tiles/**/*.geojsonseq
 /infrastructure/tiles/**/*.geojsonl
 /infrastructure/tiles/**/*.ndjson
-/infrastructure/tiles/**/*.tmp
-/infrastructure/tiles/**/*.temp
 
-# OSM / GIS source formats.
+# OSM / GIS source and sidecar formats under infrastructure/tiles/.
 /infrastructure/tiles/**/*.osm.pbf
 /infrastructure/tiles/**/*.pbf
 /infrastructure/tiles/**/*.gpkg
@@ -188,24 +181,17 @@ infrastructure/database/introspection/**/snapshots/
 /infrastructure/tiles/**/*.cpg
 /infrastructure/tiles/**/*.qpj
 /infrastructure/tiles/**/*.cst
-/infrastructure/tiles/**/*.kml
-/infrastructure/tiles/**/*.kmz
 
-# Download archives.
+# Download archives and tabular sources (MIMU P-code XLSM, etc.).
 /infrastructure/tiles/**/*.zip
-/infrastructure/tiles/**/*.7z
-/infrastructure/tiles/**/*.tar
-/infrastructure/tiles/**/*.tar.gz
-/infrastructure/tiles/**/*.gz
-
-# MIMU / tabular source downloads.
 /infrastructure/tiles/**/*.xlsx
 /infrastructure/tiles/**/*.xls
 /infrastructure/tiles/**/*.xlsm
-/infrastructure/tiles/**/*.csv
 
-# Local build/cache folders.
+# Scratch paths (also covered by /infrastructure/tiles/data/** when under data/).
 /infrastructure/tiles/**/unzipped/
 /infrastructure/tiles/**/processed/
 /infrastructure/tiles/**/tmp/
 /infrastructure/tiles/**/cache/
+/infrastructure/tiles/**/*.tmp
+/infrastructure/tiles/**/*.temp

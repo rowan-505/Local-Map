@@ -5,6 +5,12 @@ import {
   createBasemapStyle,
   fetchActiveBasemapPmtilesHttpUrl,
 } from '@local-map/map-style/basemapSource';
+import { composeWebMapStyle } from '../lib/maplibre/composeWebMapStyle';
+import {
+  getActiveOverviewBasemapStyle,
+  isOverviewBasemapEnabled,
+} from './overviewBasemapStyle';
+import { getOverviewPmtilesUrlForWebMap } from './overviewPmtilesUrl';
 import { getWebBasemapCurrentJsonUrl } from './webBasemapCurrentJsonUrl';
 
 /** Single fontstack for every symbol layer — must match `apps/web/public/fonts/<name>/`. */
@@ -51,7 +57,32 @@ export async function getActiveBasemapStyle(): Promise<StyleSpecification> {
   const style = createBasemapStyle(pmtilesUrl) as StyleSpecification;
 
   if (import.meta.env.DEV) {
-    console.info('[map] active PMTiles URL:', pmtilesUrl);
+    console.info('[map] active regional PMTiles URL:', pmtilesUrl);
+  }
+
+  return style;
+}
+
+/**
+ * Public web map style: overview PMTiles base (low zoom) + regional PMTiles (detail z9+).
+ * Overview URL: `VITE_OVERVIEW_PMTILES_URL` only. Set `VITE_MAP_BASEMAP=overview` for overview-only mode.
+ */
+export async function getActiveWebMapStyle(): Promise<StyleSpecification> {
+  if (isOverviewBasemapEnabled()) {
+    return getActiveOverviewBasemapStyle();
+  }
+
+  const regionalStyle = await getActiveBasemapStyle();
+  const overviewUrl = getOverviewPmtilesUrlForWebMap();
+
+  if (!overviewUrl) {
+    return regionalStyle;
+  }
+
+  const style = composeWebMapStyle(regionalStyle, overviewUrl);
+
+  if (import.meta.env.DEV) {
+    console.info('[map] composed style: overview base + regional detail (overview URL configured)');
   }
 
   return style;

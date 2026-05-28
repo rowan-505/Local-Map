@@ -21,6 +21,16 @@ interface ImportMetaEnv {
   readonly VITE_BASEMAP_CURRENT_JSON_URL?: string;
   /** Optional direct `.pmtiles` HTTP(S) URL — when set, skips fetching `current.json`. */
   readonly VITE_BASEMAP_PMTILES_URL?: string;
+  /**
+   * Basemap mode: `overview` loads overview PMTiles style (see docs/tiles/pmtiles/overview-local-dev.md).
+   * Unset or any other value keeps the regional Yangon basemap.
+   */
+  readonly VITE_MAP_BASEMAP?: string;
+  /**
+   * Overview `.pmtiles` HTTP(S) URL (required in production for overview basemap).
+   * Example: https://YOUR_TILE_DOMAIN/basemaps/overview/v1/basemap.pmtiles
+   */
+  readonly VITE_OVERVIEW_PMTILES_URL?: string;
   /** Optional public satellite raster tile template for future map modes. Do not include private keys in source. */
   readonly VITE_SATELLITE_RASTER_TILES_URL?: string;
   /** Optional satellite raster tile size. Defaults to 256. */

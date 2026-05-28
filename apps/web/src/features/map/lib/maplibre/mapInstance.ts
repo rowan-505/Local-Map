@@ -3,21 +3,16 @@
  * viewport from `mapDefaults`. GeoJSON overlays unchanged (`basemapMvpStyle`, POI layers in MapView).
  */
 import maplibregl from 'maplibre-gl';
-import { getActiveBasemapStyle, MAP_LIBRE_INTERACTION_DEFAULTS } from '../../config';
+import { getActiveWebMapStyle, MAP_LIBRE_INTERACTION_DEFAULTS } from '../../config';
 import {
   ensureMaplibreComplexTextPlugin,
   maplibreComplexTextTransformRequest,
 } from './maplibreComplexText';
-import {
-  MAP_MAX_BOUNDS,
-  MAP_MAX_ZOOM,
-  MAP_MIN_ZOOM,
-} from '../../mapDefaults';
+import { getPublicMapMapLibreInitOptions } from '../../config/publicMapViewport';
 import type { MapEngine } from '../mapEngineTypes';
-import { ensurePmtilesProtocol } from '@local-map/map-style/registerPmtilesProtocol';
+import { registerPmtilesProtocol } from './registerPmtilesProtocol';
 import { applyMvpBasemapStyle } from './basemapMvpStyle';
 import { logGlyphServingHealthInDev } from './glyphDevCheck';
-import { syncCountryMinZoom } from './mapCountryMinZoom';
 
 type BoundsLike = maplibregl.LngLatBoundsLike;
 
@@ -40,35 +35,35 @@ function exposeMaplibreDebugGlobals(map: MapEngine): void {
 }
 
 export async function createMaplibreMap(container: HTMLDivElement): Promise<MapEngine> {
-  await ensurePmtilesProtocol(maplibregl);
+  await registerPmtilesProtocol();
   await ensureMaplibreComplexTextPlugin();
   logGlyphServingHealthInDev();
 
+  const style = await getActiveWebMapStyle();
+
+  const viewport = getPublicMapMapLibreInitOptions();
+
   /**
-   * React `MapView` applies the initial Kyauktan camera after style load because
-   * it knows the current sidebar/bottom-sheet layout and can pad the visible area.
-   *
-   * `maxBounds` is the wide regional box — pan limits only, not the country framing.
+   * Overview PMTiles: fallback center/zoom + low minZoom; MapView runs startup `fitBounds` after load.
+   * No maxBounds unless ENABLE_OVERVIEW_VIEWPORT_LOCK. Dashboard uses separate init.
    */
   const map = new maplibregl.Map({
     container,
-    style: await getActiveBasemapStyle(),
+    style,
     transformRequest: maplibreComplexTextTransformRequest,
-    maxBounds: MAP_MAX_BOUNDS as BoundsLike,
-    minZoom: MAP_MIN_ZOOM,
-    maxZoom: MAP_MAX_ZOOM,
+    center: viewport.center,
+    zoom: viewport.zoom,
+    minZoom: viewport.minZoom,
+    maxZoom: viewport.maxZoom,
+    ...(viewport.maxBounds !== undefined
+      ? { maxBounds: viewport.maxBounds as BoundsLike }
+      : {}),
 
     ...MAP_LIBRE_INTERACTION_DEFAULTS,
   });
 
-
   map.once('load', () => {
     applyMvpBasemapStyle(map);
-    map.on('resize', () => syncCountryMinZoom(map, { skipResize: true }));
-
-    syncCountryMinZoom(map);
-    map.once('idle', () => syncCountryMinZoom(map));
-
     exposeMaplibreDebugGlobals(map);
   });
 
