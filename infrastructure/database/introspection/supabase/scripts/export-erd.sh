@@ -2,6 +2,9 @@
 # Generate Mermaid ERD from DATABASE_URL (Supabase) into
 # infrastructure/database/introspection/supabase/erd/current.mmd
 #
+# By default introspects all non-system schemas (SUPABASE_PG_ERD_SCHEMAS=all).
+# Override with a comma-separated list, e.g. ref,core,tiles
+#
 # Usage (from repo root): npm run db:erd:supabase
 
 set -euo pipefail
@@ -19,7 +22,7 @@ supabase_pg_log_target
 
 export ERD_OUTPUT_PATH="infrastructure/database/introspection/supabase/erd/current.mmd"
 export ERD_SOURCE_LABEL="Supabase (DATABASE_URL)"
-export ERD_SCHEMAS="${SUPABASE_PG_ERD_SCHEMAS}"
+export ERD_SCHEMAS="${SUPABASE_PG_ERD_SCHEMAS:-all}"
 
 mkdir -p "$(dirname "${SUPABASE_PG_ERD_OUT}")"
 (cd "${REPO_ROOT}" && npx --yes tsx tools/database/generate-erd.ts)

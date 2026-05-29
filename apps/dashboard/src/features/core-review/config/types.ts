@@ -28,6 +28,7 @@ export type CoreReviewBuildingRow = {
     areaM2: number | null;
     levels: number | null;
     confidenceScore: number | null;
+    verificationStatus?: string | null;
     isVerified: boolean;
     isActive: boolean;
     deletedAt?: string | null;
@@ -52,6 +53,7 @@ export type CoreReviewPlaceRow = {
     popularityScore: number | null;
     confidenceScore: number | null;
     isPublic: boolean;
+    verificationStatus?: string | null;
     isVerified: boolean;
     createdAt: string | null;
     updatedAt: string | null;
@@ -76,6 +78,7 @@ export type CoreReviewStreetRow = {
     tunnel: boolean | null;
     routingStatus: string | null;
     isActive: boolean;
+    verificationStatus?: string | null;
     isVerified: boolean;
     deletedAt: string | null;
     createdAt: string | null;
@@ -90,10 +93,17 @@ export type CoreReviewBusStopRow = {
     publicId: string;
     name: string | null;
     nameLocal: string | null;
+    nameEn?: string | null;
+    nameMm?: string | null;
     stopCode: string | null;
+    modeType?: string | null;
     adminAreaId: string | null;
     adminAreaName: string | null;
     sourceTypeId?: string | null;
+    verificationStatus?: string | null;
+    confidenceScore?: number | null;
+    sourceRefs?: unknown;
+    normalizedData?: unknown;
     isActive: boolean;
     isVerified: boolean;
     deletedAt?: string | null;
@@ -104,11 +114,19 @@ export type CoreReviewBusStopRow = {
 
 export type CoreReviewBusRouteRow = {
     id: string;
+    publicId?: string | null;
     routeCode: string | null;
     publicName: string | null;
+    operatorId?: string | null;
     operatorName: string | null;
     routeType: string | null;
+    modeType?: string | null;
     directionality: string | null;
+    routeStatus?: string | null;
+    verificationStatus?: string | null;
+    confidenceScore?: number | null;
+    sourceRefs?: unknown;
+    normalizedData?: unknown;
     sourceTypeId?: string | null;
     variantCount?: number;
     isActive: boolean;
@@ -120,6 +138,7 @@ export type CoreReviewBusRouteRow = {
 
 export type CoreReviewBusRouteVariantRow = {
     id: string;
+    publicId?: string | null;
     routeId: string;
     routePublicName: string | null;
     routeCode: string | null;
@@ -128,9 +147,16 @@ export type CoreReviewBusRouteVariantRow = {
     originName: string | null;
     destinationName: string | null;
     distanceM: number | null;
+    verificationStatus?: string | null;
+    confidenceScore?: number | null;
+    sourceRefs?: unknown;
+    normalizedData?: unknown;
+    routeStops?: import("../transport/coreReviewTransportShared").CoreReviewTransportRouteStopRow[];
     isActive: boolean;
     isVerified: boolean;
     deletedAt?: string | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
     geometry: ImportReviewGeoJson | null;
 };
 
@@ -139,6 +165,7 @@ export type CoreReviewMapFeatureRow = {
     externalId: string | null;
     name: string | null;
     classCode: string | null;
+    verificationStatus?: string | null;
     isActive: boolean;
     isVerified: boolean;
     deletedAt?: string | null;
@@ -169,6 +196,7 @@ export type CoreReviewLanduseRow = {
     areaM2: number | null;
     confidenceScore: number | null;
     manualOverride: boolean;
+    verificationStatus?: string | null;
     isActive: boolean;
     isVerified: boolean;
     deletedAt?: string | null;
@@ -221,6 +249,7 @@ export type CoreReviewAddressRow = {
     adminAreaNameEn?: string | null;
     adminAreaNameMy?: string | null;
     isPublic: boolean;
+    verificationStatus?: string | null;
     isVerified: boolean;
     confidenceScore?: number | null;
     deletedAt?: string | null;
@@ -246,6 +275,7 @@ export type CoreReviewAdminAreaRow = {
     parentId: string | null;
     adminLevelId: string | null;
     isActive: boolean;
+    verificationStatus?: string | null;
     isVerified: boolean;
     boundaryStatus?: string | null;
     boundaryStatusLabelEn?: string | null;

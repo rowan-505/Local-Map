@@ -4,6 +4,10 @@ import {
     coreReviewListStatusClause,
     type CoreReviewListStatus,
 } from "../core-review/core-review-list-status.js";
+import {
+    coreReviewVerificationFilterCondition,
+    type CoreReviewVerificationStatus,
+} from "../core-review/core-review-verification-filter.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -24,6 +28,7 @@ export type ListStreetsParams = {
     include_deleted: boolean;
     status?: CoreReviewListStatus;
     is_verified?: boolean;
+    verification_status?: CoreReviewVerificationStatus;
     admin_area_id?: bigint;
     road_class_id?: bigint;
 };
@@ -76,6 +81,7 @@ export type StreetRow = {
     deleted_at: Date | null;
     last_edited_at: Date | null;
     is_active: boolean;
+    verification_status: string | null;
     is_verified: boolean;
     created_at: Date;
     updated_at: Date;
@@ -95,6 +101,8 @@ export type UpdateStreetInput = {
     surface?: string | null;
     bridge?: boolean;
     tunnel?: boolean;
+    verification_status?: string;
+    is_verified?: boolean;
 };
 
 export type CreateStreetInput = {
@@ -112,6 +120,8 @@ export type CreateStreetInput = {
     tunnel: boolean;
     geometry: StreetCenterlineGeoJson;
     is_active?: boolean;
+    verification_status?: string;
+    is_verified?: boolean;
 };
 
 export type StreetMutationContext = {
@@ -197,7 +207,7 @@ function streetsListOrderBy(sortBy: ListStreetsParams["sortBy"], sortOrder: List
 }
 
 function streetsListFilterClauses(
-    params: Pick<ListStreetsParams, "q" | "include_deleted" | "status" | "is_verified" | "admin_area_id" | "road_class_id">
+    params: Pick<ListStreetsParams, "q" | "include_deleted" | "status" | "is_verified" | "verification_status" | "admin_area_id" | "road_class_id">
 ): Prisma.Sql[] {
     const clauses: Prisma.Sql[] = [
         coreReviewListStatusClause("s", resolveStreetsListStatus(params), {
@@ -220,8 +230,11 @@ function streetsListFilterClauses(
                 )`);
     }
 
-    if (params.is_verified !== undefined) {
-        clauses.push(Prisma.sql`s.is_verified = ${params.is_verified}`);
+    const verificationCondition = coreReviewVerificationFilterCondition("s", {
+        verificationStatus: params.verification_status,
+    });
+    if (verificationCondition) {
+        clauses.push(verificationCondition);
     }
 
     if (params.admin_area_id !== undefined) {
@@ -488,6 +501,7 @@ export class StreetsRepository {
                 s.deleted_at,
                 s.last_edited_at,
                 s.is_active,
+                s.verification_status,
                 s.is_verified,
                 s.created_at,
                 s.updated_at,
@@ -512,7 +526,10 @@ export class StreetsRepository {
     }
 
     async countStreets(
-        params: Pick<ListStreetsParams, "q" | "include_deleted" | "is_verified" | "admin_area_id" | "road_class_id">
+        params: Pick<
+            ListStreetsParams,
+            "q" | "include_deleted" | "status" | "is_verified" | "verification_status" | "admin_area_id" | "road_class_id"
+        >
     ): Promise<number> {
         const whereClause = Prisma.join(streetsListFilterClauses(params), " AND ");
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
@@ -613,6 +630,7 @@ export class StreetsRepository {
                 s.deleted_at,
                 s.last_edited_at,
                 s.is_active,
+                s.verification_status,
                 s.is_verified,
                 s.created_at,
                 s.updated_at,
@@ -701,6 +719,8 @@ export class StreetsRepository {
                     edit_status,
                     routing_status,
                     last_edited_at,
+                    verification_status,
+                    is_verified,
                     created_at,
                     updated_at
                 )
@@ -720,6 +740,8 @@ export class StreetsRepository {
                     'published',
                     'needs_rebuild',
                     now(),
+                    ${input.verification_status ?? "unverified"},
+                    ${input.is_verified ?? false},
                     now(),
                     now()
                 )
@@ -818,6 +840,14 @@ export class StreetsRepository {
 
             if (input.tunnel !== undefined) {
                 assignments.push(Prisma.sql`tunnel = ${input.tunnel}`);
+            }
+
+            if (input.verification_status !== undefined) {
+                assignments.push(Prisma.sql`verification_status = ${input.verification_status}`);
+            }
+
+            if (input.is_verified !== undefined) {
+                assignments.push(Prisma.sql`is_verified = ${input.is_verified}`);
             }
 
             const updatedCount = await tx.$executeRaw(Prisma.sql`

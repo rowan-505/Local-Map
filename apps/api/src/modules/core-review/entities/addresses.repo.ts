@@ -6,6 +6,7 @@ import {
 } from "../core-review-list-status.js";
 import { getCoreReviewLifecycleConfig } from "../core-review-lifecycle.config.js";
 import type { CoreReviewEntityListParams } from "../core-review-entities.repo.js";
+import { coreReviewVerificationFilterClause } from "../core-review-verification-filter.js";
 
 export type CoreAddressComponentRowDb = {
     id: bigint;
@@ -39,6 +40,7 @@ export type CoreReviewAddressListRowDb = {
     admin_area_name_my: string | null;
     is_public: boolean;
     is_verified: boolean;
+    verification_status: string | null;
     confidence_score: unknown;
     source_type_id: bigint | null;
     source_refs: unknown;
@@ -110,6 +112,7 @@ const ADDRESS_SELECT = Prisma.sql`
     an_mm.name AS admin_area_name_my,
     a.is_public,
     a.is_verified,
+    a.verification_status,
     a.confidence_score,
     a.source_type_id,
     a.source_refs,
@@ -124,11 +127,8 @@ function sortDir(order: "asc" | "desc"): Prisma.Sql {
     return order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
 }
 
-function verifiedClause(isVerified?: boolean): Prisma.Sql {
-    if (isVerified === undefined) {
-        return Prisma.empty;
-    }
-    return Prisma.sql`AND a.is_verified = ${isVerified}`;
+function verificationClause(params: CoreReviewEntityListParams): Prisma.Sql {
+    return coreReviewVerificationFilterClause("a", params);
 }
 
 function adminAreaClause(adminAreaId?: bigint): Prisma.Sql {
@@ -203,7 +203,7 @@ export class CoreReviewAddressesRepository {
             ${ADMIN_NAME_JOINS}
             ${STREET_NAME_JOINS}
             WHERE ${statusClause(params.status)}
-              ${verifiedClause(params.isVerified)}
+              ${verificationClause(params)}
               ${adminAreaClause(params.adminAreaId)}
               ${isPublicClause(params.isPublic)}
               ${searchClause(params.search)}
@@ -220,7 +220,7 @@ export class CoreReviewAddressesRepository {
             ${ADMIN_NAME_JOINS}
             ${STREET_NAME_JOINS}
             WHERE ${statusClause(params.status)}
-              ${verifiedClause(params.isVerified)}
+              ${verificationClause(params)}
               ${adminAreaClause(params.adminAreaId)}
               ${isPublicClause(params.isPublic)}
               ${searchClause(params.search)}

@@ -13,6 +13,7 @@ import ImportReviewInlineSpinner from "@/src/features/import-review/components/I
 import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
 import ImportReviewSkeletonCards from "@/src/features/import-review/components/ImportReviewSkeletonCards";
 import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
+import ImportReviewTransportMovedNotice from "@/src/features/import-review/components/ImportReviewTransportMovedNotice";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import {
     applyImportReviewScopeSearchParams,
@@ -35,6 +36,7 @@ import {
 } from "@/src/features/import-review/utils/importReviewRequestDebug";
 import { aggregateBy, familyBucketRows } from "@/src/lib/importReviewSummaryRollups";
 import type { ImportReviewFamilySummaryMetrics } from "@/src/lib/api";
+import { isDeprecatedCoreBusImportReviewFamily } from "@/src/features/import-review/utils/deprecatedCoreBusPromotion";
 
 type FamilySummaryView = ImportReviewFamilySummaryMetrics & {
     label: string;
@@ -249,7 +251,10 @@ function ImportReviewSummaryInner() {
 
     const rollup = data?.rollup ?? null;
     const familySummaries = useMemo(
-        () => (data?.family_summaries ? familySummariesForDisplay(data.family_summaries) : []),
+        () =>
+            (data?.family_summaries ? familySummariesForDisplay(data.family_summaries) : []).filter(
+                (f) => !isDeprecatedCoreBusImportReviewFamily(f.entity_family)
+            ),
         [data]
     );
 
@@ -400,6 +405,8 @@ function ImportReviewSummaryInner() {
                         </div>
                     </div>
                 </header>
+
+                <ImportReviewTransportMovedNotice compact />
 
                 {ambiguousBatches && ambiguousBatches.length > 0 ? (
                     <>

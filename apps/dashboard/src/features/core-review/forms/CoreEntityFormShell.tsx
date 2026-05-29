@@ -9,6 +9,7 @@ export type CoreEntityFormShellProps = {
     mode: CoreEntityFormMode;
     title: string;
     description?: string;
+    badge?: ReactNode;
     backHref: string;
     backLabel?: string;
     onSubmit?: (event: React.FormEvent<HTMLFormElement>) => void;
@@ -29,6 +30,7 @@ export type CoreEntityFormShellProps = {
 export default function CoreEntityFormShell({
     title,
     description,
+    badge,
     backHref,
     backLabel = "Back to list",
     onSubmit,
@@ -59,6 +61,7 @@ export default function CoreEntityFormShell({
                     <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                             <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
+                            {badge ? <div className="mt-2">{badge}</div> : null}
                             {description ? (
                                 <p className="mt-1 text-sm text-slate-600">{description}</p>
                             ) : null}

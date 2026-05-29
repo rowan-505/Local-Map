@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
     consumeImportReviewApiAuthFailed,
@@ -10,6 +10,12 @@ import {
     logImportReviewAuthDecision,
     readImportReviewAuthDebugState,
 } from "@/src/lib/importReviewDevAccess";
+import {
+    consumeImportTransportApiAuthFailed,
+    isImportTransportDevRouteBypassActive,
+    logImportTransportAuthDecision,
+    readImportTransportAuthDebugState,
+} from "@/src/lib/importTransportDevAccess";
 
 type LoginResponse = {
     accessToken: string;
@@ -64,6 +70,21 @@ function getApiErrorMessage(payload: unknown): string | null {
     );
 }
 
+function resolvePostLoginPath(nextParam: string | null): string {
+    const fallback = "/dashboard";
+    if (!nextParam?.trim()) {
+        return fallback;
+    }
+    const next = nextParam.trim();
+    if (!next.startsWith("/") || next.startsWith("//")) {
+        return fallback;
+    }
+    if (!next.startsWith("/dashboard")) {
+        return fallback;
+    }
+    return next;
+}
+
 function getLoginErrorMessage(status: number, payload: unknown): string {
     const apiMessage = getApiErrorMessage(payload);
 
@@ -85,6 +106,7 @@ function getLoginErrorMessage(status: number, payload: unknown): string {
 
 export default function LoginPageClient() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState<string | null>(null);
@@ -94,12 +116,24 @@ export default function LoginPageClient() {
     useEffect(() => {
         const pathname = window.location.pathname;
         const state = readImportReviewAuthDebugState(pathname, true);
+        const transportState = readImportTransportAuthDebugState(pathname, true);
+        const postLoginPath = resolvePostLoginPath(searchParams.get("next"));
 
         if (consumeImportReviewApiAuthFailed()) {
             logImportReviewAuthDecision(
                 "LoginPageClient",
                 "stay-on-login-after-import-review-api-401",
                 { ...state, authLoading: false, importReviewApiAuthFailedFlag: true }
+            );
+            setAuthChecked(true);
+            return;
+        }
+
+        if (consumeImportTransportApiAuthFailed()) {
+            logImportTransportAuthDecision(
+                "LoginPageClient",
+                "stay-on-login-after-import-transport-api-401",
+                { ...transportState, authLoading: false, importReviewApiAuthFailedFlag: true }
             );
             setAuthChecked(true);
             return;
@@ -112,16 +146,24 @@ export default function LoginPageClient() {
                 ...state,
                 authLoading: false,
             });
+            logImportTransportAuthDecision("LoginPageClient", "show-login-form", {
+                ...transportState,
+                authLoading: false,
+            });
             setAuthChecked(true);
             return;
         }
 
-        logImportReviewAuthDecision("LoginPageClient", "redirect-dashboard", {
+        logImportReviewAuthDecision("LoginPageClient", "redirect-after-login", {
             ...readImportReviewAuthDebugState(pathname, false),
             hasAccessToken: true,
         });
-        router.replace("/dashboard");
-    }, [router]);
+        logImportTransportAuthDecision("LoginPageClient", "redirect-after-login", {
+            ...readImportTransportAuthDebugState(pathname, false),
+            hasAccessToken: true,
+        });
+        router.replace(postLoginPath);
+    }, [router, searchParams]);
 
     if (!authChecked) {
         return (
@@ -173,7 +215,7 @@ export default function LoginPageClient() {
             window.localStorage.removeItem("authToken");
             window.localStorage.removeItem("jwt");
             window.localStorage.setItem("accessToken", data.accessToken);
-            router.replace("/dashboard");
+            router.replace(resolvePostLoginPath(searchParams.get("next")));
         } catch (err) {
             if (err instanceof TypeError) {
                 setError("Cannot connect to server");
@@ -232,6 +274,18 @@ export default function LoginPageClient() {
                         Development: you can open{" "}
                         <Link href="/dashboard/import-review" className="font-medium underline">
                             Import review
+                        </Link>{" "}
+                        without signing in when{" "}
+                        <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_IMPORT_REVIEW_ADMIN_TOKEN</code> is
+                        set.
+                    </p>
+                ) : null}
+
+                {isImportTransportDevRouteBypassActive("/dashboard/import-transport") ? (
+                    <p className="mt-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        Development: you can open{" "}
+                        <Link href="/dashboard/import-transport" className="font-medium underline">
+                            Import transport
                         </Link>{" "}
                         without signing in when{" "}
                         <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_IMPORT_REVIEW_ADMIN_TOKEN</code> is

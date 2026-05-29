@@ -4,12 +4,14 @@ import type {
     CoreReviewAddressRow,
     CoreReviewAdminAreaRow,
     CoreReviewBuildingRow,
+    CoreReviewBusRouteRow,
     CoreReviewBusRouteVariantRow,
+    CoreReviewBusStopRow,
     CoreReviewLanduseRow,
     CoreReviewMapFeatureRow,
     CoreReviewPlaceRow,
 } from "./types";
-import { boolOrNull, geometryOrNull, numOrNull, strOrNull } from "./detailListRowUtils";
+import { boolOrNull, geometryOrNull, numOrNull, strOrNull, verificationFieldsFromDetail } from "./detailListRowUtils";
 
 function pointGeometryFromLatLng(
     lat: number | null | undefined,
@@ -32,6 +34,7 @@ export function applyBuildingDetailToListRow(
             building_type?: { id?: string; code?: string; name_en?: string | null } | null;
             admin_area?: { id?: string; canonical_name?: string | null } | null;
         };
+    const verification = verificationFieldsFromDetail(d, row);
 
     return {
         ...row,
@@ -57,7 +60,8 @@ export function applyBuildingDetailToListRow(
         areaM2: numOrNull(d.areaM2 ?? d.area_m2) ?? row.areaM2,
         levels: numOrNull(d.levels) ?? row.levels,
         confidenceScore: numOrNull(d.confidenceScore ?? d.confidence_score) ?? row.confidenceScore,
-        isVerified: boolOrNull(d.isVerified ?? d.is_verified) ?? row.isVerified,
+        verificationStatus: verification.verificationStatus,
+        isVerified: verification.isVerified,
         isActive: boolOrNull(d.isActive ?? d.is_active) ?? row.isActive,
         deletedAt: strOrNull(d.deletedAt ?? d.deleted_at) ?? row.deletedAt,
         createdAt: strOrNull(d.createdAt ?? d.created_at) ?? row.createdAt,
@@ -73,6 +77,7 @@ export function applyLanduseDetailToListRow(
 ): CoreReviewLanduseRow {
     const d = detail as CoreReviewLanduseRow &
         Partial<Record<"name_mm" | "name_en" | "class_code" | "landuse_class_id", string | null>>;
+    const verification = verificationFieldsFromDetail(d, row);
 
     return {
         ...row,
@@ -97,7 +102,8 @@ export function applyLanduseDetailToListRow(
         areaM2: numOrNull(d.areaM2) ?? row.areaM2,
         confidenceScore: numOrNull(d.confidenceScore) ?? row.confidenceScore,
         manualOverride: boolOrNull(d.manualOverride) ?? row.manualOverride,
-        isVerified: boolOrNull(d.isVerified) ?? row.isVerified,
+        verificationStatus: verification.verificationStatus,
+        isVerified: verification.isVerified,
         isActive: boolOrNull(d.isActive) ?? row.isActive,
         deletedAt: strOrNull(d.deletedAt) ?? row.deletedAt,
         createdAt: strOrNull(d.createdAt) ?? row.createdAt,
@@ -121,6 +127,7 @@ export function applyMapFeatureDetailToListRow(
         created_at?: string | null;
         updated_at?: string | null;
     };
+    const verification = verificationFieldsFromDetail(d, row);
 
     return {
         ...row,
@@ -129,7 +136,8 @@ export function applyMapFeatureDetailToListRow(
         name: strOrNull(d.name) ?? row.name,
         classCode: strOrNull(d.classCode ?? d.class_code) ?? row.classCode,
         isActive: boolOrNull(d.isActive ?? d.is_active) ?? row.isActive,
-        isVerified: boolOrNull(d.isVerified ?? d.is_verified) ?? row.isVerified,
+        verificationStatus: verification.verificationStatus,
+        isVerified: verification.isVerified,
         deletedAt: strOrNull(d.deletedAt ?? d.deleted_at) ?? row.deletedAt,
         createdAt: strOrNull(d.createdAt ?? d.created_at) ?? row.createdAt,
         updatedAt: strOrNull(d.updatedAt ?? d.updated_at) ?? row.updatedAt,
@@ -163,6 +171,7 @@ export function applyPlaceDetailToListRow(
 
     const lat = numOrNull(d.lat) ?? row.lat;
     const lng = numOrNull(d.lng) ?? row.lng;
+    const verification = verificationFieldsFromDetail(d, row);
 
     return {
         ...row,
@@ -185,7 +194,8 @@ export function applyPlaceDetailToListRow(
         confidenceScore:
             numOrNull(d.confidenceScore ?? d.confidence_score) ?? row.confidenceScore,
         isPublic: boolOrNull(d.isPublic ?? d.is_public) ?? row.isPublic,
-        isVerified: boolOrNull(d.isVerified ?? d.is_verified) ?? row.isVerified,
+        verificationStatus: verification.verificationStatus,
+        isVerified: verification.isVerified,
         plusCode: strOrNull(d.plusCode ?? d.plus_code) ?? row.plusCode,
         myanmarName:
             strOrNull(d.myanmarName ?? d.myanmar_name ?? d.nameMm ?? d.name_mm) ?? row.myanmarName,
@@ -224,6 +234,7 @@ export function applyAddressDetailToListRow(
         created_at?: string | null;
         updated_at?: string | null;
     };
+    const verification = verificationFieldsFromDetail(d, row);
 
     return {
         ...row,
@@ -250,7 +261,8 @@ export function applyAddressDetailToListRow(
         adminAreaId: strOrNull(d.adminAreaId ?? d.admin_area_id) ?? row.adminAreaId,
         adminAreaName: strOrNull(d.adminAreaName ?? d.admin_area_name) ?? row.adminAreaName,
         isPublic: boolOrNull(d.isPublic ?? d.is_public) ?? row.isPublic,
-        isVerified: boolOrNull(d.isVerified ?? d.is_verified) ?? row.isVerified,
+        verificationStatus: verification.verificationStatus,
+        isVerified: verification.isVerified,
         confidenceScore: numOrNull(d.confidenceScore) ?? row.confidenceScore,
         deletedAt: strOrNull(d.deletedAt ?? d.deleted_at) ?? row.deletedAt,
         createdAt: strOrNull(d.createdAt ?? d.created_at) ?? row.createdAt,
@@ -287,6 +299,7 @@ export function applyAdminAreaDetailToListRow(
         created_at?: string | null;
         updated_at?: string | null;
     };
+    const verification = verificationFieldsFromDetail(d, row);
 
     return {
         ...row,
@@ -325,12 +338,96 @@ export function applyAdminAreaDetailToListRow(
             row.boundaryConfidenceScore,
         boundaryNote: strOrNull(d.boundaryNote ?? d.boundary_note) ?? row.boundaryNote,
         isActive: boolOrNull(d.isActive ?? d.is_active) ?? row.isActive,
-        isVerified: boolOrNull(d.isVerified ?? d.is_verified) ?? row.isVerified,
+        verificationStatus: verification.verificationStatus,
+        isVerified: verification.isVerified,
         deletedAt: strOrNull(d.deletedAt ?? d.deleted_at) ?? row.deletedAt,
         createdAt: strOrNull(d.createdAt ?? d.created_at) ?? row.createdAt,
         updatedAt: strOrNull(d.updatedAt ?? d.updated_at) ?? row.updatedAt,
         geometry: geometryOrNull(d.geometry) ?? row.geometry,
         centroid: geometryOrNull(d.centroid) ?? row.centroid,
+    };
+}
+
+/** Maps bus stop edit detail onto a core-review list row. */
+export function applyBusStopDetailToListRow(
+    row: CoreReviewBusStopRow,
+    detail: unknown,
+): CoreReviewBusStopRow {
+    const d = detail as CoreReviewBusStopRow & {
+        name_en?: string | null;
+        name_mm?: string | null;
+        stop_code?: string | null;
+        mode_type?: string | null;
+        verification_status?: string | null;
+        confidence_score?: number | null;
+        is_active?: boolean;
+        is_verified?: boolean;
+        admin_area_id?: string | null;
+        admin_area_name?: string | null;
+        updated_at?: string | null;
+    };
+    const verification = verificationFieldsFromDetail(d, row);
+
+    return {
+        ...row,
+        name: strOrNull(d.name ?? d.nameEn ?? d.name_en) ?? row.name,
+        nameLocal: strOrNull(d.nameLocal ?? d.nameMm ?? d.name_mm) ?? row.nameLocal,
+        nameEn: strOrNull(d.nameEn ?? d.name_en ?? d.name) ?? row.nameEn,
+        nameMm: strOrNull(d.nameMm ?? d.name_mm ?? d.nameLocal) ?? row.nameMm,
+        stopCode: strOrNull(d.stopCode ?? d.stop_code) ?? row.stopCode,
+        modeType: strOrNull(d.modeType ?? d.mode_type) ?? row.modeType,
+        adminAreaId: strOrNull(d.adminAreaId ?? d.admin_area_id) ?? row.adminAreaId,
+        adminAreaName: strOrNull(d.adminAreaName ?? d.admin_area_name) ?? row.adminAreaName,
+        verificationStatus: verification.verificationStatus,
+        confidenceScore: numOrNull(d.confidenceScore ?? d.confidence_score) ?? row.confidenceScore,
+        sourceRefs: d.sourceRefs ?? row.sourceRefs,
+        normalizedData: d.normalizedData ?? row.normalizedData,
+        isActive: boolOrNull(d.isActive ?? d.is_active) ?? row.isActive,
+        isVerified: verification.isVerified,
+        updatedAt: strOrNull(d.updatedAt ?? d.updated_at) ?? row.updatedAt,
+        geometry: geometryOrNull(d.geometry) ?? row.geometry,
+    };
+}
+
+/** Maps bus route edit detail onto a core-review list row. */
+export function applyBusRouteDetailToListRow(
+    row: CoreReviewBusRouteRow,
+    detail: unknown,
+): CoreReviewBusRouteRow {
+    const d = detail as CoreReviewBusRouteRow & {
+        route_code?: string | null;
+        public_name?: string | null;
+        operator_name?: string | null;
+        operator_id?: string | null;
+        route_type?: string | null;
+        mode_type?: string | null;
+        route_status?: string | null;
+        verification_status?: string | null;
+        confidence_score?: number | null;
+        is_active?: boolean;
+        is_verified?: boolean;
+        updated_at?: string | null;
+    };
+    const verification = verificationFieldsFromDetail(d, row);
+
+    return {
+        ...row,
+        publicId: strOrNull(d.publicId) ?? row.publicId,
+        routeCode: strOrNull(d.routeCode ?? d.route_code) ?? row.routeCode,
+        publicName: strOrNull(d.publicName ?? d.public_name) ?? row.publicName,
+        operatorId: strOrNull(d.operatorId ?? d.operator_id) ?? row.operatorId,
+        operatorName: strOrNull(d.operatorName ?? d.operator_name) ?? row.operatorName,
+        routeType: strOrNull(d.routeType ?? d.route_type ?? d.modeType ?? d.mode_type) ?? row.routeType,
+        modeType: strOrNull(d.modeType ?? d.mode_type ?? d.routeType ?? d.route_type) ?? row.modeType,
+        routeStatus: strOrNull(d.routeStatus ?? d.route_status ?? d.verificationStatus ?? d.verification_status) ?? row.routeStatus,
+        verificationStatus: verification.verificationStatus,
+        confidenceScore: numOrNull(d.confidenceScore ?? d.confidence_score) ?? row.confidenceScore,
+        sourceRefs: d.sourceRefs ?? row.sourceRefs,
+        normalizedData: d.normalizedData ?? row.normalizedData,
+        variantCount: numOrNull(d.variantCount) ?? row.variantCount,
+        isActive: boolOrNull(d.isActive ?? d.is_active) ?? row.isActive,
+        isVerified: verification.isVerified,
+        updatedAt: strOrNull(d.updatedAt ?? d.updated_at) ?? row.updatedAt,
     };
 }
 
@@ -350,8 +447,12 @@ export function applyBusRouteVariantDetailToListRow(
         distance_m?: number | null;
         is_active?: boolean;
         is_verified?: boolean;
+        verification_status?: string | null;
+        confidence_score?: number | null;
+        updated_at?: string | null;
         deleted_at?: string | null;
     };
+    const verification = verificationFieldsFromDetail(d, row);
 
     return {
         ...row,
@@ -365,8 +466,13 @@ export function applyBusRouteVariantDetailToListRow(
         originName: strOrNull(d.originName ?? d.origin_name) ?? row.originName,
         destinationName: strOrNull(d.destinationName ?? d.destination_name) ?? row.destinationName,
         distanceM: numOrNull(d.distanceM ?? d.distance_m) ?? row.distanceM,
+        verificationStatus: verification.verificationStatus,
+        confidenceScore: numOrNull(d.confidenceScore ?? d.confidence_score) ?? row.confidenceScore,
+        sourceRefs: d.sourceRefs ?? row.sourceRefs,
+        normalizedData: d.normalizedData ?? row.normalizedData,
         isActive: boolOrNull(d.isActive ?? d.is_active) ?? row.isActive,
-        isVerified: boolOrNull(d.isVerified ?? d.is_verified) ?? row.isVerified,
+        isVerified: verification.isVerified,
+        updatedAt: strOrNull(d.updatedAt ?? d.updated_at) ?? row.updatedAt,
         deletedAt: strOrNull(d.deletedAt ?? d.deleted_at) ?? row.deletedAt,
         geometry: geometryOrNull(d.geometry) ?? row.geometry,
     };

@@ -10,6 +10,7 @@ import {
 } from "@/src/lib/api";
 
 import type { CoreReviewFilterSupport } from "../config/entity-config-types";
+import type { CoreReviewVerificationStatusFilter } from "../verification/coreReviewVerificationFilter";
 import {
     buildListParamsFromDraft,
     type CoreReviewListDraft,
@@ -100,14 +101,14 @@ export function useCoreReviewVerificationTotals(options: {
         queryFn: async ({ signal }) => {
             const countDraft: CoreReviewListDraft = {
                 ...appliedDraft,
-                verifiedFilter: "all",
+                verificationStatusFilter: "all",
                 pageSize: 1,
             };
-            const fetchCount = (verifiedFilter: "all" | "verified" | "unverified") =>
+            const fetchCount = (verificationStatusFilter: CoreReviewVerificationStatusFilter) =>
                 getCoreReviewList(
                     apiSlug,
                     {
-                        ...buildListParamsFromDraft(countDraft, 1, filterSupport, verifiedFilter),
+                        ...buildListParamsFromDraft(countDraft, 1, filterSupport, verificationStatusFilter),
                         pageSize: 1,
                     },
                     { signal }

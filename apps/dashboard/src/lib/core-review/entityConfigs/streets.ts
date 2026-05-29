@@ -9,11 +9,15 @@ import type {
 } from "@/src/lib/api";
 import { getStreet } from "@/src/lib/api";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
+import { formatVerificationStatusLabel } from "@/src/features/core-review/config/verificationStatus";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 
 import {
     createCoreReviewWriteMutations,
     detailRecordId,
+    verificationStatusFormField,
+    verificationStatusFromDetail,
+    verificationStatusWritePayload,
 } from "./shared";
 
 import type { CoreEntityConfig, CoreEntityFormMode, CoreEntityFormValues } from "./types";
@@ -35,6 +39,7 @@ function streetFormSchema(mode: CoreEntityFormMode) {
         bridge: z.boolean(),
         tunnel: z.boolean(),
         surface: z.string(),
+        verification_status: z.string(),
         geom: z.custom<Geometry | null>(),
         edit_reason: z.string().optional(),
     });
@@ -69,6 +74,7 @@ function formValuesToStreetCreatePayload(values: CoreEntityFormValues): CreateSt
         tunnel: Boolean(values.tunnel),
         surface: surfaceTrimmed || undefined,
         geometry: lineFromFormValues(values),
+        ...verificationStatusWritePayload(values),
     };
 }
 
@@ -86,6 +92,7 @@ function formValuesToStreetUpdatePayload(values: CoreEntityFormValues): UpdateSt
         surface: surfaceTrimmed || null,
         geometry: lineFromFormValues(values),
         edit_reason: reason || undefined,
+        ...verificationStatusWritePayload(values),
     };
 }
 
@@ -129,6 +136,7 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
         { key: "is_oneway", label: "One-way", type: "boolean" },
         { key: "bridge", label: "Bridge", type: "boolean" },
         { key: "tunnel", label: "Tunnel", type: "boolean" },
+        verificationStatusFormField(),
         {
             key: "edit_reason",
             label: "Edit reason",
@@ -150,11 +158,11 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
             format: (v) => (v ? "Yes" : "No"),
         },
         {
-            key: "is_verified",
-            label: "Verified",
+            key: "verification_status",
+            label: "Verification status",
             type: "text",
-            detailPath: "is_verified",
-            format: (v) => (v ? "Yes" : "No"),
+            detailPath: "verification_status",
+            format: (v) => formatVerificationStatusLabel(typeof v === "string" ? v : undefined),
         },
         {
             key: "source_type_id",
@@ -189,6 +197,7 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
         bridge: false,
         tunnel: false,
         surface: "",
+        verification_status: "unverified",
         geom: null,
         edit_reason: "",
     },
@@ -213,6 +222,9 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
             bridge: detail.bridge,
             tunnel: detail.tunnel,
             surface: detail.surface ?? "",
+            verification_status: verificationStatusFromDetail(
+                detail as { verification_status?: string | null; is_verified?: boolean | null },
+            ),
             geom: geometry,
             edit_reason: "",
         };

@@ -27,6 +27,7 @@ import CoreReviewLifecycleDrawerActions from "../lifecycle/CoreReviewLifecycleDr
 import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
 import CoreReviewEntityDrawer from "../drawer/CoreReviewEntityDrawer";
 import type { CoreReviewInlineEditGuard } from "../drawer";
+import CoreReviewTransportSourceBadge from "../transport/CoreReviewTransportSourceBadge";
 
 export type CoreReviewEntityPageProps<T extends Record<string, unknown> = Record<string, unknown>> = {
     config: CoreReviewEntityConfig<T>;
@@ -144,7 +145,7 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
             searchDraft: "",
             sortBy: config.defaultSortBy,
             arrange: "newest",
-            verifiedFilter: "all",
+            verificationStatusFilter: "all",
             adminAreaId: "",
             categoryId: "",
             buildingTypeId: "",
@@ -225,6 +226,11 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
             <CoreReviewHeaderCard
                 title={config.title}
                 description={config.description}
+                badge={
+                    config.dataSource ? (
+                        <CoreReviewTransportSourceBadge source={config.dataSource} />
+                    ) : undefined
+                }
                 meta={metaLabel}
                 actions={headerActions}
             />
@@ -254,6 +260,7 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                         filteredCount={list.rows.length}
                         onApply={handleApply}
                         onClear={handleClear}
+                        onApplyVerificationFilter={list.applyVerificationFilter}
                         showRoutePicker={config.apiSlug === "bus-route-variants"}
                         extraFilters={config.extensions?.renderExtraFilters?.({
                             draft: list.draft,

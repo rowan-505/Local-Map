@@ -1,5 +1,6 @@
 import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
 import { getImportReviewEntityConfig } from "./import-review-config.js";
+import { assertDeprecatedCoreBusPublishFamiliesNotRequested } from "./import-review-transport-promotion-deprecated.js";
 
 /** Families validated by the multi-family publish batch validation runner. */
 export const VALIDATABLE_PUBLISH_FAMILIES = [
@@ -8,10 +9,6 @@ export const VALIDATABLE_PUBLISH_FAMILIES = [
     "landuse",
     "water_lines",
     "water_polygons",
-    "bus_routes",
-    "bus_route_variants",
-    "bus_route_stops",
-    "bus_stops",
     "admin_areas",
     "routing_barriers",
 ] as const satisfies readonly ImportReviewEntityFamilySlug[];
@@ -29,10 +26,6 @@ export const PROMOTABLE_PUBLISH_FAMILIES = [
     "landuse",
     "water_lines",
     "water_polygons",
-    "bus_routes",
-    "bus_route_variants",
-    "bus_route_stops",
-    "bus_stops",
     "roads",
     "admin_areas",
     "routing_barriers",
@@ -50,9 +43,6 @@ export const DEFAULT_PUBLISH_ENTITY_FAMILIES = [
     "landuse",
     "water_lines",
     "water_polygons",
-    "bus_routes",
-    "bus_route_variants",
-    "bus_stops",
 ] as const satisfies readonly ImportReviewEntityFamilySlug[];
 
 export const HIGH_RISK_PUBLISH_ENTITY_FAMILIES = [
@@ -137,6 +127,7 @@ export function resolvePublishEntityFamilies(
     allowHighRisk: boolean
 ): ImportReviewPublishFamilyConfig[] {
     const families = requested?.length ? requested : ["buildings"];
+    assertDeprecatedCoreBusPublishFamiliesNotRequested(families);
     const out: ImportReviewPublishFamilyConfig[] = [];
     for (const raw of families) {
         const cfg = getImportReviewPublishFamilyConfig(raw.trim());

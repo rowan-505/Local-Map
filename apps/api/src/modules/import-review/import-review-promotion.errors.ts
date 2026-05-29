@@ -195,3 +195,15 @@ export class ImportReviewRoadDryRunRequiredError extends Error {
         this.name = "ImportReviewRoadDryRunRequiredError";
     }
 }
+
+export const TRANSPORT_PROMOTION_DEPRECATED_MESSAGE =
+    "Transport promotion moved to import_transport/core_transport.";
+
+export class ImportReviewTransportPromotionDeprecatedError extends Error {
+    readonly statusCode = 409;
+
+    constructor(public readonly entityFamilies: readonly string[]) {
+        super(TRANSPORT_PROMOTION_DEPRECATED_MESSAGE);
+        this.name = "ImportReviewTransportPromotionDeprecatedError";
+    }
+}

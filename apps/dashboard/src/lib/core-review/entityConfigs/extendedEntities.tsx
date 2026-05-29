@@ -9,6 +9,10 @@ import type {
     CoreReviewMapFeatureRow,
     CoreReviewNameDto,
 } from "@/src/features/core-review/config/types";
+import {
+    TRANSPORT_MODE_TYPE_OPTIONS,
+    transportWriteExtras,
+} from "@/src/features/core-review/transport/coreReviewTransportShared";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 
 import {
@@ -36,6 +40,9 @@ import {
     standardPublicIdReadonlyFields,
     standardTimestampReadonlyFields,
     str,
+    verificationStatusFormField,
+    verificationStatusFromDetail,
+    verificationStatusWritePayload,
     yesNoFormat,
 } from "./shared";
 import type { CoreEntityConfig, CoreEntityFormMode, CoreEntityFormValues } from "./types";
@@ -98,9 +105,9 @@ function busStopFormSchema(_mode: CoreEntityFormMode) {
             name_local: optionalStringSchema,
             stop_code: optionalStringSchema,
             admin_area_id: optionalStringSchema,
-            source_type_id: optionalStringSchema,
             is_active: optionalBooleanSchema,
-            is_verified: optionalBooleanSchema,
+            verification_status: optionalStringSchema,
+            confidence_score: optionalNumberStringSchema,
             geom: optionalGeometrySchema,
         })
         .superRefine((data, ctx) => {
@@ -120,10 +127,9 @@ function busStopPayload(values: CoreEntityFormValues) {
         name_local: nullableFormString(values.name_local),
         stop_code: nullableFormString(values.stop_code),
         admin_area_id: optionalFormRefId(values.admin_area_id),
-        source_type_id: optionalFormRefId(values.source_type_id),
         is_active: bool(values.is_active),
-        is_verified: bool(values.is_verified),
         geom: requirePointGeometry(values, BUS_STOP_GEOM),
+        ...transportWriteExtras(values),
     };
 }
 
@@ -133,16 +139,12 @@ function busStopUpdatePayload(values: CoreEntityFormValues) {
         name_local: nullableFormString(values.name_local),
         stop_code: nullableFormString(values.stop_code),
         is_active: bool(values.is_active),
-        is_verified: bool(values.is_verified),
         geom: requirePointGeometry(values, BUS_STOP_GEOM),
+        ...transportWriteExtras(values),
     };
     const adminAreaId = String(values.admin_area_id ?? "").trim();
     if (adminAreaId) {
         payload.admin_area_id = parseOptionalFormRefId(values.admin_area_id);
-    }
-    const sourceTypeId = String(values.source_type_id ?? "").trim();
-    if (sourceTypeId) {
-        payload.source_type_id = parseOptionalFormRefId(values.source_type_id);
     }
     return payload;
 }
@@ -163,17 +165,32 @@ export const BUS_STOPS_ENTITY_CONFIG = baseWriteConfig<BusStopDetail>({
         title: "Stop location",
     },
     editableFields: [
-        { key: "name", label: "English name", type: "text" },
-        { key: "name_local", label: "Myanmar name", type: "text" },
         { key: "stop_code", label: "Stop code", type: "text" },
+        { key: "name_local", label: "Myanmar name", type: "text" },
+        { key: "name", label: "English / display name", type: "text" },
         { key: "admin_area_id", label: "Admin area", type: "ref", refSource: "admin-areas" },
-        { key: "source_type_id", label: "Source type", type: "ref", refSource: "reference-options:source_types" },
         { key: "is_active", label: "Active", type: "boolean" },
-        { key: "is_verified", label: "Verified", type: "boolean" },
+        verificationStatusFormField(),
+        {
+            key: "confidence_score",
+            label: "Confidence score",
+            type: "number",
+            numberMin: 0,
+            numberMax: 100,
+            numberStep: 1,
+        },
     ],
     readonlyMetadata: [
         ...standardPublicIdReadonlyFields(),
         ...standardIdReadonlyFields(),
+        { key: "mode_type", label: "Mode type", type: "text", detailPath: "modeType" },
+        { key: "source_refs", label: "Source refs", type: "json-readonly", detailPath: "sourceRefs" },
+        {
+            key: "normalized_data",
+            label: "Normalized data",
+            type: "json-readonly",
+            detailPath: "normalizedData",
+        },
         ...standardTimestampReadonlyFields(),
     ],
     defaultFormValues: {
@@ -181,20 +198,20 @@ export const BUS_STOPS_ENTITY_CONFIG = baseWriteConfig<BusStopDetail>({
         name_local: "",
         stop_code: "",
         admin_area_id: "",
-        source_type_id: "",
         is_active: true,
-        is_verified: false,
+        verification_status: "unverified",
+        confidence_score: "",
         geom: null,
     },
     formSchema: busStopFormSchema,
     detailToFormValues: (detail) => ({
-        name: str(detail.name),
-        name_local: str(detail.nameLocal),
+        name: str(detail.nameEn ?? detail.name),
+        name_local: str(detail.nameMm ?? detail.nameLocal),
         stop_code: str(detail.stopCode),
         admin_area_id: str(detail.adminAreaId),
-        source_type_id: str(detail.sourceTypeId),
         is_active: bool(detail.isActive),
-        is_verified: bool(detail.isVerified),
+        verification_status: verificationStatusFromDetail(detail),
+        confidence_score: detail.confidenceScore == null ? "" : String(detail.confidenceScore),
         geom: pointFromDetailGeometry(detail.geometry),
     }),
     getDetailId: (detail) => detail.publicId,
@@ -203,6 +220,12 @@ export const BUS_STOPS_ENTITY_CONFIG = baseWriteConfig<BusStopDetail>({
     formValuesToUpdatePayload: busStopUpdatePayload,
     createDescription: "Set the bus stop location and attributes, then save.",
     editDescription: (detail) => `public_id: ${detail.publicId}`,
+    formNotice: (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            Click the map to set or adjust the stop location. Uses the same MapLibre point picker as
+            core-review places.
+        </p>
+    ),
 });
 
 // ── Bus routes (no geometry) ────────────────────────────────────────────────
@@ -212,42 +235,36 @@ function busRouteFormSchema(_mode: CoreEntityFormMode) {
         route_code: optionalStringSchema,
         public_name: optionalStringSchema,
         operator_name: optionalStringSchema,
-        route_type: optionalStringSchema,
-        directionality: optionalStringSchema,
-        source_type_id: optionalStringSchema,
+        mode_type: optionalStringSchema,
         is_active: optionalBooleanSchema,
-        is_verified: optionalBooleanSchema,
+        verification_status: optionalStringSchema,
+        confidence_score: optionalNumberStringSchema,
     });
 }
 
 function busRoutePayload(values: CoreEntityFormValues) {
+    const modeType = nullableFormString(values.mode_type) ?? "local_bus";
     return {
         route_code: nullableFormString(values.route_code),
         public_name: nullableFormString(values.public_name),
         operator_name: nullableFormString(values.operator_name),
-        route_type: nullableFormString(values.route_type),
-        directionality: nullableFormString(values.directionality),
-        source_type_id: optionalFormRefId(values.source_type_id),
+        route_type: modeType,
+        mode_type: modeType,
         is_active: bool(values.is_active),
-        is_verified: bool(values.is_verified),
+        ...transportWriteExtras(values),
     };
 }
 
 function busRouteUpdatePayload(values: CoreEntityFormValues) {
-    const payload: Record<string, unknown> = {
+    const modeType = nullableFormString(values.mode_type);
+    return {
         route_code: nullableFormString(values.route_code),
         public_name: nullableFormString(values.public_name),
         operator_name: nullableFormString(values.operator_name),
-        route_type: nullableFormString(values.route_type),
-        directionality: nullableFormString(values.directionality),
+        ...(modeType ? { route_type: modeType, mode_type: modeType } : {}),
         is_active: bool(values.is_active),
-        is_verified: bool(values.is_verified),
+        ...transportWriteExtras(values),
     };
-    const sourceTypeId = String(values.source_type_id ?? "").trim();
-    if (sourceTypeId) {
-        payload.source_type_id = parseOptionalFormRefId(values.source_type_id);
-    }
-    return payload;
 }
 
 export const BUS_ROUTES_ENTITY_CONFIG = baseWriteConfig<CoreReviewBusRouteRow>({
@@ -261,17 +278,30 @@ export const BUS_ROUTES_ENTITY_CONFIG = baseWriteConfig<CoreReviewBusRouteRow>({
     createRoute: coreReviewPath("bus-routes/new"),
     editRoute: (id) => coreReviewPath(`bus-routes/${id}/edit`),
     editableFields: [
-        { key: "route_code", label: "Route code", type: "text" },
-        { key: "public_name", label: "Public name", type: "text" },
-        { key: "operator_name", label: "Operator", type: "text" },
-        { key: "route_type", label: "Route type", type: "text" },
-        { key: "directionality", label: "Directionality", type: "text" },
-        { key: "source_type_id", label: "Source type", type: "ref", refSource: "reference-options:source_types" },
+        { key: "route_code", label: "Route code", type: "text", required: true },
+        { key: "public_name", label: "Public name", type: "text", required: true },
+        { key: "operator_name", label: "Operator name", type: "text" },
+        {
+            key: "mode_type",
+            label: "Mode type",
+            type: "select",
+            selectOptions: [...TRANSPORT_MODE_TYPE_OPTIONS],
+        },
         { key: "is_active", label: "Active", type: "boolean" },
-        { key: "is_verified", label: "Verified", type: "boolean" },
+        verificationStatusFormField(),
+        {
+            key: "confidence_score",
+            label: "Confidence score",
+            type: "number",
+            numberMin: 0,
+            numberMax: 100,
+            numberStep: 1,
+        },
     ],
     readonlyMetadata: [
         ...standardIdReadonlyFields(),
+        { key: "public_id", label: "Public ID", type: "text", detailPath: "publicId" },
+        { key: "operator_id", label: "Operator ID", type: "text", detailPath: "operatorId" },
         {
             key: "variant_count",
             label: "Variant count",
@@ -279,28 +309,34 @@ export const BUS_ROUTES_ENTITY_CONFIG = baseWriteConfig<CoreReviewBusRouteRow>({
             detailPath: "variantCount",
             format: (v) => (v == null ? "—" : String(v)),
         },
+        { key: "directionality", label: "Directionality", type: "text", detailPath: "directionality" },
+        { key: "source_refs", label: "Source refs", type: "json-readonly", detailPath: "sourceRefs" },
+        {
+            key: "normalized_data",
+            label: "Normalized data",
+            type: "json-readonly",
+            detailPath: "normalizedData",
+        },
         ...standardTimestampReadonlyFields(),
     ],
     defaultFormValues: {
         route_code: "",
         public_name: "",
         operator_name: "",
-        route_type: "",
-        directionality: "",
-        source_type_id: "",
+        mode_type: "local_bus",
         is_active: true,
-        is_verified: false,
+        verification_status: "unverified",
+        confidence_score: "",
     },
     formSchema: busRouteFormSchema,
     detailToFormValues: (detail) => ({
         route_code: str(detail.routeCode),
         public_name: str(detail.publicName),
         operator_name: str(detail.operatorName),
-        route_type: str(detail.routeType),
-        directionality: str(detail.directionality),
-        source_type_id: str(detail.sourceTypeId),
+        mode_type: str(detail.modeType ?? detail.routeType ?? "local_bus"),
         is_active: bool(detail.isActive),
-        is_verified: bool(detail.isVerified),
+        verification_status: verificationStatusFromDetail(detail),
+        confidence_score: detail.confidenceScore == null ? "" : String(detail.confidenceScore),
     }),
     getDetailId: (detail) => detail.id,
     fetchDetail: createCoreReviewFetchDetail<CoreReviewBusRouteRow>("bus-routes"),
@@ -324,7 +360,8 @@ function busRouteVariantFormSchema(_mode: CoreEntityFormMode) {
             destination_name: optionalStringSchema,
             distance_m: optionalNumberStringSchema,
             is_active: optionalBooleanSchema,
-            is_verified: optionalBooleanSchema,
+            verification_status: optionalStringSchema,
+            confidence_score: optionalNumberStringSchema,
             geom: optionalGeometrySchema,
         })
         .superRefine((data, ctx) => {
@@ -360,8 +397,8 @@ function busRouteVariantPayload(values: CoreEntityFormValues) {
         destination_name: nullableFormString(values.destination_name),
         distance_m,
         is_active: bool(values.is_active),
-        is_verified: bool(values.is_verified),
         geom: requireLineGeometry(values, VARIANT_GEOM),
+        ...transportWriteExtras(values),
     };
 }
 
@@ -380,6 +417,7 @@ export const BUS_ROUTE_VARIANTS_ENTITY_CONFIG = baseWriteConfig<CoreReviewBusRou
         geometryType: "line",
         title: "Variant path",
         showVertices: true,
+        enableSnapping: false,
     },
     editableFields: [
         {
@@ -395,12 +433,28 @@ export const BUS_ROUTE_VARIANTS_ENTITY_CONFIG = baseWriteConfig<CoreReviewBusRou
         { key: "destination_name", label: "Destination", type: "text" },
         { key: "distance_m", label: "Distance (m)", type: "number", numberMin: 0 },
         { key: "is_active", label: "Active", type: "boolean" },
-        { key: "is_verified", label: "Verified", type: "boolean" },
+        verificationStatusFormField(),
+        {
+            key: "confidence_score",
+            label: "Confidence score",
+            type: "number",
+            numberMin: 0,
+            numberMax: 100,
+            numberStep: 1,
+        },
     ],
     readonlyMetadata: [
         ...standardIdReadonlyFields(),
         { key: "route_code", label: "Route code", type: "text", detailPath: "routeCode" },
         { key: "route_name", label: "Route name", type: "text", detailPath: "routePublicName" },
+        { key: "source_refs", label: "Source refs", type: "json-readonly", detailPath: "sourceRefs" },
+        {
+            key: "normalized_data",
+            label: "Normalized data",
+            type: "json-readonly",
+            detailPath: "normalizedData",
+        },
+        ...standardTimestampReadonlyFields(),
     ],
     defaultFormValues: {
         route_id: "",
@@ -410,7 +464,8 @@ export const BUS_ROUTE_VARIANTS_ENTITY_CONFIG = baseWriteConfig<CoreReviewBusRou
         destination_name: "",
         distance_m: "",
         is_active: true,
-        is_verified: false,
+        verification_status: "unverified",
+        confidence_score: "",
         geom: null,
     },
     formSchema: busRouteVariantFormSchema,
@@ -422,15 +477,23 @@ export const BUS_ROUTE_VARIANTS_ENTITY_CONFIG = baseWriteConfig<CoreReviewBusRou
         destination_name: str(detail.destinationName),
         distance_m: detail.distanceM != null ? String(detail.distanceM) : "",
         is_active: bool(detail.isActive),
-        is_verified: bool(detail.isVerified),
+        verification_status: verificationStatusFromDetail(detail),
+        confidence_score: detail.confidenceScore == null ? "" : String(detail.confidenceScore),
         geom: lineFromDetailGeometry(detail.geometry),
     }),
     getDetailId: (detail) => detail.id,
     fetchDetail: createCoreReviewFetchDetail<CoreReviewBusRouteVariantRow>("bus-route-variants"),
     formValuesToCreatePayload: busRouteVariantPayload,
     formValuesToUpdatePayload: busRouteVariantPayload,
-    createDescription: "Draw the variant path on the map, then save.",
+    createDescription: "Draw the variant path on the map (road snapping disabled for bus corridors), then save.",
     editDescription: (detail) => `id: ${detail.id}`,
+    formNotice: (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            Variant path editing uses the same MapLibre line editor as core-review roads, without
+            snap-to-road so corridor geometry stays independent of the street network.
+            Reference route paths from promotion are read-only below the editor.
+        </p>
+    ),
 });
 
 // ── Landuse / water (polygon + line factory) ──────────────────────────────────
@@ -441,7 +504,7 @@ function mapFeatureFormSchema(entityKey: "water-lines" | "water-polygons", _mode
             name: optionalStringSchema,
             class_code: z.string().trim().min(1, "Class code is required"),
             is_active: optionalBooleanSchema,
-            is_verified: optionalBooleanSchema,
+            verification_status: optionalStringSchema,
             geom: optionalGeometrySchema,
         })
         .superRefine((data, ctx) => {
@@ -492,7 +555,7 @@ function createMapFeatureConfig(
             { key: "name", label: "Name", type: "text" },
             { key: "class_code", label: "Class code", type: "text", required: true },
             { key: "is_active", label: "Active", type: "boolean" },
-            { key: "is_verified", label: "Verified", type: "boolean" },
+            verificationStatusFormField(),
         ],
         readonlyMetadata: [
             ...standardIdReadonlyFields(),
@@ -516,7 +579,7 @@ function createMapFeatureConfig(
             name: "",
             class_code: "",
             is_active: true,
-            is_verified: false,
+            verification_status: "unverified",
             geom: null,
         },
         formSchema: (mode) => mapFeatureFormSchema(entityKey, mode),
@@ -524,7 +587,7 @@ function createMapFeatureConfig(
             name: str(detail.name),
             class_code: str(detail.classCode),
             is_active: bool(detail.isActive),
-            is_verified: bool(detail.isVerified),
+            verification_status: verificationStatusFromDetail(detail),
             geom: toGeom(detail.geometry),
         }),
         getDetailId: (detail) => detail.id,
@@ -565,7 +628,7 @@ function addressFormSchema(_mode: CoreEntityFormMode) {
             admin_area_id: optionalStringSchema,
             source_type_id: optionalStringSchema,
             is_public: optionalBooleanSchema,
-            is_verified: optionalBooleanSchema,
+            verification_status: optionalStringSchema,
             point_geom: optionalGeometrySchema,
             entrance_geom: optionalGeometrySchema,
         })
@@ -598,7 +661,7 @@ function addressPayload(values: CoreEntityFormValues) {
         admin_area_id: optionalFormRefId(values.admin_area_id),
         source_type_id: optionalFormRefId(values.source_type_id),
         is_public: bool(values.is_public),
-        is_verified: bool(values.is_verified),
+        ...verificationStatusWritePayload(values),
         point_geom: requirePointGeometry(values, "point_geom"),
         entrance_geom:
             entrance && typeof entrance === "object" && "type" in entrance && entrance.type === "Point"
@@ -639,7 +702,7 @@ export const ADDRESSES_ENTITY_CONFIG = baseWriteConfig<AddressDetail>({
         { key: "admin_area_id", label: "Admin area", type: "ref", refSource: "admin-areas" },
         { key: "source_type_id", label: "Source type", type: "ref", refSource: "reference-options:source_types" },
         { key: "is_public", label: "Public", type: "boolean" },
-        { key: "is_verified", label: "Verified", type: "boolean" },
+        verificationStatusFormField(),
     ],
     readonlyMetadata: [
         ...standardPublicIdReadonlyFields(),
@@ -679,7 +742,7 @@ export const ADDRESSES_ENTITY_CONFIG = baseWriteConfig<AddressDetail>({
         admin_area_id: "",
         source_type_id: "",
         is_public: true,
-        is_verified: false,
+        verification_status: "unverified",
         point_geom: null,
         entrance_geom: null,
         address_components: { upsert: [] },
@@ -694,7 +757,7 @@ export const ADDRESSES_ENTITY_CONFIG = baseWriteConfig<AddressDetail>({
         admin_area_id: str(detail.adminAreaId),
         source_type_id: str(detail.sourceTypeId),
         is_public: bool(detail.isPublic),
-        is_verified: bool(detail.isVerified),
+        verification_status: verificationStatusFromDetail(detail),
         point_geom: pointFromDetailGeometry(detail.geometry),
         entrance_geom: pointFromDetailGeometry(detail.entranceGeometry),
     }),
@@ -717,7 +780,7 @@ function adminAreaFormSchema(_mode: CoreEntityFormMode) {
             admin_level_id: z.string().min(1, "Admin level is required"),
             source_type_id: optionalStringSchema,
             is_active: optionalBooleanSchema,
-            is_verified: optionalBooleanSchema,
+            verification_status: optionalStringSchema,
             boundary_status: z.string().trim().min(1, "Boundary status is required"),
             address_usage: z.string().trim().min(1, "Address usage is required"),
             is_official_boundary: optionalBooleanSchema,
@@ -776,7 +839,7 @@ function adminAreaPayload(values: CoreEntityFormValues) {
         boundaryNote: nullableFormString(values.boundary_note),
         boundary_note: nullableFormString(values.boundary_note),
         is_active: bool(values.is_active),
-        is_verified: bool(values.is_verified),
+        ...verificationStatusWritePayload(values),
         geom: requirePolygonGeometry(values, "geom"),
     };
 }
@@ -816,7 +879,7 @@ export const ADMIN_AREAS_ENTITY_CONFIG = baseWriteConfig<AdminAreaDetail>({
             helpText: "Optional — defaults to manual when left blank.",
         },
         { key: "is_active", label: "Active", type: "boolean" },
-        { key: "is_verified", label: "Verified", type: "boolean" },
+        verificationStatusFormField(),
     ],
     readonlyMetadata: [
         ...standardPublicIdReadonlyFields(),
@@ -836,7 +899,7 @@ export const ADMIN_AREAS_ENTITY_CONFIG = baseWriteConfig<AdminAreaDetail>({
         admin_level_id: "",
         source_type_id: "",
         is_active: true,
-        is_verified: false,
+        verification_status: "unverified",
         boundary_status: "",
         address_usage: "",
         is_official_boundary: false,
@@ -852,7 +915,7 @@ export const ADMIN_AREAS_ENTITY_CONFIG = baseWriteConfig<AdminAreaDetail>({
         admin_level_id: str(detail.adminLevelId),
         source_type_id: str(detail.sourceTypeId),
         is_active: bool(detail.isActive),
-        is_verified: bool(detail.isVerified),
+        verification_status: verificationStatusFromDetail(detail),
         boundary_status: str(detail.boundaryStatus),
         address_usage: str(detail.addressUsage),
         is_official_boundary: detail.isOfficialBoundary ?? false,

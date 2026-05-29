@@ -17,7 +17,7 @@ export async function listCoreReviewStreets(
         q: query.search,
         include_deleted: listStatus === "all",
         status: listStatus,
-        is_verified: query.isVerified,
+        verification_status: query.verificationStatus,
         admin_area_id: query.adminAreaId ? BigInt(query.adminAreaId) : undefined,
         road_class_id: query.roadClassId ? BigInt(query.roadClassId) : undefined,
     };
@@ -40,7 +40,7 @@ export async function listCoreReviewStreets(
         total,
         filters: {
             search: query.search,
-            isVerified: query.isVerified,
+            verification_status: query.verificationStatus,
             adminAreaId: query.adminAreaId,
             roadClassId: query.roadClassId,
             includeDeleted: query.includeDeleted,

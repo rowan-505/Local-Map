@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { coreReviewVerificationStatusQuerySchema } from "./core-review-verification-filter.js";
+
 const optionalSearchSchema = z.preprocess((value) => {
     if (value === undefined || value === null || value === "") {
         return undefined;
@@ -52,27 +54,43 @@ export const coreReviewEntityIdParamSchema = z.object({
 
 export const coreReviewListStatusSchema = z.enum(["active", "deleted", "all"]);
 
-export const coreReviewListQuerySchema = z.object({
-    page: z.coerce.number().int().min(1).default(1),
-    pageSize: z.coerce.number().int().min(1).max(100).default(50),
-    search: optionalSearchSchema,
-    sortBy: z.string().trim().min(1).optional(),
-    sortOrder: z.enum(["asc", "desc"]).default("desc"),
-    status: coreReviewListStatusSchema.optional(),
-    isVerified: optionalBooleanSchema,
-    adminAreaId: optionalBigintIdSchema,
-    categoryId: optionalBigintIdSchema,
-    buildingTypeId: optionalBigintIdSchema,
-    roadClassId: optionalBigintIdSchema,
-    isPublic: optionalBooleanSchema,
-    includeDeleted: optionalBooleanSchema,
-    routeId: optionalBigintIdSchema,
-    landuseClassId: optionalBigintIdSchema,
-    detailLevel: z.enum(["zone", "parcel"]).optional(),
-    cropCode: optionalSearchSchema,
-    boundaryStatus: optionalSearchSchema,
-    addressUsage: optionalSearchSchema,
-    isOfficialBoundary: optionalBooleanSchema,
-});
+export const coreReviewListQuerySchema = z
+    .object({
+        page: z.coerce.number().int().min(1).default(1),
+        pageSize: z.coerce.number().int().min(1).max(100).default(50),
+        search: optionalSearchSchema,
+        sortBy: z.string().trim().min(1).optional(),
+        sortOrder: z.enum(["asc", "desc"]).default("desc"),
+        status: coreReviewListStatusSchema.optional(),
+        verificationStatus: coreReviewVerificationStatusQuerySchema,
+        verification_status: coreReviewVerificationStatusQuerySchema,
+        /** @deprecated Legacy alias — mapped to verificationStatus when status is omitted */
+        isVerified: optionalBooleanSchema,
+        adminAreaId: optionalBigintIdSchema,
+        categoryId: optionalBigintIdSchema,
+        buildingTypeId: optionalBigintIdSchema,
+        roadClassId: optionalBigintIdSchema,
+        isPublic: optionalBooleanSchema,
+        includeDeleted: optionalBooleanSchema,
+        routeId: optionalBigintIdSchema,
+        landuseClassId: optionalBigintIdSchema,
+        detailLevel: z.enum(["zone", "parcel"]).optional(),
+        cropCode: optionalSearchSchema,
+        boundaryStatus: optionalSearchSchema,
+        addressUsage: optionalSearchSchema,
+        isOfficialBoundary: optionalBooleanSchema,
+    })
+    .transform((query) => {
+        let verificationStatus = query.verificationStatus ?? query.verification_status;
+        if (!verificationStatus && query.isVerified !== undefined) {
+            verificationStatus = query.isVerified ? "verified" : "unverified";
+        }
+        const {
+            verification_status: _verification_status,
+            isVerified: _isVerified,
+            ...rest
+        } = query;
+        return { ...rest, verificationStatus };
+    });
 
 export type CoreReviewListQueryParsed = z.infer<typeof coreReviewListQuerySchema>;

@@ -77,9 +77,31 @@ export class CoreReviewRefValidator {
 
     async validateBusRouteId(routeId: bigint, path = "routeId"): Promise<ValidationIssue[]> {
         const rows = await this.prisma.$queryRaw<{ id: bigint }[]>(Prisma.sql`
-            SELECT id FROM core.core_bus_routes WHERE id = ${routeId} AND is_active IS TRUE LIMIT 1
+            SELECT id
+            FROM core_transport.routes
+            WHERE id = ${routeId}
+              AND is_active IS TRUE
+              AND deleted_at IS NULL
+            LIMIT 1
         `);
         return rows.length > 0 ? [] : [{ path, message: "route_id is invalid or inactive" }];
+    }
+
+    async validateTransportOperatorId(
+        operatorId: bigint | null | undefined,
+        path = "operatorId",
+    ): Promise<ValidationIssue[]> {
+        if (operatorId === undefined || operatorId === null) {
+            return [];
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+            SELECT id
+            FROM core_transport.operators
+            WHERE id = ${operatorId}
+              AND deleted_at IS NULL
+            LIMIT 1
+        `);
+        return rows.length > 0 ? [] : [{ path, message: "operator_id is invalid or deleted" }];
     }
 
     async validateAdminLevelId(adminLevelId: bigint, path = "adminLevelId"): Promise<ValidationIssue[]> {

@@ -6,6 +6,12 @@ import {
 } from "./core-review-list-status.js";
 import { getCoreReviewLifecycleConfig } from "./core-review-lifecycle.config.js";
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
+import {
+    coreReviewVerificationFilterClause,
+    type CoreReviewVerificationFilterParams,
+} from "./core-review-verification-filter.js";
+
+import type { CoreReviewVerificationStatus } from "./core-review-verification-filter.js";
 
 export type CoreReviewEntityListParams = {
     limit: number;
@@ -13,7 +19,7 @@ export type CoreReviewEntityListParams = {
     search?: string;
     sortBy: string;
     sortOrder: "asc" | "desc";
-    isVerified?: boolean;
+    verificationStatus?: CoreReviewVerificationStatus;
     adminAreaId?: bigint;
     routeId?: bigint;
     isPublic?: boolean;
@@ -33,11 +39,8 @@ function sortDir(order: "asc" | "desc"): Prisma.Sql {
     return order === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
 }
 
-function verifiedClause(alias: string, isVerified?: boolean): Prisma.Sql {
-    if (isVerified === undefined) {
-        return Prisma.empty;
-    }
-    return Prisma.sql`AND ${Prisma.raw(alias)}.is_verified = ${isVerified}`;
+function verificationFilterClause(alias: string, params: CoreReviewVerificationFilterParams): Prisma.Sql {
+    return coreReviewVerificationFilterClause(alias, params);
 }
 
 function adminAreaClause(alias: string, adminAreaId?: bigint): Prisma.Sql {
@@ -110,14 +113,19 @@ export class CoreReviewEntitiesRepository {
                 aa.canonical_name AS "adminAreaName",
                 bs.is_active AS "isActive",
                 bs.is_verified AS "isVerified",
+                bs.verification_status AS "verificationStatus",
+                bs.confidence_score::float8 AS "confidenceScore",
+                bs.stop_type AS "modeType",
+                bs.name AS "nameEn",
+                bs.name_local AS "nameMm",
                 bs.created_at AS "createdAt",
                 bs.updated_at AS "updatedAt",
                 ST_AsGeoJSON(bs.geom)::json AS geometry
-            FROM core.core_bus_stops AS bs
+            FROM core_transport.stops AS bs
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = bs.admin_area_id
             WHERE ${genericListStatusClause("bus-stops", "bs", params.status)}
               ${search}
-              ${verifiedClause("bs", params.isVerified)}
+              ${verificationFilterClause("bs", params)}
               ${adminAreaClause("bs", params.adminAreaId)}
             ORDER BY ${order}, bs.public_id ASC
             LIMIT ${params.limit}
@@ -135,10 +143,10 @@ export class CoreReviewEntitiesRepository {
             : Prisma.empty;
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count
-            FROM core.core_bus_stops AS bs
+            FROM core_transport.stops AS bs
             WHERE ${genericListStatusClause("bus-stops", "bs", params.status)}
               ${search}
-              ${verifiedClause("bs", params.isVerified)}
+              ${verificationFilterClause("bs", params)}
               ${adminAreaClause("bs", params.adminAreaId)}
         `);
         return Number(rows[0]?.count ?? 0n);
@@ -159,6 +167,13 @@ export class CoreReviewEntitiesRepository {
                 bs.is_verified AS "isVerified",
                 bs.created_at AS "createdAt",
                 bs.updated_at AS "updatedAt",
+                bs.verification_status AS "verificationStatus",
+                bs.confidence_score::float8 AS "confidenceScore",
+                bs.stop_type AS "modeType",
+                bs.source_refs AS "sourceRefs",
+                bs.normalized_data AS "normalizedData",
+                bs.name AS "nameEn",
+                bs.name_local AS "nameMm",
                 ST_AsGeoJSON(bs.geom)::json AS geometry,
                 COALESCE(
                     (SELECT json_agg(json_build_object(
@@ -168,11 +183,11 @@ export class CoreReviewEntitiesRepository {
                         'nameType', n.name_type,
                         'isPrimary', n.is_primary
                     ) ORDER BY n.is_primary DESC, n.id)
-                     FROM core.core_bus_stop_names AS n
+                     FROM core_transport.stop_names AS n
                      WHERE n.stop_id = bs.id),
                     '[]'::json
                 ) AS names
-            FROM core.core_bus_stops AS bs
+            FROM core_transport.stops AS bs
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = bs.admin_area_id
             WHERE bs.public_id = CAST(${publicId} AS uuid)
               AND ${
@@ -206,6 +221,7 @@ export class CoreReviewEntitiesRepository {
                 aa.canonical_name AS "adminAreaName",
                 a.is_public AS "isPublic",
                 a.is_verified AS "isVerified",
+                a.verification_status AS "verificationStatus",
                 a.created_at AS "createdAt",
                 a.updated_at AS "updatedAt",
                 CASE WHEN a.point_geom IS NULL THEN NULL ELSE ST_AsGeoJSON(a.point_geom)::json END AS geometry
@@ -213,7 +229,7 @@ export class CoreReviewEntitiesRepository {
             LEFT JOIN core.core_admin_areas AS aa ON aa.id = a.admin_area_id
             WHERE ${genericListStatusClause("addresses", "a", params.status)}
               ${search}
-              ${verifiedClause("a", params.isVerified)}
+              ${verificationFilterClause("a", params)}
               ${adminAreaClause("a", params.adminAreaId)}
               ${params.isPublic !== undefined ? Prisma.sql`AND a.is_public = ${params.isPublic}` : Prisma.empty}
             ORDER BY ${order}, a.public_id ASC
@@ -229,7 +245,7 @@ export class CoreReviewEntitiesRepository {
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count FROM core.core_addresses AS a
             WHERE ${genericListStatusClause("addresses", "a", params.status)} ${search}
-              ${verifiedClause("a", params.isVerified)}
+              ${verificationFilterClause("a", params)}
               ${adminAreaClause("a", params.adminAreaId)}
         `);
         return Number(rows[0]?.count ?? 0n);
@@ -250,6 +266,7 @@ export class CoreReviewEntitiesRepository {
                 a.source_type_id::text AS "sourceTypeId",
                 a.is_public AS "isPublic",
                 a.is_verified AS "isVerified",
+                a.verification_status AS "verificationStatus",
                 a.created_at AS "createdAt",
                 a.updated_at AS "updatedAt",
                 CASE WHEN a.point_geom IS NULL THEN NULL ELSE ST_AsGeoJSON(a.point_geom)::json END AS geometry,
@@ -294,6 +311,7 @@ export class CoreReviewEntitiesRepository {
                 a.admin_level_id::text AS "adminLevelId",
                 a.is_active AS "isActive",
                 a.is_verified AS "isVerified",
+                a.verification_status AS "verificationStatus",
                 ${ADMIN_AREA_BOUNDARY_COLUMNS},
                 a.created_at AS "createdAt",
                 a.updated_at AS "updatedAt",
@@ -303,7 +321,7 @@ export class CoreReviewEntitiesRepository {
             ${ADMIN_AREA_BOUNDARY_JOINS}
             WHERE ${genericListStatusClause("admin-areas", "a", params.status)}
               ${search}
-              ${verifiedClause("a", params.isVerified)}
+              ${verificationFilterClause("a", params)}
               ${parent}
               ${adminAreaBoundaryListFilters(params)}
             ORDER BY ${order}, a.public_id ASC
@@ -319,7 +337,7 @@ export class CoreReviewEntitiesRepository {
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count FROM core.core_admin_areas AS a
             WHERE ${genericListStatusClause("admin-areas", "a", params.status)} ${search}
-              ${verifiedClause("a", params.isVerified)}
+              ${verificationFilterClause("a", params)}
               ${adminAreaBoundaryListFilters(params)}
         `);
         return Number(rows[0]?.count ?? 0n);
@@ -337,6 +355,7 @@ export class CoreReviewEntitiesRepository {
                 a.source_type_id::text AS "sourceTypeId",
                 a.is_active AS "isActive",
                 a.is_verified AS "isVerified",
+                a.verification_status AS "verificationStatus",
                 ${ADMIN_AREA_BOUNDARY_COLUMNS},
                 a.created_at AS "createdAt",
                 a.updated_at AS "updatedAt",
@@ -374,6 +393,7 @@ export class CoreReviewEntitiesRepository {
                 ${Prisma.raw(alias)}.class_code AS "classCode",
                 ${Prisma.raw(alias)}.is_active AS "isActive",
                 ${Prisma.raw(alias)}.is_verified AS "isVerified",
+                ${Prisma.raw(alias)}.verification_status AS "verificationStatus",
                 ${Prisma.raw(alias)}.created_at AS "createdAt",
                 ${Prisma.raw(alias)}.updated_at AS "updatedAt",
                 ST_AsGeoJSON(${Prisma.raw(alias)}.geom)::json AS geometry
@@ -384,7 +404,7 @@ export class CoreReviewEntitiesRepository {
                   params.status
               )}
               ${search}
-              ${verifiedClause(alias, params.isVerified)}
+              ${verificationFilterClause(alias, params)}
             ORDER BY ${order}, ${Prisma.raw(alias)}.id ASC
             LIMIT ${params.limit}
             OFFSET ${params.offset}
@@ -407,7 +427,7 @@ export class CoreReviewEntitiesRepository {
                   alias,
                   params.status
               )} ${search}
-              ${verifiedClause(alias, params.isVerified)}
+              ${verificationFilterClause(alias, params)}
         `);
         return Number(rows[0]?.count ?? 0n);
     }
@@ -429,6 +449,7 @@ export class CoreReviewEntitiesRepository {
                 ${Prisma.raw(alias)}.source_refs AS "sourceRefs",
                 ${Prisma.raw(alias)}.is_active AS "isActive",
                 ${Prisma.raw(alias)}.is_verified AS "isVerified",
+                ${Prisma.raw(alias)}.verification_status AS "verificationStatus",
                 ${Prisma.raw(alias)}.created_at AS "createdAt",
                 ${Prisma.raw(alias)}.updated_at AS "updatedAt",
                 ST_AsGeoJSON(${Prisma.raw(alias)}.geom)::json AS geometry
@@ -487,13 +508,14 @@ export class CoreReviewEntitiesRepository {
                 wl.class_code AS "classCode",
                 wl.is_active AS "isActive",
                 wl.is_verified AS "isVerified",
+                wl.verification_status AS "verificationStatus",
                 wl.created_at AS "createdAt",
                 wl.updated_at AS "updatedAt",
                 ST_AsGeoJSON(wl.geom)::json AS geometry
             FROM core.core_map_water_lines AS wl
             WHERE ${genericListStatusClause("water-lines", "wl", params.status)}
               ${search}
-              ${verifiedClause("wl", params.isVerified)}
+              ${verificationFilterClause("wl", params)}
             ORDER BY ${order}, wl.id ASC
             LIMIT ${params.limit}
             OFFSET ${params.offset}
@@ -504,7 +526,7 @@ export class CoreReviewEntitiesRepository {
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count FROM core.core_map_water_lines AS wl
             WHERE ${genericListStatusClause("water-lines", "wl", params.status)}
-              ${verifiedClause("wl", params.isVerified)}
+              ${verificationFilterClause("wl", params)}
         `);
         return Number(rows[0]?.count ?? 0n);
     }
@@ -521,6 +543,7 @@ export class CoreReviewEntitiesRepository {
                 wl.source_refs AS "sourceRefs",
                 wl.is_active AS "isActive",
                 wl.is_verified AS "isVerified",
+                wl.verification_status AS "verificationStatus",
                 wl.created_at AS "createdAt",
                 wl.updated_at AS "updatedAt",
                 ST_AsGeoJSON(wl.geom)::json AS geometry
@@ -543,7 +566,9 @@ export class CoreReviewEntitiesRepository {
             ? Prisma.sql`AND (
                 COALESCE(br.public_name, '') ILIKE ${`%${params.search}%`}
                 OR COALESCE(br.route_code, '') ILIKE ${`%${params.search}%`}
-                OR COALESCE(br.operator_name, '') ILIKE ${`%${params.search}%`}
+                OR COALESCE(op.name, '') ILIKE ${`%${params.search}%`}
+                OR COALESCE(op.name_local, '') ILIKE ${`%${params.search}%`}
+                OR COALESCE(op.operator_code, '') ILIKE ${`%${params.search}%`}
             )`
             : Prisma.empty;
         const order = Prisma.sql`br.updated_at ${sortDir(params.sortOrder)} NULLS LAST`;
@@ -551,21 +576,28 @@ export class CoreReviewEntitiesRepository {
         return this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 br.id::text AS id,
+                br.public_id::text AS "publicId",
                 br.route_code AS "routeCode",
                 br.public_name AS "publicName",
-                br.operator_name AS "operatorName",
+                op.id::text AS "operatorId",
+                op.name AS "operatorName",
                 br.route_type AS "routeType",
+                br.route_type AS "modeType",
                 br.directionality,
+                br.verification_status AS "verificationStatus",
+                br.verification_status AS "routeStatus",
+                br.confidence_score::float8 AS "confidenceScore",
                 br.is_active AS "isActive",
                 br.is_verified AS "isVerified",
                 br.created_at AS "createdAt",
                 br.updated_at AS "updatedAt",
-                (SELECT COUNT(*)::int FROM core.core_bus_route_variants AS v
-                 WHERE v.route_id = br.id AND v.is_active IS TRUE) AS "variantCount"
-            FROM core.core_bus_routes AS br
+                (SELECT COUNT(*)::int FROM core_transport.route_variants AS v
+                 WHERE v.route_id = br.id AND v.is_active IS TRUE AND v.deleted_at IS NULL) AS "variantCount"
+            FROM core_transport.routes AS br
+            INNER JOIN core_transport.operators AS op ON op.id = br.operator_id
             WHERE ${genericListStatusClause("bus-routes", "br", params.status)}
               ${search}
-              ${verifiedClause("br", params.isVerified)}
+              ${verificationFilterClause("br", params)}
             ORDER BY ${order}, br.id ASC
             LIMIT ${params.limit}
             OFFSET ${params.offset}
@@ -574,9 +606,9 @@ export class CoreReviewEntitiesRepository {
 
     async countBusRoutes(params: CoreReviewEntityListParams): Promise<number> {
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
-            SELECT COUNT(*)::bigint AS count FROM core.core_bus_routes AS br
+            SELECT COUNT(*)::bigint AS count FROM core_transport.routes AS br
             WHERE ${genericListStatusClause("bus-routes", "br", params.status)}
-              ${verifiedClause("br", params.isVerified)}
+              ${verificationFilterClause("br", params)}
         `);
         return Number(rows[0]?.count ?? 0n);
     }
@@ -585,17 +617,40 @@ export class CoreReviewEntitiesRepository {
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 br.id::text AS id,
+                br.public_id::text AS "publicId",
                 br.route_code AS "routeCode",
                 br.public_name AS "publicName",
-                br.operator_name AS "operatorName",
+                op.id::text AS "operatorId",
+                op.name AS "operatorName",
                 br.route_type AS "routeType",
+                br.route_type AS "modeType",
                 br.directionality,
+                br.verification_status AS "verificationStatus",
+                br.verification_status AS "routeStatus",
+                br.confidence_score::float8 AS "confidenceScore",
+                br.source_refs AS "sourceRefs",
+                br.normalized_data AS "normalizedData",
                 br.is_active AS "isActive",
                 br.is_verified AS "isVerified",
                 br.source_type_id::text AS "sourceTypeId",
                 br.created_at AS "createdAt",
-                br.updated_at AS "updatedAt"
-            FROM core.core_bus_routes AS br
+                br.updated_at AS "updatedAt",
+                (SELECT COUNT(*)::int FROM core_transport.route_variants AS v
+                 WHERE v.route_id = br.id AND v.is_active IS TRUE AND v.deleted_at IS NULL) AS "variantCount",
+                COALESCE(
+                    (SELECT json_agg(json_build_object(
+                        'id', n.id::text,
+                        'name', n.name,
+                        'languageCode', n.language_code,
+                        'nameType', n.name_type,
+                        'isPrimary', n.is_primary
+                    ) ORDER BY n.is_primary DESC, n.id)
+                     FROM core_transport.route_names AS n
+                     WHERE n.route_id = br.id),
+                    '[]'::json
+                ) AS names
+            FROM core_transport.routes AS br
+            INNER JOIN core_transport.operators AS op ON op.id = br.operator_id
             WHERE br.id = ${BigInt(id)}
               AND ${
                   options.anyStatus
@@ -627,22 +682,27 @@ export class CoreReviewEntitiesRepository {
         return this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 v.id::text AS id,
+                v.public_id::text AS "publicId",
                 v.route_id::text AS "routeId",
-                br.public_name AS "routePublicName",
                 br.route_code AS "routeCode",
+                br.public_name AS "routePublicName",
                 v.variant_code AS "variantCode",
                 v.direction_name AS "directionName",
                 v.origin_name AS "originName",
                 v.destination_name AS "destinationName",
                 v.distance_m AS "distanceM",
+                v.verification_status AS "verificationStatus",
+                v.confidence_score::float8 AS "confidenceScore",
                 v.is_active AS "isActive",
                 v.is_verified AS "isVerified",
+                v.created_at AS "createdAt",
+                v.updated_at AS "updatedAt",
                 ST_AsGeoJSON(v.geom)::json AS geometry
-            FROM core.core_bus_route_variants AS v
-            INNER JOIN core.core_bus_routes AS br ON br.id = v.route_id
+            FROM core_transport.route_variants AS v
+            INNER JOIN core_transport.routes AS br ON br.id = v.route_id
             WHERE ${genericListStatusClause("bus-route-variants", "v", params.status)}
               ${search}
-              ${verifiedClause("v", params.isVerified)}
+              ${verificationFilterClause("v", params)}
               ${routeFilter}
             ORDER BY ${order}, v.id ASC
             LIMIT ${params.limit}
@@ -656,9 +716,9 @@ export class CoreReviewEntitiesRepository {
             : Prisma.empty;
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT COUNT(*)::bigint AS count
-            FROM core.core_bus_route_variants AS v
+            FROM core_transport.route_variants AS v
             WHERE ${genericListStatusClause("bus-route-variants", "v", params.status)}
-              ${verifiedClause("v", params.isVerified)} ${routeFilter}
+              ${verificationFilterClause("v", params)} ${routeFilter}
         `);
         return Number(rows[0]?.count ?? 0n);
     }
@@ -667,18 +727,51 @@ export class CoreReviewEntitiesRepository {
         const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
             SELECT
                 v.id::text AS id,
+                v.public_id::text AS "publicId",
                 v.route_id::text AS "routeId",
+                br.route_code AS "routeCode",
                 br.public_name AS "routePublicName",
                 v.variant_code AS "variantCode",
                 v.direction_name AS "directionName",
                 v.origin_name AS "originName",
                 v.destination_name AS "destinationName",
                 v.distance_m AS "distanceM",
+                v.verification_status AS "verificationStatus",
+                v.confidence_score::float8 AS "confidenceScore",
+                v.source_refs AS "sourceRefs",
+                v.normalized_data AS "normalizedData",
                 v.is_active AS "isActive",
                 v.is_verified AS "isVerified",
-                ST_AsGeoJSON(v.geom)::json AS geometry
-            FROM core.core_bus_route_variants AS v
-            INNER JOIN core.core_bus_routes AS br ON br.id = v.route_id
+                v.created_at AS "createdAt",
+                v.updated_at AS "updatedAt",
+                ST_AsGeoJSON(v.geom)::json AS geometry,
+                COALESCE(
+                    (SELECT json_agg(json_build_object(
+                        'routeVariantId', rs.route_variant_id::text,
+                        'stopId', rs.stop_id::text,
+                        'stopSequence', rs.stop_sequence,
+                        'distanceFromStartM', rs.distance_from_start_m,
+                        'isTimingPoint', rs.is_timing_point
+                    ) ORDER BY rs.stop_sequence)
+                     FROM core_transport.route_stops AS rs
+                     WHERE rs.route_variant_id = v.id),
+                    '[]'::json
+                ) AS "routeStops",
+                COALESCE(
+                    (SELECT json_agg(json_build_object(
+                        'id', rp.id::text,
+                        'pathKind', rp.path_kind,
+                        'distanceM', rp.distance_m,
+                        'isActive', rp.is_active,
+                        'geometry', ST_AsGeoJSON(rp.geom)::json
+                    ) ORDER BY rp.id)
+                     FROM core_transport.route_paths AS rp
+                     WHERE rp.route_variant_id = v.id
+                       AND rp.deleted_at IS NULL),
+                    '[]'::json
+                ) AS "routePaths"
+            FROM core_transport.route_variants AS v
+            INNER JOIN core_transport.routes AS br ON br.id = v.route_id
             WHERE v.id = ${BigInt(id)}
               AND ${
                   options.anyStatus

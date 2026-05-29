@@ -35,6 +35,7 @@ import {
     ImportReviewRoutingBarrierDryRunRequiredError,
     ImportReviewRoutingBarrierPromotionBatchLimitError,
     ImportReviewRoutingBarrierPromotionDisabledError,
+    ImportReviewTransportPromotionDeprecatedError,
 } from "./import-review-promotion.errors.js";
 import {
     ImportReviewPromotionRoadDryRunNoItemsError,
@@ -207,6 +208,13 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
     if (error instanceof ImportReviewRoadDryRunRequiredError) {
         sendImportReviewApiError(reply, 409, "ROAD_DRY_RUN_REQUIRED", error.message, {
             batch_id: error.batchId,
+        });
+        return true;
+    }
+
+    if (error instanceof ImportReviewTransportPromotionDeprecatedError) {
+        sendImportReviewApiError(reply, 409, "TRANSPORT_PROMOTION_DEPRECATED", error.message, {
+            entity_families: [...error.entityFamilies],
         });
         return true;
     }

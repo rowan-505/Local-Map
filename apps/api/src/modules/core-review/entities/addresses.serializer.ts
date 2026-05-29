@@ -1,5 +1,9 @@
 import type { CoreAddressComponentRowDb, CoreReviewAddressListRowDb } from "./addresses.repo.js";
 import type { ComposedCoreAddressFields } from "./addresses-compose.js";
+import {
+    effectiveVerificationStatusFromRow,
+    isVerifiedFromVerificationStatus,
+} from "../core-review-verification-write.js";
 
 function iso(d: Date | string | null | undefined): string | null {
     if (d === null || d === undefined) {
@@ -64,6 +68,8 @@ export function serializeCoreReviewAddress(
         row.admin_area_name_my ??
         null;
 
+    const verificationStatus = effectiveVerificationStatusFromRow(row);
+
     const base = {
         id: row.id.toString(),
         publicId: row.public_id,
@@ -84,7 +90,8 @@ export function serializeCoreReviewAddress(
         adminAreaNameEn: row.admin_area_name_en,
         adminAreaNameMy: row.admin_area_name_my,
         isPublic: row.is_public,
-        isVerified: row.is_verified,
+        verificationStatus,
+        isVerified: isVerifiedFromVerificationStatus(verificationStatus),
         confidenceScore: numOrNull(row.confidence_score),
         createdAt: iso(row.created_at),
         updatedAt: iso(row.updated_at),

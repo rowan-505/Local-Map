@@ -4,6 +4,7 @@ import {
     IMPORT_REVIEW_DEFAULT_SORT,
     IMPORT_REVIEW_STANDARD_FILTER_FIELDS,
 } from "../constants";
+/** @deprecated UI hidden — use /dashboard/import-transport. Config retained for legacy API/tests. */
 import { createImportReviewEntityConfig } from "../createEntityConfig";
 
 export const busRouteVariantsImportReviewEntityConfig = createImportReviewEntityConfig({

@@ -13,6 +13,7 @@ import {
     ImportReviewRoutingBarrierPromotionBatchLimitError,
     ImportReviewRoutingBarrierPromotionDisabledError,
 } from "./import-review-promotion.errors.js";
+import { assertPublishBatchHasNoDeprecatedCoreBusItems } from "./import-review-transport-promotion-deprecated.js";
 import {
     IMPORT_REVIEW_ADMIN_AREA_PROMOTION_MAX_ITEMS,
     IMPORT_REVIEW_ROAD_PROMOTION_MAX_ITEMS,
@@ -22,6 +23,7 @@ import {
     isImportReviewRoadPromotionEnabled,
     isImportReviewRoutingBarrierBulkPromotionEnabled,
     isImportReviewRoutingBarrierPromotionEnabled,
+    type ImportReviewEntityFamilySlug,
 } from "./import-review-config.js";
 import {
     DEFAULT_PROMOTE_CHUNK_SIZE,
@@ -134,6 +136,8 @@ export class ImportReviewPromotionPromoteRunner {
                 "Publish batch is already promoting."
             );
         }
+
+        await assertPublishBatchHasNoDeprecatedCoreBusItems(this.repo.getPrisma(), args.batchId);
 
         const validation = parseValidationOutcome(before.summary);
         if (before.status !== "ready" || before.validation_percent !== 100 || !before.validated_at) {
@@ -277,7 +281,7 @@ export class ImportReviewPromotionPromoteRunner {
         let markedPromoted = 0;
         let verificationMetadataApplied = 0;
         let verificationMetadataSkippedAlreadyVerified = 0;
-        const promotedFamilies = new Set<PromotablePublishEntityFamily>();
+        const promotedFamilies = new Set<string>();
 
         try {
             const preflightOk = await this.runStage(batchId, "promote_preflight", async () => {
@@ -465,7 +469,7 @@ export class ImportReviewPromotionPromoteRunner {
                                     },
                                 });
                                 await this.repo.markCandidatePromoted({
-                                    entityFamily: itemRow.entity_family,
+                                    entityFamily: itemRow.entity_family as ImportReviewEntityFamilySlug,
                                     reviewCandidateId: itemRow.review_candidate_id,
                                     promotedCoreId: result.target_id,
                                     promotedBy,
@@ -506,7 +510,7 @@ export class ImportReviewPromotionPromoteRunner {
                             });
                             if (itemRow) {
                                 await this.repo.markCandidateFailed(
-                                    itemRow.entity_family,
+                                    itemRow.entity_family as ImportReviewEntityFamilySlug,
                                     itemRow.review_candidate_id
                                 );
                             }

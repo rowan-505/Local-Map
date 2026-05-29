@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import ImportReviewTransportMovedPage from "@/src/features/import-review/components/ImportReviewTransportMovedPage";
+import {
+    isDeprecatedCoreBusImportReviewFamily,
+    isDeprecatedImportReviewBusSlug,
+} from "@/src/features/import-review/utils/deprecatedCoreBusPromotion";
 import { importReviewPath } from "@/src/lib/dashboardNavigation";
 import {
     getImportReviewEntityByApiFamily,
@@ -21,6 +26,14 @@ export default async function ImportReviewFamilyCatchAllPage({
 }) {
     const { family: rawFamily } = await params;
     const family = rawFamily.trim().toLowerCase();
+
+    if (
+        isDeprecatedImportReviewBusSlug(family) ||
+        isDeprecatedCoreBusImportReviewFamily(family)
+    ) {
+        return <ImportReviewTransportMovedPage slug={family} />;
+    }
+
     const q = await searchParams;
 
     const sp = new URLSearchParams();
@@ -33,11 +46,19 @@ export default async function ImportReviewFamilyCatchAllPage({
     }
 
     const bySlug = getImportReviewEntityBySlug(family);
+    if (bySlug && isDeprecatedImportReviewBusSlug(bySlug.slug)) {
+        return <ImportReviewTransportMovedPage slug={bySlug.slug} />;
+    }
+
     if (bySlug && !LEGACY_DEDICATED.has(bySlug.slug) && family !== bySlug.slug) {
         redirect(importReviewEntityHref(bySlug.slug, sp));
     }
 
     const byApi = getImportReviewEntityByApiFamily(family);
+    if (byApi && isDeprecatedImportReviewBusSlug(byApi.slug)) {
+        return <ImportReviewTransportMovedPage slug={byApi.slug} />;
+    }
+
     if (byApi && !LEGACY_DEDICATED.has(byApi.slug) && family !== byApi.slug) {
         redirect(importReviewEntityHref(byApi.slug, sp));
     }
@@ -57,8 +78,13 @@ export default async function ImportReviewFamilyCatchAllPage({
                 </p>
                 <p className="text-gray-700">
                     Supported URL slugs use dashes (e.g.{" "}
-                    <code className="rounded bg-amber-100 px-1">bus-stops</code>,{" "}
-                    <code className="rounded bg-amber-100 px-1">water-lines</code>). API paths use underscores.
+                    <code className="rounded bg-amber-100 px-1">water-lines</code>,{" "}
+                    <code className="rounded bg-amber-100 px-1">buildings</code>). API paths use underscores.
+                    Transport families use{" "}
+                    <Link href="/dashboard/import-transport" className="font-medium text-sky-800 underline">
+                        Import transport
+                    </Link>
+                    .
                 </p>
                 <Link
                     href={importReviewOverviewHref(sp)}

@@ -2,6 +2,11 @@ import type { Geometry } from "geojson";
 import { z } from "zod";
 
 import type { ImportReviewGeoJson } from "@/src/lib/api";
+import {
+    normalizeVerificationStatus,
+    verificationStatusOptions,
+    type CoreReviewVerificationStatus,
+} from "@/src/features/core-review/config/verificationStatus";
 import { preparePolygonGeometryForSave } from "@/src/lib/core-review/savePayloadUtils";
 import {
     createCoreReviewEntity,
@@ -12,6 +17,42 @@ import {
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 
 import type { CoreEntityFieldDef, CoreEntityFormValues } from "./types";
+
+export function verificationStatusFormField(): CoreEntityFieldDef {
+    return {
+        key: "verification_status",
+        label: "Verification status",
+        type: "select",
+        selectOptions: [...verificationStatusOptions],
+    };
+}
+
+export function verificationStatusFromDetail(detail: {
+    verificationStatus?: string | null;
+    verification_status?: string | null;
+    isVerified?: boolean | null;
+    is_verified?: boolean | null;
+}): CoreReviewVerificationStatus {
+    return normalizeVerificationStatus(
+        detail.verificationStatus ?? detail.verification_status,
+        detail.isVerified ?? detail.is_verified,
+    );
+}
+
+export function verificationStatusPayloadValue(
+    values: CoreEntityFormValues,
+    key = "verification_status",
+): CoreReviewVerificationStatus {
+    const raw = values[key];
+    return normalizeVerificationStatus(typeof raw === "string" ? raw : undefined);
+}
+
+export function verificationStatusWritePayload(
+    values: CoreEntityFormValues,
+    key = "verification_status",
+): { verification_status: CoreReviewVerificationStatus } {
+    return { verification_status: verificationStatusPayloadValue(values, key) };
+}
 
 export function createCoreReviewWriteMutations<TDetail>(slug: CoreReviewEntitySlug) {
     return {
@@ -97,7 +138,7 @@ export function mapClassifiedFeaturePayload(values: CoreEntityFormValues, geomFi
         name: nullableFormString(values.name),
         class_code: classCode,
         is_active: bool(values.is_active),
-        is_verified: bool(values.is_verified),
+        ...verificationStatusWritePayload(values),
         geom: requirePolygonGeometry(values, geomField),
     };
 }
@@ -111,7 +152,7 @@ export function mapWaterLinePayload(values: CoreEntityFormValues, geomField = "g
         name: nullableFormString(values.name),
         class_code: classCode,
         is_active: bool(values.is_active),
-        is_verified: bool(values.is_verified),
+        ...verificationStatusWritePayload(values),
         geom: requireLineGeometry(values, geomField),
     };
 }

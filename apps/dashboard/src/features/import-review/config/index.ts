@@ -16,6 +16,7 @@ export {
     getImportReviewEntityConfigBySlug,
     isKnownImportReviewEntitySlug,
     listImportReviewEntityConfigs,
+    listImportReviewNavEntityConfigs,
 } from "./importReviewEntityConfigs";
 export { resolveImportReviewApiFamily } from "../utils/importReviewApiFamily";
 export {

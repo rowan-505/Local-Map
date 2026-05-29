@@ -1,6 +1,12 @@
 import type { z } from "zod";
 
 import {
+    effectiveVerificationStatusFromRow,
+    isVerifiedFromVerificationStatus,
+    pickCoreReviewVerificationWrite,
+    resolveCoreReviewVerificationWrite,
+} from "../core-review/core-review-verification-write.js";
+import {
     PlacesRepository,
     type PlaceDetailRow,
     type PlaceRow,
@@ -42,6 +48,7 @@ export class PlacesService {
     constructor(private readonly placesRepo: PlacesRepository) {}
 
     private serializePlace(place: PlaceRow) {
+        const verificationStatus = effectiveVerificationStatusFromRow(place);
         return {
             id: place.id.toString(),
             public_id: place.public_id,
@@ -67,7 +74,8 @@ export class PlacesService {
             popularity_score: place.popularity_score,
             confidence_score: place.confidence_score,
             is_public: place.is_public,
-            is_verified: place.is_verified,
+            verification_status: verificationStatus,
+            is_verified: isVerifiedFromVerificationStatus(verificationStatus),
             source_type_id: place.source_type_id.toString(),
             publish_status_id: place.publish_status_id?.toString() ?? null,
             created_at: place.created_at.toISOString(),
@@ -201,6 +209,10 @@ export class PlacesService {
             }
         }
 
+        const verification = resolveCoreReviewVerificationWrite(
+            body as unknown as Record<string, unknown>,
+        );
+
         const createdPlace = await this.placesRepo.createPlace({
             myanmarName: names.myanmarName,
             englishName: names.englishName,
@@ -215,7 +227,8 @@ export class PlacesService {
             popularity_score: body.popularityScore ?? 0,
             confidence_score: body.confidenceScore ?? 50,
             is_public: body.isPublic ?? true,
-            is_verified: body.isVerified ?? false,
+            verification_status: verification.verificationStatus,
+            is_verified: verification.isVerified,
             source_type_id: resolvedSourceTypeId,
             publish_status_id: publishStatusId,
         });
@@ -360,8 +373,10 @@ function mapUpdateBodyToRepo(body: UpdatePlaceBody): UpdatePlaceInput {
         patch.is_public = body.isPublic;
     }
 
-    if (body.isVerified !== undefined) {
-        patch.is_verified = body.isVerified;
+    const pickedVerification = pickCoreReviewVerificationWrite(body as unknown as Record<string, unknown>);
+    if (pickedVerification) {
+        patch.verification_status = pickedVerification.verificationStatus;
+        patch.is_verified = pickedVerification.isVerified;
     }
 
     if (body.sourceTypeId !== undefined) {

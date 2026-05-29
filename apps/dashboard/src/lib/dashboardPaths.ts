@@ -1,8 +1,8 @@
 export const DASHBOARD_PATH = "/dashboard";
 
 export const CORE_REVIEW_PATH = `${DASHBOARD_PATH}/core-review`;
-export const CORE_VERIFICATION_PATH = `${DASHBOARD_PATH}/core-verification`;
 export const IMPORT_REVIEW_PATH = `${DASHBOARD_PATH}/import-review`;
+export const IMPORT_TRANSPORT_PATH = `${DASHBOARD_PATH}/import-transport`;
 export const REFERENCES_PATH = `${DASHBOARD_PATH}/references`;
 export const STATS_PATH = `${DASHBOARD_PATH}/stats`;
 export const ROUTING_ADMIN_PATH = `${DASHBOARD_PATH}/routing`;
@@ -16,12 +16,12 @@ export function coreReviewPath(segment?: string): string {
     return joinPath(CORE_REVIEW_PATH, segment);
 }
 
-export function coreVerificationPath(segment?: string): string {
-    return joinPath(CORE_VERIFICATION_PATH, segment);
-}
-
 export function importReviewPath(segment?: string): string {
     return joinPath(IMPORT_REVIEW_PATH, segment);
+}
+
+export function importTransportPath(segment?: string): string {
+    return joinPath(IMPORT_TRANSPORT_PATH, segment);
 }
 
 export function referencesPath(segment?: string): string {

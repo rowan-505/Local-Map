@@ -1,5 +1,7 @@
 "use client";
 
+/** URL segment `bus-route-variants` is legacy; data is loaded from core_transport.route_variants via core-review API. */
+
 import CoreReviewEntityPage from "@/src/features/core-review/components/CoreReviewEntityPage";
 import { CORE_REVIEW_BUS_ROUTE_VARIANTS_CONFIG } from "@/src/features/core-review/config/entity-configs";
 

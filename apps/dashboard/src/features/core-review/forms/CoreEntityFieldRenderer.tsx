@@ -101,6 +101,41 @@ export default function CoreEntityFieldRenderer({
         );
     }
 
+    if (field.type === "select") {
+        const options = field.selectOptions ?? [];
+        return (
+            <Controller
+                name={field.key}
+                control={control}
+                render={({ field: f }) => (
+                    <label className="block" htmlFor={id}>
+                        <span className="mb-1 block text-sm font-medium text-slate-700">
+                            {field.label}
+                            {field.required ? <span className="text-red-600"> *</span> : null}
+                        </span>
+                        <select
+                            id={id}
+                            value={String(f.value ?? "")}
+                            disabled={disabled}
+                            onChange={(e) => f.onChange(e.target.value)}
+                            className={inputClass}
+                        >
+                            {options.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                        {field.helpText ? (
+                            <p className="mt-1 text-xs text-slate-500">{field.helpText}</p>
+                        ) : null}
+                        {error ? <p className="mt-1 text-sm text-red-600">{error}</p> : null}
+                    </label>
+                )}
+            />
+        );
+    }
+
     if (field.type === "boolean") {
         return (
             <Controller

@@ -70,6 +70,8 @@ export type CoreReviewEntityConfig<T extends Record<string, unknown> = Record<st
     applyDetailToListRow?: (row: T, detail: unknown) => T;
     title: string;
     description: string;
+    /** Optional badge under the page title (e.g. data source label). */
+    dataSource?: string;
     overviewStatus: CoreReviewOverviewStatus;
     idKind: CoreReviewIdKind;
     geometryKind: DataReviewGeometryKind | "none";

@@ -19,7 +19,7 @@ function toLanduseListParams(
         search: query.search,
         sortBy: resolveCoreReviewSortBy(def, query.sortBy),
         sortOrder: query.sortOrder,
-        isVerified: query.isVerified,
+        verificationStatus: query.verificationStatus,
         adminAreaId: query.adminAreaId ? BigInt(query.adminAreaId) : undefined,
         landuseClassId: query.landuseClassId ? BigInt(query.landuseClassId) : undefined,
         detailLevel:
@@ -45,7 +45,7 @@ export async function listCoreReviewLanduse(
         filters: {
             search: query.search,
             status: resolveCoreReviewListStatus(query),
-            isVerified: query.isVerified,
+            verification_status: query.verificationStatus,
             adminAreaId: query.adminAreaId,
             landuseClassId: query.landuseClassId,
             detailLevel: query.detailLevel,

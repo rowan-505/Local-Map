@@ -13,6 +13,7 @@ export const Tags = {
     Transit: "Transit",
     Search: "Search",
     ImportReview: "Import Review",
+    ImportTransport: "Import Transport",
     Ref: "Reference Data",
     Routing: "Routing",
 } as const;

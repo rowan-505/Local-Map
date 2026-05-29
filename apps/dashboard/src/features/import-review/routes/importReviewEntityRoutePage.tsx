@@ -1,8 +1,10 @@
 import dynamic from "next/dynamic";
 
+import ImportReviewTransportMovedPage from "../components/ImportReviewTransportMovedPage";
 import { ImportReviewLoadingBannerWithSpinner } from "../components/ImportReviewLoadingState";
 import { IMPORT_REVIEW_LOADING } from "../utils/loadingMessages";
 import type { ImportReviewEntitySlug } from "../config/types";
+import { isDeprecatedImportReviewBusSlug } from "../utils/deprecatedCoreBusPromotion";
 
 const ImportReviewEntityPageShell = dynamic(
     () =>
@@ -27,6 +29,12 @@ export function createImportReviewEntityRoutePage(
     slug: ImportReviewEntitySlug,
     options: ImportReviewEntityRoutePageOptions = {}
 ) {
+    if (isDeprecatedImportReviewBusSlug(slug)) {
+        return function ImportReviewDeprecatedBusRoutePage() {
+            return <ImportReviewTransportMovedPage slug={slug} />;
+        };
+    }
+
     return function ImportReviewEntityRoutePage() {
         return <ImportReviewEntityPageShell slug={slug} showMapPreview={options.showMapPreview} />;
     };

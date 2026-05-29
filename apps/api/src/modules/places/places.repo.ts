@@ -4,6 +4,10 @@ import {
     coreReviewListStatusClause,
     type CoreReviewListStatus,
 } from "../core-review/core-review-list-status.js";
+import {
+    coreReviewVerificationFilterCondition,
+    type CoreReviewVerificationStatus,
+} from "../core-review/core-review-verification-filter.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -16,6 +20,7 @@ export type ListPlacesParams = {
     admin_area_id?: bigint;
     is_public?: boolean;
     is_verified?: boolean;
+    verification_status?: CoreReviewVerificationStatus;
     status?: CoreReviewListStatus;
     sortBy: "name" | "category" | "admin_area" | "created" | "updated" | "updated_at";
     sortOrder: "asc" | "desc";
@@ -51,8 +56,11 @@ function placesListConditions(params: ListPlacesParams): Prisma.Sql[] {
         );
     }
 
-    if (params.is_verified !== undefined) {
-        conditions.push(Prisma.sql`p.is_verified = ${params.is_verified}`);
+    const verificationCondition = coreReviewVerificationFilterCondition("p", {
+        verificationStatus: params.verification_status,
+    });
+    if (verificationCondition) {
+        conditions.push(verificationCondition);
     }
 
     if (params.admin_area_id !== undefined) {
@@ -87,8 +95,8 @@ export type UpdatePlaceInput = {
     popularity_score?: number | null;
     confidence_score?: number | null;
     isPublic?: boolean;
-    isVerified?: boolean;
     is_public?: boolean;
+    verification_status?: string;
     is_verified?: boolean;
     source_type_id?: bigint | null;
     publish_status_id?: bigint | null;
@@ -108,8 +116,8 @@ export type CreatePlaceInput = {
     popularity_score?: number | null;
     confidence_score?: number | null;
     isPublic?: boolean;
-    isVerified?: boolean;
     is_public?: boolean;
+    verification_status?: string;
     is_verified?: boolean;
     source_type_id?: bigint | null;
     publish_status_id?: bigint | null;
@@ -128,6 +136,7 @@ export type PlaceRow = {
     popularity_score: number | null;
     confidence_score: number | null;
     is_public: boolean;
+    verification_status: string | null;
     is_verified: boolean;
     source_type_id: bigint;
     publish_status_id: bigint | null;
@@ -232,6 +241,7 @@ export class PlacesRepository {
                 p.popularity_score::double precision AS popularity_score,
                 p.confidence_score::double precision AS confidence_score,
                 p.is_public,
+                p.verification_status,
                 p.is_verified,
                 p.source_type_id,
                 p.publish_status_id,
@@ -261,7 +271,7 @@ export class PlacesRepository {
     async countPlaces(
         params: Pick<
             ListPlacesParams,
-            "q" | "category" | "category_id" | "admin_area_id" | "is_public" | "is_verified" | "status"
+            "q" | "category" | "category_id" | "admin_area_id" | "is_public" | "is_verified" | "verification_status" | "status"
         >
     ): Promise<number> {
         const conditions = placesListConditions({
@@ -306,6 +316,7 @@ export class PlacesRepository {
                 p.popularity_score::double precision AS popularity_score,
                 p.confidence_score::double precision AS confidence_score,
                 p.is_public,
+                p.verification_status,
                 p.is_verified,
                 p.source_type_id,
                 p.publish_status_id,
@@ -373,6 +384,7 @@ export class PlacesRepository {
                 p.popularity_score::double precision AS popularity_score,
                 p.confidence_score::double precision AS confidence_score,
                 p.is_public,
+                p.verification_status,
                 p.is_verified,
                 p.source_type_id,
                 p.publish_status_id,
@@ -546,6 +558,7 @@ export class PlacesRepository {
                     confidence_score,
                     is_public,
                     is_verified,
+                    verification_status,
                     source_type_id,
                     publish_status_id,
                     created_at,
@@ -566,6 +579,7 @@ export class PlacesRepository {
                     ${input.confidence_score ?? 50},
                     ${input.is_public ?? true},
                     ${input.is_verified ?? false},
+                    ${input.verification_status ?? "unverified"},
                     ${input.source_type_id},
                     ${input.publish_status_id ?? null},
                     now(),
@@ -629,6 +643,10 @@ export class PlacesRepository {
 
         if (input.is_verified !== undefined) {
             assignments.push(Prisma.sql`is_verified = ${input.is_verified}`);
+        }
+
+        if (input.verification_status !== undefined) {
+            assignments.push(Prisma.sql`verification_status = ${input.verification_status}`);
         }
 
         if (input.source_type_id !== undefined) {

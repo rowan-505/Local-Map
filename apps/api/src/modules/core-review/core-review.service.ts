@@ -53,7 +53,7 @@ function toListParams(
         search: query.search,
         sortBy: resolveCoreReviewSortBy(def, query.sortBy),
         sortOrder: query.sortOrder,
-        isVerified: query.isVerified,
+        verificationStatus: query.verificationStatus,
         adminAreaId: query.adminAreaId ? BigInt(query.adminAreaId) : undefined,
         routeId: query.routeId ? BigInt(query.routeId) : undefined,
         isPublic: query.isPublic,
@@ -69,7 +69,7 @@ function filterEcho(query: CoreReviewListQueryParsed): Record<string, unknown> {
     return {
         search: query.search,
         status: resolveCoreReviewListStatus(query),
-        isVerified: query.isVerified,
+        verification_status: query.verificationStatus,
         adminAreaId: query.adminAreaId,
         categoryId: query.categoryId,
         buildingTypeId: query.buildingTypeId,

@@ -24,6 +24,10 @@ import ImportReviewSkeletonTable from "./ImportReviewSkeletonTable";
 import ImportReviewStatusBanner from "./ImportReviewStatusBanner";
 import ImportReviewInlineSpinner from "./ImportReviewInlineSpinner";
 import { IMPORT_REVIEW_LOADING } from "../utils/loadingMessages";
+import {
+    DEPRECATED_CORE_BUS_PROMOTION_BANNER,
+    isDeprecatedCoreBusImportReviewFamily,
+} from "../utils/deprecatedCoreBusPromotion";
 
 function ImportReviewEntityPageInner({
     slug,
@@ -113,6 +117,13 @@ function ImportReviewEntityPageInner({
                     selectedBy={page.list?.selected_by}
                     overviewHref={page.overviewHref}
                 />
+
+                {isDeprecatedCoreBusImportReviewFamily(config.apiFamily) ? (
+                    <ImportReviewStatusBanner
+                        message={DEPRECATED_CORE_BUS_PROMOTION_BANNER}
+                        tone="warning"
+                    />
+                ) : null}
 
                 <ImportReviewBatchScopeBar
                     snapshotInput={page.snapshotInput}

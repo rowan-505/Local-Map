@@ -17,7 +17,7 @@ function toListParams(
         search: query.search,
         sortBy: resolveCoreReviewSortBy(def, query.sortBy),
         sortOrder: query.sortOrder,
-        isVerified: query.isVerified,
+        verificationStatus: query.verificationStatus,
         adminAreaId: query.adminAreaId ? BigInt(query.adminAreaId) : undefined,
         isPublic: query.isPublic,
         status: resolveCoreReviewListStatus(query),
@@ -46,7 +46,7 @@ export async function listCoreReviewAddresses(
         total,
         filters: {
             search: query.search,
-            isVerified: query.isVerified,
+            verification_status: query.verificationStatus,
             adminAreaId: query.adminAreaId,
             isPublic: query.isPublic,
             status: resolveCoreReviewListStatus(query),

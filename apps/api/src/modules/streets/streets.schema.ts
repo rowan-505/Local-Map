@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { coreReviewVerificationStatusWriteSchema } from "../core-review/core-review-verification-write.js";
+
 export const streetsSortBySchema = z.enum(["name", "admin_area", "created", "updated", "updated_at"]);
 export const listSortOrderSchema = z.enum(["asc", "desc"]);
 
@@ -240,6 +242,7 @@ export const createStreetBodySchema = z
         is_active: z.boolean().optional(),
         bridge: z.boolean().optional().default(false),
         tunnel: z.boolean().optional().default(false),
+        verification_status: coreReviewVerificationStatusWriteSchema,
     })
     .strict()
     .refine(
@@ -267,6 +270,7 @@ export const updateStreetBodySchema = z
         edit_reason: z.string().max(500).optional(),
         bridge: z.boolean().optional(),
         tunnel: z.boolean().optional(),
+        verification_status: coreReviewVerificationStatusWriteSchema,
     })
     .strict()
     .refine(

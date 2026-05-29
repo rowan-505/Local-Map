@@ -7,8 +7,8 @@ import { CoreReviewDetailField } from "@/src/components/core-review/CoreReviewSt
 import type { DataReviewGeometryKind } from "@/src/components/map/DataReviewCandidateMap";
 import type { ImportReviewEntityType } from "@/src/components/map/DataReviewCandidateMap";
 import { getCoreReviewDetail, isAbortError, type ImportReviewGeoJson } from "@/src/lib/api";
-import { VerifiedBadge } from "@/src/components/review/ReviewStatusBadge";
 
+import CoreReviewVerificationStatusCell from "../components/CoreReviewVerificationStatusCell";
 import type { CoreReviewAddressDetail, CoreReviewAddressRow } from "../config/types";
 import { dash } from "../utils/formatters";
 
@@ -186,8 +186,11 @@ function AddressDrawerViewContent({
                     <CoreReviewDetailField label="Public">
                         {yesNo(displayDetail.isPublic)}
                     </CoreReviewDetailField>
-                    <CoreReviewDetailField label="Verified">
-                        <VerifiedBadge verified={displayDetail.isVerified} />
+                    <CoreReviewDetailField label="Verification status">
+                        <CoreReviewVerificationStatusCell
+                            status={displayDetail.verificationStatus}
+                            isVerifiedFallback={displayDetail.isVerified}
+                        />
                     </CoreReviewDetailField>
                     <CoreReviewDetailField label="Updated">
                         {dash(displayDetail.updatedAt)}

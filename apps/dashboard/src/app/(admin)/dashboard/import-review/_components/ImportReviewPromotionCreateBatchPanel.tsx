@@ -9,6 +9,9 @@ import {
 import ImportReviewInlineSpinner from "@/src/features/import-review/components/ImportReviewInlineSpinner";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import {
+    isDeprecatedCoreBusImportReviewFamily,
+} from "@/src/features/import-review/utils/deprecatedCoreBusPromotion";
+import {
     getImportReviewPromotionBatchEligibility,
     isAbortError,
     postImportReviewPromotionBatch,
@@ -24,9 +27,6 @@ const DEFAULT_PUBLISH_FAMILIES = [
     "landuse",
     "water_lines",
     "water_polygons",
-    "bus_routes",
-    "bus_route_variants",
-    "bus_stops",
 ] as const;
 
 const HIGH_RISK_PUBLISH_FAMILIES = ["roads", "addresses", "admin_areas", "routing_barriers"] as const;
@@ -37,10 +37,6 @@ const FAMILY_LABELS: Record<string, string> = {
     landuse: "Land use",
     water_lines: "Water lines",
     water_polygons: "Water polygons",
-    bus_routes: "Bus routes",
-    bus_route_variants: "Bus route variants",
-    bus_route_stops: "Bus route stops",
-    bus_stops: "Bus stops",
     roads: "Roads",
     addresses: "Addresses",
     admin_areas: "Admin areas",
@@ -87,8 +83,10 @@ function DryRunResultPanel({ result }: { result: ImportReviewCreatePublishBatchD
             </dl>
             {result.by_family.length > 0 ? (
                 <ul className="mt-2 list-inside list-disc text-xs opacity-90">
-                    {result.by_family.map((row) => (
-                        <li key={row.entity_family}>
+                    {result.by_family
+                .filter((row) => !isDeprecatedCoreBusImportReviewFamily(row.entity_family))
+                .map((row) => (
+                <li key={row.entity_family}>
                             {FAMILY_LABELS[row.entity_family] ?? row.entity_family}: {row.included.toLocaleString()}{" "}
                             included
                         </li>
@@ -126,6 +124,9 @@ export default function ImportReviewPromotionCreateBatchPanel({
     const readyTotal = eligibility?.totals.approved_ready ?? 0;
 
     const toggleFamily = useCallback((family: string, checked: boolean) => {
+        if (isDeprecatedCoreBusImportReviewFamily(family)) {
+            return;
+        }
         setSelectedFamilies((prev) => {
             if (checked) {
                 return prev.includes(family) ? prev : [...prev, family];
@@ -242,7 +243,7 @@ export default function ImportReviewPromotionCreateBatchPanel({
                     <PromotionSectionHeading
                         id="promotion-entities"
                         title="Entity families"
-                        subtitle="Select which candidate tables to include in the publish batch."
+                        subtitle="Select which candidate tables to include in the publish batch. Legacy bus families are not available here — use Import transport instead."
                     />
                     <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                         {DEFAULT_PUBLISH_FAMILIES.map((family) => (
@@ -318,7 +319,9 @@ export default function ImportReviewPromotionCreateBatchPanel({
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200 bg-white">
-                                    {eligibility.by_family.map((row) => (
+                                    {eligibility.by_family
+                                        .filter((row) => !isDeprecatedCoreBusImportReviewFamily(row.entity_family))
+                                        .map((row) => (
                                         <tr key={row.entity_family}>
                                             <td className="px-4 py-3 font-medium text-gray-900">
                                                 {FAMILY_LABELS[row.entity_family] ?? row.entity_family}

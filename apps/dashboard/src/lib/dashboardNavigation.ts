@@ -1,5 +1,6 @@
 import {
     BarChart3,
+    Bus,
     ClipboardList,
     Library,
     Route,
@@ -7,12 +8,12 @@ import {
     type LucideIcon,
 } from "lucide-react";
 
-import { listImportReviewEntityConfigs } from "@/src/features/import-review/config";
+import { listImportReviewNavEntityConfigs } from "@/src/features/import-review/config";
 
 import {
     coreReviewPath,
-    coreVerificationPath,
     importReviewPath,
+    importTransportPath,
     referencesPath,
     routingAdminPath,
     statsPath,
@@ -20,22 +21,22 @@ import {
 
 export {
     CORE_REVIEW_PATH,
-    CORE_VERIFICATION_PATH,
     DASHBOARD_PATH,
     IMPORT_REVIEW_PATH,
+    IMPORT_TRANSPORT_PATH,
     REFERENCES_PATH,
     STATS_PATH,
     coreReviewPath,
-    coreVerificationPath,
     importReviewPath,
+    importTransportPath,
     referencesPath,
     statsPath,
 } from "@/src/lib/dashboardPaths";
 
 export type DashboardSidebarModuleKey =
     | "core-review"
-    | "core-verification"
     | "import-review"
+    | "import-transport"
     | "references"
     | "routing"
     | "stats";
@@ -56,10 +57,13 @@ export type DashboardSidebarItem = {
 export function sidebarModuleFromPathname(pathname: string): DashboardSidebarModuleKey | null {
     const match = pathname.match(/^\/dashboard\/([^/]+)/);
     const key = match?.[1];
+    if (key === "core-verification") {
+        return "core-review";
+    }
     if (
         key === "core-review" ||
-        key === "core-verification" ||
         key === "import-review" ||
+        key === "import-transport" ||
         key === "references" ||
         key === "routing" ||
         key === "stats"
@@ -77,16 +81,16 @@ export const dashboardSidebarItems: readonly DashboardSidebarItem[] = [
         Icon: ScanSearch,
     },
     {
-        moduleKey: "core-verification",
-        href: coreVerificationPath(),
-        label: "Core verification",
-        Icon: ScanSearch,
-    },
-    {
         moduleKey: "import-review",
         href: importReviewPath(),
         label: "Import review",
         Icon: ClipboardList,
+    },
+    {
+        moduleKey: "import-transport",
+        href: importTransportPath(),
+        label: "Import transport",
+        Icon: Bus,
     },
     {
         moduleKey: "references",
@@ -108,6 +112,14 @@ export const dashboardSidebarItems: readonly DashboardSidebarItem[] = [
     },
 ];
 
+/**
+ * Core review top nav. Transport tabs keep legacy `bus-*` URL segments for dashboard
+ * compatibility; list/detail/write APIs read `core_transport.stops`, `.routes`, and
+ * `.route_variants` — not legacy `core.core_bus_*`.
+ *
+ * Route stop sequences (`core_transport.route_stops`) have no separate core-review list
+ * page yet — they appear on the bus route variant detail drawer.
+ */
 export const coreReviewTabs: readonly FamilyNavTab[] = [
     { label: "Overview", segment: "", match: "exact" },
     { label: "Buildings", segment: "buildings" },
@@ -123,25 +135,9 @@ export const coreReviewTabs: readonly FamilyNavTab[] = [
     { label: "Admin areas", segment: "admin-areas" },
 ];
 
-export const coreVerificationTabs: readonly FamilyNavTab[] = [
-    { label: "Overview", segment: "", match: "exact" },
-    { label: "Buildings", segment: "buildings" },
-    { label: "Places", segment: "places" },
-    { label: "Roads", segment: "roads" },
-    { label: "Landuse", segment: "landuse" },
-    { label: "Water lines", segment: "water-lines" },
-    { label: "Water polygons", segment: "water-polygons" },
-    { label: "Bus stops", segment: "bus-stops" },
-    { label: "Admin areas", segment: "admin-areas" },
-    { label: "Routing barriers", segment: "routing-barriers" },
-    { label: "Bus routes", segment: "bus-routes" },
-    { label: "Bus route variants", segment: "bus-route-variants" },
-    { label: "Bus route stops", segment: "bus-route-stops" },
-];
-
 /** Entity slugs/labels for import review top nav (order from entity configs). */
 export function importReviewEntityNavTabs(): readonly FamilyNavTab[] {
-    return listImportReviewEntityConfigs().map((config) => ({
+    return listImportReviewNavEntityConfigs().map((config) => ({
         label: config.pluralLabel,
         segment: config.slug,
     }));
@@ -152,6 +148,17 @@ export const importReviewTabs: readonly FamilyNavTab[] = [
     ...importReviewEntityNavTabs(),
     { label: "Promotion", segment: "promotion" },
     { label: "History", segment: "history" },
+];
+
+export const importTransportTabs: readonly FamilyNavTab[] = [
+    { label: "Overview", segment: "", match: "exact" },
+    { label: "Routes", segment: "routes" },
+    { label: "Stops", segment: "stops" },
+    { label: "Variants", segment: "variants" },
+    { label: "Route Stops", segment: "route-stops" },
+    { label: "Promotion", segment: "promotion" },
+    { label: "History", segment: "history" },
+    { label: "GTFS / OTP", segment: "gtfs" },
 ];
 
 export const referencesTabs: readonly FamilyNavTab[] = [

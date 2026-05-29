@@ -86,7 +86,12 @@ export class CoreReviewGenericWriteService {
             }
             case "bus-routes": {
                 const sourceTypeId = await resolveSourceTypeId(this.refValidator, body);
-                await this.validateIssues([this.refValidator.validateSourceTypeId(sourceTypeId)]);
+                await this.validateIssues([
+                    this.refValidator.validateSourceTypeId(sourceTypeId),
+                    this.refValidator.validateTransportOperatorId(
+                        pickAlias<bigint | null>(body, "operatorId", "operator_id"),
+                    ),
+                ]);
                 const id = await this.writeRepo.createBusRoute(body, sourceTypeId);
                 if (!id) throw new CoreReviewValidationError("Failed to create bus route");
                 const row = await this.entitiesRepo.getBusRouteById(id);
@@ -215,6 +220,9 @@ export class CoreReviewGenericWriteService {
                 await this.validateIssues([
                     this.refValidator.validateSourceTypeId(
                         pickAlias<bigint | null>(body, "sourceTypeId", "source_type_id"),
+                    ),
+                    this.refValidator.validateTransportOperatorId(
+                        pickAlias<bigint | null>(body, "operatorId", "operator_id"),
                     ),
                 ]);
                 const ok = await this.writeRepo.updateBusRoute(id, body);

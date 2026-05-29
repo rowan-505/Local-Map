@@ -7,6 +7,10 @@ import {
     type CoreReviewListStatus,
 } from "../core-review/core-review-list-status.js";
 import {
+    coreReviewVerificationFilterCondition,
+    type CoreReviewVerificationStatus,
+} from "../core-review/core-review-verification-filter.js";
+import {
     buildingClassCodeCoalesceSql,
     buildingClassCodeSelectSql,
     buildingNameLabelSelectSql,
@@ -67,6 +71,7 @@ export type BuildingDetailRow = {
     height_m: number | null;
     area_m2: number | null;
     confidence_score: number | null;
+    verification_status: string | null;
     is_verified: boolean;
     is_active: boolean;
     created_at: Date;
@@ -93,6 +98,7 @@ export type BuildingPersistSnapshot = {
     levels: number | null;
     height_m: number | null;
     confidence_score: number;
+    verification_status: string;
     is_verified: boolean;
 };
 
@@ -161,6 +167,7 @@ export type ActiveBuildingsListParams = {
     sortBy: "name" | "building_type" | "admin_area" | "created" | "updated" | "updated_at";
     sortOrder: "asc" | "desc";
     is_verified?: boolean;
+    verification_status?: CoreReviewVerificationStatus;
     admin_area_id?: bigint;
     building_type_id?: bigint;
     status?: CoreReviewListStatus;
@@ -169,7 +176,7 @@ export type ActiveBuildingsListParams = {
 function activeBuildingsWhereClause(
     params: Pick<
         ActiveBuildingsListParams,
-        "q" | "is_verified" | "admin_area_id" | "building_type_id" | "status"
+        "q" | "is_verified" | "verification_status" | "admin_area_id" | "building_type_id" | "status"
     >
 ): Prisma.Sql {
     const parts: Prisma.Sql[] = [
@@ -195,8 +202,11 @@ function activeBuildingsWhereClause(
                 )`);
     }
 
-    if (params.is_verified !== undefined) {
-        parts.push(Prisma.sql`b.is_verified = ${params.is_verified}`);
+    const verificationCondition = coreReviewVerificationFilterCondition("b", {
+        verificationStatus: params.verification_status,
+    });
+    if (verificationCondition) {
+        parts.push(verificationCondition);
     }
 
     if (params.admin_area_id !== undefined) {
@@ -387,6 +397,7 @@ export class BuildingsRepository {
                 b.height_m::double precision AS height_m,
                 b.area_m2::double precision AS area_m2,
                 b.confidence_score::double precision AS confidence_score,
+                b.verification_status,
                 b.is_verified,
                 b.is_active,
                 b.created_at,
@@ -404,7 +415,7 @@ export class BuildingsRepository {
     }
 
     async countActiveBuildings(
-        params: Pick<ActiveBuildingsListParams, "q" | "is_verified" | "admin_area_id" | "building_type_id">
+        params: Pick<ActiveBuildingsListParams, "q" | "is_verified" | "verification_status" | "admin_area_id" | "building_type_id">
     ): Promise<number> {
         const whereClause = activeBuildingsWhereClause(params);
         const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
@@ -457,6 +468,7 @@ export class BuildingsRepository {
                 b.height_m::double precision AS height_m,
                 b.area_m2::double precision AS area_m2,
                 b.confidence_score::double precision AS confidence_score,
+                b.verification_status,
                 b.is_verified,
                 b.is_active,
                 b.created_at,
@@ -518,6 +530,7 @@ export class BuildingsRepository {
                 b.height_m::double precision AS height_m,
                 b.area_m2::double precision AS area_m2,
                 b.confidence_score::double precision AS confidence_score,
+                b.verification_status,
                 b.is_verified,
                 b.is_active,
                 b.created_at,
@@ -602,6 +615,7 @@ export class BuildingsRepository {
                 centroid,
                 area_m2,
                 confidence_score,
+                verification_status,
                 is_verified,
                 is_active,
                 created_at,
@@ -622,6 +636,7 @@ export class BuildingsRepository {
                 ready.centroid,
                 ready.area_m2,
                 ${snapshot.confidence_score},
+                ${snapshot.verification_status},
                 ${snapshot.is_verified},
                 TRUE,
                 NOW(),
@@ -712,6 +727,7 @@ export class BuildingsRepository {
                     levels = ${snapshot.levels},
                     height_m = ${snapshot.height_m},
                     confidence_score = ${snapshot.confidence_score},
+                    verification_status = ${snapshot.verification_status},
                     is_verified = ${snapshot.is_verified},
                     updated_at = NOW()
                 FROM ready, lbl
@@ -754,6 +770,7 @@ export class BuildingsRepository {
                 levels = ${snapshot.levels},
                 height_m = ${snapshot.height_m},
                 confidence_score = ${snapshot.confidence_score},
+                verification_status = ${snapshot.verification_status},
                 is_verified = ${snapshot.is_verified},
                 centroid = ST_PointOnSurface(b.geom)::geometry(Point, 4326),
                 area_m2 = ST_Area(b.geom::geography)::double precision,
@@ -812,6 +829,7 @@ export class BuildingsRepository {
                 b.height_m::double precision AS height_m,
                 b.area_m2::double precision AS area_m2,
                 b.confidence_score::double precision AS confidence_score,
+                b.verification_status,
                 b.is_verified,
                 b.is_active,
                 b.created_at,

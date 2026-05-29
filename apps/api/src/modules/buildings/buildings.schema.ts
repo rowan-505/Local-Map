@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { coreReviewVerificationStatusWriteSchema } from "../core-review/core-review-verification-write.js";
+
 const coord2Schema = z.tuple([z.number().finite(), z.number().finite()]);
 
 const polygonGeometrySchema = z
@@ -170,7 +172,7 @@ export const createBuildingBodySchema = z
         levels: optionalLevelsCreateSchema,
         height_m: optionalHeightCreateSchema,
         confidence_score: finiteConfidenceSchema,
-        is_verified: z.boolean().optional(),
+        verification_status: coreReviewVerificationStatusWriteSchema,
     })
     .strict();
 
@@ -186,7 +188,7 @@ export const updateBuildingBodySchema = z
         levels: optionalLevelsPatchSchema,
         height_m: optionalHeightPatchSchema,
         confidence_score: finiteConfidenceSchema,
-        is_verified: z.boolean().optional(),
+        verification_status: coreReviewVerificationStatusWriteSchema,
     })
     .strict()
     .refine((body) => Object.keys(body).length > 0, {

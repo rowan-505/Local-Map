@@ -1,12 +1,13 @@
-import CoreVerificationFamilyClient from "@/src/features/core-verification/CoreVerificationFamilyClient";
-import { coreVerificationLabel, familyFromCoreVerificationPath } from "@/src/features/core-verification/config";
+import { redirect } from "next/navigation";
 
-export default async function CoreVerificationFamilyPage({
+import { coreVerificationFamilyRedirectTarget } from "@/src/features/core-verification/coreVerificationRedirects";
+
+/** Deprecated family queue — redirects to the matching Core Review module when safe. */
+export default async function CoreVerificationFamilyRedirectPage({
     params,
 }: {
     params: Promise<{ family: string }>;
 }) {
-    const { family: path } = await params;
-    const family = familyFromCoreVerificationPath(path) ?? path;
-    return <CoreVerificationFamilyClient family={family} label={coreVerificationLabel(family)} />;
+    const { family } = await params;
+    redirect(coreVerificationFamilyRedirectTarget(family));
 }

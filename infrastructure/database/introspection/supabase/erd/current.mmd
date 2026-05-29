@@ -1,4 +1,5 @@
 erDiagram
+  %% Inspected schemas (21): app_auth, auth, core, core_transport, extensions, graphql, graphql_public, gtfs_export, import_review, import_transport, pgbouncer, public, realtime, ref, routing, search, storage, supabase_migrations, system, tiles, vault
   app_auth_auth_roles {
     bigint id PK
     text code
@@ -25,6 +26,291 @@ erDiagram
     timestamp_with_time_zone last_login_at
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+  }
+  auth_audit_log_entries {
+    uuid instance_id
+    uuid id PK
+    json payload
+    timestamp_with_time_zone created_at
+    character_varying ip_address
+  }
+  auth_custom_oauth_providers {
+    uuid id PK
+    text provider_type
+    text identifier
+    text name
+    text client_id
+    text client_secret
+    text[] acceptable_client_ids
+    text[] scopes
+    boolean pkce_enabled
+    jsonb attribute_mapping
+    jsonb authorization_params
+    boolean enabled
+    boolean email_optional
+    text issuer
+    text discovery_url
+    boolean skip_nonce_check
+    jsonb cached_discovery
+    timestamp_with_time_zone discovery_cached_at
+    text authorization_url
+    text token_url
+    text userinfo_url
+    text jwks_uri
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  auth_flow_state {
+    uuid id PK
+    uuid user_id
+    text auth_code
+    code_challenge_method code_challenge_method
+    text code_challenge
+    text provider_type
+    text provider_access_token
+    text provider_refresh_token
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text authentication_method
+    timestamp_with_time_zone auth_code_issued_at
+    text invite_token
+    text referrer
+    uuid oauth_client_state_id
+    uuid linking_target_id
+    boolean email_optional
+  }
+  auth_identities {
+    text provider_id
+    uuid user_id
+    jsonb identity_data
+    text provider
+    timestamp_with_time_zone last_sign_in_at
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text email
+    uuid id PK
+  }
+  auth_instances {
+    uuid id PK
+    uuid uuid
+    text raw_base_config
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  auth_mfa_amr_claims {
+    uuid session_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text authentication_method
+    uuid id PK
+  }
+  auth_mfa_challenges {
+    uuid id PK
+    uuid factor_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone verified_at
+    inet ip_address
+    text otp_code
+    jsonb web_authn_session_data
+  }
+  auth_mfa_factors {
+    uuid id PK
+    uuid user_id
+    text friendly_name
+    factor_type factor_type
+    factor_status status
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text secret
+    text phone
+    timestamp_with_time_zone last_challenged_at
+    jsonb web_authn_credential
+    uuid web_authn_aaguid
+    jsonb last_webauthn_challenge_data
+  }
+  auth_oauth_authorizations {
+    uuid id PK
+    text authorization_id
+    uuid client_id
+    uuid user_id
+    text redirect_uri
+    text scope
+    text state
+    text resource
+    text code_challenge
+    code_challenge_method code_challenge_method
+    oauth_response_type response_type
+    oauth_authorization_status status
+    text authorization_code
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone expires_at
+    timestamp_with_time_zone approved_at
+    text nonce
+  }
+  auth_oauth_client_states {
+    uuid id PK
+    text provider_type
+    text code_verifier
+    timestamp_with_time_zone created_at
+  }
+  auth_oauth_clients {
+    uuid id PK
+    text client_secret_hash
+    oauth_registration_type registration_type
+    text redirect_uris
+    text grant_types
+    text client_name
+    text client_uri
+    text logo_uri
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+    oauth_client_type client_type
+    text token_endpoint_auth_method
+  }
+  auth_oauth_consents {
+    uuid id PK
+    uuid user_id
+    uuid client_id
+    text scopes
+    timestamp_with_time_zone granted_at
+    timestamp_with_time_zone revoked_at
+  }
+  auth_one_time_tokens {
+    uuid id PK
+    uuid user_id
+    one_time_token_type token_type
+    text token_hash
+    text relates_to
+    timestamp_without_time_zone created_at
+    timestamp_without_time_zone updated_at
+  }
+  auth_refresh_tokens {
+    uuid instance_id
+    bigint id PK
+    character_varying token
+    character_varying user_id
+    boolean revoked
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    character_varying parent
+    uuid session_id
+  }
+  auth_saml_providers {
+    uuid id PK
+    uuid sso_provider_id
+    text entity_id
+    text metadata_xml
+    text metadata_url
+    jsonb attribute_mapping
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text name_id_format
+  }
+  auth_saml_relay_states {
+    uuid id PK
+    uuid sso_provider_id
+    text request_id
+    text for_email
+    text redirect_to
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    uuid flow_state_id
+  }
+  auth_schema_migrations {
+    character_varying version
+  }
+  auth_sessions {
+    uuid id PK
+    uuid user_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    uuid factor_id
+    aal_level aal
+    timestamp_with_time_zone not_after
+    timestamp_without_time_zone refreshed_at
+    text user_agent
+    inet ip
+    text tag
+    uuid oauth_client_id
+    text refresh_token_hmac_key
+    bigint refresh_token_counter
+    text scopes
+  }
+  auth_sso_domains {
+    uuid id PK
+    uuid sso_provider_id
+    text domain
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  auth_sso_providers {
+    uuid id PK
+    text resource_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    boolean disabled
+  }
+  auth_users {
+    uuid instance_id
+    uuid id PK
+    character_varying aud
+    character_varying role
+    character_varying email
+    character_varying encrypted_password
+    timestamp_with_time_zone email_confirmed_at
+    timestamp_with_time_zone invited_at
+    character_varying confirmation_token
+    timestamp_with_time_zone confirmation_sent_at
+    character_varying recovery_token
+    timestamp_with_time_zone recovery_sent_at
+    character_varying email_change_token_new
+    character_varying email_change
+    timestamp_with_time_zone email_change_sent_at
+    timestamp_with_time_zone last_sign_in_at
+    jsonb raw_app_meta_data
+    jsonb raw_user_meta_data
+    boolean is_super_admin
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text phone
+    timestamp_with_time_zone phone_confirmed_at
+    text phone_change
+    character_varying phone_change_token
+    timestamp_with_time_zone phone_change_sent_at
+    timestamp_with_time_zone confirmed_at
+    character_varying email_change_token_current
+    smallint email_change_confirm_status
+    timestamp_with_time_zone banned_until
+    character_varying reauthentication_token
+    timestamp_with_time_zone reauthentication_sent_at
+    boolean is_sso_user
+    timestamp_with_time_zone deleted_at
+    boolean is_anonymous
+  }
+  auth_webauthn_challenges {
+    uuid id PK
+    uuid user_id
+    text challenge_type
+    jsonb session_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone expires_at
+  }
+  auth_webauthn_credentials {
+    uuid id PK
+    uuid user_id
+    bytea credential_id
+    bytea public_key
+    text attestation_type
+    uuid aaguid
+    bigint sign_count
+    jsonb transports
+    boolean backup_eligible
+    boolean backed_up
+    text friendly_name
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone last_used_at
   }
   core_core_address_components {
     bigint id PK
@@ -492,6 +778,1460 @@ erDiagram
     bigint verified_by
     text verification_note
   }
+  core_transport_fares {
+    bigint id PK
+    bigint operator_id FK
+    bigint route_id FK
+    text fare_product_code
+    text fare_product_name
+    numeric amount
+    text currency_code
+    boolean is_verified
+    text verification_note
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  core_transport_frequencies {
+    bigint id PK
+    bigint route_variant_id FK
+    bigint service_calendar_id FK
+    text trip_code
+    integer start_time_seconds
+    integer end_time_seconds
+    integer headway_seconds
+    boolean exact_times
+    boolean is_active
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_transport_operators {
+    bigint id PK
+    uuid public_id
+    text operator_code
+    text name
+    text name_local
+    text primary_route_type
+    text timezone
+    text website_url
+    text phone
+    text gtfs_agency_id
+    bigint source_type_id FK
+    text external_id
+    numeric confidence_score
+    boolean is_active
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  core_transport_route_names {
+    bigint id PK
+    bigint route_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_transport_route_paths {
+    bigint id PK
+    bigint route_variant_id FK
+    text path_kind
+    geometry geom
+    numeric distance_m
+    boolean is_active
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  core_transport_route_sources {
+    bigint id PK
+    bigint route_id FK
+    text source_kind
+    text source_dataset_code
+    text source_entity_id
+    bigint import_transport_batch_id FK
+    boolean is_primary
+    numeric confidence_score
+    jsonb source_refs
+    timestamp_with_time_zone created_at
+  }
+  core_transport_route_stops {
+    bigint id PK
+    bigint route_variant_id FK
+    bigint stop_id FK
+    integer stop_sequence
+    numeric distance_from_start_m
+    smallint pickup_type
+    smallint drop_off_type
+    integer arrival_offset_seconds
+    integer departure_offset_seconds
+    boolean is_timing_point
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_transport_route_variants {
+    bigint id PK
+    uuid public_id
+    bigint route_id FK
+    text variant_code
+    text direction_name
+    smallint gtfs_direction_id
+    text headsign
+    text origin_name
+    text destination_name
+    geometry geom
+    numeric distance_m
+    numeric confidence_score
+    boolean is_active
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  core_transport_route_versions {
+    bigint id PK
+    bigint route_id FK
+    integer version_number
+    text change_summary
+    timestamp_with_time_zone effective_from
+    timestamp_with_time_zone effective_to
+    jsonb snapshot
+    bigint created_by
+    timestamp_with_time_zone created_at
+  }
+  core_transport_routes {
+    bigint id PK
+    uuid public_id
+    bigint operator_id FK
+    text route_code
+    text public_name
+    text route_type
+    text directionality
+    smallint gtfs_route_type
+    text description
+    bigint source_type_id FK
+    text external_id
+    numeric confidence_score
+    boolean is_active
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  core_transport_service_calendars {
+    bigint id PK
+    bigint operator_id FK
+    bigint route_id FK
+    text service_code
+    text name
+    boolean monday
+    boolean tuesday
+    boolean wednesday
+    boolean thursday
+    boolean friday
+    boolean saturday
+    boolean sunday
+    date start_date
+    date end_date
+    boolean is_active
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  core_transport_stop_names {
+    bigint id PK
+    bigint stop_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  core_transport_stops {
+    bigint id PK
+    uuid public_id
+    text stop_code
+    text name
+    text name_local
+    text stop_type
+    smallint location_type
+    bigint parent_stop_id FK
+    geometry geom
+    bigint admin_area_id FK
+    text zone_id
+    bigint source_type_id FK
+    text external_id
+    numeric confidence_score
+    boolean is_active
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  core_transport_terminals {
+    bigint id PK
+    uuid public_id
+    bigint operator_id FK
+    bigint linked_stop_id FK
+    text terminal_code
+    text name
+    text name_local
+    text route_type
+    text terminal_role
+    geometry geom
+    bigint admin_area_id FK
+    bigint source_type_id FK
+    text external_id
+    numeric confidence_score
+    boolean is_active
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  gtfs_export_export_builds {
+    bigint id PK
+    text build_code
+    text scope
+    text status
+    text output_path
+    bigint file_size_bytes
+    text checksum
+    integer route_count
+    integer variant_count
+    integer stop_count
+    integer service_count
+    integer warning_count
+    integer error_count
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    timestamp_with_time_zone created_at
+    text notes
+  }
+  gtfs_export_export_files {
+    bigint id PK
+    bigint export_build_id FK
+    text file_name
+    text file_path
+    bigint row_count
+    text checksum
+    timestamp_with_time_zone created_at
+  }
+  gtfs_export_otp_graph_builds {
+    bigint id PK
+    uuid public_id
+    bigint export_build_id FK
+    text build_code
+    text scope
+    text otp_version
+    text graph_artifact_path
+    text gtfs_input_path
+    text build_status
+    integer node_count
+    integer edge_count
+    bigint file_size_bytes
+    text checksum
+    text error_message
+    jsonb metadata
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  gtfs_export_validation_issues {
+    bigint id PK
+    bigint export_build_id FK
+    text gtfs_file
+    text row_ref
+    text issue_code
+    text severity
+    text message
+    jsonb issue_data
+    boolean is_resolved
+    timestamp_with_time_zone created_at
+  }
+  gtfs_export_validation_reports {
+    bigint id PK
+    bigint export_build_id FK
+    text validator_name
+    text validator_version
+    text report_status
+    integer error_count
+    integer warning_count
+    integer info_count
+    text report_summary
+    jsonb report_payload
+    text artifact_path
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    timestamp_with_time_zone created_at
+  }
+  import_review_address_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text full_address
+    text house_number
+    text unit_number
+    bigint street_id FK
+    bigint admin_area_id FK
+    text street_name
+    text quarter
+    text suburb
+    text township
+    text city
+    text district
+    text state_region
+    text postcode
+    text country
+    text postal_code
+    text plus_code
+    geometry point_geom
+    geometry entrance_geom
+    bigint source_snapshot_id
+    bigint raw_id
+    text source_entity_type
+    jsonb source_tags
+    bigint matched_admin_area_id FK
+    bigint matched_street_id FK
+    bigint matched_building_id FK
+    bigint matched_place_id FK
+    text admin_match_type
+    text street_match_type
+    numeric admin_match_confidence
+    numeric street_match_confidence
+    text validation_status
+    jsonb promotion_blockers
+    jsonb promotion_warnings
+    timestamp_with_time_zone validated_at
+    bigint promoted_core_address_id FK
+    text source_classification
+    boolean has_place_evidence
+    boolean has_address_evidence
+    text address_strength
+    text place_candidate_status
+    bigint linked_place_candidate_id
+    bigint matched_core_place_id
+    jsonb classification_reasons
+    timestamp_with_time_zone classified_at
+  }
+  import_review_address_components {
+    bigint id PK
+    bigint address_candidate_id FK
+    text component_type_code
+    text component_value
+    text language_code
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    bigint component_type_id FK
+    text source_tag
+    integer sort_order
+    numeric confidence_score
+    text match_type
+    boolean is_inferred
+    boolean is_reviewed
+    boolean is_deleted
+    jsonb source_refs
+    jsonb normalized_data
+    text review_note
+    bigint source_admin_area_id FK
+    text boundary_status
+    text address_usage
+  }
+  import_review_admin_area_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    bigint parent_id FK
+    bigint admin_level_id FK
+    text slug
+    geometry geom
+    geometry centroid
+  }
+  import_review_building_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text name
+    text building_type
+    bigint building_type_id FK
+    bigint admin_area_id FK
+    integer levels
+    numeric height_m
+    numeric area_m2
+    geometry geom
+    geometry centroid
+  }
+  import_review_bus_route_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text route_code
+    text public_name
+    text operator_name
+    text route_type
+    text directionality
+  }
+  import_review_bus_route_stop_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    bigint route_variant_id
+    bigint stop_id
+    integer stop_sequence
+    numeric distance_from_start_m
+    boolean is_timing_point
+  }
+  import_review_bus_route_variant_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    bigint route_id
+    text route_code
+    text variant_code
+    text direction_name
+    text origin_name
+    text destination_name
+    geometry geom
+    numeric distance_m
+  }
+  import_review_bus_stop_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text stop_code
+    bigint admin_area_id FK
+    geometry geom
+  }
+  import_review_landuse_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text name
+    geometry geom
+    geometry centroid
+    bigint landuse_class_id FK
+    text name_mm
+    text name_en
+  }
+  import_review_place_address_links {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    bigint source_snapshot_id
+    text external_id
+    bigint place_candidate_id FK
+    bigint address_candidate_id FK
+    bigint matched_core_place_id
+    bigint matched_core_address_id
+    text relation_type
+    boolean is_primary
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    text validation_status
+    jsonb validation_errors
+    jsonb validation_warnings
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    text promoted_by
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_review_place_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text primary_name
+    text display_name
+    bigint category_id FK
+    bigint place_class_id FK
+    bigint admin_area_id FK
+    geometry point_geom
+    geometry entry_geom
+    geometry footprint_geom
+    double_precision lat
+    double_precision lng
+    numeric importance_score
+    numeric popularity_score
+    text plus_code
+  }
+  import_review_review_batches {
+    bigint id PK
+    uuid public_id
+    text batch_name
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    text source_registry_code
+    text region_code
+    bigint boundary_id_local
+    text boundary_code
+    text[] entity_families
+    text status
+    text upload_mode
+    integer total_candidate_count
+    integer uploaded_candidate_count
+    integer preserved_reviewed_count
+    integer skipped_count
+    jsonb summary
+    bigint uploaded_by FK
+    timestamp_with_time_zone uploaded_at
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_review_review_candidate_edits {
+    bigint id PK
+    bigint review_batch_id FK
+    text entity_family
+    text candidate_table
+    bigint candidate_id
+    bigint edited_by FK
+    text edit_type
+    jsonb before_data
+    jsonb after_data
+    text note
+    timestamp_with_time_zone created_at
+  }
+  import_review_review_comments {
+    bigint id PK
+    bigint review_batch_id FK
+    text entity_family
+    text candidate_table
+    bigint candidate_id
+    text comment_text
+    bigint created_by FK
+    timestamp_with_time_zone created_at
+  }
+  import_review_review_tasks {
+    bigint id PK
+    bigint review_batch_id FK
+    text entity_family
+    text candidate_table
+    bigint candidate_id
+    bigint assigned_to FK
+    bigint assigned_by FK
+    text task_status
+    integer priority
+    text note
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone completed_at
+  }
+  import_review_road_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    bigint road_class_id FK
+    text road_class
+    text surface
+    boolean is_oneway
+    boolean bridge
+    boolean tunnel
+    integer layer
+    numeric length_m
+    geometry geom
+  }
+  import_review_routing_barrier_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text barrier_type
+    geometry point_geom
+  }
+  import_review_routing_turn_restriction_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text restriction_type
+    text from_external_id
+    text via_external_id
+    text to_external_id
+    geometry geom
+  }
+  import_review_water_line_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text name
+    geometry geom
+  }
+  import_review_water_polygon_candidates {
+    bigint id PK
+    uuid public_id
+    bigint review_batch_id FK
+    text source_snapshot_version
+    bigint source_snapshot_id_local
+    bigint local_staging_id
+    text entity_family
+    text external_id
+    text canonical_name
+    text class_code
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    text review_note
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    bigint assigned_to FK
+    bigint locked_by FK
+    timestamp_with_time_zone locked_at
+    timestamp_with_time_zone lock_expires_at
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f1_comparison
+    jsonb f2_comparison
+    jsonb validation_warnings
+    jsonb validation_errors
+    text promotion_status
+    bigint promoted_core_id
+    timestamp_with_time_zone promoted_at
+    bigint promoted_by FK
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text name
+    geometry geom
+    geometry centroid
+  }
+  import_transport_import_batches {
+    bigint id PK
+    uuid public_id
+    bigint source_dataset_id FK
+    text batch_name
+    text import_status
+    text validation_status
+    text source_file_name
+    text source_file_checksum
+    text source_snapshot_version
+    jsonb record_counts
+    jsonb summary
+    text error_message
+    bigint imported_by
+    timestamp_with_time_zone imported_at
+    timestamp_with_time_zone validated_at
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_transport_promotion_batches {
+    bigint id PK
+    uuid public_id
+    bigint import_batch_id FK
+    text batch_name
+    text target_schema
+    text promotion_status
+    text validation_status
+    jsonb item_counts
+    jsonb summary
+    text error_message
+    bigint created_by
+    timestamp_with_time_zone promoted_at
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    boolean can_promote
+    integer validation_total
+    integer validation_done
+    numeric validation_percent
+    timestamp_with_time_zone validated_at
+  }
+  import_transport_promotion_items {
+    bigint id PK
+    bigint promotion_batch_id FK
+    text entity_kind
+    bigint raw_entity_id
+    text promotion_status
+    text match_status
+    text promoted_target_schema
+    text promoted_target_table
+    bigint promoted_target_id
+    text error_message
+    jsonb details
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text item_validation_status
+  }
+  import_transport_promotion_stage_logs {
+    bigint id PK
+    bigint promotion_batch_id FK
+    text stage_key
+    text stage_label
+    text stage_status
+    text message
+    numeric progress_percent
+    jsonb details
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+  }
+  import_transport_raw_fares {
+    bigint id PK
+    bigint import_batch_id FK
+    bigint raw_route_id FK
+    bigint raw_operator_id FK
+    text source_fare_id
+    text source_route_id
+    text fare_product_name
+    numeric amount
+    text currency_code
+    text match_status
+    text validation_status
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_transport_raw_operators {
+    bigint id PK
+    bigint import_batch_id FK
+    text source_operator_id
+    text operator_code
+    text operator_name
+    text transport_mode
+    text match_status
+    text validation_status
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    jsonb source_refs
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_transport_raw_route_paths {
+    bigint id PK
+    bigint import_batch_id FK
+    bigint raw_route_variant_id FK
+    bigint raw_route_id FK
+    text source_path_id
+    text source_variant_id
+    text path_kind
+    geometry geom
+    numeric distance_m
+    text match_status
+    text validation_status
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_transport_raw_route_stops {
+    bigint id PK
+    bigint import_batch_id FK
+    bigint raw_route_variant_id FK
+    bigint raw_stop_id FK
+    text source_route_stop_id
+    text source_variant_id
+    text source_stop_id
+    integer stop_sequence
+    numeric distance_from_start_m
+    boolean is_timing_point
+    text match_status
+    text validation_status
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text external_id
+    text review_status
+    text review_decision
+    text promotion_status
+    text review_note
+    jsonb source_refs
+    bigint promoted_core_id
+  }
+  import_transport_raw_route_variants {
+    bigint id PK
+    bigint import_batch_id FK
+    bigint raw_route_id FK
+    text source_variant_id
+    text source_route_id
+    text variant_code
+    text direction_name
+    text origin_name
+    text destination_name
+    geometry geom
+    numeric distance_m
+    text match_status
+    text validation_status
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    jsonb source_refs
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text external_id
+    text review_status
+    text review_decision
+    text promotion_status
+    text review_note
+    bigint promoted_core_id
+  }
+  import_transport_raw_routes {
+    bigint id PK
+    bigint import_batch_id FK
+    bigint raw_operator_id FK
+    text source_route_id
+    text source_operator_id
+    text route_code
+    text route_name
+    text public_name
+    text transport_mode
+    text route_type
+    text directionality
+    text match_status
+    text validation_status
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    jsonb source_refs
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text external_id
+    text review_status
+    text review_decision
+    text promotion_status
+    text review_note
+    bigint promoted_core_id
+  }
+  import_transport_raw_service_notes {
+    bigint id PK
+    bigint import_batch_id FK
+    text entity_kind
+    text entity_source_id
+    bigint raw_route_id FK
+    bigint raw_stop_id FK
+    bigint raw_terminal_id FK
+    text note_type
+    text note_text
+    text language_code
+    boolean is_verified
+    text match_status
+    text validation_status
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_transport_raw_stops {
+    bigint id PK
+    bigint import_batch_id FK
+    text source_stop_id
+    text stop_code
+    text stop_name
+    text stop_name_local
+    text location_type
+    geometry geom
+    text admin_area_code
+    text match_status
+    text validation_status
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    jsonb source_refs
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text external_id
+    text review_status
+    text review_decision
+    text promotion_status
+    text review_note
+    bigint promoted_core_id
+  }
+  import_transport_raw_terminals {
+    bigint id PK
+    bigint import_batch_id FK
+    bigint raw_operator_id FK
+    text source_terminal_id
+    text terminal_code
+    text terminal_name
+    text terminal_type
+    text transport_mode
+    geometry geom
+    text match_status
+    text validation_status
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    jsonb source_refs
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_transport_source_datasets {
+    bigint id PK
+    text code
+    text name
+    text description
+    text transport_mode
+    text source_format
+    text source_uri
+    text provider_name
+    text region_code
+    text timezone
+    boolean is_active
+    jsonb metadata
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_transport_validation_issues {
+    bigint id PK
+    bigint import_batch_id FK
+    text entity_kind
+    bigint entity_id
+    text entity_source_id
+    text issue_code
+    text severity
+    text issue_status
+    text message
+    jsonb details
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone resolved_at
+  }
+  public_spatial_ref_sys {
+    integer srid PK
+    character_varying auth_name
+    integer auth_srid
+    character_varying srtext
+    character_varying proj4text
+  }
+  realtime_messages {
+    text topic
+    text extension
+    jsonb payload
+    text event
+    boolean private
+    timestamp_without_time_zone updated_at
+    timestamp_without_time_zone inserted_at PK
+    uuid id PK
+  }
+  realtime_schema_migrations {
+    bigint version PK
+    timestamp_without_time_zone inserted_at
+  }
+  realtime_subscription {
+    bigint id PK
+    uuid subscription_id
+    regclass entity
+    user_defined_filter[] filters
+    jsonb claims
+    regrole claims_role
+    timestamp_without_time_zone created_at
+    text action_filter
+  }
   ref_ref_address_component_types {
     bigint id PK
     text code
@@ -535,6 +2275,13 @@ erDiagram
     numeric default_boundary_confidence_score
     text default_address_usage_code FK
     boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  ref_ref_building_type_merge_map {
+    text source_code PK
+    text target_code
+    text notes
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
@@ -624,7 +2371,861 @@ erDiagram
     text name
     timestamp_with_time_zone created_at
   }
+  routing_routing_barriers {
+    bigint id PK
+    uuid public_id
+    text barrier_type
+    bigint core_street_id FK
+    geometry geom
+    boolean is_active
+    jsonb source_refs
+    jsonb normalized_data
+    boolean is_verified
+    text verification_status
+    timestamp_with_time_zone verified_at
+    bigint verified_by
+    text verification_note
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  routing_routing_build_artifacts {
+    bigint id PK
+    bigint routing_build_id FK
+    text artifact_type
+    text storage_url
+    text checksum_sha256
+    bigint file_size_bytes
+    text content_type
+    jsonb metadata
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  routing_routing_build_jobs {
+    bigint id PK
+    uuid public_id
+    text region_code
+    text profile_code FK
+    text source_description
+    bigint source_review_batch_id FK
+    bigint source_publish_batch_id FK
+    text status
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    integer total_core_roads
+    integer total_nodes
+    integer total_edges
+    integer warning_count
+    integer error_count
+    jsonb summary
+    bigint created_by
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  routing_routing_build_sources {
+    bigint id PK
+    bigint routing_build_id FK
+    text source_type
+    text source_ref
+    jsonb source_refs
+    text description
+    timestamp_with_time_zone created_at
+    bigint source_publish_batch_id FK
+    bigint source_review_batch_id FK
+  }
+  routing_routing_builds {
+    bigint id PK
+    uuid public_id
+    text engine_code FK
+    text region_code
+    text build_version
+    text build_label
+    text status
+    boolean is_active
+    boolean is_public
+    text[] profile_codes
+    text source_description
+    jsonb summary
+    jsonb smoke_test_summary
+    integer warning_count
+    integer error_count
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    timestamp_with_time_zone published_at
+    bigint published_by
+    bigint created_by
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  routing_routing_engine_configs {
+    bigint id PK
+    text engine_code
+    text name
+    text description
+    text base_url
+    jsonb config
+    boolean is_enabled
+    boolean is_default
+    text version_label
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  routing_routing_feedback {
+    bigint id PK
+    uuid public_id
+    bigint routing_request_id FK
+    text problem_type
+    text status
+    text comment
+    jsonb metadata
+    bigint user_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  routing_routing_physical_modes {
+    bigint id PK
+    text code
+    text name
+    text description
+    integer sort_order
+    boolean is_routing_enabled
+    boolean is_public_enabled
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  routing_routing_profiles {
+    bigint id PK
+    text code
+    text name
+    text description
+    boolean is_active
+    numeric default_speed_kph
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text profile_kind
+    text primary_physical_mode_code FK
+    boolean is_routing_enabled
+    boolean is_public_enabled
+    integer sort_order
+    jsonb engine_costing_map
+  }
+  routing_routing_requests {
+    bigint id PK
+    uuid public_id
+    text profile_code FK
+    text engine_code
+    bigint routing_build_id FK
+    text status
+    numeric from_lon
+    numeric from_lat
+    numeric to_lon
+    numeric to_lat
+    numeric distance_m
+    numeric duration_s
+    jsonb request_summary
+    jsonb response_summary
+    text error_code
+    text error_message
+    integer duration_ms
+    bigint user_id
+    text session_id
+    text client_ip_hash
+    timestamp_with_time_zone created_at
+  }
+  routing_routing_service_classes {
+    bigint id PK
+    text code
+    text name
+    text description
+    integer sort_order
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  routing_routing_service_health {
+    bigint id PK
+    text engine_code FK
+    text region_code
+    text status
+    timestamp_with_time_zone last_check_at
+    timestamp_with_time_zone last_success_at
+    integer latency_ms
+    text message
+    jsonb details
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  routing_routing_validation_reports {
+    bigint id PK
+    bigint build_job_id FK
+    text severity
+    text code
+    text message
+    bigint core_street_id FK
+    bigint routing_edge_id
+    geometry geom
+    jsonb metadata
+    timestamp_with_time_zone created_at
+    bigint routing_build_id FK
+    text report_scope
+    timestamp_with_time_zone updated_at
+  }
+  search_address_index {
+    bigint id PK
+    bigint address_id FK
+    text language_code
+    text search_text
+    text[] search_tokens
+    text house_number
+    text street_text
+    text admin_text
+    text postcode
+    geometry point_geom
+    bigint admin_area_id FK
+    bigint street_id FK
+    numeric rank_score
+    timestamp_with_time_zone updated_at
+  }
+  search_search_addresses {
+    bigint id PK
+    bigint address_id FK
+    text search_text
+    text normalized_search_text
+    text language_code
+    jsonb tokens
+    geometry point_geom
+    timestamp_with_time_zone updated_at
+  }
+  search_search_names {
+    bigint id PK
+    text entity_family
+    bigint entity_id
+    uuid public_id
+    text name
+    text normalized_name
+    text language_code
+    text script_code
+    text name_type
+    integer search_weight
+    jsonb tokens
+    geometry geom
+    bigint admin_area_id
+    jsonb source_refs
+    timestamp_with_time_zone updated_at
+  }
+  storage_buckets {
+    text id PK
+    text name
+    uuid owner
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    boolean public
+    boolean avif_autodetection
+    bigint file_size_limit
+    text[] allowed_mime_types
+    text owner_id
+    buckettype type
+  }
+  storage_buckets_analytics {
+    text name
+    buckettype type
+    text format
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    uuid id PK
+    timestamp_with_time_zone deleted_at
+  }
+  storage_buckets_vectors {
+    text id
+    buckettype type
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  storage_migrations {
+    integer id
+    character_varying name
+    character_varying hash
+    timestamp_without_time_zone executed_at
+  }
+  storage_objects {
+    uuid id PK
+    text bucket_id
+    text name
+    uuid owner
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone last_accessed_at
+    jsonb metadata
+    text[] path_tokens
+    text version
+    text owner_id
+    jsonb user_metadata
+  }
+  storage_s3_multipart_uploads {
+    text id PK
+    bigint in_progress_size
+    text upload_signature
+    text bucket_id
+    text key
+    text version
+    text owner_id
+    timestamp_with_time_zone created_at
+    jsonb user_metadata
+    jsonb metadata
+  }
+  storage_s3_multipart_uploads_parts {
+    uuid id PK
+    text upload_id
+    bigint size
+    integer part_number
+    text bucket_id
+    text key
+    text etag
+    text owner_id
+    text version
+    timestamp_with_time_zone created_at
+  }
+  storage_vector_indexes {
+    text id
+    text name
+    text bucket_id
+    text data_type
+    integer dimension
+    text distance_metric
+    jsonb metadata_configuration
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  supabase_migrations_schema_migrations {
+    text version PK
+    text[] statements
+    text name
+    text created_by
+    text idempotency_key
+    text[] rollback
+  }
+  system_backup_core_map_buildings_before_building_type_simplification {
+    timestamp_with_time_zone backed_up_at
+    bigint id
+    bigint building_type_id
+    jsonb normalized_data
+  }
+  system_backup_ref_building_types_before_simplification {
+    timestamp_with_time_zone backed_up_at
+    bigint id
+    text code
+    text name
+    text name_mm
+    bigint parent_id
+    integer sort_order
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  system_system_conflict_queue {
+    bigint id PK
+    bigint diff_item_id FK
+    text conflict_type
+    text resolution_status
+    bigint assigned_to
+    text resolution_note
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone resolved_at
+  }
+  system_system_diff_items {
+    bigint id PK
+    bigint diff_run_id FK
+    text entity_family
+    text diff_type
+    text external_id
+    bigint local_entity_id
+    jsonb before_data
+    jsonb after_data
+    numeric confidence_score
+    text auto_action
+    text review_status
+    timestamp_with_time_zone created_at
+  }
+  system_system_diff_runs {
+    bigint id PK
+    bigint previous_snapshot_id FK
+    bigint current_snapshot_id FK
+    text entity_family
+    text status
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    jsonb summary
+  }
+  system_system_import_batches {
+    bigint id PK
+    bigint source_registry_id FK
+    text batch_name
+    text trigger_type
+    text status
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    text note
+  }
+  system_system_publish_batches {
+    bigint id PK
+    text batch_name
+    bigint created_by
+    bigint approved_by
+    text status
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone published_at
+    text note
+    uuid public_id
+    bigint source_review_batch_id FK
+    text source_snapshot_version
+    text region_code
+    bigint promoted_by FK
+    integer total_item_count
+    integer success_count
+    integer failed_count
+    integer skipped_count
+    integer validation_total
+    integer validation_done
+    numeric validation_percent
+    jsonb summary
+    timestamp_with_time_zone validated_at
+    timestamp_with_time_zone promoted_at
+  }
+  system_system_publish_items {
+    bigint id PK
+    bigint publish_batch_id FK
+    text entity_family
+    bigint entity_id
+    bigint version_id
+    text publish_action
+    text publish_status
+    timestamp_with_time_zone created_at
+    text review_candidate_table
+    bigint review_candidate_id
+    text external_id
+    text target_schema
+    text target_table
+    bigint target_id
+    jsonb before_data
+    jsonb after_data
+    jsonb validation_result
+    text error_message
+    timestamp_with_time_zone published_at
+  }
+  system_system_publish_stage_logs {
+    bigint id PK
+    bigint publish_batch_id FK
+    text stage_key
+    text stage_label
+    text stage_status
+    text message
+    numeric progress_percent
+    jsonb details
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+  }
+  system_system_review_logs {
+    bigint id PK
+    text entity_family
+    bigint entity_id
+    bigint reviewer_user_id FK
+    text action_type
+    jsonb before_snapshot
+    jsonb after_snapshot
+    text reason
+    timestamp_with_time_zone created_at
+    text review_candidate_table
+    bigint review_candidate_id
+  }
+  system_system_review_tasks {
+    bigint id PK
+    bigint task_type_id FK
+    bigint status_id FK
+    text entity_family
+    bigint entity_id
+    bigint assigned_to
+    integer priority
+    text note
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone resolved_at
+  }
+  system_system_source_registry {
+    bigint id PK
+    text source_code
+    text source_name
+    bigint source_type_id FK
+    text source_uri
+    boolean is_active
+    jsonb config
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  system_system_source_snapshots {
+    bigint id PK
+    bigint source_registry_id FK
+    bigint import_batch_id FK
+    text snapshot_ref
+    text snapshot_version
+    text region_code
+    text checksum
+    timestamp_with_time_zone captured_at
+    timestamp_with_time_zone created_at
+    jsonb metadata
+  }
+  vault_secrets {
+    uuid id PK
+    text name
+    text description
+    text secret
+    uuid key_id
+    bytea nonce
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
   %% VIEWS
+  core_transport_v_duplicate_route_stop_sequences {
+    bigint route_variant_id
+    text variant_code
+    bigint route_id
+    text route_code
+    integer stop_sequence
+    integer duplicate_count
+    int8[] route_stop_ids
+  }
+  core_transport_v_gtfs_readiness_summary {
+    bigint active_routes
+    bigint active_variants
+    bigint active_stops
+    bigint variants_too_few_stops
+    bigint duplicate_sequences
+    bigint stops_without_names
+    bigint variants_without_frequency
+    bigint variants_without_path
+  }
+  core_transport_v_route_paths_missing {
+    bigint route_variant_id
+    uuid route_variant_public_id
+    bigint route_id
+    text route_code
+    text route_public_name
+    text variant_code
+    boolean has_variant_geom
+    bigint primary_shape_path_id
+  }
+  core_transport_v_route_stops_missing_timing {
+    bigint route_stop_id
+    bigint route_variant_id
+    text variant_code
+    bigint route_id
+    text route_code
+    bigint stop_id
+    text stop_code
+    integer stop_sequence
+    boolean is_timing_point
+  }
+  core_transport_v_route_variants_with_too_few_stops {
+    bigint route_variant_id
+    uuid route_variant_public_id
+    bigint route_id
+    text route_code
+    text route_public_name
+    text variant_code
+    integer stop_count
+  }
+  core_transport_v_routes_without_variants {
+    bigint route_id
+    uuid route_public_id
+    text route_code
+    text public_name
+    text route_type
+    bigint operator_id
+  }
+  core_transport_v_stops_without_names {
+    bigint stop_id
+    uuid stop_public_id
+    text stop_code
+    text canonical_name
+    text name_local
+    text stop_type
+  }
+  core_transport_v_variants_without_frequency {
+    bigint route_variant_id
+    uuid route_variant_public_id
+    bigint route_id
+    text route_code
+    text route_public_name
+    text variant_code
+  }
+  extensions_pg_stat_statements {
+    oid userid
+    oid dbid
+    boolean toplevel
+    bigint queryid
+    text query
+    bigint plans
+    double_precision total_plan_time
+    double_precision min_plan_time
+    double_precision max_plan_time
+    double_precision mean_plan_time
+    double_precision stddev_plan_time
+    bigint calls
+    double_precision total_exec_time
+    double_precision min_exec_time
+    double_precision max_exec_time
+    double_precision mean_exec_time
+    double_precision stddev_exec_time
+    bigint rows
+    bigint shared_blks_hit
+    bigint shared_blks_read
+    bigint shared_blks_dirtied
+    bigint shared_blks_written
+    bigint local_blks_hit
+    bigint local_blks_read
+    bigint local_blks_dirtied
+    bigint local_blks_written
+    bigint temp_blks_read
+    bigint temp_blks_written
+    double_precision shared_blk_read_time
+    double_precision shared_blk_write_time
+    double_precision local_blk_read_time
+    double_precision local_blk_write_time
+    double_precision temp_blk_read_time
+    double_precision temp_blk_write_time
+    bigint wal_records
+    bigint wal_fpi
+    numeric wal_bytes
+    bigint jit_functions
+    double_precision jit_generation_time
+    bigint jit_inlining_count
+    double_precision jit_inlining_time
+    bigint jit_optimization_count
+    double_precision jit_optimization_time
+    bigint jit_emission_count
+    double_precision jit_emission_time
+    bigint jit_deform_count
+    double_precision jit_deform_time
+    timestamp_with_time_zone stats_since
+    timestamp_with_time_zone minmax_stats_since
+  }
+  extensions_pg_stat_statements_info {
+    bigint dealloc
+    timestamp_with_time_zone stats_reset
+  }
+  gtfs_export_export_batches {
+    bigint id
+    text build_code
+    text scope
+    text status
+    text output_path
+    bigint file_size_bytes
+    text checksum
+    integer route_count
+    integer variant_count
+    integer stop_count
+    integer service_count
+    integer warning_count
+    integer error_count
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    timestamp_with_time_zone created_at
+    text notes
+  }
+  import_review_v_building_review_queue {
+    bigint candidate_id
+    uuid candidate_public_id
+    bigint review_batch_id
+    uuid batch_public_id
+    text batch_name
+    text external_id
+    text canonical_name
+    text review_status
+    text review_decision
+    text match_status
+    text auto_action
+    text promotion_status
+    bigint assigned_to
+    timestamp_with_time_zone updated_at
+  }
+  import_review_v_place_review_queue {
+    bigint candidate_id
+    uuid candidate_public_id
+    bigint review_batch_id
+    uuid batch_public_id
+    text batch_name
+    text external_id
+    text display_candidate_name
+    text review_status
+    text review_decision
+    text match_status
+    text auto_action
+    text promotion_status
+    bigint assigned_to
+    timestamp_with_time_zone updated_at
+  }
+  import_review_v_ready_for_publish_summary {
+    bigint review_batch_id
+    uuid batch_public_id
+    text batch_name
+    bigint rows_ready_or_batched_or_approved
+    bigint rows_promotion_status_promoted
+  }
+  import_review_v_review_batch_summary {
+    bigint review_batch_id
+    uuid batch_public_id
+    text batch_name
+    text source_snapshot_version
+    text region_code
+    text batch_status
+    timestamp_with_time_zone uploaded_at
+    bigint building_count
+    bigint place_count
+    bigint road_count
+    bigint address_count
+    bigint admin_area_count
+    bigint bus_stop_count
+    bigint bus_route_count
+    bigint bus_route_variant_count
+    bigint bus_route_stop_count
+    bigint landuse_count
+    bigint water_line_count
+    bigint water_polygon_count
+    bigint routing_barrier_count
+    bigint routing_turn_restriction_count
+    bigint pending_or_needs_review_total
+    bigint ready_for_publish_rows
+  }
+  import_review_v_road_review_queue {
+    bigint candidate_id
+    uuid candidate_public_id
+    bigint review_batch_id
+    uuid batch_public_id
+    text batch_name
+    text external_id
+    text canonical_name
+    text review_status
+    text review_decision
+    text match_status
+    text auto_action
+    text promotion_status
+    bigint assigned_to
+    timestamp_with_time_zone updated_at
+  }
+  import_transport_route_candidates {
+    bigint id
+    bigint import_batch_id
+    text external_id
+    text source_route_id
+    text route_code
+    text route_name
+    text public_name
+    text mode_type
+    text route_type
+    text directionality
+    text match_status
+    text validation_status
+    text review_status
+    text review_decision
+    text promotion_status
+    text review_note
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    jsonb source_refs
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_transport_route_stop_candidates {
+    bigint id
+    bigint import_batch_id
+    bigint raw_route_variant_id
+    bigint raw_stop_id
+    text external_id
+    text source_route_stop_id
+    text source_variant_id
+    text source_stop_id
+    integer stop_sequence
+    numeric distance_from_start_m
+    boolean is_timing_point
+    text match_status
+    text validation_status
+    text review_status
+    text review_decision
+    text promotion_status
+    text review_note
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    jsonb source_refs
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_transport_route_variant_candidates {
+    bigint id
+    bigint import_batch_id
+    bigint raw_route_id
+    text external_id
+    text source_variant_id
+    text source_route_id
+    text variant_code
+    text direction_name
+    text origin_name
+    text destination_name
+    geometry geom
+    numeric distance_m
+    text match_status
+    text validation_status
+    text review_status
+    text review_decision
+    text promotion_status
+    text review_note
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    jsonb source_refs
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  import_transport_stop_candidates {
+    bigint id
+    bigint import_batch_id
+    text external_id
+    text source_stop_id
+    text stop_code
+    text stop_name
+    text stop_name_local
+    text location_type
+    geometry geom
+    text admin_area_code
+    text match_status
+    text validation_status
+    text review_status
+    text review_decision
+    text promotion_status
+    text review_note
+    numeric confidence_score
+    jsonb raw_payload
+    jsonb normalized_data
+    jsonb source_refs
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  public_geography_columns {
+    name f_table_catalog
+    name f_table_schema
+    name f_table_name
+    name f_geography_column
+    integer coord_dimension
+    integer srid
+    text type
+  }
+  public_geometry_columns {
+    character_varying f_table_catalog
+    name f_table_schema
+    name f_table_name
+    name f_geometry_column
+    integer coord_dimension
+    integer srid
+    character_varying type
+  }
   tiles_tiles_admin_area_label_points_v {
     bigint id
     text public_id
@@ -785,8 +3386,45 @@ erDiagram
     text water_class
     geometry geom
   }
+  vault_decrypted_secrets {
+    uuid id
+    text name
+    text description
+    text secret
+    text decrypted_secret
+    uuid key_id
+    bytea nonce
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  %% RELATIONSHIPS
   app_auth_auth_roles ||--o{ app_auth_auth_user_roles : "role_id"
   app_auth_auth_users ||--o{ app_auth_auth_user_roles : "user_id"
+  core_transport_operators ||--o{ core_transport_fares : "operator_id"
+  core_transport_routes ||--o{ core_transport_fares : "route_id"
+  core_transport_route_variants ||--o{ core_transport_frequencies : "route_variant_id"
+  core_transport_service_calendars ||--o{ core_transport_frequencies : "service_calendar_id"
+  ref_ref_source_types ||--o{ core_transport_operators : "source_type_id"
+  core_transport_routes ||--o{ core_transport_route_names : "route_id"
+  core_transport_route_variants ||--o{ core_transport_route_paths : "route_variant_id"
+  import_transport_import_batches ||--o{ core_transport_route_sources : "import_transport_batch_id"
+  core_transport_routes ||--o{ core_transport_route_sources : "route_id"
+  core_transport_route_variants ||--o{ core_transport_route_stops : "route_variant_id"
+  core_transport_stops ||--o{ core_transport_route_stops : "stop_id"
+  core_transport_routes ||--o{ core_transport_route_variants : "route_id"
+  core_transport_routes ||--o{ core_transport_route_versions : "route_id"
+  core_transport_operators ||--o{ core_transport_routes : "operator_id"
+  ref_ref_source_types ||--o{ core_transport_routes : "source_type_id"
+  core_transport_operators ||--o{ core_transport_service_calendars : "operator_id"
+  core_transport_routes ||--o{ core_transport_service_calendars : "route_id"
+  core_transport_stops ||--o{ core_transport_stop_names : "stop_id"
+  core_core_admin_areas ||--o{ core_transport_stops : "admin_area_id"
+  core_transport_stops ||--o{ core_transport_stops : "parent_stop_id"
+  ref_ref_source_types ||--o{ core_transport_stops : "source_type_id"
+  core_core_admin_areas ||--o{ core_transport_terminals : "admin_area_id"
+  core_transport_stops ||--o{ core_transport_terminals : "linked_stop_id"
+  core_transport_operators ||--o{ core_transport_terminals : "operator_id"
+  ref_ref_source_types ||--o{ core_transport_terminals : "source_type_id"
   core_core_addresses ||--o{ core_core_address_components : "address_id"
   ref_ref_address_component_types ||--o{ core_core_address_components : "component_type_id"
   core_core_admin_areas ||--o{ core_core_addresses : "admin_area_id"
@@ -833,7 +3471,1065 @@ erDiagram
   ref_ref_road_classes ||--o{ core_core_streets : "road_class_id"
   ref_ref_source_types ||--o{ core_core_streets : "source_type_id"
   core_core_admin_areas ||--o{ core_core_map_buildings : "admin_area_id"
+  gtfs_export_export_builds ||--o{ gtfs_export_export_files : "export_build_id"
+  gtfs_export_export_builds ||--o{ gtfs_export_otp_graph_builds : "export_build_id"
+  gtfs_export_export_builds ||--o{ gtfs_export_validation_issues : "export_build_id"
+  gtfs_export_export_builds ||--o{ gtfs_export_validation_reports : "export_build_id"
+  import_review_review_batches ||--o{ import_review_address_candidates : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_admin_area_candidates : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_building_candidates : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_bus_route_candidates : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_bus_route_stop_candidates : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_bus_route_variant_candidates : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_bus_stop_candidates : "review_batch_id"
+  import_review_address_candidates ||--o{ import_review_address_components : "address_candidate_id"
+  ref_ref_address_component_types ||--o{ import_review_address_components : "component_type_id"
+  core_core_admin_areas ||--o{ import_review_address_components : "source_admin_area_id"
+  core_core_admin_areas ||--o{ import_review_address_candidates : "admin_area_id"
+  app_auth_auth_users ||--o{ import_review_address_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_address_candidates : "locked_by"
+  core_core_admin_areas ||--o{ import_review_address_candidates : "matched_admin_area_id"
+  core_core_map_buildings ||--o{ import_review_address_candidates : "matched_building_id"
+  core_core_places ||--o{ import_review_address_candidates : "matched_place_id"
+  core_core_streets ||--o{ import_review_address_candidates : "matched_street_id"
+  app_auth_auth_users ||--o{ import_review_address_candidates : "promoted_by"
+  core_core_addresses ||--o{ import_review_address_candidates : "promoted_core_address_id"
+  app_auth_auth_users ||--o{ import_review_address_candidates : "reviewed_by"
+  core_core_streets ||--o{ import_review_address_candidates : "street_id"
+  ref_ref_admin_levels ||--o{ import_review_admin_area_candidates : "admin_level_id"
+  app_auth_auth_users ||--o{ import_review_admin_area_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_admin_area_candidates : "locked_by"
+  core_core_admin_areas ||--o{ import_review_admin_area_candidates : "parent_id"
+  app_auth_auth_users ||--o{ import_review_admin_area_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_admin_area_candidates : "reviewed_by"
+  core_core_admin_areas ||--o{ import_review_building_candidates : "admin_area_id"
+  app_auth_auth_users ||--o{ import_review_building_candidates : "assigned_to"
+  ref_ref_building_types ||--o{ import_review_building_candidates : "building_type_id"
+  app_auth_auth_users ||--o{ import_review_building_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_building_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_building_candidates : "reviewed_by"
+  app_auth_auth_users ||--o{ import_review_bus_route_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_bus_route_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_bus_route_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_bus_route_candidates : "reviewed_by"
+  app_auth_auth_users ||--o{ import_review_bus_route_stop_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_bus_route_stop_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_bus_route_stop_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_bus_route_stop_candidates : "reviewed_by"
+  app_auth_auth_users ||--o{ import_review_bus_route_variant_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_bus_route_variant_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_bus_route_variant_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_bus_route_variant_candidates : "reviewed_by"
+  core_core_admin_areas ||--o{ import_review_bus_stop_candidates : "admin_area_id"
+  app_auth_auth_users ||--o{ import_review_bus_stop_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_bus_stop_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_bus_stop_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_bus_stop_candidates : "reviewed_by"
+  app_auth_auth_users ||--o{ import_review_landuse_candidates : "assigned_to"
+  ref_ref_landuse_classes ||--o{ import_review_landuse_candidates : "landuse_class_id"
+  app_auth_auth_users ||--o{ import_review_landuse_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_landuse_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_landuse_candidates : "reviewed_by"
+  import_review_address_candidates ||--o{ import_review_place_address_links : "address_candidate_id"
+  import_review_place_candidates ||--o{ import_review_place_address_links : "place_candidate_id"
+  import_review_review_batches ||--o{ import_review_place_address_links : "review_batch_id"
+  core_core_admin_areas ||--o{ import_review_place_candidates : "admin_area_id"
+  app_auth_auth_users ||--o{ import_review_place_candidates : "assigned_to"
+  ref_ref_poi_categories ||--o{ import_review_place_candidates : "category_id"
+  app_auth_auth_users ||--o{ import_review_place_candidates : "locked_by"
+  ref_ref_place_classes ||--o{ import_review_place_candidates : "place_class_id"
+  app_auth_auth_users ||--o{ import_review_place_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_place_candidates : "reviewed_by"
+  app_auth_auth_users ||--o{ import_review_routing_barrier_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_routing_barrier_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_routing_barrier_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_routing_barrier_candidates : "reviewed_by"
+  app_auth_auth_users ||--o{ import_review_review_candidate_edits : "edited_by"
+  app_auth_auth_users ||--o{ import_review_review_comments : "created_by"
+  app_auth_auth_users ||--o{ import_review_road_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_road_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_road_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_road_candidates : "reviewed_by"
+  ref_ref_road_classes ||--o{ import_review_road_candidates : "road_class_id"
+  app_auth_auth_users ||--o{ import_review_review_tasks : "assigned_by"
+  app_auth_auth_users ||--o{ import_review_review_tasks : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_routing_turn_restriction_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_routing_turn_restriction_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_routing_turn_restriction_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_routing_turn_restriction_candidates : "reviewed_by"
+  app_auth_auth_users ||--o{ import_review_water_line_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_water_line_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_water_line_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_water_line_candidates : "reviewed_by"
+  app_auth_auth_users ||--o{ import_review_water_polygon_candidates : "assigned_to"
+  app_auth_auth_users ||--o{ import_review_water_polygon_candidates : "locked_by"
+  app_auth_auth_users ||--o{ import_review_water_polygon_candidates : "promoted_by"
+  app_auth_auth_users ||--o{ import_review_water_polygon_candidates : "reviewed_by"
+  import_review_review_batches ||--o{ import_review_landuse_candidates : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_place_candidates : "review_batch_id"
+  app_auth_auth_users ||--o{ import_review_review_batches : "uploaded_by"
+  import_review_review_batches ||--o{ import_review_review_candidate_edits : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_review_comments : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_review_tasks : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_road_candidates : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_routing_barrier_candidates : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_routing_turn_restriction_candidates : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_water_line_candidates : "review_batch_id"
+  import_review_review_batches ||--o{ import_review_water_polygon_candidates : "review_batch_id"
+  import_transport_source_datasets ||--o{ import_transport_import_batches : "source_dataset_id"
+  import_transport_import_batches ||--o{ import_transport_promotion_batches : "import_batch_id"
+  import_transport_promotion_batches ||--o{ import_transport_promotion_items : "promotion_batch_id"
+  import_transport_promotion_batches ||--o{ import_transport_promotion_stage_logs : "promotion_batch_id"
+  import_transport_import_batches ||--o{ import_transport_raw_fares : "import_batch_id"
+  import_transport_raw_operators ||--o{ import_transport_raw_fares : "raw_operator_id"
+  import_transport_raw_routes ||--o{ import_transport_raw_fares : "raw_route_id"
+  import_transport_import_batches ||--o{ import_transport_raw_operators : "import_batch_id"
+  import_transport_import_batches ||--o{ import_transport_raw_route_paths : "import_batch_id"
+  import_transport_raw_routes ||--o{ import_transport_raw_route_paths : "raw_route_id"
+  import_transport_raw_route_variants ||--o{ import_transport_raw_route_paths : "raw_route_variant_id"
+  import_transport_import_batches ||--o{ import_transport_raw_route_stops : "import_batch_id"
+  import_transport_raw_route_variants ||--o{ import_transport_raw_route_stops : "raw_route_variant_id"
+  import_transport_raw_stops ||--o{ import_transport_raw_route_stops : "raw_stop_id"
+  import_transport_import_batches ||--o{ import_transport_raw_route_variants : "import_batch_id"
+  import_transport_raw_routes ||--o{ import_transport_raw_route_variants : "raw_route_id"
+  import_transport_import_batches ||--o{ import_transport_raw_routes : "import_batch_id"
+  import_transport_raw_operators ||--o{ import_transport_raw_routes : "raw_operator_id"
+  import_transport_import_batches ||--o{ import_transport_raw_service_notes : "import_batch_id"
+  import_transport_raw_routes ||--o{ import_transport_raw_service_notes : "raw_route_id"
+  import_transport_raw_stops ||--o{ import_transport_raw_service_notes : "raw_stop_id"
+  import_transport_raw_terminals ||--o{ import_transport_raw_service_notes : "raw_terminal_id"
+  import_transport_import_batches ||--o{ import_transport_raw_stops : "import_batch_id"
+  import_transport_import_batches ||--o{ import_transport_raw_terminals : "import_batch_id"
+  import_transport_raw_operators ||--o{ import_transport_raw_terminals : "raw_operator_id"
+  import_transport_import_batches ||--o{ import_transport_validation_issues : "import_batch_id"
   ref_ref_address_usage_types ||--o{ ref_ref_boundary_statuses : "default_address_usage_code"
   ref_ref_building_types ||--o{ ref_ref_building_types : "parent_id"
   ref_ref_landuse_classes ||--o{ ref_ref_landuse_classes : "parent_id"
   ref_ref_poi_categories ||--o{ ref_ref_poi_categories : "parent_id"
+  core_core_streets ||--o{ routing_routing_barriers : "core_street_id"
+  routing_routing_builds ||--o{ routing_routing_build_artifacts : "routing_build_id"
+  routing_routing_profiles ||--o{ routing_routing_build_jobs : "profile_code"
+  system_system_publish_batches ||--o{ routing_routing_build_jobs : "source_publish_batch_id"
+  import_review_review_batches ||--o{ routing_routing_build_jobs : "source_review_batch_id"
+  system_system_publish_batches ||--o{ routing_routing_build_sources : "source_publish_batch_id"
+  import_review_review_batches ||--o{ routing_routing_build_sources : "source_review_batch_id"
+  routing_routing_builds ||--o{ routing_routing_build_sources : "routing_build_id"
+  routing_routing_engine_configs ||--o{ routing_routing_builds : "engine_code"
+  routing_routing_requests ||--o{ routing_routing_feedback : "routing_request_id"
+  routing_routing_physical_modes ||--o{ routing_routing_profiles : "primary_physical_mode_code"
+  routing_routing_profiles ||--o{ routing_routing_requests : "profile_code"
+  routing_routing_builds ||--o{ routing_routing_requests : "routing_build_id"
+  routing_routing_engine_configs ||--o{ routing_routing_service_health : "engine_code"
+  routing_routing_build_jobs ||--o{ routing_routing_validation_reports : "build_job_id"
+  core_core_streets ||--o{ routing_routing_validation_reports : "core_street_id"
+  routing_routing_builds ||--o{ routing_routing_validation_reports : "routing_build_id"
+  core_core_addresses ||--o{ search_address_index : "address_id"
+  core_core_admin_areas ||--o{ search_address_index : "admin_area_id"
+  core_core_streets ||--o{ search_address_index : "street_id"
+  core_core_addresses ||--o{ search_search_addresses : "address_id"
+  system_system_diff_items ||--o{ system_system_conflict_queue : "diff_item_id"
+  system_system_diff_runs ||--o{ system_system_diff_items : "diff_run_id"
+  system_system_source_snapshots ||--o{ system_system_diff_runs : "current_snapshot_id"
+  system_system_source_snapshots ||--o{ system_system_diff_runs : "previous_snapshot_id"
+  system_system_source_registry ||--o{ system_system_import_batches : "source_registry_id"
+  app_auth_auth_users ||--o{ system_system_publish_batches : "promoted_by"
+  import_review_review_batches ||--o{ system_system_publish_batches : "source_review_batch_id"
+  system_system_publish_batches ||--o{ system_system_publish_items : "publish_batch_id"
+  system_system_publish_batches ||--o{ system_system_publish_stage_logs : "publish_batch_id"
+  app_auth_auth_users ||--o{ system_system_review_logs : "reviewer_user_id"
+  ref_ref_validation_statuses ||--o{ system_system_review_tasks : "status_id"
+  ref_ref_validation_task_types ||--o{ system_system_review_tasks : "task_type_id"
+  ref_ref_source_types ||--o{ system_system_source_registry : "source_type_id"
+  system_system_import_batches ||--o{ system_system_source_snapshots : "import_batch_id"
+  system_system_source_registry ||--o{ system_system_source_snapshots : "source_registry_id"
+  %% ENUM TYPES
+  %% auth.aal_level { aal1, aal2, aal3 }
+  %% auth.code_challenge_method { s256, plain }
+  %% auth.factor_status { unverified, verified }
+  %% auth.factor_type { totp, webauthn, phone }
+  %% auth.oauth_authorization_status { pending, approved, denied, expired }
+  %% auth.oauth_client_type { public, confidential }
+  %% auth.oauth_registration_type { dynamic, manual }
+  %% auth.oauth_response_type { code }
+  %% auth.one_time_token_type { confirmation_token, reauthentication_token, recovery_token, email_change_token_new, email_change_token_current, phone_change_token }
+  %% realtime.action { INSERT, UPDATE, DELETE, TRUNCATE, ERROR }
+  %% realtime.equality_op { eq, neq, lt, lte, gt, gte, in }
+  %% storage.buckettype { STANDARD, ANALYTICS, VECTOR }
+  %% FUNCTIONS
+  %% [auth]
+  %% function: email() -> text
+  %% function: jwt() -> jsonb
+  %% function: role() -> text
+  %% function: uid() -> uuid
+  %% [core]
+  %% function: get_initial_publish_status_id() -> bigint
+  %% function: get_source_type_id_from_snapshot(p_source_snapshot_id bigint) -> bigint
+  %% function: is_promotable_match_status(p_match_status text) -> boolean
+  %% function: make_slug(p_value text) -> text
+  %% function: promote_admin_area_candidate(p_candidate_id bigint) -> bigint
+  %% function: promote_bus_route_candidate(p_candidate_id bigint) -> bigint
+  %% function: promote_bus_stop_candidate(p_candidate_id bigint) -> bigint
+  %% function: promote_place_candidate(p_candidate_id bigint) -> bigint
+  %% function: promote_road_candidate(p_candidate_id bigint) -> bigint
+  %% function: sync_is_verified_from_verification_status() -> trigger
+  %% function: trg_fn_core_streets_save_version_before_update() -> trigger
+  %% [extensions]
+  %% function: armor(bytea) -> text
+  %% function: armor(bytea, text[], text[]) -> text
+  %% function: crypt(text, text) -> text
+  %% function: dearmor(text) -> bytea
+  %% function: decrypt(bytea, bytea, text) -> bytea
+  %% function: decrypt_iv(bytea, bytea, bytea, text) -> bytea
+  %% function: digest(bytea, text) -> bytea
+  %% function: digest(text, text) -> bytea
+  %% function: encrypt(bytea, bytea, text) -> bytea
+  %% function: encrypt_iv(bytea, bytea, bytea, text) -> bytea
+  %% function: gen_random_bytes(integer) -> bytea
+  %% function: gen_random_uuid() -> uuid
+  %% function: gen_salt(text) -> text
+  %% function: gen_salt(text, integer) -> text
+  %% function: grant_pg_cron_access() -> event_trigger
+  %% function: grant_pg_graphql_access() -> event_trigger
+  %% function: grant_pg_net_access() -> event_trigger
+  %% function: hmac(bytea, bytea, text) -> bytea
+  %% function: hmac(text, text, text) -> bytea
+  %% function: pg_stat_statements(showtext boolean, OUT userid oid, OUT dbid oid, OUT toplevel boolean, OUT queryid bigint, OUT query text, OUT plans bigint, OUT total_plan_time double precision, OUT min_plan_time double precision, OUT max_plan_time double precision, OUT mean_plan_time double precision, OUT stddev_plan_time double precision, OUT calls bigint, OUT total_exec_time double precision, OUT min_exec_time double precision, OUT max_exec_time double precision, OUT mean_exec_time double precision, OUT stddev_exec_time double precision, OUT rows bigint, OUT shared_blks_hit bigint, OUT shared_blks_read bigint, OUT shared_blks_dirtied bigint, OUT shared_blks_written bigint, OUT local_blks_hit bigint, OUT local_blks_read bigint, OUT local_blks_dirtied bigint, OUT local_blks_written bigint, OUT temp_blks_read bigint, OUT temp_blks_written bigint, OUT shared_blk_read_time double precision, OUT shared_blk_write_time double precision, OUT local_blk_read_time double precision, OUT local_blk_write_time double precision, OUT temp_blk_read_time double precision, OUT temp_blk_write_time double precision, OUT wal_records bigint, OUT wal_fpi bigint, OUT wal_bytes numeric, OUT jit_functions bigint, OUT jit_generation_time double precision, OUT jit_inlining_count bigint, OUT jit_inlining_time double precision, OUT jit_optimization_count bigint, OUT jit_optimization_time double precision, OUT jit_emission_count bigint, OUT jit_emission_time double precision, OUT jit_deform_count bigint, OUT jit_deform_time double precision, OUT stats_since timestamp with time zone, OUT minmax_stats_since timestamp with time zone) -> record
+  %% function: pg_stat_statements_info(OUT dealloc bigint, OUT stats_reset timestamp with time zone) -> record
+  %% function: pg_stat_statements_reset(userid oid, dbid oid, queryid bigint, minmax_only boolean) -> timestamp with time zone
+  %% function: pgp_armor_headers(text, OUT key text, OUT value text) -> record
+  %% function: pgp_key_id(bytea) -> text
+  %% function: pgp_pub_decrypt(bytea, bytea) -> text
+  %% function: pgp_pub_decrypt(bytea, bytea, text) -> text
+  %% function: pgp_pub_decrypt(bytea, bytea, text, text) -> text
+  %% function: pgp_pub_decrypt_bytea(bytea, bytea) -> bytea
+  %% function: pgp_pub_decrypt_bytea(bytea, bytea, text) -> bytea
+  %% function: pgp_pub_decrypt_bytea(bytea, bytea, text, text) -> bytea
+  %% function: pgp_pub_encrypt(text, bytea) -> bytea
+  %% function: pgp_pub_encrypt(text, bytea, text) -> bytea
+  %% function: pgp_pub_encrypt_bytea(bytea, bytea) -> bytea
+  %% function: pgp_pub_encrypt_bytea(bytea, bytea, text) -> bytea
+  %% function: pgp_sym_decrypt(bytea, text) -> text
+  %% function: pgp_sym_decrypt(bytea, text, text) -> text
+  %% function: pgp_sym_decrypt_bytea(bytea, text) -> bytea
+  %% function: pgp_sym_decrypt_bytea(bytea, text, text) -> bytea
+  %% function: pgp_sym_encrypt(text, text) -> bytea
+  %% function: pgp_sym_encrypt(text, text, text) -> bytea
+  %% function: pgp_sym_encrypt_bytea(bytea, text) -> bytea
+  %% function: pgp_sym_encrypt_bytea(bytea, text, text) -> bytea
+  %% function: pgrst_ddl_watch() -> event_trigger
+  %% function: pgrst_drop_watch() -> event_trigger
+  %% function: set_graphql_placeholder() -> event_trigger
+  %% function: uuid_generate_v1() -> uuid
+  %% function: uuid_generate_v1mc() -> uuid
+  %% function: uuid_generate_v3(namespace uuid, name text) -> uuid
+  %% function: uuid_generate_v4() -> uuid
+  %% function: uuid_generate_v5(namespace uuid, name text) -> uuid
+  %% function: uuid_nil() -> uuid
+  %% function: uuid_ns_dns() -> uuid
+  %% function: uuid_ns_oid() -> uuid
+  %% function: uuid_ns_url() -> uuid
+  %% function: uuid_ns_x500() -> uuid
+  %% [graphql_public]
+  %% function: graphql( operationName  text, query text, variables jsonb, extensions jsonb) -> jsonb
+  %% [import_review]
+  %% function: admin_infer_confidence_score(p_match_type text, p_boundary_status text, p_boundary_confidence numeric) -> integer
+  %% function: admin_level_to_component_type(p_admin_level_code text) -> text
+  %% function: infer_address_admin_components(p_review_batch_id bigint, p_nearest_village_meters double precision) -> record
+  %% [pgbouncer]
+  %% function: get_auth(p_usename text) -> record
+  %% [public]
+  %% function: _postgis_deprecate(oldname text, newname text, version text) -> void
+  %% function: _postgis_index_extent(tbl regclass, col text) -> box2d
+  %% function: _postgis_join_selectivity(regclass, text, regclass, text, text) -> double precision
+  %% function: _postgis_pgsql_version() -> text
+  %% function: _postgis_scripts_pgsql_version() -> text
+  %% function: _postgis_selectivity(tbl regclass, att_name text, geom geometry, mode text) -> double precision
+  %% function: _postgis_stats(tbl regclass, att_name text, text) -> text
+  %% function: _st_3ddfullywithin(geom1 geometry, geom2 geometry, double precision) -> boolean
+  %% function: _st_3ddwithin(geom1 geometry, geom2 geometry, double precision) -> boolean
+  %% function: _st_3dintersects(geom1 geometry, geom2 geometry) -> boolean
+  %% function: _st_asgml(integer, geometry, integer, integer, text, text) -> text
+  %% function: _st_asx3d(integer, geometry, integer, integer, text) -> text
+  %% function: _st_bestsrid(geography) -> integer
+  %% function: _st_bestsrid(geography, geography) -> integer
+  %% function: _st_contains(geom1 geometry, geom2 geometry) -> boolean
+  %% function: _st_containsproperly(geom1 geometry, geom2 geometry) -> boolean
+  %% function: _st_coveredby(geog1 geography, geog2 geography) -> boolean
+  %% function: _st_coveredby(geom1 geometry, geom2 geometry) -> boolean
+  %% function: _st_covers(geog1 geography, geog2 geography) -> boolean
+  %% function: _st_covers(geom1 geometry, geom2 geometry) -> boolean
+  %% function: _st_crosses(geom1 geometry, geom2 geometry) -> boolean
+  %% function: _st_dfullywithin(geom1 geometry, geom2 geometry, double precision) -> boolean
+  %% function: _st_distancetree(geography, geography) -> double precision
+  %% function: _st_distancetree(geography, geography, double precision, boolean) -> double precision
+  %% function: _st_distanceuncached(geography, geography) -> double precision
+  %% function: _st_distanceuncached(geography, geography, boolean) -> double precision
+  %% function: _st_distanceuncached(geography, geography, double precision, boolean) -> double precision
+  %% function: _st_dwithin(geog1 geography, geog2 geography, tolerance double precision, use_spheroid boolean) -> boolean
+  %% function: _st_dwithin(geom1 geometry, geom2 geometry, double precision) -> boolean
+  %% function: _st_dwithinuncached(geography, geography, double precision) -> boolean
+  %% function: _st_dwithinuncached(geography, geography, double precision, boolean) -> boolean
+  %% function: _st_equals(geom1 geometry, geom2 geometry) -> boolean
+  %% function: _st_expand(geography, double precision) -> geography
+  %% function: _st_geomfromgml(text, integer) -> geometry
+  %% function: _st_intersects(geom1 geometry, geom2 geometry) -> boolean
+  %% function: _st_linecrossingdirection(line1 geometry, line2 geometry) -> integer
+  %% function: _st_longestline(geom1 geometry, geom2 geometry) -> geometry
+  %% function: _st_maxdistance(geom1 geometry, geom2 geometry) -> double precision
+  %% function: _st_orderingequals(geom1 geometry, geom2 geometry) -> boolean
+  %% function: _st_overlaps(geom1 geometry, geom2 geometry) -> boolean
+  %% function: _st_pointoutside(geography) -> geography
+  %% function: _st_sortablehash(geom geometry) -> bigint
+  %% function: _st_touches(geom1 geometry, geom2 geometry) -> boolean
+  %% function: _st_voronoi(g1 geometry, clip geometry, tolerance double precision, return_polygons boolean) -> geometry
+  %% function: _st_within(geom1 geometry, geom2 geometry) -> boolean
+  %% function: addauth(text) -> boolean
+  %% function: addgeometrycolumn(catalog_name character varying, schema_name character varying, table_name character varying, column_name character varying, new_srid_in integer, new_type character varying, new_dim integer, use_typmod boolean) -> text
+  %% function: addgeometrycolumn(schema_name character varying, table_name character varying, column_name character varying, new_srid integer, new_type character varying, new_dim integer, use_typmod boolean) -> text
+  %% function: addgeometrycolumn(table_name character varying, column_name character varying, new_srid integer, new_type character varying, new_dim integer, use_typmod boolean) -> text
+  %% function: box(box3d) -> box
+  %% function: box(geometry) -> box
+  %% function: box2d(box3d) -> box2d
+  %% function: box2d(geometry) -> box2d
+  %% function: box2d_in(cstring) -> box2d
+  %% function: box2d_out(box2d) -> cstring
+  %% function: box2df_in(cstring) -> box2df
+  %% function: box2df_out(box2df) -> cstring
+  %% function: box3d(box2d) -> box3d
+  %% function: box3d(geometry) -> box3d
+  %% function: box3d_in(cstring) -> box3d
+  %% function: box3d_out(box3d) -> cstring
+  %% function: box3dtobox(box3d) -> box
+  %% function: bytea(geography) -> bytea
+  %% function: bytea(geometry) -> bytea
+  %% function: checkauth(text, text) -> integer
+  %% function: checkauth(text, text, text) -> integer
+  %% function: checkauthtrigger() -> trigger
+  %% function: contains_2d(box2df, box2df) -> boolean
+  %% function: contains_2d(box2df, geometry) -> boolean
+  %% function: contains_2d(geometry, box2df) -> boolean
+  %% function: disablelongtransactions() -> text
+  %% function: dropgeometrycolumn(catalog_name character varying, schema_name character varying, table_name character varying, column_name character varying) -> text
+  %% function: dropgeometrycolumn(schema_name character varying, table_name character varying, column_name character varying) -> text
+  %% function: dropgeometrycolumn(table_name character varying, column_name character varying) -> text
+  %% function: dropgeometrytable(catalog_name character varying, schema_name character varying, table_name character varying) -> text
+  %% function: dropgeometrytable(schema_name character varying, table_name character varying) -> text
+  %% function: dropgeometrytable(table_name character varying) -> text
+  %% function: enablelongtransactions() -> text
+  %% function: equals(geom1 geometry, geom2 geometry) -> boolean
+  %% function: find_srid(character varying, character varying, character varying) -> integer
+  %% function: geog_brin_inclusion_add_value(internal, internal, internal, internal) -> boolean
+  %% function: geography(bytea) -> geography
+  %% function: geography(geography, integer, boolean) -> geography
+  %% function: geography(geometry) -> geography
+  %% function: geography_analyze(internal) -> boolean
+  %% function: geography_cmp(geography, geography) -> integer
+  %% function: geography_distance_knn(geography, geography) -> double precision
+  %% function: geography_eq(geography, geography) -> boolean
+  %% function: geography_ge(geography, geography) -> boolean
+  %% function: geography_gist_compress(internal) -> internal
+  %% function: geography_gist_consistent(internal, geography, integer) -> boolean
+  %% function: geography_gist_decompress(internal) -> internal
+  %% function: geography_gist_distance(internal, geography, integer) -> double precision
+  %% function: geography_gist_penalty(internal, internal, internal) -> internal
+  %% function: geography_gist_picksplit(internal, internal) -> internal
+  %% function: geography_gist_same(box2d, box2d, internal) -> internal
+  %% function: geography_gist_union(bytea, internal) -> internal
+  %% function: geography_gt(geography, geography) -> boolean
+  %% function: geography_in(cstring, oid, integer) -> geography
+  %% function: geography_le(geography, geography) -> boolean
+  %% function: geography_lt(geography, geography) -> boolean
+  %% function: geography_out(geography) -> cstring
+  %% function: geography_overlaps(geography, geography) -> boolean
+  %% function: geography_recv(internal, oid, integer) -> geography
+  %% function: geography_send(geography) -> bytea
+  %% function: geography_spgist_choose_nd(internal, internal) -> void
+  %% function: geography_spgist_compress_nd(internal) -> internal
+  %% function: geography_spgist_config_nd(internal, internal) -> void
+  %% function: geography_spgist_inner_consistent_nd(internal, internal) -> void
+  %% function: geography_spgist_leaf_consistent_nd(internal, internal) -> boolean
+  %% function: geography_spgist_picksplit_nd(internal, internal) -> void
+  %% function: geography_typmod_in(cstring[]) -> integer
+  %% function: geography_typmod_out(integer) -> cstring
+  %% function: geom2d_brin_inclusion_add_value(internal, internal, internal, internal) -> boolean
+  %% function: geom3d_brin_inclusion_add_value(internal, internal, internal, internal) -> boolean
+  %% function: geom4d_brin_inclusion_add_value(internal, internal, internal, internal) -> boolean
+  %% function: geometry(box2d) -> geometry
+  %% function: geometry(box3d) -> geometry
+  %% function: geometry(bytea) -> geometry
+  %% function: geometry(geography) -> geometry
+  %% function: geometry(geometry, integer, boolean) -> geometry
+  %% function: geometry(path) -> geometry
+  %% function: geometry(point) -> geometry
+  %% function: geometry(polygon) -> geometry
+  %% function: geometry(text) -> geometry
+  %% function: geometry_above(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_analyze(internal) -> boolean
+  %% function: geometry_below(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_cmp(geom1 geometry, geom2 geometry) -> integer
+  %% function: geometry_contained_3d(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_contains(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_contains_3d(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_contains_nd(geometry, geometry) -> boolean
+  %% function: geometry_distance_box(geom1 geometry, geom2 geometry) -> double precision
+  %% function: geometry_distance_centroid(geom1 geometry, geom2 geometry) -> double precision
+  %% function: geometry_distance_centroid_nd(geometry, geometry) -> double precision
+  %% function: geometry_distance_cpa(geometry, geometry) -> double precision
+  %% function: geometry_eq(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_ge(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_gist_compress_2d(internal) -> internal
+  %% function: geometry_gist_compress_nd(internal) -> internal
+  %% function: geometry_gist_consistent_2d(internal, geometry, integer) -> boolean
+  %% function: geometry_gist_consistent_nd(internal, geometry, integer) -> boolean
+  %% function: geometry_gist_decompress_2d(internal) -> internal
+  %% function: geometry_gist_decompress_nd(internal) -> internal
+  %% function: geometry_gist_distance_2d(internal, geometry, integer) -> double precision
+  %% function: geometry_gist_distance_nd(internal, geometry, integer) -> double precision
+  %% function: geometry_gist_penalty_2d(internal, internal, internal) -> internal
+  %% function: geometry_gist_penalty_nd(internal, internal, internal) -> internal
+  %% function: geometry_gist_picksplit_2d(internal, internal) -> internal
+  %% function: geometry_gist_picksplit_nd(internal, internal) -> internal
+  %% function: geometry_gist_same_2d(geom1 geometry, geom2 geometry, internal) -> internal
+  %% function: geometry_gist_same_nd(geometry, geometry, internal) -> internal
+  %% function: geometry_gist_sortsupport_2d(internal) -> void
+  %% function: geometry_gist_union_2d(bytea, internal) -> internal
+  %% function: geometry_gist_union_nd(bytea, internal) -> internal
+  %% function: geometry_gt(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_hash(geometry) -> integer
+  %% function: geometry_in(cstring) -> geometry
+  %% function: geometry_le(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_left(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_lt(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_out(geometry) -> cstring
+  %% function: geometry_overabove(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_overbelow(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_overlaps(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_overlaps_3d(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_overlaps_nd(geometry, geometry) -> boolean
+  %% function: geometry_overleft(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_overright(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_recv(internal) -> geometry
+  %% function: geometry_right(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_same(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_same_3d(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_same_nd(geometry, geometry) -> boolean
+  %% function: geometry_send(geometry) -> bytea
+  %% function: geometry_sortsupport(internal) -> void
+  %% function: geometry_spgist_choose_2d(internal, internal) -> void
+  %% function: geometry_spgist_choose_3d(internal, internal) -> void
+  %% function: geometry_spgist_choose_nd(internal, internal) -> void
+  %% function: geometry_spgist_compress_2d(internal) -> internal
+  %% function: geometry_spgist_compress_3d(internal) -> internal
+  %% function: geometry_spgist_compress_nd(internal) -> internal
+  %% function: geometry_spgist_config_2d(internal, internal) -> void
+  %% function: geometry_spgist_config_3d(internal, internal) -> void
+  %% function: geometry_spgist_config_nd(internal, internal) -> void
+  %% function: geometry_spgist_inner_consistent_2d(internal, internal) -> void
+  %% function: geometry_spgist_inner_consistent_3d(internal, internal) -> void
+  %% function: geometry_spgist_inner_consistent_nd(internal, internal) -> void
+  %% function: geometry_spgist_leaf_consistent_2d(internal, internal) -> boolean
+  %% function: geometry_spgist_leaf_consistent_3d(internal, internal) -> boolean
+  %% function: geometry_spgist_leaf_consistent_nd(internal, internal) -> boolean
+  %% function: geometry_spgist_picksplit_2d(internal, internal) -> void
+  %% function: geometry_spgist_picksplit_3d(internal, internal) -> void
+  %% function: geometry_spgist_picksplit_nd(internal, internal) -> void
+  %% function: geometry_typmod_in(cstring[]) -> integer
+  %% function: geometry_typmod_out(integer) -> cstring
+  %% function: geometry_within(geom1 geometry, geom2 geometry) -> boolean
+  %% function: geometry_within_nd(geometry, geometry) -> boolean
+  %% function: geometrytype(geography) -> text
+  %% function: geometrytype(geometry) -> text
+  %% function: geomfromewkb(bytea) -> geometry
+  %% function: geomfromewkt(text) -> geometry
+  %% function: get_proj4_from_srid(integer) -> text
+  %% function: gettransactionid() -> xid
+  %% function: gidx_in(cstring) -> gidx
+  %% function: gidx_out(gidx) -> cstring
+  %% function: gserialized_gist_joinsel_2d(internal, oid, internal, smallint) -> double precision
+  %% function: gserialized_gist_joinsel_nd(internal, oid, internal, smallint) -> double precision
+  %% function: gserialized_gist_sel_2d(internal, oid, internal, integer) -> double precision
+  %% function: gserialized_gist_sel_nd(internal, oid, internal, integer) -> double precision
+  %% function: is_contained_2d(box2df, box2df) -> boolean
+  %% function: is_contained_2d(box2df, geometry) -> boolean
+  %% function: is_contained_2d(geometry, box2df) -> boolean
+  %% function: json(geometry) -> json
+  %% function: jsonb(geometry) -> jsonb
+  %% function: lockrow(text, text, text) -> integer
+  %% function: lockrow(text, text, text, text) -> integer
+  %% function: lockrow(text, text, text, text, timestamp without time zone) -> integer
+  %% function: lockrow(text, text, text, timestamp without time zone) -> integer
+  %% function: longtransactionsenabled() -> boolean
+  %% function: overlaps_2d(box2df, box2df) -> boolean
+  %% function: overlaps_2d(box2df, geometry) -> boolean
+  %% function: overlaps_2d(geometry, box2df) -> boolean
+  %% function: overlaps_geog(geography, gidx) -> boolean
+  %% function: overlaps_geog(gidx, geography) -> boolean
+  %% function: overlaps_geog(gidx, gidx) -> boolean
+  %% function: overlaps_nd(geometry, gidx) -> boolean
+  %% function: overlaps_nd(gidx, geometry) -> boolean
+  %% function: overlaps_nd(gidx, gidx) -> boolean
+  %% function: path(geometry) -> path
+  %% function: pgis_asflatgeobuf_finalfn(internal) -> bytea
+  %% function: pgis_asflatgeobuf_transfn(internal, anyelement) -> internal
+  %% function: pgis_asflatgeobuf_transfn(internal, anyelement, boolean) -> internal
+  %% function: pgis_asflatgeobuf_transfn(internal, anyelement, boolean, text) -> internal
+  %% function: pgis_asgeobuf_finalfn(internal) -> bytea
+  %% function: pgis_asgeobuf_transfn(internal, anyelement) -> internal
+  %% function: pgis_asgeobuf_transfn(internal, anyelement, text) -> internal
+  %% function: pgis_asmvt_combinefn(internal, internal) -> internal
+  %% function: pgis_asmvt_deserialfn(bytea, internal) -> internal
+  %% function: pgis_asmvt_finalfn(internal) -> bytea
+  %% function: pgis_asmvt_serialfn(internal) -> bytea
+  %% function: pgis_asmvt_transfn(internal, anyelement) -> internal
+  %% function: pgis_asmvt_transfn(internal, anyelement, text) -> internal
+  %% function: pgis_asmvt_transfn(internal, anyelement, text, integer) -> internal
+  %% function: pgis_asmvt_transfn(internal, anyelement, text, integer, text) -> internal
+  %% function: pgis_asmvt_transfn(internal, anyelement, text, integer, text, text) -> internal
+  %% function: pgis_geometry_accum_transfn(internal, geometry) -> internal
+  %% function: pgis_geometry_accum_transfn(internal, geometry, double precision) -> internal
+  %% function: pgis_geometry_accum_transfn(internal, geometry, double precision, integer) -> internal
+  %% function: pgis_geometry_clusterintersecting_finalfn(internal) -> geometry[]
+  %% function: pgis_geometry_clusterwithin_finalfn(internal) -> geometry[]
+  %% function: pgis_geometry_collect_finalfn(internal) -> geometry
+  %% function: pgis_geometry_makeline_finalfn(internal) -> geometry
+  %% function: pgis_geometry_polygonize_finalfn(internal) -> geometry
+  %% function: pgis_geometry_union_parallel_combinefn(internal, internal) -> internal
+  %% function: pgis_geometry_union_parallel_deserialfn(bytea, internal) -> internal
+  %% function: pgis_geometry_union_parallel_finalfn(internal) -> geometry
+  %% function: pgis_geometry_union_parallel_serialfn(internal) -> bytea
+  %% function: pgis_geometry_union_parallel_transfn(internal, geometry) -> internal
+  %% function: pgis_geometry_union_parallel_transfn(internal, geometry, double precision) -> internal
+  %% function: point(geometry) -> point
+  %% function: polygon(geometry) -> polygon
+  %% function: populate_geometry_columns(tbl_oid oid, use_typmod boolean) -> integer
+  %% function: populate_geometry_columns(use_typmod boolean) -> text
+  %% function: postgis_addbbox(geometry) -> geometry
+  %% function: postgis_cache_bbox() -> trigger
+  %% function: postgis_constraint_dims(geomschema text, geomtable text, geomcolumn text) -> integer
+  %% function: postgis_constraint_srid(geomschema text, geomtable text, geomcolumn text) -> integer
+  %% function: postgis_constraint_type(geomschema text, geomtable text, geomcolumn text) -> character varying
+  %% function: postgis_dropbbox(geometry) -> geometry
+  %% function: postgis_extensions_upgrade() -> text
+  %% function: postgis_full_version() -> text
+  %% function: postgis_geos_noop(geometry) -> geometry
+  %% function: postgis_geos_version() -> text
+  %% function: postgis_getbbox(geometry) -> box2d
+  %% function: postgis_hasbbox(geometry) -> boolean
+  %% function: postgis_index_supportfn(internal) -> internal
+  %% function: postgis_lib_build_date() -> text
+  %% function: postgis_lib_revision() -> text
+  %% function: postgis_lib_version() -> text
+  %% function: postgis_libjson_version() -> text
+  %% function: postgis_liblwgeom_version() -> text
+  %% function: postgis_libprotobuf_version() -> text
+  %% function: postgis_libxml_version() -> text
+  %% function: postgis_noop(geometry) -> geometry
+  %% function: postgis_proj_version() -> text
+  %% function: postgis_scripts_build_date() -> text
+  %% function: postgis_scripts_installed() -> text
+  %% function: postgis_scripts_released() -> text
+  %% function: postgis_svn_version() -> text
+  %% function: postgis_transform_geometry(geom geometry, text, text, integer) -> geometry
+  %% function: postgis_type_name(geomname character varying, coord_dimension integer, use_new_name boolean) -> character varying
+  %% function: postgis_typmod_dims(integer) -> integer
+  %% function: postgis_typmod_srid(integer) -> integer
+  %% function: postgis_typmod_type(integer) -> text
+  %% function: postgis_version() -> text
+  %% function: postgis_wagyu_version() -> text
+  %% function: spheroid_in(cstring) -> spheroid
+  %% function: spheroid_out(spheroid) -> cstring
+  %% function: st_3dclosestpoint(geom1 geometry, geom2 geometry) -> geometry
+  %% function: st_3ddfullywithin(geom1 geometry, geom2 geometry, double precision) -> boolean
+  %% function: st_3ddistance(geom1 geometry, geom2 geometry) -> double precision
+  %% function: st_3ddwithin(geom1 geometry, geom2 geometry, double precision) -> boolean
+  %% aggregate: st_3dextent(geometry) -> box3d
+  %% function: st_3dintersects(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_3dlength(geometry) -> double precision
+  %% function: st_3dlineinterpolatepoint(geometry, double precision) -> geometry
+  %% function: st_3dlongestline(geom1 geometry, geom2 geometry) -> geometry
+  %% function: st_3dmakebox(geom1 geometry, geom2 geometry) -> box3d
+  %% function: st_3dmaxdistance(geom1 geometry, geom2 geometry) -> double precision
+  %% function: st_3dperimeter(geometry) -> double precision
+  %% function: st_3dshortestline(geom1 geometry, geom2 geometry) -> geometry
+  %% function: st_addmeasure(geometry, double precision, double precision) -> geometry
+  %% function: st_addpoint(geom1 geometry, geom2 geometry) -> geometry
+  %% function: st_addpoint(geom1 geometry, geom2 geometry, integer) -> geometry
+  %% function: st_affine(geometry, double precision, double precision, double precision, double precision, double precision, double precision) -> geometry
+  %% function: st_affine(geometry, double precision, double precision, double precision, double precision, double precision, double precision, double precision, double precision, double precision, double precision, double precision, double precision) -> geometry
+  %% function: st_angle(line1 geometry, line2 geometry) -> double precision
+  %% function: st_angle(pt1 geometry, pt2 geometry, pt3 geometry, pt4 geometry) -> double precision
+  %% function: st_area(geog geography, use_spheroid boolean) -> double precision
+  %% function: st_area(geometry) -> double precision
+  %% function: st_area(text) -> double precision
+  %% function: st_area2d(geometry) -> double precision
+  %% function: st_asbinary(geography) -> bytea
+  %% function: st_asbinary(geography, text) -> bytea
+  %% function: st_asbinary(geometry) -> bytea
+  %% function: st_asbinary(geometry, text) -> bytea
+  %% function: st_asencodedpolyline(geom geometry, nprecision integer) -> text
+  %% function: st_asewkb(geometry) -> bytea
+  %% function: st_asewkb(geometry, text) -> bytea
+  %% function: st_asewkt(geography) -> text
+  %% function: st_asewkt(geography, integer) -> text
+  %% function: st_asewkt(geometry) -> text
+  %% function: st_asewkt(geometry, integer) -> text
+  %% function: st_asewkt(text) -> text
+  %% aggregate: st_asflatgeobuf(anyelement) -> bytea
+  %% aggregate: st_asflatgeobuf(anyelement, boolean) -> bytea
+  %% aggregate: st_asflatgeobuf(anyelement, boolean, text) -> bytea
+  %% aggregate: st_asgeobuf(anyelement) -> bytea
+  %% aggregate: st_asgeobuf(anyelement, text) -> bytea
+  %% function: st_asgeojson(geog geography, maxdecimaldigits integer, options integer) -> text
+  %% function: st_asgeojson(geom geometry, maxdecimaldigits integer, options integer) -> text
+  %% function: st_asgeojson(r record, geom_column text, maxdecimaldigits integer, pretty_bool boolean) -> text
+  %% function: st_asgeojson(text) -> text
+  %% function: st_asgml(geog geography, maxdecimaldigits integer, options integer, nprefix text, id text) -> text
+  %% function: st_asgml(geom geometry, maxdecimaldigits integer, options integer) -> text
+  %% function: st_asgml(text) -> text
+  %% function: st_asgml(version integer, geog geography, maxdecimaldigits integer, options integer, nprefix text, id text) -> text
+  %% function: st_asgml(version integer, geom geometry, maxdecimaldigits integer, options integer, nprefix text, id text) -> text
+  %% function: st_ashexewkb(geometry) -> text
+  %% function: st_ashexewkb(geometry, text) -> text
+  %% function: st_askml(geog geography, maxdecimaldigits integer, nprefix text) -> text
+  %% function: st_askml(geom geometry, maxdecimaldigits integer, nprefix text) -> text
+  %% function: st_askml(text) -> text
+  %% function: st_aslatlontext(geom geometry, tmpl text) -> text
+  %% function: st_asmarc21(geom geometry, format text) -> text
+  %% aggregate: st_asmvt(anyelement) -> bytea
+  %% aggregate: st_asmvt(anyelement, text) -> bytea
+  %% aggregate: st_asmvt(anyelement, text, integer) -> bytea
+  %% aggregate: st_asmvt(anyelement, text, integer, text) -> bytea
+  %% aggregate: st_asmvt(anyelement, text, integer, text, text) -> bytea
+  %% function: st_asmvtgeom(geom geometry, bounds box2d, extent integer, buffer integer, clip_geom boolean) -> geometry
+  %% function: st_assvg(geog geography, rel integer, maxdecimaldigits integer) -> text
+  %% function: st_assvg(geom geometry, rel integer, maxdecimaldigits integer) -> text
+  %% function: st_assvg(text) -> text
+  %% function: st_astext(geography) -> text
+  %% function: st_astext(geography, integer) -> text
+  %% function: st_astext(geometry) -> text
+  %% function: st_astext(geometry, integer) -> text
+  %% function: st_astext(text) -> text
+  %% function: st_astwkb(geom geometry, prec integer, prec_z integer, prec_m integer, with_sizes boolean, with_boxes boolean) -> bytea
+  %% function: st_astwkb(geom geometry[], ids bigint[], prec integer, prec_z integer, prec_m integer, with_sizes boolean, with_boxes boolean) -> bytea
+  %% function: st_asx3d(geom geometry, maxdecimaldigits integer, options integer) -> text
+  %% function: st_azimuth(geog1 geography, geog2 geography) -> double precision
+  %% function: st_azimuth(geom1 geometry, geom2 geometry) -> double precision
+  %% function: st_bdmpolyfromtext(text, integer) -> geometry
+  %% function: st_bdpolyfromtext(text, integer) -> geometry
+  %% function: st_boundary(geometry) -> geometry
+  %% function: st_boundingdiagonal(geom geometry, fits boolean) -> geometry
+  %% function: st_box2dfromgeohash(text, integer) -> box2d
+  %% function: st_buffer(geography, double precision) -> geography
+  %% function: st_buffer(geography, double precision, integer) -> geography
+  %% function: st_buffer(geography, double precision, text) -> geography
+  %% function: st_buffer(geom geometry, radius double precision, options text) -> geometry
+  %% function: st_buffer(geom geometry, radius double precision, quadsegs integer) -> geometry
+  %% function: st_buffer(text, double precision) -> geometry
+  %% function: st_buffer(text, double precision, integer) -> geometry
+  %% function: st_buffer(text, double precision, text) -> geometry
+  %% function: st_buildarea(geometry) -> geometry
+  %% function: st_centroid(geography, use_spheroid boolean) -> geography
+  %% function: st_centroid(geometry) -> geometry
+  %% function: st_centroid(text) -> geometry
+  %% function: st_chaikinsmoothing(geometry, integer, boolean) -> geometry
+  %% function: st_cleangeometry(geometry) -> geometry
+  %% function: st_clipbybox2d(geom geometry, box box2d) -> geometry
+  %% function: st_closestpoint(geom1 geometry, geom2 geometry) -> geometry
+  %% function: st_closestpointofapproach(geometry, geometry) -> double precision
+  %% window: st_clusterdbscan(geometry, eps double precision, minpoints integer) -> integer
+  %% aggregate: st_clusterintersecting(geometry) -> geometry[]
+  %% function: st_clusterintersecting(geometry[]) -> geometry[]
+  %% window: st_clusterkmeans(geom geometry, k integer, max_radius double precision) -> integer
+  %% aggregate: st_clusterwithin(geometry, double precision) -> geometry[]
+  %% function: st_clusterwithin(geometry[], double precision) -> geometry[]
+  %% function: st_collect(geom1 geometry, geom2 geometry) -> geometry
+  %% aggregate: st_collect(geometry) -> geometry
+  %% function: st_collect(geometry[]) -> geometry
+  %% function: st_collectionextract(geometry) -> geometry
+  %% function: st_collectionextract(geometry, integer) -> geometry
+  %% function: st_collectionhomogenize(geometry) -> geometry
+  %% function: st_combinebbox(box2d, geometry) -> box2d
+  %% function: st_combinebbox(box3d, box3d) -> box3d
+  %% function: st_combinebbox(box3d, geometry) -> box3d
+  %% function: st_concavehull(param_geom geometry, param_pctconvex double precision, param_allow_holes boolean) -> geometry
+  %% function: st_contains(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_containsproperly(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_convexhull(geometry) -> geometry
+  %% function: st_coorddim(geometry geometry) -> smallint
+  %% function: st_coveredby(geog1 geography, geog2 geography) -> boolean
+  %% function: st_coveredby(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_coveredby(text, text) -> boolean
+  %% function: st_covers(geog1 geography, geog2 geography) -> boolean
+  %% function: st_covers(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_covers(text, text) -> boolean
+  %% function: st_cpawithin(geometry, geometry, double precision) -> boolean
+  %% function: st_crosses(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_curvetoline(geom geometry, tol double precision, toltype integer, flags integer) -> geometry
+  %% function: st_delaunaytriangles(g1 geometry, tolerance double precision, flags integer) -> geometry
+  %% function: st_dfullywithin(geom1 geometry, geom2 geometry, double precision) -> boolean
+  %% function: st_difference(geom1 geometry, geom2 geometry, gridsize double precision) -> geometry
+  %% function: st_dimension(geometry) -> integer
+  %% function: st_disjoint(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_distance(geog1 geography, geog2 geography, use_spheroid boolean) -> double precision
+  %% function: st_distance(geom1 geometry, geom2 geometry) -> double precision
+  %% function: st_distance(text, text) -> double precision
+  %% function: st_distancecpa(geometry, geometry) -> double precision
+  %% function: st_distancesphere(geom1 geometry, geom2 geometry) -> double precision
+  %% function: st_distancesphere(geom1 geometry, geom2 geometry, radius double precision) -> double precision
+  %% function: st_distancespheroid(geom1 geometry, geom2 geometry) -> double precision
+  %% function: st_distancespheroid(geom1 geometry, geom2 geometry, spheroid) -> double precision
+  %% function: st_dump(geometry) -> geometry_dump
+  %% function: st_dumppoints(geometry) -> geometry_dump
+  %% function: st_dumprings(geometry) -> geometry_dump
+  %% function: st_dumpsegments(geometry) -> geometry_dump
+  %% function: st_dwithin(geog1 geography, geog2 geography, tolerance double precision, use_spheroid boolean) -> boolean
+  %% function: st_dwithin(geom1 geometry, geom2 geometry, double precision) -> boolean
+  %% function: st_dwithin(text, text, double precision) -> boolean
+  %% function: st_endpoint(geometry) -> geometry
+  %% function: st_envelope(geometry) -> geometry
+  %% function: st_equals(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_estimatedextent(text, text) -> box2d
+  %% function: st_estimatedextent(text, text, text) -> box2d
+  %% function: st_estimatedextent(text, text, text, boolean) -> box2d
+  %% function: st_expand(box box2d, dx double precision, dy double precision) -> box2d
+  %% function: st_expand(box box3d, dx double precision, dy double precision, dz double precision) -> box3d
+  %% function: st_expand(box2d, double precision) -> box2d
+  %% function: st_expand(box3d, double precision) -> box3d
+  %% function: st_expand(geom geometry, dx double precision, dy double precision, dz double precision, dm double precision) -> geometry
+  %% function: st_expand(geometry, double precision) -> geometry
+  %% aggregate: st_extent(geometry) -> box2d
+  %% function: st_exteriorring(geometry) -> geometry
+  %% function: st_filterbym(geometry, double precision, double precision, boolean) -> geometry
+  %% function: st_findextent(text, text) -> box2d
+  %% function: st_findextent(text, text, text) -> box2d
+  %% function: st_flipcoordinates(geometry) -> geometry
+  %% function: st_force2d(geometry) -> geometry
+  %% function: st_force3d(geom geometry, zvalue double precision) -> geometry
+  %% function: st_force3dm(geom geometry, mvalue double precision) -> geometry
+  %% function: st_force3dz(geom geometry, zvalue double precision) -> geometry
+  %% function: st_force4d(geom geometry, zvalue double precision, mvalue double precision) -> geometry
+  %% function: st_forcecollection(geometry) -> geometry
+  %% function: st_forcecurve(geometry) -> geometry
+  %% function: st_forcepolygonccw(geometry) -> geometry
+  %% function: st_forcepolygoncw(geometry) -> geometry
+  %% function: st_forcerhr(geometry) -> geometry
+  %% function: st_forcesfs(geometry) -> geometry
+  %% function: st_forcesfs(geometry, version text) -> geometry
+  %% function: st_frechetdistance(geom1 geometry, geom2 geometry, double precision) -> double precision
+  %% function: st_fromflatgeobuf(anyelement, bytea) -> anyelement
+  %% function: st_fromflatgeobuftotable(text, text, bytea) -> void
+  %% function: st_generatepoints(area geometry, npoints integer) -> geometry
+  %% function: st_generatepoints(area geometry, npoints integer, seed integer) -> geometry
+  %% function: st_geogfromtext(text) -> geography
+  %% function: st_geogfromwkb(bytea) -> geography
+  %% function: st_geographyfromtext(text) -> geography
+  %% function: st_geohash(geog geography, maxchars integer) -> text
+  %% function: st_geohash(geom geometry, maxchars integer) -> text
+  %% function: st_geomcollfromtext(text) -> geometry
+  %% function: st_geomcollfromtext(text, integer) -> geometry
+  %% function: st_geomcollfromwkb(bytea) -> geometry
+  %% function: st_geomcollfromwkb(bytea, integer) -> geometry
+  %% function: st_geometricmedian(g geometry, tolerance double precision, max_iter integer, fail_if_not_converged boolean) -> geometry
+  %% function: st_geometryfromtext(text) -> geometry
+  %% function: st_geometryfromtext(text, integer) -> geometry
+  %% function: st_geometryn(geometry, integer) -> geometry
+  %% function: st_geometrytype(geometry) -> text
+  %% function: st_geomfromewkb(bytea) -> geometry
+  %% function: st_geomfromewkt(text) -> geometry
+  %% function: st_geomfromgeohash(text, integer) -> geometry
+  %% function: st_geomfromgeojson(json) -> geometry
+  %% function: st_geomfromgeojson(jsonb) -> geometry
+  %% function: st_geomfromgeojson(text) -> geometry
+  %% function: st_geomfromgml(text) -> geometry
+  %% function: st_geomfromgml(text, integer) -> geometry
+  %% function: st_geomfromkml(text) -> geometry
+  %% function: st_geomfrommarc21(marc21xml text) -> geometry
+  %% function: st_geomfromtext(text) -> geometry
+  %% function: st_geomfromtext(text, integer) -> geometry
+  %% function: st_geomfromtwkb(bytea) -> geometry
+  %% function: st_geomfromwkb(bytea) -> geometry
+  %% function: st_geomfromwkb(bytea, integer) -> geometry
+  %% function: st_gmltosql(text) -> geometry
+  %% function: st_gmltosql(text, integer) -> geometry
+  %% function: st_hasarc(geometry geometry) -> boolean
+  %% function: st_hausdorffdistance(geom1 geometry, geom2 geometry) -> double precision
+  %% function: st_hausdorffdistance(geom1 geometry, geom2 geometry, double precision) -> double precision
+  %% function: st_hexagon(size double precision, cell_i integer, cell_j integer, origin geometry) -> geometry
+  %% function: st_hexagongrid(size double precision, bounds geometry, OUT geom geometry, OUT i integer, OUT j integer) -> record
+  %% function: st_interiorringn(geometry, integer) -> geometry
+  %% function: st_interpolatepoint(line geometry, point geometry) -> double precision
+  %% function: st_intersection(geography, geography) -> geography
+  %% function: st_intersection(geom1 geometry, geom2 geometry, gridsize double precision) -> geometry
+  %% function: st_intersection(text, text) -> geometry
+  %% function: st_intersects(geog1 geography, geog2 geography) -> boolean
+  %% function: st_intersects(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_intersects(text, text) -> boolean
+  %% function: st_isclosed(geometry) -> boolean
+  %% function: st_iscollection(geometry) -> boolean
+  %% function: st_isempty(geometry) -> boolean
+  %% function: st_ispolygonccw(geometry) -> boolean
+  %% function: st_ispolygoncw(geometry) -> boolean
+  %% function: st_isring(geometry) -> boolean
+  %% function: st_issimple(geometry) -> boolean
+  %% function: st_isvalid(geometry) -> boolean
+  %% function: st_isvalid(geometry, integer) -> boolean
+  %% function: st_isvaliddetail(geom geometry, flags integer) -> valid_detail
+  %% function: st_isvalidreason(geometry) -> text
+  %% function: st_isvalidreason(geometry, integer) -> text
+  %% function: st_isvalidtrajectory(geometry) -> boolean
+  %% function: st_length(geog geography, use_spheroid boolean) -> double precision
+  %% function: st_length(geometry) -> double precision
+  %% function: st_length(text) -> double precision
+  %% function: st_length2d(geometry) -> double precision
+  %% function: st_length2dspheroid(geometry, spheroid) -> double precision
+  %% function: st_lengthspheroid(geometry, spheroid) -> double precision
+  %% function: st_letters(letters text, font json) -> geometry
+  %% function: st_linecrossingdirection(line1 geometry, line2 geometry) -> integer
+  %% function: st_linefromencodedpolyline(txtin text, nprecision integer) -> geometry
+  %% function: st_linefrommultipoint(geometry) -> geometry
+  %% function: st_linefromtext(text) -> geometry
+  %% function: st_linefromtext(text, integer) -> geometry
+  %% function: st_linefromwkb(bytea) -> geometry
+  %% function: st_linefromwkb(bytea, integer) -> geometry
+  %% function: st_lineinterpolatepoint(geometry, double precision) -> geometry
+  %% function: st_lineinterpolatepoints(geometry, double precision, repeat boolean) -> geometry
+  %% function: st_linelocatepoint(geom1 geometry, geom2 geometry) -> double precision
+  %% function: st_linemerge(geometry) -> geometry
+  %% function: st_linemerge(geometry, boolean) -> geometry
+  %% function: st_linestringfromwkb(bytea) -> geometry
+  %% function: st_linestringfromwkb(bytea, integer) -> geometry
+  %% function: st_linesubstring(geometry, double precision, double precision) -> geometry
+  %% function: st_linetocurve(geometry geometry) -> geometry
+  %% function: st_locatealong(geometry geometry, measure double precision, leftrightoffset double precision) -> geometry
+  %% function: st_locatebetween(geometry geometry, frommeasure double precision, tomeasure double precision, leftrightoffset double precision) -> geometry
+  %% function: st_locatebetweenelevations(geometry geometry, fromelevation double precision, toelevation double precision) -> geometry
+  %% function: st_longestline(geom1 geometry, geom2 geometry) -> geometry
+  %% function: st_m(geometry) -> double precision
+  %% function: st_makebox2d(geom1 geometry, geom2 geometry) -> box2d
+  %% function: st_makeenvelope(double precision, double precision, double precision, double precision, integer) -> geometry
+  %% function: st_makeline(geom1 geometry, geom2 geometry) -> geometry
+  %% aggregate: st_makeline(geometry) -> geometry
+  %% function: st_makeline(geometry[]) -> geometry
+  %% function: st_makepoint(double precision, double precision) -> geometry
+  %% function: st_makepoint(double precision, double precision, double precision) -> geometry
+  %% function: st_makepoint(double precision, double precision, double precision, double precision) -> geometry
+  %% function: st_makepointm(double precision, double precision, double precision) -> geometry
+  %% function: st_makepolygon(geometry) -> geometry
+  %% function: st_makepolygon(geometry, geometry[]) -> geometry
+  %% function: st_makevalid(geom geometry, params text) -> geometry
+  %% function: st_makevalid(geometry) -> geometry
+  %% function: st_maxdistance(geom1 geometry, geom2 geometry) -> double precision
+  %% function: st_maximuminscribedcircle(geometry, OUT center geometry, OUT nearest geometry, OUT radius double precision) -> record
+  %% aggregate: st_memcollect(geometry) -> geometry
+  %% function: st_memsize(geometry) -> integer
+  %% aggregate: st_memunion(geometry) -> geometry
+  %% function: st_minimumboundingcircle(inputgeom geometry, segs_per_quarter integer) -> geometry
+  %% function: st_minimumboundingradius(geometry, OUT center geometry, OUT radius double precision) -> record
+  %% function: st_minimumclearance(geometry) -> double precision
+  %% function: st_minimumclearanceline(geometry) -> geometry
+  %% function: st_mlinefromtext(text) -> geometry
+  %% function: st_mlinefromtext(text, integer) -> geometry
+  %% function: st_mlinefromwkb(bytea) -> geometry
+  %% function: st_mlinefromwkb(bytea, integer) -> geometry
+  %% function: st_mpointfromtext(text) -> geometry
+  %% function: st_mpointfromtext(text, integer) -> geometry
+  %% function: st_mpointfromwkb(bytea) -> geometry
+  %% function: st_mpointfromwkb(bytea, integer) -> geometry
+  %% function: st_mpolyfromtext(text) -> geometry
+  %% function: st_mpolyfromtext(text, integer) -> geometry
+  %% function: st_mpolyfromwkb(bytea) -> geometry
+  %% function: st_mpolyfromwkb(bytea, integer) -> geometry
+  %% function: st_multi(geometry) -> geometry
+  %% function: st_multilinefromwkb(bytea) -> geometry
+  %% function: st_multilinestringfromtext(text) -> geometry
+  %% function: st_multilinestringfromtext(text, integer) -> geometry
+  %% function: st_multipointfromtext(text) -> geometry
+  %% function: st_multipointfromwkb(bytea) -> geometry
+  %% function: st_multipointfromwkb(bytea, integer) -> geometry
+  %% function: st_multipolyfromwkb(bytea) -> geometry
+  %% function: st_multipolyfromwkb(bytea, integer) -> geometry
+  %% function: st_multipolygonfromtext(text) -> geometry
+  %% function: st_multipolygonfromtext(text, integer) -> geometry
+  %% function: st_ndims(geometry) -> smallint
+  %% function: st_node(g geometry) -> geometry
+  %% function: st_normalize(geom geometry) -> geometry
+  %% function: st_npoints(geometry) -> integer
+  %% function: st_nrings(geometry) -> integer
+  %% function: st_numgeometries(geometry) -> integer
+  %% function: st_numinteriorring(geometry) -> integer
+  %% function: st_numinteriorrings(geometry) -> integer
+  %% function: st_numpatches(geometry) -> integer
+  %% function: st_numpoints(geometry) -> integer
+  %% function: st_offsetcurve(line geometry, distance double precision, params text) -> geometry
+  %% function: st_orderingequals(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_orientedenvelope(geometry) -> geometry
+  %% function: st_overlaps(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_patchn(geometry, integer) -> geometry
+  %% function: st_perimeter(geog geography, use_spheroid boolean) -> double precision
+  %% function: st_perimeter(geometry) -> double precision
+  %% function: st_perimeter2d(geometry) -> double precision
+  %% function: st_point(double precision, double precision) -> geometry
+  %% function: st_point(double precision, double precision, srid integer) -> geometry
+  %% function: st_pointfromgeohash(text, integer) -> geometry
+  %% function: st_pointfromtext(text) -> geometry
+  %% function: st_pointfromtext(text, integer) -> geometry
+  %% function: st_pointfromwkb(bytea) -> geometry
+  %% function: st_pointfromwkb(bytea, integer) -> geometry
+  %% function: st_pointinsidecircle(geometry, double precision, double precision, double precision) -> boolean
+  %% function: st_pointm(xcoordinate double precision, ycoordinate double precision, mcoordinate double precision, srid integer) -> geometry
+  %% function: st_pointn(geometry, integer) -> geometry
+  %% function: st_pointonsurface(geometry) -> geometry
+  %% function: st_points(geometry) -> geometry
+  %% function: st_pointz(xcoordinate double precision, ycoordinate double precision, zcoordinate double precision, srid integer) -> geometry
+  %% function: st_pointzm(xcoordinate double precision, ycoordinate double precision, zcoordinate double precision, mcoordinate double precision, srid integer) -> geometry
+  %% function: st_polyfromtext(text) -> geometry
+  %% function: st_polyfromtext(text, integer) -> geometry
+  %% function: st_polyfromwkb(bytea) -> geometry
+  %% function: st_polyfromwkb(bytea, integer) -> geometry
+  %% function: st_polygon(geometry, integer) -> geometry
+  %% function: st_polygonfromtext(text) -> geometry
+  %% function: st_polygonfromtext(text, integer) -> geometry
+  %% function: st_polygonfromwkb(bytea) -> geometry
+  %% function: st_polygonfromwkb(bytea, integer) -> geometry
+  %% aggregate: st_polygonize(geometry) -> geometry
+  %% function: st_polygonize(geometry[]) -> geometry
+  %% function: st_project(geog geography, distance double precision, azimuth double precision) -> geography
+  %% function: st_quantizecoordinates(g geometry, prec_x integer, prec_y integer, prec_z integer, prec_m integer) -> geometry
+  %% function: st_reduceprecision(geom geometry, gridsize double precision) -> geometry
+  %% function: st_relate(geom1 geometry, geom2 geometry) -> text
+  %% function: st_relate(geom1 geometry, geom2 geometry, integer) -> text
+  %% function: st_relate(geom1 geometry, geom2 geometry, text) -> boolean
+  %% function: st_relatematch(text, text) -> boolean
+  %% function: st_removepoint(geometry, integer) -> geometry
+  %% function: st_removerepeatedpoints(geom geometry, tolerance double precision) -> geometry
+  %% function: st_reverse(geometry) -> geometry
+  %% function: st_rotate(geometry, double precision) -> geometry
+  %% function: st_rotate(geometry, double precision, double precision, double precision) -> geometry
+  %% function: st_rotate(geometry, double precision, geometry) -> geometry
+  %% function: st_rotatex(geometry, double precision) -> geometry
+  %% function: st_rotatey(geometry, double precision) -> geometry
+  %% function: st_rotatez(geometry, double precision) -> geometry
+  %% function: st_scale(geometry, double precision, double precision) -> geometry
+  %% function: st_scale(geometry, double precision, double precision, double precision) -> geometry
+  %% function: st_scale(geometry, geometry) -> geometry
+  %% function: st_scale(geometry, geometry, origin geometry) -> geometry
+  %% function: st_scroll(geometry, geometry) -> geometry
+  %% function: st_segmentize(geog geography, max_segment_length double precision) -> geography
+  %% function: st_segmentize(geometry, double precision) -> geometry
+  %% function: st_seteffectivearea(geometry, double precision, integer) -> geometry
+  %% function: st_setpoint(geometry, integer, geometry) -> geometry
+  %% function: st_setsrid(geog geography, srid integer) -> geography
+  %% function: st_setsrid(geom geometry, srid integer) -> geometry
+  %% function: st_sharedpaths(geom1 geometry, geom2 geometry) -> geometry
+  %% function: st_shiftlongitude(geometry) -> geometry
+  %% function: st_shortestline(geom1 geometry, geom2 geometry) -> geometry
+  %% function: st_simplify(geometry, double precision) -> geometry
+  %% function: st_simplify(geometry, double precision, boolean) -> geometry
+  %% function: st_simplifypolygonhull(geom geometry, vertex_fraction double precision, is_outer boolean) -> geometry
+  %% function: st_simplifypreservetopology(geometry, double precision) -> geometry
+  %% function: st_simplifyvw(geometry, double precision) -> geometry
+  %% function: st_snap(geom1 geometry, geom2 geometry, double precision) -> geometry
+  %% function: st_snaptogrid(geom1 geometry, geom2 geometry, double precision, double precision, double precision, double precision) -> geometry
+  %% function: st_snaptogrid(geometry, double precision) -> geometry
+  %% function: st_snaptogrid(geometry, double precision, double precision) -> geometry
+  %% function: st_snaptogrid(geometry, double precision, double precision, double precision, double precision) -> geometry
+  %% function: st_split(geom1 geometry, geom2 geometry) -> geometry
+  %% function: st_square(size double precision, cell_i integer, cell_j integer, origin geometry) -> geometry
+  %% function: st_squaregrid(size double precision, bounds geometry, OUT geom geometry, OUT i integer, OUT j integer) -> record
+  %% function: st_srid(geog geography) -> integer
+  %% function: st_srid(geom geometry) -> integer
+  %% function: st_startpoint(geometry) -> geometry
+  %% function: st_subdivide(geom geometry, maxvertices integer, gridsize double precision) -> geometry
+  %% function: st_summary(geography) -> text
+  %% function: st_summary(geometry) -> text
+  %% function: st_swapordinates(geom geometry, ords cstring) -> geometry
+  %% function: st_symdifference(geom1 geometry, geom2 geometry, gridsize double precision) -> geometry
+  %% function: st_symmetricdifference(geom1 geometry, geom2 geometry) -> geometry
+  %% function: st_tileenvelope(zoom integer, x integer, y integer, bounds geometry, margin double precision) -> geometry
+  %% function: st_touches(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_transform(geom geometry, from_proj text, to_proj text) -> geometry
+  %% function: st_transform(geom geometry, from_proj text, to_srid integer) -> geometry
+  %% function: st_transform(geom geometry, to_proj text) -> geometry
+  %% function: st_transform(geometry, integer) -> geometry
+  %% function: st_translate(geometry, double precision, double precision) -> geometry
+  %% function: st_translate(geometry, double precision, double precision, double precision) -> geometry
+  %% function: st_transscale(geometry, double precision, double precision, double precision, double precision) -> geometry
+  %% function: st_triangulatepolygon(g1 geometry) -> geometry
+  %% function: st_unaryunion(geometry, gridsize double precision) -> geometry
+  %% function: st_union(geom1 geometry, geom2 geometry) -> geometry
+  %% function: st_union(geom1 geometry, geom2 geometry, gridsize double precision) -> geometry
+  %% aggregate: st_union(geometry) -> geometry
+  %% aggregate: st_union(geometry, gridsize double precision) -> geometry
+  %% function: st_union(geometry[]) -> geometry
+  %% function: st_voronoilines(g1 geometry, tolerance double precision, extend_to geometry) -> geometry
+  %% function: st_voronoipolygons(g1 geometry, tolerance double precision, extend_to geometry) -> geometry
+  %% function: st_within(geom1 geometry, geom2 geometry) -> boolean
+  %% function: st_wkbtosql(wkb bytea) -> geometry
+  %% function: st_wkttosql(text) -> geometry
+  %% function: st_wrapx(geom geometry, wrap double precision, move double precision) -> geometry
+  %% function: st_x(geometry) -> double precision
+  %% function: st_xmax(box3d) -> double precision
+  %% function: st_xmin(box3d) -> double precision
+  %% function: st_y(geometry) -> double precision
+  %% function: st_ymax(box3d) -> double precision
+  %% function: st_ymin(box3d) -> double precision
+  %% function: st_z(geometry) -> double precision
+  %% function: st_zmax(box3d) -> double precision
+  %% function: st_zmflag(geometry) -> smallint
+  %% function: st_zmin(box3d) -> double precision
+  %% function: text(geometry) -> text
+  %% function: unlockrows(text) -> integer
+  %% function: updategeometrysrid(catalogn_name character varying, schema_name character varying, table_name character varying, column_name character varying, new_srid_in integer) -> text
+  %% function: updategeometrysrid(character varying, character varying, character varying, integer) -> text
+  %% function: updategeometrysrid(character varying, character varying, integer) -> text
+  %% [realtime]
+  %% function: apply_rls(wal jsonb, max_record_bytes integer) -> realtime.wal_rls
+  %% function: broadcast_changes(topic_name text, event_name text, operation text, table_name text, table_schema text, new record, old record, level text) -> void
+  %% function: build_prepared_statement_sql(prepared_statement_name text, entity regclass, columns realtime.wal_column[]) -> text
+  %% function: cast(val text, type_ regtype) -> jsonb
+  %% function: check_equality_op(op realtime.equality_op, type_ regtype, val_1 text, val_2 text) -> boolean
+  %% function: is_visible_through_filters(columns realtime.wal_column[], filters realtime.user_defined_filter[]) -> boolean
+  %% function: list_changes(publication name, slot_name name, max_changes integer, max_record_bytes integer) -> record
+  %% function: quote_wal2json(entity regclass) -> text
+  %% function: send(payload jsonb, event text, topic text, private boolean) -> void
+  %% function: subscription_check_filters() -> trigger
+  %% function: to_regrole(role_name text) -> regrole
+  %% function: topic() -> text
+  %% [search]
+  %% function: address_component_type_rank(p_code text) -> integer
+  %% function: build_address_search_line(p_address_id bigint, p_language_code text) -> text
+  %% function: is_admin_address_component(p_code text) -> boolean
+  %% function: is_neutral_address_component(p_code text) -> boolean
+  %% function: is_street_address_component(p_code text) -> boolean
+  %% function: pick_address_component_value(p_address_id bigint, p_type_code text, p_langs text[]) -> text
+  %% function: pick_address_field_text(p_address_id bigint, p_language_code text, p_kind text) -> text
+  %% function: refresh_address_index(p_address_ids bigint[]) -> bigint
+  %% function: tokenize_search_text(p_text text) -> text[]
+  %% [storage]
+  %% function: allow_any_operation(expected_operations text[]) -> boolean
+  %% function: allow_only_operation(expected_operation text) -> boolean
+  %% function: can_insert_object(bucketid text, name text, owner uuid, metadata jsonb) -> void
+  %% function: enforce_bucket_name_length() -> trigger
+  %% function: extension(name text) -> text
+  %% function: filename(name text) -> text
+  %% function: foldername(name text) -> text[]
+  %% function: get_common_prefix(p_key text, p_prefix text, p_delimiter text) -> text
+  %% function: get_size_by_bucket() -> record
+  %% function: list_multipart_uploads_with_delimiter(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) -> record
+  %% function: list_objects_with_delimiter(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) -> record
+  %% function: operation() -> text
+  %% function: protect_delete() -> trigger
+  %% function: search(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) -> record
+  %% function: search_by_timestamp(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) -> record
+  %% function: search_v2(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) -> record
+  %% function: update_updated_at_column() -> trigger
+  %% [tiles]
+  %% function: get_admin_areas_tile(z integer, x integer, y integer) -> bytea
+  %% function: get_places_tile(z integer, x integer, y integer) -> bytea
+  %% function: get_streets_tile(z integer, x integer, y integer) -> bytea
+  %% [vault]
+  %% function: _crypto_aead_det_decrypt(message bytea, additional bytea, key_id bigint, context bytea, nonce bytea) -> bytea
+  %% function: _crypto_aead_det_encrypt(message bytea, additional bytea, key_id bigint, context bytea, nonce bytea) -> bytea
+  %% function: _crypto_aead_det_noncegen() -> bytea
+  %% function: create_secret(new_secret text, new_name text, new_description text, new_key_id uuid) -> uuid
+  %% function: update_secret(secret_id uuid, new_secret text, new_name text, new_description text, new_key_id uuid) -> void

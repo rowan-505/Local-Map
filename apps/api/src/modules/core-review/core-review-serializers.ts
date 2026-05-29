@@ -4,6 +4,10 @@ import type { BuildingDetailRow } from "../buildings/buildings.repo.js";
 import type { PlaceDetailRow, PlaceNameRow, PlaceRow } from "../places/places.repo.js";
 import type { StreetRow } from "../streets/streets.repo.js";
 import type { CoreReviewNameDto } from "./core-review.types.js";
+import {
+    effectiveVerificationStatusFromRow,
+    isVerifiedFromVerificationStatus,
+} from "./core-review-verification-write.js";
 
 function iso(d: Date | string | null | undefined): string | null {
     if (d === null || d === undefined) {
@@ -29,6 +33,7 @@ export function mapPlaceNames(names: PlaceNameRow[]): CoreReviewNameDto[] {
 
 export function serializeCoreReviewBuilding(row: BuildingDetailRow) {
     const names = mapBuildingNameFields(row);
+    const verificationStatus = effectiveVerificationStatusFromRow(row);
     return {
         id: row.id,
         publicId: row.public_id,
@@ -44,7 +49,8 @@ export function serializeCoreReviewBuilding(row: BuildingDetailRow) {
         areaM2: row.area_m2,
         levels: row.levels,
         confidenceScore: row.confidence_score,
-        isVerified: row.is_verified,
+        verificationStatus,
+        isVerified: isVerifiedFromVerificationStatus(verificationStatus),
         isActive: row.is_active,
         createdAt: iso(row.created_at),
         updatedAt: iso(row.updated_at),
@@ -57,6 +63,8 @@ export function serializeCoreReviewPlace(row: PlaceRow | PlaceDetailRow, include
         typeof row.lng === "number" && typeof row.lat === "number"
             ? { type: "Point" as const, coordinates: [row.lng, row.lat] }
             : null;
+
+    const verificationStatus = effectiveVerificationStatusFromRow(row);
 
     const base = {
         id: String(row.id),
@@ -74,7 +82,8 @@ export function serializeCoreReviewPlace(row: PlaceRow | PlaceDetailRow, include
         popularityScore: row.popularity_score,
         confidenceScore: row.confidence_score,
         isPublic: row.is_public,
-        isVerified: row.is_verified,
+        verificationStatus,
+        isVerified: isVerifiedFromVerificationStatus(verificationStatus),
         createdAt: iso(row.created_at),
         updatedAt: iso(row.updated_at),
         names: mapPlaceNames(row.names ?? []),
@@ -99,6 +108,7 @@ export function serializeCoreReviewPlace(row: PlaceRow | PlaceDetailRow, include
 }
 
 export function serializeCoreReviewStreet(row: StreetRow) {
+    const verificationStatus = effectiveVerificationStatusFromRow(row);
     return {
         publicId: row.public_id,
         canonicalName: row.canonical_name,
@@ -117,7 +127,8 @@ export function serializeCoreReviewStreet(row: StreetRow) {
         deletedAt: iso(row.deleted_at),
         lastEditedAt: iso(row.last_edited_at),
         isActive: row.is_active,
-        isVerified: row.is_verified,
+        verificationStatus,
+        isVerified: isVerifiedFromVerificationStatus(verificationStatus),
         createdAt: iso(row.created_at),
         updatedAt: iso(row.updated_at),
         geometry: row.geometry,
@@ -155,5 +166,16 @@ export function serializeGenericCoreRow(row: Record<string, unknown>) {
         }
         out[key] = value;
     }
+
+    if ("verificationStatus" in out || "isVerified" in out) {
+        const verificationStatus = effectiveVerificationStatusFromRow({
+            verification_status:
+                typeof out.verificationStatus === "string" ? out.verificationStatus : null,
+            is_verified: typeof out.isVerified === "boolean" ? out.isVerified : null,
+        });
+        out.verificationStatus = verificationStatus;
+        out.isVerified = isVerifiedFromVerificationStatus(verificationStatus);
+    }
+
     return out;
 }

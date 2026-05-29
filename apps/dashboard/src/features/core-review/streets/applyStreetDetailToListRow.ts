@@ -1,6 +1,7 @@
 import type { ImportReviewGeoJson, Street } from "@/src/lib/api";
 
 import type { CoreReviewStreetRow } from "../config/types";
+import { verificationFieldsFromDetail } from "../config/detailListRowUtils";
 
 type StreetDetailLike = Street &
     Partial<CoreReviewStreetRow> & {
@@ -32,6 +33,7 @@ export function applyStreetDetailToListRow(
     detail: unknown,
 ): CoreReviewStreetRow {
     const d = detail as StreetDetailLike;
+    const verification = verificationFieldsFromDetail(d, row);
 
     return {
         ...row,
@@ -50,7 +52,8 @@ export function applyStreetDetailToListRow(
         tunnel: boolOrNull(d.tunnel) ?? row.tunnel,
         routingStatus: strOrNull(d.routingStatus ?? d.routing_status) ?? row.routingStatus,
         isActive: boolOrNull(d.isActive ?? d.is_active) ?? row.isActive,
-        isVerified: boolOrNull(d.isVerified ?? d.is_verified) ?? row.isVerified,
+        verificationStatus: verification.verificationStatus,
+        isVerified: verification.isVerified,
         deletedAt: strOrNull(d.deletedAt ?? d.deleted_at) ?? row.deletedAt,
         createdAt: strOrNull(d.createdAt ?? d.created_at) ?? row.createdAt,
         updatedAt: strOrNull(d.updatedAt ?? d.updated_at) ?? row.updatedAt,

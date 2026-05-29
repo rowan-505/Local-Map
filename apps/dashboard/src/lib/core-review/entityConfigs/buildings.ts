@@ -9,6 +9,9 @@ import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import {
     createCoreReviewWriteMutations,
     detailRecordId,
+    verificationStatusFormField,
+    verificationStatusFromDetail,
+    verificationStatusWritePayload,
 } from "./shared";
 import type { CoreEntityConfig, CoreEntityFormValues } from "./types";
 
@@ -26,7 +29,7 @@ function buildingFormSchema() {
         levels: z.string(),
         height_m: z.string(),
         confidence_score: z.string(),
-        is_verified: z.boolean(),
+        verification_status: z.string(),
         geom: z.custom<Geometry | null>(),
     });
 }
@@ -89,7 +92,7 @@ function formValuesToBuildingPayload(values: CoreEntityFormValues, isEdit: boole
         throw new Error("Confidence score must be a number.");
     }
 
-    payload.is_verified = Boolean(values.is_verified);
+    Object.assign(payload, verificationStatusWritePayload(values));
     return payload;
 }
 
@@ -124,7 +127,7 @@ export const BUILDINGS_ENTITY_CONFIG: CoreEntityConfig<
         { key: "levels", label: "Levels", type: "number", numberMin: 0, numberStep: 1, placeholder: "Optional" },
         { key: "height_m", label: "Height (m)", type: "number", numberMin: 0, placeholder: "Optional" },
         { key: "confidence_score", label: "Confidence score", type: "number", numberMin: 0, numberMax: 100 },
-        { key: "is_verified", label: "Verified", type: "boolean" },
+        verificationStatusFormField(),
     ],
     readonlyMetadata: [
         { key: "id", label: "Internal ID", type: "text", detailPath: "id" },
@@ -159,7 +162,7 @@ export const BUILDINGS_ENTITY_CONFIG: CoreEntityConfig<
         levels: "",
         height_m: "",
         confidence_score: "80",
-        is_verified: false,
+        verification_status: "unverified",
         geom: null,
     },
     formSchema: buildingFormSchema,
@@ -178,7 +181,7 @@ export const BUILDINGS_ENTITY_CONFIG: CoreEntityConfig<
         height_m: detail.height_m != null ? String(detail.height_m) : "",
         confidence_score:
             detail.confidence_score != null ? String(detail.confidence_score) : "80",
-        is_verified: Boolean(detail.is_verified),
+        verification_status: verificationStatusFromDetail(detail),
         geom: detail.geometry ?? null,
     }),
     formValuesToCreatePayload: (values) => formValuesToBuildingPayload(values, false),

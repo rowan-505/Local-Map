@@ -17,18 +17,24 @@ import { listApiSortOrder } from "@/src/lib/listToolbarSortOrder";
 
 import type { CoreReviewFilterSupport } from "../config/entity-config-types";
 import {
+    parseCoreReviewVerificationStatusFilter,
+    verificationFilterToApiParam,
+    type CoreReviewVerificationStatusFilter,
+} from "../verification/coreReviewVerificationFilter";
+import {
     parseCoreReviewStatusFilter,
     type CoreReviewLifecycleStatusFilter,
 } from "../lifecycle/coreReviewLifecycleUtils";
 
 export type CoreReviewVerifiedFilter = "all" | "verified" | "unverified";
+export type { CoreReviewVerificationStatusFilter };
 
 export type CoreReviewListDraft = {
     searchDraft: string;
     sortBy: string;
     arrange: DataTableArrange;
     pageSize: number;
-    verifiedFilter: CoreReviewVerifiedFilter;
+    verificationStatusFilter: CoreReviewVerificationStatusFilter;
     statusFilter: CoreReviewLifecycleStatusFilter;
     adminAreaId: string;
     categoryId: string;
@@ -48,26 +54,6 @@ const PAGE_SIZE_CHOICES = [25, 50, 100] as const;
 
 const CORE_REVIEW_LIST_STALE_MS = 5 * 60 * 1000;
 const CORE_REVIEW_LIST_GC_MS = 30 * 60 * 1000;
-
-function parseVerified(raw: string | null): CoreReviewVerifiedFilter {
-    if (raw === "true") {
-        return "verified";
-    }
-    if (raw === "false") {
-        return "unverified";
-    }
-    return "all";
-}
-
-function verifiedToParam(v: CoreReviewVerifiedFilter): boolean | undefined {
-    if (v === "verified") {
-        return true;
-    }
-    if (v === "unverified") {
-        return false;
-    }
-    return undefined;
-}
 
 function parsePageSize(raw: string | null): number {
     const n = Number(raw);
@@ -97,7 +83,10 @@ function readDraftFromSearchParams(
         sortBy,
         arrange: parseArrange(sortBy, sortOrder),
         pageSize: parsePageSize(searchParams.get("pageSize")),
-        verifiedFilter: parseVerified(searchParams.get("isVerified")),
+        verificationStatusFilter: parseCoreReviewVerificationStatusFilter(
+            searchParams.get("verification_status"),
+            searchParams.get("isVerified")
+        ),
         adminAreaId: searchParams.get("adminAreaId")?.trim() ?? "",
         categoryId: searchParams.get("categoryId")?.trim() ?? "",
         buildingTypeId: searchParams.get("buildingTypeId")?.trim() ?? "",
@@ -122,9 +111,9 @@ export function buildListParamsFromDraft(
     draft: CoreReviewListDraft,
     page: number,
     filterSupport: CoreReviewFilterSupport,
-    verifiedOverride?: CoreReviewVerifiedFilter
+    verificationStatusOverride?: CoreReviewVerificationStatusFilter
 ): CoreReviewListParams {
-    const verifiedFilter = verifiedOverride ?? draft.verifiedFilter;
+    const verificationStatusFilter = verificationStatusOverride ?? draft.verificationStatusFilter;
     const params: CoreReviewListParams = {
         page,
         pageSize: draft.pageSize,
@@ -134,9 +123,9 @@ export function buildListParamsFromDraft(
     if (draft.searchDraft) {
         params.search = draft.searchDraft;
     }
-    const verified = verifiedToParam(verifiedFilter);
-    if (filterSupport.isVerified && verified !== undefined) {
-        params.isVerified = verified;
+    const verificationStatus = verificationFilterToApiParam(verificationStatusFilter);
+    if (filterSupport.isVerified && verificationStatus) {
+        params.verification_status = verificationStatus;
     }
     if (filterSupport.adminAreaId && draft.adminAreaId) {
         params.adminAreaId = draft.adminAreaId;
@@ -188,7 +177,7 @@ function buildCoreReviewListQueryKey(input: {
     sortOrder: string;
     search: string;
     status: string;
-    isVerified: string;
+    verificationStatus: string;
     adminAreaId: string;
     categoryId: string;
     buildingTypeId: string;
@@ -212,7 +201,7 @@ function buildCoreReviewListQueryKey(input: {
         input.sortOrder,
         input.search,
         input.status,
-        input.isVerified,
+        input.verificationStatus,
         input.adminAreaId,
         input.categoryId,
         input.buildingTypeId,
@@ -238,10 +227,8 @@ function draftToUrlParams(draft: CoreReviewListDraft, page: number): Record<stri
     if (draft.searchDraft) {
         p.search = draft.searchDraft;
     }
-    if (draft.verifiedFilter === "verified") {
-        p.isVerified = "true";
-    } else if (draft.verifiedFilter === "unverified") {
-        p.isVerified = "false";
+    if (draft.verificationStatusFilter !== "all") {
+        p.verification_status = draft.verificationStatusFilter;
     }
     if (draft.adminAreaId) {
         p.adminAreaId = draft.adminAreaId;
@@ -334,8 +321,7 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
             sortOrder,
             search: (listParams.search ?? "").trim(),
             status: listParams.status ?? "active",
-            isVerified:
-                listParams.isVerified === true ? "true" : listParams.isVerified === false ? "false" : "",
+            verificationStatus: listParams.verification_status ?? "",
             adminAreaId: listParams.adminAreaId?.trim() ?? "",
             categoryId: listParams.categoryId?.trim() ?? "",
             buildingTypeId: listParams.buildingTypeId?.trim() ?? "",
@@ -369,7 +355,7 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
         listParams.detailLevel,
         listParams.isOfficialBoundary,
         listParams.isPublic,
-        listParams.isVerified,
+        listParams.verification_status,
         listParams.landuseClassId,
         listParams.page,
         listParams.pageSize,
@@ -447,6 +433,15 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
         pushDraft(appliedDraft, appliedPage);
     }, [appliedDraft, appliedPage, pushDraft]);
 
+    const applyVerificationFilter = useCallback(
+        (verificationStatusFilter: CoreReviewVerificationStatusFilter) => {
+            const nextDraft = { ...draft, verificationStatusFilter };
+            setDraft(nextDraft);
+            pushDraft(nextDraft, 1);
+        },
+        [draft, pushDraft]
+    );
+
     const patchRow = useCallback(
         (rowId: string, updater: (row: T) => T) => {
             queryClient.setQueryData<CoreReviewListResponse<T>>(queryKey, (prev) => {
@@ -472,6 +467,7 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
         appliedDraft,
         appliedPage,
         applyFilters,
+        applyVerificationFilter,
         applyDraft,
         setPage,
         reload,

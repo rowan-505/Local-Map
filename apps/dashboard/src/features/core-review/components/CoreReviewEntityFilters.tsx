@@ -17,7 +17,11 @@ import {
 
 import type { CoreReviewFilterSupport } from "../config/entity-config-types";
 import type { CoreReviewLifecycleStatusFilter } from "../lifecycle/coreReviewLifecycleUtils";
-import type { CoreReviewListDraft, CoreReviewVerifiedFilter } from "../hooks/useCoreReviewListState";
+import type { CoreReviewListDraft } from "../hooks/useCoreReviewListState";
+import {
+    CORE_REVIEW_VERIFICATION_STATUS_FILTER_OPTIONS,
+    type CoreReviewVerificationStatusFilter,
+} from "../verification/coreReviewVerificationFilter";
 
 const SELECT_CLASS =
     "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm";
@@ -34,6 +38,7 @@ export default function CoreReviewEntityFilters({
     filteredCount,
     onApply,
     onClear,
+    onApplyVerificationFilter,
     extraFilters,
     showRoutePicker,
 }: {
@@ -46,6 +51,7 @@ export default function CoreReviewEntityFilters({
     filteredCount: number;
     onApply: () => void;
     onClear: () => void;
+    onApplyVerificationFilter?: (filter: CoreReviewVerificationStatusFilter) => void;
     extraFilters?: React.ReactNode;
     showRoutePicker?: boolean;
 }) {
@@ -178,20 +184,22 @@ export default function CoreReviewEntityFilters({
 
                 {filterSupport.isVerified ? (
                     <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold text-slate-600">Verification</span>
+                        <span className="text-xs font-semibold text-slate-600">Verification status</span>
                         <select
                             className={SELECT_CLASS}
-                            value={draft.verifiedFilter}
-                            onChange={(e) =>
-                                setDraft((d) => ({
-                                    ...d,
-                                    verifiedFilter: e.target.value as CoreReviewVerifiedFilter,
-                                }))
-                            }
+                            value={draft.verificationStatusFilter}
+                            onChange={(e) => {
+                                const verificationStatusFilter = e.target
+                                    .value as CoreReviewVerificationStatusFilter;
+                                setDraft((d) => ({ ...d, verificationStatusFilter }));
+                                onApplyVerificationFilter?.(verificationStatusFilter);
+                            }}
                         >
-                            <option value="all">All</option>
-                            <option value="verified">Verified</option>
-                            <option value="unverified">Unverified</option>
+                            {CORE_REVIEW_VERIFICATION_STATUS_FILTER_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
                         </select>
                     </label>
                 ) : null}

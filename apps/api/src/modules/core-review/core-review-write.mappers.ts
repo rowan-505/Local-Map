@@ -31,7 +31,7 @@ export function mapCoreReviewBuildingCreate(body: Record<string, unknown>) {
         levels: body.levels as number | undefined,
         height_m: pickAlias<number | undefined>(body, "heightM", "height_m"),
         confidence_score: pickAlias<number | undefined>(body, "confidenceScore", "confidence_score") ?? 80,
-        is_verified: pickAlias<boolean | undefined>(body, "isVerified", "is_verified"),
+        verification_status: pickAlias<string | undefined>(body, "verificationStatus", "verification_status"),
     };
 }
 
@@ -60,8 +60,8 @@ export function mapCoreReviewBuildingPatch(body: Record<string, unknown>) {
     if (pickAlias(body, "confidenceScore", "confidence_score") !== undefined) {
         out.confidence_score = pickAlias(body, "confidenceScore", "confidence_score");
     }
-    if (pickAlias(body, "isVerified", "is_verified") !== undefined) {
-        out.is_verified = pickAlias(body, "isVerified", "is_verified");
+    if (pickAlias(body, "verificationStatus", "verification_status") !== undefined) {
+        out.verification_status = pickAlias(body, "verificationStatus", "verification_status");
     }
     return out;
 }
@@ -83,7 +83,7 @@ export function mapCoreReviewPlaceCreate(body: Record<string, unknown>) {
         popularityScore: pickAlias<number | undefined>(body, "popularityScore", "popularity_score"),
         confidenceScore: pickAlias<number | undefined>(body, "confidenceScore", "confidence_score"),
         isPublic: pickAlias<boolean | undefined>(body, "isPublic", "is_public"),
-        isVerified: pickAlias<boolean | undefined>(body, "isVerified", "is_verified"),
+        verificationStatus: pickAlias<string | undefined>(body, "verificationStatus", "verification_status"),
         sourceTypeId: pickAlias<bigint | null | undefined>(body, "sourceTypeId", "source_type_id"),
         publishStatusId: pickAlias<bigint | null | undefined>(body, "publishStatusId", "publish_status_id"),
     };
@@ -121,8 +121,8 @@ export function mapCoreReviewPlacePatch(body: Record<string, unknown>) {
     if (pickAlias(body, "isPublic", "is_public") !== undefined) {
         out.isPublic = pickAlias(body, "isPublic", "is_public");
     }
-    if (pickAlias(body, "isVerified", "is_verified") !== undefined) {
-        out.isVerified = pickAlias(body, "isVerified", "is_verified");
+    if (pickAlias(body, "verificationStatus", "verification_status") !== undefined) {
+        out.verificationStatus = pickAlias(body, "verificationStatus", "verification_status");
     }
     if (pickAlias(body, "sourceTypeId", "source_type_id") !== undefined) {
         out.sourceTypeId = pickAlias(body, "sourceTypeId", "source_type_id");
@@ -144,6 +144,7 @@ export function mapCoreReviewStreetCreate(body: Record<string, unknown>) {
         surface: pickAlias<string | null | undefined>(body, "surface", "surface") ?? null,
         bridge: pickAlias<boolean | undefined>(body, "bridge", "bridge") ?? false,
         tunnel: pickAlias<boolean | undefined>(body, "tunnel", "tunnel") ?? false,
+        verification_status: pickAlias<string | undefined>(body, "verificationStatus", "verification_status"),
     };
 }
 
@@ -176,6 +177,9 @@ export function mapCoreReviewStreetPatch(body: Record<string, unknown>) {
     }
     if (pickAlias(body, "editReason", "edit_reason") !== undefined) {
         out.edit_reason = pickAlias(body, "editReason", "edit_reason");
+    }
+    if (pickAlias(body, "verificationStatus", "verification_status") !== undefined) {
+        out.verification_status = pickAlias(body, "verificationStatus", "verification_status");
     }
     return out;
 }

@@ -2,7 +2,8 @@
  * Compatibility shim — source of truth is @/src/features/import-review/config.
  * Existing imports from this module keep working without changes.
  */
-import { importReviewPath } from "@/src/lib/dashboardPaths";
+import { importReviewPath, importTransportPath } from "@/src/lib/dashboardPaths";
+import { isDeprecatedImportReviewBusSlug } from "@/src/features/import-review/utils/deprecatedCoreBusPromotion";
 import {
     applyImportReviewScopeSearchParams,
     reviewBatchIdFromImportReviewSearch,
@@ -31,6 +32,7 @@ export {
     getImportReviewEntityConfigBySlug,
     isKnownImportReviewEntitySlug,
     listImportReviewEntityConfigs,
+    listImportReviewNavEntityConfigs,
     resolveImportReviewApiFamily,
     toDataReviewGeometryKind,
     toLegacyRouteConfig,
@@ -40,6 +42,7 @@ import {
     getImportReviewEntityConfigByApiFamily,
     getImportReviewEntityConfigBySlug,
     listImportReviewEntityConfigs,
+    listImportReviewNavEntityConfigs,
     toLegacyRouteConfig,
     type ImportReviewEntityRouteConfig,
 } from "@/src/features/import-review/config";
@@ -49,7 +52,9 @@ export type { ImportReviewEntityRouteConfig } from "@/src/features/import-review
 export const IMPORT_REVIEW_ENTITY_CONFIGS: ImportReviewEntityRouteConfig[] =
     listImportReviewEntityConfigs().map(toLegacyRouteConfig);
 
-export const IMPORT_REVIEW_NAV_ENTITIES = IMPORT_REVIEW_ENTITY_CONFIGS;
+/** Nav tabs and overview cards — excludes deprecated bus/transport import-review pages. */
+export const IMPORT_REVIEW_NAV_ENTITIES: ImportReviewEntityRouteConfig[] =
+    listImportReviewNavEntityConfigs().map(toLegacyRouteConfig);
 
 export function getImportReviewEntityBySlug(slug: string): ImportReviewEntityRouteConfig | null {
     const config = getImportReviewEntityConfigBySlug(slug);
@@ -63,6 +68,9 @@ export function getImportReviewEntityByApiFamily(apiFamily: string): ImportRevie
 
 /** Entity page href scoped to a resolved review batch (preferred for navigation from overview). */
 export function importReviewEntityHrefForBatch(slug: string, reviewBatchId: string): string {
+    if (isDeprecatedImportReviewBusSlug(slug)) {
+        return importTransportPath();
+    }
     const id = reviewBatchId.trim();
     if (!id) {
         return importReviewPath(slug);
@@ -76,6 +84,9 @@ export function importReviewEntityHref(
     sp: Pick<URLSearchParams, "get" | "toString">,
     resolvedReviewBatchId?: string | null
 ): string {
+    if (isDeprecatedImportReviewBusSlug(slug)) {
+        return importTransportPath();
+    }
     const resolvedBatch = resolvedReviewBatchId?.trim() || reviewBatchIdFromImportReviewSearch(sp);
     if (resolvedBatch) {
         return importReviewEntityHrefForBatch(slug, resolvedBatch);

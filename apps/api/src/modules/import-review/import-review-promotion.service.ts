@@ -38,7 +38,10 @@ import type {
 import { DEFAULT_PUBLISH_ENTITY_FAMILIES, resolvePublishEntityFamilies } from "./import-review-promotion-config.js";
 import { IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES } from "./import-review-promotion-validation.types.js";
 import { ImportReviewInvalidScopeError } from "./import-review-errors.js";
-import { ImportReviewPublishBatchNotFoundError } from "./import-review-promotion.errors.js";
+import {
+    ImportReviewPublishBatchNotFoundError,
+    ImportReviewTransportPromotionDeprecatedError,
+} from "./import-review-promotion.errors.js";
 import {
     ImportReviewPublishBatchSummaryRepository,
     applyComputedCountsToBatchSummary,
@@ -72,6 +75,15 @@ function toIso(d: Date | null): string | null {
 
 function n(v: bigint | number): number {
     return typeof v === "bigint" ? Number(v) : v;
+}
+
+function throwPromotionFamilyResolutionError(err: unknown): never {
+    if (err instanceof ImportReviewTransportPromotionDeprecatedError) {
+        throw err;
+    }
+    throw new ImportReviewInvalidScopeError(
+        err instanceof Error ? err.message : "Invalid entity_families"
+    );
 }
 
 function numOrNull(v: unknown): number | null {
@@ -423,9 +435,7 @@ export class ImportReviewPromotionService {
                 false
             );
         } catch (err) {
-            throw new ImportReviewInvalidScopeError(
-                err instanceof Error ? err.message : "Invalid entity_families"
-            );
+            throwPromotionFamilyResolutionError(err);
         }
 
         const options = {
@@ -490,9 +500,7 @@ export class ImportReviewPromotionService {
                 body.allow_high_risk_families ?? false
             );
         } catch (err) {
-            throw new ImportReviewInvalidScopeError(
-                err instanceof Error ? err.message : "Invalid entity_families"
-            );
+            throwPromotionFamilyResolutionError(err);
         }
         resolveMs = Date.now() - resolveStart;
 

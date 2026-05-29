@@ -17,7 +17,7 @@ export async function listCoreReviewBuildings(
     const sortBy = resolveCoreReviewSortBy(def, query.sortBy) as ActiveBuildingsListParams["sortBy"];
     const filterParams = {
         q: query.search,
-        is_verified: query.isVerified,
+        verification_status: query.verificationStatus,
         admin_area_id: query.adminAreaId ? BigInt(query.adminAreaId) : undefined,
         building_type_id: query.buildingTypeId ? BigInt(query.buildingTypeId) : undefined,
         status: resolveCoreReviewListStatus(query),
@@ -41,7 +41,7 @@ export async function listCoreReviewBuildings(
         total,
         filters: {
             search: query.search,
-            isVerified: query.isVerified,
+            verification_status: query.verificationStatus,
             adminAreaId: query.adminAreaId,
             buildingTypeId: query.buildingTypeId,
             status: resolveCoreReviewListStatus(query),

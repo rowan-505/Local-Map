@@ -14,6 +14,7 @@ import {
     waterPolygonsImportReviewEntityConfig,
 } from "./entities";
 import type { ImportReviewEntityConfig, ImportReviewEntitySlug } from "./types";
+import { isDeprecatedImportReviewBusSlug } from "../utils/deprecatedCoreBusPromotion";
 
 const IMPORT_REVIEW_ENTITY_CONFIG_LIST: readonly ImportReviewEntityConfig[] = [
     buildingsImportReviewEntityConfig,
@@ -49,6 +50,11 @@ function normalizeApiFamily(apiFamily: string): string {
 
 export function listImportReviewEntityConfigs(): readonly ImportReviewEntityConfig[] {
     return IMPORT_REVIEW_ENTITY_CONFIG_LIST;
+}
+
+/** Active import-review nav/overview entities (excludes deprecated bus/transport slugs). */
+export function listImportReviewNavEntityConfigs(): readonly ImportReviewEntityConfig[] {
+    return IMPORT_REVIEW_ENTITY_CONFIG_LIST.filter((config) => !isDeprecatedImportReviewBusSlug(config.slug));
 }
 
 export function isKnownImportReviewEntitySlug(slug: string): boolean {

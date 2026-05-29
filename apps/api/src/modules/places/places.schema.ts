@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+    coreReviewVerificationWriteFields,
+} from "../core-review/core-review-verification-write.js";
+
 const booleanQueryValueSchema = z.preprocess((value) => {
     if (value === undefined || value === null || value === "") {
         return undefined;
@@ -113,7 +117,7 @@ const placeWriteFieldsSchema = z
         popularityScore: finiteScoreSchema.optional(),
         confidenceScore: finiteScoreSchema.optional(),
         isPublic: z.boolean().optional(),
-        isVerified: z.boolean().optional(),
+        ...coreReviewVerificationWriteFields,
         sourceTypeId: optionalBigintBodySchema,
         publishStatusId: optionalBigintBodySchema,
     })
@@ -140,7 +144,7 @@ export const updatePlaceBodySchema = z
         popularityScore: finiteScoreSchema.optional(),
         confidenceScore: finiteScoreSchema.optional(),
         isPublic: z.boolean().optional(),
-        isVerified: z.boolean().optional(),
+        ...coreReviewVerificationWriteFields,
         sourceTypeId: optionalBigintBodySchema,
         publishStatusId: optionalBigintBodySchema,
     })

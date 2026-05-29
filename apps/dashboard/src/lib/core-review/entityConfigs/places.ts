@@ -14,6 +14,9 @@ import { scoreFieldSchema } from "./buildings";
 import {
     createCoreReviewWriteMutations,
     detailRecordId,
+    verificationStatusFormField,
+    verificationStatusFromDetail,
+    verificationStatusWritePayload,
 } from "./shared";
 import type { CoreEntityConfig, CoreEntityFormMode, CoreEntityFormValues } from "./types";
 
@@ -34,7 +37,7 @@ function placeFormSchema(mode: CoreEntityFormMode) {
         popularityScore: scoreFieldSchema,
         confidenceScore: scoreFieldSchema,
         isPublic: z.boolean(),
-        isVerified: z.boolean(),
+        verification_status: z.string(),
         sourceTypeId: z.string(),
         publishStatusId: z.string(),
         point_geom: z.custom<Geometry | null>(),
@@ -90,7 +93,7 @@ function formValuesToPlacePayload(values: CoreEntityFormValues): CreatePlacePayl
         confidenceScore:
             values.confidenceScore === "" ? 50 : (values.confidenceScore as number),
         isPublic: Boolean(values.isPublic),
-        isVerified: Boolean(values.isVerified),
+        ...verificationStatusWritePayload(values),
         sourceTypeId: String(values.sourceTypeId ?? "").trim() || null,
         publishStatusId: String(values.publishStatusId ?? "").trim() || null,
     };
@@ -133,7 +136,7 @@ export const PLACES_ENTITY_CONFIG: CoreEntityConfig<
         { key: "popularityScore", label: "Popularity score", type: "number", placeholder: "Optional" },
         { key: "confidenceScore", label: "Confidence score", type: "number", numberMin: 0, numberMax: 100 },
         { key: "isPublic", label: "Public", type: "boolean" },
-        { key: "isVerified", label: "Verified", type: "boolean" },
+        verificationStatusFormField(),
         {
             key: "sourceTypeId",
             label: "Source type",
@@ -167,7 +170,7 @@ export const PLACES_ENTITY_CONFIG: CoreEntityConfig<
         popularityScore: "",
         confidenceScore: "",
         isPublic: true,
-        isVerified: false,
+        verification_status: "unverified",
         sourceTypeId: "",
         publishStatusId: "",
         point_geom: null,
@@ -183,7 +186,7 @@ export const PLACES_ENTITY_CONFIG: CoreEntityConfig<
         popularityScore: detail.popularity_score ?? "",
         confidenceScore: detail.confidence_score ?? "",
         isPublic: detail.is_public,
-        isVerified: detail.is_verified,
+        verification_status: verificationStatusFromDetail(detail),
         sourceTypeId: detail.source_type_id,
         publishStatusId: detail.publish_status_id ?? "",
         point_geom: {

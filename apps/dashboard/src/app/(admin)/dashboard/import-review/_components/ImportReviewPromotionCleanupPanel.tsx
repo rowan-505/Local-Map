@@ -20,7 +20,6 @@ const ALL_CLEANUP_FAMILIES = [
     "landuse",
     "water_lines",
     "water_polygons",
-    "bus_stops",
     "roads",
     "addresses",
     "admin_areas",

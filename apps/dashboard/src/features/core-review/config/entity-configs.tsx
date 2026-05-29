@@ -1,6 +1,6 @@
 "use client";
 
-import { ConfidenceBadge, VerifiedBadge } from "@/src/components/review/ReviewStatusBadge";
+import { ConfidenceBadge } from "@/src/components/review/ReviewStatusBadge";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 
 import AdminAreaBoundaryFilters from "../admin-areas/AdminAreaBoundaryFilters";
@@ -16,20 +16,39 @@ import {
     applyAddressDetailToListRow,
     applyAdminAreaDetailToListRow,
     applyBuildingDetailToListRow,
+    applyBusRouteDetailToListRow,
     applyBusRouteVariantDetailToListRow,
+    applyBusStopDetailToListRow,
     applyLanduseDetailToListRow,
     applyMapFeatureDetailToListRow,
     applyPlaceDetailToListRow,
 } from "./applyInlineEditDetailToListRow";
+import CoreReviewTransportDrawerEdit from "../transport/CoreReviewTransportDrawerEdit";
+import CoreReviewTransportSourceBadge, {
+    CORE_REVIEW_TRANSPORT_DATA_SOURCE,
+} from "../transport/CoreReviewTransportSourceBadge";
+import CoreReviewTransportDrawerView from "../transport/CoreReviewTransportDrawerView";
+import {
+    busRouteTransportDetailFields,
+    busRouteVariantTransportDetailFields,
+    busStopTransportDetailFields,
+    TransportVerificationStatusCell,
+} from "../transport/coreReviewTransportUi";
+import {
+    coreReviewTransportMapEntityType,
+    formatTransportModeType,
+    hasRenderableGeometry,
+} from "../transport/coreReviewTransportShared";
 import { dash, formatArea, formatDate, yesNo } from "../utils/formatters";
 import {
     buildingDisplayName,
     placeDisplayName,
     streetDisplayName,
 } from "../utils/rowGeometry";
-import { hl, standardNameAndVerifiedColumns } from "./tableColumns";
+import { hl, standardNameAndVerificationColumns } from "./tableColumns";
 import type { CoreReviewEntityConfig, CoreReviewFilterSupport } from "./entity-config-types";
 import CoreReviewAddressDrawerView from "../components/CoreReviewAddressDrawerView";
+import CoreReviewVerificationStatusCell from "../components/CoreReviewVerificationStatusCell";
 import type {
     CoreReviewAddressRow,
     CoreReviewAdminAreaRow,
@@ -42,6 +61,21 @@ import type {
     CoreReviewPlaceRow,
     CoreReviewStreetRow,
 } from "./types";
+
+function verificationStatusDetailField(row: {
+    verificationStatus?: string | null;
+    isVerified: boolean;
+}) {
+    return {
+        label: "Verification status",
+        value: (
+            <CoreReviewVerificationStatusCell
+                status={row.verificationStatus}
+                isVerifiedFallback={row.isVerified}
+            />
+        ),
+    };
+}
 
 const FILTER_BUILDINGS: CoreReviewFilterSupport = {
     isVerified: true,
@@ -211,7 +245,7 @@ export const CORE_REVIEW_BUILDINGS_CONFIG: CoreReviewEntityConfig<CoreReviewBuil
         },
         { id: "area", header: "Area (m²)", cell: (r) => formatArea(r.areaM2) },
         { id: "levels", header: "Levels", cell: (r) => dash(r.levels) },
-        ...standardNameAndVerifiedColumns<CoreReviewBuildingRow>({
+        ...standardNameAndVerificationColumns<CoreReviewBuildingRow>({
             myanmar: (r) => r.nameMm,
             english: (r) => r.nameEn,
         }),
@@ -227,7 +261,7 @@ export const CORE_REVIEW_BUILDINGS_CONFIG: CoreReviewEntityConfig<CoreReviewBuil
         { label: "Area (m²)", value: formatArea(r.areaM2) },
         { label: "Levels", value: dash(r.levels) },
         { label: "Confidence", value: <ConfidenceBadge score={r.confidenceScore} /> },
-        { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
+        verificationStatusDetailField(r),
         { label: "Active", value: yesNo(r.isActive) },
         { label: "Created", value: formatDate(r.createdAt) },
         { label: "Updated", value: formatDate(r.updatedAt) },
@@ -262,7 +296,7 @@ export const CORE_REVIEW_PLACES_CONFIG: CoreReviewEntityConfig<CoreReviewPlaceRo
     searchPlaceholder: "Search places…",
     newPath: coreReviewPath("places/new"),
     columns: [
-        ...standardNameAndVerifiedColumns<CoreReviewPlaceRow>({
+        ...standardNameAndVerificationColumns<CoreReviewPlaceRow>({
             myanmar: (r) => r.myanmarName,
             english: (r) => r.englishName,
         }),
@@ -277,7 +311,7 @@ export const CORE_REVIEW_PLACES_CONFIG: CoreReviewEntityConfig<CoreReviewPlaceRo
         { label: "Category", value: dash(r.categoryName) },
         { label: "Admin area", value: dash(r.adminAreaName) },
         { label: "Coordinates", value: `${r.lat}, ${r.lng}` },
-        { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
+        verificationStatusDetailField(r),
         { label: "Created", value: formatDate(r.createdAt) },
         { label: "Updated", value: formatDate(r.updatedAt) },
     ],
@@ -314,7 +348,7 @@ export const CORE_REVIEW_STREETS_CONFIG: CoreReviewEntityConfig<CoreReviewStreet
         { id: "admin", header: "Admin area", cell: (r, q) => hl(dash(r.adminAreaName), q) },
         { id: "attributes", header: "Attributes", cell: (r) => <StreetAttributesCell row={r} /> },
         { id: "routing", header: "Routing", cell: (r) => <StreetRoutingStatusBadge row={r} /> },
-        ...standardNameAndVerifiedColumns<CoreReviewStreetRow>({
+        ...standardNameAndVerificationColumns<CoreReviewStreetRow>({
             myanmar: (r) => r.myanmarName,
             english: (r) => r.englishName,
         }),
@@ -329,7 +363,7 @@ export const CORE_REVIEW_STREETS_CONFIG: CoreReviewEntityConfig<CoreReviewStreet
         { label: "Admin area", value: dash(r.adminAreaName) },
         { label: "Attributes", value: <StreetAttributesCell row={r} /> },
         { label: "Routing", value: <StreetRoutingStatusBadge row={r} /> },
-        { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
+        verificationStatusDetailField(r),
         { label: "Active", value: yesNo(r.isActive) },
         { label: "Deleted", value: r.deletedAt ? formatDate(r.deletedAt) : "—" },
         { label: "Created", value: formatDate(r.createdAt) },
@@ -341,6 +375,7 @@ function genericClassColumns<
     T extends {
         name: string | null;
         classCode: string | null;
+        verificationStatus?: string | null;
         isVerified: boolean;
         isActive: boolean;
         updatedAt: string | null;
@@ -349,7 +384,7 @@ function genericClassColumns<
     return [
         { id: "class", header: "Class", cell: (r, q) => hl(dash(r.classCode), q) },
         { id: "active", header: "Active", cell: (r) => yesNo(r.isActive) },
-        ...standardNameAndVerifiedColumns<T>({
+        ...standardNameAndVerificationColumns<T>({
             myanmar: (r) => r.name,
             english: () => null,
         }),
@@ -362,28 +397,14 @@ export const CORE_REVIEW_BUS_STOPS_CONFIG: CoreReviewEntityConfig<CoreReviewBusS
     entityKey: "bus-stops",
     apiSlug: "bus-stops",
     supportsInlineEdit: true,
-    applyDetailToListRow: (row, detail) => {
-        const d = detail as CoreReviewBusStopRow;
-        return {
-            ...row,
-            name: d.name ?? row.name,
-            nameLocal: d.nameLocal ?? row.nameLocal,
-            stopCode: d.stopCode ?? row.stopCode,
-            adminAreaId: d.adminAreaId ?? row.adminAreaId,
-            adminAreaName: d.adminAreaName ?? row.adminAreaName,
-            sourceTypeId: d.sourceTypeId ?? row.sourceTypeId,
-            isActive: d.isActive ?? row.isActive,
-            isVerified: d.isVerified ?? row.isVerified,
-            updatedAt: d.updatedAt ?? row.updatedAt,
-            geometry: d.geometry ?? row.geometry,
-        };
-    },
+    applyDetailToListRow: applyBusStopDetailToListRow,
     title: "Bus stops",
-    description: "Transit stop locations and metadata.",
+    description: "Transit stop points — search, verify, and edit stop metadata.",
+    dataSource: CORE_REVIEW_TRANSPORT_DATA_SOURCE,
     overviewStatus: "partial",
     idKind: "public_id",
     geometryKind: "point",
-    mapEntityType: "place",
+    mapEntityType: coreReviewTransportMapEntityType("bus-stops"),
     defaultSortBy: "updated_at",
     sortOptions: [
         { value: "name", label: "Name", type: "text" },
@@ -392,30 +413,48 @@ export const CORE_REVIEW_BUS_STOPS_CONFIG: CoreReviewEntityConfig<CoreReviewBusS
     ],
     filterSupport: FILTER_BUS_STOPS,
     getRowId: (r) => r.publicId,
-    getRowTitle: (r) => dash(r.name) || r.publicId,
+    getRowTitle: (r) => dash(r.nameEn ?? r.name) || r.publicId,
     getRowSubtitle: (r) => dash(r.stopCode),
     getGeometry: (r) => r.geometry,
     searchPlaceholder: "Search bus stops…",
     columns: [
         { id: "code", header: "Stop code", cell: (r, q) => hl(dash(r.stopCode), q) },
+        { id: "display", header: "Display name", cell: (r, q) => hl(dash(r.nameEn ?? r.name), q) },
+        { id: "mm", header: "Myanmar name", cell: (r, q) => hl(dash(r.nameMm ?? r.nameLocal), q) },
+        { id: "en", header: "English name", cell: (r, q) => hl(dash(r.nameEn ?? r.name), q) },
+        { id: "mode", header: "Mode", cell: (r, q) => hl(formatTransportModeType(r.modeType), q) },
         { id: "admin", header: "Admin area", cell: (r, q) => hl(dash(r.adminAreaName), q) },
-        { id: "active", header: "Active", cell: (r) => yesNo(r.isActive) },
-        ...standardNameAndVerifiedColumns<CoreReviewBusStopRow>({
-            myanmar: (r) => r.nameLocal,
-            english: (r) => r.name,
-        }),
+        {
+            id: "verification",
+            header: "Verification",
+            cell: (r) => (
+                <TransportVerificationStatusCell
+                    status={r.verificationStatus}
+                    isVerifiedFallback={r.isVerified}
+                />
+            ),
+        },
+        { id: "confidence", header: "Confidence", cell: (r) => <ConfidenceBadge score={r.confidenceScore ?? null} /> },
         { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt) },
     ],
-    detailFields: (r) => [
-        { label: "Public ID", value: r.publicId },
-        { label: "Myanmar name", value: dash(r.nameLocal) },
-        { label: "English name", value: dash(r.name) },
-        { label: "Stop code", value: dash(r.stopCode) },
-        { label: "Admin area", value: dash(r.adminAreaName) },
-        { label: "Active", value: yesNo(r.isActive) },
-        { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
-        { label: "Updated", value: formatDate(r.updatedAt) },
-    ],
+    detailFields: (r) => busStopTransportDetailFields(r),
+    extensions: {
+        renderDrawerView: ({ row, rowId, successMessage }) => (
+            <CoreReviewTransportDrawerView
+                apiSlug="bus-stops"
+                rowId={rowId}
+                idKind="public_id"
+                geometryKind="point"
+                mapEntityType={coreReviewTransportMapEntityType("bus-stops")}
+                listGeometry={row.geometry}
+                listFields={busStopTransportDetailFields(row)}
+                successMessage={successMessage}
+            />
+        ),
+        renderDrawerEdit: ({ rowId, editForm }) => (
+            <CoreReviewTransportDrawerEdit editForm={editForm} recordId={rowId} />
+        ),
+    },
     newPath: coreReviewPath("bus-stops/new"),
 };
 
@@ -424,23 +463,10 @@ export const CORE_REVIEW_BUS_ROUTES_CONFIG: CoreReviewEntityConfig<CoreReviewBus
     entityKey: "bus-routes",
     apiSlug: "bus-routes",
     supportsInlineEdit: true,
-    applyDetailToListRow: (row, detail) => {
-        const d = detail as CoreReviewBusRouteRow;
-        return {
-            ...row,
-            routeCode: d.routeCode ?? row.routeCode,
-            publicName: d.publicName ?? row.publicName,
-            operatorName: d.operatorName ?? row.operatorName,
-            routeType: d.routeType ?? row.routeType,
-            directionality: d.directionality ?? row.directionality,
-            sourceTypeId: d.sourceTypeId ?? row.sourceTypeId,
-            isActive: d.isActive ?? row.isActive,
-            isVerified: d.isVerified ?? row.isVerified,
-            updatedAt: d.updatedAt ?? row.updatedAt,
-        };
-    },
+    applyDetailToListRow: applyBusRouteDetailToListRow,
     title: "Bus routes",
-    description: "Route definitions and service patterns.",
+    description: "Route codes, operators, and verification for production transit routes.",
+    dataSource: CORE_REVIEW_TRANSPORT_DATA_SOURCE,
     overviewStatus: "partial",
     idKind: "numeric_id",
     geometryKind: "none",
@@ -453,30 +479,44 @@ export const CORE_REVIEW_BUS_ROUTES_CONFIG: CoreReviewEntityConfig<CoreReviewBus
     filterSupport: FILTER_BUS_ROUTES,
     getRowId: (r) => r.id,
     getRowTitle: (r) => dash(r.publicName) || dash(r.routeCode) || r.id,
+    getRowSubtitle: (r) => dash(r.operatorName),
     getGeometry: () => null,
     searchPlaceholder: "Search routes (name, code, operator)…",
     columns: [
         { id: "code", header: "Route code", cell: (r, q) => hl(dash(r.routeCode), q) },
+        { id: "name", header: "Public name", cell: (r, q) => hl(dash(r.publicName), q) },
+        { id: "mode", header: "Mode", cell: (r, q) => hl(formatTransportModeType(r.modeType ?? r.routeType), q) },
         { id: "operator", header: "Operator", cell: (r, q) => hl(dash(r.operatorName), q) },
-        { id: "type", header: "Type", cell: (r, q) => hl(dash(r.routeType), q) },
+        { id: "status", header: "Route status", cell: (r) => <TransportVerificationStatusCell status={r.routeStatus ?? r.verificationStatus} /> },
         { id: "active", header: "Active", cell: (r) => yesNo(r.isActive) },
-        ...standardNameAndVerifiedColumns<CoreReviewBusRouteRow>({
-            myanmar: () => null,
-            english: (r) => r.publicName,
-        }),
+        {
+            id: "verification",
+            header: "Verification",
+            cell: (r) => (
+                <TransportVerificationStatusCell
+                    status={r.verificationStatus}
+                    isVerifiedFallback={r.isVerified}
+                />
+            ),
+        },
+        { id: "confidence", header: "Confidence", cell: (r) => <ConfidenceBadge score={r.confidenceScore ?? null} /> },
         { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt) },
     ],
-    detailFields: (r) => [
-        { label: "ID", value: r.id },
-        { label: "English name", value: dash(r.publicName) },
-        { label: "Route code", value: dash(r.routeCode) },
-        { label: "Operator", value: dash(r.operatorName) },
-        { label: "Type", value: dash(r.routeType) },
-        { label: "Directionality", value: dash(r.directionality) },
-        { label: "Active", value: yesNo(r.isActive) },
-        { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
-        { label: "Updated", value: formatDate(r.updatedAt) },
-    ],
+    detailFields: (r) => busRouteTransportDetailFields(r),
+    extensions: {
+        renderDrawerView: ({ row, rowId, successMessage }) => (
+            <CoreReviewTransportDrawerView
+                apiSlug="bus-routes"
+                rowId={rowId}
+                idKind="numeric_id"
+                geometryKind="none"
+                mapEntityType="generic"
+                listGeometry={null}
+                listFields={busRouteTransportDetailFields(row)}
+                successMessage={successMessage}
+            />
+        ),
+    },
     newPath: coreReviewPath("bus-routes/new"),
 };
 
@@ -488,11 +528,13 @@ export const CORE_REVIEW_BUS_ROUTE_VARIANTS_CONFIG: CoreReviewEntityConfig<CoreR
         supportsInlineEdit: true,
         applyDetailToListRow: applyBusRouteVariantDetailToListRow,
         title: "Bus route variants",
-        description: "Directional or scheduled variants of bus routes.",
+        description:
+            "Directional variants with geometry, route paths, and stop sequences (route stops open in the variant drawer).",
+        dataSource: CORE_REVIEW_TRANSPORT_DATA_SOURCE,
         overviewStatus: "partial",
         idKind: "numeric_id",
         geometryKind: "line",
-        mapEntityType: "road",
+        mapEntityType: coreReviewTransportMapEntityType("bus-route-variants"),
         defaultSortBy: "id",
         sortOptions: [
             { value: "name", label: "Name", type: "text" },
@@ -506,23 +548,49 @@ export const CORE_REVIEW_BUS_ROUTE_VARIANTS_CONFIG: CoreReviewEntityConfig<CoreR
         getGeometry: (r) => r.geometry,
         searchPlaceholder: "Search variants…",
         columns: [
-            { id: "route", header: "Route", cell: (r, q) => hl(dash(r.routeCode ?? r.routePublicName), q) },
+            { id: "route", header: "Route code", cell: (r, q) => hl(dash(r.routeCode), q) },
+            { id: "variant", header: "Variant code", cell: (r, q) => hl(dash(r.variantCode), q) },
             { id: "direction", header: "Direction", cell: (r, q) => hl(dash(r.directionName), q) },
-            { id: "active", header: "Active", cell: (r) => yesNo(r.isActive) },
-            ...standardNameAndVerifiedColumns<CoreReviewBusRouteVariantRow>({
-                myanmar: (r) => r.originName,
-                english: (r) => r.destinationName,
-            }),
+            { id: "origin", header: "Origin", cell: (r, q) => hl(dash(r.originName), q) },
+            { id: "destination", header: "Destination", cell: (r, q) => hl(dash(r.destinationName), q) },
+            { id: "distance", header: "Distance (m)", cell: (r) => dash(r.distanceM) },
+            { id: "geom", header: "Geometry", cell: (r) => yesNo(hasRenderableGeometry(r.geometry)) },
+            {
+                id: "verification",
+                header: "Verification",
+                cell: (r) => (
+                    <TransportVerificationStatusCell
+                        status={r.verificationStatus}
+                        isVerifiedFallback={r.isVerified}
+                    />
+                ),
+            },
+            { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt ?? null) },
         ],
-        detailFields: (r) => [
-            { label: "ID", value: r.id },
-            { label: "Route ID", value: r.routeId },
-            { label: "Variant code", value: dash(r.variantCode) },
-            { label: "Direction", value: dash(r.directionName) },
-            { label: "Distance (m)", value: dash(r.distanceM) },
-            { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
-            { label: "Active", value: yesNo(r.isActive) },
-        ],
+        detailFields: (r) => busRouteVariantTransportDetailFields(r),
+        extensions: {
+            renderDrawerView: ({ row, rowId, successMessage }) => (
+                <CoreReviewTransportDrawerView
+                    apiSlug="bus-route-variants"
+                    rowId={rowId}
+                    idKind="numeric_id"
+                    geometryKind="line"
+                    mapEntityType={coreReviewTransportMapEntityType("bus-route-variants")}
+                    listGeometry={row.geometry}
+                    listFields={busRouteVariantTransportDetailFields(row)}
+                    successMessage={successMessage}
+                    showRouteStops
+                    showRoutePaths
+                />
+            ),
+            renderDrawerEdit: ({ rowId, editForm }) => (
+                <CoreReviewTransportDrawerEdit
+                    editForm={editForm}
+                    recordId={rowId}
+                    showRoutePaths
+                />
+            ),
+        },
         newPath: coreReviewPath("bus-route-variants/new"),
     };
 
@@ -569,7 +637,7 @@ export const CORE_REVIEW_LANDUSE_CONFIG: CoreReviewEntityConfig<CoreReviewLandus
     searchPlaceholder: "Search landuse (name, class, crop)…",
     columns: [
         { id: "public_id", header: "Public ID", cell: (r, q) => hl(r.publicId, q) },
-        ...standardNameAndVerifiedColumns<CoreReviewLanduseRow>({
+        ...standardNameAndVerificationColumns<CoreReviewLanduseRow>({
             myanmar: (r) => r.nameMm,
             english: (r) => r.nameEn,
         }),
@@ -602,7 +670,7 @@ export const CORE_REVIEW_LANDUSE_CONFIG: CoreReviewEntityConfig<CoreReviewLandus
         { label: "Seasonality", value: dash(r.seasonality) },
         { label: "Area (m²)", value: formatArea(r.areaM2) },
         { label: "Confidence", value: <ConfidenceBadge score={r.confidenceScore} /> },
-        { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
+        verificationStatusDetailField(r),
         { label: "Active", value: yesNo(r.isActive) },
         { label: "Created", value: formatDate(r.createdAt) },
         { label: "Updated", value: formatDate(r.updatedAt) },
@@ -626,7 +694,7 @@ function mapFeatureDetailFields(r: CoreReviewMapFeatureRow) {
         { label: "ID", value: r.id },
         { label: "Name", value: dash(r.name) },
         { label: "Class", value: dash(r.classCode) },
-        { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
+        verificationStatusDetailField(r),
         { label: "Active", value: yesNo(r.isActive) },
         { label: "Updated", value: formatDate(r.updatedAt) },
     ];
@@ -716,7 +784,7 @@ export const CORE_REVIEW_ADDRESSES_CONFIG: CoreReviewEntityConfig<CoreReviewAddr
         { id: "house", header: "House #", cell: (r, q) => hl(dash(r.houseNumber), q) },
         { id: "admin", header: "Admin area", cell: (r, q) => hl(dash(r.adminAreaName), q) },
         { id: "public", header: "Public", cell: (r) => yesNo(r.isPublic) },
-        ...standardNameAndVerifiedColumns<CoreReviewAddressRow>({
+        ...standardNameAndVerificationColumns<CoreReviewAddressRow>({
             myanmar: (r) => r.generatedFullAddressMy ?? r.myanmarName,
             english: (r) => r.generatedFullAddressEn ?? r.englishName,
         }),
@@ -728,7 +796,7 @@ export const CORE_REVIEW_ADDRESSES_CONFIG: CoreReviewEntityConfig<CoreReviewAddr
         { label: "English address", value: dash(r.generatedFullAddressEn) },
         { label: "Admin area", value: dash(r.adminAreaName) },
         { label: "Public", value: yesNo(r.isPublic) },
-        { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
+        verificationStatusDetailField(r),
         { label: "Updated", value: formatDate(r.updatedAt) },
     ],
     newPath: coreReviewPath("addresses/new"),
@@ -788,7 +856,7 @@ export const CORE_REVIEW_ADMIN_AREAS_CONFIG: CoreReviewEntityConfig<CoreReviewAd
             cell: (r) => <AdminAreaBoundaryConfidenceCell row={r} />,
         },
         { id: "active", header: "Active", cell: (r) => yesNo(r.isActive) },
-        ...standardNameAndVerifiedColumns<CoreReviewAdminAreaRow>({
+        ...standardNameAndVerificationColumns<CoreReviewAdminAreaRow>({
             myanmar: (r) => r.canonicalName,
             english: () => null,
         }),
@@ -801,7 +869,7 @@ export const CORE_REVIEW_ADMIN_AREAS_CONFIG: CoreReviewEntityConfig<CoreReviewAd
         { label: "Parent ID", value: dash(r.parentId) },
         { label: "Admin level ID", value: dash(r.adminLevelId) },
         ...adminAreaBoundaryDetailFields(r),
-        { label: "Verified", value: <VerifiedBadge verified={r.isVerified} /> },
+        verificationStatusDetailField(r),
         { label: "Active", value: yesNo(r.isActive) },
         { label: "Updated", value: formatDate(r.updatedAt) },
     ],

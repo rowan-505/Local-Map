@@ -10,6 +10,10 @@ import {
     type ImportReviewHistoryReviewBatchDetail,
 } from "@/src/lib/api";
 import {
+    isDeprecatedCoreBusImportReviewFamily,
+} from "@/src/features/import-review/utils/deprecatedCoreBusPromotion";
+import { importTransportPath } from "@/src/lib/dashboardPaths";
+import {
     getImportReviewEntityByApiFamily,
     importReviewEntityHref,
     importReviewHistoryHref,
@@ -145,6 +149,9 @@ export default function ImportReviewHistoryReviewBatchDetailClient() {
                                 {data.counts_by_entity_family.map((f) => {
                                     const cfg = getImportReviewEntityByApiFamily(f.entity_family);
                                     const slug = cfg?.slug;
+                                    const isDeprecatedTransport = isDeprecatedCoreBusImportReviewFamily(
+                                        f.entity_family
+                                    );
                                     return (
                                         <div
                                             key={f.entity_family}
@@ -154,7 +161,15 @@ export default function ImportReviewHistoryReviewBatchDetailClient() {
                                                 <h3 className="font-semibold text-gray-900">
                                                     {cfg?.pluralLabel ?? f.entity_family}
                                                 </h3>
-                                                {slug ? (
+                                                {isDeprecatedTransport ? (
+                                                    <Link
+                                                        href={importTransportPath()}
+                                                        prefetch={false}
+                                                        className="text-xs text-sky-800 underline"
+                                                    >
+                                                        Import transport
+                                                    </Link>
+                                                ) : slug ? (
                                                     <Link
                                                         href={importReviewEntityHref(slug, {
                                                             get: (k) =>

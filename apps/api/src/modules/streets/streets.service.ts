@@ -1,5 +1,11 @@
 import type { JwtUser } from "../../plugins/auth.js";
 import {
+    effectiveVerificationStatusFromRow,
+    isVerifiedFromVerificationStatus,
+    pickCoreReviewVerificationWrite,
+    resolveCoreReviewVerificationWrite,
+} from "../core-review/core-review-verification-write.js";
+import {
     deriveStreetCanonicalName,
     StreetCrudValidationError,
     StreetsRepository,
@@ -88,6 +94,7 @@ type StreetResponse = {
     deleted_at: Date | string | null;
     last_edited_at: Date | string | null;
     is_active: boolean;
+    verification_status: string;
     is_verified: boolean;
     created_at: Date | string;
     updated_at: Date | string;
@@ -141,6 +148,8 @@ export class StreetsService {
             throw new StreetNotFoundError();
         }
 
+        const verificationStatus = effectiveVerificationStatusFromRow(street);
+
         return {
             public_id: street.public_id,
             canonical_name: street.canonical_name,
@@ -160,7 +169,8 @@ export class StreetsService {
             deleted_at: street.deleted_at,
             last_edited_at: street.last_edited_at,
             is_active: street.is_active,
-            is_verified: street.is_verified,
+            verification_status: verificationStatus,
+            is_verified: isVerifiedFromVerificationStatus(verificationStatus),
             created_at: street.created_at,
             updated_at: street.updated_at,
             geometry: street.geometry as StreetLineStringGeometry | null,
@@ -427,6 +437,10 @@ export class StreetsService {
         try {
             await this.streetsRepo.assertValidCenterline(body.geometry);
 
+            const verification = resolveCoreReviewVerificationWrite(
+                body as unknown as Record<string, unknown>,
+            );
+
             const street = await this.streetsRepo.createStreet({
                 myanmarName: names.myanmarName,
                 englishName: names.englishName,
@@ -440,6 +454,8 @@ export class StreetsService {
                 tunnel: body.tunnel,
                 geometry: body.geometry,
                 is_active: body.is_active,
+                verification_status: verification.verificationStatus,
+                is_verified: verification.isVerified,
             });
 
             if (!street) {
@@ -479,6 +495,12 @@ export class StreetsService {
             bridge: body.bridge,
             tunnel: body.tunnel,
         };
+
+        const pickedVerification = pickCoreReviewVerificationWrite(body as unknown as Record<string, unknown>);
+        if (pickedVerification) {
+            input.verification_status = pickedVerification.verificationStatus;
+            input.is_verified = pickedVerification.isVerified;
+        }
 
         try {
             const street = await this.streetsRepo.updateStreet(publicId, input, mutationContext(user, body.edit_reason));

@@ -18,7 +18,30 @@ export const coreReviewListQuerySchemaOpenApi = {
         search: { type: "string" },
         sortBy: { type: "string" },
         sortOrder: { type: "string", enum: ["asc", "desc"], default: "desc" },
+        verification_status: {
+            type: "string",
+            enum: [
+                "unverified",
+                "verified",
+                "needs_fix",
+                "questionable",
+                "rejected",
+            ],
+        },
+        /** @deprecated Legacy alias — mapped to verification_status */
         isVerified: { type: "boolean" },
+        /** @deprecated Legacy camelCase alias — mapped to verification_status */
+        verificationStatus: {
+            type: "string",
+            enum: [
+                "unverified",
+                "verified",
+                "needs_fix",
+                "questionable",
+                "rejected",
+                "rejected_after_core_review",
+            ],
+        },
         adminAreaId: { type: "string" },
         categoryId: { type: "string" },
         buildingTypeId: { type: "string" },

@@ -1,5 +1,6 @@
 import type { CoreEntityKey } from "@/src/lib/core-review/entityConfigs";
 
+/** Dashboard URL segment → core-review entity key. Bus `bus-*` segments map to core_transport-backed APIs. */
 const SEGMENT_TO_ENTITY_KEY: Record<string, CoreEntityKey> = {
     buildings: "buildings",
     places: "places",

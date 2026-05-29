@@ -9,6 +9,7 @@ import {
 } from "./import-review-promotion-promote.types.js";
 import { ImportReviewPromotionValidationRepository } from "./import-review-promotion-validation.repo.js";
 import { ImportReviewPromotionValidationRules } from "./import-review-promotion-validation-rules.js";
+import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
 import {
     PROMOTABLE_PUBLISH_FAMILIES,
     IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG,
@@ -23,6 +24,10 @@ import {
 import {
     ImportReviewPublishBatchSummaryRepository,
 } from "./import-review-publish-batch-summary.js";
+import {
+    DEPRECATED_CORE_BUS_PUBLISH_MESSAGE,
+    isDeprecatedCoreBusPublishFamily,
+} from "./import-review-transport-promotion-deprecated.js";
 import { busStopCandidateMissingCoreNamesSql } from "./import-review-publish-batch-core-verification.js";
 import { ImportReviewReviewBatchSummaryRepository } from "./import-review-review-batch-summary.js";
 import {
@@ -112,7 +117,7 @@ export const MAX_PROMOTE_CHUNK_SIZE = 500;
 
 export type PromotableItemRow = {
     publish_item_id: bigint;
-    entity_family: PromotablePublishEntityFamily;
+    entity_family: string;
     target_table: string;
     publish_action: string;
     publish_status: string;
@@ -233,6 +238,10 @@ export class ImportReviewPromotionPromoteRepository {
         this.routingBarrierDryRunRepo = new ImportReviewPromotionRoutingBarrierDryRunRepository(prisma);
         this.publishSummaryRepo = new ImportReviewPublishBatchSummaryRepository(prisma);
         this.reviewSummaryRepo = new ImportReviewReviewBatchSummaryRepository(prisma);
+    }
+
+    getPrisma(): PrismaClient {
+        return this.prisma;
     }
 
     async fetchBatchProgress(batchId: bigint): Promise<ImportReviewPublishBatchProgressRow | null> {
@@ -732,6 +741,17 @@ export class ImportReviewPromotionPromoteRepository {
             };
         }
 
+        if (isDeprecatedCoreBusPublishFamily(item.entity_family)) {
+            return {
+                publish_item_id: args.publishItemId,
+                outcome: "failed",
+                target_id: null,
+                error_message: DEPRECATED_CORE_BUS_PUBLISH_MESSAGE,
+                before_data: null,
+                after_data: null,
+            };
+        }
+
         if (item.publish_status === "success" && item.target_id != null) {
             const coreExists = await this.checkCoreRowExists(item.entity_family, item.target_id);
             if (coreExists) {
@@ -825,8 +845,9 @@ export class ImportReviewPromotionPromoteRepository {
                     args.publishItemId
                 );
             }
-            if (this.mapRepo.isMapEntityFamily(item.entity_family)) {
-                return this.mapRepo.insertMapEntity(item.entity_family, args.batchId, args.publishItemId);
+            const mapFamily = item.entity_family as PromotablePublishEntityFamily;
+            if (this.mapRepo.isMapEntityFamily(mapFamily)) {
+                return this.mapRepo.insertMapEntity(mapFamily, args.batchId, args.publishItemId);
             }
             return this.insertBuilding(args.batchId, args.publishItemId, args.promotedBy);
         }
@@ -878,8 +899,9 @@ export class ImportReviewPromotionPromoteRepository {
                     args.publishItemId
                 );
             }
-            if (this.mapRepo.isMapEntityFamily(item.entity_family)) {
-                return this.mapRepo.updateMapEntity(item.entity_family, args.batchId, args.publishItemId);
+            const mapFamily = item.entity_family as PromotablePublishEntityFamily;
+            if (this.mapRepo.isMapEntityFamily(mapFamily)) {
+                return this.mapRepo.updateMapEntity(mapFamily, args.batchId, args.publishItemId);
             }
             return this.updateBuilding(args.batchId, args.publishItemId, args.promotedBy);
         }
@@ -894,10 +916,7 @@ export class ImportReviewPromotionPromoteRepository {
         };
     }
 
-    private async checkCoreRowExists(
-        entityFamily: PromotablePublishEntityFamily,
-        targetId: bigint
-    ): Promise<boolean> {
+    private async checkCoreRowExists(entityFamily: string, targetId: bigint): Promise<boolean> {
         if (entityFamily === "places") {
             return this.placesRepo.checkPlaceCoreExists(targetId);
         }
@@ -922,8 +941,9 @@ export class ImportReviewPromotionPromoteRepository {
         if (entityFamily === "routing_barriers") {
             return this.routingBarriersRepo.checkRoutingBarrierExists(targetId);
         }
-        if (this.mapRepo.isMapEntityFamily(entityFamily)) {
-            return this.mapRepo.checkMapCoreExists(entityFamily, targetId);
+        const mapFamily = entityFamily as PromotablePublishEntityFamily;
+        if (this.mapRepo.isMapEntityFamily(mapFamily)) {
+            return this.mapRepo.checkMapCoreExists(mapFamily, targetId);
         }
         const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
             SELECT id FROM core.core_map_buildings
@@ -1233,7 +1253,7 @@ export class ImportReviewPromotionPromoteRepository {
     }
 
     async markCandidatePromoted(args: {
-        entityFamily: PromotablePublishEntityFamily;
+        entityFamily: ImportReviewEntityFamilySlug;
         reviewCandidateId: bigint;
         promotedCoreId: bigint | null;
         promotedBy: bigint | null;
@@ -1252,7 +1272,7 @@ export class ImportReviewPromotionPromoteRepository {
     }
 
     async markCandidateFailed(
-        entityFamily: PromotablePublishEntityFamily,
+        entityFamily: ImportReviewEntityFamilySlug,
         reviewCandidateId: bigint
     ): Promise<void> {
         const config = IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG[entityFamily];

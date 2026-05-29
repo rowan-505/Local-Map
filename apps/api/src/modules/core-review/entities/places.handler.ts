@@ -17,7 +17,7 @@ export async function listCoreReviewPlaces(
         category_id: query.categoryId ? BigInt(query.categoryId) : undefined,
         admin_area_id: query.adminAreaId ? BigInt(query.adminAreaId) : undefined,
         is_public: query.isPublic,
-        is_verified: query.isVerified,
+        verification_status: query.verificationStatus,
         status: resolveCoreReviewListStatus(query),
     };
 
@@ -39,7 +39,7 @@ export async function listCoreReviewPlaces(
         total,
         filters: {
             search: query.search,
-            isVerified: query.isVerified,
+            verification_status: query.verificationStatus,
             adminAreaId: query.adminAreaId,
             categoryId: query.categoryId,
             isPublic: query.isPublic,

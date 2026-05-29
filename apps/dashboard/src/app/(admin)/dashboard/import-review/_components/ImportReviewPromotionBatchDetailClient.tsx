@@ -7,6 +7,10 @@ import { useCallback, useEffect, useState } from "react";
 import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
 import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
+import {
+    DEPRECATED_CORE_BUS_PROMOTION_BANNER,
+    isDeprecatedCoreBusImportReviewFamily,
+} from "@/src/features/import-review/utils/deprecatedCoreBusPromotion";
 
 import ImportReviewPromotionPromotePanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionPromotePanel";
 import ImportReviewPromotionCleanupPanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionCleanupPanel";
@@ -26,7 +30,7 @@ import {
     type ImportReviewPromotionRoutingBarrierDryRunResult,
     type ImportReviewPublishBatchDetail,
 } from "@/src/lib/api";
-import { importReviewPath } from "@/src/lib/dashboardNavigation";
+import { importReviewPath, importTransportPath } from "@/src/lib/dashboardNavigation";
 import { isImportReviewDevTokenConfigured } from "@/src/lib/importReviewDevAccess";
 
 function formatPromotionError(err: unknown): string {
@@ -116,6 +120,9 @@ export default function ImportReviewPromotionBatchDetailClient() {
         (batchDetail?.item_counts_by_entity_family?.bus_route_variants?.total ?? 0) > 0;
     const hasBusRouteStopItems =
         (batchDetail?.item_counts_by_entity_family?.bus_route_stops?.total ?? 0) > 0;
+    const hasBusStopItems = (batchDetail?.item_counts_by_entity_family?.bus_stops?.total ?? 0) > 0;
+    const hasDeprecatedTransportItems =
+        hasBusRouteItems || hasBusRouteVariantItems || hasBusRouteStopItems || hasBusStopItems;
     const hasAdminAreaItems = (batchDetail?.item_counts_by_entity_family?.admin_areas?.total ?? 0) > 0;
     const hasRoutingBarrierItems =
         (batchDetail?.item_counts_by_entity_family?.routing_barriers?.total ?? 0) > 0;
@@ -194,6 +201,9 @@ export default function ImportReviewPromotionBatchDetailClient() {
                                     </h4>
                                     <div className="mt-2 space-y-3">
                                         {Object.entries(batchDetail.item_counts_by_entity_family)
+                                            .filter(
+                                                ([family]) => !isDeprecatedCoreBusImportReviewFamily(family)
+                                            )
                                             .sort(([a], [b]) => a.localeCompare(b))
                                             .map(([family, counts]) => (
                                                 <div key={family}>
@@ -232,25 +242,13 @@ export default function ImportReviewPromotionBatchDetailClient() {
                                 .
                             </div>
                         ) : null}
-                        {hasBusRouteItems ? (
-                            <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950">
-                                Bus route promotion writes routes and route names only. Route variants and route
-                                stops are separate transit phases.
-                            </div>
-                        ) : null}
-                        {hasBusRouteVariantItems ? (
-                            <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950">
-                                Bus route variants require an existing promoted/core bus route. Validation shows
-                                DEPENDENCY_ROUTE_MISSING when route_id, route_code, or external route references
-                                cannot resolve.
-                            </div>
-                        ) : null}
-                        {hasBusRouteStopItems ? (
-                            <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950">
-                                Bus route stops require both dependencies first: a promoted/core route variant and
-                                a promoted/core bus stop. Validation shows DEPENDENCY_VARIANT_MISSING or
-                                DEPENDENCY_STOP_MISSING, plus sequence warnings for gaps and non-increasing
-                                distance.
+                        {hasDeprecatedTransportItems ? (
+                            <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+                                {DEPRECATED_CORE_BUS_PROMOTION_BANNER}{" "}
+                                <Link href={importTransportPath()} className="font-medium text-sky-800 underline">
+                                    Open Import transport
+                                </Link>
+                                .
                             </div>
                         ) : null}
                         <ImportReviewPromotionValidationPanel

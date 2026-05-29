@@ -5,12 +5,14 @@ import { REVIEW_PALETTE, type ReviewPalette } from "./reviewPalette";
 export default function ReviewHeaderCard({
     title,
     description,
+    badge,
     meta,
     actions,
     palette = "core",
 }: {
     title: string;
     description?: ReactNode;
+    badge?: ReactNode;
     meta?: ReactNode;
     actions?: ReactNode;
     palette?: ReviewPalette;
@@ -22,6 +24,7 @@ export default function ReviewHeaderCard({
         >
             <div className="min-w-0">
                 <h1 className={`text-xl font-bold sm:text-2xl ${p.title}`}>{title}</h1>
+                {badge ? <div className="mt-2">{badge}</div> : null}
                 {description ? <p className={`mt-1 max-w-3xl text-sm ${p.body}`}>{description}</p> : null}
                 {meta ? <div className={`mt-2 text-xs ${p.muted}`}>{meta}</div> : null}
             </div>

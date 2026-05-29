@@ -12,6 +12,12 @@ import {
     classifyBuildingTypeCode,
 } from "../../lib/building-type/classify-building-type-code.js";
 import { mapBuildingNameFields } from "../../lib/entity-names/building-detail-select-sql.js";
+import {
+    effectiveVerificationStatusFromRow,
+    isVerifiedFromVerificationStatus,
+    pickCoreReviewVerificationWrite,
+    resolveCoreReviewVerificationWrite,
+} from "../core-review/core-review-verification-write.js";
 import type { BuildingValidationIssue } from "./buildings.schema.js";
 import {
     BuildingsRepository,
@@ -226,7 +232,8 @@ export class BuildingsService {
             height_m: row.height_m,
             area_m2: row.area_m2,
             confidence_score: row.confidence_score,
-            is_verified: row.is_verified,
+            verification_status: effectiveVerificationStatusFromRow(row),
+            is_verified: isVerifiedFromVerificationStatus(effectiveVerificationStatusFromRow(row)),
             is_active: row.is_active,
             created_at: row.created_at.toISOString(),
             updated_at: row.updated_at.toISOString(),
@@ -245,6 +252,10 @@ export class BuildingsService {
             admin_area_id = await this.resolveAdminAreaOrThrow(body.admin_area_id, "create");
             admin_area_resolve_spatial = false;
         }
+
+        const verification = resolveCoreReviewVerificationWrite(
+            body as unknown as Record<string, unknown>,
+        );
 
         if (body.building_type_id !== undefined) {
             const ref = await this.buildingsRepo.getActiveBuildingTypeById(body.building_type_id);
@@ -273,7 +284,8 @@ export class BuildingsService {
                 levels: body.levels ?? null,
                 height_m: body.height_m ?? null,
                 confidence_score: body.confidence_score ?? 80,
-                is_verified: body.is_verified ?? false,
+                verification_status: verification.verificationStatus,
+                is_verified: verification.isVerified,
             };
         }
 
@@ -307,7 +319,8 @@ export class BuildingsService {
             levels: body.levels ?? null,
             height_m: body.height_m ?? null,
             confidence_score: body.confidence_score ?? 80,
-            is_verified: body.is_verified ?? false,
+            verification_status: verification.verificationStatus,
+            is_verified: verification.isVerified,
         };
     }
 
@@ -369,7 +382,15 @@ export class BuildingsService {
                 ? patch.confidence_score
                 : Number(existing.confidence_score ?? 80);
 
-        const is_verified = patch.is_verified !== undefined ? patch.is_verified : existing.is_verified;
+        let verification_status = effectiveVerificationStatusFromRow(existing);
+        let is_verified = isVerifiedFromVerificationStatus(verification_status);
+        const pickedVerification = pickCoreReviewVerificationWrite(
+            patch as unknown as Record<string, unknown>,
+        );
+        if (pickedVerification) {
+            verification_status = pickedVerification.verificationStatus;
+            is_verified = pickedVerification.isVerified;
+        }
 
         const classificationPatch =
             patch.building_type !== undefined
@@ -418,6 +439,7 @@ export class BuildingsService {
             levels,
             height_m,
             confidence_score,
+            verification_status,
             is_verified,
         };
     }

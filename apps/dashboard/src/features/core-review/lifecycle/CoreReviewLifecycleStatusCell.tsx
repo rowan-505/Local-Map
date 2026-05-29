@@ -1,8 +1,8 @@
 "use client";
 
 import CoreReviewStatusBadge from "@/src/components/core-review/CoreReviewStatusBadge";
-import { VerifiedBadge } from "@/src/components/review/ReviewStatusBadge";
 
+import CoreReviewVerificationStatusCell from "../components/CoreReviewVerificationStatusCell";
 import { isCoreReviewRowDeleted } from "./coreReviewLifecycleUtils";
 
 export default function CoreReviewLifecycleStatusCell({
@@ -11,7 +11,10 @@ export default function CoreReviewLifecycleStatusCell({
     row: Record<string, unknown>;
 }) {
     const deleted = isCoreReviewRowDeleted(row);
-    const verified =
+    const verificationStatus =
+        (row.verificationStatus as string | null | undefined) ??
+        (row.verification_status as string | null | undefined);
+    const isVerifiedFallback =
         row.isVerified === true || row.is_verified === true
             ? true
             : row.isVerified === false || row.is_verified === false
@@ -25,7 +28,10 @@ export default function CoreReviewLifecycleStatusCell({
             ) : (
                 <CoreReviewStatusBadge variant="active" label="Active" />
             )}
-            {verified !== null ? <VerifiedBadge verified={verified} /> : null}
+            <CoreReviewVerificationStatusCell
+                status={verificationStatus}
+                isVerifiedFallback={isVerifiedFallback}
+            />
         </div>
     );
 }

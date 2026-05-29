@@ -13,6 +13,7 @@ import ImportReviewInlineSpinner from "@/src/features/import-review/components/I
 import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
 import ImportReviewSkeletonCards from "@/src/features/import-review/components/ImportReviewSkeletonCards";
 import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
+import ImportReviewTransportMovedNotice from "@/src/features/import-review/components/ImportReviewTransportMovedNotice";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import { formatBuildingTypeDisplay } from "@/src/lib/building-type/display";
 import {
@@ -425,6 +426,8 @@ export default function ImportReviewPromotionClient() {
                         </div>
                     </div>
                 </header>
+
+                <ImportReviewTransportMovedNotice compact />
 
                 <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
                     <PromotionCardBody>

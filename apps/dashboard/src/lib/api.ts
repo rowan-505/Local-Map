@@ -6,7 +6,16 @@ import {
     markImportReviewApiAuthFailed,
     readImportReviewAuthDebugState,
 } from "./importReviewDevAccess";
+import {
+    attachImportTransportDevAdminTokenHeader,
+    isImportTransportApiPath,
+    isImportTransportDevRouteBypassActive,
+    logImportTransportAuthDecision,
+    markImportTransportApiAuthFailed,
+    readImportTransportAuthDebugState,
+} from "./importTransportDevAccess";
 import { resolveImportReviewApiFamily } from "@/src/features/import-review/utils/importReviewApiFamily";
+import type { CoreReviewVerificationStatusFilter } from "@/src/features/core-review/verification/coreReviewVerificationFilter";
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -125,7 +134,9 @@ export type CreatePlacePayload = {
     popularityScore?: number;
     confidenceScore?: number;
     isPublic?: boolean;
+    /** @deprecated Send verification_status instead */
     isVerified?: boolean;
+    verification_status?: string;
     sourceTypeId?: string | null;
     publishStatusId?: string | null;
 };
@@ -190,6 +201,7 @@ export type UpdateStreetPayload = {
     edit_reason?: string;
     bridge?: boolean;
     tunnel?: boolean;
+    verification_status?: string;
 };
 
 export type CreateStreetPayload = {
@@ -201,6 +213,7 @@ export type CreateStreetPayload = {
     surface?: string | null;
     bridge?: boolean;
     tunnel?: boolean;
+    verification_status?: string;
     geometry: StreetLineStringGeoJson;
 };
 
@@ -1041,7 +1054,9 @@ export type CreateBuildingPayload = {
     levels?: number;
     height_m?: number;
     confidence_score?: number;
+    /** @deprecated Send verification_status instead */
     is_verified?: boolean;
+    verification_status?: string;
 };
 
 export type UpdateBuildingPayload = Partial<CreateBuildingPayload>;
@@ -1113,10 +1128,24 @@ function redirectToLogin(reason: string) {
         return;
     }
 
+    if (isImportTransportDevRouteBypassActive(pathname)) {
+        logImportTransportAuthDecision(
+            "apiFetch.redirectToLogin",
+            `skip-dev-route-bypass:${reason}`,
+            readImportTransportAuthDebugState(pathname, false)
+        );
+        return;
+    }
+
     logImportReviewAuthDecision(
         "apiFetch.redirectToLogin",
         reason,
         readImportReviewAuthDebugState(pathname, false)
+    );
+    logImportTransportAuthDecision(
+        "apiFetch.redirectToLogin",
+        reason,
+        readImportTransportAuthDebugState(pathname, false)
     );
 
     window.location.replace("/login");
@@ -1273,23 +1302,34 @@ export async function apiFetch<T>(
     headers.set("Accept", "application/json");
 
     const importReviewHeaderFallbackOk = attachImportReviewDevAdminTokenHeader(headers, path);
+    const importTransportHeaderFallbackOk = attachImportTransportDevAdminTokenHeader(headers, path);
+    const adminHeaderFallbackOk = importReviewHeaderFallbackOk || importTransportHeaderFallbackOk;
     const accessToken = getAccessToken();
-    const importReviewApiDevAuth = importReviewHeaderFallbackOk && isImportReviewApiPath(path);
+    const importPipelineApiDevAuth =
+        adminHeaderFallbackOk && (isImportReviewApiPath(path) || isImportTransportApiPath(path));
 
-    if (accessToken && !importReviewApiDevAuth) {
+    if (accessToken && !importPipelineApiDevAuth) {
         headers.set("Authorization", `Bearer ${accessToken}`);
-    } else if (accessToken && importReviewApiDevAuth) {
+    } else if (accessToken && importPipelineApiDevAuth) {
         logImportReviewAuthDecision(
             "apiFetch",
-            "omit-bearer-for-import-review-dev-admin-header",
+            "omit-bearer-for-import-pipeline-dev-admin-header",
             readImportReviewAuthDebugState(
+                typeof window !== "undefined" ? window.location.pathname : "",
+                false
+            )
+        );
+        logImportTransportAuthDecision(
+            "apiFetch",
+            "omit-bearer-for-import-pipeline-dev-admin-header",
+            readImportTransportAuthDebugState(
                 typeof window !== "undefined" ? window.location.pathname : "",
                 false
             )
         );
     }
 
-    if (!accessToken && !importReviewHeaderFallbackOk) {
+    if (!accessToken && !adminHeaderFallbackOk) {
         redirectToLogin("missing-credentials");
         throw new Error("Authentication required");
     }
@@ -1303,7 +1343,10 @@ export async function apiFetch<T>(
         if (isImportReviewApiPath(path)) {
             markImportReviewApiAuthFailed();
         }
-        if (!importReviewHeaderFallbackOk) {
+        if (isImportTransportApiPath(path)) {
+            markImportTransportApiAuthFailed();
+        }
+        if (!adminHeaderFallbackOk) {
             clearAuthTokens();
             redirectToLogin("http-401");
         } else {
@@ -1311,6 +1354,14 @@ export async function apiFetch<T>(
                 "apiFetch",
                 "http-401-with-dev-admin-header-no-redirect",
                 readImportReviewAuthDebugState(
+                    typeof window !== "undefined" ? window.location.pathname : "",
+                    false
+                )
+            );
+            logImportTransportAuthDecision(
+                "apiFetch",
+                "http-401-with-dev-admin-header-no-redirect",
+                readImportTransportAuthDebugState(
                     typeof window !== "undefined" ? window.location.pathname : "",
                     false
                 )
@@ -2823,135 +2874,20 @@ export type CoreVerificationSummaryFamily = {
     support: CoreVerificationSupport;
 };
 
-export type CoreVerificationSummaryResponse = {
+export type CoreReviewVerificationSummaryFamily = CoreVerificationSummaryFamily & {
+    source_label: string | null;
+};
+
+export type CoreReviewVerificationSummaryResponse = {
     statuses: CoreVerificationStatus[];
     totals: Record<string, number>;
-    families: CoreVerificationSummaryFamily[];
+    families: CoreReviewVerificationSummaryFamily[];
 };
 
-export type CoreVerificationListItem = {
-    id: string;
-    family: string;
-    display_name: string | null;
-    verification_status: CoreVerificationStatus | "unsupported" | null;
-    is_verified: boolean | null;
-    verification_note: string | null;
-    verified_at: string | null;
-    verified_by: string | null;
-    created_at: string | null;
-    updated_at: string | null;
-    external_id: string | null;
-    admin_area_id: string | null;
-    is_active: boolean | null;
-    has_geometry: boolean;
-    geometry_label: string;
-    source_lineage: Record<string, unknown> | null;
-};
-
-export type CoreVerificationListResponse = {
-    family: string;
-    label: string;
-    support: CoreVerificationSupport;
-    items: CoreVerificationListItem[];
-    total: number;
-    limit: number;
-    offset: number;
-};
-
-export type CoreVerificationDetailResponse = CoreVerificationListItem & {
-    source_refs: unknown;
-    normalized_data: unknown;
-    geometry: unknown;
-    properties: Record<string, unknown>;
-    support: CoreVerificationSupport;
-    safe_editable_fields: string[];
-};
-
-export type CoreVerificationListParams = {
-    limit?: number;
-    offset?: number;
-    q?: string;
-    is_verified?: boolean;
-    verification_status?: CoreVerificationStatus;
-    review_batch_id?: string;
-    publish_batch_id?: string;
-    source_snapshot_version?: string;
-    admin_area_id?: string;
-    created_from?: string;
-    created_to?: string;
-    updated_from?: string;
-    updated_to?: string;
-};
-
-function coreVerificationQuery(params: CoreVerificationListParams): Record<string, QueryValue> {
-    return {
-        ...params,
-        is_verified: params.is_verified === undefined ? undefined : String(params.is_verified),
-    };
-}
-
-export function getCoreVerificationSummary(fetchInit?: Pick<RequestInit, "signal">) {
-    return apiFetch<CoreVerificationSummaryResponse>(
-        "/api/core-verification/summary",
+export function getCoreReviewVerificationSummary(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<CoreReviewVerificationSummaryResponse>(
+        "/core-review/verification-summary",
         { method: "GET", ...fetchInit }
-    );
-}
-
-export function getCoreVerificationList(
-    family: string,
-    params: CoreVerificationListParams = {},
-    fetchInit?: Pick<RequestInit, "signal">
-) {
-    return apiFetch<CoreVerificationListResponse>(
-        `/api/core-verification/${family}`,
-        { method: "GET", ...fetchInit },
-        coreVerificationQuery(params)
-    );
-}
-
-export function getCoreVerificationDetail(
-    family: string,
-    id: string,
-    fetchInit?: Pick<RequestInit, "signal">
-) {
-    return apiFetch<CoreVerificationDetailResponse>(
-        `/api/core-verification/${family}/${encodeURIComponent(id)}`,
-        { method: "GET", ...fetchInit }
-    );
-}
-
-export function patchCoreVerificationStatus(
-    family: string,
-    id: string,
-    body: {
-        verification_status: CoreVerificationStatus;
-        verification_note?: string;
-        deactivate?: boolean;
-        deactivate_confirmation?: "DEACTIVATE";
-    }
-) {
-    return apiFetch<CoreVerificationDetailResponse>(
-        `/api/core-verification/${family}/${encodeURIComponent(id)}/status`,
-        {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-        }
-    );
-}
-
-export function patchCoreVerificationEdit(
-    family: string,
-    id: string,
-    changes: Record<string, unknown>
-) {
-    return apiFetch<CoreVerificationDetailResponse>(
-        `/api/core-verification/${family}/${encodeURIComponent(id)}/edit`,
-        {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ changes }),
-        }
     );
 }
 
@@ -3741,14 +3677,18 @@ export type CoreReviewDetailResponse<T> = {
 
 export type CoreReviewListStatus = "active" | "deleted" | "all";
 
-/** Query params for GET /core-review/:entity (camelCase; matches API Zod schema). */
+/** Query params for GET /core-review/:entity. */
 export type CoreReviewListParams = {
     page?: number;
     pageSize?: number;
     search?: string;
     sortBy?: string;
     sortOrder?: "asc" | "desc";
+    verification_status?: Exclude<CoreReviewVerificationStatusFilter, "all">;
+    /** @deprecated Legacy boolean alias — use verification_status */
     isVerified?: boolean;
+    /** @deprecated Legacy camelCase alias — use verification_status */
+    verificationStatus?: Exclude<CoreReviewVerificationStatusFilter, "all">;
     adminAreaId?: string;
     categoryId?: string;
     buildingTypeId?: string;

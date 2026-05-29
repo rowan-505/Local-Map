@@ -15,8 +15,21 @@ import { normalizePolygonGeoJsonForSave } from "../../lib/geo/normalize-polygon-
 import { CoreReviewValidationError } from "./core-review-write.errors.js";
 import { pickTrimmedAlias, slugFromCanonicalName } from "./core-review-write.helpers.js";
 import { pickAlias, pickGeometry } from "./core-review-write.schema.js";
+import {
+    appendCoreReviewVerificationSets,
+    resolveCoreReviewVerificationWrite,
+} from "./core-review-verification-write.js";
+import {
+    appendTransportVerificationAndConfidenceSets,
+    pickTransportConfidenceScore,
+    resolveTransportVerification,
+} from "./core-review-transport-verification.js";
 
 const DASHBOARD_SOURCE_REFS = JSON.stringify({ source: "dashboard" });
+
+function lineDistanceMExpr(geojson: ReturnType<typeof geojsonSqlParam>): Prisma.Sql {
+    return Prisma.sql`ROUND(ST_Length(${lineStringGeomExpr(geojson)}::geography)::numeric, 2)`;
+}
 
 function boolOr(value: unknown, fallback: boolean): boolean {
     return typeof value === "boolean" ? value : fallback;
@@ -70,6 +83,47 @@ export class CoreReviewEntitiesWriteRepository {
         }
     }
 
+    private async resolveTransportOperatorId(body: Record<string, unknown>): Promise<bigint> {
+        const operatorId = pickAlias<bigint>(body, "operatorId", "operator_id");
+        if (operatorId !== undefined) {
+            return operatorId;
+        }
+
+        const operatorName = pickTrimmedAlias(body, "operatorName", "operator_name");
+        if (operatorName) {
+            const byName = await this.prisma.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+                SELECT id
+                FROM core_transport.operators
+                WHERE deleted_at IS NULL
+                  AND is_active IS TRUE
+                  AND (
+                    name ILIKE ${operatorName}
+                    OR name_local ILIKE ${operatorName}
+                    OR operator_code ILIKE ${operatorName}
+                  )
+                ORDER BY id ASC
+                LIMIT 1
+            `);
+            if (byName[0]?.id) {
+                return byName[0].id;
+            }
+        }
+
+        const fallback = await this.prisma.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+            SELECT id
+            FROM core_transport.operators
+            WHERE deleted_at IS NULL AND is_active IS TRUE
+            ORDER BY id ASC
+            LIMIT 1
+        `);
+        if (!fallback[0]?.id) {
+            throw new CoreReviewValidationError("No active transport operator found for route create/update", [
+                { path: "operatorName", message: "Operator is required when no default operator exists" },
+            ]);
+        }
+        return fallback[0].id;
+    }
+
     async createBusStop(body: Record<string, unknown>, sourceTypeId: bigint) {
         const geom = pickGeometry(body);
         if (!geom) {
@@ -79,21 +133,30 @@ export class CoreReviewEntitiesWriteRepository {
         }
         await this.validatePoint(this.prisma, geom, "geometry");
 
+        const displayName =
+            pickTrimmedAlias(body, "name", "name") ??
+            pickTrimmedAlias(body, "nameLocal", "name_local") ??
+            "Unnamed stop";
+        const { isVerified, verificationStatus } = resolveTransportVerification(body, boolOr);
+        const confidenceScore = pickTransportConfidenceScore(body) ?? null;
         const geojson = geojsonSqlParam(geom);
         const rows = await this.prisma.$queryRaw<{ public_id: string }[]>(Prisma.sql`
-            INSERT INTO core.core_bus_stops (
+            INSERT INTO core_transport.stops (
                 public_id, name, name_local, stop_code, geom,
-                admin_area_id, source_type_id, is_active, is_verified, source_refs
+                admin_area_id, source_type_id, is_active, is_verified, verification_status,
+                confidence_score, source_refs
             ) VALUES (
                 gen_random_uuid(),
-                ${pickAlias(body, "name", "name") ?? null},
+                ${displayName},
                 ${pickAlias(body, "nameLocal", "name_local") ?? null},
                 ${pickAlias(body, "stopCode", "stop_code") ?? null},
                 ${pointGeomExpr(geojson)},
                 ${pickAlias<bigint | null>(body, "adminAreaId", "admin_area_id") ?? null},
                 ${sourceTypeId},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
-                ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)},
+                ${isVerified},
+                ${verificationStatus},
+                ${confidenceScore},
                 ${DASHBOARD_SOURCE_REFS}::jsonb
             )
             RETURNING public_id::text AS public_id
@@ -125,9 +188,7 @@ export class CoreReviewEntitiesWriteRepository {
         if (pickAlias(body, "isActive", "is_active") !== undefined) {
             sets.push(Prisma.sql`is_active = ${boolOr(pickAlias(body, "isActive", "is_active"), true)}`);
         }
-        if (pickAlias(body, "isVerified", "is_verified") !== undefined) {
-            sets.push(Prisma.sql`is_verified = ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)}`);
-        }
+        appendTransportVerificationAndConfidenceSets(sets, body, boolOr);
         const geom = pickGeometry(body);
         if (geom) {
             await this.validatePoint(this.prisma, geom, "geometry");
@@ -136,26 +197,46 @@ export class CoreReviewEntitiesWriteRepository {
         if (sets.length === 0) return false;
         sets.push(Prisma.sql`updated_at = NOW()`);
         const result = await this.prisma.$executeRaw(Prisma.sql`
-            UPDATE core.core_bus_stops SET ${Prisma.join(sets, ", ")}
+            UPDATE core_transport.stops SET ${Prisma.join(sets, ", ")}
             WHERE public_id = CAST(${publicId} AS uuid)
         `);
         return result > 0;
     }
 
     async createBusRoute(body: Record<string, unknown>, sourceTypeId: bigint) {
+        const operatorId = await this.resolveTransportOperatorId(body);
+        const routeCode =
+            pickTrimmedAlias(body, "routeCode", "route_code") ??
+            pickTrimmedAlias(body, "publicName", "public_name");
+        if (!routeCode) {
+            throw new CoreReviewValidationError("route_code is required", [
+                { path: "routeCode", message: "Required" },
+            ]);
+        }
+        const publicName =
+            pickTrimmedAlias(body, "publicName", "public_name") ?? routeCode;
+        const routeType =
+            pickTrimmedAlias(body, "modeType", "mode_type") ??
+            pickTrimmedAlias(body, "routeType", "route_type") ??
+            "local_bus";
+        const { isVerified, verificationStatus } = resolveTransportVerification(body, boolOr);
+        const confidenceScore = pickTransportConfidenceScore(body) ?? null;
+
         const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-            INSERT INTO core.core_bus_routes (
-                route_code, public_name, operator_name, route_type, directionality,
-                source_type_id, is_active, is_verified, source_refs
+            INSERT INTO core_transport.routes (
+                operator_id, route_code, public_name, route_type, directionality,
+                source_type_id, is_active, is_verified, verification_status, confidence_score, source_refs
             ) VALUES (
-                ${pickAlias(body, "routeCode", "route_code") ?? null},
-                ${pickAlias(body, "publicName", "public_name") ?? null},
-                ${pickAlias(body, "operatorName", "operator_name") ?? null},
-                ${pickAlias(body, "routeType", "route_type") ?? null},
+                ${operatorId},
+                ${routeCode},
+                ${publicName},
+                ${routeType},
                 ${pickAlias(body, "directionality", "directionality") ?? null},
                 ${sourceTypeId},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
-                ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)},
+                ${isVerified},
+                ${verificationStatus},
+                ${confidenceScore},
                 ${DASHBOARD_SOURCE_REFS}::jsonb
             )
             RETURNING id::text AS id
@@ -168,7 +249,6 @@ export class CoreReviewEntitiesWriteRepository {
         const fields: [string, string, string][] = [
             ["routeCode", "route_code", "route_code"],
             ["publicName", "public_name", "public_name"],
-            ["operatorName", "operator_name", "operator_name"],
             ["routeType", "route_type", "route_type"],
             ["directionality", "directionality", "directionality"],
         ];
@@ -176,6 +256,21 @@ export class CoreReviewEntitiesWriteRepository {
             if (pickAlias(body, camel, snake) !== undefined) {
                 sets.push(Prisma.sql`${Prisma.raw(col)} = ${pickAlias(body, camel, snake) ?? null}`);
             }
+        }
+        if (pickAlias(body, "modeType", "mode_type") !== undefined || pickAlias(body, "routeType", "route_type") !== undefined) {
+            const routeType =
+                pickTrimmedAlias(body, "modeType", "mode_type") ??
+                pickTrimmedAlias(body, "routeType", "route_type");
+            if (routeType) {
+                sets.push(Prisma.sql`route_type = ${routeType}`);
+            }
+        }
+        if (
+            pickAlias(body, "operatorName", "operator_name") !== undefined ||
+            pickAlias(body, "operatorId", "operator_id") !== undefined
+        ) {
+            const operatorId = await this.resolveTransportOperatorId(body);
+            sets.push(Prisma.sql`operator_id = ${operatorId}`);
         }
         if (pickAlias(body, "sourceTypeId", "source_type_id") !== undefined) {
             sets.push(
@@ -185,13 +280,11 @@ export class CoreReviewEntitiesWriteRepository {
         if (pickAlias(body, "isActive", "is_active") !== undefined) {
             sets.push(Prisma.sql`is_active = ${boolOr(pickAlias(body, "isActive", "is_active"), true)}`);
         }
-        if (pickAlias(body, "isVerified", "is_verified") !== undefined) {
-            sets.push(Prisma.sql`is_verified = ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)}`);
-        }
+        appendTransportVerificationAndConfidenceSets(sets, body, boolOr);
         if (sets.length === 0) return false;
         sets.push(Prisma.sql`updated_at = NOW()`);
         const result = await this.prisma.$executeRaw(Prisma.sql`
-            UPDATE core.core_bus_routes SET ${Prisma.join(sets, ", ")}
+            UPDATE core_transport.routes SET ${Prisma.join(sets, ", ")}
             WHERE id = ${BigInt(id)}
         `);
         return result > 0;
@@ -206,21 +299,33 @@ export class CoreReviewEntitiesWriteRepository {
             ]);
         }
         await this.validateLineString(this.prisma, geom, false);
+        const variantCode =
+            pickTrimmedAlias(body, "variantCode", "variant_code") ??
+            pickTrimmedAlias(body, "directionName", "direction_name") ??
+            "default";
+        const { isVerified, verificationStatus } = resolveTransportVerification(body, boolOr);
+        const confidenceScore = pickTransportConfidenceScore(body) ?? null;
         const geojson = geojsonSqlParam(geom);
+        const distanceMField = pickAlias<number | null>(body, "distanceM", "distance_m");
+        const distanceM =
+            distanceMField !== undefined ? distanceMField : lineDistanceMExpr(geojson);
         const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-            INSERT INTO core.core_bus_route_variants (
+            INSERT INTO core_transport.route_variants (
                 route_id, variant_code, direction_name, origin_name, destination_name,
-                distance_m, geom, is_active, is_verified
+                distance_m, geom, is_active, is_verified, verification_status, confidence_score, source_refs
             ) VALUES (
                 ${routeId},
-                ${pickAlias(body, "variantCode", "variant_code") ?? null},
+                ${variantCode},
                 ${pickAlias(body, "directionName", "direction_name") ?? null},
                 ${pickAlias(body, "originName", "origin_name") ?? null},
                 ${pickAlias(body, "destinationName", "destination_name") ?? null},
-                ${pickAlias<number | null>(body, "distanceM", "distance_m") ?? null},
+                ${distanceM},
                 ${lineStringGeomExpr(geojson)},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
-                ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)}
+                ${isVerified},
+                ${verificationStatus},
+                ${confidenceScore},
+                ${DASHBOARD_SOURCE_REFS}::jsonb
             )
             RETURNING id::text AS id
         `);
@@ -249,17 +354,20 @@ export class CoreReviewEntitiesWriteRepository {
         if (pickAlias(body, "isActive", "is_active") !== undefined) {
             sets.push(Prisma.sql`is_active = ${boolOr(pickAlias(body, "isActive", "is_active"), true)}`);
         }
-        if (pickAlias(body, "isVerified", "is_verified") !== undefined) {
-            sets.push(Prisma.sql`is_verified = ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)}`);
-        }
+        appendTransportVerificationAndConfidenceSets(sets, body, boolOr);
         const geom = pickGeometry(body);
         if (geom) {
             await this.validateLineString(this.prisma, geom, false);
-            sets.push(Prisma.sql`geom = ${lineStringGeomExpr(geojsonSqlParam(geom))}`);
+            const geojson = geojsonSqlParam(geom);
+            sets.push(Prisma.sql`geom = ${lineStringGeomExpr(geojson)}`);
+            if (pickAlias(body, "distanceM", "distance_m") === undefined) {
+                sets.push(Prisma.sql`distance_m = ${lineDistanceMExpr(geojson)}`);
+            }
         }
         if (sets.length === 0) return false;
+        sets.push(Prisma.sql`updated_at = NOW()`);
         const result = await this.prisma.$executeRaw(Prisma.sql`
-            UPDATE core.core_bus_route_variants SET ${Prisma.join(sets, ", ")}
+            UPDATE core_transport.route_variants SET ${Prisma.join(sets, ", ")}
             WHERE id = ${BigInt(id)}
         `);
         return result > 0;
@@ -285,17 +393,19 @@ export class CoreReviewEntitiesWriteRepository {
         }
         const normalizedGeom = await this.validatePolygon(this.prisma, geom);
         const geojson = geojsonSqlParam(normalizedGeom);
+        const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
         const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
             INSERT INTO ${Prisma.raw(table)} (
                 source_staging_id, external_id,
-                name, class_code, geom, is_active, is_verified, source_refs, normalized_data
+                name, class_code, geom, is_active, is_verified, verification_status, source_refs, normalized_data
             ) VALUES (
                 NULL, NULL,
                 ${pickAlias(body, "name", "name") ?? null},
                 ${classCode},
                 ${polygonGeomExpr(geojson)},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
-                ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)},
+                ${isVerified},
+                ${verificationStatus},
                 ${DASHBOARD_SOURCE_REFS}::jsonb,
                 jsonb_build_object('source', 'dashboard')
             )
@@ -319,9 +429,7 @@ export class CoreReviewEntitiesWriteRepository {
         if (pickAlias(body, "isActive", "is_active") !== undefined) {
             sets.push(Prisma.sql`is_active = ${boolOr(pickAlias(body, "isActive", "is_active"), true)}`);
         }
-        if (pickAlias(body, "isVerified", "is_verified") !== undefined) {
-            sets.push(Prisma.sql`is_verified = ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)}`);
-        }
+        appendCoreReviewVerificationSets(sets, body);
         const geom = pickGeometry(body);
         if (geom) {
             const normalizedGeom = await this.validatePolygon(this.prisma, geom);
@@ -353,17 +461,19 @@ export class CoreReviewEntitiesWriteRepository {
         }
         await this.validateLineString(this.prisma, geom, true);
         const geojson = geojsonSqlParam(geom);
+        const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
         const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
             INSERT INTO core.core_map_water_lines (
                 source_staging_id, external_id,
-                name, class_code, geom, is_active, is_verified, source_refs, normalized_data
+                name, class_code, geom, is_active, is_verified, verification_status, source_refs, normalized_data
             ) VALUES (
                 NULL, NULL,
                 ${pickAlias(body, "name", "name") ?? null},
                 ${classCode},
                 ${multiLineStringGeomExpr(geojson)},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
-                ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)},
+                ${isVerified},
+                ${verificationStatus},
                 ${DASHBOARD_SOURCE_REFS}::jsonb,
                 jsonb_build_object('source', 'dashboard')
             )
@@ -383,9 +493,7 @@ export class CoreReviewEntitiesWriteRepository {
         if (pickAlias(body, "isActive", "is_active") !== undefined) {
             sets.push(Prisma.sql`is_active = ${boolOr(pickAlias(body, "isActive", "is_active"), true)}`);
         }
-        if (pickAlias(body, "isVerified", "is_verified") !== undefined) {
-            sets.push(Prisma.sql`is_verified = ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)}`);
-        }
+        appendCoreReviewVerificationSets(sets, body);
         const geom = pickGeometry(body);
         if (geom) {
             await this.validateLineString(this.prisma, geom, true);
@@ -420,11 +528,13 @@ export class CoreReviewEntitiesWriteRepository {
             ? pointGeomExpr(geojsonSqlParam(entrance))
             : Prisma.sql`NULL::geometry(Point, 4326)`;
 
+        const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
+
         const rows = await this.prisma.$queryRaw<{ public_id: string }[]>(Prisma.sql`
             INSERT INTO core.core_addresses (
                 public_id, full_address, house_number, unit_number, postal_code,
                 street_id, admin_area_id, source_type_id, point_geom, entrance_geom,
-                is_public, is_verified, source_refs
+                is_public, is_verified, verification_status, source_refs
             ) VALUES (
                 gen_random_uuid(),
                 ${pickAlias(body, "fullAddress", "full_address") ?? null},
@@ -437,7 +547,8 @@ export class CoreReviewEntitiesWriteRepository {
                 ${pointGeomExpr(pointJson)},
                 ${entranceSql},
                 ${boolOr(pickAlias(body, "isPublic", "is_public"), true)},
-                ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)},
+                ${isVerified},
+                ${verificationStatus},
                 ${DASHBOARD_SOURCE_REFS}::jsonb
             )
             RETURNING public_id::text AS public_id
@@ -474,9 +585,7 @@ export class CoreReviewEntitiesWriteRepository {
         if (pickAlias(body, "isPublic", "is_public") !== undefined) {
             sets.push(Prisma.sql`is_public = ${boolOr(pickAlias(body, "isPublic", "is_public"), true)}`);
         }
-        if (pickAlias(body, "isVerified", "is_verified") !== undefined) {
-            sets.push(Prisma.sql`is_verified = ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)}`);
-        }
+        appendCoreReviewVerificationSets(sets, body);
         const pointGeom = pickGeometry(body);
         if (pointGeom) {
             await this.validatePoint(this.prisma, pointGeom, "pointGeom");
@@ -534,10 +643,11 @@ export class CoreReviewEntitiesWriteRepository {
             "boundary_confidence_score",
         );
         const boundaryNote = pickAlias<string | null>(body, "boundaryNote", "boundary_note") ?? null;
+        const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
         const rows = await this.prisma.$queryRaw<{ public_id: string }[]>(Prisma.sql`
             INSERT INTO core.core_admin_areas (
                 public_id, canonical_name, slug, parent_id, admin_level_id,
-                source_type_id, geom, centroid, is_active, is_verified, source_refs,
+                source_type_id, geom, centroid, is_active, is_verified, verification_status, source_refs,
                 boundary_status, is_official_boundary, boundary_confidence_score,
                 address_usage, boundary_note
             ) VALUES (
@@ -550,7 +660,8 @@ export class CoreReviewEntitiesWriteRepository {
                 ${geomExpr},
                 ${centroidFromGeomExpr(geomExpr)},
                 ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
-                ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)},
+                ${isVerified},
+                ${verificationStatus},
                 ${DASHBOARD_SOURCE_REFS}::jsonb,
                 ${boundaryStatus},
                 ${boolOr(pickAlias(body, "isOfficialBoundary", "is_official_boundary"), false)},
@@ -587,9 +698,7 @@ export class CoreReviewEntitiesWriteRepository {
         if (pickAlias(body, "isActive", "is_active") !== undefined) {
             sets.push(Prisma.sql`is_active = ${boolOr(pickAlias(body, "isActive", "is_active"), true)}`);
         }
-        if (pickAlias(body, "isVerified", "is_verified") !== undefined) {
-            sets.push(Prisma.sql`is_verified = ${boolOr(pickAlias(body, "isVerified", "is_verified"), false)}`);
-        }
+        appendCoreReviewVerificationSets(sets, body);
         if (pickAlias(body, "boundaryStatus", "boundary_status") !== undefined) {
             sets.push(
                 Prisma.sql`boundary_status = ${pickAlias(body, "boundaryStatus", "boundary_status") ?? null}`,

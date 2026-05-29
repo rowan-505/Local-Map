@@ -28,6 +28,8 @@ import {
     CoreReviewValidationError,
 } from "./core-review-write.errors.js";
 import { mapDatabaseWriteError, sanitizeDevWriteErrorMessage } from "./core-review-write.helpers.js";
+import { CORE_REVIEW_VERIFICATION_SUMMARY_CONFIGS } from "./core-review-verification-summary.config.js";
+import { buildVerificationSummary } from "../../lib/verification-summary/verification-summary.repo.js";
 
 function replyCoreReviewReadError(
     request: FastifyRequest,
@@ -151,6 +153,20 @@ async function handleCoreReviewLifecycle(
 
 const coreReviewRoutes: FastifyPluginAsync = async (app) => {
     const service = new CoreReviewService(app.prisma);
+
+    app.get(
+        "/verification-summary",
+        { preHandler: app.authenticate },
+        async (_request, reply) => {
+            try {
+                return reply.send(
+                    await buildVerificationSummary(app.prisma, CORE_REVIEW_VERIFICATION_SUMMARY_CONFIGS)
+                );
+            } catch (error) {
+                return replyCoreReviewReadError(_request, reply, error, "core-review verification summary failed");
+            }
+        }
+    );
 
     app.get(
         "/:entity",

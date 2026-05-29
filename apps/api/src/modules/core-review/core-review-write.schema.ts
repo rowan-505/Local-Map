@@ -13,6 +13,7 @@ import {
     polygonOrMultiPolygonSchema,
 } from "../../lib/geo/core-geometry.schema.js";
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
+import { coreReviewVerificationWriteFields } from "./core-review-verification-write.js";
 
 export const EDIT_CORE_REVIEW_ROLES = new Set(["admin", "editor"]);
 
@@ -105,8 +106,7 @@ export const coreReviewCreateBuildingSchema = z.object({
     height_m: optionalNumber,
     confidenceScore: optionalNumber,
     confidence_score: optionalNumber,
-    isVerified: optionalBoolean,
-    is_verified: optionalBoolean,
+    ...coreReviewVerificationWriteFields,
 });
 
 export const coreReviewPatchBuildingSchema = coreReviewCreateBuildingSchema
@@ -137,8 +137,7 @@ export const coreReviewCreatePlaceSchema = z
         confidence_score: optionalNumber,
         isPublic: optionalBoolean,
         is_public: optionalBoolean,
-        isVerified: optionalBoolean,
-        is_verified: optionalBoolean,
+        ...coreReviewVerificationWriteFields,
         sourceTypeId: nullableBigintId,
         source_type_id: nullableBigintId,
         publishStatusId: nullableBigintId,
@@ -171,8 +170,7 @@ export const coreReviewPatchPlaceSchema = z
         confidence_score: optionalNumber,
         isPublic: optionalBoolean,
         is_public: optionalBoolean,
-        isVerified: optionalBoolean,
-        is_verified: optionalBoolean,
+        ...coreReviewVerificationWriteFields,
         sourceTypeId: nullableBigintId,
         source_type_id: nullableBigintId,
         publishStatusId: nullableBigintId,
@@ -196,6 +194,7 @@ export const coreReviewCreateStreetSchema = z
         surface: nullableTrimmedString,
         bridge: optionalBoolean,
         tunnel: optionalBoolean,
+        ...coreReviewVerificationWriteFields,
     })
     .refine(
         (v) => Boolean(v.myanmarName?.trim()) || Boolean(v.englishName?.trim()),
@@ -218,6 +217,7 @@ export const coreReviewPatchStreetSchema = z
         tunnel: optionalBoolean,
         editReason: optionalTrimmedString,
         edit_reason: optionalTrimmedString,
+        ...coreReviewVerificationWriteFields,
     })
     .refine(
         (v) => {
@@ -226,6 +226,20 @@ export const coreReviewPatchStreetSchema = z
         },
         { message: "At least one field is required" },
     );
+
+const transportModeTypeSchema = z.enum([
+    "local_bus",
+    "express_bus",
+    "train",
+    "ferry",
+    "airport_access",
+]);
+
+const transportEntityWriteExtras = {
+    confidenceScore: optionalConfidenceScore,
+    confidence_score: optionalConfidenceScore,
+    ...coreReviewVerificationWriteFields,
+};
 
 // ── Bus stops ───────────────────────────────────────────────────────────────
 
@@ -241,8 +255,7 @@ const busStopFields = {
     source_type_id: nullableBigintId,
     isActive: optionalBoolean,
     is_active: optionalBoolean,
-    isVerified: optionalBoolean,
-    is_verified: optionalBoolean,
+    ...transportEntityWriteExtras,
     geometry: pointFieldSchema(),
     geom: pointFieldSchema(),
 };
@@ -262,15 +275,18 @@ const busRouteFields = {
     public_name: nullableTrimmedString,
     operatorName: nullableTrimmedString,
     operator_name: nullableTrimmedString,
-    routeType: nullableTrimmedString,
-    route_type: nullableTrimmedString,
+    operatorId: nullableBigintId,
+    operator_id: nullableBigintId,
+    routeType: transportModeTypeSchema.nullable().optional(),
+    route_type: transportModeTypeSchema.nullable().optional(),
+    modeType: transportModeTypeSchema.nullable().optional(),
+    mode_type: transportModeTypeSchema.nullable().optional(),
     directionality: nullableTrimmedString,
     sourceTypeId: nullableBigintId,
     source_type_id: nullableBigintId,
     isActive: optionalBoolean,
     is_active: optionalBoolean,
-    isVerified: optionalBoolean,
-    is_verified: optionalBoolean,
+    ...transportEntityWriteExtras,
 };
 
 export const coreReviewCreateBusRouteSchema = z.object(busRouteFields);
@@ -292,12 +308,11 @@ const variantFields = {
     origin_name: nullableTrimmedString,
     destinationName: nullableTrimmedString,
     destination_name: nullableTrimmedString,
-    distanceM: optionalNumber,
-    distance_m: optionalNumber,
+    distanceM: z.number().finite().min(0).optional(),
+    distance_m: z.number().finite().min(0).optional(),
     isActive: optionalBoolean,
     is_active: optionalBoolean,
-    isVerified: optionalBoolean,
-    is_verified: optionalBoolean,
+    ...transportEntityWriteExtras,
     geometry: lineStringGeometrySchema,
     geom: lineStringGeometrySchema,
 };
@@ -343,8 +358,7 @@ const landuseFields = {
     seasonality: nullableTrimmedString,
     isActive: optionalBoolean,
     is_active: optionalBoolean,
-    isVerified: optionalBoolean,
-    is_verified: optionalBoolean,
+    ...coreReviewVerificationWriteFields,
     editReason: optionalTrimmedString,
     edit_reason: optionalTrimmedString,
 };
@@ -385,8 +399,7 @@ const mapFeatureFields = {
     class_code: nullableTrimmedString,
     isActive: optionalBoolean,
     is_active: optionalBoolean,
-    isVerified: optionalBoolean,
-    is_verified: optionalBoolean,
+    ...coreReviewVerificationWriteFields,
 };
 
 export const coreReviewCreateWaterLineSchema = z
@@ -486,8 +499,7 @@ export const coreReviewCreateAddressSchema = z.object({
     source_type_id: nullableBigintId,
     isPublic: optionalBoolean,
     is_public: optionalBoolean,
-    isVerified: optionalBoolean,
-    is_verified: optionalBoolean,
+    ...coreReviewVerificationWriteFields,
     pointGeom: pointFieldSchema(),
     point_geom: pointFieldSchema(),
     geometry: pointFieldSchema(),
@@ -515,8 +527,7 @@ export const coreReviewPatchAddressSchema = z
         source_type_id: nullableBigintId,
         isPublic: optionalBoolean,
         is_public: optionalBoolean,
-        isVerified: optionalBoolean,
-        is_verified: optionalBoolean,
+        ...coreReviewVerificationWriteFields,
         pointGeom: pointFieldSchema().optional(),
         point_geom: pointFieldSchema().optional(),
         geometry: pointFieldSchema().optional(),
@@ -540,8 +551,7 @@ export const coreReviewCreateAdminAreaSchema = z
         source_type_id: nullableBigintId,
         isActive: optionalBoolean,
         is_active: optionalBoolean,
-        isVerified: optionalBoolean,
-        is_verified: optionalBoolean,
+        ...coreReviewVerificationWriteFields,
         boundaryStatus: optionalTrimmedString,
         boundary_status: optionalTrimmedString,
         isOfficialBoundary: optionalBoolean,
@@ -581,8 +591,7 @@ export const coreReviewPatchAdminAreaSchema = z
         source_type_id: nullableBigintId,
         isActive: optionalBoolean,
         is_active: optionalBoolean,
-        isVerified: optionalBoolean,
-        is_verified: optionalBoolean,
+        ...coreReviewVerificationWriteFields,
         boundaryStatus: optionalTrimmedString,
         boundary_status: optionalTrimmedString,
         isOfficialBoundary: optionalBoolean,
@@ -658,6 +667,8 @@ export function sanitizeCoreReviewWriteBody(body: unknown): unknown {
         "source_refs",
         "sourceStagingId",
         "source_staging_id",
+        "isVerified",
+        "is_verified",
     ]);
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
@@ -694,6 +705,7 @@ const WRITE_ID_ALIAS_PAIRS: [string, string][] = [
     ["adminAreaId", "admin_area_id"],
     ["roadClassId", "road_class_id"],
     ["routeId", "route_id"],
+    ["operatorId", "operator_id"],
     ["buildingTypeId", "building_type_id"],
     ["categoryId", "category_id"],
 ];

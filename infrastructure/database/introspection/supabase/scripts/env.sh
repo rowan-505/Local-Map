@@ -36,4 +36,5 @@ print(f'[supabase-db] target {host}:{port}/{db}')
 export SUPABASE_PG_ERD_OUT="${REPO_ROOT}/infrastructure/database/introspection/supabase/erd/current.mmd"
 export SUPABASE_PG_ERD_MD="${REPO_ROOT}/docs/database/current-erd.md"
 
-export SUPABASE_PG_ERD_SCHEMAS="${SUPABASE_PG_ERD_SCHEMAS:-ref,core,tiles,app_auth}"
+# Comma-separated schema list, or "all" / "*" to introspect every non-system schema.
+export SUPABASE_PG_ERD_SCHEMAS="${SUPABASE_PG_ERD_SCHEMAS:-all}"

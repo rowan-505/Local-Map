@@ -23,6 +23,7 @@ import {
     ImportReviewPromotionValidationRepository,
     type PublishItemEntityRow,
 } from "./import-review-promotion-validation.repo.js";
+import { assertPublishBatchHasNoDeprecatedCoreBusItems } from "./import-review-transport-promotion-deprecated.js";
 
 const runningBatchIds = new Set<bigint>();
 
@@ -206,6 +207,11 @@ export class ImportReviewPromotionValidationRunner {
                 `Cannot validate publish batch with status=${before.status}.`
             );
         }
+
+        await assertPublishBatchHasNoDeprecatedCoreBusItems(
+            this.repo.getPrismaClient(),
+            batchId
+        );
 
         const claim = await this.repo.claimBatchForValidation(batchId);
         if (!claim.claimed) {

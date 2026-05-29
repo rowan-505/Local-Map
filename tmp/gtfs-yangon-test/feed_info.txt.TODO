@@ -1,0 +1,4 @@
+# TODO: feed_info.txt
+
+Not implemented. Will be generated from core_transport when export-gtfs.ts is complete.
+See docs/transport/gtfs-export-plan.md

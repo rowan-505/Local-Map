@@ -18,6 +18,16 @@ import { normalizePolygonGeoJsonForSave } from "../../../lib/geo/normalize-polyg
 import type { CoreReviewListStatus } from "../core-review-list-status.js";
 import { coreReviewListStatusClause } from "../core-review-list-status.js";
 import { getCoreReviewLifecycleConfig } from "../core-review-lifecycle.config.js";
+import {
+    coreReviewVerificationFilterCondition,
+    type CoreReviewVerificationStatus,
+} from "../core-review-verification-filter.js";
+import {
+    appendCoreReviewVerificationSets,
+    effectiveVerificationStatusFromRow,
+    isVerifiedFromVerificationStatus,
+    resolveCoreReviewVerificationWrite,
+} from "../core-review-verification-write.js";
 import { CoreReviewValidationError } from "../core-review-write.errors.js";
 import { pickAlias, pickGeometry } from "../core-review-write.schema.js";
 
@@ -29,7 +39,7 @@ export type CoreReviewLanduseListParams = {
     search?: string;
     sortBy: string;
     sortOrder: "asc" | "desc";
-    isVerified?: boolean;
+    verificationStatus?: CoreReviewVerificationStatus;
     adminAreaId?: bigint;
     landuseClassId?: bigint;
     detailLevel?: "zone" | "parcel";
@@ -59,6 +69,7 @@ export type CoreReviewLanduseRow = {
     area_m2: number | null;
     confidence_score: number | null;
     manual_override: boolean;
+    verification_status: string | null;
     is_verified: boolean;
     is_active: boolean;
     deleted_at: Date | string | null;
@@ -115,6 +126,7 @@ function landuseSelectSql(extraWhere = Prisma.empty): Prisma.Sql {
             lu.area_m2::float8 AS area_m2,
             lu.confidence_score::float8 AS confidence_score,
             lu.manual_override,
+            lu.verification_status,
             lu.is_verified,
             lu.is_active,
             lu.deleted_at,
@@ -150,8 +162,9 @@ function listFilters(params: CoreReviewLanduseListParams): Prisma.Sql {
             )
         )`);
     }
-    if (params.isVerified !== undefined) {
-        parts.push(Prisma.sql`lu.is_verified = ${params.isVerified}`);
+    const verificationCondition = coreReviewVerificationFilterCondition("lu", params);
+    if (verificationCondition) {
+        parts.push(verificationCondition);
     }
     if (params.adminAreaId !== undefined) {
         parts.push(Prisma.sql`lu.admin_area_id = ${params.adminAreaId}`);
@@ -340,6 +353,7 @@ export class CoreReviewLanduseRepository {
             name_und: (pickAlias<string | null>(body, "nameUnd", "name_und") ?? null) as string | null,
         };
         const legacyName = legacyDisplayName(nameSlots);
+        const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
 
         return this.prisma.$transaction(async (tx) => {
             const rows = await tx.$queryRaw<{ public_id: string; id: bigint }[]>`
@@ -348,7 +362,7 @@ export class CoreReviewLanduseRepository {
                     public_id, name, class_code, landuse_class_id, admin_area_id,
                     geom, centroid, area_m2, confidence_score, manual_override,
                     source_tags, crop_code, irrigated, seasonality, detail_level,
-                    is_active, is_verified, source_refs, normalized_data,
+                    is_active, is_verified, verification_status, source_refs, normalized_data,
                     created_at, updated_at
                 ) VALUES (
                     NULL, NULL,
@@ -371,7 +385,8 @@ export class CoreReviewLanduseRepository {
                     ${pickAlias<string | null>(body, "seasonality", "seasonality") ?? null},
                     ${detailLevel},
                     true,
-                    ${Boolean(pickAlias(body, "isVerified", "is_verified") ?? false)},
+                    ${isVerified},
+                    ${verificationStatus},
                     ${DASHBOARD_SOURCE_REFS}::jsonb,
                     jsonb_build_object('source', 'dashboard'),
                     now(),
@@ -427,11 +442,7 @@ export class CoreReviewLanduseRepository {
                 )}`
             );
         }
-        if (pickAlias(body, "isVerified", "is_verified") !== undefined) {
-            sets.push(
-                Prisma.sql`is_verified = ${Boolean(pickAlias(body, "isVerified", "is_verified"))}`
-            );
-        }
+        appendCoreReviewVerificationSets(sets, body);
         if (pickAlias(body, "detailLevel", "detail_level") !== undefined) {
             const dl = String(pickAlias(body, "detailLevel", "detail_level") ?? "").trim();
             if (dl !== "zone" && dl !== "parcel") {
@@ -502,6 +513,7 @@ export function serializeCoreReviewLanduse(row: CoreReviewLanduseRow) {
         name_und: row.name_und,
         fallback_name: row.name,
     });
+    const verificationStatus = effectiveVerificationStatusFromRow(row);
     return {
         id: row.id,
         publicId: row.public_id,
@@ -524,7 +536,8 @@ export function serializeCoreReviewLanduse(row: CoreReviewLanduseRow) {
         areaM2: row.area_m2,
         confidenceScore: row.confidence_score,
         manualOverride: row.manual_override,
-        isVerified: row.is_verified,
+        verificationStatus,
+        isVerified: isVerifiedFromVerificationStatus(verificationStatus),
         isActive: row.is_active,
         deletedAt: row.deleted_at ? String(row.deleted_at) : null,
         createdAt: row.created_at ? String(row.created_at) : null,
