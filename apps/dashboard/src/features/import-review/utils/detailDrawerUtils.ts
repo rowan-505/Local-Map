@@ -1,6 +1,7 @@
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
 import type { ImportReviewEntityConfig } from "../config/types";
+import { getImportReviewDisplayName } from "./importReviewNaming";
 
 export function safeJson(value: unknown): string {
     if (value === null || value === undefined) {
@@ -38,23 +39,12 @@ function rowFieldValue(row: ImportReviewBuildingListItem, key: string): string |
     return s.length > 0 ? s : null;
 }
 
+/** Drawer title — typed names first; see docs/import-review/naming-contract.md */
 export function resolveDrawerTitle(
     row: ImportReviewBuildingListItem,
     config: Pick<ImportReviewEntityConfig, "detailTitleField" | "label">
 ): string {
-    const effectiveNameEn = rowFieldValue(row, "effective_name_en");
-    const effectiveNameMm = rowFieldValue(row, "effective_name_mm");
-    const effectiveName = rowFieldValue(row, "effective_name");
-    const effectiveCanonical = rowFieldValue(row, "effective_canonical_name");
-    const primary = config.detailTitleField ? rowFieldValue(row, config.detailTitleField) : null;
-    return (
-        effectiveNameEn ??
-        effectiveNameMm ??
-        effectiveName ??
-        effectiveCanonical ??
-        primary ??
-        `${config.label} ${row.id}`
-    );
+    return getImportReviewDisplayName(row, config);
 }
 
 export function resolveDrawerSubtitle(

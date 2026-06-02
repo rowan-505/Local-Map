@@ -50,6 +50,8 @@ export type ImportReviewPublishBatchEntityItemCounts = {
 };
 
 export type ImportReviewPublishBatchDetail = ImportReviewPublishBatchSummary & {
+    /** Families selected at batch creation (from summary or inferred from items). */
+    entity_families: string[];
     item_counts: {
         pending: number;
         success: number;
@@ -121,9 +123,28 @@ export type ImportReviewCreatePublishBatchTimingMs = {
     total_ms: number;
 };
 
+export type ImportReviewCreatePublishBatchDryRunFamilyRow = {
+    family: string;
+    label: string;
+    risk_level: "normal" | "high_risk";
+    target: string;
+    ready: number;
+    warnings: number;
+    blocked: number;
+    batched: number;
+    promoted: number;
+    included: number;
+    excluded: number;
+    skipped: number;
+    skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
+};
+
 export type ImportReviewCreatePublishBatchDryRunResult = {
     dry_run: true;
+    review_batch_id: number;
     batch_name: string;
+    families: ImportReviewCreatePublishBatchDryRunFamilyRow[];
+    /** @deprecated Use `families[].family` */
     entity_families: string[];
     totals: { included: number; excluded: number; skipped: number };
     by_family: Array<{
@@ -133,6 +154,9 @@ export type ImportReviewCreatePublishBatchDryRunResult = {
         skipped: number;
         skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
     }>;
+    can_create_batch: boolean;
+    has_high_risk: boolean;
+    messages: string[];
     stages: ImportReviewPromotionCreateBatchStage[];
     message: string;
     total_selected: number;
@@ -146,6 +170,9 @@ export type ImportReviewCreatePublishBatchResult = {
     message: string;
     batch: ImportReviewPublishBatchDetail;
     batch_id: string;
+    publish_batch_id: string;
+    review_batch_id: number;
+    families: string[];
     status: string;
     items_added: number;
     total_selected: number;
@@ -181,7 +208,6 @@ export type ImportReviewPromotionReadyCandidateItem = {
     source_snapshot_version: string;
     review_batch_id: string;
     normalized_data: unknown;
-    review_overrides: unknown;
     source_refs: unknown;
     geometry: Record<string, unknown> | null;
 };

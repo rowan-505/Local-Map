@@ -109,6 +109,32 @@ function n(v: bigint | number): number {
     return typeof v === "bigint" ? Number(v) : v;
 }
 
+export function parseEntityFamiliesFromBatchSummary(summary: unknown): string[] {
+    if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
+        return [];
+    }
+    const root = summary as Record<string, unknown>;
+    const fromRoot = root.entity_families;
+    if (Array.isArray(fromRoot)) {
+        return fromRoot.filter((v): v is string => typeof v === "string");
+    }
+    const creation = root.creation_result;
+    if (creation && typeof creation === "object" && !Array.isArray(creation)) {
+        const fromCreation = (creation as Record<string, unknown>).entity_families;
+        if (Array.isArray(fromCreation)) {
+            return fromCreation.filter((v): v is string => typeof v === "string");
+        }
+    }
+    const validation = root.validation_result;
+    if (validation && typeof validation === "object" && !Array.isArray(validation)) {
+        const fromValidation = (validation as Record<string, unknown>).selected_entity_families;
+        if (Array.isArray(fromValidation)) {
+            return fromValidation.filter((v): v is string => typeof v === "string");
+        }
+    }
+    return [];
+}
+
 export function parseValidationOutcomeFromSummary(
     summary: unknown
 ): "passed" | "blocked" | null {

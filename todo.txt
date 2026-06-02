@@ -1,0 +1,8 @@
+1.
+deploy valhalla and OTP in hetzner  (whole country valhalla and yangon OTP)
+firstly need to make sure successfully working locally  
+
+2. create two separate schema for transport transit and prepare for OTP 
+
+
+3. 

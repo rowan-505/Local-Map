@@ -1198,6 +1198,7 @@ erDiagram
     bigint matched_core_place_id
     jsonb classification_reasons
     timestamp_with_time_zone classified_at
+    jsonb review_overrides_archive
   }
   import_review_address_components {
     bigint id PK
@@ -1266,6 +1267,9 @@ erDiagram
     text slug
     geometry geom
     geometry centroid
+    jsonb review_overrides_archive
+    text name_mm
+    text name_en
   }
   import_review_building_candidates {
     bigint id PK
@@ -1315,6 +1319,9 @@ erDiagram
     numeric area_m2
     geometry geom
     geometry centroid
+    jsonb review_overrides_archive
+    text name_mm
+    text name_en
   }
   import_review_bus_route_candidates {
     bigint id PK
@@ -1360,6 +1367,9 @@ erDiagram
     text operator_name
     text route_type
     text directionality
+    jsonb review_overrides_archive
+    text name_mm
+    text name_en
   }
   import_review_bus_route_stop_candidates {
     bigint id PK
@@ -1405,6 +1415,7 @@ erDiagram
     integer stop_sequence
     numeric distance_from_start_m
     boolean is_timing_point
+    jsonb review_overrides_archive
   }
   import_review_bus_route_variant_candidates {
     bigint id PK
@@ -1453,6 +1464,7 @@ erDiagram
     text destination_name
     geometry geom
     numeric distance_m
+    jsonb review_overrides_archive
   }
   import_review_bus_stop_candidates {
     bigint id PK
@@ -1496,6 +1508,9 @@ erDiagram
     text stop_code
     bigint admin_area_id FK
     geometry geom
+    jsonb review_overrides_archive
+    text name_mm
+    text name_en
   }
   import_review_landuse_candidates {
     bigint id PK
@@ -1542,6 +1557,7 @@ erDiagram
     bigint landuse_class_id FK
     text name_mm
     text name_en
+    jsonb review_overrides_archive
   }
   import_review_place_address_links {
     bigint id PK
@@ -1625,6 +1641,9 @@ erDiagram
     numeric importance_score
     numeric popularity_score
     text plus_code
+    jsonb review_overrides_archive
+    text name_mm
+    text name_en
   }
   import_review_review_batches {
     bigint id PK
@@ -1734,6 +1753,12 @@ erDiagram
     integer layer
     numeric length_m
     geometry geom
+    jsonb review_overrides_archive
+    text name_mm
+    text name_en
+    bigint admin_area_id FK
+    text access
+    numeric speed_kph
   }
   import_review_routing_barrier_candidates {
     bigint id PK
@@ -1776,6 +1801,7 @@ erDiagram
     timestamp_with_time_zone updated_at
     text barrier_type
     geometry point_geom
+    jsonb review_overrides_archive
   }
   import_review_routing_turn_restriction_candidates {
     bigint id PK
@@ -1821,6 +1847,7 @@ erDiagram
     text via_external_id
     text to_external_id
     geometry geom
+    jsonb review_overrides_archive
   }
   import_review_water_line_candidates {
     bigint id PK
@@ -1863,6 +1890,9 @@ erDiagram
     timestamp_with_time_zone updated_at
     text name
     geometry geom
+    jsonb review_overrides_archive
+    text name_mm
+    text name_en
   }
   import_review_water_polygon_candidates {
     bigint id PK
@@ -1906,6 +1936,9 @@ erDiagram
     text name
     geometry geom
     geometry centroid
+    jsonb review_overrides_archive
+    text name_mm
+    text name_en
   }
   import_transport_import_batches {
     bigint id PK
@@ -3546,6 +3579,7 @@ erDiagram
   app_auth_auth_users ||--o{ import_review_routing_barrier_candidates : "reviewed_by"
   app_auth_auth_users ||--o{ import_review_review_candidate_edits : "edited_by"
   app_auth_auth_users ||--o{ import_review_review_comments : "created_by"
+  core_core_admin_areas ||--o{ import_review_road_candidates : "admin_area_id"
   app_auth_auth_users ||--o{ import_review_road_candidates : "assigned_to"
   app_auth_auth_users ||--o{ import_review_road_candidates : "locked_by"
   app_auth_auth_users ||--o{ import_review_road_candidates : "promoted_by"

@@ -3123,7 +3123,7 @@ Paged list from `import_review.building_candidates` with GeoJSON `geom`/centroid
         "review_note": "string",
         "normalized_data": null,
         "source_refs": null,
-        "review_overrides": {},
+        "fields": {},
         "matched_core_id": "string",
         "…": "(more fields — see OpenAPI spec)"
       }
@@ -3237,7 +3237,7 @@ Returns a single candidate row with GeoJSON geometry when include_geometry=true.
     "review_note": "string",
     "normalized_data": null,
     "source_refs": null,
-    "review_overrides": {},
+    "fields": {},
     "matched_core_id": "string",
     "…": "(more fields — see OpenAPI spec)"
   }
@@ -3358,7 +3358,7 @@ Updates `import_review.building_candidates` decisions (never core). Rows with pr
     "review_note": "string",
     "normalized_data": null,
     "source_refs": null,
-    "review_overrides": {},
+    "fields": {},
     "matched_core_id": "string",
     "…": "(more fields — see OpenAPI spec)"
   }
@@ -3422,7 +3422,7 @@ Updates `import_review.building_candidates` decisions (never core). Rows with pr
 
 **Summary:** Patch import_review building overrides
 
-Shallow-merge JSON into `review_overrides` plus optional audit row (`import_review.review_candidate_edits`) when migration 024 tables exist.
+Shallow-merge JSON into `fields` plus optional audit row (`import_review.review_candidate_edits`) when migration 024 tables exist.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -3435,7 +3435,7 @@ Shallow-merge JSON into `review_overrides` plus optional audit row (`import_revi
 
 ```json
 {
-  "review_overrides": {},
+  "fields": {},
   "source_snapshot_version": "string",
   "snapshot_version": "string",
   "review_batch_id": "string",
@@ -3475,7 +3475,7 @@ Shallow-merge JSON into `review_overrides` plus optional audit row (`import_revi
     "review_note": "string",
     "normalized_data": null,
     "source_refs": null,
-    "review_overrides": {},
+    "fields": {},
     "matched_core_id": "string",
     "…": "(more fields — see OpenAPI spec)"
   }
@@ -3800,7 +3800,7 @@ Paginated `import_review.place_candidates` within the resolved batch/source snap
         "review_note": "string",
         "normalized_data": null,
         "source_refs": null,
-        "review_overrides": {},
+        "fields": {},
         "matched_core_id": "string",
         "…": "(more fields — see OpenAPI spec)"
       }
@@ -3926,7 +3926,7 @@ Updates place candidate review columns. Same rules as buildings for manual_prote
     "review_note": "string",
     "normalized_data": null,
     "source_refs": null,
-    "review_overrides": {},
+    "fields": {},
     "matched_core_id": "string",
     "…": "(more fields — see OpenAPI spec)"
   }
@@ -4990,7 +4990,7 @@ Paginated preview of approved building candidates eligible for publish batching.
         "review_decision": "string",
         "promotion_status": "string",
         "normalized_data": null,
-        "review_overrides": null,
+        "fields": null,
         "source_refs": null,
         "geometry": {}
       }
@@ -5122,7 +5122,7 @@ Paginated `import_review.road_candidates` within the resolved batch/source snaps
         "review_note": "string",
         "normalized_data": null,
         "source_refs": null,
-        "review_overrides": {},
+        "fields": {},
         "matched_core_id": "string",
         "…": "(more fields — see OpenAPI spec)"
       }
@@ -5248,7 +5248,7 @@ Updates road candidate review columns. manual_protected and duplicate_candidate 
     "review_note": "string",
     "normalized_data": null,
     "source_refs": null,
-    "review_overrides": {},
+    "fields": {},
     "matched_core_id": "string",
     "…": "(more fields — see OpenAPI spec)"
   }
@@ -5312,7 +5312,7 @@ Updates road candidate review columns. manual_protected and duplicate_candidate 
 
 **Summary:** Patch import_review road overrides (routing-safe)
 
-Validates LineString/MultiLineString geometry, ref road class FK, surface text, and routing continuity warnings before merging `review_overrides` and updating typed columns on `import_review.road_candidates`.
+Validates LineString/MultiLineString geometry, ref road class FK, surface text, and routing continuity warnings before merging `fields` and updating typed columns on `import_review.road_candidates`.
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 
@@ -5325,7 +5325,7 @@ Validates LineString/MultiLineString geometry, ref road class FK, surface text, 
 
 ```json
 {
-  "review_overrides": {
+  "fields": {
     "canonical_name": "string",
     "road_class_id": "string",
     "road_class_code": "string",
@@ -5374,7 +5374,7 @@ Validates LineString/MultiLineString geometry, ref road class FK, surface text, 
     "review_note": "string",
     "normalized_data": null,
     "source_refs": null,
-    "review_overrides": {},
+    "fields": {},
     "matched_core_id": "string",
     "…": "(more fields — see OpenAPI spec)"
   }
@@ -5454,7 +5454,7 @@ Runs geometry, attribute, connectivity, duplicate, and promotion-readiness check
   "source_snapshot_version": "string",
   "snapshot_version": "string",
   "review_batch_id": "string",
-  "use_review_overrides": false,
+  "use_fields": false,
   "connectivity_threshold_m": 0,
   "duplicate_threshold_m": 0,
   "confirm_warnings": false

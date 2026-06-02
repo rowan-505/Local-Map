@@ -1,76 +1,66 @@
 import { Prisma } from "@prisma/client";
 
 import type { ImportReviewEntityFamilyConfig } from "./import-review-config.js";
-import { colRef } from "./import-review-candidate-sql.js";
+import { buildLightweightTypedNameColumns, colRef } from "./import-review-candidate-sql.js";
 import { roadsExplicitAdminAreaIdExpr } from "./import-review-road-admin-area-sql.js";
 
 function roadAlias(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
     return Prisma.raw(config.tableAlias);
 }
 
-function roadJsonKey(key: string): Prisma.Sql {
-    return Prisma.raw(`'${key.replace(/'/g, "''")}'`);
-}
-
-function roadReviewOverrides(alias: string): Prisma.Sql {
+function roadCoalesceTextExpr(alias: string, column: string): Prisma.Sql {
     const a = Prisma.raw(alias);
-    return Prisma.sql`coalesce(${a}.review_overrides, '{}'::jsonb)`;
-}
-
-function roadOvBooleanExpr(alias: string, key: string, column: string): Prisma.Sql {
-    const jsonKey = roadJsonKey(key);
-    const ov = roadReviewOverrides(alias);
-    return Prisma.sql`
-        CASE
-            WHEN jsonb_typeof(${ov} -> ${jsonKey}) = 'boolean'
-                THEN (${ov} ->> ${jsonKey})::boolean
-            WHEN jsonb_typeof(${ov} -> ${jsonKey}) = 'string'
-                THEN lower(${ov} ->> ${jsonKey}) IN ('true', '1', 'yes')
-            WHEN jsonb_typeof(${ov} -> ${jsonKey}) = 'null' THEN NULL
-            ELSE ${Prisma.raw(`${alias}.${column}`)}
-        END
-    `;
-}
-
-function roadOvIntegerExpr(alias: string, key: string, column: string): Prisma.Sql {
-    const jsonKey = roadJsonKey(key);
-    const ov = roadReviewOverrides(alias);
-    return Prisma.sql`
-        CASE
-            WHEN jsonb_typeof(${ov} -> ${jsonKey}) = 'number'
-                THEN (${ov} ->> ${jsonKey})::integer
-            WHEN (${ov} ->> ${jsonKey}) ~ '^-?[0-9]+$'
-                THEN (${ov} ->> ${jsonKey})::integer
-            WHEN jsonb_typeof(${ov} -> ${jsonKey}) = 'null' THEN NULL::integer
-            ELSE ${Prisma.raw(`${alias}.${column}`)}
-        END
-    `;
-}
-
-function roadOvStringExpr(alias: string, key: string, column: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    const jsonKey = roadJsonKey(key);
-    const ov = roadReviewOverrides(alias);
+    const col = Prisma.raw(column);
     return Prisma.sql`
         nullif(trim(coalesce(
-            nullif(trim(${ov} ->> ${jsonKey}), ''),
-            ${Prisma.raw(`${alias}.${column}`)},
-            ${a}.normalized_data->'tags'->>${jsonKey},
-            ${a}.normalized_data->>${jsonKey},
+            ${a}.${col},
+            ${a}.normalized_data->'tags'->>${col},
+            ${a}.normalized_data->>${col},
             ''
         )), '')
     `;
 }
 
+function roadColumnBooleanExpr(alias: string, column: string): Prisma.Sql {
+    const a = Prisma.raw(alias);
+    const colIdent = Prisma.raw(column);
+    const colKey = column;
+    return Prisma.sql`
+        coalesce(
+            ${a}.${colIdent},
+            CASE
+                WHEN ${a}.normalized_data ? ${colKey}
+                    THEN (${a}.normalized_data->>${colKey})::boolean
+            END
+        )
+    `;
+}
+
+function roadColumnIntegerExpr(alias: string, column: string): Prisma.Sql {
+    const a = Prisma.raw(alias);
+    const colIdent = Prisma.raw(column);
+    const colKey = column;
+    return Prisma.sql`
+        coalesce(
+            ${a}.${colIdent},
+            CASE
+                WHEN (${a}.normalized_data->>${colKey}) ~ '^-?[0-9]+$'
+                    THEN (${a}.normalized_data->>${colKey})::integer
+            END
+        )
+    `;
+}
+
 function roadEffectiveRoadClassIdExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
-    const ov = roadReviewOverrides(alias);
     return Prisma.sql`
-        CASE
-            WHEN (${ov} ->> 'road_class_id') ~ '^[0-9]+$'
-                THEN (${ov} ->> 'road_class_id')::bigint
-            ELSE ${a}.road_class_id
-        END
+        coalesce(
+            ${a}.road_class_id,
+            CASE
+                WHEN (${a}.normalized_data->>'road_class_id') ~ '^[0-9]+$'
+                    THEN (${a}.normalized_data->>'road_class_id')::bigint
+            END
+        )
     `;
 }
 
@@ -114,8 +104,8 @@ export function buildRoadLightweightListExtensionSelect(config: ImportReviewEnti
         , NULL::numeric AS height_m
         , NULL::numeric AS area_m2
         , ${roadEffectiveRoadClassIdExpr(alias)} AS road_candidate_road_class_id
-        , ${roadOvStringExpr(alias, "surface", "surface")} AS road_candidate_surface
-        , ${roadOvBooleanExpr(alias, "is_oneway", "is_oneway")} AS road_candidate_is_oneway
+        , ${roadCoalesceTextExpr(alias, "surface")} AS road_candidate_surface
+        , ${roadColumnBooleanExpr(alias, "is_oneway")} AS road_candidate_is_oneway
         , COALESCE(rc.code, ${colRef(config, "road_class")}) AS road_candidate_class_label
         , COALESCE(
             ${colRef(config, "length_m")},
@@ -126,10 +116,11 @@ export function buildRoadLightweightListExtensionSelect(config: ImportReviewEnti
         ) AS length_m
         , eff_aa_explicit.canonical_name AS admin_area_name
         , eff_aa_explicit.canonical_name AS effective_admin_area_name
-        , ${roadOvBooleanExpr(alias, "bridge", "bridge")} AS bridge
-        , ${roadOvBooleanExpr(alias, "tunnel", "tunnel")} AS tunnel
-        , ${roadOvIntegerExpr(alias, "layer", "layer")} AS layer
-        , ${roadListValidationStatusExpr(alias)} AS validation_status
+        , ${roadColumnBooleanExpr(alias, "bridge")} AS bridge
+        , ${roadColumnBooleanExpr(alias, "tunnel")} AS tunnel
+        , ${roadColumnIntegerExpr(alias, "layer")} AS layer
+        , ${roadListValidationStatusExpr(alias)} AS routing_status
         , (${colRef(config, "geom")} IS NOT NULL) AS has_geometry
+        ${buildLightweightTypedNameColumns(config)}
     `;
 }

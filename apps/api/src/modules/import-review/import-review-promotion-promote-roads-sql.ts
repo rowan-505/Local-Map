@@ -27,7 +27,9 @@ export const PROMOTE_ROAD_SRC_COLUMNS = Prisma.sql`
     r.tunnel,
     r.layer,
     r.normalized_data,
-    r.review_overrides,
+    r.name_mm,
+    r.name_en,
+    r.admin_area_id,
     r.source_refs,
     r.confidence_score,
     r.matched_core_id,
@@ -51,7 +53,6 @@ export function roadEffectiveTextFieldExpr(alias: string, field: string): Prisma
     const f = Prisma.raw(field);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>${f},
             ${a}.${f},
             ${a}.normalized_data->>${f}
         )), '')
@@ -63,10 +64,6 @@ export function roadEffectiveBoolFieldExpr(alias: string, field: string, default
     const f = Prisma.raw(field);
     return Prisma.sql`
         coalesce(
-            CASE
-                WHEN ${a}.review_overrides ? ${f}
-                    THEN (${a}.review_overrides->>${f})::boolean
-            END,
             ${a}.${f},
             CASE
                 WHEN ${a}.normalized_data ? ${f}
@@ -82,10 +79,6 @@ export function roadEffectiveIntFieldExpr(alias: string, field: string, defaultS
     const f = Prisma.raw(field);
     return Prisma.sql`
         coalesce(
-            CASE
-                WHEN (${a}.review_overrides->>${f}) ~ '^-?[0-9]+$'
-                    THEN (${a}.review_overrides->>${f})::integer
-            END,
             ${a}.${f},
             CASE
                 WHEN (${a}.normalized_data->>${f}) ~ '^-?[0-9]+$'
@@ -100,10 +93,6 @@ export function roadEffectiveRoadClassIdExpr(alias: string): Prisma.Sql {
     const a = roadAlias(alias);
     return Prisma.sql`
         coalesce(
-            CASE
-                WHEN (${a}.review_overrides->>'road_class_id') ~ '^[0-9]+$'
-                    THEN (${a}.review_overrides->>'road_class_id')::bigint
-            END,
             ${a}.road_class_id,
             CASE
                 WHEN (${a}.normalized_data->>'road_class_id') ~ '^[0-9]+$'
@@ -119,8 +108,6 @@ export function roadEffectiveRoadClassCodeExpr(alias: string): Prisma.Sql {
     return Prisma.sql`
         nullif(trim(coalesce(
             (SELECT rc.code FROM ref.ref_road_classes AS rc WHERE rc.id = ${classId}),
-            ${a}.review_overrides->>'road_class',
-            ${a}.review_overrides->>'class_code',
             ${a}.road_class,
             ${a}.class_code,
             ${a}.normalized_data->>'road_class',
@@ -202,7 +189,6 @@ export function roadNormalizedDataMergeExpr(
     const a = roadAlias(alias);
     return Prisma.sql`
         coalesce(${a}.normalized_data, '{}'::jsonb)
-        || coalesce(${a}.review_overrides, '{}'::jsonb)
         || jsonb_build_object(
             'promotion', jsonb_build_object(
                 'publish_batch_id', ${batchId}::text,

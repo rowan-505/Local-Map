@@ -31,7 +31,8 @@ type BusRouteCandidateRow = {
     directionality: string | null;
     source_refs: unknown;
     normalized_data: unknown;
-    review_overrides: unknown;
+    name_mm: string | null;
+    name_en: string | null;
     matched_core_id: bigint | null;
     promoted_core_id: bigint | null;
 };
@@ -54,7 +55,7 @@ function optionalColumnExpr(
 function optionalJsonTextExpr(
     alias: string,
     caps: ImportReviewEntityColumnCapabilities,
-    jsonColumn: "review_overrides" | "normalized_data" | "source_refs",
+    jsonColumn: "normalized_data" | "source_refs",
     key: string
 ): Prisma.Sql {
     return caps.hasColumn(jsonColumn) ? Prisma.sql`${col(alias, jsonColumn)}->>${key}` : Prisma.sql`NULL::text`;
@@ -62,7 +63,6 @@ function optionalJsonTextExpr(
 
 function routeCodeExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`nullif(trim(coalesce(
-        ${optionalJsonTextExpr(alias, caps, "review_overrides", "route_code")},
         ${optionalColumnExpr(alias, caps, "route_code", "text")},
         ${optionalJsonTextExpr(alias, caps, "normalized_data", "route_code")},
         ${optionalJsonTextExpr(alias, caps, "normalized_data", "ref")},
@@ -72,9 +72,9 @@ function routeCodeExpr(alias: string, caps: ImportReviewEntityColumnCapabilities
 
 function publicNameExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`nullif(trim(coalesce(
-        ${optionalJsonTextExpr(alias, caps, "review_overrides", "name")},
-        ${optionalJsonTextExpr(alias, caps, "review_overrides", "public_name")},
         ${optionalColumnExpr(alias, caps, "public_name", "text")},
+        ${optionalColumnExpr(alias, caps, "name_mm", "text")},
+        ${optionalColumnExpr(alias, caps, "name_en", "text")},
         ${optionalColumnExpr(alias, caps, "canonical_name", "text")},
         ${optionalJsonTextExpr(alias, caps, "normalized_data", "public_name")},
         ${optionalJsonTextExpr(alias, caps, "normalized_data", "name")},
@@ -88,7 +88,6 @@ function textExpr(
     column: "operator_name" | "route_type" | "directionality" | "external_id" | "canonical_name"
 ): Prisma.Sql {
     return Prisma.sql`nullif(trim(coalesce(
-        ${optionalJsonTextExpr(alias, caps, "review_overrides", column)},
         ${optionalColumnExpr(alias, caps, column, "text")},
         ${optionalJsonTextExpr(alias, caps, "normalized_data", column)},
         ''
@@ -118,7 +117,6 @@ function buildSourceRefs(candidate: BusRouteCandidateRow, publishBatchId: bigint
 function buildNormalizedData(candidate: BusRouteCandidateRow): Record<string, unknown> {
     return {
         ...asRecord(candidate.normalized_data),
-        review_overrides: asRecord(candidate.review_overrides),
         promotion: {
             promoted_from: BUS_ROUTE_CANDIDATE_TABLE,
             promoted_at: new Date().toISOString(),
@@ -430,7 +428,8 @@ export class ImportReviewPromotionPromoteBusRoutesRepository {
                 ${textExpr("br", caps, "directionality")} AS directionality,
                 ${optionalColumnExpr("br", caps, "source_refs", "jsonb")} AS source_refs,
                 ${optionalColumnExpr("br", caps, "normalized_data", "jsonb")} AS normalized_data,
-                ${optionalColumnExpr("br", caps, "review_overrides", "jsonb")} AS review_overrides,
+                ${optionalColumnExpr("br", caps, "name_mm", "text")} AS name_mm,
+                ${optionalColumnExpr("br", caps, "name_en", "text")} AS name_en,
                 ${optionalColumnExpr("br", caps, "matched_core_id", "bigint")} AS matched_core_id,
                 ${optionalColumnExpr("br", caps, "promoted_core_id", "bigint")} AS promoted_core_id
             FROM system.system_publish_items AS spi
@@ -548,12 +547,9 @@ export class ImportReviewPromotionPromoteBusRoutesRepository {
             if (out.some((row) => row.name.toLowerCase() === name.toLowerCase() && row.languageCode === languageCode)) return;
             out.push({ name, languageCode });
         };
-        const overrides = asRecord(candidate.review_overrides);
         const derived = deriveImportReviewNames(candidate);
-        push(trimString(overrides.name_mm), "my");
-        push(trimString(overrides.name_en), "en");
-        const overrideName = trimString(overrides.name) ?? trimString(overrides.public_name);
-        push(overrideName, overrideName && isMyanmarScript(overrideName) ? "my" : "und");
+        push(trimString(candidate.name_mm), "my");
+        push(trimString(candidate.name_en), "en");
         push(derived.name_mm, "my");
         push(derived.name_en, "en");
         push(candidate.public_name, candidate.public_name && isMyanmarScript(candidate.public_name) ? "my" : "und");

@@ -32,7 +32,7 @@ const DECISION_ITEMS: {
         menuClass: "text-amber-900 hover:bg-amber-50",
     },
     { label: "Ignore", decision: "ignored", menuClass: "text-gray-700 hover:bg-gray-100" },
-    { label: "Mark merged", decision: "merged", menuClass: "text-violet-800 hover:bg-violet-50" },
+    { label: "Mark finalized", decision: "merged", menuClass: "text-violet-800 hover:bg-violet-50" },
 ];
 
 type MenuPosition = {
@@ -118,7 +118,7 @@ function ReviewActionsMenuPanel({
                         onEditOverrides();
                     }}
                 >
-                    Edit overrides
+                    Direct edit
                 </button>
             ) : null}
             {onViewDetails ? (

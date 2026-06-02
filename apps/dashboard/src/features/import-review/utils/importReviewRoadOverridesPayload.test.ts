@@ -67,4 +67,20 @@ describe("buildRoadReviewOverridesPatch", () => {
         const bridge = buildRoadReviewOverridesPatch({ ...base, bridge: true, layer: "" });
         assert.equal(bridge.layer, 1);
     });
+
+    it("omits road_class_id when unset instead of sending null", () => {
+        const patch = buildRoadReviewOverridesPatch({ ...base, roadClassId: "" });
+        assert.equal("road_class_id" in patch, false);
+        assert.equal("road_class_code" in patch, false);
+    });
+
+    it("sends road_class_code when id missing but code provided", () => {
+        const patch = buildRoadReviewOverridesPatch({
+            ...base,
+            roadClassId: "",
+            roadClassCode: "secondary",
+        });
+        assert.equal(patch.road_class_code, "secondary");
+        assert.equal("road_class_id" in patch, false);
+    });
 });

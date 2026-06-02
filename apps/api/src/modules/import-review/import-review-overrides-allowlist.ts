@@ -1,6 +1,6 @@
 import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
 
-/** Allowed `review_overrides` keys per import-review entity family (PATCH shallow merge). */
+/** Allowed candidate field keys per import-review entity family (PATCH `fields` body). */
 export const IMPORT_REVIEW_OVERRIDE_ALLOWLIST: Record<
     ImportReviewEntityFamilySlug,
     readonly string[]
@@ -45,7 +45,6 @@ export const IMPORT_REVIEW_OVERRIDE_ALLOWLIST: Record<
         "importance_score",
         "popularity_score",
         "point_geom",
-        "geom",
     ],
     roads: [
         "name_mm",
@@ -112,6 +111,7 @@ export const IMPORT_REVIEW_OVERRIDE_ALLOWLIST: Record<
 /** PATCH keys accepted but persisted under a canonical allowlist key. */
 export const IMPORT_REVIEW_OVERRIDE_PATCH_KEY_ALIASES: Readonly<Record<string, string>> = {
     parent_admin_area_id: "parent_id",
+    poi_category_id: "category_id",
 };
 
 /** Reserved for future bus route review UI. */

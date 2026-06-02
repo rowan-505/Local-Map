@@ -7,8 +7,9 @@ import { buildCandidateScopeWhere } from "./import-review-candidate-sql.js";
 export type ImportReviewEssentialCandidateContext = {
     id: bigint;
     review_batch_id: bigint;
-    review_overrides: Record<string, unknown>;
     normalized_data: unknown;
+    name_mm: string | null;
+    name_en: string | null;
     name: string | null;
     name_local: string | null;
     canonical_name: string | null;
@@ -23,15 +24,9 @@ export type ImportReviewEssentialCandidateContext = {
     building_type: string | null;
     confidence_score: number | null;
     stop_code: string | null;
+    is_oneway: boolean | null;
     has_geometry: boolean;
 };
-
-function asOverrideRecord(review_overrides: unknown): Record<string, unknown> {
-    if (review_overrides && typeof review_overrides === "object" && !Array.isArray(review_overrides)) {
-        return review_overrides as Record<string, unknown>;
-    }
-    return {};
-}
 
 function geometryColumnForFamily(family: ImportReviewEntityFamilySlug): string {
     const config = getImportReviewEntityConfig(family);
@@ -54,12 +49,38 @@ function essentialSelectColumns(family: ImportReviewEntityFamilySlug, alias: str
     const primaryNameCol = family === "places" ? "primary_name" : null;
     const displayNameCol = family === "places" ? "display_name" : null;
     const adminAreaCol =
-        family === "bus_stops" || family === "buildings" || family === "places" ? "admin_area_id" : null;
+        family === "bus_stops" ||
+        family === "buildings" ||
+        family === "places" ||
+        family === "roads"
+            ? "admin_area_id"
+            : null;
+    const nameMmCol =
+        family === "roads" ||
+        family === "places" ||
+        family === "buildings" ||
+        family === "admin_areas" ||
+        family.startsWith("water") ||
+        family === "bus_stops" ||
+        family === "bus_routes"
+            ? "name_mm"
+            : null;
+    const nameEnCol =
+        family === "roads" ||
+        family === "places" ||
+        family === "buildings" ||
+        family === "admin_areas" ||
+        family.startsWith("water") ||
+        family === "bus_stops" ||
+        family === "bus_routes"
+            ? "name_en"
+            : null;
     const buildingTypeIdCol = family === "buildings" ? "building_type_id" : null;
     const buildingTypeCol = family === "buildings" ? "building_type" : null;
     const categoryIdCol = family === "places" ? "category_id" : null;
     const roadClassIdCol = family === "roads" ? "road_class_id" : null;
     const roadClassCol = family === "roads" ? "road_class" : null;
+    const isOnewayCol = family === "roads" ? "is_oneway" : null;
     const classCodeCol =
         family === "buildings" ||
         family === "places" ||
@@ -73,6 +94,8 @@ function essentialSelectColumns(family: ImportReviewEntityFamilySlug, alias: str
 
     return Prisma.sql`
         ${optionalColumn(alias, nameCol, "text")} AS name,
+        ${optionalColumn(alias, nameMmCol, "text")} AS name_mm,
+        ${optionalColumn(alias, nameEnCol, "text")} AS name_en,
         ${optionalColumn(alias, nameLocalCol, "text")} AS name_local,
         ${Prisma.raw(`${alias}.canonical_name`)} AS canonical_name,
         ${optionalColumn(alias, primaryNameCol, "text")} AS primary_name,
@@ -82,6 +105,7 @@ function essentialSelectColumns(family: ImportReviewEntityFamilySlug, alias: str
         ${optionalColumn(alias, categoryIdCol, "bigint")} AS category_id,
         ${optionalColumn(alias, roadClassIdCol, "bigint")} AS road_class_id,
         ${optionalColumn(alias, roadClassCol, "text")} AS road_class,
+        ${optionalColumn(alias, isOnewayCol, "boolean")} AS is_oneway,
         ${optionalColumn(alias, classCodeCol, "text")} AS class_code,
         ${optionalColumn(alias, buildingTypeCol, "text")} AS building_type,
         ${Prisma.raw(`${alias}.confidence_score`)}::double precision AS confidence_score,
@@ -105,17 +129,10 @@ export class ImportReviewEssentialDefaultsRepository {
         const where = buildCandidateScopeWhere(config, reviewBatchId, id);
         const alias = config.tableAlias;
 
-        const rows = await this.prisma.$queryRaw<
-            Array<
-                Omit<ImportReviewEssentialCandidateContext, "review_overrides"> & {
-                    review_overrides: unknown;
-                }
-            >
-        >`
+        const rows = await this.prisma.$queryRaw<ImportReviewEssentialCandidateContext[]>`
             SELECT
                 ${Prisma.raw(`${alias}.id`)},
                 ${Prisma.raw(`${alias}.review_batch_id`)},
-                COALESCE(to_jsonb(${Prisma.raw(`${alias}.review_overrides`)}), '{}'::jsonb) AS review_overrides,
                 ${Prisma.raw(`${alias}.normalized_data`)},
                 ${essentialSelectColumns(family, alias)}
             FROM ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(alias)}
@@ -123,15 +140,7 @@ export class ImportReviewEssentialDefaultsRepository {
             LIMIT 1
         `;
 
-        const row = rows[0];
-        if (row === undefined) {
-            return null;
-        }
-
-        return {
-            ...row,
-            review_overrides: asOverrideRecord(row.review_overrides),
-        };
+        return rows[0] ?? null;
     }
 
     async inferAdminAreaIdFromCandidateGeometry(

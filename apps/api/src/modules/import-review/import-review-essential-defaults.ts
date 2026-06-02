@@ -37,15 +37,45 @@ function nameSourceFromContext(ctx: ImportReviewEssentialCandidateContext): Impo
         canonical_name: ctx.canonical_name,
         normalized_data: ctx.normalized_data,
         class_code: ctx.class_code,
-        review_overrides: ctx.review_overrides,
+        name_mm: ctx.name_mm,
+        name_en: ctx.name_en,
     };
 }
 
-function mergedOverrides(
+function columnFieldsFromContext(ctx: ImportReviewEssentialCandidateContext): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    if (ctx.name_mm?.trim()) {
+        out.name_mm = ctx.name_mm.trim();
+    }
+    if (ctx.name_en?.trim()) {
+        out.name_en = ctx.name_en.trim();
+    }
+    if (ctx.admin_area_id !== null) {
+        out.admin_area_id = ctx.admin_area_id.toString();
+    }
+    if (ctx.building_type_id !== null) {
+        out.building_type_id = ctx.building_type_id.toString();
+    }
+    if (ctx.category_id !== null) {
+        out.category_id = ctx.category_id.toString();
+    }
+    if (ctx.road_class_id !== null) {
+        out.road_class_id = Number(ctx.road_class_id);
+    }
+    if (ctx.class_code?.trim()) {
+        out.class_code = ctx.class_code.trim();
+    }
+    if (ctx.is_oneway !== null && ctx.is_oneway !== undefined) {
+        out.is_oneway = ctx.is_oneway;
+    }
+    return out;
+}
+
+function mergedColumnFields(
     ctx: ImportReviewEssentialCandidateContext,
     incomingPatch: Record<string, unknown>
 ): Record<string, unknown> {
-    return { ...ctx.review_overrides, ...incomingPatch };
+    return { ...columnFieldsFromContext(ctx), ...incomingPatch };
 }
 
 function parseBigintId(value: unknown): bigint | null {
@@ -202,7 +232,7 @@ function resolveClassCode(
     );
 }
 
-/** Build review_overrides patch entries for missing essential values (does not overwrite explicit overrides). */
+/** Build column patch entries for missing essential values (does not overwrite explicit user fields). */
 export async function buildEssentialDefaultOverridesPatch(
     prisma: PrismaClient,
     family: ImportReviewEntityFamilySlug,
@@ -211,7 +241,7 @@ export async function buildEssentialDefaultOverridesPatch(
 ): Promise<ImportReviewEssentialDefaultsOutcome> {
     const refRepo = new ImportReviewReferenceOptionsRepository(prisma);
     const essentialRepo = new ImportReviewEssentialDefaultsRepository(prisma);
-    const overrides = mergedOverrides(ctx, incomingPatch);
+    const overrides = mergedColumnFields(ctx, incomingPatch);
     const patch: Record<string, unknown> = {};
 
     if (family === "bus_stops") {
@@ -359,7 +389,7 @@ export async function assertImportReviewEssentialFieldsMet(
     }
 
     const defaults = await buildEssentialDefaultOverridesPatch(prisma, family, ctx, incomingPatch);
-    const overrides = mergedOverrides(ctx, { ...defaults.overridesPatch, ...incomingPatch });
+    const overrides = mergedColumnFields(ctx, { ...defaults.overridesPatch, ...incomingPatch });
     const errors: string[] = [];
 
     for (const rule of rules) {

@@ -1,5 +1,9 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import {
+    poiCategoryRowToFormOption,
+    type PoiCategoryOptionRow,
+} from "../../lib/poi-category/poi-category-form-option.js";
 import type {
     ImportReviewAdminAreaFormOption,
     ImportReviewFormOption,
@@ -89,7 +93,7 @@ export class ImportReviewOptionsRepository {
             this.fetchAdminAreas(),
             this.fetchRefTable("ref.ref_admin_levels", "rank ASC NULLS LAST, name ASC"),
             this.fetchRefTable("ref.ref_road_classes", "code ASC"),
-            this.fetchRefTable("ref.ref_poi_categories", "sort_order ASC NULLS LAST, name ASC"),
+            this.fetchPoiCategories(),
             this.fetchBuildingTypes(),
             this.fetchLanduseClassesFromRefOnly(),
             this.fetchBarrierTypesFromRefOnly(),
@@ -193,6 +197,25 @@ export class ImportReviewOptionsRepository {
             parent_id: row.parent_id?.toString() ?? null,
             label: formatAdminAreaLabel(row),
         }));
+    }
+
+    private async fetchPoiCategories(): Promise<ImportReviewFormOption[]> {
+        if (!(await tableExists(this.prisma, "ref.ref_poi_categories"))) {
+            return [];
+        }
+
+        const rows = await this.prisma.$queryRaw<PoiCategoryOptionRow[]>`
+            SELECT
+                id,
+                code,
+                name,
+                name_mm,
+                parent_id
+            FROM ref.ref_poi_categories
+            ORDER BY sort_order ASC NULLS LAST, name ASC
+        `;
+
+        return rows.map((row) => poiCategoryRowToFormOption(row));
     }
 
     private async fetchRefTable(
@@ -323,7 +346,7 @@ export class ImportReviewOptionsRepository {
         const rows = await this.prisma.$queryRaw<{ val: string }[]>`
             SELECT DISTINCT val
             FROM (
-                SELECT NULLIF(trim(review_overrides->>'surface'), '') AS val FROM ${Prisma.raw(qualifiedTable)}
+                SELECT NULLIF(trim(surface), '') AS val FROM ${Prisma.raw(qualifiedTable)}
                 UNION ALL
                 SELECT NULLIF(trim(normalized_data->'tags'->>'surface'), '') AS val FROM ${Prisma.raw(qualifiedTable)}
                 UNION ALL

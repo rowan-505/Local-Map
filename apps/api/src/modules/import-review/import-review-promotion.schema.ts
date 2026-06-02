@@ -6,6 +6,30 @@ import {
 } from "./import-review.schema.js";
 import { IMPORT_REVIEW_ENTITY_FAMILIES } from "./import-review-config.js";
 
+/** Comma-separated or repeated query values → family slugs. */
+export function coercePromotionFamiliesQuery(value: unknown): string[] {
+    if (value === undefined || value === null || value === "") {
+        return [];
+    }
+    const parts: string[] = [];
+    const append = (raw: string) => {
+        for (const segment of raw.split(",")) {
+            const trimmed = segment.trim();
+            if (trimmed.length > 0) {
+                parts.push(trimmed);
+            }
+        }
+    };
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            append(String(item));
+        }
+    } else {
+        append(String(value));
+    }
+    return parts;
+}
+
 function coerceStringArray(value: unknown): string[] | undefined {
     if (value === undefined || value === null || value === "") {
         return undefined;
@@ -99,6 +123,56 @@ export const importReviewPromotionBatchIdParamsSchema = z.object({
     id: z.string().trim().min(1),
 });
 
+export const importReviewPromotionEligibilityQuerySchema = z.object({
+    review_batch_id: z.preprocess(coerceOptionalReviewBatchId, z.bigint()),
+    families: z.preprocess(
+        coercePromotionFamiliesQuery,
+        z.array(z.string().trim().min(1)).min(1, { message: "families is required" })
+    ),
+    include_warnings: z
+        .preprocess(coerceBooleanQuery, z.boolean())
+        .optional()
+        .default(false),
+});
+
+export type ImportReviewPromotionEligibilityQuery = z.infer<
+    typeof importReviewPromotionEligibilityQuerySchema
+>;
+
+export const importReviewPromotionEligibilityBucketSchema = z.enum([
+    "ready",
+    "warnings",
+    "blocked",
+    "batched",
+    "promoted",
+]);
+
+export const importReviewPromotionEligibilityDetailsSortBySchema = z.enum([
+    "id",
+    "updated_at",
+    "confidence_score",
+]);
+
+export const importReviewPromotionEligibilityDetailsQuerySchema = z.object({
+    review_batch_id: z.preprocess(coerceOptionalReviewBatchId, z.bigint()),
+    family: z.string().trim().min(1),
+    bucket: importReviewPromotionEligibilityBucketSchema,
+    include_warnings: z
+        .preprocess(coerceBooleanQuery, z.boolean())
+        .optional()
+        .default(false),
+    limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+    offset: z.coerce.number().int().min(0).optional().default(0),
+    search: z.string().trim().max(200).optional(),
+    reason_code: z.string().trim().max(120).optional(),
+    sort_by: importReviewPromotionEligibilityDetailsSortBySchema.optional().default("id"),
+    sort_order: z.enum(["asc", "desc"]).optional().default("asc"),
+});
+
+export type ImportReviewPromotionEligibilityDetailsQuery = z.infer<
+    typeof importReviewPromotionEligibilityDetailsQuerySchema
+>;
+
 export const importReviewPromotionBatchEligibilityQuerySchema = importReviewPromotionScopeQueryObjectSchema
     .omit({ include_merged: true })
     .extend({
@@ -116,43 +190,58 @@ export const importReviewPromotionBatchEligibilityQuerySchema = importReviewProm
     })
     .superRefine(refineImportReviewSnapshotBatchScope);
 
+function preprocessCreatePublishBatchBody(value: unknown): unknown {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return value;
+    }
+    const body = { ...(value as Record<string, unknown>) };
+    const families = body.families;
+    const entityFamilies = body.entity_families;
+    const hasFamilies = Array.isArray(families) && families.length > 0;
+    const hasEntityFamilies = Array.isArray(entityFamilies) && entityFamilies.length > 0;
+    if (!hasFamilies && hasEntityFamilies) {
+        body.families = entityFamilies;
+    }
+    return preprocessImportReviewScopeQuery(body);
+}
+
 const postImportReviewPromotionBatchBodyObjectSchema = z.object({
-    source_snapshot_version: z.string().trim().min(1).optional(),
-    review_batch_id: z
-        .preprocess(coerceOptionalReviewBatchId, z.bigint().optional())
-        .optional(),
+    review_batch_id: z.preprocess(coerceOptionalReviewBatchId, z.bigint()),
+    families: z.array(z.string().trim().min(1)).min(1, { message: "families is required" }),
+    include_warnings: z.boolean().optional().default(false),
+    dry_run: z.boolean().optional().default(false),
     batch_name: z.string().trim().min(1).max(200).optional(),
     note: z.string().trim().max(4000).optional(),
-    entity_families: z.array(publishEntityFamilySchema).optional(),
-    mode: z.enum(["approved_only"]).optional().default("approved_only"),
-    include_warnings: z.boolean().optional().default(false),
-    warning_confirmation_note: z.string().trim().max(4000).optional(),
-    dry_run: z.boolean().optional().default(false),
-    allow_high_risk_families: z.boolean().optional().default(false),
     include_merged: z.boolean().optional().default(false),
+    /** @deprecated Use `families`. Accepted via preprocess alias from `entity_families`. */
+    entity_families: z.array(publishEntityFamilySchema).optional(),
+    /** @deprecated Publish batch create requires `review_batch_id` only. */
+    source_snapshot_version: z.string().trim().min(1).optional(),
+    mode: z.enum(["approved_only"]).optional().default("approved_only"),
+    /** @deprecated High-risk families are allowed when listed in `families`. */
+    allow_high_risk_families: z.boolean().optional().default(false),
+    warning_confirmation_note: z.string().trim().max(4000).optional(),
 });
 
 // Do not call .omit/.pick/.extend on refined schemas. Apply refinements after object composition.
 export const postImportReviewPromotionBatchBodySchema = z.preprocess(
-    preprocessImportReviewScopeQuery,
-    postImportReviewPromotionBatchBodyObjectSchema
-        .superRefine(refineImportReviewSnapshotBatchScope)
-        .superRefine((data, ctx) => {
-            if (data.include_warnings && !data.warning_confirmation_note?.trim()) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: "warning_confirmation_note is required when include_warnings is true",
-                    path: ["warning_confirmation_note"],
-                });
-            }
-            if (!data.dry_run && !data.batch_name?.trim()) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: "batch_name is required when dry_run is false",
-                    path: ["batch_name"],
-                });
-            }
-        })
+    preprocessCreatePublishBatchBody,
+    postImportReviewPromotionBatchBodyObjectSchema.superRefine((data, ctx) => {
+        if (!data.dry_run && !data.batch_name?.trim()) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "batch_name is required when dry_run is false",
+                path: ["batch_name"],
+            });
+        }
+        if (data.source_snapshot_version?.trim()) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "source_snapshot_version is not supported for publish batch create; use review_batch_id",
+                path: ["source_snapshot_version"],
+            });
+        }
+    })
 );
 
 export type ImportReviewPromotionScopeQuery = z.infer<typeof importReviewPromotionScopeQuerySchema>;
@@ -166,12 +255,19 @@ export type ImportReviewPromotionReadyCandidatesQuery = z.infer<
     typeof importReviewPromotionReadyCandidatesQuerySchema
 >;
 
-export const postImportReviewPromotionBatchPromoteBodySchema = z.object({
-    confirmation_text: z.literal("PROMOTE"),
-    chunk_size: z.coerce.number().int().min(1).max(500).optional().default(100),
-    confirm_warnings: z.boolean().optional().default(false),
-    warning_confirmation_note: z.string().trim().max(4000).optional(),
-});
+export const postImportReviewPromotionBatchPromoteBodySchema = z
+    .object({
+        confirmation_text: z.literal("PROMOTE"),
+        chunk_size: z.coerce.number().int().min(1).max(500).optional().default(100),
+        confirm_warnings: z.boolean().optional().default(false),
+        warning_confirmation_note: z.string().trim().max(4000).optional(),
+        review_note: z.string().trim().max(4000).optional(),
+    })
+    .transform((body) => ({
+        ...body,
+        warning_confirmation_note:
+            body.warning_confirmation_note?.trim() || body.review_note?.trim() || undefined,
+    }));
 
 export type PostImportReviewPromotionBatchPromoteBody = z.infer<
     typeof postImportReviewPromotionBatchPromoteBodySchema

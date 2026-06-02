@@ -3,7 +3,12 @@
 import { useMemo } from "react";
 
 import AdminAreaCombobox from "@/src/components/admin-areas/AdminAreaCombobox";
+import PoiCategoryCombobox from "@/src/components/poi-categories/PoiCategoryCombobox";
 import { mergeBuildingTypeSelectOptions } from "@/src/lib/building-type/display";
+import {
+    normalizePoiCategoryDropdownOption,
+    type PoiCategoryDropdownOption,
+} from "@/src/lib/poi-category/display";
 
 import type { CoreRefLoadState } from "./useCoreEntityRefs";
 
@@ -37,6 +42,29 @@ export default function CoreRefDropdown({
     refState,
     orphanOptionLabel,
 }: CoreRefDropdownProps) {
+    const isLoading = refState?.isLoading ?? false;
+    const loadError = refState?.error ?? null;
+    const options = refState?.options ?? [];
+
+    const poiCategoryOptions: PoiCategoryDropdownOption[] = useMemo(() => {
+        if (refSource !== "place-form-options:categories") {
+            return [];
+        }
+        return options.map((opt) => {
+            const payload: Parameters<typeof normalizePoiCategoryDropdownOption>[0] = {
+                id: opt.value,
+                value: opt.value,
+                code: opt.code ?? null,
+                name: opt.name ?? null,
+                name_mm: opt.name_mm ?? null,
+            };
+            if (Object.prototype.hasOwnProperty.call(opt, "parent_id")) {
+                payload.parent_id = opt.parent_id ?? null;
+            }
+            return normalizePoiCategoryDropdownOption(payload);
+        });
+    }, [options, refSource]);
+
     if (refSource === "admin-areas") {
         return (
             <label className="block" htmlFor={id}>
@@ -57,10 +85,6 @@ export default function CoreRefDropdown({
         );
     }
 
-    const isLoading = refState?.isLoading ?? false;
-    const loadError = refState?.error ?? null;
-    const options = refState?.options ?? [];
-
     const displayOptions = useMemo(() => {
         if (refSource !== "building-types") {
             const trimmed = value.trim();
@@ -77,6 +101,43 @@ export default function CoreRefDropdown({
         }
         return mergeBuildingTypeSelectOptions(options, value, orphanOptionLabel);
     }, [options, orphanOptionLabel, refSource, value]);
+
+    if (refSource === "place-form-options:categories") {
+        return (
+            <label className="block" htmlFor={id}>
+                <span className="mb-1 block text-sm font-medium text-slate-700">
+                    {label}
+                    {required ? <span className="text-red-600"> *</span> : null}
+                </span>
+                {isLoading ? (
+                    <p className="mb-2 text-sm text-slate-500">Loading options…</p>
+                ) : null}
+                {loadError ? (
+                    <div className="mb-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        {loadError}
+                        <button
+                            type="button"
+                            className="ml-2 font-medium underline"
+                            onClick={() => refState?.reload()}
+                        >
+                            Retry
+                        </button>
+                    </div>
+                ) : null}
+                <PoiCategoryCombobox
+                    id={id}
+                    value={value}
+                    onChange={onChange}
+                    disabled={disabled || isLoading}
+                    optionsLoading={isLoading}
+                    options={poiCategoryOptions}
+                    placeholder={placeholder}
+                />
+                {helpText ? <p className="mt-1 text-xs text-slate-500">{helpText}</p> : null}
+                {error ? <p className="mt-1 text-sm text-red-600">{error}</p> : null}
+            </label>
+        );
+    }
 
     return (
         <label className="block" htmlFor={id}>

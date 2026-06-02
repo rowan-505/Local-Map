@@ -12,11 +12,22 @@ export class PlaceFormOptionsService {
         ]);
 
         return {
-            categories: categories.map((category) => ({
-                id: category.id.toString(),
-                code: category.code,
-                name: category.name,
-            })),
+            categories: categories.map((category) => {
+                const name = category.name?.trim() || null;
+                const name_mm = category.name_mm?.trim() || null;
+                const parent_id =
+                    category.parent_id === null || category.parent_id === undefined
+                        ? null
+                        : category.parent_id.toString();
+
+                return {
+                    id: category.id.toString(),
+                    code: category.code,
+                    name,
+                    name_mm,
+                    parent_id,
+                };
+            }),
             adminAreas: adminAreas.map((adminArea) => ({
                 id: adminArea.id.toString(),
                 canonical_name: adminArea.canonicalName,

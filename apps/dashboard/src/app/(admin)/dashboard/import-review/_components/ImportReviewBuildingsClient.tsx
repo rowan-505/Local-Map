@@ -36,7 +36,7 @@ import {
     isAbortError,
     isImportReviewBatchAmbiguousError,
     patchImportReviewBuildingDecision,
-    patchImportReviewBuildingOverrides,
+    patchImportReviewBuildingColumns,
     type ImportReviewBatchChoice,
     type ImportReviewBuildingListItem,
     type ImportReviewBuildingsFilterOptionsResponse,
@@ -156,9 +156,9 @@ function formatImportReviewApiError(err: unknown): string {
     return formatImportReviewScopeFetchError(err, "Unknown error");
 }
 
-function asOverrideRecord(review_overrides: unknown): Record<string, unknown> {
-    if (review_overrides && typeof review_overrides === "object" && !Array.isArray(review_overrides)) {
-        return review_overrides as Record<string, unknown>;
+function typedColumnFields(fields: unknown): Record<string, unknown> {
+    if (fields && typeof fields === "object" && !Array.isArray(fields)) {
+        return fields as Record<string, unknown>;
     }
     return {};
 }
@@ -488,7 +488,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
             return;
         }
         setDrawerNote(drawerRow.review_note ?? "");
-        const ov = asOverrideRecord(drawerRow.review_overrides);
+        const ov = typedColumnFields(drawerRow.fields);
         const nameSource = toNameSourceRow(drawerRow);
         setOvName(
             pickEffectiveNameMm(ov, nameSource) ?? deriveImportedNameMm(nameSource) ?? ""
@@ -770,39 +770,39 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
             return;
         }
         if ((drawerRow.promotion_status ?? "").toLowerCase() === "promoted") {
-            window.alert("Cannot edit review_overrides after promotion_status is promoted.");
+            window.alert("Cannot edit fields after promotion_status is promoted.");
             return;
         }
         setDrawerOverridesSaving(true);
         try {
-            const review_overrides: Record<string, unknown> = {};
+            const fields: Record<string, unknown> = {};
             if (ovName.trim()) {
-                review_overrides.name_mm = ovName.trim();
+                fields.name_mm = ovName.trim();
             }
             if (ovCanonicalName.trim()) {
-                review_overrides.name_en = ovCanonicalName.trim();
+                fields.name_en = ovCanonicalName.trim();
             }
             if (ovClassCode.trim()) {
-                review_overrides.class_code = ovClassCode.trim();
+                fields.class_code = ovClassCode.trim();
             }
             if (ovBuildingType.trim()) {
-                review_overrides.building_type = ovBuildingType.trim();
+                fields.building_type = ovBuildingType.trim();
             }
             if (ovBuildingTypeCode.trim()) {
-                review_overrides.building_type_code = ovBuildingTypeCode.trim();
+                fields.building_type_code = ovBuildingTypeCode.trim();
             }
             if (ovLevels.trim()) {
                 const n = Number(ovLevels);
-                review_overrides.levels = Number.isFinite(n) ? n : ovLevels.trim();
+                fields.levels = Number.isFinite(n) ? n : ovLevels.trim();
             }
             if (ovHeightM.trim()) {
                 const n = Number(ovHeightM);
-                review_overrides.height_m = Number.isFinite(n) ? n : ovHeightM.trim();
+                fields.height_m = Number.isFinite(n) ? n : ovHeightM.trim();
             }
 
-            const updated = await patchImportReviewBuildingOverrides(drawerRow.id, {
+            const updated = await patchImportReviewBuildingColumns(drawerRow.id, {
                 ...apiScopeQuery,
-                review_overrides,
+                fields: fields,
                 review_note: ovReviewNote.trim() === "" ? null : ovReviewNote.trim(),
             });
             mergeRow(updated);
@@ -1634,17 +1634,18 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
 
                             <section className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/30 p-4">
                                 <div>
-                                    <h3 className="text-xs font-semibold uppercase text-violet-900">review_overrides edit</h3>
+                                    <h3 className="text-xs font-semibold uppercase text-violet-900">fields edit</h3>
                                     <p className="mt-1 text-[11px] leading-relaxed text-violet-950/85">
-                                        Sends PATCH <span className="font-mono">/overrides</span> — merges these fields into{" "}
-                                        <span className="font-mono">review_overrides</span> JSON only (does not replace{" "}
+                                        Saves these fields to typed candidate columns via PATCH{" "}
+                                        <span className="font-mono">/buildings/:id</span> — does not change imported{" "}
+                                        <span className="font-mono">fields</span> JSON only (does not replace{" "}
                                         <span className="font-mono">normalized_data</span> /{" "}
                                         <span className="font-mono">source_refs</span>). Optional note is stored alongside the
                                         review row.
                                     </p>
                                     {(drawerRow.promotion_status ?? "").toLowerCase() === "promoted" ? (
                                         <p className="mt-1 text-[11px] font-semibold text-red-800">
-                                            promotion_status=promoted — overrides are blocked by the dashboard (API may also
+                                            promotion_status=promoted — direct edit is blocked by the dashboard (API may also
                                             reject).
                                         </p>
                                     ) : null}
@@ -1748,7 +1749,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                                         />
                                     </label>
                                     <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 sm:col-span-2">
-                                        review_note (with overrides save)
+                                        review_note (saved with direct edit)
                                         <textarea
                                             value={ovReviewNote}
                                             disabled={
@@ -1771,14 +1772,14 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                                     onClick={() => void handleDrawerOverridesSave()}
                                     className="rounded-lg bg-violet-900 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
                                 >
-                                    {drawerOverridesSaving ? "Saving overrides…" : "Save overrides"}
+                                    {drawerOverridesSaving ? "Saving changes…" : "Save changes"}
                                 </button>
                                 <div>
                                     <h4 className="text-[11px] font-semibold uppercase text-gray-500">
-                                        Stored review_overrides (server JSON)
+                                        Stored fields (server JSON)
                                     </h4>
                                     <pre className="mt-1 max-h-40 overflow-auto rounded-lg border border-gray-100 bg-white p-2 text-[11px]">
-                                        {safeJson(drawerRow.review_overrides)}
+                                        {safeJson(drawerRow.fields)}
                                     </pre>
                                 </div>
                             </section>
@@ -1825,7 +1826,7 @@ export function ImportReviewBuildingsClient({ showMapPreview = false }: { showMa
                                         <option value="rejected">rejected</option>
                                         <option value="needs_more_review">needs_more_review</option>
                                         <option value="ignored">ignored</option>
-                                        <option value="merged">merged</option>
+                                        <option value="merged">finalized</option>
                                     </select>
                                 </label>
                                 <label className="flex flex-col gap-1">

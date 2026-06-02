@@ -17,18 +17,20 @@ const TONE_CLASS: Record<string, string> = {
     passed: "border-emerald-200 bg-emerald-50 text-emerald-900",
     warnings: "border-amber-200 bg-amber-50 text-amber-950",
     failed: "border-red-200 bg-red-50 text-red-900",
+    promoted: "border-indigo-200 bg-indigo-50 text-indigo-950",
 };
 
 export default function ImportReviewStatusBadge({ value }: { value: string }) {
     const key = value.trim().toLowerCase();
     const cls = TONE_CLASS[key] ?? "border-gray-200 bg-gray-50 text-gray-800";
+    const displayValue = key === "merged" ? "finalized" : value;
 
     return (
         <span
             className={`inline-flex max-w-full truncate rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}`}
-            title={value}
+            title={displayValue}
         >
-            {value}
+            {displayValue}
         </span>
     );
 }

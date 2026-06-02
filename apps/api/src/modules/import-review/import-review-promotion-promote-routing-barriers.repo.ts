@@ -18,7 +18,6 @@ type CandidateRow = {
     point_geom: unknown;
     source_refs: unknown;
     normalized_data: unknown;
-    review_overrides: unknown;
     matched_core_id: bigint | null;
     promoted_core_id: bigint | null;
 };
@@ -34,9 +33,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function effectiveText(row: CandidateRow, key: string, fallback: string | null = null): string | null {
-    const overrides = asRecord(row.review_overrides);
     const normalized = asRecord(row.normalized_data);
-    for (const value of [overrides[key], row[key as keyof CandidateRow], normalized[key], fallback]) {
+    for (const value of [row[key as keyof CandidateRow], normalized[key], fallback]) {
         if (typeof value === "string" && value.trim()) {
             return value.trim();
         }
@@ -59,7 +57,6 @@ function sourceRefs(row: CandidateRow, publishBatchId: bigint): Record<string, u
 function normalizedData(row: CandidateRow, dryRunResult: unknown): Record<string, unknown> {
     return {
         ...asRecord(row.normalized_data),
-        review_overrides: asRecord(row.review_overrides),
         promotion: {
             promoted_from: "import_review.routing_barrier_candidates",
             promoted_at: new Date().toISOString(),
@@ -126,7 +123,6 @@ export class ImportReviewPromotionPromoteRoutingBarriersRepository {
                     rb.point_geom,
                     rb.source_refs,
                     rb.normalized_data,
-                    rb.review_overrides,
                     rb.matched_core_id,
                     rb.promoted_core_id
                 FROM system.system_publish_items AS spi

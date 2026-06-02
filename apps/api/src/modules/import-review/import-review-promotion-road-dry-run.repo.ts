@@ -31,7 +31,6 @@ export type RoadCandidatePromotionRow = {
     source_refs: unknown;
     validation_errors: unknown;
     validation_warnings: unknown;
-    review_overrides: unknown;
     matched_core_id: bigint | null;
     road_class_id: bigint | null;
     geom: unknown;
@@ -102,7 +101,6 @@ export class ImportReviewPromotionRoadDryRunRepository {
                 r.source_refs,
                 r.validation_errors,
                 r.validation_warnings,
-                r.review_overrides,
                 r.matched_core_id,
                 r.road_class_id,
                 r.geom,
@@ -142,7 +140,16 @@ export class ImportReviewPromotionRoadDryRunRepository {
                 r.surface,
                 r.is_oneway,
                 CASE WHEN r.geom IS NOT NULL THEN ST_AsGeoJSON(r.geom)::json ELSE NULL::json END AS geom_geojson,
-                COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb) AS review_overrides,
+                r.name_mm,
+                r.name_en,
+                r.surface,
+                r.is_oneway,
+                r.access,
+                r.speed_kph,
+                r.bridge,
+                r.tunnel,
+                r.layer,
+                r.admin_area_id,
                 r.normalized_data,
                 r.matched_core_table,
                 r.matched_core_id,

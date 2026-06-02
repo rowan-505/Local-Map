@@ -108,18 +108,22 @@ export function useImportReviewEntityList(
         refetchOnMount: false,
     });
 
+    const countQueryKey = importReviewQueryKeys.candidatesCount(
+        params
+            ? {
+                  apiFamily: params.apiFamily,
+                  apiScopeQuery: params.apiScopeQuery,
+                  filters: params.filters,
+                  qApplied: params.qApplied,
+                  showPromoted: params.showPromoted,
+              }
+            : null
+    );
+    const cachedCount = params ? queryClient.getQueryData<number>(countQueryKey) ?? null : null;
+    const shouldFetchCount = enabled && params !== null && (params.offset === 0 || cachedCount === null);
+
     const countQuery = useQuery({
-        queryKey: importReviewQueryKeys.candidatesCount(
-            params
-                ? {
-                      apiFamily: params.apiFamily,
-                      apiScopeQuery: params.apiScopeQuery,
-                      filters: params.filters,
-                      qApplied: params.qApplied,
-                      showPromoted: params.showPromoted,
-                  }
-                : null
-        ),
+        queryKey: countQueryKey,
         queryFn: async ({ signal }) => {
             if (!params) {
                 throw new Error("Count params required");
@@ -128,7 +132,6 @@ export function useImportReviewEntityList(
                 ...params.apiScopeQuery,
                 limit: 1,
                 offset: 0,
-                sort: params.sort,
                 include_geometry: false,
                 include_total: true,
                 include_promoted: params.showPromoted,
@@ -143,7 +146,7 @@ export function useImportReviewEntityList(
             const data = await getEntityCandidates(params.apiFamily, rest, { signal });
             return data.total ?? 0;
         },
-        enabled: enabled && params !== null,
+        enabled: shouldFetchCount,
         ...importReviewListQueryDefaults,
         refetchOnMount: false,
     });
@@ -152,7 +155,7 @@ export function useImportReviewEntityList(
 
     return {
         list: query.data ?? null,
-        totalCount: countQuery.data ?? null,
+        totalCount: countQuery.data ?? cachedCount,
         isLoading: query.isLoading,
         isFetching: query.isFetching,
         error: ambiguous

@@ -151,7 +151,7 @@ export function useImportReviewBulkActions(args: {
         if (overrideManualProtected && analysis.hasManualProtected) {
             if (
                 !window.confirm(
-                    "Override manual_protected / protect_manual and bulk approve with force=true?"
+                    "Bypass manual_protected / protect_manual and bulk approve with force=true?"
                 )
             ) {
                 return false;
@@ -162,7 +162,7 @@ export function useImportReviewBulkActions(args: {
             }
         }
         if (overrideDuplicate && analysis.hasDuplicateCandidate) {
-            if (!window.confirm("Override duplicate_candidate and bulk approve with force=true?")) {
+            if (!window.confirm("Bypass duplicate_candidate and bulk approve with force=true?")) {
                 return false;
             }
             if (!bulkNote.trim()) {

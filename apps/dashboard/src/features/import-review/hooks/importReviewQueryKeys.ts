@@ -78,4 +78,10 @@ export const importReviewQueryKeys = {
             : (["import-review", "candidates-count", "none"] as const),
     roadDryRunSummary: (reviewBatchId: string | null) =>
         ["import-review", "roads", "dry-run-summary", reviewBatchId ?? "none"] as const,
+    promotionBatch: (publishBatchId: string) =>
+        ["import-review", "promotion", "batch", publishBatchId] as const,
+    promotionBatches: (reviewBatchId: string) =>
+        ["import-review", "promotion", "batches", reviewBatchId] as const,
+    promotionEligibility: (reviewBatchId: string, familiesKey: string) =>
+        ["import-review", "promotion", "eligibility", reviewBatchId, familiesKey] as const,
 };

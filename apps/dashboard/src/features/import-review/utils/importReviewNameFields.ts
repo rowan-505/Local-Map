@@ -121,7 +121,7 @@ export function looksLikeExternalRef(value: string): boolean {
 }
 
 export type ImportReviewNameCandidate = {
-    review_overrides?: unknown;
+    fields?: unknown;
     canonical_name?: string | null;
     normalized_data?: unknown;
     external_id?: string | null;
@@ -138,9 +138,9 @@ export type ImportReviewDerivedNames = {
 /** @deprecated Prefer ImportReviewNameCandidate */
 export type ImportReviewNameSourceRow = ImportReviewNameCandidate;
 
-function asOverrideRecord(review_overrides: unknown): Record<string, unknown> {
-    if (review_overrides && typeof review_overrides === "object" && !Array.isArray(review_overrides)) {
-        return review_overrides as Record<string, unknown>;
+function typedColumnFields(fields: unknown): Record<string, unknown> {
+    if (fields && typeof fields === "object" && !Array.isArray(fields)) {
+        return fields as Record<string, unknown>;
     }
     return {};
 }
@@ -485,7 +485,7 @@ export function pickEffectiveNameEn(
 }
 
 export function deriveImportReviewNames(candidate: ImportReviewNameCandidate): ImportReviewDerivedNames {
-    const overrides = asOverrideRecord(candidate.review_overrides);
+    const overrides = typedColumnFields(candidate.fields);
     const name_mm = pickEffectiveNameMm(overrides, candidate);
     const name_en = pickEffectiveNameEn(overrides, candidate);
     return {
@@ -545,10 +545,11 @@ export function hasStoredNameEnOverride(overrides: Record<string, unknown>): boo
     return false;
 }
 
+/** Direct-edit helper — see docs/import-review/naming-contract.md */
 export const IMPORT_REVIEW_NAME_MM_HELPER =
-    "Used for Myanmar label/search when available.";
+    "Reviewer-approved Myanmar name (typed column). Shown in list/detail; not replaced by source/import names.";
 export const IMPORT_REVIEW_NAME_EN_HELPER =
-    "Used for English label/search when available.";
+    "Reviewer-approved English name (typed column). Shown in list/detail; not replaced by source/import names.";
 
 /** Legacy override keys to clear when saving/clearing name_mm. */
 export const LEGACY_NAME_MM_OVERRIDE_KEYS = ["name_local", "name", "canonical_name"] as const;
@@ -577,10 +578,10 @@ export function toNameSourceRow(row: {
     normalized_data?: unknown;
     class_code?: string | null;
     external_id?: string | null;
-    review_overrides?: unknown;
+    fields?: unknown;
 }): ImportReviewNameCandidate {
     return {
-        review_overrides: row.review_overrides,
+        fields: row.fields,
         canonical_name: row.canonical_name ?? null,
         normalized_data: row.normalized_data,
         class_code: row.class_code ?? null,
@@ -591,7 +592,7 @@ export function toNameSourceRow(row: {
 
 export type ImportReviewRoadNameRow = ImportReviewNameCandidate & {
     id: string;
-    review_overrides?: unknown;
+    fields?: unknown;
     effective_name_mm?: string | null;
     effective_name_en?: string | null;
     name_mm?: string | null;

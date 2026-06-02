@@ -15,8 +15,11 @@ export const DEPRECATED_IMPORT_REVIEW_BUS_SLUGS = [
 
 export type DeprecatedImportReviewBusSlug = (typeof DEPRECATED_IMPORT_REVIEW_BUS_SLUGS)[number];
 
-export const DEPRECATED_CORE_BUS_PROMOTION_BANNER =
-    "Read-only review: promotion to legacy core.core_bus_* tables is disabled. New transport data uses import_transport / core_transport.";
+/** Shown on legacy publish batches that still contain bus import-review items. */
+export const IMPORT_REVIEW_TRANSPORT_PROMOTION_MOVED_MESSAGE =
+    "Transport promotion moved to Import Transport.";
+
+export const DEPRECATED_CORE_BUS_PROMOTION_BANNER = IMPORT_REVIEW_TRANSPORT_PROMOTION_MOVED_MESSAGE;
 
 export const IMPORT_REVIEW_TRANSPORT_MOVED_MESSAGE =
     "Transport import review moved to /dashboard/import-transport.";

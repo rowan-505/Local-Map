@@ -58,7 +58,6 @@ export type BuildingListRowDb = {
     review_note: string | null;
     normalized_data: unknown;
     source_refs: unknown;
-    review_overrides: unknown;
     matched_core_id: bigint | null;
     matched_core_table: string | null;
     matched_core_data: unknown;
@@ -79,11 +78,14 @@ export type BuildingListRowDb = {
     road_candidate_class_label?: string | null;
     /** Computed from effective road geometry (meters). */
     length_m?: unknown;
-    /** Bus stop candidates only */
     name_mm?: string | null;
     name_en?: string | null;
     name_local?: string | null;
     stop_code?: string | null;
+    category_id?: bigint | null;
+    primary_name?: string | null;
+    display_name?: string | null;
+    barrier_type?: string | null;
     /** From core.core_admin_areas join when effectiveAdminAreaJoin is enabled */
     effective_admin_area_name?: string | null;
     /** Roads: resolved override/normalized or geometry-inferred admin area label */
@@ -146,7 +148,6 @@ export type CandidateReviewGuardContext = {
     match_status: string | null;
     auto_action: string | null;
     promotion_status: string | null;
-    review_overrides?: unknown;
 };
 
 export type CandidateReviewRoadDecisionContext = CandidateReviewGuardContext & {
@@ -164,7 +165,14 @@ export type ImportReviewRoadCandidatePatchBaselineDb = {
     surface: string | null;
     is_oneway: boolean | null;
     geom_geojson: unknown | null;
-    review_overrides: unknown;
+    name_mm: string | null;
+    name_en: string | null;
+    bridge: boolean | null;
+    tunnel: boolean | null;
+    layer: number | null;
+    access: string | null;
+    speed_kph: number | null;
+    admin_area_id: bigint | null;
     normalized_data: unknown;
     class_code: string | null;
     matched_core_table: string | null;
@@ -281,7 +289,13 @@ export interface ImportReviewDataRepository {
         scope: ImportReviewScopeResolved,
         filters: Pick<
             ImportReviewPlacesQuery,
-            "match_status" | "auto_action" | "review_status" | "review_decision" | "q"
+            | "match_status"
+            | "auto_action"
+            | "review_status"
+            | "review_decision"
+            | "promotion_status"
+            | "include_promoted"
+            | "q"
         >
     ): Promise<bigint>;
 
@@ -293,6 +307,8 @@ export interface ImportReviewDataRepository {
             | "auto_action"
             | "review_status"
             | "review_decision"
+            | "promotion_status"
+            | "include_promoted"
             | "q"
             | "limit"
             | "offset"
@@ -364,10 +380,10 @@ export interface ImportReviewDataRepository {
         id: bigint
     ): Promise<ImportReviewRoadCandidatePatchBaselineDb | null>;
 
-    patchRoadCandidateReviewOverrides(args: {
+    patchRoadCandidateColumnFields(args: {
         scope: ImportReviewScopeResolved;
         id: bigint;
-        merged_review_overrides: Record<string, unknown>;
+        merged_fields: Record<string, unknown>;
         canonical_name: string | null;
         road_class_id: bigint | null;
         road_class_label: string | null;
@@ -482,5 +498,16 @@ export interface ImportReviewDataRepository {
         overridesPatch: Record<string, unknown>;
         editedByUserId: bigint | null;
         reviewNote: string | null | undefined;
+    }): Promise<BuildingListRowDb | null>;
+
+    patchCandidateColumns(args: {
+        family: ImportReviewEntityFamilySlug;
+        scope: ImportReviewScopeResolved;
+        id: bigint;
+        columnPatch: Record<string, unknown>;
+        editedByUserId: bigint | null;
+        reviewNote: string | null | undefined;
+        extraSetParts?: import("@prisma/client").Prisma.Sql[];
+        requireTypedColumnUpdates?: boolean;
     }): Promise<BuildingListRowDb | null>;
 }

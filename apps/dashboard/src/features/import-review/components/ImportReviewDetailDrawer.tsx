@@ -39,6 +39,7 @@ export default function ImportReviewDetailDrawer({
     isSaving,
     isSavingOverrides,
     overrideSaveMessage,
+    overrideSaveTechnicalError = "",
     decisionSaveMessage,
     apiScope,
     onSaveOverrides,
@@ -70,9 +71,17 @@ export default function ImportReviewDetailDrawer({
     isSaving: boolean;
     isSavingOverrides: boolean;
     overrideSaveMessage: string | null;
+    overrideSaveTechnicalError?: string | null;
     decisionSaveMessage: string | null;
     apiScope: ImportReviewScopeQueryParams | null;
-    onSaveOverrides: (patch: Record<string, unknown>, reviewNote: string | null) => Promise<void>;
+    onSaveOverrides: (
+        patch: Record<string, unknown>,
+        reviewNote: string | null,
+        saveOptions?: {
+            verifyPatchKeys?: readonly string[];
+            referenceFieldsDevLog?: Record<string, unknown>;
+        }
+    ) => Promise<ImportReviewBuildingListItem>;
     drawerNote: string;
     drawerDecision: ImportReviewDecision;
     canEdit: boolean;
@@ -180,7 +189,9 @@ export default function ImportReviewDetailDrawer({
                                 geometryEssential={isGeometryEssentialForEntity(config)}
                             />
 
-                            {config.supportsOverrideEditor || config.overrideEditableFields.length > 0 ? (
+                            {config.supportsOverrideEditor ||
+                            config.overrideEditableFields.length > 0 ||
+                            config.apiFamily === "roads" ? (
                                 <CandidateOverrideSection
                                     config={config}
                                     row={row}
@@ -188,6 +199,7 @@ export default function ImportReviewDetailDrawer({
                                     canEdit={canEdit}
                                     isSavingOverrides={isSavingOverrides}
                                     overrideSaveMessage={overrideSaveMessage}
+                                    overrideSaveTechnicalError={overrideSaveTechnicalError}
                                     onSaveOverrides={onSaveOverrides}
                                     formOptions={formOptions}
                                     formOptionsLoading={formOptionsLoading}
@@ -196,9 +208,6 @@ export default function ImportReviewDetailDrawer({
                             ) : null}
 
                             <CandidateValidationSection row={row} isLoadingDetail={isLoadingDetail} />
-
-                            <CandidateJsonSection title="normalized_data" data={row.normalized_data} />
-                            <CandidateJsonSection title="source_refs" data={row.source_refs} />
                             {showMatchedCore ? (
                                 <CandidateJsonSection title="matched_core_data" data={row.matched_core_data} />
                             ) : null}

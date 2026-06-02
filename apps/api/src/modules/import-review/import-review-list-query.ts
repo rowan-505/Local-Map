@@ -51,7 +51,6 @@ export function buildLightweightListCoreSelect(config: ImportReviewEntityFamilyC
         ${a}.review_note,
         '{}'::jsonb AS normalized_data,
         '{}'::jsonb AS source_refs,
-        '{}'::jsonb AS review_overrides,
         ${a}.matched_core_id,
         ${a}.matched_core_table,
         '{}'::jsonb AS matched_core_data,

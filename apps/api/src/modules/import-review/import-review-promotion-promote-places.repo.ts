@@ -44,7 +44,8 @@ const PROMOTE_PLACE_SRC_COLUMNS = Prisma.sql`
     p.confidence_score,
     p.review_decision,
     p.normalized_data,
-    p.review_overrides,
+    p.name_mm,
+    p.name_en,
     p.source_refs,
     p.matched_core_id,
     p.matched_core_table,
@@ -56,12 +57,10 @@ function placePrimaryNameExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'primary_name',
-            ${a}.review_overrides->>'display_name',
-            ${a}.review_overrides->>'name',
-            ${a}.review_overrides->>'canonical_name',
             ${a}.primary_name,
             ${a}.display_name,
+            ${a}.name_en,
+            ${a}.name_mm,
             ${a}.canonical_name,
             ${a}.normalized_data->>'primary_name',
             ${a}.normalized_data->>'display_name',
@@ -77,11 +76,10 @@ function placeDisplayNameExpr(alias: string): Prisma.Sql {
     return Prisma.sql`
         coalesce(
             nullif(trim(coalesce(
-                ${a}.review_overrides->>'display_name',
-                ${a}.review_overrides->>'primary_name',
-                ${a}.review_overrides->>'name',
                 ${a}.display_name,
                 ${a}.primary_name,
+                ${a}.name_en,
+                ${a}.name_mm,
                 ${a}.canonical_name,
                 ${a}.normalized_data->>'display_name',
                 ${a}.normalized_data->>'primary_name',
@@ -99,31 +97,18 @@ function placeCategoryIdExpr(alias: string): Prisma.Sql {
 
 function placeAdminAreaIdExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
+    const resolved = Prisma.sql`coalesce(
+        ${a}.admin_area_id,
+        CASE WHEN (${a}.normalized_data->>'admin_area_id') ~ '^[0-9]+$'
+            THEN (${a}.normalized_data->>'admin_area_id')::bigint END
+    )`;
     return Prisma.sql`
         CASE
-            WHEN coalesce(
-                CASE WHEN (${a}.review_overrides->>'admin_area_id') ~ '^[0-9]+$'
-                    THEN (${a}.review_overrides->>'admin_area_id')::bigint END,
-                ${a}.admin_area_id,
-                CASE WHEN (${a}.normalized_data->>'admin_area_id') ~ '^[0-9]+$'
-                    THEN (${a}.normalized_data->>'admin_area_id')::bigint END
-            ) IS NULL THEN NULL::bigint
+            WHEN ${resolved} IS NULL THEN NULL::bigint
             WHEN EXISTS (
                 SELECT 1 FROM core.core_admin_areas AS aa
-                WHERE aa.id = coalesce(
-                    CASE WHEN (${a}.review_overrides->>'admin_area_id') ~ '^[0-9]+$'
-                        THEN (${a}.review_overrides->>'admin_area_id')::bigint END,
-                    ${a}.admin_area_id,
-                    CASE WHEN (${a}.normalized_data->>'admin_area_id') ~ '^[0-9]+$'
-                        THEN (${a}.normalized_data->>'admin_area_id')::bigint END
-                )
-            ) THEN coalesce(
-                CASE WHEN (${a}.review_overrides->>'admin_area_id') ~ '^[0-9]+$'
-                    THEN (${a}.review_overrides->>'admin_area_id')::bigint END,
-                ${a}.admin_area_id,
-                CASE WHEN (${a}.normalized_data->>'admin_area_id') ~ '^[0-9]+$'
-                    THEN (${a}.normalized_data->>'admin_area_id')::bigint END
-            )
+                WHERE aa.id = ${resolved}
+            ) THEN ${resolved}
             ELSE NULL::bigint
         END
     `;
@@ -133,14 +118,6 @@ function placePointGeomExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         CASE
-            WHEN ${a}.review_overrides ? 'point_geom'
-                 AND ${a}.review_overrides->'point_geom' IS NOT NULL
-                 AND jsonb_typeof(${a}.review_overrides->'point_geom') = 'object'
-            THEN ST_SetSRID(ST_GeomFromGeoJSON(${a}.review_overrides->'point_geom'), 4326)
-            WHEN ${a}.review_overrides ? 'geom'
-                 AND ${a}.review_overrides->'geom' IS NOT NULL
-                 AND jsonb_typeof(${a}.review_overrides->'geom') = 'object'
-            THEN ST_SetSRID(ST_GeomFromGeoJSON(${a}.review_overrides->'geom'), 4326)
             WHEN ${a}.point_geom IS NOT NULL THEN ${a}.point_geom
             WHEN ${a}.lat IS NOT NULL AND ${a}.lng IS NOT NULL
                 THEN ST_SetSRID(ST_MakePoint(${a}.lng, ${a}.lat), 4326)
@@ -169,8 +146,8 @@ function placeIsPublicExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         CASE
-            WHEN ${a}.review_overrides ? 'is_public' THEN
-                CASE lower(trim(${a}.review_overrides->>'is_public'))
+            WHEN ${a}.normalized_data ? 'is_public' THEN
+                CASE lower(trim(${a}.normalized_data->>'is_public'))
                     WHEN 'false' THEN false
                     WHEN '0' THEN false
                     ELSE true
@@ -287,7 +264,6 @@ export class ImportReviewPromotionPromotePlacesRepository {
                         ST_Y(g.point_geom_ready),
                         ST_X(g.point_geom_ready),
                         nullif(trim(coalesce(
-                            g.review_overrides->>'plus_code',
                             g.plus_code,
                             g.normalized_data->>'plus_code',
                             ''
@@ -440,7 +416,6 @@ export class ImportReviewPromotionPromotePlacesRepository {
                     lat = ST_Y(v.point_geom_ready),
                     lng = ST_X(v.point_geom_ready),
                     plus_code = nullif(trim(coalesce(
-                        v.review_overrides->>'plus_code',
                         v.plus_code,
                         v.normalized_data->>'plus_code',
                         c.plus_code,

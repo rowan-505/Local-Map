@@ -5,6 +5,7 @@ import {
     IMPORT_REVIEW_STANDARD_FILTER_FIELDS,
 } from "../constants";
 import { createImportReviewEntityConfig } from "../createEntityConfig";
+import { getImportReviewNameColumns } from "../../utils/importReviewNaming";
 
 export const waterPolygonsImportReviewEntityConfig = createImportReviewEntityConfig({
     slug: "water-polygons",
@@ -17,8 +18,7 @@ export const waterPolygonsImportReviewEntityConfig = createImportReviewEntityCon
     riskLevel: "low",
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
-        { key: "effective_name_mm", label: "Myanmar name", source: "row" },
-        { key: "effective_name_en", label: "English name", source: "row" },
+        ...getImportReviewNameColumns(),
         { key: "effective_class_code", label: "Class", source: "row" },
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,
     ],

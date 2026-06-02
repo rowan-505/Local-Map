@@ -1,3 +1,10 @@
+/**
+ * Import-review name derivation for API responses.
+ * Naming contract: docs/import-review/naming-contract.md
+ * Typed direct-edit columns (`name_mm`, `name_en`) win over source/legacy names in
+ * `pickEffectiveNameMm` / `pickEffectiveNameEn` before imported fallbacks.
+ */
+
 /** Myanmar script block — used to classify name_mm vs name_en fallbacks. */
 export const MYANMAR_SCRIPT_RE = /[\u1000-\u109F]/;
 
@@ -126,7 +133,6 @@ export function looksLikeExternalRef(value: string): boolean {
 }
 
 export type ImportReviewNameCandidate = {
-    review_overrides?: unknown;
     canonical_name?: string | null;
     normalized_data?: unknown;
     external_id?: string | null;
@@ -148,9 +154,9 @@ export type ImportReviewDerivedNames = {
 /** @deprecated Prefer ImportReviewNameCandidate */
 export type ImportReviewNameSourceRow = ImportReviewNameCandidate;
 
-function asOverrideRecord(review_overrides: unknown): Record<string, unknown> {
-    if (review_overrides && typeof review_overrides === "object" && !Array.isArray(review_overrides)) {
-        return review_overrides as Record<string, unknown>;
+function asOverrideRecord(patchFields: unknown): Record<string, unknown> {
+    if (patchFields && typeof patchFields === "object" && !Array.isArray(patchFields)) {
+        return patchFields as Record<string, unknown>;
     }
     return {};
 }
@@ -326,7 +332,7 @@ function pickRawNameCandidate(candidate: ImportReviewNameCandidate): string | nu
     );
 }
 
-/** Imported Myanmar label from OSM tags / normalized_data (no review_overrides). */
+/** Imported Myanmar label from OSM tags / normalized_data. */
 export function deriveImportedNameMm(candidate: ImportReviewNameCandidate): string | null {
     const blocked = collectImportReviewClassificationValues(candidate);
     const nd = candidate.normalized_data;
@@ -342,7 +348,7 @@ export function deriveImportedNameMm(candidate: ImportReviewNameCandidate): stri
     );
 }
 
-/** Imported English/Latin label from OSM tags / normalized_data (no review_overrides). */
+/** Imported English/Latin label from OSM tags / normalized_data. */
 export function deriveImportedNameEn(candidate: ImportReviewNameCandidate): string | null {
     const blocked = collectImportReviewClassificationValues(candidate);
     const nd = candidate.normalized_data;
@@ -410,12 +416,31 @@ function overrideString(overrides: Record<string, unknown>, key: string): string
     return trimString(v);
 }
 
-/** Effective Myanmar name: review_overrides.name_mm wins, then legacy keys, then imported. */
+function columnNameString(
+    candidate: ImportReviewNameCandidate,
+    key: "name_mm" | "name_en"
+): string | null | undefined {
+    if (!Object.prototype.hasOwnProperty.call(candidate, key)) {
+        return undefined;
+    }
+    const v = candidate[key];
+    if (v === null || v === undefined) {
+        return null;
+    }
+    return trimString(v);
+}
+
+/** Effective Myanmar name: typed column first, then imported (naming contract). */
 export function pickEffectiveNameMm(
     overrides: Record<string, unknown>,
     candidate: ImportReviewNameCandidate
 ): string | null {
     const blocked = collectImportReviewClassificationValues(candidate);
+
+    const fromColumn = columnNameString(candidate, "name_mm");
+    if (fromColumn !== undefined && fromColumn !== null) {
+        return isReviewerFacingName(fromColumn, blocked);
+    }
 
     const direct = overrideString(overrides, "name_mm");
     if (direct !== undefined) {
@@ -442,12 +467,17 @@ export function pickEffectiveNameMm(
     return deriveImportedNameMm(candidate);
 }
 
-/** Effective English name: review_overrides.name_en wins, then legacy keys, then imported. */
+/** Effective English name: typed column first, then imported (naming contract). */
 export function pickEffectiveNameEn(
     overrides: Record<string, unknown>,
     candidate: ImportReviewNameCandidate
 ): string | null {
     const blocked = collectImportReviewClassificationValues(candidate);
+
+    const fromColumn = columnNameString(candidate, "name_en");
+    if (fromColumn !== undefined && fromColumn !== null) {
+        return isReviewerFacingName(fromColumn, blocked);
+    }
 
     const direct = overrideString(overrides, "name_en");
     if (direct !== undefined) {
@@ -481,9 +511,9 @@ export function pickEffectiveNameEn(
 }
 
 export function deriveImportReviewNames(candidate: ImportReviewNameCandidate): ImportReviewDerivedNames {
-    const overrides = asOverrideRecord(candidate.review_overrides);
-    const name_mm = pickEffectiveNameMm(overrides, candidate);
-    const name_en = pickEffectiveNameEn(overrides, candidate);
+    const emptyOverrides: Record<string, unknown> = {};
+    const name_mm = pickEffectiveNameMm(emptyOverrides, candidate);
+    const name_en = pickEffectiveNameEn(emptyOverrides, candidate);
     return {
         name_mm,
         name_en,
@@ -516,7 +546,7 @@ export function readOverrideNameEn(
     return v ?? "";
 }
 
-/** Whether review_overrides explicitly sets name_mm (new or legacy). */
+/** Whether legacy PATCH keys explicitly set name_mm. */
 export function hasStoredNameMmOverride(overrides: Record<string, unknown>): boolean {
     return (
         Object.prototype.hasOwnProperty.call(overrides, "name_mm") ||
@@ -528,7 +558,7 @@ export function hasStoredNameMmOverride(overrides: Record<string, unknown>): boo
     );
 }
 
-/** Whether review_overrides explicitly sets name_en (new or legacy). */
+/** Whether legacy PATCH keys explicitly set name_en. */
 export function hasStoredNameEnOverride(overrides: Record<string, unknown>): boolean {
     return (
         Object.prototype.hasOwnProperty.call(overrides, "name_en") ||

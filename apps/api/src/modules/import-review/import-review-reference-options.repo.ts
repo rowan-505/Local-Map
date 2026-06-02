@@ -190,6 +190,19 @@ export class ImportReviewReferenceOptionsRepository {
         return null;
     }
 
+    async poiCategoryExistsById(id: bigint): Promise<boolean> {
+        if (!(await tableExists(this.prisma, "ref.ref_poi_categories"))) {
+            return false;
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id
+            FROM ref.ref_poi_categories
+            WHERE id = ${id}
+            LIMIT 1
+        `;
+        return rows[0] !== undefined;
+    }
+
     async findPoiCategoryIdByCode(code: string): Promise<bigint | null> {
         if (!(await tableExists(this.prisma, "ref.ref_poi_categories"))) {
             return null;

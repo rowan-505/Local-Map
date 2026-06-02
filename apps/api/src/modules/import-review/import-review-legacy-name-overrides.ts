@@ -1,9 +1,28 @@
 import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
 import { isMyanmarScript, trimString } from "./import-review-name-fields.js";
-import { applyReviewOverridesPatch } from "./import-review-overrides-merge.js";
 import { overrideAllowlistForFamily } from "./import-review-overrides-allowlist.js";
 
-/** Legacy review_overrides name keys migrated to name_mm / name_en. */
+/** Legacy PATCH field name keys migrated to name_mm / name_en. */
+
+/** Keys with null values are removed; non-null values are shallow-merged. Empty patch clears all keys. */
+export function applyReviewOverridesPatch(
+    existing: Record<string, unknown>,
+    patch: Record<string, unknown>
+): Record<string, unknown> {
+    if (Object.keys(patch).length === 0) {
+        return {};
+    }
+
+    const merged: Record<string, unknown> = { ...existing };
+    for (const [key, value] of Object.entries(patch)) {
+        if (value === null || value === undefined) {
+            delete merged[key];
+        } else {
+            merged[key] = value;
+        }
+    }
+    return merged;
+}
 export const LEGACY_NAME_OVERRIDE_KEYS = ["name", "name_local"] as const;
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -25,13 +44,13 @@ function familySupportsNameOverrides(family: ImportReviewEntityFamilySlug): bool
  */
 export function normalizeLegacyNameOverrides(
     family: ImportReviewEntityFamilySlug,
-    review_overrides: unknown
+    fields: unknown
 ): Record<string, unknown> {
     if (!familySupportsNameOverrides(family)) {
-        return asRecord(review_overrides);
+        return asRecord(fields);
     }
 
-    const out = asRecord(review_overrides);
+    const out = asRecord(fields);
 
     if (Object.prototype.hasOwnProperty.call(out, "name_local")) {
         if (!Object.prototype.hasOwnProperty.call(out, "name_mm")) {

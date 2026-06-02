@@ -43,7 +43,7 @@ export function isImportReviewCandidatesRoute(
 ): boolean {
     const normalized = pathname.replace(/\/+$/, "") || "/";
     if (family === "roads") {
-        return normalized === `${IMPORT_REVIEW_PATH}/roads` || normalized === "/data-review/roads";
+        return normalized === `${IMPORT_REVIEW_PATH}/roads`;
     }
     return normalized === "/data-review/places";
 }

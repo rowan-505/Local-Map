@@ -53,7 +53,7 @@ export default function CandidateReviewActionsSection({
                         <option value="approved">approved</option>
                         <option value="rejected">rejected</option>
                         <option value="ignored">ignored</option>
-                        <option value="merged">merged</option>
+                        <option value="merged">finalized</option>
                     </select>
                 </label>
             ) : null}

@@ -415,7 +415,9 @@ export class ImportReviewPromotionValidationRunner {
                         merge: actionCounts.merge,
                     },
                     by_entity: byEntity,
-                    entity_family: { buildings: actionCounts.buildings },
+                    selected_entity_families: [
+                        ...new Set(itemRows.map((row) => row.entity_family)),
+                    ].sort(),
                     promotable_entity_families: [...promotableFamilies],
                 };
 

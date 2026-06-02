@@ -40,7 +40,8 @@ const PROMOTE_BUS_STOP_SRC_COLUMNS = Prisma.sql`
     bs.admin_area_id,
     bs.geom,
     bs.normalized_data,
-    bs.review_overrides,
+    bs.name_mm,
+    bs.name_en,
     bs.source_refs,
     bs.matched_core_id,
     bs.matched_core_table,
@@ -456,7 +457,8 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
             WITH src AS (
                 SELECT
                     bs.normalized_data,
-                    bs.review_overrides,
+                    bs.name_mm,
+                    bs.name_en,
                     bs.source_refs,
                     ${busStopPrimaryRealNameExpr("bs")} AS primary_name_ready,
                     ${busStopNameLocalExpr("bs")} AS name_local_ready,

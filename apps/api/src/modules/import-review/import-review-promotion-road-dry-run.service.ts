@@ -25,6 +25,10 @@ import type {
     RoadDryRunRoutingSummary,
 } from "./import-review-promotion-road-dry-run.types.js";
 import {
+    isRoadPromotionBlockingErrorCode,
+    isRoadPromotionBlockingStoredIssue,
+} from "./import-review-road-promotion-policy.js";
+import {
     mergeEffectiveRoadState,
     runImportReviewRoadRoutingValidation,
 } from "./import-review-road-routing-validation.js";
@@ -48,8 +52,9 @@ const GEOMETRY_BLOCKER_CODES = new Set([
     "INVALID_GEOMETRY_TYPE",
     "INVALID_SRID",
     "GEOMETRY_EMPTY",
-    "ROAD_TOO_SHORT",
     "INVALID_COORDINATES",
+    "ROAD_CLASS_MISSING",
+    "DUPLICATE_EXTERNAL_ID_IN_CORE",
 ]);
 
 function jsonbArrayNonEmpty(value: unknown): boolean {
@@ -94,15 +99,9 @@ function collectCandidateStateBlockers(args: {
     }
 
     if (
-        !candidate.source_refs ||
-        typeof candidate.source_refs !== "object" ||
-        Array.isArray(candidate.source_refs) ||
-        Object.keys(candidate.source_refs as object).length === 0
+        Array.isArray(candidate.validation_errors) &&
+        candidate.validation_errors.some((issue) => isRoadPromotionBlockingStoredIssue(issue))
     ) {
-        reasons.push("empty_source_refs");
-    }
-
-    if (jsonbArrayNonEmpty(candidate.validation_errors)) {
         reasons.push("validation_errors_present");
     }
 
@@ -159,7 +158,12 @@ async function collectReferenceIssues(
     if (candidate.road_class_id != null) {
         const exists = await repo.roadClassIdExists(candidate.road_class_id);
         if (!exists) {
-            blockers.push("INVALID_ROAD_CLASS_ID");
+            const classCode = candidate.class_code ?? candidate.road_class;
+            if (classCode?.trim()) {
+                warnings.push("INVALID_ROAD_CLASS_ID");
+            } else {
+                blockers.push("ROAD_CLASS_MISSING");
+            }
         }
     } else {
         const classCode = candidate.class_code ?? candidate.road_class;
@@ -396,14 +400,7 @@ export class ImportReviewPromotionRoadDryRunService {
         let duplicateSummary: RoadDryRunDuplicateSummary | null = null;
         let routingSummary: RoadDryRunRoutingSummary | null = null;
 
-        const effective =
-            routingRow != null
-                ? mergeEffectiveRoadState(
-                      body.use_review_overrides
-                          ? routingRow
-                          : { ...routingRow, review_overrides: {} }
-                  )
-                : null;
+        const effective = routingRow != null ? mergeEffectiveRoadState(routingRow) : null;
 
         if (effective) {
             routingSummary = {
@@ -433,7 +430,6 @@ export class ImportReviewPromotionRoadDryRunService {
                 prisma: this.prisma,
                 streetsRepo: this.streetsRepo,
                 row: routingRow,
-                useReviewOverrides: body.use_review_overrides,
                 connectivityThresholdM: body.connectivity_threshold_m,
                 duplicateThresholdM: body.duplicate_threshold_m,
                 confirmWarnings: body.include_warnings,
@@ -450,7 +446,11 @@ export class ImportReviewPromotionRoadDryRunService {
                 infoCodes.push(i.code);
             }
             for (const e of routingResult.errors) {
-                blockingReasons.push(e.code);
+                if (isRoadPromotionBlockingErrorCode(e.code)) {
+                    blockingReasons.push(e.code);
+                } else {
+                    warningCodes.push(e.code);
+                }
             }
 
             connectivitySummary = {

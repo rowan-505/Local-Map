@@ -1,24 +1,25 @@
-import dynamic from "next/dynamic";
+import { redirect } from "next/navigation";
 
-import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
-import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
+type PageProps = {
+    searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
 
-const ImportReviewCandidatesPageShell = dynamic(
-    () =>
-        import("@/src/app/(admin)/dashboard/import-review/_components/ImportReviewCandidatesClient").then(
-            (mod) => ({
-                default: mod.ImportReviewCandidatesPageShell,
-            })
-        ),
-    {
-        loading: () => (
-            <main className="min-h-screen bg-gray-50 p-6">
-                <ImportReviewLoadingBannerWithSpinner message={IMPORT_REVIEW_LOADING.loadingRoadCandidates} />
-            </main>
-        ),
+/** Legacy data-review roads URL — unified on import-review entity page. */
+export default async function DataReviewRoadsPage({ searchParams }: PageProps) {
+    const resolved = searchParams ? await searchParams : {};
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(resolved)) {
+        if (value === undefined) {
+            continue;
+        }
+        if (Array.isArray(value)) {
+            for (const v of value) {
+                params.append(key, v);
+            }
+        } else {
+            params.set(key, value);
+        }
     }
-);
-
-export default function DataReviewRoadsPage() {
-    return <ImportReviewCandidatesPageShell family="roads" showMapPreview />;
+    const query = params.toString();
+    redirect(`/dashboard/import-review/roads${query ? `?${query}` : ""}`);
 }

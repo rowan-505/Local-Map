@@ -2,9 +2,9 @@ import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
 import { normPick } from "./entityPageUtils";
 
-function asOverrideRecord(review_overrides: unknown): Record<string, unknown> {
-    if (review_overrides && typeof review_overrides === "object" && !Array.isArray(review_overrides)) {
-        return review_overrides as Record<string, unknown>;
+function typedColumnFields(fields: unknown): Record<string, unknown> {
+    if (fields && typeof fields === "object" && !Array.isArray(fields)) {
+        return fields as Record<string, unknown>;
     }
     return {};
 }
@@ -37,7 +37,7 @@ const CLASS_TAG_KEYS: Partial<Record<string, readonly string[]>> = {
     landuse: ["landuse", "amenity", "natural"],
 };
 
-/** Imported class/type from column, normalized_data tags, or root keys (no review_overrides). */
+/** Imported class/type from column, normalized_data tags, or root keys (no fields). */
 export function deriveImportedClassCode(
     row: ImportReviewBuildingListItem,
     apiFamily: string
@@ -75,7 +75,7 @@ export function deriveImportedClassCode(
 
 /** Effective class for override editor + tables (overrides win, then API effective, then imported). */
 export function readEffectiveClassCode(row: ImportReviewBuildingListItem, apiFamily: string): string {
-    const ov = asOverrideRecord(row.review_overrides);
+    const ov = typedColumnFields(row);
 
     if (Object.prototype.hasOwnProperty.call(ov, "class_code")) {
         const v = ov.class_code;
@@ -99,7 +99,7 @@ export function readEffectiveClassCode(row: ImportReviewBuildingListItem, apiFam
 }
 
 export function readEffectiveAdminLevelId(row: ImportReviewBuildingListItem): string {
-    const ov = asOverrideRecord(row.review_overrides);
+    const ov = typedColumnFields(row);
     if (Object.prototype.hasOwnProperty.call(ov, "admin_level_id")) {
         const v = ov.admin_level_id;
         return v === null || v === undefined ? "" : String(v);
@@ -113,7 +113,7 @@ export function readEffectiveAdminLevelId(row: ImportReviewBuildingListItem): st
 }
 
 export function readEffectiveParentAdminAreaId(row: ImportReviewBuildingListItem): string {
-    const ov = asOverrideRecord(row.review_overrides);
+    const ov = typedColumnFields(row);
     if (Object.prototype.hasOwnProperty.call(ov, "parent_id")) {
         const v = ov.parent_id;
         return v === null || v === undefined ? "" : String(v);

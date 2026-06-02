@@ -11,13 +11,14 @@ import {
 import {
     effectiveAdminAreaIdExpr as buildEffectiveAdminAreaIdExpr,
 } from "./import-review-candidate-column-registry.js";
+import { overrideAllowlistForFamily } from "./import-review-overrides-allowlist.js";
 
 export type EffectiveFieldSource = "column" | "normalized";
 
 export type EffectiveFieldDef = {
     /** API response key, e.g. effective_name */
     effectiveKey: string;
-    /** review_overrides / patch key */
+    /** PATCH / column key */
     overrideKey: string;
     /** Fallback sources after override (column first, then normalized_data) */
     columnKey?: string;
@@ -29,27 +30,21 @@ export type EffectiveValuesRawRow = {
     name?: string | null;
     name_mm?: string | null;
     name_en?: string | null;
+    stop_code?: string | null;
     canonical_name?: string | null;
     class_code?: string | null;
+    barrier_type?: string | null;
+    category_id?: bigint | null;
     landuse_class_id?: bigint | null;
     admin_area_id?: bigint | null;
     levels?: number | null;
     height_m?: unknown;
     normalized_data?: unknown;
-    review_overrides?: unknown;
     /** From SQL join when effectiveAdminAreaJoin is enabled */
     effective_admin_area_name?: string | null;
     /** Extra column fields not in BuildingListRowDb padding */
     name_local?: string | null;
-    stop_code?: string | null;
 };
-
-function asOverrideRecord(review_overrides: unknown): Record<string, unknown> {
-    if (review_overrides && typeof review_overrides === "object" && !Array.isArray(review_overrides)) {
-        return review_overrides as Record<string, unknown>;
-    }
-    return {};
-}
 
 function normPick(data: unknown, key: string): unknown {
     if (data === null || typeof data !== "object" || Array.isArray(data)) {
@@ -71,6 +66,13 @@ export function pickEffectiveString(
     overrides: Record<string, unknown>,
     ...fallbacks: unknown[]
 ): string | null {
+    for (const fb of fallbacks) {
+        if (fb === null || fb === undefined) {
+            continue;
+        }
+        const s = String(fb);
+        return s;
+    }
     if (Object.prototype.hasOwnProperty.call(overrides, overrideKey)) {
         const v = overrides[overrideKey];
         if (v === null || v === undefined) {
@@ -81,13 +83,6 @@ export function pickEffectiveString(
         }
         return String(v);
     }
-    for (const fb of fallbacks) {
-        if (fb === null || fb === undefined) {
-            continue;
-        }
-        const s = String(fb);
-        return s;
-    }
     return null;
 }
 
@@ -96,20 +91,6 @@ export function pickEffectiveBigint(
     overrides: Record<string, unknown>,
     ...fallbacks: unknown[]
 ): string | null {
-    if (Object.prototype.hasOwnProperty.call(overrides, overrideKey)) {
-        const v = overrides[overrideKey];
-        if (v === null || v === undefined) {
-            return null;
-        }
-        if (typeof v === "bigint") {
-            return v.toString();
-        }
-        if (typeof v === "number" && Number.isFinite(v)) {
-            return String(Math.trunc(v));
-        }
-        const s = String(v).trim();
-        return /^\d+$/.test(s) ? s : null;
-    }
     for (const fb of fallbacks) {
         if (fb === null || fb === undefined) {
             continue;
@@ -125,6 +106,20 @@ export function pickEffectiveBigint(
             return s;
         }
     }
+    if (Object.prototype.hasOwnProperty.call(overrides, overrideKey)) {
+        const v = overrides[overrideKey];
+        if (v === null || v === undefined) {
+            return null;
+        }
+        if (typeof v === "bigint") {
+            return v.toString();
+        }
+        if (typeof v === "number" && Number.isFinite(v)) {
+            return String(Math.trunc(v));
+        }
+        const s = String(v).trim();
+        return /^\d+$/.test(s) ? s : null;
+    }
     return null;
 }
 
@@ -133,14 +128,6 @@ export function pickEffectiveNumber(
     overrides: Record<string, unknown>,
     ...fallbacks: unknown[]
 ): number | null {
-    if (Object.prototype.hasOwnProperty.call(overrides, overrideKey)) {
-        const v = overrides[overrideKey];
-        if (v === null || v === undefined) {
-            return null;
-        }
-        const n = typeof v === "number" ? v : Number(v);
-        return Number.isFinite(n) ? n : null;
-    }
     for (const fb of fallbacks) {
         if (fb === null || fb === undefined) {
             continue;
@@ -150,15 +137,32 @@ export function pickEffectiveNumber(
             return n;
         }
     }
+    if (Object.prototype.hasOwnProperty.call(overrides, overrideKey)) {
+        const v = overrides[overrideKey];
+        if (v === null || v === undefined) {
+            return null;
+        }
+        const n = typeof v === "number" ? v : Number(v);
+        return Number.isFinite(n) ? n : null;
+    }
     return null;
 }
 
-export function computeOverrideMeta(overrides: unknown): {
+export function computeColumnEditMeta(
+    family: ImportReviewEntityFamilySlug,
+    raw: EffectiveValuesRawRow
+): {
     has_overrides: boolean;
     overridden_fields: string[];
 } {
-    const ov = asOverrideRecord(overrides);
-    const overridden_fields = Object.keys(ov).filter((key) => ov[key] !== null && ov[key] !== undefined);
+    const allowlist = overrideAllowlistForFamily(family);
+    const overridden_fields: string[] = [];
+    for (const key of allowlist) {
+        const v = resolveColumnValue(raw, key);
+        if (v !== null && v !== undefined && v !== "") {
+            overridden_fields.push(key);
+        }
+    }
     return {
         has_overrides: overridden_fields.length > 0,
         overridden_fields,
@@ -332,29 +336,62 @@ function toNameCandidate(
     raw: EffectiveValuesRawRow,
     item?: ImportReviewBuildingListItem
 ): ImportReviewNameCandidate {
-    return {
-        review_overrides: raw.review_overrides,
+    const candidate: ImportReviewNameCandidate = {
         canonical_name: raw.canonical_name ?? null,
         normalized_data: raw.normalized_data,
         class_code: raw.class_code ?? null,
         external_id: item?.external_id ?? null,
         name: raw.name ?? item?.name ?? null,
     };
+    const nameMm = raw.name_mm ?? item?.name_mm;
+    if (nameMm !== undefined) {
+        candidate.name_mm = nameMm;
+    }
+    const nameEn = raw.name_en ?? item?.name_en;
+    if (nameEn !== undefined) {
+        candidate.name_en = nameEn;
+    }
+    return candidate;
 }
 
+function typedNameFromRow(
+    raw: EffectiveValuesRawRow,
+    item: ImportReviewBuildingListItem,
+    key: "name_mm" | "name_en"
+): string | null {
+    const fromRaw = raw[key];
+    if (fromRaw !== undefined && fromRaw !== null && String(fromRaw).trim() !== "") {
+        return String(fromRaw).trim();
+    }
+    const fromItem = item[key];
+    if (fromItem !== undefined && fromItem !== null && String(fromItem).trim() !== "") {
+        return String(fromItem).trim();
+    }
+    return null;
+}
+
+/**
+ * Maps typed `name_mm` / `name_en` onto API item and legacy `effective_name_*` fields.
+ * Typed direct-edit columns win over source/legacy names — see docs/import-review/naming-contract.md.
+ */
 function applyBilingualNameFields(
     item: ImportReviewBuildingListItem,
-    overrides: Record<string, unknown>,
     raw: EffectiveValuesRawRow
 ): ImportReviewBuildingListItem {
-    const candidate = { ...toNameCandidate(raw, item), review_overrides: overrides };
-    const { name_mm: effective_name_mm, name_en: effective_name_en, name_und: effective_name_und } =
-        deriveImportReviewNames(candidate);
-    const effective_name = pickEffectiveDisplayName(overrides, candidate);
+    const candidate = toNameCandidate(raw, item);
+    const emptyOverrides: Record<string, unknown> = {};
+    const derived = deriveImportReviewNames(candidate);
+    const typed_name_mm = typedNameFromRow(raw, item, "name_mm");
+    const typed_name_en = typedNameFromRow(raw, item, "name_en");
+    const effective_name_mm = typed_name_mm ?? derived.name_mm;
+    const effective_name_en = typed_name_en ?? derived.name_en;
+    const effective_name_und = derived.name_und;
+    const effective_name =
+        effective_name_en ?? effective_name_mm ?? pickEffectiveDisplayName(emptyOverrides, candidate);
     return {
         ...item,
-        name_mm: effective_name_mm,
-        name_en: effective_name_en,
+        name_mm: typed_name_mm,
+        name_en: typed_name_en,
         effective_name_mm,
         effective_name_en,
         effective_name_und,
@@ -367,19 +404,19 @@ function applyBilingualNameFields(
 /** Bus-stop-specific extras beyond bilingual names. */
 function applyBusStopEffectiveExtras(
     item: ImportReviewBuildingListItem,
-    overrides: Record<string, unknown>,
     raw: EffectiveValuesRawRow
 ): ImportReviewBuildingListItem {
-    const withNames = applyBilingualNameFields(item, overrides, raw);
+    const withNames = applyBilingualNameFields(item, raw);
+    const emptyOverrides: Record<string, unknown> = {};
     const effective_stop_code = pickEffectiveString(
         "stop_code",
-        overrides,
+        emptyOverrides,
         raw.stop_code,
         normPick(raw.normalized_data, "stop_code")
     );
     const effective_admin_area_id = pickEffectiveBigint(
         "admin_area_id",
-        overrides,
+        emptyOverrides,
         raw.admin_area_id,
         normPick(raw.normalized_data, "admin_area_id")
     );
@@ -405,12 +442,13 @@ export function applyImportReviewEffectiveFields(
         levels: baseItem.levels,
         height_m: baseItem.height_m,
         normalized_data: baseItem.normalized_data,
-        review_overrides: baseItem.review_overrides,
+        name_mm: baseItem.name_mm ?? null,
+        name_en: baseItem.name_en ?? null,
         effective_admin_area_name: baseItem.effective_admin_area_name ?? null,
     };
 
-    const overrides = asOverrideRecord(raw.review_overrides ?? baseItem.review_overrides);
-    const meta = computeOverrideMeta(overrides);
+    const emptyOverrides: Record<string, unknown> = {};
+    const meta = computeColumnEditMeta(family, raw);
     const defs = IMPORT_REVIEW_EFFECTIVE_FIELD_REGISTRY[family];
 
     let enriched: ImportReviewBuildingListItem = {
@@ -420,7 +458,7 @@ export function applyImportReviewEffectiveFields(
     };
 
     if (family === "bus_stops") {
-        enriched = applyBusStopEffectiveExtras(enriched, overrides, raw);
+        enriched = applyBusStopEffectiveExtras(enriched, raw);
         if (raw.effective_admin_area_name) {
             enriched = { ...enriched, effective_admin_area_name: raw.effective_admin_area_name };
         }
@@ -428,7 +466,7 @@ export function applyImportReviewEffectiveFields(
     }
 
     if (BILINGUAL_NAME_FAMILIES.has(family)) {
-        enriched = applyBilingualNameFields(enriched, overrides, raw);
+        enriched = applyBilingualNameFields(enriched, raw);
     }
 
     if (!defs || defs.length === 0) {
@@ -437,7 +475,7 @@ export function applyImportReviewEffectiveFields(
 
     const effectivePatch: Record<string, unknown> = {};
     for (const def of defs) {
-        effectivePatch[def.effectiveKey] = computeEffectiveField(def, overrides, raw, family);
+        effectivePatch[def.effectiveKey] = computeEffectiveField(def, emptyOverrides, raw, family);
     }
 
     enriched = {
@@ -446,6 +484,19 @@ export function applyImportReviewEffectiveFields(
         effective_admin_area_name:
             raw.effective_admin_area_name ?? enriched.effective_admin_area_name ?? null,
     };
+
+    if (family === "routing_barriers") {
+        enriched = {
+            ...enriched,
+            class_code:
+                raw.class_code !== undefined && raw.class_code !== null
+                    ? String(raw.class_code)
+                    : (enriched.class_code ?? null),
+            ...(raw.barrier_type !== undefined && raw.barrier_type !== null
+                ? { barrier_type: String(raw.barrier_type) }
+                : {}),
+        };
+    }
 
     return enriched;
 }
@@ -456,7 +507,6 @@ export function busStopStopCodeExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'stop_code',
             ${a}.stop_code,
             ${a}.normalized_data->>'stop_code',
             ''
@@ -468,7 +518,7 @@ export function busStopNameMmExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'name_mm',
+            ${a}.name_mm,
             ${a}.normalized_data->'tags'->>'name',
             ${a}.canonical_name,
             ''
@@ -480,7 +530,7 @@ export function busStopNameEnExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'name_en',
+            ${a}.name_en,
             ${a}.normalized_data->'tags'->>'name:en',
             ''
         )), '')
@@ -528,14 +578,6 @@ export function busStopPointGeomExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         CASE
-            WHEN ${a}.review_overrides ? 'geom'
-                 AND ${a}.review_overrides->'geom' IS NOT NULL
-                 AND jsonb_typeof(${a}.review_overrides->'geom') = 'object'
-            THEN ST_SetSRID(ST_GeomFromGeoJSON(${a}.review_overrides->'geom'), 4326)
-            WHEN ${a}.review_overrides ? 'point_geom'
-                 AND ${a}.review_overrides->'point_geom' IS NOT NULL
-                 AND jsonb_typeof(${a}.review_overrides->'point_geom') = 'object'
-            THEN ST_SetSRID(ST_GeomFromGeoJSON(${a}.review_overrides->'point_geom'), 4326)
             WHEN ${a}.geom IS NOT NULL THEN ${a}.geom
             ELSE NULL::geometry(Point, 4326)
         END

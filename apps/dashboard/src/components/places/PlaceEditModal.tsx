@@ -25,6 +25,8 @@ import { MAP_EDITOR_VIEWPORT_CLASS } from "@/src/components/map/mapPreviewUi";
 import { coreReviewFitButtonLabel, placeCoordinatesToGeoJson } from "@/src/components/core-review/coreReviewMapGeometry";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 import PlaceLinkedBuildingsPanel from "./PlaceLinkedBuildingsPanel";
+import PoiCategoryCombobox from "@/src/components/poi-categories/PoiCategoryCombobox";
+import { placeFormOptionToPoiCategory } from "@/src/lib/poi-category/display";
 
 const scoreFieldSchema = z.union([z.number().finite(), z.literal("")]);
 
@@ -397,17 +399,21 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
 
                                     <label className="block">
                                         <span className="mb-1 block text-sm text-gray-700">Category</span>
-                                        <select
-                                            {...register("categoryId")}
-                                            className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
-                                        >
-                                            <option value="">Select category</option>
-                                            {options.categories.map((option) => (
-                                                <option key={option.id} value={option.id}>
-                                                    {option.label}
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <Controller
+                                            name="categoryId"
+                                            control={control}
+                                            render={({ field }) => (
+                                                <PoiCategoryCombobox
+                                                    value={field.value}
+                                                    onChange={field.onChange}
+                                                    options={options.categories.map((option) =>
+                                                        placeFormOptionToPoiCategory(option)
+                                                    )}
+                                                    placeholder="Search category…"
+                                                    allowEmpty={false}
+                                                />
+                                            )}
+                                        />
                                         {categoryError ? (
                                             <span className="mt-1 block text-sm text-red-600">
                                                 {categoryError}

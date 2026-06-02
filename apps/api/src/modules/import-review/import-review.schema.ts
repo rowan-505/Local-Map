@@ -251,11 +251,11 @@ const includeGeometryQuerySchema = includeGeometryListQuerySchema;
 const includeTotalListQuerySchema = z
     .preprocess((v) => {
         if (v === undefined) {
-            return true;
+            return false;
         }
         return !(v === false || v === "false" || v === "0" || v === 0);
     }, z.boolean())
-    .default(true);
+    .default(false);
 
 export const importReviewEntityFamilyParamSchema = z.enum(IMPORT_REVIEW_ENTITY_FAMILIES);
 
@@ -316,13 +316,18 @@ export const importReviewBuildingsQuerySchema = z.preprocess(
     importReviewBuildingsQueryBaseInner
 );
 
-/** Same field set as buildings list except no `class_code` (not on place/road candidates). */
-const importReviewPlacesRoadsQueryBaseInner = importReviewScopeObjectSchema
+/** Same field set as buildings list except no `class_code` on place candidates. */
+const importReviewPlacesQueryBaseInner = importReviewScopeObjectSchema
     .extend({
         match_status: optionalTrimmedStringSchema,
         auto_action: optionalTrimmedStringSchema,
         review_status: optionalTrimmedStringSchema,
         review_decision: optionalTrimmedStringSchema,
+        promotion_status: optionalTrimmedStringSchema,
+        include_promoted: z
+            .preprocess((v) => v === true || v === "true" || v === "1" || v === 1, z.boolean())
+            .optional()
+            .default(false),
         q: optionalTrimmedStringSchema,
         limit: z.coerce.number().int().min(1).max(200).default(50),
         offset: z.coerce.number().int().min(0).default(0),
@@ -332,19 +337,20 @@ const importReviewPlacesRoadsQueryBaseInner = importReviewScopeObjectSchema
     })
     .superRefine(refineImportReviewSnapshotBatchScope);
 
-/** Same as buildings list filters except no `class_code` (not on place/road candidates). */
+/** Roads list adds optional `class_code` (road class filter). */
+const importReviewRoadsQueryBaseInner = importReviewPlacesQueryBaseInner.extend({
+    class_code: optionalTrimmedStringSchema,
+});
+
+/** Same as buildings list filters except no `class_code` (not on place candidates). */
 export const importReviewPlacesQuerySchema = z.preprocess(
     preprocessImportReviewScopeQuery,
-    importReviewPlacesRoadsQueryBaseInner
+    importReviewPlacesQueryBaseInner
 );
 
 export const importReviewRoadsQuerySchema = z.preprocess(
     preprocessImportReviewScopeQuery,
-    importReviewPlacesRoadsQueryBaseInner.extend({
-        promotion_status: optionalTrimmedStringSchema,
-        class_code: optionalTrimmedStringSchema,
-        include_promoted: z.coerce.boolean().optional(),
-    })
+    importReviewRoadsQueryBaseInner
 );
 
 export type ImportReviewBuildingsQuery = z.infer<typeof importReviewBuildingsQuerySchema>;
@@ -445,11 +451,11 @@ const importReviewOverrideReviewNoteSchema = z.preprocess((value) => {
     return value;
 }, z.union([z.string().max(20_000), z.null()]).optional());
 
-/** PATCH `/buildings/:id/overrides` merges into `review_overrides`; optional audit row into `review_candidate_edits`. */
+/** PATCH `/buildings/:id/overrides` — deprecated shim; writes typed columns via `fields`. */
 const patchOverridesBodyInner = importReviewScopeObjectSchema
     .extend({
-        /** Shallow-merge patch; `{}` clears all stored overrides; null removes individual keys. */
-        review_overrides: importReviewReviewOverridesPatchSchema,
+        /** Shallow field patch; null removes a column value; {} is a no-op field patch. */
+        fields: importReviewReviewOverridesPatchSchema,
         review_note: importReviewOverrideReviewNoteSchema,
     })
     .superRefine(refineImportReviewSnapshotBatchScope);
@@ -463,7 +469,7 @@ export type PatchImportReviewBuildingOverridesBody = z.infer<typeof patchImportR
 
 const patchCandidateOverridesBodyInner = importReviewScopeObjectSchema
     .extend({
-        review_overrides: importReviewReviewOverridesPatchSchema,
+        fields: importReviewReviewOverridesPatchSchema,
         review_note: importReviewOverrideReviewNoteSchema,
     })
     .superRefine(refineImportReviewSnapshotBatchScope);
@@ -475,9 +481,25 @@ export const patchImportReviewCandidateOverridesBodySchema = z.preprocess(
 
 export type PatchImportReviewCandidateOverridesBody = z.infer<typeof patchImportReviewCandidateOverridesBodySchema>;
 
+const patchCandidateColumnsBodyInner = importReviewScopeObjectSchema
+    .extend({
+        fields: importReviewReviewOverridesPatchSchema,
+        review_note: importReviewOverrideReviewNoteSchema,
+        routing_validation_tolerance_meters: z.coerce.number().finite().min(5).max(250).optional(),
+        confirm_acknowledge_routing_warnings: z.boolean().optional(),
+    })
+    .superRefine(refineImportReviewSnapshotBatchScope);
+
+export const patchImportReviewCandidateColumnsBodySchema = z.preprocess(
+    preprocessImportReviewScopeQuery,
+    patchCandidateColumnsBodyInner
+);
+
+export type PatchImportReviewCandidateColumnsBody = z.infer<typeof patchImportReviewCandidateColumnsBodySchema>;
+
 const patchRoadOverridesRoutingBodyInner = importReviewScopeObjectSchema
     .extend({
-        review_overrides: importReviewReviewOverridesPatchSchema,
+        fields: importReviewReviewOverridesPatchSchema,
         review_note: importReviewOverrideReviewNoteSchema,
         routing_validation_tolerance_meters: z.coerce.number().finite().min(5).max(250).default(35),
         confirm_acknowledge_routing_warnings: z.boolean().optional().default(false),
@@ -493,7 +515,6 @@ export type PatchImportReviewRoadOverridesBody = z.infer<typeof patchImportRevie
 
 const postImportReviewRoadValidateRoutingBodyInner = importReviewScopeObjectSchema
     .extend({
-        use_review_overrides: z.boolean().optional().default(true),
         connectivity_threshold_m: z.coerce.number().finite().min(1).max(250).default(10),
         duplicate_threshold_m: z.coerce.number().finite().min(1).max(100).default(5),
         confirm_warnings: z.boolean().optional().default(false),

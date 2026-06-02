@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 
+import { importReviewCandidateTableHasColumn } from "./import-review-candidate-column-registry.js";
 import type { ImportReviewEntityFamilyConfig } from "./import-review-config.js";
+import { ImportReviewDecisionRuleError } from "./import-review-errors.js";
 import {
     busStopNameEnExpr,
     busStopNameMmExpr,
@@ -42,6 +44,169 @@ function colRef(config: ImportReviewEntityFamilyConfig, column: string): Prisma.
     return Prisma.raw(`${config.tableAlias}.${column}`);
 }
 
+/** UPDATE SET target column (must not be alias-qualified). */
+export function updateSetColumn(column: string): Prisma.Sql {
+    return Prisma.raw(column);
+}
+
+export function buildUpdateColumnAssignment(column: string, value: unknown): Prisma.Sql {
+    if (value === null || value === undefined) {
+        return Prisma.sql`${updateSetColumn(column)} = NULL`;
+    }
+
+    if (BIGINT_SET_COLUMNS.has(column)) {
+        const normalized = normalizeBigintPatchValue(column, value);
+        return Prisma.sql`${updateSetColumn(column)} = ${normalized}::bigint`;
+    }
+
+    if (INTEGER_SET_COLUMNS.has(column)) {
+        const normalized = normalizeIntegerPatchValue(column, value);
+        return Prisma.sql`${updateSetColumn(column)} = ${normalized}::integer`;
+    }
+
+    if (NUMERIC_SET_COLUMNS.has(column)) {
+        const normalized = normalizeNumericPatchValue(column, value);
+        return Prisma.sql`${updateSetColumn(column)} = ${normalized}::numeric`;
+    }
+
+    if (BOOLEAN_SET_COLUMNS.has(column)) {
+        const normalized = normalizeBooleanPatchValue(column, value);
+        return Prisma.sql`${updateSetColumn(column)} = ${normalized}::boolean`;
+    }
+
+    if (JSONB_SET_COLUMNS.has(column)) {
+        return Prisma.sql`${updateSetColumn(column)} = ${JSON.stringify(value)}::jsonb`;
+    }
+
+    return Prisma.sql`${updateSetColumn(column)} = ${value}`;
+}
+
+const BIGINT_SET_COLUMNS = new Set([
+    "admin_area_id",
+    "category_id",
+    "building_type_id",
+    "road_class_id",
+    "landuse_class_id",
+    "admin_level_id",
+    "parent_id",
+    "street_id",
+    "route_id",
+    "route_variant_id",
+    "stop_id",
+]);
+
+const INTEGER_SET_COLUMNS = new Set(["layer", "levels", "stop_sequence"]);
+
+const NUMERIC_SET_COLUMNS = new Set([
+    "speed_kph",
+    "confidence_score",
+    "importance_score",
+    "popularity_score",
+    "height_m",
+    "length_m",
+    "distance_m",
+    "distance_from_start_m",
+]);
+
+const BOOLEAN_SET_COLUMNS = new Set([
+    "is_oneway",
+    "bridge",
+    "tunnel",
+    "intermittent",
+    "is_timing_point",
+]);
+
+const JSONB_SET_COLUMNS = new Set(["validation_warnings", "validation_errors"]);
+
+function normalizeBigintPatchValue(column: string, value: unknown): bigint {
+    if (typeof value === "bigint") {
+        return value;
+    }
+    if (typeof value === "number" && Number.isInteger(value)) {
+        return BigInt(value);
+    }
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (/^-?\d+$/.test(trimmed)) {
+            return BigInt(trimmed);
+        }
+    }
+    throw new ImportReviewDecisionRuleError(
+        `fields.${column} must be an integer-compatible id or null.`
+    );
+}
+
+function normalizeIntegerPatchValue(column: string, value: unknown): number {
+    if (typeof value === "number" && Number.isInteger(value)) {
+        return value;
+    }
+    if (typeof value === "bigint") {
+        const asNumber = Number(value);
+        if (Number.isSafeInteger(asNumber)) {
+            return asNumber;
+        }
+    }
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (/^-?\d+$/.test(trimmed)) {
+            const asNumber = Number(trimmed);
+            if (Number.isSafeInteger(asNumber)) {
+                return asNumber;
+            }
+        }
+    }
+    throw new ImportReviewDecisionRuleError(
+        `fields.${column} must be an integer or null.`
+    );
+}
+
+function normalizeNumericPatchValue(column: string, value: unknown): number {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value === "bigint") {
+        return Number(value);
+    }
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (trimmed.length > 0) {
+            const asNumber = Number(trimmed);
+            if (Number.isFinite(asNumber)) {
+                return asNumber;
+            }
+        }
+    }
+    throw new ImportReviewDecisionRuleError(
+        `fields.${column} must be a numeric value or null.`
+    );
+}
+
+function normalizeBooleanPatchValue(column: string, value: unknown): boolean {
+    if (typeof value === "boolean") {
+        return value;
+    }
+    if (typeof value === "number") {
+        if (value === 1) {
+            return true;
+        }
+        if (value === 0) {
+            return false;
+        }
+    }
+    if (typeof value === "string") {
+        const trimmed = value.trim().toLowerCase();
+        if (trimmed === "true" || trimmed === "1") {
+            return true;
+        }
+        if (trimmed === "false" || trimmed === "0") {
+            return false;
+        }
+    }
+    throw new ImportReviewDecisionRuleError(
+        `fields.${column} must be a boolean or null.`
+    );
+}
+
 function qual(config: ImportReviewEntityFamilyConfig, expr: string): Prisma.Sql {
     return Prisma.raw(`${config.tableAlias}.${expr}`);
 }
@@ -62,28 +227,43 @@ export function shapeColumn(
     return colRef(config, mapped);
 }
 
-/** Effective FK: review_overrides.building_type_id wins over candidate column. */
-export function effectiveBuildingTypeIdExpr(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
-    const ov = Prisma.sql`COALESCE(to_jsonb(${colRef(config, "review_overrides")}), '{}'::jsonb)`;
+/** Typed candidate column in SELECT, or NULL when the table has no such column. */
+export function optionalTypedCandidateColumn(
+    config: ImportReviewEntityFamilyConfig,
+    column: string,
+    sqlType: string
+): Prisma.Sql {
+    if (!importReviewCandidateTableHasColumn(config.importReviewTable, column)) {
+        return Prisma.raw(`NULL::${sqlType}`);
+    }
+    return colRef(config, column);
+}
+
+/**
+ * Lightweight list: typed reviewer name columns from DB only (not coalesced with normalized_data).
+ * Typed direct-edit columns win over source/legacy names — docs/import-review/naming-contract.md.
+ */
+export function buildLightweightTypedNameColumns(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
+    if (
+        !importReviewCandidateTableHasColumn(config.importReviewTable, "name_mm") &&
+        !importReviewCandidateTableHasColumn(config.importReviewTable, "name_en")
+    ) {
+        return Prisma.empty;
+    }
     return Prisma.sql`
-        CASE
-            WHEN (${ov}->>'building_type_id') ~ '^[0-9]+$'
-            THEN (${ov}->>'building_type_id')::bigint
-            ELSE ${shapeColumn(config, "building_type_id", "bigint")}
-        END
+        , ${optionalTypedCandidateColumn(config, "name_mm", "text")} AS name_mm
+        , ${optionalTypedCandidateColumn(config, "name_en", "text")} AS name_en
     `;
 }
 
-/** Effective FK: review_overrides.landuse_class_id wins over candidate column. */
+/** Effective FK from typed building_type_id column. */
+export function effectiveBuildingTypeIdExpr(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
+    return shapeColumn(config, "building_type_id", "bigint");
+}
+
+/** Effective FK from typed landuse_class_id column. */
 export function effectiveLanduseClassIdExpr(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
-    const ov = Prisma.sql`COALESCE(to_jsonb(${colRef(config, "review_overrides")}), '{}'::jsonb)`;
-    return Prisma.sql`
-        CASE
-            WHEN (${ov}->>'landuse_class_id') ~ '^[0-9]+$'
-            THEN (${ov}->>'landuse_class_id')::bigint
-            ELSE ${shapeColumn(config, "landuse_class_id", "bigint")}
-        END
-    `;
+    return shapeColumn(config, "landuse_class_id", "bigint");
 }
 
 function buildSearchClause(config: ImportReviewEntityFamilyConfig, q: string): Prisma.Sql {
@@ -93,8 +273,8 @@ function buildSearchClause(config: ImportReviewEntityFamilyConfig, q: string): P
             ${colRef(config, "canonical_name")} ILIKE ${pattern}
             OR ${colRef(config, "external_id")} ILIKE ${pattern}
             OR ${colRef(config, "stop_code")} ILIKE ${pattern}
-            OR ${colRef(config, "review_overrides")}->>'name_mm' ILIKE ${pattern}
-            OR ${colRef(config, "review_overrides")}->>'name_en' ILIKE ${pattern}
+            OR ${colRef(config, "name_mm")} ILIKE ${pattern}
+            OR ${colRef(config, "name_en")} ILIKE ${pattern}
             OR ${colRef(config, "normalized_data")}->'tags'->>'name' ILIKE ${pattern}
             OR ${colRef(config, "normalized_data")}->'tags'->>'name:en' ILIKE ${pattern}
         )`;
@@ -250,6 +430,12 @@ export function buildCandidateCommonSelect(
         Prisma.sql`${qual(config, "external_id")},`,
         Prisma.sql`${qual(config, "canonical_name")},`,
         Prisma.sql`${shapeColumn(config, "name", "text")} AS name,`,
+        Prisma.sql`${optionalTypedCandidateColumn(config, "name_mm", "text")} AS name_mm,`,
+        Prisma.sql`${optionalTypedCandidateColumn(config, "name_en", "text")} AS name_en,`,
+        Prisma.sql`${optionalTypedCandidateColumn(config, "category_id", "bigint")} AS category_id,`,
+        Prisma.sql`${optionalTypedCandidateColumn(config, "primary_name", "text")} AS primary_name,`,
+        Prisma.sql`${optionalTypedCandidateColumn(config, "display_name", "text")} AS display_name,`,
+        Prisma.sql`${optionalTypedCandidateColumn(config, "barrier_type", "text")} AS barrier_type,`,
         Prisma.sql`${qual(config, "class_code")},`,
         Prisma.sql`${shapeColumn(config, "building_type", "text")} AS building_type,`,
         config.buildingTypeJoin
@@ -274,7 +460,6 @@ export function buildCandidateCommonSelect(
         Prisma.sql`${qual(config, "review_note")},`,
         Prisma.sql`${qual(config, "normalized_data")},`,
         Prisma.sql`${qual(config, "source_refs")},`,
-        Prisma.sql`COALESCE(to_jsonb(${colRef(config, "review_overrides")}), '{}'::jsonb) AS review_overrides,`,
         Prisma.sql`${qual(config, "matched_core_id")},`,
         Prisma.sql`${qual(config, "matched_core_table")},`,
         Prisma.sql`${qual(config, "matched_core_data")},`,

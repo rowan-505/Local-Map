@@ -10,6 +10,7 @@ import {
     buildCandidateRowQueryParts,
     buildCandidateScopeWhere,
     buildCandidateWhereClause,
+    buildUpdateColumnAssignment,
     colRef,
     buildFilterOptionsColumnSql,
     buildSummaryAggregationSql,
@@ -35,8 +36,17 @@ import type {
     ReviewActor,
 } from "./import-review-data-repository.js";
 import type { ImportReviewBulkFilters } from "./import-review.schema.js";
-import { buildReviewOverridesMergeExpr } from "./import-review-overrides-merge.js";
 import type { ImportReviewBulkDecisionRepoResult, ImportReviewBulkSkippedReason } from "./import-review.types.js";
+import {
+    buildCandidateColumnGeometrySetSql,
+    IMPORT_REVIEW_CANDIDATE_COLUMN_EDIT_TYPE,
+    isGeometryColumnKey,
+    mapOverridePatchToColumnPatch,
+    pickColumnSnapshot,
+    stringifyColumnAuditSnapshot,
+    type CandidateColumnPatch,
+} from "./import-review-candidate-column-patch.js";
+import { ImportReviewDecisionRuleError } from "./import-review-errors.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -129,17 +139,20 @@ export class GenericImportReviewCandidateRepository {
         if (!(await this.pgRegclassExists(`import_review.${config.importReviewTable}`))) {
             return null;
         }
+        const timing = createImportReviewListTimingSink({ family, reviewBatchId });
 
         const where = buildCandidateScopeWhere(config, reviewBatchId, id);
         const detailFrom = buildCandidateDetailFromClause(config);
         const detailSelect = buildCandidateDetailSelect(config);
 
-        const detailRows = await this.prisma.$queryRaw<BuildingListRowDb[]>`
-            SELECT ${detailSelect}
-            FROM ${detailFrom}
-            WHERE ${where}
-            LIMIT 1
-        `;
+        const detailRows = await timeImportReviewListStep("detail_select", timing, () =>
+            this.prisma.$queryRaw<BuildingListRowDb[]>`
+                SELECT ${detailSelect}
+                FROM ${detailFrom}
+                WHERE ${where}
+                LIMIT 1
+            `
+        );
         const detail = detailRows[0];
         if (detail === undefined) {
             return null;
@@ -150,14 +163,16 @@ export class GenericImportReviewCandidateRepository {
 
         const geometrySelect = buildCandidateGeometrySelect(config);
         const geometryFrom = Prisma.sql`${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(config.tableAlias)}`;
-        const geometryRows = await this.prisma.$queryRaw<
-            Pick<BuildingListRowDb, "id" | "geometry" | "centroid">[]
-        >`
-            SELECT ${geometrySelect}
-            FROM ${geometryFrom}
-            WHERE ${where}
-            LIMIT 1
-        `;
+        const geometryRows = await timeImportReviewListStep("detail_geometry", timing, () =>
+            this.prisma.$queryRaw<
+                Pick<BuildingListRowDb, "id" | "geometry" | "centroid">[]
+            >`
+                SELECT ${geometrySelect}
+                FROM ${geometryFrom}
+                WHERE ${where}
+                LIMIT 1
+            `
+        );
         const geometry = geometryRows[0];
         if (geometry === undefined) {
             return detail;
@@ -176,6 +191,7 @@ export class GenericImportReviewCandidateRepository {
     ): Promise<Record<string, string[]>> {
         const config = getImportReviewEntityConfig(family);
         const out: Record<string, string[]> = {};
+        const timing = createImportReviewListTimingSink({ family, reviewBatchId });
 
         if (!(await this.pgRegclassExists(`import_review.${config.importReviewTable}`))) {
             for (const field of config.filterFields) {
@@ -186,15 +202,17 @@ export class GenericImportReviewCandidateRepository {
 
         const distinctStrings = async (field: (typeof config.filterFields)[number]): Promise<string[]> => {
             const columnSql = buildFilterOptionsColumnSql(config, field);
-            const rows = await this.prisma.$queryRaw<{ v: string }[]>`
-                SELECT DISTINCT ${columnSql} AS v
-                FROM ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(config.tableAlias)}
-                WHERE ${Prisma.raw(`${config.tableAlias}.review_batch_id`)} = ${reviewBatchId}
-                  AND ${Prisma.raw(`${config.tableAlias}.entity_family`)} = ${config.entityFamily}
-                  AND ${columnSql} IS NOT NULL
-                  AND trim(${columnSql}) <> ''
-                ORDER BY 1
-            `;
+            const rows = await timeImportReviewListStep(`filter_options_${String(field)}`, timing, () =>
+                this.prisma.$queryRaw<{ v: string }[]>`
+                    SELECT DISTINCT ${columnSql} AS v
+                    FROM ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(config.tableAlias)}
+                    WHERE ${Prisma.raw(`${config.tableAlias}.review_batch_id`)} = ${reviewBatchId}
+                      AND ${Prisma.raw(`${config.tableAlias}.entity_family`)} = ${config.entityFamily}
+                      AND ${columnSql} IS NOT NULL
+                      AND trim(${columnSql}) <> ''
+                    ORDER BY 1
+                `
+            );
             return rows.map((r) => r.v);
         };
 
@@ -225,7 +243,6 @@ export class GenericImportReviewCandidateRepository {
                 match_status: string | null;
                 auto_action: string | null;
                 promotion_status: string | null;
-                review_overrides: unknown;
                 validation_warnings: unknown;
                 validation_errors: unknown;
             }[]
@@ -234,7 +251,6 @@ export class GenericImportReviewCandidateRepository {
                 ${Prisma.raw(`${config.tableAlias}.match_status`)},
                 ${Prisma.raw(`${config.tableAlias}.auto_action`)},
                 ${Prisma.raw(`${config.tableAlias}.promotion_status`)},
-                COALESCE(to_jsonb(${colRef(config, "review_overrides")}), '{}'::jsonb) AS review_overrides,
                 ${Prisma.raw(`${config.tableAlias}.validation_warnings`)},
                 ${Prisma.raw(`${config.tableAlias}.validation_errors`)}
             FROM ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(config.tableAlias)}
@@ -244,38 +260,71 @@ export class GenericImportReviewCandidateRepository {
         return rows[0] ?? null;
     }
 
-    async patchCandidateReviewOverrides(args: {
+    async patchCandidateColumns(args: {
         family: ImportReviewEntityFamilySlug;
         reviewBatchId: bigint;
         id: bigint;
-        overridesPatch: Record<string, unknown>;
+        columnPatch: CandidateColumnPatch;
         editedByUserId: bigint | null;
         reviewNote: string | null | undefined;
+        extraSetParts?: Prisma.Sql[];
+        /** When true, empty columnPatch is an error (direct PATCH); note-only updates are not allowed. */
+        requireTypedColumnUpdates?: boolean;
     }): Promise<BuildingListRowDb | null> {
         const config = getImportReviewEntityConfig(args.family);
-        if (!(await this.pgRegclassExists(`import_review.${config.importReviewTable}`))) {
+        const tableName = `import_review.${config.importReviewTable}`;
+        if (!(await this.pgRegclassExists(tableName))) {
             return null;
+        }
+
+        const columnKeys = Object.keys(args.columnPatch);
+        if (args.requireTypedColumnUpdates && columnKeys.length === 0) {
+            throw new ImportReviewDecisionRuleError(
+                "Direct column PATCH requires at least one typed column assignment."
+            );
+        }
+        if (columnKeys.length === 0 && args.reviewNote === undefined && !args.extraSetParts?.length) {
+            return this.findCandidateById(args.family, args.reviewBatchId, args.id);
         }
 
         const auditSupported = await this.pgRegclassExists("import_review.review_candidate_edits");
         const alias = config.tableAlias;
-        const overridesMerge = buildReviewOverridesMergeExpr(config, args.overridesPatch);
+        const setParts: Prisma.Sql[] = [];
 
-        const setParts: Prisma.Sql[] = [
-            Prisma.sql`review_overrides = ${overridesMerge}`,
-            Prisma.sql`updated_at = now()`,
-        ];
+        for (const [column, value] of Object.entries(args.columnPatch)) {
+            if (isGeometryColumnKey(column)) {
+                setParts.push(
+                    buildCandidateColumnGeometrySetSql(args.family, column, value)
+                );
+            } else {
+                setParts.push(buildUpdateColumnAssignment(column, value));
+            }
+        }
+
+        if (args.extraSetParts?.length) {
+            setParts.push(...args.extraSetParts);
+        }
+        setParts.push(Prisma.sql`updated_at = now()`);
         if (args.reviewNote !== undefined) {
             setParts.push(Prisma.sql`review_note = ${args.reviewNote}`);
         }
+
         const updateSetClause = Prisma.join(setParts, ", ");
-        const rowParts = buildCandidateRowQueryParts(config, true);
         const where = buildCandidateScopeWhere(config, args.reviewBatchId, args.id);
+        const auditColumns = [...columnKeys];
 
         return this.prisma.$transaction(async (tx) => {
-            const locked = await tx.$queryRaw<{ review_overrides: unknown }[]>`
-                SELECT COALESCE(to_jsonb(${colRef(config, "review_overrides")}), '{}'::jsonb) AS review_overrides
-                  FROM ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(alias)}
+            const selectBefore =
+                auditColumns.length > 0
+                    ? Prisma.join(
+                          auditColumns.map((c) => Prisma.sql`${colRef(config, c)}`),
+                          ", "
+                      )
+                    : Prisma.sql`${colRef(config, "id")}`;
+
+            const locked = await tx.$queryRaw<Record<string, unknown>[]>`
+                SELECT ${selectBefore}
+                  FROM ${Prisma.raw(tableName)} AS ${Prisma.raw(alias)}
                  WHERE ${where}
                  FOR UPDATE
             `;
@@ -284,26 +333,31 @@ export class GenericImportReviewCandidateRepository {
                 return null;
             }
 
-            const rows = await tx.$queryRaw<BuildingListRowDb[]>`
-                WITH updated AS (
-                    UPDATE ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(alias)}
-                       SET ${updateSetClause}
-                     WHERE ${where}
-                    RETURNING ${colRef(config, "id")} AS id
-                )
-                SELECT ${rowParts.select}
-                FROM ${rowParts.from}
-                INNER JOIN updated AS u ON ${colRef(config, "id")} = u.id
+            const updatedIds = await tx.$queryRaw<{ id: bigint }[]>`
+                UPDATE ${Prisma.raw(tableName)} AS ${Prisma.raw(alias)}
+                   SET ${updateSetClause}
+                 WHERE ${where}
+                RETURNING ${colRef(config, "id")} AS id
             `;
-
-            const updated = rows[0];
-            if (updated === undefined) {
+            if (updatedIds.length === 0) {
                 return null;
             }
 
-            if (auditSupported) {
-                const beforeJson = JSON.stringify({ review_overrides: before.review_overrides ?? {} });
-                const afterJson = JSON.stringify({ review_overrides: updated.review_overrides ?? {} });
+            const updated = await this.findCandidateByIdWithClient(
+                tx,
+                args.family,
+                args.reviewBatchId,
+                args.id
+            );
+            if (updated === null) {
+                return null;
+            }
+
+            if (auditSupported && auditColumns.length > 0) {
+                const beforeSnap = pickColumnSnapshot(before, auditColumns);
+                const afterSnap = pickColumnSnapshot(updated as Record<string, unknown>, auditColumns);
+                const beforeJson = stringifyColumnAuditSnapshot(beforeSnap);
+                const afterJson = stringifyColumnAuditSnapshot(afterSnap);
                 await tx.$executeRaw`
                     INSERT INTO import_review.review_candidate_edits (
                         review_batch_id,
@@ -321,7 +375,7 @@ export class GenericImportReviewCandidateRepository {
                         ${config.importReviewTable},
                         ${args.id},
                         ${args.editedByUserId},
-                        'override_update',
+                        ${IMPORT_REVIEW_CANDIDATE_COLUMN_EDIT_TYPE},
                         ${beforeJson}::jsonb,
                         ${afterJson}::jsonb
                     )
@@ -329,6 +383,51 @@ export class GenericImportReviewCandidateRepository {
             }
 
             return updated;
+        });
+    }
+
+    private async findCandidateById(
+        family: ImportReviewEntityFamilySlug,
+        reviewBatchId: bigint,
+        id: bigint
+    ): Promise<BuildingListRowDb | null> {
+        return this.findCandidateByIdWithClient(this.prisma, family, reviewBatchId, id);
+    }
+
+    private async findCandidateByIdWithClient(
+        client: DbClient,
+        family: ImportReviewEntityFamilySlug,
+        reviewBatchId: bigint,
+        id: bigint
+    ): Promise<BuildingListRowDb | null> {
+        const config = getImportReviewEntityConfig(family);
+        const rowParts = buildCandidateRowQueryParts(config, true);
+        const where = buildCandidateScopeWhere(config, reviewBatchId, id);
+        const rows = await client.$queryRaw<BuildingListRowDb[]>`
+            SELECT ${rowParts.select}
+            FROM ${rowParts.from}
+            WHERE ${where}
+            LIMIT 1
+        `;
+        return rows[0] ?? null;
+    }
+
+    async patchCandidateReviewOverrides(args: {
+        family: ImportReviewEntityFamilySlug;
+        reviewBatchId: bigint;
+        id: bigint;
+        overridesPatch: Record<string, unknown>;
+        editedByUserId: bigint | null;
+        reviewNote: string | null | undefined;
+    }): Promise<BuildingListRowDb | null> {
+        const columnPatch = mapOverridePatchToColumnPatch(args.family, args.overridesPatch);
+        return this.patchCandidateColumns({
+            family: args.family,
+            reviewBatchId: args.reviewBatchId,
+            id: args.id,
+            columnPatch,
+            editedByUserId: args.editedByUserId,
+            reviewNote: args.reviewNote,
         });
     }
 

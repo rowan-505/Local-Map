@@ -36,6 +36,6 @@ export type ImportReviewRoadOverrideValidationOutcome = {
     errors: string[];
     warnings: string[];
     normalizedPatchForJson: Record<string, unknown>;
-    mergedOverridesJson: Record<string, unknown>;
+    mergedFieldsJson: Record<string, unknown>;
     effectiveState: ImportReviewMergedRoadEffectiveState;
 };

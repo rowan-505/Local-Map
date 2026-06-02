@@ -1,8 +1,11 @@
 export type ImportReviewFormOption = {
+    id?: string;
     value: string | number;
     label: string;
     code?: string | null;
+    name?: string | null;
     name_mm?: string | null;
+    parent_id?: string | null;
 };
 
 export type ImportReviewAdminAreaFormOption = ImportReviewFormOption & {

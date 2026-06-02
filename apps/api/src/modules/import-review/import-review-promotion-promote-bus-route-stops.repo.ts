@@ -26,7 +26,6 @@ type BusRouteStopCandidateRow = {
     is_timing_point: boolean | null;
     source_refs: unknown;
     normalized_data: unknown;
-    review_overrides: unknown;
 };
 
 type RouteStopRelationKey = {
@@ -53,7 +52,7 @@ function optionalColumnExpr(
 function optionalJsonTextExpr(
     alias: string,
     caps: ImportReviewEntityColumnCapabilities,
-    jsonColumn: "review_overrides" | "normalized_data" | "source_refs",
+    jsonColumn: "normalized_data" | "source_refs",
     key: string
 ): Prisma.Sql {
     return caps.hasColumn(jsonColumn) ? Prisma.sql`${col(alias, jsonColumn)}->>${key}` : Prisma.sql`NULL::text`;
@@ -65,8 +64,6 @@ function bigintExpr(
     column: "route_variant_id" | "stop_id"
 ): Prisma.Sql {
     return Prisma.sql`coalesce(
-        CASE WHEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)} ~ '^[0-9]+$'
-            THEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)}::bigint END,
         ${optionalColumnExpr(alias, caps, column, "bigint")},
         CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)} ~ '^[0-9]+$'
             THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)}::bigint END,
@@ -77,8 +74,6 @@ function bigintExpr(
 
 function intExpr(alias: string, caps: ImportReviewEntityColumnCapabilities, column: "stop_sequence"): Prisma.Sql {
     return Prisma.sql`coalesce(
-        CASE WHEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)} ~ '^[0-9]+$'
-            THEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)}::integer END,
         ${optionalColumnExpr(alias, caps, column, "integer")},
         CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)} ~ '^[0-9]+$'
             THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)}::integer END
@@ -87,8 +82,6 @@ function intExpr(alias: string, caps: ImportReviewEntityColumnCapabilities, colu
 
 function numericExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`coalesce(
-        CASE WHEN ${optionalJsonTextExpr(alias, caps, "review_overrides", "distance_from_start_m")} ~ '^[0-9]+(\\.[0-9]+)?$'
-            THEN ${optionalJsonTextExpr(alias, caps, "review_overrides", "distance_from_start_m")}::numeric END,
         ${optionalColumnExpr(alias, caps, "distance_from_start_m", "numeric")},
         CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", "distance_from_start_m")} ~ '^[0-9]+(\\.[0-9]+)?$'
             THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", "distance_from_start_m")}::numeric END
@@ -97,10 +90,6 @@ function numericExpr(alias: string, caps: ImportReviewEntityColumnCapabilities):
 
 function booleanExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`coalesce(
-        CASE
-            WHEN lower(${optionalJsonTextExpr(alias, caps, "review_overrides", "is_timing_point")}) IN ('true', 't', '1', 'yes') THEN true
-            WHEN lower(${optionalJsonTextExpr(alias, caps, "review_overrides", "is_timing_point")}) IN ('false', 'f', '0', 'no') THEN false
-        END,
         ${optionalColumnExpr(alias, caps, "is_timing_point", "boolean")},
         CASE
             WHEN lower(${optionalJsonTextExpr(alias, caps, "normalized_data", "is_timing_point")}) IN ('true', 't', '1', 'yes') THEN true
@@ -155,7 +144,6 @@ function buildNormalizedData(
 ): Record<string, unknown> {
     return {
         ...asRecord(candidate.normalized_data),
-        review_overrides: asRecord(candidate.review_overrides),
         source_refs: sourceRefs,
         promotion: {
             promoted_from: BUS_ROUTE_STOP_CANDIDATE_TABLE,
@@ -390,7 +378,6 @@ export class ImportReviewPromotionPromoteBusRouteStopsRepository {
                 ${booleanExpr("brs", caps)} AS is_timing_point,
                 ${optionalColumnExpr("brs", caps, "source_refs", "jsonb")} AS source_refs,
                 ${optionalColumnExpr("brs", caps, "normalized_data", "jsonb")} AS normalized_data,
-                ${optionalColumnExpr("brs", caps, "review_overrides", "jsonb")} AS review_overrides
             FROM system.system_publish_items AS spi
             INNER JOIN import_review.bus_route_stop_candidates AS brs
                 ON brs.id = spi.review_candidate_id
@@ -534,16 +521,18 @@ export class ImportReviewPromotionPromoteBusRouteStopsRepository {
     ): Promise<void> {
         const assignments: Prisma.Sql[] = [];
         if (caps.hasSourceRefs) {
-            assignments.push(Prisma.sql`source_refs = ${JSON.stringify(sourceRefs)}::jsonb`);
+            assignments.push(
+                Prisma.sql`source_refs = ${JSON.stringify({
+                    ...sourceRefs,
+                    promoted_relation_key: relationKeyObject(key),
+                })}::jsonb`
+            );
         }
         if (caps.hasNormalizedData) {
             assignments.push(Prisma.sql`normalized_data = ${JSON.stringify(normalizedData)}::jsonb`);
         }
         if (caps.hasPromotedCoreId) {
             assignments.push(Prisma.sql`promoted_core_id = NULL`);
-        }
-        if (caps.hasReviewOverrides) {
-            assignments.push(Prisma.sql`review_overrides = coalesce(review_overrides, '{}'::jsonb) || ${JSON.stringify({ promoted_relation_key: relationKeyObject(key) })}::jsonb`);
         }
         if (caps.hasColumn("updated_at")) {
             assignments.push(Prisma.sql`updated_at = now()`);

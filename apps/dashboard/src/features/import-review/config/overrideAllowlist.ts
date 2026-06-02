@@ -1,4 +1,4 @@
-/** Allowed `review_overrides` keys per import-review entity family (must match API allowlist). */
+/** Allowed `fields` keys per import-review entity family (must match API allowlist). */
 export const IMPORT_REVIEW_OVERRIDE_ALLOWLIST: Record<string, readonly string[]> = {
     bus_routes: [
         "name",
@@ -45,9 +45,15 @@ export const IMPORT_REVIEW_OVERRIDE_ALLOWLIST: Record<string, readonly string[]>
     roads: [
         "name_mm",
         "name_en",
+        "canonical_name",
         "road_class_id",
         "is_oneway",
         "surface",
+        "bridge",
+        "tunnel",
+        "layer",
+        "access",
+        "speed_kph",
         "admin_area_id",
         "confidence_score",
         "geom",

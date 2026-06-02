@@ -173,3 +173,21 @@ export function buildImportReviewListFetchUrlPreview(
     const qs = params.toString();
     return qs ? `${apiBase}${path}?${qs}` : `${apiBase}${path}`;
 }
+
+export function logImportReviewEligibilityFetch(input: {
+    phase: "start" | "success" | "error";
+    review_batch_id: string;
+    families: string;
+    include_warnings?: boolean;
+    row_count?: number;
+    message?: string;
+}): void {
+    emit("promotion_eligibility_fetch", {
+        phase: input.phase,
+        review_batch_id: input.review_batch_id,
+        families: input.families,
+        include_warnings: input.include_warnings ?? false,
+        row_count: input.row_count,
+        message: input.message,
+    });
+}

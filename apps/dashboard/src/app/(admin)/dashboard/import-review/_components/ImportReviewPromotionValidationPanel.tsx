@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
     PromotionStatusBadge,
     publishEntityFamilyLabel,
 } from "@/src/app/(admin)/dashboard/import-review/_components/importReviewPromotionUi";
+import { importReviewPromotionTargetLabel } from "@/src/features/import-review/utils/importReviewPromotionBatchFamilies";
+import { isDeprecatedCoreBusImportReviewFamily } from "@/src/features/import-review/utils/deprecatedCoreBusPromotion";
 import ImportReviewInlineSpinner from "@/src/features/import-review/components/ImportReviewInlineSpinner";
 import ImportReviewOperationLogPanel from "@/src/features/import-review/components/ImportReviewOperationLogPanel";
 import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
@@ -68,21 +70,40 @@ function sortLogs(items: ImportReviewPublishStageLogItem[]): ImportReviewPublish
     });
 }
 
+function familyLabelFromDetails(details: unknown): string | null {
+    if (!details || typeof details !== "object" || Array.isArray(details)) {
+        return null;
+    }
+    const family = (details as Record<string, unknown>).entity_family;
+    if (typeof family !== "string" || !family.trim()) {
+        return null;
+    }
+    if (isDeprecatedCoreBusImportReviewFamily(family)) {
+        return null;
+    }
+    return publishEntityFamilyLabel(family);
+}
+
 function formatStageLogDetails(details: unknown): string | null {
     if (!details || typeof details !== "object" || Array.isArray(details)) {
         return null;
     }
     const d = details as Record<string, unknown>;
     const parts: string[] = [];
-    if (typeof d.entity_family === "string") {
-        parts.push(d.entity_family);
+    const familyLabel = familyLabelFromDetails(details);
+    if (familyLabel) {
+        parts.push(familyLabel);
     }
     const counts = d.counts;
     if (counts && typeof counts === "object" && !Array.isArray(counts)) {
         const c = counts as Record<string, unknown>;
-        parts.push(
-            `valid ${Number(c.valid ?? 0)}, warning ${Number(c.warning ?? 0)}, blocked ${Number(c.blocked ?? 0)}`
-        );
+        if ("valid" in c || "warning" in c || "blocked" in c) {
+            parts.push(
+                `valid ${Number(c.valid ?? 0)}, warning ${Number(c.warning ?? 0)}, blocked ${Number(c.blocked ?? 0)}`
+            );
+        } else if ("done" in c && "family_total" in c) {
+            parts.push(`${Number(c.done ?? 0)} / ${Number(c.family_total ?? 0)} in stage`);
+        }
     }
     return parts.length > 0 ? parts.join(" · ") : null;
 }
@@ -90,6 +111,9 @@ function formatStageLogDetails(details: unknown): string | null {
 type Props = {
     batchId: string;
     batchStatus: string;
+    selectedFamilies: string[];
+    workflowBlocked?: boolean;
+    workflowBlockedMessage?: string;
     onBatchUpdated: (detail: ImportReviewPublishBatchDetail) => void;
     formatError: (err: unknown) => string;
 };
@@ -97,6 +121,9 @@ type Props = {
 export default function ImportReviewPromotionValidationPanel({
     batchId,
     batchStatus,
+    selectedFamilies,
+    workflowBlocked = false,
+    workflowBlockedMessage,
     onBatchUpdated,
     formatError,
 }: Props) {
@@ -193,20 +220,55 @@ export default function ImportReviewPromotionValidationPanel({
         }
     }
 
-    const canValidate = canValidateImportReviewPublishBatch(status);
+    const canValidate = !workflowBlocked && canValidateImportReviewPublishBatch(status);
     const isValidating = status === "validating" || isStarting;
     const percent = progress?.validation_percent ?? 0;
     const result = progress?.validation_result;
     const summaryMessage = progress?.validation_logs_summary ?? progress?.current_message;
-    const entityRows = result?.by_entity ? Object.entries(result.by_entity).sort(([a], [b]) => a.localeCompare(b)) : [];
+
+    const entityRows = useMemo(() => {
+        if (!result?.by_entity) {
+            return [];
+        }
+        const order = new Map(selectedFamilies.map((family, index) => [family, index]));
+        return Object.entries(result.by_entity)
+            .filter(([family]) => !isDeprecatedCoreBusImportReviewFamily(family))
+            .sort(([a], [b]) => {
+                const ia = order.get(a) ?? 999;
+                const ib = order.get(b) ?? 999;
+                if (ia !== ib) {
+                    return ia - ib;
+                }
+                return a.localeCompare(b);
+            });
+    }, [result?.by_entity, selectedFamilies]);
+
+    const currentFamilyLabel =
+        progress?.current_entity_family && !isDeprecatedCoreBusImportReviewFamily(progress.current_entity_family)
+            ? publishEntityFamilyLabel(progress.current_entity_family)
+            : progress?.current_entity_family
+              ? null
+              : null;
 
     return (
         <div className="mt-6 space-y-4 border-t border-gray-100 pt-6">
+            <div>
+                <h3 className="text-base font-semibold text-gray-900">Validation</h3>
+                <p className="mt-0.5 text-sm text-gray-600">
+                    Runs shared checks per entity family. Errors block promotion; warnings require confirmation on
+                    promote; info never blocks.
+                </p>
+            </div>
             <div className="flex flex-wrap items-center gap-3">
                 <button
                     type="button"
                     onClick={() => void handleValidate()}
                     disabled={!canValidate || isValidating}
+                    title={
+                        workflowBlocked
+                            ? (workflowBlockedMessage ?? "Transport promotion moved to Import Transport.")
+                            : undefined
+                    }
                     className="rounded-md bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
                 >
                     {isValidating ? IMPORT_REVIEW_LOADING.validating : "Validate batch"}
@@ -218,15 +280,16 @@ export default function ImportReviewPromotionValidationPanel({
             </div>
 
             {error ? <ImportReviewStatusBanner message={error} tone="error" compact /> : null}
+            {workflowBlocked && workflowBlockedMessage ? (
+                <ImportReviewStatusBanner message={workflowBlockedMessage} tone="warning" compact />
+            ) : null}
 
             {(isValidating || progress) && (
                 <div className="space-y-2">
                     <div className="flex justify-between text-xs text-gray-600">
                         <span>
                             {progress?.current_stage_label ?? "Validation"}
-                            {progress?.current_entity_family
-                                ? ` · ${progress.current_entity_family}`
-                                : ""}
+                            {currentFamilyLabel ? ` · ${currentFamilyLabel}` : ""}
                             {progress?.current_message ? ` — ${progress.current_message}` : ""}
                         </span>
                         <span className="tabular-nums font-medium">{percent.toFixed(0)}%</span>
@@ -252,7 +315,7 @@ export default function ImportReviewPromotionValidationPanel({
                         <CountCard label="Total items" value={result.total_items} />
                         <CountCard label="Valid" value={result.valid_count} tone="success" />
                         <CountCard label="Warnings" value={result.warning_count} tone="warning" />
-                        <CountCard label="Blocked / errors" value={result.blocked_count} tone="error" />
+                        <CountCard label="Blocked" value={result.blocked_count} tone="error" />
                         <CountCard label="Skipped" value={result.skipped_count} />
                     </div>
                     <div className="grid gap-3 sm:grid-cols-3">
@@ -287,10 +350,11 @@ export default function ImportReviewPromotionValidationPanel({
                     <table className="min-w-full text-sm">
                         <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
                             <tr>
-                                <th className="px-3 py-2 font-semibold">Entity family</th>
+                                <th className="px-3 py-2 font-semibold">Family</th>
+                                <th className="px-3 py-2 font-semibold">Target</th>
                                 <th className="px-3 py-2 font-semibold text-right">Total</th>
                                 <th className="px-3 py-2 font-semibold text-right">Valid</th>
-                                <th className="px-3 py-2 font-semibold text-right">Warning</th>
+                                <th className="px-3 py-2 font-semibold text-right">Warnings</th>
                                 <th className="px-3 py-2 font-semibold text-right">Blocked</th>
                                 <th className="px-3 py-2 font-semibold text-right">Skipped</th>
                             </tr>
@@ -310,9 +374,13 @@ export default function ImportReviewPromotionValidationPanel({
                     loadingMessage={IMPORT_REVIEW_LOADING.loadingLogs}
                     entries={sortLogs(logs.items).map((item) => {
                         const detailLine = formatStageLogDetails(item.details);
+                        const familyFromDetails = familyLabelFromDetails(item.details);
+                        const label = familyFromDetails
+                            ? `${item.stage_label} (${familyFromDetails})`
+                            : item.stage_label;
                         return {
                             id: item.id,
-                            label: item.stage_label,
+                            label,
                             message: [item.message, detailLine].filter(Boolean).join(" — ") || null,
                             status: item.stage_status,
                             at: item.started_at,
@@ -341,6 +409,9 @@ function EntityBreakdownRow({
     return (
         <tr>
             <td className="px-3 py-2 font-medium text-gray-900">{publishEntityFamilyLabel(family)}</td>
+            <td className="px-3 py-2 font-mono text-xs text-gray-600">
+                {importReviewPromotionTargetLabel(family)}
+            </td>
             <td className="px-3 py-2 text-right tabular-nums">{counts.total.toLocaleString()}</td>
             <td className="px-3 py-2 text-right tabular-nums text-emerald-700">
                 {counts.valid.toLocaleString()}

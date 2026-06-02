@@ -1,7 +1,7 @@
 "use client";
 
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
-import type { ImportReviewFormOptionsResponse } from "@/src/lib/api";
+import type { ImportReviewFormOptionsBundle } from "../../hooks/useImportReviewFormOptions";
 import type { ImportReviewScopeQueryParams } from "@/src/lib/importReviewSnapshot";
 
 import type { ImportReviewEntityConfig } from "../../config/types";
@@ -14,6 +14,7 @@ export default function CandidateOverrideSection({
     canEdit,
     isSavingOverrides,
     overrideSaveMessage,
+    overrideSaveTechnicalError = "",
     onSaveOverrides,
     formOptions = null,
     formOptionsLoading = false,
@@ -25,8 +26,16 @@ export default function CandidateOverrideSection({
     canEdit: boolean;
     isSavingOverrides: boolean;
     overrideSaveMessage: string | null;
-    onSaveOverrides: (patch: Record<string, unknown>, reviewNote: string | null) => Promise<void>;
-    formOptions?: ImportReviewFormOptionsResponse | null;
+    overrideSaveTechnicalError?: string | null;
+    onSaveOverrides: (
+        patch: Record<string, unknown>,
+        reviewNote: string | null,
+        saveOptions?: {
+            verifyPatchKeys?: readonly string[];
+            referenceFieldsDevLog?: Record<string, unknown>;
+        }
+    ) => Promise<ImportReviewBuildingListItem>;
+    formOptions?: ImportReviewFormOptionsBundle | null;
     formOptionsLoading?: boolean;
     formOptionsError?: string;
 }) {
@@ -42,6 +51,7 @@ export default function CandidateOverrideSection({
             canEdit={canEdit}
             isSaving={isSavingOverrides}
             saveMessage={overrideSaveMessage}
+            saveTechnicalError={overrideSaveTechnicalError}
             onSave={onSaveOverrides}
             formOptions={formOptions}
             formOptionsLoading={formOptionsLoading}

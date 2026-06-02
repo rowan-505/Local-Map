@@ -23,7 +23,7 @@ import {
     type ImportReviewEntityFamilySlug,
 } from "./import-review-config.js";
 import { buildCandidateRowQueryParts, type CandidateListFilters } from "./import-review-candidate-sql.js";
-import { buildReviewOverridesMergeExpr } from "./import-review-overrides-merge.js";
+import { mapOverridePatchToColumnPatch } from "./import-review-candidate-column-patch.js";
 import {
     GenericImportReviewCandidateRepository,
     buildSummaryAggregationSql,
@@ -159,6 +159,28 @@ export class RemoteImportReviewRepositoryCore {
         return this.genericCandidates.updateCandidateReviewDecision(args);
     }
 
+    patchCandidateColumns(args: {
+        family: ImportReviewEntityFamilySlug;
+        id: bigint;
+        reviewBatchId: bigint;
+        columnPatch: Record<string, unknown>;
+        editedByUserId: bigint | null;
+        reviewNote: string | null | undefined;
+        extraSetParts?: Prisma.Sql[];
+        requireTypedColumnUpdates?: boolean;
+    }): Promise<BuildingListRowDb | null> {
+        return this.genericCandidates.patchCandidateColumns({
+            family: args.family,
+            reviewBatchId: args.reviewBatchId,
+            id: args.id,
+            columnPatch: args.columnPatch,
+            editedByUserId: args.editedByUserId,
+            reviewNote: args.reviewNote,
+            extraSetParts: args.extraSetParts,
+            requireTypedColumnUpdates: args.requireTypedColumnUpdates,
+        });
+    }
+
     patchCandidateReviewOverrides(args: {
         family: ImportReviewEntityFamilySlug;
         id: bigint;
@@ -167,20 +189,12 @@ export class RemoteImportReviewRepositoryCore {
         editedByUserId: bigint | null;
         reviewNote: string | null | undefined;
     }): Promise<BuildingListRowDb | null> {
-        if (args.family === "buildings") {
-            return this.patchBuildingReviewOverrides({
-                id: args.id,
-                reviewBatchId: args.reviewBatchId,
-                overridesPatch: args.overridesPatch,
-                editedByUserId: args.editedByUserId,
-                reviewNote: args.reviewNote,
-            });
-        }
-        return this.genericCandidates.patchCandidateReviewOverrides({
+        const columnPatch = mapOverridePatchToColumnPatch(args.family, args.overridesPatch);
+        return this.patchCandidateColumns({
             family: args.family,
-            reviewBatchId: args.reviewBatchId,
             id: args.id,
-            overridesPatch: args.overridesPatch,
+            reviewBatchId: args.reviewBatchId,
+            columnPatch,
             editedByUserId: args.editedByUserId,
             reviewNote: args.reviewNote,
         });
@@ -508,7 +522,13 @@ export class RemoteImportReviewRepositoryCore {
         reviewBatchId: bigint,
         filters: Pick<
             ImportReviewPlacesQuery,
-            "match_status" | "auto_action" | "review_status" | "review_decision" | "q"
+            | "match_status"
+            | "auto_action"
+            | "review_status"
+            | "review_decision"
+            | "promotion_status"
+            | "include_promoted"
+            | "q"
         >
     ): Promise<bigint> {
         return this.countCandidates("places", reviewBatchId, filters);
@@ -522,6 +542,8 @@ export class RemoteImportReviewRepositoryCore {
             | "auto_action"
             | "review_status"
             | "review_decision"
+            | "promotion_status"
+            | "include_promoted"
             | "q"
             | "limit"
             | "offset"
@@ -555,7 +577,14 @@ export class RemoteImportReviewRepositoryCore {
         reviewBatchId: bigint,
         filters: Pick<
             ImportReviewRoadsQuery,
-            "match_status" | "auto_action" | "review_status" | "review_decision" | "q"
+            | "match_status"
+            | "auto_action"
+            | "review_status"
+            | "review_decision"
+            | "promotion_status"
+            | "class_code"
+            | "include_promoted"
+            | "q"
         >
     ): Promise<bigint> {
         return this.countCandidates("roads", reviewBatchId, filters);
@@ -569,6 +598,9 @@ export class RemoteImportReviewRepositoryCore {
             | "auto_action"
             | "review_status"
             | "review_decision"
+            | "promotion_status"
+            | "class_code"
+            | "include_promoted"
             | "q"
             | "limit"
             | "offset"
@@ -627,7 +659,14 @@ export class RemoteImportReviewRepositoryCore {
                     WHEN r.geom IS NOT NULL THEN ST_AsGeoJSON(r.geom)::json
                     ELSE NULL::json
                 END AS geom_geojson,
-                COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb) AS review_overrides,
+                r.name_mm,
+                r.name_en,
+                r.bridge,
+                r.tunnel,
+                r.layer,
+                r.access,
+                r.speed_kph,
+                r.admin_area_id,
                 r.normalized_data,
                 r.class_code,
                 r.matched_core_table,
@@ -661,7 +700,14 @@ export class RemoteImportReviewRepositoryCore {
                 r.surface,
                 r.is_oneway,
                 CASE WHEN r.geom IS NOT NULL THEN ST_AsGeoJSON(r.geom)::json ELSE NULL::json END AS geom_geojson,
-                COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb) AS review_overrides,
+                r.name_mm,
+                r.name_en,
+                r.access,
+                r.speed_kph,
+                r.bridge,
+                r.tunnel,
+                r.layer,
+                r.admin_area_id,
                 r.normalized_data,
                 r.matched_core_table,
                 r.matched_core_id,
@@ -705,8 +751,6 @@ export class RemoteImportReviewRepositoryCore {
                     validation_errors = ${errorsJson}::jsonb,
                     validation_warnings = ${warningsJson}::jsonb,
                     review_status = ${args.review_status},
-                    review_overrides = COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb)
-                        || jsonb_build_object('validation_summary', ${summaryJson}::jsonb),
                     ${lengthSet},
                     updated_at = now()
                 WHERE r.id = ${args.id}
@@ -721,10 +765,10 @@ export class RemoteImportReviewRepositoryCore {
         return rows[0] ?? null;
     }
 
-    async patchRoadCandidateReviewOverrides(args: {
+    async patchRoadCandidateColumnFields(args: {
         id: bigint;
         reviewBatchId: bigint;
-        merged_review_overrides: Record<string, unknown>;
+        merged_fields: Record<string, unknown>;
         canonical_name: string | null;
         road_class_id: bigint | null;
         road_class_label: string | null;
@@ -736,101 +780,36 @@ export class RemoteImportReviewRepositoryCore {
         editedByUserId: bigint | null;
         reviewNote: string | null | undefined;
     }): Promise<BuildingListRowDb | null> {
-        const merge = JSON.stringify(args.merged_review_overrides);
-        const warningsJson = JSON.stringify(args.validation_warnings_json);
-        const errorsJson = JSON.stringify(args.validation_errors_json);
-        const auditSupported = await this.pgRegclassExists("import_review.review_candidate_edits");
-        const roadsConfig = getImportReviewEntityConfig("roads");
-        const rowParts = buildCandidateRowQueryParts(roadsConfig, true);
-
-        return this.prisma.$transaction(async (tx) => {
-            const locked = await tx.$queryRaw<{ review_overrides: unknown }[]>`
-                SELECT COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb) AS review_overrides
-                  FROM import_review.road_candidates AS r
-                 WHERE r.id = ${args.id}
-                   AND r.review_batch_id = ${args.reviewBatchId}
-                   AND r.entity_family = 'roads'
-                 FOR UPDATE
-            `;
-            const before = locked[0];
-            if (before === undefined) {
-                return null;
+        const columnPatch: Record<string, unknown> = {
+            canonical_name: args.canonical_name,
+            road_class_id: args.road_class_id,
+            road_class: args.road_class_label,
+            surface: args.surface,
+            is_oneway: args.is_oneway,
+            validation_warnings: args.validation_warnings_json,
+            validation_errors: args.validation_errors_json,
+        };
+        for (const [key, value] of Object.entries(args.merged_fields)) {
+            if (value !== undefined) {
+                columnPatch[key] = value;
             }
-
-            const geomSet =
-                args.normalized_geom_geojson === null || args.normalized_geom_geojson === ""
-                    ? null
-                    : Prisma.sql`ST_Multi(ST_LineMerge(ST_CollectionExtract(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(${args.normalized_geom_geojson}::json), 4326)), 2)))`;
-
-            const setPieces: Prisma.Sql[] = [
-                Prisma.sql`review_overrides = COALESCE(to_jsonb(r.review_overrides), '{}'::jsonb) || ${merge}::jsonb`,
-                Prisma.sql`canonical_name = ${args.canonical_name}`,
-                Prisma.sql`road_class_id = ${args.road_class_id}`,
-                Prisma.sql`road_class = ${args.road_class_label}`,
-                Prisma.sql`surface = ${args.surface}`,
-                Prisma.sql`is_oneway = ${args.is_oneway}`,
-                Prisma.sql`validation_warnings = ${warningsJson}::jsonb`,
-                Prisma.sql`validation_errors = ${errorsJson}::jsonb`,
-                Prisma.sql`updated_at = now()`,
-            ];
-            if (geomSet !== null) {
-                setPieces.push(Prisma.sql`geom = ${geomSet}`);
-                setPieces.push(
-                    Prisma.sql`length_m = ROUND(ST_Length(${geomSet}::geography)::numeric, 2)`
-                );
-            }
-            if (args.reviewNote !== undefined) {
-                setPieces.push(Prisma.sql`review_note = ${args.reviewNote}`);
-            }
-            const updateSetClause = Prisma.join(setPieces, ", ");
-
-            const rows = await tx.$queryRaw<BuildingListRowDb[]>`
-                WITH updated AS (
-                    UPDATE import_review.road_candidates AS r
-                       SET ${updateSetClause}
-                     WHERE r.id = ${args.id}
-                       AND r.review_batch_id = ${args.reviewBatchId}
-                       AND r.entity_family = 'roads'
-                    RETURNING r.id
-                )
-                SELECT ${rowParts.select}
-                FROM ${rowParts.from}
-                INNER JOIN updated AS u ON r.id = u.id
-            `;
-
-            const updated = rows[0];
-            if (updated === undefined) {
-                return null;
-            }
-
-            if (auditSupported) {
-                const beforeJson = JSON.stringify({ review_overrides: before.review_overrides ?? {} });
-                const afterJson = JSON.stringify({ review_overrides: updated.review_overrides ?? {} });
-                await tx.$executeRaw`
-                    INSERT INTO import_review.review_candidate_edits (
-                        review_batch_id,
-                        entity_family,
-                        candidate_table,
-                        candidate_id,
-                        edited_by,
-                        edit_type,
-                        before_data,
-                        after_data
-                    )
-                    VALUES (
-                        ${args.reviewBatchId},
-                        'roads',
-                        'road_candidates',
-                        ${args.id},
-                        ${args.editedByUserId},
-                        'override_update',
-                        ${beforeJson}::jsonb,
-                        ${afterJson}::jsonb
-                    )
-                `;
-            }
-
-            return updated;
+        }
+        if (
+            args.normalized_geom_geojson !== null &&
+            args.normalized_geom_geojson !== undefined &&
+            args.normalized_geom_geojson !== ""
+        ) {
+            columnPatch.geom = JSON.parse(args.normalized_geom_geojson) as Record<string, unknown>;
+        }
+        const mapped = mapOverridePatchToColumnPatch("roads", columnPatch);
+        return this.patchCandidateColumns({
+            family: "roads",
+            reviewBatchId: args.reviewBatchId,
+            id: args.id,
+            columnPatch: mapped,
+            editedByUserId: args.editedByUserId,
+            reviewNote: args.reviewNote,
+            requireTypedColumnUpdates: true,
         });
     }
 
@@ -1516,82 +1495,14 @@ export class RemoteImportReviewRepositoryCore {
         editedByUserId: bigint | null;
         reviewNote: string | null | undefined;
     }): Promise<BuildingListRowDb | null> {
-        const buildingConfig = getImportReviewEntityConfig("buildings");
-        const auditSupported = await this.pgRegclassExists("import_review.review_candidate_edits");
-        const overridesMerge = buildReviewOverridesMergeExpr(buildingConfig, args.overridesPatch);
-
-        const setParts: Prisma.Sql[] = [
-            Prisma.sql`review_overrides = ${overridesMerge}`,
-            Prisma.sql`updated_at = now()`,
-        ];
-        if (args.reviewNote !== undefined) {
-            setParts.push(Prisma.sql`review_note = ${args.reviewNote}`);
-        }
-        const updateSetClause = Prisma.join(setParts, ", ");
-
-        return this.prisma.$transaction(async (tx) => {
-            const locked = await tx.$queryRaw<{ review_overrides: unknown }[]>`
-                SELECT COALESCE(to_jsonb(b.review_overrides), '{}'::jsonb) AS review_overrides
-                  FROM import_review.building_candidates AS b
-                 WHERE b.id = ${args.id}
-                   AND b.review_batch_id = ${args.reviewBatchId}
-                   AND b.entity_family = 'buildings'
-                 FOR UPDATE
-            `;
-            const before = locked[0];
-            if (before === undefined) {
-                return null;
-            }
-
-            const buildingConfig = getImportReviewEntityConfig("buildings");
-            const rowParts = buildCandidateRowQueryParts(buildingConfig, true);
-            const rows = await tx.$queryRaw<BuildingListRowDb[]>`
-                WITH updated AS (
-                    UPDATE import_review.building_candidates AS b
-                       SET ${updateSetClause}
-                     WHERE b.id = ${args.id}
-                       AND b.review_batch_id = ${args.reviewBatchId}
-                       AND b.entity_family = 'buildings'
-                    RETURNING b.id
-                )
-                SELECT ${rowParts.select}
-                FROM ${rowParts.from}
-                INNER JOIN updated AS u ON b.id = u.id
-            `;
-
-            const updated = rows[0];
-            if (updated === undefined) {
-                return null;
-            }
-
-            if (auditSupported) {
-                const beforeJson = JSON.stringify({ review_overrides: before.review_overrides ?? {} });
-                const afterJson = JSON.stringify({ review_overrides: updated.review_overrides ?? {} });
-                await tx.$executeRaw`
-                    INSERT INTO import_review.review_candidate_edits (
-                        review_batch_id,
-                        entity_family,
-                        candidate_table,
-                        candidate_id,
-                        edited_by,
-                        edit_type,
-                        before_data,
-                        after_data
-                    )
-                    VALUES (
-                        ${args.reviewBatchId},
-                        'buildings',
-                        'building_candidates',
-                        ${args.id},
-                        ${args.editedByUserId},
-                        'override_update',
-                        ${beforeJson}::jsonb,
-                        ${afterJson}::jsonb
-                    )
-                `;
-            }
-
-            return updated;
+        const columnPatch = mapOverridePatchToColumnPatch("buildings", args.overridesPatch);
+        return this.patchCandidateColumns({
+            family: "buildings",
+            reviewBatchId: args.reviewBatchId,
+            id: args.id,
+            columnPatch,
+            editedByUserId: args.editedByUserId,
+            reviewNote: args.reviewNote,
         });
     }
 

@@ -39,7 +39,7 @@ import {
     patchImportReviewAddressComponents,
     patchImportReviewAddressMatches,
     patchImportReviewAddressPlaceStatus,
-    patchImportReviewFamilyOverrides,
+    patchImportReviewFamilyColumns,
     postImportReviewAddressCreatePlaceCandidate,
     postImportReviewAddressPromote,
     postImportReviewAddressPromoteDryRun,
@@ -402,8 +402,8 @@ export default function ImportReviewAddressDetailDrawer({
         setSaveMessage(null);
         try {
             if (canEdit) {
-                await patchImportReviewFamilyOverrides("addresses", row.id, {
-                    review_overrides: { point_geom: point as unknown as ImportReviewGeoJson },
+                await patchImportReviewFamilyColumns("addresses", row.id, {
+                    fields: { point_geom: point as unknown as ImportReviewGeoJson },
                 });
                 await onDetailRefetch();
             }
@@ -450,9 +450,7 @@ export default function ImportReviewAddressDetailDrawer({
         setIsValidating(true);
         setSaveMessage(null);
         try {
-            const batchId = row.review_batch_id?.trim();
             const res = await postImportReviewAddressValidate({
-                ...(batchId ? { review_batch_id: batchId } : {}),
                 candidate_ids: [row.id],
             });
             const item = res.results.find((r) => r.address_candidate_id === row.id);

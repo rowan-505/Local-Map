@@ -7,6 +7,7 @@ import {
 } from "../constants";
 import { createImportReviewEntityConfig } from "../createEntityConfig";
 import { REF_BUILDING_TYPE_ID } from "../refSources";
+import { getImportReviewNameColumns } from "../../utils/importReviewNaming";
 
 export const buildingsImportReviewEntityConfig = createImportReviewEntityConfig({
     slug: "buildings",
@@ -21,8 +22,7 @@ export const buildingsImportReviewEntityConfig = createImportReviewEntityConfig(
     legacyDedicatedPage: false,
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
-        { key: "effective_name_mm", label: "Myanmar name", source: "row" },
-        { key: "effective_name_en", label: "English name", source: "row" },
+        ...getImportReviewNameColumns(),
         { key: "building_type_display", label: "Building type", source: "row" },
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,
     ],

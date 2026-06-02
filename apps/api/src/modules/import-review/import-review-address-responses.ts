@@ -117,7 +117,6 @@ export type ImportReviewAddressDetailItem = ImportReviewAddressListItem & {
     source_tags: unknown;
     source_refs: unknown;
     normalized_data: unknown;
-    review_overrides: unknown;
     address_components: AddressComponentsGrouped;
     address_components_flat: AddressComponentDto[];
     components_by_type: import("../addresses/address-composer.types.js").AddressComposerResult["components_by_type"];
@@ -363,7 +362,6 @@ export function mapAddressDetailItem(
         source_tags: row.source_tags ?? {},
         source_refs: row.source_refs,
         normalized_data: row.normalized_data,
-        review_overrides: row.review_overrides,
         address_components: groupAddressComponents(componentRows),
         address_components_flat: componentRows.map(mapAddressComponentDto),
         components_by_type: composed.components_by_type,

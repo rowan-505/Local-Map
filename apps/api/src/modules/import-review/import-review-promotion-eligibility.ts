@@ -1,12 +1,28 @@
 import { Prisma } from "@prisma/client";
 
 import type { ImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
+import {
+    hasRoadPromotionBlockingErrorsSql,
+    roadClassMissingWithoutFallbackSql,
+    roadDuplicateCoreExternalIdSql,
+} from "./import-review-road-promotion-policy.js";
 import { IMPORT_REVIEW_PUBLISH_ACTIVE_BATCH_STATUSES } from "./import-review-promotion.types.js";
 
 export type PublishEligibilityOptions = {
     includeWarnings: boolean;
     includeMerged: boolean;
 };
+
+/** Dashboard eligibility detail buckets — must match {@link buildFamilyEligibilityCountSql}. */
+export type PromotionEligibilityBucket = "ready" | "warnings" | "blocked" | "batched" | "promoted";
+
+export const PROMOTION_ELIGIBILITY_BUCKETS = [
+    "ready",
+    "warnings",
+    "blocked",
+    "batched",
+    "promoted",
+] as const satisfies readonly PromotionEligibilityBucket[];
 
 function col(alias: string, column: string): Prisma.Sql {
     return Prisma.raw(`${alias}.${column}`);
@@ -29,6 +45,29 @@ function hasValidationErrorsSql(alias: string): Prisma.Sql {
         AND jsonb_typeof(${errors}) = 'array'
         AND jsonb_array_length(${errors}) > 0
     )`;
+}
+
+function hasPromotionBlockingValidationErrorsSql(
+    config: ImportReviewPublishFamilyConfig,
+    alias: string
+): Prisma.Sql {
+    if (config.entityFamily === "roads") {
+        return hasRoadPromotionBlockingErrorsSql(alias);
+    }
+    return hasValidationErrorsSql(alias);
+}
+
+function roadPromotionEligibilityGuardsSql(
+    config: ImportReviewPublishFamilyConfig,
+    alias: string
+): Prisma.Sql {
+    if (config.entityFamily !== "roads") {
+        return Prisma.empty;
+    }
+    return Prisma.sql`
+        AND NOT ${roadDuplicateCoreExternalIdSql(alias)}
+        AND NOT ${roadClassMissingWithoutFallbackSql(alias)}
+    `;
 }
 
 function hasValidationWarningsSql(alias: string): Prisma.Sql {
@@ -98,7 +137,8 @@ export function buildEligibleWhereSql(
         AND ${col(a, "review_status")} = 'approved'
         AND ${col(a, "review_decision")} = 'approved'
         AND NOT ${isPromotedSql(a)}
-        AND NOT ${hasValidationErrorsSql(a)}
+        AND NOT ${hasPromotionBlockingValidationErrorsSql(config, a)}
+        ${roadPromotionEligibilityGuardsSql(config, a)}
         AND ${col(a, "review_decision")} IS DISTINCT FROM 'rejected'
         AND ${col(a, "review_decision")} IS DISTINCT FROM 'ignored'
         AND ${col(a, "review_decision")} IS DISTINCT FROM 'needs_more_review'
@@ -123,6 +163,78 @@ export function buildEligibleExceptWarningsSql(
     options: PublishEligibilityOptions
 ): Prisma.Sql {
     return buildEligibleWhereSql(config, reviewBatchId, { ...options, includeWarnings: true });
+}
+
+function buildBaseScopeSql(
+    config: ImportReviewPublishFamilyConfig,
+    reviewBatchId: bigint,
+    alias: string
+): Prisma.Sql {
+    return Prisma.sql`
+        ${col(alias, "review_batch_id")} = ${reviewBatchId}
+        AND ${col(alias, "entity_family")} = ${config.entityFamily}
+    `;
+}
+
+function buildBaseApprovedSql(
+    config: ImportReviewPublishFamilyConfig,
+    reviewBatchId: bigint,
+    alias: string
+): Prisma.Sql {
+    return Prisma.sql`
+        ${buildBaseScopeSql(config, reviewBatchId, alias)}
+        AND ${col(alias, "review_status")} = 'approved'
+        AND ${col(alias, "review_decision")} = 'approved'
+    `;
+}
+
+/**
+ * WHERE clause for a single eligibility bucket (same rules as count endpoint).
+ */
+export function buildPromotionEligibilityBucketWhereSql(
+    config: ImportReviewPublishFamilyConfig,
+    reviewBatchId: bigint,
+    bucket: PromotionEligibilityBucket,
+    options: PublishEligibilityOptions
+): Prisma.Sql {
+    const a = config.tableAlias;
+    const eligible = buildEligibleWhereSql(config, reviewBatchId, options);
+    const eligibleWithWarnings = buildEligibleExceptWarningsSql(config, reviewBatchId, options);
+    const baseScope = buildBaseScopeSql(config, reviewBatchId, a);
+    const baseApproved = buildBaseApprovedSql(config, reviewBatchId, a);
+
+    switch (bucket) {
+        case "ready":
+            return eligible;
+        case "warnings":
+            return Prisma.sql`
+                ${eligibleWithWarnings}
+                  AND ${hasValidationWarningsSql(a)}
+                  AND NOT ${isPromotedSql(a)}
+                  AND NOT ${isBlockedInActiveBatchSql(config, a)}
+            `;
+        case "blocked":
+            return Prisma.sql`
+                ${baseApproved}
+                  AND NOT (${eligibleWithWarnings})
+                  AND NOT ${isPromotedSql(a)}
+                  AND NOT ${isBlockedInActiveBatchSql(config, a)}
+            `;
+        case "batched":
+            return Prisma.sql`
+                ${baseScope}
+                  AND ${isBlockedInActiveBatchSql(config, a)}
+            `;
+        case "promoted":
+            return Prisma.sql`
+                ${baseScope}
+                  AND ${isPromotedSql(a)}
+            `;
+        default: {
+            const _exhaustive: never = bucket;
+            return _exhaustive;
+        }
+    }
 }
 
 export function buildPublishActionExpr(alias: string): Prisma.Sql {
@@ -182,11 +294,13 @@ export function buildFamilyEligibilityCountSql(
             count(*) FILTER (WHERE ${isPromotedSql(a)})::bigint AS already_promoted,
             count(*) FILTER (
                 WHERE ${baseApproved}
-                  AND NOT (${eligible})
+                  AND NOT (${eligibleWithWarnings})
                   AND NOT ${isPromotedSql(a)}
                   AND NOT ${isBlockedInActiveBatchSql(config, a)}
             )::bigint AS excluded,
-            count(*) FILTER (WHERE ${baseApproved} AND ${hasValidationErrorsSql(a)})::bigint AS has_validation_errors,
+            count(*) FILTER (
+                WHERE ${baseApproved} AND ${hasPromotionBlockingValidationErrorsSql(config, a)}
+            )::bigint AS has_validation_errors,
             count(*) FILTER (
                 WHERE ${baseApproved}
                   AND (

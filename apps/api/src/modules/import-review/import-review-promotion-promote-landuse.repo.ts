@@ -23,7 +23,6 @@ export const CORE_LANDUSE_TABLE = "core.core_map_landuse";
 const LANDUSE_VERIFICATION_COLUMNS = getCoreVerificationColumnsForEntity("landuse");
 
 type LanduseCandidateNameRow = {
-    review_overrides: unknown;
     canonical_name: string | null;
     normalized_data: unknown;
     external_id: string | null;
@@ -381,7 +380,6 @@ export class ImportReviewPromotionPromoteLanduseRepository {
     ): Promise<LanduseCandidateNameRow> {
         const rows = await tx.$queryRaw<LanduseCandidateNameRow[]>`
             SELECT
-                lu.review_overrides,
                 lu.canonical_name,
                 lu.normalized_data,
                 lu.external_id,
@@ -397,7 +395,6 @@ export class ImportReviewPromotionPromoteLanduseRepository {
         `;
         return (
             rows[0] ?? {
-                review_overrides: {},
                 canonical_name: null,
                 normalized_data: {},
                 external_id: null,
@@ -478,7 +475,6 @@ export class ImportReviewPromotionPromoteLanduseRepository {
             baseNd.name_en = row.name_en;
         }
         return {
-            review_overrides: row.review_overrides,
             canonical_name: row.canonical_name,
             normalized_data: baseNd,
             external_id: row.external_id,

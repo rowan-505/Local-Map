@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import CoreReviewHeaderCard from "@/src/components/core-review/CoreReviewHeaderCard";
 import CoreReviewPageShell from "@/src/components/core-review/CoreReviewPageShell";
+import { useCoreReviewVerificationSummary } from "@/src/features/core-review/hooks/useCoreReviewVerificationSummary";
 import {
     coreReviewModuleHref,
     coreReviewStatusFilterHref,
@@ -13,24 +12,10 @@ import {
     VerificationSummaryFamilyCards,
     VerificationSummaryTotalsGrid,
 } from "@/src/features/core-review/overview/verificationSummaryUi";
-import {
-    getCoreReviewVerificationSummary,
-    type CoreReviewVerificationSummaryResponse,
-} from "@/src/lib/api";
 
 export default function CoreReviewOverviewClient() {
-    const [summary, setSummary] = useState<CoreReviewVerificationSummaryResponse | null>(null);
-    const [error, setError] = useState<string | null>(null);
-
-    useEffect(() => {
-        const controller = new AbortController();
-        getCoreReviewVerificationSummary({ signal: controller.signal })
-            .then(setSummary)
-            .catch((err) => {
-                if (err instanceof Error && err.name !== "AbortError") setError(err.message);
-            });
-        return () => controller.abort();
-    }, []);
+    const { data: summary, error: queryError, isLoading } = useCoreReviewVerificationSummary();
+    const error = queryError instanceof Error ? queryError.message : queryError ? "Request failed." : null;
 
     return (
         <CoreReviewPageShell>
@@ -54,11 +39,15 @@ export default function CoreReviewOverviewClient() {
                 <p className="text-sm text-slate-600">
                     Counts link to the module list with the matching status filter applied.
                 </p>
-                <VerificationSummaryFamilyCards
-                    families={summary?.families ?? []}
-                    buildModuleHref={(family) => coreReviewModuleHref(family.path)}
-                    buildStatusHref={(family, status) => coreReviewStatusFilterHref(family.path, status)}
-                />
+                {isLoading && !summary ? (
+                    <p className="text-sm text-slate-500">Loading summary…</p>
+                ) : (
+                    <VerificationSummaryFamilyCards
+                        families={summary?.families ?? []}
+                        buildModuleHref={(family) => coreReviewModuleHref(family.path)}
+                        buildStatusHref={(family, status) => coreReviewStatusFilterHref(family.path, status)}
+                    />
+                )}
             </section>
         </CoreReviewPageShell>
     );

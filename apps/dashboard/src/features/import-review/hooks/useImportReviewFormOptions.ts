@@ -32,7 +32,7 @@ export function toLegacyReferenceBundle(
         rows.map((r) => ({
             id: String(r.value),
             code: r.code ?? null,
-            name: r.label,
+            name: r.name ?? null,
         }));
 
     return {

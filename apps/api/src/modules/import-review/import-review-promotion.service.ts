@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 
+import { getImportReviewPrisma } from "../../lib/import-review-prisma.js";
 import type { JwtUser } from "../../plugins/auth.js";
 import type { PublishBatchRowDb, ReadyBuildingCandidateRowDb } from "./import-review-promotion.repo.js";
 import { ImportReviewPromotionRepository } from "./import-review-promotion.repo.js";
@@ -7,6 +8,22 @@ import { ImportReviewPromotionPromoteRunner } from "./import-review-promotion-pr
 import { ImportReviewPromotionPromoteRepository } from "./import-review-promotion-promote.repo.js";
 import { ImportReviewPromotionValidationRunner } from "./import-review-promotion-validation.js";
 import { ImportReviewPromotionValidationRepository } from "./import-review-promotion-validation.repo.js";
+import {
+    buildPromotionEligibilityDetailsResponse,
+    parsePromotionEligibilityFamilyParam,
+} from "./import-review-promotion-eligibility-details-api.js";
+import { parseEligibilityDetailsListFilters } from "./import-review-promotion-eligibility-details-filters.js";
+import { ImportReviewPromotionEligibilityDetailsRepository } from "./import-review-promotion-eligibility-details.repo.js";
+import type { ImportReviewPromotionEligibilityDetailsResponse } from "./import-review-promotion-eligibility-details.types.js";
+import {
+    buildPromotionEligibilityResponse,
+    type ImportReviewPromotionEligibilityResponse,
+} from "./import-review-promotion-eligibility-api.js";
+import {
+    buildCreateBatchDryRunResponse,
+    defaultCreateBatchName,
+    resolveCreateBatchFamilies,
+} from "./import-review-promotion-create-batch-api.js";
 import type {
     ImportReviewCreatePublishBatchDryRunResult,
     ImportReviewCreatePublishBatchResult,
@@ -29,6 +46,8 @@ import type {
 } from "./import-review-promotion.types.js";
 import type {
     ImportReviewPromotionBatchEligibilityQuery,
+    ImportReviewPromotionEligibilityDetailsQuery,
+    ImportReviewPromotionEligibilityQuery,
     ImportReviewPromotionBatchesListQuery,
     ImportReviewPromotionReadyCandidatesQuery,
     ImportReviewPromotionReadyQuery,
@@ -45,8 +64,10 @@ import {
 import {
     ImportReviewPublishBatchSummaryRepository,
     applyComputedCountsToBatchSummary,
+    parseEntityFamiliesFromBatchSummary,
     type PublishBatchComputedSummary,
 } from "./import-review-publish-batch-summary.js";
+import { isDisabledImportReviewPromotionFamily } from "./import-review-promotion-config.js";
 import { ImportReviewReviewBatchSummaryRepository } from "./import-review-review-batch-summary.js";
 import {
     createImportReviewPromotionRoadDryRunService,
@@ -131,7 +152,6 @@ function mapReadyCandidateRow(
         source_snapshot_version: row.source_snapshot_version,
         review_batch_id: row.review_batch_id.toString(),
         normalized_data: row.normalized_data,
-        review_overrides: row.review_overrides,
         source_refs: row.source_refs,
         geometry: includeGeometry ? (row.geometry as Record<string, unknown> | null) : null,
     };
@@ -402,8 +422,16 @@ export class ImportReviewPromotionService {
                 total: row.total,
             };
         }
+        const fromSummary = parseEntityFamiliesFromBatchSummary(row.summary).filter(
+            (family) => !isDisabledImportReviewPromotionFamily(family)
+        );
+        const fromItems = Object.keys(itemCountsByEntityFamily).filter(
+            (family) => !isDisabledImportReviewPromotionFamily(family)
+        );
+        const entityFamilies = fromSummary.length > 0 ? fromSummary : fromItems.sort();
         return {
             ...mapBatchSummary(row, computed),
+            entity_families: entityFamilies,
             item_counts: {
                 pending: n(itemCounts.pending),
                 success: n(itemCounts.success),
@@ -422,6 +450,90 @@ export class ImportReviewPromotionService {
             },
             item_counts_by_entity_family: itemCountsByEntityFamily,
         };
+    }
+
+    async getPromotionEligibilityDetails(
+        query: ImportReviewPromotionEligibilityDetailsQuery
+    ): Promise<ImportReviewPromotionEligibilityDetailsResponse> {
+        const scope = await this.repo.resolveScope({
+            review_batch_id: query.review_batch_id,
+        });
+        const config = parsePromotionEligibilityFamilyParam(query.family);
+        const detailsRepo = new ImportReviewPromotionEligibilityDetailsRepository(getImportReviewPrisma());
+
+        if (!(await detailsRepo.pgRegclassExists(config.candidateTable))) {
+            return buildPromotionEligibilityDetailsResponse({
+                reviewBatchId: scope.reviewBatchId,
+                family: config.entityFamily,
+                bucket: query.bucket,
+                total: 0,
+                limit: query.limit,
+                offset: query.offset,
+                rows: [],
+                config,
+            });
+        }
+
+        const options = {
+            includeWarnings: query.include_warnings ?? false,
+            includeMerged: false,
+        };
+        const filters = parseEligibilityDetailsListFilters({
+            search: query.search,
+            reason_code: query.reason_code,
+            sort_by: query.sort_by,
+            sort_order: query.sort_order,
+        });
+        const total = await detailsRepo.countBucket({
+            config,
+            reviewBatchId: scope.reviewBatchId,
+            bucket: query.bucket,
+            options,
+            filters,
+        });
+        const rows = await detailsRepo.listBucket({
+            config,
+            reviewBatchId: scope.reviewBatchId,
+            bucket: query.bucket,
+            options,
+            filters,
+            limit: query.limit,
+            offset: query.offset,
+        });
+
+        return buildPromotionEligibilityDetailsResponse({
+            reviewBatchId: scope.reviewBatchId,
+            family: config.entityFamily,
+            bucket: query.bucket,
+            total,
+            limit: query.limit,
+            offset: query.offset,
+            rows,
+            config,
+        });
+    }
+
+    async getPromotionEligibility(
+        query: ImportReviewPromotionEligibilityQuery
+    ): Promise<ImportReviewPromotionEligibilityResponse> {
+        const scope = await this.repo.resolveScope({
+            review_batch_id: query.review_batch_id,
+        });
+        const familyConfigs = resolveCreateBatchFamilies(query.families, undefined);
+        const countRows = await this.repo.countBatchEligibilityByFamilies({
+            scope,
+            families: familyConfigs,
+            options: {
+                includeWarnings: query.include_warnings ?? false,
+                includeMerged: false,
+            },
+        });
+        return buildPromotionEligibilityResponse({
+            reviewBatchId: scope.reviewBatchId,
+            familyConfigs,
+            countRows,
+            includeWarnings: query.include_warnings ?? false,
+        });
     }
 
     async getBatchEligibility(
@@ -492,34 +604,35 @@ export class ImportReviewPromotionService {
         let resolveMs = 0;
 
         const resolveStart = Date.now();
-        const scope = await this.repo.resolveScope(body);
-        let families;
-        try {
-            families = resolvePublishEntityFamilies(
-                body.entity_families,
-                body.allow_high_risk_families ?? false
-            );
-        } catch (err) {
-            throwPromotionFamilyResolutionError(err);
-        }
+        const families = resolveCreateBatchFamilies(body.families, body.entity_families);
+        const scope = await this.repo.resolveScope({
+            review_batch_id: body.review_batch_id,
+        });
         resolveMs = Date.now() - resolveStart;
 
+        const familySlugs = families.map((f) => f.entityFamily);
         const options = {
             includeWarnings: body.include_warnings ?? false,
             includeMerged: body.include_merged ?? false,
         };
         const batchName =
-            body.batch_name?.trim() ||
-            `dry-run-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}`;
+            body.batch_name?.trim() || defaultCreateBatchName(scope.reviewBatchId, familySlugs);
 
         if (body.dry_run) {
             const eligibilityStart = Date.now();
-            const preview = await this.repo.dryRunPublishBatchMultiFamily({
-                scope,
-                batchName,
-                families,
-                options,
-            });
+            const [preview, countRows] = await Promise.all([
+                this.repo.dryRunPublishBatchMultiFamily({
+                    scope,
+                    batchName,
+                    families,
+                    options,
+                }),
+                this.repo.countBatchEligibilityByFamilies({
+                    scope,
+                    families,
+                    options,
+                }),
+            ]);
             const eligibilityMs = Date.now() - eligibilityStart;
             const totalMs = Date.now() - totalStart;
             const timing_ms = {
@@ -529,44 +642,27 @@ export class ImportReviewPromotionService {
                 transaction_ms: 0,
                 total_ms: totalMs,
             };
-            const by_entity = Object.fromEntries(
-                preview.byFamily.map((f) => [f.entity_family, f.included])
-            );
             log?.info(
                 {
                     create_batch_timing: timing_ms,
                     dry_run: true,
                     review_batch_id: scope.reviewBatchId.toString(),
+                    families: familySlugs,
                     total_selected: preview.totals.included,
+                    can_create_batch: preview.totals.included > 0,
                 },
                 `create_batch_timing eligibility_ms=${eligibilityMs} transaction_ms=0 total_ms=${totalMs}`
             );
-            return {
-                dry_run: true,
-                batch_name: preview.batchName,
-                entity_families: preview.entityFamilies,
-                totals: preview.totals,
-                by_family: preview.byFamily,
-                total_selected: preview.totals.included,
-                by_entity,
-                skipped: preview.totals.skipped,
+            return buildCreateBatchDryRunResponse({
+                reviewBatchId: scope.reviewBatchId,
+                batchName,
+                familyConfigs: families,
+                preview,
+                countRows,
+                includeWarnings: options.includeWarnings,
                 timing_ms,
-                stages: [
-                    {
-                        stage_key: "resolve_scope",
-                        stage_label: "Resolve scope",
-                        message: `Scope resolved for review_batch_id=${scope.reviewBatchId.toString()}.`,
-                        counts: {},
-                    },
-                    {
-                        stage_key: "count_eligible",
-                        stage_label: "Count eligible candidates",
-                        message: `${preview.totals.included} candidate(s) would be included.`,
-                        counts: preview.totals,
-                    },
-                ],
-                message: "Dry-run complete. No database rows were changed.",
-            };
+                resolveMs,
+            });
         }
 
         const { batch, itemsAdded, candidatesMarked, byFamily, timing, totalSelected } =
@@ -582,7 +678,7 @@ export class ImportReviewPromotionService {
         const detail = await this.getBatchById(batch.id);
         const buildingsMarked =
             byFamily.find((f) => f.entity_family === "buildings")?.marked_batched ?? 0;
-        const familyLabels = families.map((f) => f.entityFamily).join(", ");
+        const familyLabels = familySlugs.join(", ");
         const skipped = byFamily.reduce(
             (sum, f) => sum + f.skipped_reasons.reduce((s, r) => s + r.count, 0),
             0
@@ -596,12 +692,22 @@ export class ImportReviewPromotionService {
             total_ms: Date.now() - totalStart,
         };
 
+        const publishBatchId = batch.id.toString();
+        const reviewBatchNumber = Number(scope.reviewBatchId);
+        if (!Number.isSafeInteger(reviewBatchNumber)) {
+            throw new Error(
+                `review_batch_id is too large to represent as a number: ${scope.reviewBatchId.toString()}`
+            );
+        }
+
         log?.info(
             {
                 create_batch_timing: timing_ms,
                 dry_run: false,
-                batch_id: batch.id.toString(),
+                batch_id: publishBatchId,
+                publish_batch_id: publishBatchId,
                 review_batch_id: scope.reviewBatchId.toString(),
+                families: familySlugs,
                 total_selected: totalSelected,
             },
             `create_batch_timing eligibility_ms=${timing_ms.eligibility_ms} transaction_ms=${timing_ms.transaction_ms} total_ms=${timing_ms.total_ms}`
@@ -610,7 +716,10 @@ export class ImportReviewPromotionService {
         return {
             message: `Created publish batch "${batch.batch_name}" with ${itemsAdded} item(s) across [${familyLabels}]. Candidates marked promotion_status=batched. No core writes were performed.`,
             batch: detail,
-            batch_id: batch.id.toString(),
+            batch_id: publishBatchId,
+            publish_batch_id: publishBatchId,
+            review_batch_id: reviewBatchNumber,
+            families: familySlugs,
             status: batch.status,
             items_added: itemsAdded,
             total_selected: totalSelected,

@@ -6,6 +6,7 @@ import {
 } from "../constants";
 import { createImportReviewEntityConfig } from "../createEntityConfig";
 import { REF_POI_CATEGORY_ID } from "../refSources";
+import { getImportReviewNameColumns } from "../../utils/importReviewNaming";
 
 export const placesImportReviewEntityConfig = createImportReviewEntityConfig({
     slug: "places",
@@ -19,8 +20,7 @@ export const placesImportReviewEntityConfig = createImportReviewEntityConfig({
     legacyDedicatedPage: false,
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
-        { key: "effective_name_mm", label: "Myanmar name", source: "row" },
-        { key: "effective_name_en", label: "English name", source: "row" },
+        ...getImportReviewNameColumns(),
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,
     ],
     searchableFields: ["canonical_name", "name", "external_id"],

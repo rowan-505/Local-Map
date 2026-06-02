@@ -49,7 +49,7 @@ function optionalColumnExpr(
 function optionalJsonTextExpr(
     alias: string,
     caps: ImportReviewEntityColumnCapabilities,
-    jsonColumn: "review_overrides" | "normalized_data" | "source_refs",
+    jsonColumn: "normalized_data" | "source_refs",
     key: string
 ): Prisma.Sql {
     if (!caps.hasColumn(jsonColumn)) {
@@ -65,7 +65,6 @@ function effectiveTextExpr(
 ): Prisma.Sql {
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", column)},
             ${optionalColumnExpr(alias, caps, column, "text")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", column)},
             ''
@@ -76,11 +75,10 @@ function effectiveTextExpr(
 function canonicalNameExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "canonical_name")},
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "name")},
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "name_mm")},
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "name_en")},
             ${optionalColumnExpr(alias, caps, "canonical_name", "text")},
+            ${optionalColumnExpr(alias, caps, "name_mm", "text")},
+            ${optionalColumnExpr(alias, caps, "name_en", "text")},
+            ${optionalColumnExpr(alias, caps, "name", "text")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "canonical_name")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "name")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "name:my")},
@@ -97,8 +95,6 @@ function numericIdExpr(
 ): Prisma.Sql {
     const direct = Prisma.sql`
         coalesce(
-            CASE WHEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)} ~ '^[0-9]+$'
-                THEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)}::bigint END,
             ${optionalColumnExpr(alias, caps, column, "bigint")},
             CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)} ~ '^[0-9]+$'
                 THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)}::bigint END
@@ -114,10 +110,8 @@ function numericIdExpr(
                 SELECT al.id
                 FROM ref.ref_admin_levels AS al
                 WHERE al.code = lower(trim(coalesce(
-                    ${optionalJsonTextExpr(alias, caps, "review_overrides", "admin_level_code")},
                     ${optionalJsonTextExpr(alias, caps, "normalized_data", "admin_level_code")},
                     ${optionalJsonTextExpr(alias, caps, "normalized_data", "admin_level")},
-                    ${optionalJsonTextExpr(alias, caps, "review_overrides", "class_code")},
                     ${optionalColumnExpr(alias, caps, "class_code", "text")},
                     ${optionalJsonTextExpr(alias, caps, "normalized_data", "class_code")}
                 )))
@@ -132,7 +126,6 @@ function sourceTypeIdExpr(alias: string, caps: ImportReviewEntityColumnCapabilit
         SELECT st.id
         FROM ref.ref_source_types AS st
         WHERE st.code = coalesce(
-            nullif(trim(${optionalJsonTextExpr(alias, caps, "review_overrides", "source_type_code")}), ''),
             nullif(trim(${optionalJsonTextExpr(alias, caps, "source_refs", "source_type_code")}), ''),
             nullif(trim(${optionalJsonTextExpr(alias, caps, "source_refs", "source")}), ''),
             nullif(trim(${optionalJsonTextExpr(alias, caps, "normalized_data", "source_type_code")}), ''),
@@ -144,19 +137,7 @@ function sourceTypeIdExpr(alias: string, caps: ImportReviewEntityColumnCapabilit
 }
 
 function geomExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
-    const geomColumn = optionalColumnExpr(alias, caps, "geom", "geometry");
-    if (!caps.hasReviewOverrides) {
-        return geomColumn;
-    }
-    return Prisma.sql`
-        CASE
-            WHEN ${col(alias, "review_overrides")} ? 'geom'
-                 AND ${col(alias, "review_overrides")}->'geom' IS NOT NULL
-                 AND jsonb_typeof(${col(alias, "review_overrides")}->'geom') = 'object'
-            THEN ST_SetSRID(ST_GeomFromGeoJSON(${col(alias, "review_overrides")}->'geom'), 4326)
-            ELSE ${geomColumn}
-        END
-    `;
+    return optionalColumnExpr(alias, caps, "geom", "geometry");
 }
 
 function multiPolygonExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
@@ -202,7 +183,6 @@ function sourceRefsExpr(alias: string, caps: ImportReviewEntityColumnCapabilitie
 function normalizedDataExpr(alias: string, caps: ImportReviewEntityColumnCapabilities, batchId: bigint): Prisma.Sql {
     return Prisma.sql`
         coalesce(${optionalColumnExpr(alias, caps, "normalized_data", "jsonb")}, '{}'::jsonb)
-        || coalesce(${optionalColumnExpr(alias, caps, "review_overrides", "jsonb")}, '{}'::jsonb)
         || jsonb_build_object(
             'promotion', jsonb_build_object(
                 'publish_batch_id', ${batchId}::text,
@@ -670,7 +650,8 @@ export class ImportReviewPromotionPromoteAdminAreasRepository {
         const candidateRows = await tx.$queryRaw<AdminAreaCandidateNameRow[]>`
             SELECT
                 aa.id,
-                aa.review_overrides,
+                aa.name_mm,
+                aa.name_en,
                 aa.canonical_name,
                 aa.normalized_data,
                 aa.external_id,
@@ -689,10 +670,8 @@ export class ImportReviewPromotionPromoteAdminAreasRepository {
 
         const names = deriveImportReviewNames(candidate);
         const rows: Array<{ name: string; languageCode: string; scriptCode: string | null }> = [];
-        const overrides = asRecord(candidate.review_overrides);
-        pushName(rows, trimString(overrides.name_mm), "my");
-        pushName(rows, trimString(overrides.name_en), "en");
-        pushName(rows, trimString(overrides.name), isMyanmarScript(trimString(overrides.name) ?? "") ? "my" : "und");
+        pushName(rows, trimString(candidate.name_mm), "my");
+        pushName(rows, trimString(candidate.name_en), "en");
         pushName(rows, names.name_mm, "my");
         pushName(rows, names.name_en, "en");
         pushName(rows, names.name_und, "und");

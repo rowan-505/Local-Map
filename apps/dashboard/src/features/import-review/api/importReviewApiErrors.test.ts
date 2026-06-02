@@ -1,38 +1,48 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, it } from "node:test";
 
 import {
     formatImportReviewApiErrorBody,
-    parseImportReviewApiErrorBody,
+    parseImportReviewRoadOverridesSaveIssues,
 } from "./importReviewApiErrors";
 
-test("parseImportReviewApiErrorBody reads ok:false envelope", () => {
-    const parsed = parseImportReviewApiErrorBody({
-        ok: false,
-        error: "NOT_FOUND",
-        message: "Candidate not found",
-        details: null,
+describe("importReviewApiErrors road overrides save", () => {
+    it("parses warnings pending response with requires_acknowledgement", () => {
+        const data = {
+            ok: false,
+            error: "ROAD_OVERRIDES_WARNINGS_PENDING",
+            message: "Routing continuity warnings detected",
+            details: {
+                errors: [],
+                warnings: ["Road class_id is unset while geometry exists"],
+                requires_acknowledgement: true,
+            },
+        };
+        const issues = parseImportReviewRoadOverridesSaveIssues(data);
+        assert.ok(issues);
+        assert.equal(issues.errors.length, 0);
+        assert.equal(issues.warnings.length, 1);
+        assert.equal(issues.requiresAcknowledgement, true);
+
+        const formatted = formatImportReviewApiErrorBody(data, "fallback");
+        assert.match(formatted, /Road class_id is unset/);
+        assert.match(formatted, /⚠/);
     });
-    assert.ok(parsed);
-    assert.equal(parsed.code, "NOT_FOUND");
-    assert.equal(parsed.message, "Candidate not found");
-});
 
-test("parseImportReviewApiErrorBody returns null for success-shaped payload", () => {
-    assert.equal(parseImportReviewApiErrorBody({ review_batch_id: "2", items: [] }), null);
-});
-
-test("formatImportReviewApiErrorBody handles malformed legacy message-only JSON", () => {
-    const text = formatImportReviewApiErrorBody({ message: "Unauthorized" }, "fallback");
-    assert.equal(text, "Unauthorized");
-});
-
-test("formatImportReviewApiErrorBody handles ok:false envelope", () => {
-    const text = formatImportReviewApiErrorBody({
-        ok: false,
-        error: "INTERNAL_ERROR",
-        message: "We could not load candidates.",
-        details: null,
+    it("parses validation failed response with blocking errors", () => {
+        const data = {
+            ok: false,
+            error: "ROAD_OVERRIDES_VALIDATION_FAILED",
+            message: "Road overrides validation failed",
+            details: {
+                errors: ["Unknown road_class_id=999"],
+                warnings: [],
+                requires_acknowledgement: false,
+            },
+        };
+        const issues = parseImportReviewRoadOverridesSaveIssues(data);
+        assert.ok(issues);
+        assert.equal(issues.errors.length, 1);
+        assert.equal(issues.requiresAcknowledgement, false);
     });
-    assert.equal(text, "We could not load candidates.");
 });

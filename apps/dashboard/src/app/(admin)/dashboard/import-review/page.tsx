@@ -492,7 +492,7 @@ function ImportReviewSummaryInner() {
                                 <StatsCard title="Rejected" value={rollup.rejected_candidates} statusColor="danger" />
                                 <StatsCard title="Needs review" value={rollup.needs_review_candidates} />
                                 <StatsCard title="Ignored" value={rollup.ignored_candidates} />
-                                <StatsCard title="Merged" value={rollup.merged_candidates} />
+                                <StatsCard title="Finalized" value={rollup.merged_candidates} />
                                 <StatsCard title="Promoted" value={rollup.promoted_candidates} />
                                 <StatsCard
                                     title="Promotion failed"

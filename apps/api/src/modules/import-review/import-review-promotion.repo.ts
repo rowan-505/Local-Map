@@ -43,6 +43,7 @@ export type PublishBatchRowDb = {
     failed_count: number;
     skipped_count: number;
     note: string | null;
+    summary?: unknown;
     created_at: Date;
     published_at: Date | null;
     promoted_at: Date | null;
@@ -133,7 +134,6 @@ export type ReadyBuildingCandidateRowDb = {
     source_snapshot_version: string;
     review_batch_id: bigint;
     normalized_data: unknown;
-    review_overrides: unknown;
     source_refs: unknown;
     geometry: unknown;
 };
@@ -328,7 +328,6 @@ export class ImportReviewPromotionRepository {
                 b.source_snapshot_version,
                 b.review_batch_id,
                 b.normalized_data,
-                COALESCE(to_jsonb(b.review_overrides), '{}'::jsonb) AS review_overrides,
                 b.source_refs,
                 CASE
                     WHEN ${args.includeGeometry} THEN ST_AsGeoJSON(b.geom)::json
@@ -372,6 +371,7 @@ export class ImportReviewPromotionRepository {
                 pb.failed_count,
                 pb.skipped_count,
                 pb.note,
+                pb.summary,
                 pb.created_at,
                 pb.published_at,
                 pb.promoted_at
@@ -399,6 +399,7 @@ export class ImportReviewPromotionRepository {
                 pb.failed_count,
                 pb.skipped_count,
                 pb.note,
+                pb.summary,
                 pb.created_at,
                 pb.published_at,
                 pb.promoted_at

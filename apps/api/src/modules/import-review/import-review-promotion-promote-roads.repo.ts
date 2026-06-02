@@ -23,6 +23,7 @@ import {
     ROAD_CANDIDATE_SQL_ALIAS,
     roadReadyFieldExprs,
 } from "./import-review-promotion-promote-roads-sql.js";
+import { isRoadPromotionBlockingStoredIssue } from "./import-review-road-promotion-policy.js";
 
 export const CORE_STREETS_TABLE = "core.core_streets";
 
@@ -33,25 +34,20 @@ const PROMOTABLE_DRY_RUN_STATUSES = new Set<RoadDryRunItemStatus>([
 ]);
 
 type RoadCandidateNameRow = {
-    review_overrides: unknown;
     canonical_name: string | null;
+    name_mm: string | null;
+    name_en: string | null;
     normalized_data: unknown;
     external_id: string | null;
     class_code: string | null;
     road_class: string | null;
 };
 
-function jsonArrayHasErrors(value: unknown): boolean {
+function jsonArrayHasPromotionBlockers(value: unknown): boolean {
     if (!Array.isArray(value)) {
         return false;
     }
-    return value.some(
-        (item) =>
-            item &&
-            typeof item === "object" &&
-            !Array.isArray(item) &&
-            (item as { severity?: unknown }).severity === "error"
-    );
+    return value.some((item) => isRoadPromotionBlockingStoredIssue(item));
 }
 
 function isManualProtected(matchStatus: string | null, autoAction: string | null): boolean {
@@ -543,8 +539,8 @@ export class ImportReviewPromotionPromoteRoadsRepository {
         if (row.review_decision !== "approved") {
             return { ok: false, reason: "Road candidate is not approved." };
         }
-        if (jsonArrayHasErrors(row.validation_errors)) {
-            return { ok: false, reason: "Road candidate has validation_errors." };
+        if (jsonArrayHasPromotionBlockers(row.validation_errors)) {
+            return { ok: false, reason: "Road candidate has promotion-blocking validation_errors." };
         }
         if (row.promotion_status === "promoted" || row.promoted_core_id != null) {
             return { ok: false, reason: "Road candidate is already promoted." };
@@ -621,14 +617,13 @@ export class ImportReviewPromotionPromoteRoadsRepository {
 
     private toNameCandidate(row: RoadCandidateNameRow): ImportReviewNameCandidate {
         return {
-            review_overrides: row.review_overrides,
             canonical_name: row.canonical_name,
             normalized_data: row.normalized_data,
             external_id: row.external_id,
             class_code: row.class_code,
             name: null,
-            name_mm: null,
-            name_en: null,
+            name_mm: row.name_mm,
+            name_en: row.name_en,
         };
     }
 
@@ -638,8 +633,9 @@ export class ImportReviewPromotionPromoteRoadsRepository {
     ): Promise<RoadCandidateNameRow | null> {
         const rows = await tx.$queryRaw<RoadCandidateNameRow[]>`
             SELECT
-                r.review_overrides,
                 r.canonical_name,
+                r.name_mm,
+                r.name_en,
                 r.normalized_data,
                 r.external_id,
                 r.class_code,

@@ -1,4 +1,5 @@
 import type { FastifyReply } from "fastify";
+import { Prisma } from "@prisma/client";
 
 import {
     ImportReviewBatchAmbiguousError,
@@ -35,6 +36,7 @@ import {
     ImportReviewRoutingBarrierDryRunRequiredError,
     ImportReviewRoutingBarrierPromotionBatchLimitError,
     ImportReviewRoutingBarrierPromotionDisabledError,
+    ImportReviewPromotionUnknownFamilyError,
     ImportReviewTransportPromotionDeprecatedError,
 } from "./import-review-promotion.errors.js";
 import {
@@ -94,7 +96,11 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
             400,
             "ROAD_OVERRIDES_VALIDATION_FAILED",
             "Road overrides validation failed",
-            { errors: error.errors, warnings: error.warnings }
+            {
+                errors: error.errors,
+                warnings: error.warnings,
+                requires_acknowledgement: false,
+            }
         );
         return true;
     }
@@ -105,7 +111,11 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
             409,
             "ROAD_OVERRIDES_WARNINGS_PENDING",
             "Routing continuity warnings detected — retry with confirm_acknowledge_routing_warnings=true after acknowledging.",
-            { warnings: error.warnings, errors: [] }
+            {
+                errors: [],
+                warnings: error.warnings,
+                requires_acknowledgement: true,
+            }
         );
         return true;
     }
@@ -212,6 +222,13 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
         return true;
     }
 
+    if (error instanceof ImportReviewPromotionUnknownFamilyError) {
+        sendImportReviewApiError(reply, 400, "PROMOTION_UNKNOWN_ENTITY_FAMILY", error.message, {
+            family: error.family,
+        });
+        return true;
+    }
+
     if (error instanceof ImportReviewTransportPromotionDeprecatedError) {
         sendImportReviewApiError(reply, 409, "TRANSPORT_PROMOTION_DEPRECATED", error.message, {
             entity_families: [...error.entityFamilies],
@@ -282,6 +299,27 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
         sendImportReviewApiError(reply, error.statusCode, "PROMOTION_DRY_RUN_ERROR", error.message, {
             batch_id: error.batchId,
         });
+        return true;
+    }
+
+    if (error instanceof Prisma.PrismaClientValidationError) {
+        sendImportReviewApiError(
+            reply,
+            400,
+            "VALIDATION_ERROR",
+            "Invalid PATCH payload for import-review candidate."
+        );
+        return true;
+    }
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        sendImportReviewApiError(
+            reply,
+            400,
+            "VALIDATION_ERROR",
+            "Candidate update failed validation constraints.",
+            { prisma_code: error.code }
+        );
         return true;
     }
 

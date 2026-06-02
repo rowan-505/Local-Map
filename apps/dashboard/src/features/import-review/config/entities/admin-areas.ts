@@ -6,6 +6,7 @@ import {
 } from "../constants";
 import { createImportReviewEntityConfig } from "../createEntityConfig";
 import { REF_ADMIN_LEVEL_ID } from "../refSources";
+import { getImportReviewNameColumns } from "../../utils/importReviewNaming";
 
 export const adminAreasImportReviewEntityConfig = createImportReviewEntityConfig({
     slug: "admin-areas",
@@ -18,8 +19,7 @@ export const adminAreasImportReviewEntityConfig = createImportReviewEntityConfig
     riskLevel: "low",
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
-        { key: "effective_name_mm", label: "Myanmar name", source: "row" },
-        { key: "effective_name_en", label: "English name", source: "row" },
+        ...getImportReviewNameColumns(),
         { key: "effective_admin_level_id", label: "Admin level", source: "row" },
         { key: "effective_slug", label: "Slug", source: "row", mono: true },
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,

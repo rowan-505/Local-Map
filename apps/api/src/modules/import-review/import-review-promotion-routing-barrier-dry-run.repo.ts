@@ -35,7 +35,6 @@ export type RoutingBarrierCandidateDryRunRow = {
     confidence_score: number | null;
     source_refs: unknown;
     normalized_data: unknown;
-    review_overrides: unknown;
     validation_errors: unknown;
     matched_core_id: bigint | null;
     promoted_core_id: bigint | null;
@@ -66,7 +65,7 @@ function optionalColumnExpr(
 function optionalJsonTextExpr(
     alias: string,
     caps: ImportReviewEntityColumnCapabilities,
-    jsonColumn: "review_overrides" | "normalized_data" | "source_refs",
+    jsonColumn: "normalized_data" | "source_refs",
     key: string
 ): Prisma.Sql {
     return caps.hasColumn(jsonColumn)
@@ -75,27 +74,12 @@ function optionalJsonTextExpr(
 }
 
 function pointGeomExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
-    const pointGeom = optionalColumnExpr(alias, caps, "point_geom", "geometry(Point,4326)");
-    if (!caps.hasReviewOverrides) {
-        return pointGeom;
-    }
-    return Prisma.sql`
-        CASE
-            WHEN ${col(alias, "review_overrides")} ? 'point_geom'
-                 AND jsonb_typeof(${col(alias, "review_overrides")}->'point_geom') = 'object'
-            THEN ST_SetSRID(ST_GeomFromGeoJSON(${col(alias, "review_overrides")}->'point_geom'), 4326)::geometry(Point, 4326)
-            WHEN ${col(alias, "review_overrides")} ? 'geom'
-                 AND jsonb_typeof(${col(alias, "review_overrides")}->'geom') = 'object'
-            THEN ST_SetSRID(ST_GeomFromGeoJSON(${col(alias, "review_overrides")}->'geom'), 4326)::geometry(Point, 4326)
-            ELSE ${pointGeom}
-        END
-    `;
+    return optionalColumnExpr(alias, caps, "point_geom", "geometry(Point,4326)");
 }
 
 function barrierTypeExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "barrier_type")},
             ${optionalColumnExpr(alias, caps, "barrier_type", "text")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "barrier_type")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "barrier")},
@@ -187,7 +171,6 @@ export class ImportReviewPromotionRoutingBarrierDryRunRepository {
                 ${optionalColumnExpr("rb", caps, "confidence_score", "numeric")}::float8 AS confidence_score,
                 ${optionalColumnExpr("rb", caps, "source_refs", "jsonb")} AS source_refs,
                 ${optionalColumnExpr("rb", caps, "normalized_data", "jsonb")} AS normalized_data,
-                ${optionalColumnExpr("rb", caps, "review_overrides", "jsonb")} AS review_overrides,
                 ${optionalColumnExpr("rb", caps, "validation_errors", "jsonb")} AS validation_errors,
                 ${optionalColumnExpr("rb", caps, "matched_core_id", "bigint")} AS matched_core_id,
                 ${optionalColumnExpr("rb", caps, "promoted_core_id", "bigint")} AS promoted_core_id,

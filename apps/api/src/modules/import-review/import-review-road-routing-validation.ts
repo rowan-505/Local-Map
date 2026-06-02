@@ -53,13 +53,6 @@ function info(code: string, message: string): ImportReviewRoadValidationIssue {
     return issue(code, message, "info");
 }
 
-function asOverrideRecord(raw: unknown): Record<string, unknown> {
-    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-        return raw as Record<string, unknown>;
-    }
-    return {};
-}
-
 function normPick(data: unknown, key: string): unknown {
     if (!data || typeof data !== "object" || Array.isArray(data)) {
         return undefined;
@@ -168,7 +161,14 @@ export type ImportReviewRoadRoutingValidationRow = {
     surface: string | null;
     is_oneway: boolean | null;
     geom_geojson: unknown | null;
-    review_overrides: unknown;
+    name_mm: string | null;
+    name_en: string | null;
+    access: string | null;
+    speed_kph: number | null;
+    bridge: boolean | null;
+    tunnel: boolean | null;
+    layer: number | null;
+    admin_area_id: bigint | null;
     normalized_data: unknown;
     matched_core_table: string | null;
     matched_core_id: bigint | null;
@@ -192,7 +192,6 @@ export function mergeEffectiveRoadState(row: ImportReviewRoadRoutingValidationRo
     geom_geojson: Record<string, unknown> | null;
     overridesChangedOneway: boolean;
 } {
-    const ov = asOverrideRecord(row.review_overrides);
     const nd = row.normalized_data;
     const tags =
         normPick(nd, "tags") && typeof normPick(nd, "tags") === "object"
@@ -200,33 +199,37 @@ export function mergeEffectiveRoadState(row: ImportReviewRoadRoutingValidationRo
             : {};
 
     const baselineOneway = row.is_oneway;
-    const effectiveOneway = pickBool(ov.is_oneway, row.is_oneway, normPick(nd, "is_oneway"));
+    const effectiveOneway = pickBool(row.is_oneway, normPick(nd, "is_oneway"));
 
     let geom: Record<string, unknown> | null = null;
-    const ovGeom = ov.geom;
-    if (ovGeom && typeof ovGeom === "object" && !Array.isArray(ovGeom)) {
-        geom = ovGeom as Record<string, unknown>;
-    } else if (row.geom_geojson && typeof row.geom_geojson === "object" && !Array.isArray(row.geom_geojson)) {
+    if (row.geom_geojson && typeof row.geom_geojson === "object" && !Array.isArray(row.geom_geojson)) {
         geom = row.geom_geojson as Record<string, unknown>;
     }
 
     return {
-        canonical_name: pickString(ov.canonical_name, row.canonical_name, normPick(nd, "generated_label")),
-        road_class_id: parseOptionalBigInt(ov.road_class_id) ?? row.road_class_id,
-        road_class_code: pickString(ov.road_class_code, row.road_class, row.class_code, tags.highway),
-        surface: pickString(ov.surface, row.surface, tags.surface),
-        access: pickString(ov.access, normPick(nd, "access"), tags.access),
-        speed_kph: pickInt(ov.speed_kph, normPick(nd, "speed_kph"), tags.maxspeed),
+        canonical_name: pickString(
+            row.canonical_name,
+            row.name_en,
+            row.name_mm,
+            normPick(nd, "generated_label")
+        ),
+        road_class_id: row.road_class_id,
+        road_class_code: pickString(row.road_class, row.class_code, tags.highway),
+        surface: pickString(row.surface, tags.surface),
+        access: pickString(row.access, normPick(nd, "access"), tags.access),
+        speed_kph:
+            row.speed_kph !== null && row.speed_kph !== undefined
+                ? Math.trunc(row.speed_kph)
+                : pickInt(normPick(nd, "speed_kph"), tags.maxspeed),
         is_oneway: effectiveOneway,
-        bridge: pickBool(ov.bridge, normPick(nd, "bridge"), tags.bridge),
-        tunnel: pickBool(ov.tunnel, normPick(nd, "tunnel"), tags.tunnel),
-        layer: pickInt(ov.layer, normPick(nd, "layer"), tags.layer),
+        bridge: pickBool(row.bridge, normPick(nd, "bridge"), tags.bridge),
+        tunnel: pickBool(row.tunnel, normPick(nd, "tunnel"), tags.tunnel),
+        layer: row.layer ?? pickInt(normPick(nd, "layer"), tags.layer),
         geom_geojson: geom,
         overridesChangedOneway:
-            ov.is_oneway !== undefined &&
             baselineOneway !== null &&
             effectiveOneway !== null &&
-            ov.is_oneway !== baselineOneway,
+            baselineOneway !== effectiveOneway,
     };
 }
 
@@ -257,7 +260,6 @@ export async function runImportReviewRoadRoutingValidation(args: {
     prisma: PrismaClient;
     streetsRepo: StreetsRepository;
     row: ImportReviewRoadRoutingValidationRow;
-    useReviewOverrides: boolean;
     connectivityThresholdM: number;
     duplicateThresholdM: number;
     confirmWarnings: boolean;
@@ -276,12 +278,7 @@ export async function runImportReviewRoadRoutingValidation(args: {
         length_m: 0,
     };
 
-    const effective = args.useReviewOverrides
-        ? mergeEffectiveRoadState(args.row)
-        : mergeEffectiveRoadState({
-              ...args.row,
-              review_overrides: {},
-          });
+    const effective = mergeEffectiveRoadState(args.row);
 
     const roadClassCode = effective.road_class_code;
     const excludeInternalStreetId =
@@ -432,7 +429,7 @@ export async function runImportReviewRoadRoutingValidation(args: {
 
     const noteTrimmed = (args.row.review_note ?? "").trim();
     if (effective.overridesChangedOneway && noteTrimmed === "") {
-        warnings.push(warn("ONEWAY_CHANGED_WITHOUT_NOTE", "One-way changed in review_overrides without review_note."));
+        warnings.push(warn("ONEWAY_CHANGED_WITHOUT_NOTE", "One-way changed on candidate without review_note."));
     }
 
     if (effective.bridge === true && effective.tunnel === true) {

@@ -71,13 +71,13 @@ export function bulkApproveBlockedReason(
         return "Selection includes promoted rows. Remove them before bulk approve.";
     }
     if (analysis.hasValidationErrors) {
-        return "Selection includes validation errors. Fix overrides or deselect those rows.";
+        return "Selection includes validation errors. Fix candidate fields or deselect those rows.";
     }
     if (analysis.hasManualProtected && !dangerForceEnabled) {
-        return "Selection includes manual_protected / protect_manual. Enable a danger override in Advanced.";
+        return "Selection includes manual_protected / protect_manual. Enable force approval in Advanced.";
     }
     if (analysis.hasDuplicateCandidate && !dangerForceEnabled) {
-        return "Selection includes duplicate_candidate rows. Enable duplicate override in Advanced.";
+        return "Selection includes duplicate_candidate rows. Enable force approval for duplicates in Advanced.";
     }
     return null;
 }

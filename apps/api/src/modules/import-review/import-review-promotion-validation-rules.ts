@@ -18,6 +18,7 @@ import {
     busStopPrimaryRealNameExpr,
     busStopStopCodeExpr,
 } from "./import-review-effective-values.js";
+import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
 import type { ImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 import { getImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 import {
@@ -26,6 +27,7 @@ import {
     placeExplicitCategoryIdExpr,
     placeResolvedCategoryIdExpr,
 } from "./import-review-promotion-place-category.js";
+import { hasRoadPromotionBlockingErrorsSql } from "./import-review-road-promotion-policy.js";
 import type {
     ImportReviewPublishItemValidationStageKey,
     ImportReviewPublishValidationIssueRow,
@@ -109,7 +111,7 @@ function optionalColumnExpr(
 function optionalJsonTextExpr(
     alias: string,
     caps: ImportReviewEntityColumnCapabilities,
-    jsonColumn: "review_overrides" | "normalized_data" | "source_refs",
+    jsonColumn: "normalized_data" | "source_refs",
     key: string
 ): Prisma.Sql {
     if (!caps.hasColumn(jsonColumn)) {
@@ -118,31 +120,33 @@ function optionalJsonTextExpr(
     return Prisma.sql`${col(alias, jsonColumn)}->>${key}`;
 }
 
+function coalesceColumnNormalizedText(
+    alias: string,
+    caps: ImportReviewEntityColumnCapabilities,
+    column: string,
+    normalizedKey?: string
+): Prisma.Sql {
+    const nk = normalizedKey ?? column;
+    return Prisma.sql`nullif(trim(coalesce(
+        ${optionalColumnExpr(alias, caps, column, "text")},
+        ${optionalJsonTextExpr(alias, caps, "normalized_data", nk)},
+        ''
+    )), '')`;
+}
+
 function adminAreaTextExpr(
     alias: string,
     caps: ImportReviewEntityColumnCapabilities,
     column: "canonical_name" | "slug" | "external_id" | "class_code"
 ): Prisma.Sql {
-    const sourceColumn = optionalColumnExpr(alias, caps, column, "text");
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", column)},
-            ${sourceColumn},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", column)},
-            ''
-        )), '')
-    `;
+    return coalesceColumnNormalizedText(alias, caps, column);
 }
 
 function adminAreaNameExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
-    const canonical = optionalColumnExpr(alias, caps, "canonical_name", "text");
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "name")},
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "canonical_name")},
-            ${canonical},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", "canonical_name")},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", "name")},
+            ${coalesceColumnNormalizedText(alias, caps, "canonical_name")},
+            ${coalesceColumnNormalizedText(alias, caps, "name")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "name:my")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "name:en")},
             ''
@@ -155,24 +159,16 @@ function busRouteTextExpr(
     caps: ImportReviewEntityColumnCapabilities,
     column: "route_code" | "public_name" | "operator_name" | "route_type" | "directionality" | "canonical_name" | "external_id"
 ): Prisma.Sql {
-    const sourceColumn = optionalColumnExpr(alias, caps, column, "text");
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", column)},
-            ${sourceColumn},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", column)},
-            ''
-        )), '')
-    `;
+    return coalesceColumnNormalizedText(alias, caps, column);
 }
 
 function busRoutePublicNameExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "name")},
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "public_name")},
-            ${optionalColumnExpr(alias, caps, "public_name", "text")},
-            ${optionalColumnExpr(alias, caps, "canonical_name", "text")},
+            ${coalesceColumnNormalizedText(alias, caps, "public_name")},
+            ${coalesceColumnNormalizedText(alias, caps, "canonical_name")},
+            ${coalesceColumnNormalizedText(alias, caps, "name_mm")},
+            ${coalesceColumnNormalizedText(alias, caps, "name_en")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "public_name")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "name")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "name:my")},
@@ -185,8 +181,7 @@ function busRoutePublicNameExpr(alias: string, caps: ImportReviewEntityColumnCap
 function busRouteRouteCodeExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "route_code")},
-            ${optionalColumnExpr(alias, caps, "route_code", "text")},
+            ${coalesceColumnNormalizedText(alias, caps, "route_code")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "route_code")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "ref")},
             ''
@@ -206,22 +201,13 @@ function busRouteVariantTextExpr(
         | "external_id"
         | "canonical_name"
 ): Prisma.Sql {
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", column)},
-            ${optionalColumnExpr(alias, caps, column, "text")},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", column)},
-            ''
-        )), '')
-    `;
+    return coalesceColumnNormalizedText(alias, caps, column);
 }
 
 function busRouteVariantRouteCodeExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "route_code")},
-            ${optionalColumnExpr(alias, caps, "route_code", "text")},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", "route_code")},
+            ${coalesceColumnNormalizedText(alias, caps, "route_code")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "ref")},
             ${optionalJsonTextExpr(alias, caps, "source_refs", "route_code")},
             ''
@@ -232,9 +218,7 @@ function busRouteVariantRouteCodeExpr(alias: string, caps: ImportReviewEntityCol
 function busRouteVariantVariantCodeExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "variant_code")},
-            ${optionalColumnExpr(alias, caps, "variant_code", "text")},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", "variant_code")},
+            ${coalesceColumnNormalizedText(alias, caps, "variant_code")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "direction")},
             ''
         )), '')
@@ -244,8 +228,6 @@ function busRouteVariantVariantCodeExpr(alias: string, caps: ImportReviewEntityC
 function busRouteVariantRouteIdRawExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`
         coalesce(
-            CASE WHEN ${optionalJsonTextExpr(alias, caps, "review_overrides", "route_id")} ~ '^[0-9]+$'
-                THEN ${optionalJsonTextExpr(alias, caps, "review_overrides", "route_id")}::bigint END,
             ${optionalColumnExpr(alias, caps, "route_id", "bigint")},
             CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", "route_id")} ~ '^[0-9]+$'
                 THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", "route_id")}::bigint END,
@@ -264,7 +246,6 @@ function busRouteVariantResolvedRouteIdExpr(
     const routeCode = busRouteVariantRouteCodeExpr(alias, caps);
     const externalRouteRef = Prisma.sql`
         nullif(trim(coalesce(
-            ${optionalJsonTextExpr(alias, caps, "review_overrides", "route_external_id")},
             ${optionalJsonTextExpr(alias, caps, "source_refs", "route_external_id")},
             ${optionalJsonTextExpr(alias, caps, "source_refs", "bus_route_external_id")},
             ${optionalJsonTextExpr(alias, caps, "normalized_data", "route_external_id")},
@@ -323,8 +304,6 @@ function busRouteStopBigintRawExpr(
 ): Prisma.Sql {
     return Prisma.sql`
         coalesce(
-            CASE WHEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)} ~ '^[0-9]+$'
-                THEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)}::bigint END,
             ${optionalColumnExpr(alias, caps, column, "bigint")},
             CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)} ~ '^[0-9]+$'
                 THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)}::bigint END,
@@ -341,8 +320,6 @@ function busRouteStopIntExpr(
 ): Prisma.Sql {
     return Prisma.sql`
         coalesce(
-            CASE WHEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)} ~ '^[0-9]+$'
-                THEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)}::integer END,
             ${optionalColumnExpr(alias, caps, column, "integer")},
             CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)} ~ '^[0-9]+$'
                 THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)}::integer END
@@ -353,8 +330,6 @@ function busRouteStopIntExpr(
 function busRouteStopDistanceExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`
         coalesce(
-            CASE WHEN ${optionalJsonTextExpr(alias, caps, "review_overrides", "distance_from_start_m")} ~ '^[0-9]+(\\.[0-9]+)?$'
-                THEN ${optionalJsonTextExpr(alias, caps, "review_overrides", "distance_from_start_m")}::numeric END,
             ${optionalColumnExpr(alias, caps, "distance_from_start_m", "numeric")},
             CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", "distance_from_start_m")} ~ '^[0-9]+(\\.[0-9]+)?$'
                 THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", "distance_from_start_m")}::numeric END
@@ -500,8 +475,6 @@ function adminAreaBigintExpr(
     const sourceColumn = optionalColumnExpr(alias, caps, column, "bigint");
     const numericExpr = Prisma.sql`
         coalesce(
-            CASE WHEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)} ~ '^[0-9]+$'
-                THEN ${optionalJsonTextExpr(alias, caps, "review_overrides", column)}::bigint END,
             ${sourceColumn},
             CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)} ~ '^[0-9]+$'
                 THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)}::bigint END
@@ -517,11 +490,9 @@ function adminAreaBigintExpr(
                 SELECT al.id
                 FROM ref.ref_admin_levels AS al
                 WHERE al.code = lower(trim(coalesce(
-                    ${optionalJsonTextExpr(alias, caps, "review_overrides", "admin_level_code")},
                     ${optionalJsonTextExpr(alias, caps, "normalized_data", "admin_level_code")},
                     ${optionalJsonTextExpr(alias, caps, "normalized_data", "admin_level")},
-                    ${optionalJsonTextExpr(alias, caps, "review_overrides", "class_code")},
-                    ${optionalColumnExpr(alias, caps, "class_code", "text")},
+                    ${coalesceColumnNormalizedText(alias, caps, "class_code")},
                     ${optionalJsonTextExpr(alias, caps, "normalized_data", "class_code")}
                 )))
                 LIMIT 1
@@ -535,7 +506,6 @@ function adminAreaSourceTypeIdExpr(alias: string, caps: ImportReviewEntityColumn
         SELECT st.id
         FROM ref.ref_source_types AS st
         WHERE st.code = coalesce(
-            nullif(trim(${optionalJsonTextExpr(alias, caps, "review_overrides", "source_type_code")}), ''),
             nullif(trim(${optionalJsonTextExpr(alias, caps, "source_refs", "source_type_code")}), ''),
             nullif(trim(${optionalJsonTextExpr(alias, caps, "source_refs", "source")}), ''),
             nullif(trim(${optionalJsonTextExpr(alias, caps, "normalized_data", "source_type_code")}), ''),
@@ -547,19 +517,7 @@ function adminAreaSourceTypeIdExpr(alias: string, caps: ImportReviewEntityColumn
 }
 
 function adminAreaGeomExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
-    const geomColumn = optionalColumnExpr(alias, caps, "geom", "geometry");
-    if (!caps.hasReviewOverrides) {
-        return geomColumn;
-    }
-    return Prisma.sql`
-        CASE
-            WHEN ${col(alias, "review_overrides")} ? 'geom'
-                 AND ${col(alias, "review_overrides")}->'geom' IS NOT NULL
-                 AND jsonb_typeof(${col(alias, "review_overrides")}->'geom') = 'object'
-            THEN ST_SetSRID(ST_GeomFromGeoJSON(${col(alias, "review_overrides")}->'geom'), 4326)
-            ELSE ${geomColumn}
-        END
-    `;
+    return optionalColumnExpr(alias, caps, "geom", "geometry");
 }
 
 function adminAreaMultiPolygonExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
@@ -682,7 +640,12 @@ export class ImportReviewPromotionValidationRules {
                 SELECT spi.id, 'candidate_validation_errors',
                     'Candidate validation_errors must be empty.', 'error'
                 ${join}
-                WHERE spi.id IN (${Prisma.join(itemIds)}) AND ${hasValidationErrorsSql(a)}
+                WHERE spi.id IN (${Prisma.join(itemIds)})
+                  AND ${
+                      config.entityFamily === "roads"
+                          ? hasRoadPromotionBlockingErrorsSql(a)
+                          : hasValidationErrorsSql(a)
+                  }
 
                 UNION ALL
 
@@ -717,12 +680,15 @@ export class ImportReviewPromotionValidationRules {
         config: ImportReviewPublishFamilyConfig,
         itemIds: bigint[]
     ): Promise<ImportReviewPublishValidationIssueRow[]> {
-        const family = config.entityFamily;
+        const family = config.entityFamily as ImportReviewEntityFamilySlug;
         if (family === "buildings" || family === "landuse" || family === "water_polygons") {
             return this.validatePolygonGeometry(config, itemIds, family === "buildings");
         }
-        if (family === "water_lines") {
+        if (family === "water_lines" || family === "roads") {
             return this.validateLineGeometry(config, itemIds);
+        }
+        if (family === "addresses") {
+            return this.validatePointGeometry(config, itemIds, "geom", true);
         }
         if (family === "bus_route_variants") {
             return this.validateBusRouteVariantGeometry(config, itemIds);
@@ -1024,6 +990,88 @@ export class ImportReviewPromotionValidationRules {
         `;
     }
 
+    private async validateRoadRequiredFields(
+        config: ImportReviewPublishFamilyConfig,
+        itemIds: bigint[]
+    ): Promise<ImportReviewPublishValidationIssueRow[]> {
+        const a = config.tableAlias;
+        const join = itemsJoinSql(config);
+        return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
+            SELECT publish_item_id, code, message, severity FROM (
+                SELECT spi.id AS publish_item_id, 'missing_lineage'::text AS code,
+                    'external_id or local_staging_id or source_refs lineage is recommended.', 'warning'::text AS message
+                ${join}
+                WHERE spi.id IN (${Prisma.join(itemIds)})
+                  AND ${col(a, "id")} IS NOT NULL AND NOT (${lineageExpr(a)})
+
+                UNION ALL
+                SELECT spi.id, 'invalid_confidence',
+                    'confidence_score must be between 0 and 100 when set.', 'error'
+                ${join}
+                WHERE spi.id IN (${Prisma.join(itemIds)})
+                  AND ${col(a, "confidence_score")} IS NOT NULL
+                  AND (${col(a, "confidence_score")} < 0 OR ${col(a, "confidence_score")} > 100)
+
+                UNION ALL
+                SELECT spi.id, 'empty_source_refs',
+                    'source_refs is empty; optional for roads but recommended for traceability.', 'warning'
+                ${join}
+                WHERE spi.id IN (${Prisma.join(itemIds)})
+                  AND (
+                      ${col(a, "source_refs")} IS NULL
+                      OR jsonb_typeof(${col(a, "source_refs")}) <> 'object'
+                      OR ${col(a, "source_refs")} = '{}'::jsonb
+                  )
+
+                UNION ALL
+                SELECT spi.id, 'empty_normalized_data',
+                    'normalized_data is empty; optional for roads but recommended.', 'warning'
+                ${join}
+                WHERE spi.id IN (${Prisma.join(itemIds)})
+                  AND (
+                      ${col(a, "normalized_data")} IS NULL
+                      OR jsonb_typeof(${col(a, "normalized_data")}) <> 'object'
+                      OR ${col(a, "normalized_data")} = '{}'::jsonb
+                  )
+
+                UNION ALL
+                SELECT spi.id, 'NAME_MISSING',
+                    'Canonical name / label is missing.', 'warning'
+                ${join}
+                WHERE spi.id IN (${Prisma.join(itemIds)})
+                  AND ${col(a, "id")} IS NOT NULL
+                  AND nullif(trim(coalesce(${col(a, "canonical_name")}, '')), '') IS NULL
+
+                UNION ALL
+                SELECT spi.id, 'SURFACE_MISSING',
+                    'Surface tag/field is missing.', 'warning'
+                ${join}
+                WHERE spi.id IN (${Prisma.join(itemIds)})
+                  AND ${col(a, "id")} IS NOT NULL
+                  AND nullif(trim(coalesce(${col(a, "surface")}, '')), '') IS NULL
+                  AND nullif(trim(coalesce(${col(a, "normalized_data")}->>'surface', '')), '') IS NULL
+
+                UNION ALL
+                SELECT spi.id, 'SPEED_KPH_MISSING',
+                    'Speed limit is missing.', 'warning'
+                ${join}
+                WHERE spi.id IN (${Prisma.join(itemIds)})
+                  AND ${col(a, "id")} IS NOT NULL
+                  AND ${col(a, "speed_kph")} IS NULL
+                  AND nullif(trim(coalesce(${col(a, "normalized_data")}->>'maxspeed', '')), '') IS NULL
+                  AND nullif(trim(coalesce(${col(a, "normalized_data")}->>'speed_kph', '')), '') IS NULL
+
+                UNION ALL
+                SELECT spi.id, 'low_confidence',
+                    'confidence_score is below 40.', 'warning'
+                ${join}
+                WHERE spi.id IN (${Prisma.join(itemIds)})
+                  AND ${col(a, "confidence_score")} IS NOT NULL
+                  AND ${col(a, "confidence_score")} < 40
+            ) AS issues
+        `;
+    }
+
     private async validateLineGeometry(
         config: ImportReviewPublishFamilyConfig,
         itemIds: bigint[]
@@ -1136,7 +1184,7 @@ export class ImportReviewPromotionValidationRules {
     ): Promise<ImportReviewPublishValidationIssueRow[]> {
         const a = config.tableAlias;
         const join = itemsJoinSql(config);
-        const family = config.entityFamily;
+        const family = config.entityFamily as ImportReviewEntityFamilySlug;
 
         if (family === "admin_areas") {
             return this.validateAdminAreaRequiredFields(config, itemIds);
@@ -1152,6 +1200,9 @@ export class ImportReviewPromotionValidationRules {
         }
         if (family === "routing_barriers") {
             return this.validateRoutingBarrierRequiredFields(config, itemIds);
+        }
+        if (family === "roads") {
+            return this.validateRoadRequiredFields(config, itemIds);
         }
 
         const familySpecific =
@@ -1269,14 +1320,14 @@ export class ImportReviewPromotionValidationRules {
         const confidenceScore = optionalColumnExpr(a, caps, "confidence_score", "numeric");
         const requiredColumnChecks: Prisma.Sql[] = [];
 
-        if (targetCaps.isRequired("route_code") && !caps.hasRouteCode && !caps.hasReviewOverrides && !caps.hasNormalizedData) {
+        if (targetCaps.isRequired("route_code") && !caps.hasRouteCode && !caps.hasEditableFieldColumns && !caps.hasNormalizedData) {
             requiredColumnChecks.push(missingTargetColumnIssueSql(
                 itemIds,
                 "SCHEMA_MISSING_BUS_ROUTE_CODE_SOURCE",
                 "Schema error: core.core_bus_routes.route_code is required, but no route_code source column or JSON source exists."
             ));
         }
-        if (targetCaps.isRequired("public_name") && !caps.hasPublicName && !caps.hasCanonicalName && !caps.hasReviewOverrides && !caps.hasNormalizedData) {
+        if (targetCaps.isRequired("public_name") && !caps.hasPublicName && !caps.hasCanonicalName && !caps.hasEditableFieldColumns && !caps.hasNormalizedData) {
             requiredColumnChecks.push(missingTargetColumnIssueSql(
                 itemIds,
                 "SCHEMA_MISSING_BUS_ROUTE_PUBLIC_NAME_SOURCE",
@@ -1351,14 +1402,14 @@ export class ImportReviewPromotionValidationRules {
         const confidenceScore = optionalColumnExpr(a, caps, "confidence_score", "numeric");
         const requiredColumnChecks: Prisma.Sql[] = [];
 
-        if (targetCaps.isRequired("route_id") && !caps.hasRouteId && !caps.hasReviewOverrides && !caps.hasNormalizedData && !caps.hasSourceRefs) {
+        if (targetCaps.isRequired("route_id") && !caps.hasRouteId && !caps.hasEditableFieldColumns && !caps.hasNormalizedData && !caps.hasSourceRefs) {
             requiredColumnChecks.push(missingTargetColumnIssueSql(
                 itemIds,
                 "SCHEMA_MISSING_BUS_ROUTE_VARIANT_ROUTE_SOURCE",
                 "Schema error: core.core_bus_route_variants.route_id is required, but no route_id/route_code source column or JSON source exists."
             ));
         }
-        if (targetCaps.isRequired("variant_code") && !caps.hasVariantCode && !caps.hasReviewOverrides && !caps.hasNormalizedData) {
+        if (targetCaps.isRequired("variant_code") && !caps.hasVariantCode && !caps.hasEditableFieldColumns && !caps.hasNormalizedData) {
             requiredColumnChecks.push(missingTargetColumnIssueSql(
                 itemIds,
                 "SCHEMA_MISSING_BUS_ROUTE_VARIANT_CODE_SOURCE",
@@ -1454,21 +1505,21 @@ export class ImportReviewPromotionValidationRules {
         const confidenceScore = optionalColumnExpr(a, caps, "confidence_score", "numeric");
         const requiredColumnChecks: Prisma.Sql[] = [];
 
-        if (targetCaps.isRequired("route_variant_id") && !caps.hasRouteVariantId && !caps.hasReviewOverrides && !caps.hasNormalizedData && !caps.hasSourceRefs) {
+        if (targetCaps.isRequired("route_variant_id") && !caps.hasRouteVariantId && !caps.hasEditableFieldColumns && !caps.hasNormalizedData && !caps.hasSourceRefs) {
             requiredColumnChecks.push(missingTargetColumnIssueSql(
                 itemIds,
                 "SCHEMA_MISSING_BUS_ROUTE_STOP_VARIANT_SOURCE",
                 "Schema error: core.core_bus_route_stops.route_variant_id is required, but no route_variant_id source column or JSON source exists."
             ));
         }
-        if (targetCaps.isRequired("stop_id") && !caps.hasStopId && !caps.hasReviewOverrides && !caps.hasNormalizedData && !caps.hasSourceRefs) {
+        if (targetCaps.isRequired("stop_id") && !caps.hasStopId && !caps.hasEditableFieldColumns && !caps.hasNormalizedData && !caps.hasSourceRefs) {
             requiredColumnChecks.push(missingTargetColumnIssueSql(
                 itemIds,
                 "SCHEMA_MISSING_BUS_ROUTE_STOP_STOP_SOURCE",
                 "Schema error: core.core_bus_route_stops.stop_id is required, but no stop_id source column or JSON source exists."
             ));
         }
-        if (targetCaps.isRequired("stop_sequence") && !caps.hasStopSequence && !caps.hasReviewOverrides && !caps.hasNormalizedData) {
+        if (targetCaps.isRequired("stop_sequence") && !caps.hasStopSequence && !caps.hasEditableFieldColumns && !caps.hasNormalizedData) {
             requiredColumnChecks.push(missingTargetColumnIssueSql(
                 itemIds,
                 "SCHEMA_MISSING_BUS_ROUTE_STOP_SEQUENCE_SOURCE",
@@ -1639,7 +1690,7 @@ export class ImportReviewPromotionValidationRules {
         const confidenceScore = optionalColumnExpr(a, caps, "confidence_score", "numeric");
 
         const requiredColumnChecks: Prisma.Sql[] = [];
-        if (targetCaps.isRequired("admin_level_id") && !caps.hasAdminLevelId && !caps.hasReviewOverrides && !caps.hasNormalizedData) {
+        if (targetCaps.isRequired("admin_level_id") && !caps.hasAdminLevelId && !caps.hasEditableFieldColumns && !caps.hasNormalizedData) {
             requiredColumnChecks.push(
                 missingTargetColumnIssueSql(
                     itemIds,
@@ -1648,7 +1699,7 @@ export class ImportReviewPromotionValidationRules {
                 )
             );
         }
-        if (targetCaps.isRequired("canonical_name") && !caps.hasCanonicalName && !caps.hasReviewOverrides && !caps.hasNormalizedData) {
+        if (targetCaps.isRequired("canonical_name") && !caps.hasCanonicalName && !caps.hasEditableFieldColumns && !caps.hasNormalizedData) {
             requiredColumnChecks.push(
                 missingTargetColumnIssueSql(
                     itemIds,
@@ -1657,7 +1708,7 @@ export class ImportReviewPromotionValidationRules {
                 )
             );
         }
-        if (targetCaps.isRequired("slug") && !caps.hasSlug && !caps.hasReviewOverrides && !caps.hasNormalizedData) {
+        if (targetCaps.isRequired("slug") && !caps.hasSlug && !caps.hasEditableFieldColumns && !caps.hasNormalizedData) {
             requiredColumnChecks.push(
                 missingTargetColumnIssueSql(
                     itemIds,
@@ -1787,7 +1838,7 @@ export class ImportReviewPromotionValidationRules {
     ): Promise<ImportReviewPublishValidationIssueRow[]> {
         const a = config.tableAlias;
         const join = itemsJoinSql(config);
-        const family = config.entityFamily;
+        const family = config.entityFamily as ImportReviewEntityFamilySlug;
         const caps = await this.columnRegistry.getCapabilities(config.candidateTable);
         const adminExpr = effectiveAdminAreaIdExpr(a, { hasAdminAreaColumn: caps.hasAdminAreaIdColumn });
 
@@ -2029,8 +2080,6 @@ export class ImportReviewPromotionValidationRules {
         if (family === "bus_routes") {
             const routeCaps = await this.schemaRegistry.getEntityColumnCapabilities("bus_routes");
             const explicitSourceTypeCode = Prisma.sql`nullif(trim(coalesce(
-                ${optionalJsonTextExpr(a, routeCaps, "review_overrides", "source_type_code")},
-                ${optionalJsonTextExpr(a, routeCaps, "review_overrides", "source")},
                 ${optionalJsonTextExpr(a, routeCaps, "source_refs", "source_type_code")},
                 ${optionalJsonTextExpr(a, routeCaps, "source_refs", "source")},
                 ${optionalJsonTextExpr(a, routeCaps, "normalized_data", "source_type_code")},
@@ -2068,7 +2117,7 @@ export class ImportReviewPromotionValidationRules {
                 config,
                 itemIds,
                 caps.hasAdminAreaIdColumn,
-                "Landuse validation uses review_overrides/normalized_data for admin_area_id; landuse_candidates has no admin_area_id column. This reference is optional for landuse."
+                "Landuse validation uses normalized_data for admin_area_id; landuse_candidates has no admin_area_id column. This reference is optional for landuse."
             );
 
             return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
@@ -2110,7 +2159,7 @@ export class ImportReviewPromotionValidationRules {
                 config,
                 itemIds,
                 caps.hasAdminAreaIdColumn,
-                `${entityLabel} validation uses review_overrides/normalized_data for admin_area_id; ${config.candidateTable.split(".").pop()} has no admin_area_id column. This reference is optional.`
+                `${entityLabel} validation uses normalized_data for admin_area_id; ${config.candidateTable.split(".").pop()} has no admin_area_id column. This reference is optional.`
             );
 
             return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
@@ -2150,18 +2199,9 @@ export class ImportReviewPromotionValidationRules {
         const adminLevelId = adminAreaBigintExpr(a, caps, "admin_level_id");
         const parentId = adminAreaBigintExpr(a, caps, "parent_id");
         const sourceTypeId = adminAreaSourceTypeIdExpr(a, caps);
-        const rawAdminLevelId = Prisma.sql`
-            coalesce(
-                CASE WHEN ${optionalJsonTextExpr(a, caps, "review_overrides", "admin_level_id")} ~ '^[0-9]+$'
-                    THEN ${optionalJsonTextExpr(a, caps, "review_overrides", "admin_level_id")}::bigint END,
-                ${optionalColumnExpr(a, caps, "admin_level_id", "bigint")},
-                CASE WHEN ${optionalJsonTextExpr(a, caps, "normalized_data", "admin_level_id")} ~ '^[0-9]+$'
-                    THEN ${optionalJsonTextExpr(a, caps, "normalized_data", "admin_level_id")}::bigint END
-            )
-        `;
+        const rawAdminLevelId = adminAreaBigintExpr(a, caps, "admin_level_id");
         const explicitSourceTypeCode = Prisma.sql`
             nullif(trim(coalesce(
-                ${optionalJsonTextExpr(a, caps, "review_overrides", "source_type_code")},
                 ${optionalJsonTextExpr(a, caps, "source_refs", "source_type_code")},
                 ${optionalJsonTextExpr(a, caps, "source_refs", "source")},
                 ${optionalJsonTextExpr(a, caps, "normalized_data", "source_type_code")},
@@ -2257,7 +2297,7 @@ export class ImportReviewPromotionValidationRules {
         config: ImportReviewPublishFamilyConfig,
         itemIds: bigint[]
     ): Promise<ImportReviewPublishValidationIssueRow[]> {
-        const family = config.entityFamily;
+        const family = config.entityFamily as ImportReviewEntityFamilySlug;
         if (family === "buildings") {
             return this.validateBuildingDuplicates(config, itemIds);
         }
@@ -2287,6 +2327,12 @@ export class ImportReviewPromotionValidationRules {
         }
         if (family === "admin_areas") {
             return this.validateAdminAreaDuplicates(config, itemIds);
+        }
+        if (family === "roads") {
+            return this.validateExternalIdDuplicate(config, itemIds, "core.core_streets");
+        }
+        if (family === "addresses") {
+            return this.validateExternalIdDuplicate(config, itemIds, "core.core_addresses");
         }
         return [];
     }
@@ -2630,7 +2676,7 @@ export class ImportReviewPromotionValidationRules {
     ): Promise<ImportReviewPublishValidationIssueRow[]> {
         const a = config.tableAlias;
         const join = itemsJoinSql(config);
-        const family = config.entityFamily;
+        const family = config.entityFamily as ImportReviewEntityFamilySlug;
         const hasMatchedCoreExpr = Prisma.sql`
             ${col(a, "matched_core_id")} IS NOT NULL
             OR (
@@ -2778,25 +2824,21 @@ export class ImportReviewPromotionValidationRules {
                       )
                     UNION ALL
                     SELECT spi.id, 'no_myanmar_name',
-                        'No Myanmar name found in overrides or normalized names.', 'warning'
+                        'No Myanmar name found on candidate columns or normalized names.', 'warning'
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND nullif(trim(coalesce(
-                          ${optionalJsonTextExpr(a, caps, "review_overrides", "name_mm")},
-                          ${optionalJsonTextExpr(a, caps, "review_overrides", "name:my")},
-                          ${optionalJsonTextExpr(a, caps, "normalized_data", "name_mm")},
+                          ${coalesceColumnNormalizedText(a, caps, "name_mm")},
                           ${optionalJsonTextExpr(a, caps, "normalized_data", "name:my")},
                           ${optionalJsonTextExpr(a, caps, "normalized_data", "name:mm")}
                       )), '') IS NULL
                     UNION ALL
                     SELECT spi.id, 'no_english_name',
-                        'No English name found in overrides or normalized names.', 'warning'
+                        'No English name found on candidate columns or normalized names.', 'warning'
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND nullif(trim(coalesce(
-                          ${optionalJsonTextExpr(a, caps, "review_overrides", "name_en")},
-                          ${optionalJsonTextExpr(a, caps, "review_overrides", "name:en")},
-                          ${optionalJsonTextExpr(a, caps, "normalized_data", "name_en")},
+                          ${coalesceColumnNormalizedText(a, caps, "name_en")},
                           ${optionalJsonTextExpr(a, caps, "normalized_data", "name:en")}
                       )), '') IS NULL
                     UNION ALL
@@ -2817,6 +2859,27 @@ export class ImportReviewPromotionValidationRules {
                       AND ${geom} IS NOT NULL
                       AND ${centroid} IS NOT NULL
                       AND NOT ST_Covers(${geom}, ${centroid})
+                ) AS issues
+            `;
+        }
+
+        if (family === "roads") {
+            return this.prisma.$queryRaw<ImportReviewPublishValidationIssueRow[]>`
+                SELECT publish_item_id, code, message, severity FROM (
+                    ${actionChecks}
+                    UNION ALL
+                    SELECT spi.id, 'line_too_short',
+                        'Road segment geometry is very short (< 1 m).', 'warning'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND ${col(a, "geom")} IS NOT NULL
+                      AND ST_Length(${col(a, "geom")}::geography) < 1
+                    UNION ALL
+                    SELECT spi.id, 'routing_graph_not_checked',
+                        'Routing graph connectivity is not validated during publish batch validation.', 'info'
+                    ${join}
+                    WHERE spi.id IN (${Prisma.join(itemIds)})
+                      AND spi.id = (SELECT min(v) FROM unnest(ARRAY[${Prisma.join(itemIds)}]::bigint[]) AS v)
                 ) AS issues
             `;
         }
@@ -2850,25 +2913,21 @@ export class ImportReviewPromotionValidationRules {
                       AND ${directionality} IS NULL
                     UNION ALL
                     SELECT spi.id, 'no_myanmar_name',
-                        'No Myanmar bus route name found in overrides or normalized names.', 'warning'
+                        'No Myanmar bus route name found on candidate columns or normalized names.', 'warning'
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND nullif(trim(coalesce(
-                          ${optionalJsonTextExpr(a, caps, "review_overrides", "name_mm")},
-                          ${optionalJsonTextExpr(a, caps, "review_overrides", "name:my")},
-                          ${optionalJsonTextExpr(a, caps, "normalized_data", "name_mm")},
+                          ${coalesceColumnNormalizedText(a, caps, "name_mm")},
                           ${optionalJsonTextExpr(a, caps, "normalized_data", "name:my")},
                           ${optionalJsonTextExpr(a, caps, "normalized_data", "name:mm")}
                       )), '') IS NULL
                     UNION ALL
                     SELECT spi.id, 'no_english_name',
-                        'No English bus route name found in overrides or normalized names.', 'warning'
+                        'No English bus route name found on candidate columns or normalized names.', 'warning'
                     ${join}
                     WHERE spi.id IN (${Prisma.join(itemIds)})
                       AND nullif(trim(coalesce(
-                          ${optionalJsonTextExpr(a, caps, "review_overrides", "name_en")},
-                          ${optionalJsonTextExpr(a, caps, "review_overrides", "name:en")},
-                          ${optionalJsonTextExpr(a, caps, "normalized_data", "name_en")},
+                          ${coalesceColumnNormalizedText(a, caps, "name_en")},
                           ${optionalJsonTextExpr(a, caps, "normalized_data", "name:en")}
                       )), '') IS NULL
                     UNION ALL
@@ -2890,8 +2949,6 @@ export class ImportReviewPromotionValidationRules {
             const destinationName = busRouteVariantTextExpr(a, caps, "destination_name");
             const distanceM = Prisma.sql`
                 coalesce(
-                    CASE WHEN ${optionalJsonTextExpr(a, caps, "review_overrides", "distance_m")} ~ '^[0-9]+(\\.[0-9]+)?$'
-                        THEN ${optionalJsonTextExpr(a, caps, "review_overrides", "distance_m")}::numeric END,
                     ${optionalColumnExpr(a, caps, "distance_m", "numeric")},
                     CASE WHEN ${optionalJsonTextExpr(a, caps, "normalized_data", "distance_m")} ~ '^[0-9]+(\\.[0-9]+)?$'
                         THEN ${optionalJsonTextExpr(a, caps, "normalized_data", "distance_m")}::numeric END

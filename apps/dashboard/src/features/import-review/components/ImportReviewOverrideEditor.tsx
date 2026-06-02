@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 import type { ImportReviewScopeQueryParams } from "@/src/lib/importReviewSnapshot";
@@ -18,20 +18,27 @@ import {
     buildingTypeSelectOptionsForRow,
     fieldUsesSelectOptions,
     formOptionsKeyForField,
+    includeCurrentAdminAreaOption,
+    poiCategoryOptionsFromFormOptions,
+    resolveDirectEditReferenceFormValue,
+    resolveOptionValueFromSource,
     selectOptionsForField,
     selectOptionsWithCurrentValue,
     toAdminAreaComboboxOptions,
 } from "../utils/formOptionsUtils";
+import PoiCategoryCombobox from "@/src/components/poi-categories/PoiCategoryCombobox";
 import { formatImportReviewBuildingTypeLabel } from "@/src/lib/building-type/display";
 import { safeJson as formatStoredJson } from "../utils/detailDrawerUtils";
 import {
-    asOverrideRecord,
-    buildInitialOverrideForm,
-    buildOverridePatch,
+    buildInitialDirectEditForm,
+    buildColumnPatch,
     validateOverrideForm,
     readImportedValue,
+    isDirectEditPrefilledFromSource,
+    columnValuePresent,
 } from "../utils/overrideEditorUtils";
 import { deriveImportedClassCode } from "../utils/importReviewClassificationFields";
+import { getImportReviewSourceImportedName } from "../utils/importReviewNaming";
 import { IMPORT_REVIEW_LOADING } from "../utils/loadingMessages";
 import { importReviewMessageTone } from "../utils/importReviewMessageTone";
 import AdminAreaCombobox from "@/src/components/admin-areas/AdminAreaCombobox";
@@ -44,6 +51,7 @@ function OverrideFieldGrid({
     row,
     defs,
     form,
+    prefilledFromSourceKeys,
     canEdit,
     promoted,
     isSaving,
@@ -56,6 +64,7 @@ function OverrideFieldGrid({
     row: ImportReviewBuildingListItem;
     defs: ImportReviewOverrideFieldDef[];
     form: Record<string, string>;
+    prefilledFromSourceKeys: Set<string>;
     canEdit: boolean;
     promoted: boolean;
     isSaving: boolean;
@@ -64,7 +73,14 @@ function OverrideFieldGrid({
     onFormChange: (configKey: string, value: string) => void;
     onClearField: (configKey: string) => void;
 }) {
-    const adminAreaOptions = useMemo(() => toAdminAreaComboboxOptions(formOptions), [formOptions]);
+    const adminAreaOptions = useMemo(
+        () => includeCurrentAdminAreaOption(toAdminAreaComboboxOptions(formOptions), form.admin_area_id ?? null),
+        [formOptions, form.admin_area_id]
+    );
+    const poiCategoryOptions = useMemo(
+        () => poiCategoryOptionsFromFormOptions(formOptions),
+        [formOptions]
+    );
 
     if (defs.length === 0) {
         return null;
@@ -73,18 +89,30 @@ function OverrideFieldGrid({
     return (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {defs.map((def) => {
+                const isNameField = def.patchKey === "name_mm" || def.patchKey === "name_en";
+                const sourceImportedName = isNameField ? getImportReviewSourceImportedName(row) : null;
                 const importedForPatch = readImportedValue(row, def, config.apiFamily);
                 const importedDisplay =
                     def.configKey === "building_type_id"
                         ? formatImportReviewBuildingTypeLabel(row)
                         : def.patchKey === "landuse_class_id" && config.apiFamily === "landuse"
                           ? (deriveImportedClassCode(row, config.apiFamily) ?? "")
-                          : importedForPatch;
+                          : isNameField
+                            ? (sourceImportedName ?? "")
+                            : importedForPatch;
                 const importedLabel =
                     def.patchKey === "landuse_class_id" && config.apiFamily === "landuse"
                         ? "Imported class:"
-                        : "Imported:";
+                        : isNameField
+                          ? "Imported/source name:"
+                          : "Imported:";
                 const value = form[def.configKey] ?? "";
+                const prefilledFromSource = prefilledFromSourceKeys.has(def.configKey);
+                const showImportedHint =
+                    Boolean(importedDisplay) &&
+                    !prefilledFromSource &&
+                    value.trim() === "" &&
+                    (!isNameField || def.patchKey === "name_en");
                 const essential = isFieldEssentialForEntity(config, def.configKey);
                 const usesSelect = fieldUsesSelectOptions(config, def);
                 const optionKey = formOptionsKeyForField(config, def);
@@ -108,13 +136,18 @@ function OverrideFieldGrid({
                                     disabled={disabled}
                                     onClick={() => onClearField(def.configKey)}
                                 >
-                                    Clear override
+                                    Clear field
                                 </button>
                             </span>
                             {def.helperText ? (
                                 <span className="text-[10px] font-normal text-gray-500">{def.helperText}</span>
                             ) : null}
-                            {importedDisplay ? (
+                            {prefilledFromSource ? (
+                                <span className="text-[10px] font-normal text-violet-800">
+                                    Prefilled from source
+                                </span>
+                            ) : null}
+                            {showImportedHint ? (
                                 <span className="text-[10px] font-normal text-gray-500">
                                     {importedLabel}{" "}
                                     <span className="font-mono text-gray-700">{importedDisplay}</span>
@@ -128,6 +161,15 @@ function OverrideFieldGrid({
                                     options={adminAreaOptions.length > 0 ? adminAreaOptions : undefined}
                                     optionsLoading={optionsLoading}
                                     onChange={(id) => onFormChange(def.configKey, id ?? "")}
+                                />
+                            ) : def.refSource === "ref_poi_categories" ? (
+                                <PoiCategoryCombobox
+                                    value={value}
+                                    disabled={disabled || optionsLoading}
+                                    optionsLoading={optionsLoading}
+                                    options={poiCategoryOptions}
+                                    onChange={(id) => onFormChange(def.configKey, id)}
+                                    emptyOptionLabel="No category"
                                 />
                             ) : usesSelect ? (
                                 <select
@@ -216,6 +258,7 @@ export default function ImportReviewOverrideEditor({
     canEdit,
     isSaving,
     saveMessage,
+    saveTechnicalError = "",
     formOptions,
     formOptionsLoading = false,
     formOptionsError = "",
@@ -227,10 +270,18 @@ export default function ImportReviewOverrideEditor({
     canEdit: boolean;
     isSaving: boolean;
     saveMessage: string | null;
+    saveTechnicalError?: string | null;
     formOptions: ImportReviewFormOptionsBundle | null;
     formOptionsLoading?: boolean;
     formOptionsError?: string;
-    onSave: (patch: Record<string, unknown>, reviewNote: string | null) => Promise<void>;
+    onSave: (
+        patch: Record<string, unknown>,
+        reviewNote: string | null,
+        saveOptions?: {
+            verifyPatchKeys?: readonly string[];
+            referenceFieldsDevLog?: Record<string, unknown>;
+        }
+    ) => Promise<ImportReviewBuildingListItem>;
 }) {
     const fieldDefs = useMemo(() => overrideFieldDefsForEntity(config), [config]);
     const { names, classification, address } = useMemo(
@@ -241,26 +292,157 @@ export default function ImportReviewOverrideEditor({
     const rowResetKey = `${row.id}:${config.apiFamily}`;
     const [lastRowResetKey, setLastRowResetKey] = useState(rowResetKey);
     const [form, setForm] = useState<Record<string, string>>(() =>
-        buildInitialOverrideForm(row, fieldDefs, config.apiFamily),
+        buildInitialDirectEditForm(row, fieldDefs, config.apiFamily).form,
     );
     const [baseline, setBaseline] = useState<Record<string, string>>(() =>
-        buildInitialOverrideForm(row, fieldDefs, config.apiFamily),
+        buildInitialDirectEditForm(row, fieldDefs, config.apiFamily).form,
+    );
+    const [prefilledFromSourceKeys, setPrefilledFromSourceKeys] = useState<Set<string>>(
+        () => buildInitialDirectEditForm(row, fieldDefs, config.apiFamily).prefilledFromSourceKeys
     );
     const [clearedKeys, setClearedKeys] = useState<Set<string>>(() => new Set());
+    const [userEditedConfigKeys, setUserEditedConfigKeys] = useState<Set<string>>(() => new Set());
     const [overrideNote, setOverrideNote] = useState(row.review_note ?? "");
     const [validationError, setValidationError] = useState<string | null>(null);
 
+    const confirmRequiredClear = () => {
+        const requiredClears = fieldDefs.filter(
+            (def) =>
+                clearedKeys.has(def.configKey) &&
+                isFieldEssentialForEntity(config, def.configKey)
+        );
+        if (requiredClears.length === 0) {
+            return true;
+        }
+        const labels = requiredClears.map((def) => def.label).join(", ");
+        return window.confirm(
+            `You are clearing required field(s): ${labels}. Continue with save?`
+        );
+    };
+
     if (lastRowResetKey !== rowResetKey) {
-        const next = buildInitialOverrideForm(row, fieldDefs, config.apiFamily);
+        const nextState = buildInitialDirectEditForm(row, fieldDefs, config.apiFamily);
         setLastRowResetKey(rowResetKey);
-        setForm(next);
-        setBaseline(next);
+        setForm(nextState.form);
+        setBaseline(nextState.form);
+        setPrefilledFromSourceKeys(nextState.prefilledFromSourceKeys);
         setClearedKeys(new Set());
+        setUserEditedConfigKeys(new Set());
         setOverrideNote(row.review_note ?? "");
         setValidationError(null);
     }
 
     const promoted = (row.promotion_status ?? "").toLowerCase() === "promoted";
+
+    const poiCategoryOptions = useMemo(
+        () => poiCategoryOptionsFromFormOptions(formOptions),
+        [formOptions]
+    );
+
+    useEffect(() => {
+        if (!formOptions) {
+            return;
+        }
+        const updates: Record<string, string> = {};
+        for (const def of fieldDefs) {
+            const configKey = def.configKey;
+            const current = (form[configKey] ?? "").trim();
+            const imported = readImportedValue(row, def, config.apiFamily).trim();
+            const sourceForResolve = current || imported;
+            if (!sourceForResolve) {
+                continue;
+            }
+            if (current && /^\d+$/.test(current)) {
+                continue;
+            }
+
+            if (def.configKey === "landuse_class_id") {
+                const options = (formOptions.landuse_classes ?? []).map((opt) => ({
+                    value: String(opt.value),
+                    label: opt.label,
+                    code: opt.code ?? null,
+                }));
+                const resolved = resolveDirectEditReferenceFormValue(sourceForResolve, options);
+                if (resolved) {
+                    updates[configKey] = resolved;
+                }
+                continue;
+            }
+            if (def.configKey === "barrier_type") {
+                const options = (formOptions.barrier_types ?? []).map((opt) => ({
+                    value: String(opt.value),
+                    label: opt.label,
+                    code: opt.code ?? null,
+                }));
+                const resolved = resolveDirectEditReferenceFormValue(sourceForResolve, options);
+                if (resolved) {
+                    updates[configKey] = resolved;
+                }
+                continue;
+            }
+            if (def.refSource === "ref_poi_categories") {
+                const options = poiCategoryOptions.map((opt) => ({
+                    value: opt.value,
+                    label: opt.label,
+                    code: opt.code ?? null,
+                }));
+                const resolved = resolveDirectEditReferenceFormValue(sourceForResolve, options);
+                if (resolved) {
+                    updates[configKey] = resolved;
+                }
+                continue;
+            }
+            if (def.refSource === "ref_road_classes") {
+                const options = (formOptions.road_classes ?? []).map((opt) => ({
+                    value: String(opt.value),
+                    label: opt.label,
+                    code: opt.code ?? null,
+                }));
+                const resolved = resolveDirectEditReferenceFormValue(sourceForResolve, options);
+                if (resolved) {
+                    updates[configKey] = resolved;
+                }
+                continue;
+            }
+            if (def.refSource === "ref_building_types") {
+                const options = (formOptions.building_types ?? []).map((opt) => ({
+                    value: String(opt.value),
+                    label: opt.label,
+                    code: opt.code ?? null,
+                }));
+                const resolved = resolveDirectEditReferenceFormValue(sourceForResolve, options);
+                if (resolved) {
+                    updates[configKey] = resolved;
+                }
+                continue;
+            }
+            if (def.refSource === "ref_admin_levels") {
+                const options = (formOptions.admin_levels ?? []).map((opt) => ({
+                    value: String(opt.value),
+                    label: opt.label,
+                    code: opt.code ?? null,
+                }));
+                const resolved = resolveDirectEditReferenceFormValue(sourceForResolve, options);
+                if (resolved) {
+                    updates[configKey] = resolved;
+                }
+                continue;
+            }
+        }
+        const keys = Object.keys(updates);
+        if (keys.length === 0) {
+            return;
+        }
+        setForm((prev) => ({ ...prev, ...updates }));
+        setBaseline((prev) => ({ ...prev, ...updates }));
+        setPrefilledFromSourceKeys((prev) => {
+            const next = new Set(prev);
+            for (const key of keys) {
+                next.add(key);
+            }
+            return next;
+        });
+    }, [formOptions, fieldDefs, row, config.apiFamily, form, poiCategoryOptions]);
 
     const isDirty = useMemo(() => {
         if (clearedKeys.size > 0) {
@@ -273,6 +455,15 @@ export default function ImportReviewOverrideEditor({
         }
         return false;
     }, [form, baseline, clearedKeys, fieldDefs]);
+    const saveState = isSaving
+        ? "saving"
+        : saveMessage && importReviewMessageTone(saveMessage) === "success"
+          ? "saved"
+          : saveMessage && importReviewMessageTone(saveMessage) === "error"
+            ? "failed"
+            : isDirty
+              ? "unsaved"
+              : "idle";
 
     const handleReset = () => {
         setForm({ ...baseline });
@@ -283,42 +474,112 @@ export default function ImportReviewOverrideEditor({
     const handleClearField = (configKey: string) => {
         setForm((prev) => ({ ...prev, [configKey]: "" }));
         setClearedKeys((prev) => new Set(prev).add(configKey));
-    };
-
-    const handleFormChange = (configKey: string, value: string) => {
-        setForm((prev) => ({ ...prev, [configKey]: value }));
-        setClearedKeys((prev) => {
+        setUserEditedConfigKeys((prev) => new Set(prev).add(configKey));
+        setPrefilledFromSourceKeys((prev) => {
             const next = new Set(prev);
             next.delete(configKey);
             return next;
         });
     };
 
+    const handleFormChange = (configKey: string, value: string) => {
+        setForm((prev) => ({ ...prev, [configKey]: value }));
+        setUserEditedConfigKeys((prev) => {
+            const next = new Set(prev);
+            next.add(configKey);
+            return next;
+        });
+        setClearedKeys((prev) => {
+            const next = new Set(prev);
+            next.delete(configKey);
+            return next;
+        });
+        const def = fieldDefs.find((d) => d.configKey === configKey);
+        if (def) {
+            setPrefilledFromSourceKeys((prev) => {
+                const next = new Set(prev);
+                if (isDirectEditPrefilledFromSource(row, def, config.apiFamily, value)) {
+                    next.add(configKey);
+                } else {
+                    next.delete(configKey);
+                }
+                return next;
+            });
+        }
+    };
+
     const handleSave = async () => {
         if (!apiScope || promoted || !canEdit) {
             return;
         }
-        const validation = validateOverrideForm(fieldDefs, form);
+        const validation = validateOverrideForm(fieldDefs, form, config.apiFamily);
         if (validation) {
             setValidationError(validation);
             return;
         }
+        if (!confirmRequiredClear()) {
+            return;
+        }
         setValidationError(null);
-        const patch = buildOverridePatch({
+        const { patch, changedPatchKeys } = buildColumnPatch({
             defs: fieldDefs,
             form,
             row,
             clearedKeys,
+            userEditedConfigKeys,
             apiFamily: config.apiFamily,
         });
-        const hasStoredOverrides = Object.keys(asOverrideRecord(row.review_overrides)).length > 0;
-        if (Object.keys(patch).length === 0 && !(hasStoredOverrides && clearedKeys.size > 0)) {
-            setValidationError("No override changes to save.");
+        const hasColumnValues = fieldDefs.some((def) => columnValuePresent(row, def, config.apiFamily));
+        if (Object.keys(patch).length === 0 && !(hasColumnValues && clearedKeys.size > 0)) {
+            setValidationError("No changes to save.");
             return;
         }
-        await onSave(patch, overrideNote.trim() === "" ? null : overrideNote.trim());
-        setBaseline({ ...form });
-        setClearedKeys(new Set());
+
+        const categoryDef = fieldDefs.find((def) => def.patchKey === "category_id");
+        const categoryFormValue = categoryDef ? (form[categoryDef.configKey] ?? "").trim() : "";
+        const categorySelectedOption =
+            categoryFormValue === ""
+                ? null
+                : (poiCategoryOptions.find(
+                      (opt) => opt.value === categoryFormValue || opt.id === categoryFormValue
+                  ) ?? null);
+        const referenceFieldsDevLog =
+            process.env.NODE_ENV === "development"
+                ? {
+                      category_id: {
+                          changedFieldsCategoryId: Object.prototype.hasOwnProperty.call(
+                              patch,
+                              "category_id"
+                          )
+                              ? patch.category_id
+                              : undefined,
+                          changedPatchKeys: [...changedPatchKeys],
+                          formValue: categoryFormValue || null,
+                          selectedOption: categorySelectedOption,
+                      },
+                  }
+                : undefined;
+
+        try {
+            const updated = await onSave(
+                patch,
+                overrideNote.trim() === "" ? null : overrideNote.trim(),
+                {
+                    verifyPatchKeys: [...changedPatchKeys],
+                    referenceFieldsDevLog,
+                }
+            );
+            const nextState = buildInitialDirectEditForm(updated, fieldDefs, config.apiFamily);
+            setForm(nextState.form);
+            setBaseline(nextState.form);
+            setPrefilledFromSourceKeys(nextState.prefilledFromSourceKeys);
+            setClearedKeys(new Set());
+            setUserEditedConfigKeys(new Set());
+            setOverrideNote(updated.review_note ?? "");
+            setValidationError(null);
+        } catch {
+            // Parent sets overrideSaveMessage / technical error; keep unsaved draft in form.
+        }
     };
 
     if (fieldDefs.length === 0) {
@@ -329,6 +590,7 @@ export default function ImportReviewOverrideEditor({
         config,
         row,
         form,
+        prefilledFromSourceKeys,
         canEdit,
         promoted,
         isSaving,
@@ -341,15 +603,11 @@ export default function ImportReviewOverrideEditor({
     return (
         <section className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/30 p-4">
             <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-violet-900">Review overrides</h3>
-                <p className="mt-1 text-[11px] leading-relaxed text-violet-950/85">
-                    Names (<span className="font-mono">name_mm</span> / <span className="font-mono">name_en</span>) are
-                    separate from class/type fields. PATCH merges into{" "}
-                    <span className="font-mono">review_overrides</span> only — imported source columns are unchanged.
-                </p>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-violet-900">Direct edit candidate</h3>
+                <p className="mt-1 text-[11px] leading-relaxed text-violet-950/85">Updates typed candidate columns on save.</p>
                 {promoted ? (
                     <p className="mt-1 text-[11px] font-semibold text-red-800">
-                        promotion_status=promoted — overrides are blocked.
+                        promotion_status=promoted — edits are blocked.
                     </p>
                 ) : null}
             </div>
@@ -362,12 +620,31 @@ export default function ImportReviewOverrideEditor({
                 <ImportReviewStatusBanner message={validationError} tone="error" compact />
             ) : null}
             {isSaving ? <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.savingOverrides} /> : null}
-            {saveMessage && !isSaving ? (
+            {saveState === "unsaved" ? (
+                <ImportReviewStatusBanner message="Unsaved changes." tone="info" compact />
+            ) : null}
+            {saveState === "saving" ? (
+                <ImportReviewStatusBanner message="Saving..." tone="info" compact />
+            ) : null}
+            {saveState === "saved" ? (
+                <ImportReviewStatusBanner message="Saved changes." tone="success" compact />
+            ) : null}
+            {saveState === "failed" ? (
                 <ImportReviewStatusBanner
-                    message={saveMessage}
-                    tone={importReviewMessageTone(saveMessage)}
+                    message={saveMessage?.trim() || "Save failed."}
+                    tone="error"
                     compact
                 />
+            ) : null}
+            {saveState === "failed" && saveTechnicalError?.trim() ? (
+                <details className="rounded-md border border-amber-100 bg-amber-50/80 p-2">
+                    <summary className="cursor-pointer text-[11px] font-semibold text-amber-900">
+                        Technical details (dev)
+                    </summary>
+                    <pre className="mt-1 max-h-28 overflow-auto text-[10px] text-amber-950 whitespace-pre-wrap">
+                        {saveTechnicalError}
+                    </pre>
+                </details>
             ) : null}
 
             <div className="space-y-3">
@@ -392,7 +669,7 @@ export default function ImportReviewOverrideEditor({
                 {address.length > 0 ? (
                     <OverrideFormSection
                         title="Address fields"
-                        description="Structured address components stored in review_overrides."
+                        description="Structured address components stored on the candidate row."
                     >
                         <OverrideFieldGrid defs={address} {...sharedGridProps} />
                     </OverrideFormSection>
@@ -400,7 +677,7 @@ export default function ImportReviewOverrideEditor({
             </div>
 
             <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 sm:col-span-2">
-                review_note (optional, saved with overrides)
+                review_note (optional, saved with changes)
                 <textarea
                     value={overrideNote}
                     disabled={!canEdit || promoted || isSaving}
@@ -425,17 +702,22 @@ export default function ImportReviewOverrideEditor({
                     onClick={() => void handleSave()}
                     className="rounded-lg bg-violet-900 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
                 >
-                    {isSaving ? "Saving overrides…" : "Save overrides"}
+                    {isSaving ? "Saving…" : "Save Changes"}
                 </button>
             </div>
 
             <details className="rounded-lg border border-gray-200 bg-white/80">
                 <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase text-gray-500">
-                    Stored review_overrides (server JSON)
+                    Source data available
                 </summary>
-                <pre className="max-h-40 overflow-auto border-t border-gray-100 p-3 text-[11px]">
-                    {formatStoredJson(row.review_overrides)}
-                </pre>
+                <div className="space-y-2 border-t border-gray-100 p-3">
+                    <p className="text-[10px] font-semibold uppercase text-gray-500">normalized_data</p>
+                    <pre className="max-h-32 overflow-auto text-[11px]">
+                        {formatStoredJson(row.normalized_data)}
+                    </pre>
+                    <p className="text-[10px] font-semibold uppercase text-gray-500">source_refs</p>
+                    <pre className="max-h-32 overflow-auto text-[11px]">{formatStoredJson(row.source_refs)}</pre>
+                </div>
             </details>
         </section>
     );

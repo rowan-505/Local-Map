@@ -2,18 +2,45 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 
 /** Known columns from migrations — avoids information_schema on hot paths. */
 const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
+    "import_review.address_candidates": [
+        "id",
+        "external_id",
+        "review_batch_id",
+        "entity_family",
+        "review_status",
+        "review_decision",
+        "promotion_status",
+        "match_status",
+        "auto_action",
+        "confidence_score",
+        "validation_errors",
+        "validation_warnings",
+        "matched_core_id",
+        "matched_place_id",
+        "full_address",
+        "point_geom",
+        "geom",
+        "lat",
+        "lng",
+        "review_note",
+        "normalized_data",
+        "promoted_core_id",
+        "created_at",
+        "updated_at",
+    ],
     "import_review.building_candidates": [
         "id",
         "external_id",
         "local_staging_id",
         "source_refs",
-        "review_overrides",
         "normalized_data",
         "geom",
         "centroid",
         "building_type",
         "building_type_id",
         "admin_area_id",
+        "name_mm",
+        "name_en",
         "class_code",
         "confidence_score",
         "review_decision",
@@ -30,11 +57,12 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "external_id",
         "local_staging_id",
         "source_refs",
-        "review_overrides",
         "normalized_data",
         "primary_name",
         "display_name",
         "canonical_name",
+        "name_mm",
+        "name_en",
         "category_id",
         "class_code",
         "admin_area_id",
@@ -56,12 +84,13 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "external_id",
         "local_staging_id",
         "source_refs",
-        "review_overrides",
         "normalized_data",
         "geom",
         "centroid",
         "class_code",
         "landuse_class_id",
+        "name_mm",
+        "name_en",
         "name",
         "canonical_name",
         "confidence_score",
@@ -79,10 +108,11 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "external_id",
         "local_staging_id",
         "source_refs",
-        "review_overrides",
         "normalized_data",
         "geom",
         "class_code",
+        "name_mm",
+        "name_en",
         "name",
         "canonical_name",
         "confidence_score",
@@ -100,11 +130,12 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "external_id",
         "local_staging_id",
         "source_refs",
-        "review_overrides",
         "normalized_data",
         "geom",
         "centroid",
         "class_code",
+        "name_mm",
+        "name_en",
         "name",
         "canonical_name",
         "confidence_score",
@@ -122,11 +153,12 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "external_id",
         "local_staging_id",
         "source_refs",
-        "review_overrides",
         "normalized_data",
         "geom",
         "stop_code",
         "admin_area_id",
+        "name_mm",
+        "name_en",
         "canonical_name",
         "confidence_score",
         "review_decision",
@@ -155,7 +187,6 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "review_note",
         "normalized_data",
         "source_refs",
-        "review_overrides",
         "matched_core_id",
         "matched_core_data",
         "validation_warnings",
@@ -167,6 +198,8 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "route_code",
         "public_name",
         "operator_name",
+        "name_mm",
+        "name_en",
         "route_type",
         "directionality",
     ],
@@ -187,7 +220,6 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "review_note",
         "normalized_data",
         "source_refs",
-        "review_overrides",
         "matched_core_id",
         "matched_core_data",
         "validation_warnings",
@@ -222,7 +254,6 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "review_note",
         "normalized_data",
         "source_refs",
-        "review_overrides",
         "matched_core_id",
         "matched_core_data",
         "validation_warnings",
@@ -242,21 +273,38 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "external_id",
         "local_staging_id",
         "source_refs",
-        "review_overrides",
         "normalized_data",
         "geom",
         "road_class_id",
         "road_class",
         "class_code",
+        "canonical_name",
+        "road_name",
+        "name_mm",
+        "name_en",
+        "admin_area_id",
+        "surface",
+        "is_oneway",
+        "bridge",
+        "tunnel",
+        "layer",
+        "access",
+        "speed_kph",
+        "length_m",
         "confidence_score",
         "review_decision",
         "review_status",
         "promotion_status",
         "validation_errors",
+        "validation_warnings",
         "match_status",
         "auto_action",
         "matched_core_id",
         "matched_core_data",
+        "promoted_core_id",
+        "review_note",
+        "created_at",
+        "updated_at",
     ],
     "import_review.admin_area_candidates": [
         "id",
@@ -275,7 +323,6 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "review_note",
         "normalized_data",
         "source_refs",
-        "review_overrides",
         "matched_core_id",
         "matched_core_data",
         "validation_warnings",
@@ -287,6 +334,8 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "parent_id",
         "admin_level_id",
         "slug",
+        "name_mm",
+        "name_en",
         "geom",
         "centroid",
     ],
@@ -307,7 +356,6 @@ const STATIC_CANDIDATE_COLUMNS: Record<string, readonly string[]> = {
         "review_note",
         "normalized_data",
         "source_refs",
-        "review_overrides",
         "matched_core_id",
         "matched_core_data",
         "validation_warnings",
@@ -328,6 +376,17 @@ export type CandidateColumnCapabilities = {
     hasCategoryIdColumn: boolean;
 };
 
+/** Whether a column exists on a candidate table (static migration list). */
+export function importReviewCandidateTableHasColumn(
+    importReviewTable: string,
+    column: string
+): boolean {
+    const tableKey = importReviewTable.includes(".")
+        ? importReviewTable
+        : `import_review.${importReviewTable}`;
+    return STATIC_CANDIDATE_COLUMNS[tableKey]?.includes(column) ?? false;
+}
+
 export class ImportReviewCandidateColumnRegistry {
     private readonly cache = new Map<string, Set<string>>();
 
@@ -346,6 +405,22 @@ export class ImportReviewCandidateColumnRegistry {
             return set;
         }
 
+        return this.loadColumnsFromDatabase(candidateTable);
+    }
+
+    /** Live information_schema columns for raw SQL (avoids stale static lists). */
+    async getColumnsForSql(candidateTable: string): Promise<ReadonlySet<string>> {
+        const cacheKey = `${candidateTable}:live`;
+        const cached = this.cache.get(cacheKey);
+        if (cached) {
+            return cached;
+        }
+        const set = await this.loadColumnsFromDatabase(candidateTable);
+        this.cache.set(cacheKey, set);
+        return set;
+    }
+
+    private async loadColumnsFromDatabase(candidateTable: string): Promise<Set<string>> {
         const [schema, table] = candidateTable.includes(".")
             ? candidateTable.split(".")
             : ["import_review", candidateTable];
@@ -381,20 +456,15 @@ export function effectiveAdminAreaIdExpr(
     options: { hasAdminAreaColumn: boolean }
 ): Prisma.Sql {
     const a = Prisma.raw(alias);
-    const fromOverrides = Prisma.sql`
-        CASE WHEN (${a}.review_overrides->>'admin_area_id') ~ '^[0-9]+$'
-            THEN (${a}.review_overrides->>'admin_area_id')::bigint
-        END
-    `;
     const fromNormalized = Prisma.sql`
         CASE WHEN (${a}.normalized_data->>'admin_area_id') ~ '^[0-9]+$'
             THEN (${a}.normalized_data->>'admin_area_id')::bigint
         END
     `;
     if (!options.hasAdminAreaColumn) {
-        return Prisma.sql`coalesce(${fromOverrides}, ${fromNormalized})`;
+        return fromNormalized;
     }
-    return Prisma.sql`coalesce(${fromOverrides}, ${a}.admin_area_id, ${fromNormalized})`;
+    return Prisma.sql`coalesce(${a}.admin_area_id, ${fromNormalized})`;
 }
 
 export function landuseEffectiveClassIdRawExpr(
@@ -402,20 +472,15 @@ export function landuseEffectiveClassIdRawExpr(
     options: { hasLanduseClassIdColumn: boolean }
 ): Prisma.Sql {
     const a = Prisma.raw(alias);
-    const fromOverrides = Prisma.sql`
-        CASE WHEN (${a}.review_overrides->>'landuse_class_id') ~ '^[0-9]+$'
-            THEN (${a}.review_overrides->>'landuse_class_id')::bigint
-        END
-    `;
     const fromNormalized = Prisma.sql`
         CASE WHEN (${a}.normalized_data->>'landuse_class_id') ~ '^[0-9]+$'
             THEN (${a}.normalized_data->>'landuse_class_id')::bigint
         END
     `;
     if (!options.hasLanduseClassIdColumn) {
-        return Prisma.sql`coalesce(${fromOverrides}, ${fromNormalized})`;
+        return fromNormalized;
     }
-    return Prisma.sql`coalesce(${fromOverrides}, ${a}.landuse_class_id, ${fromNormalized})`;
+    return Prisma.sql`coalesce(${a}.landuse_class_id, ${fromNormalized})`;
 }
 
 /** Effective landuse_class_id when it exists in ref.ref_landuse_classes. */
@@ -441,7 +506,6 @@ export function landuseClassCodeEffectiveExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'class_code',
             ${a}.class_code,
             ${a}.normalized_data->>'class_code',
             ''

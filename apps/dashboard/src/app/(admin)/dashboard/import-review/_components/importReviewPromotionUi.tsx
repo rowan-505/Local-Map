@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { isDeprecatedCoreBusImportReviewFamily } from "@/src/features/import-review/utils/deprecatedCoreBusPromotion";
+
 export function PromotionStatusBadge({ value }: { value: string | null | undefined }) {
     const label = value?.trim() || "(empty)";
     const v = label.toLowerCase();
@@ -85,18 +87,30 @@ export function isHighRiskPublishEntityFamily(family: string): boolean {
     return HIGH_RISK_PUBLISH_ENTITY_FAMILIES.has(family);
 }
 
+function DeprecatedFamilyBadge() {
+    return (
+        <span className="inline-flex rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 ring-1 ring-inset ring-slate-300">
+            Deprecated
+        </span>
+    );
+}
+
 export function PublishEntityFamilyLabel({
     family,
     showHighRiskBadge = true,
+    showDeprecatedBadge = true,
 }: {
     family: string;
     showHighRiskBadge?: boolean;
+    showDeprecatedBadge?: boolean;
 }) {
     const label = publishEntityFamilyLabel(family);
-    const highRisk = showHighRiskBadge && isHighRiskPublishEntityFamily(family);
+    const deprecated = showDeprecatedBadge && isDeprecatedCoreBusImportReviewFamily(family);
+    const highRisk = showHighRiskBadge && !deprecated && isHighRiskPublishEntityFamily(family);
     return (
         <span className="inline-flex flex-wrap items-center gap-1.5">
-            <span>{label}</span>
+            <span className={deprecated ? "text-gray-500" : undefined}>{label}</span>
+            {deprecated ? <DeprecatedFamilyBadge /> : null}
             {highRisk ? (
                 <span className="inline-flex rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-800 ring-1 ring-inset ring-red-200">
                     High risk

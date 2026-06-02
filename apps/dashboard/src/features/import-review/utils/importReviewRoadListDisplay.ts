@@ -1,17 +1,15 @@
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
+import { reviewerFacingNameOrNull, type ImportReviewRoadNameRow } from "./importReviewNameFields";
+import { getImportReviewDisplayName } from "./importReviewNaming";
 import {
-    deriveImportedNameEn,
-    deriveImportedNameMm,
-    pickEffectiveNameEn,
-    pickEffectiveNameMm,
-    reviewerFacingNameOrNull,
-    type ImportReviewRoadNameRow,
-} from "./importReviewNameFields";
+    deriveRoadListRoadClassLabel,
+    type ImportReviewRoadClassOptionInput,
+} from "./importReviewRoadClassResolver";
 
-function asOverrideRecord(review_overrides: unknown): Record<string, unknown> {
-    if (review_overrides && typeof review_overrides === "object" && !Array.isArray(review_overrides)) {
-        return review_overrides as Record<string, unknown>;
+function typedColumnFields(fields: unknown): Record<string, unknown> {
+    if (fields && typeof fields === "object" && !Array.isArray(fields)) {
+        return fields as Record<string, unknown>;
     }
     return {};
 }
@@ -34,31 +32,19 @@ function boolFromUnknown(value: unknown): boolean | null {
     return null;
 }
 
-/** Effective Myanmar name for road list cells (overrides → API → imported). */
+/** Typed Myanmar name for road list cells (direct-edit column only). */
 export function deriveRoadListNameMm(row: ImportReviewRoadNameRow): string | null {
-    const ov = asOverrideRecord(row.review_overrides);
-    return (
-        reviewerFacingNameOrNull(pickEffectiveNameMm(ov, row)) ??
-        reviewerFacingNameOrNull(row.name_mm) ??
-        reviewerFacingNameOrNull(row.effective_name_mm) ??
-        deriveImportedNameMm(row)
-    );
+    return reviewerFacingNameOrNull(row.name_mm);
 }
 
-/** Effective English name for road list cells (overrides → API → imported). */
+/** Typed English name for road list cells (direct-edit column only). */
 export function deriveRoadListNameEn(row: ImportReviewRoadNameRow): string | null {
-    const ov = asOverrideRecord(row.review_overrides);
-    return (
-        reviewerFacingNameOrNull(pickEffectiveNameEn(ov, row)) ??
-        reviewerFacingNameOrNull(row.name_en) ??
-        reviewerFacingNameOrNull(row.effective_name_en) ??
-        deriveImportedNameEn(row)
-    );
+    return reviewerFacingNameOrNull(row.name_en);
 }
 
 /** Effective admin area label for road list cells. */
 export function deriveRoadListAdminArea(row: ImportReviewBuildingListItem): string | null {
-    const ov = asOverrideRecord(row.review_overrides);
+    const ov = typedColumnFields(row);
     if (Object.prototype.hasOwnProperty.call(ov, "admin_area_id") && ov.admin_area_id === null) {
         return null;
     }
@@ -72,7 +58,7 @@ export function deriveRoadListAdminArea(row: ImportReviewBuildingListItem): stri
 
 /** Effective surface for road list cells. */
 export function deriveRoadListSurface(row: ImportReviewBuildingListItem): string | null {
-    const ov = asOverrideRecord(row.review_overrides);
+    const ov = typedColumnFields(row);
     if (Object.prototype.hasOwnProperty.call(ov, "surface")) {
         const fromOverride = ov.surface === null ? null : trimString(ov.surface);
         if (fromOverride) {
@@ -83,35 +69,17 @@ export function deriveRoadListSurface(row: ImportReviewBuildingListItem): string
     return trimString(row.road_candidate_surface);
 }
 
-/** Effective road class label for road list cells. */
+/** Effective road class label for road list cells (shared resolver with edit drawer). */
 export function deriveRoadListRoadClass(
     row: ImportReviewBuildingListItem,
-    roadClassLabelById: Map<string, string>,
+    roadClassOptions: readonly ImportReviewRoadClassOptionInput[],
 ): string | null {
-    const ov = asOverrideRecord(row.review_overrides);
-    if (Object.prototype.hasOwnProperty.call(ov, "road_class_id")) {
-        const overrideId = ov.road_class_id === null ? null : trimString(ov.road_class_id);
-        if (overrideId) {
-            return roadClassLabelById.get(overrideId) ?? overrideId;
-        }
-    }
-
-    const candidateLabel = trimString(row.road_candidate_class_label);
-    if (candidateLabel) {
-        return candidateLabel;
-    }
-
-    const candidateId = trimString(row.road_candidate_road_class_id);
-    if (candidateId) {
-        return roadClassLabelById.get(candidateId) ?? candidateId;
-    }
-
-    return trimString(row.class_code);
+    return deriveRoadListRoadClassLabel(row, roadClassOptions);
 }
 
 /** Effective one-way flag for road list cells. */
 export function deriveRoadListOneway(row: ImportReviewBuildingListItem): boolean | null {
-    const ov = asOverrideRecord(row.review_overrides);
+    const ov = typedColumnFields(row);
     if (Object.prototype.hasOwnProperty.call(ov, "is_oneway")) {
         return boolFromUnknown(ov.is_oneway);
     }
@@ -156,18 +124,7 @@ export function deriveRoadDisplayStreetName(row: ImportReviewRoadNameRow): strin
     return String(row.id);
 }
 
-/** Drawer title — never treats OSM refs as names; safe when both name_mm and name_en are missing. */
+/** Drawer title — typed names first, then legacy/source fallbacks. */
 export function deriveRoadDrawerTitle(row: ImportReviewRoadNameRow): string {
-    const nameMm = deriveRoadListNameMm(row);
-    const nameEn = deriveRoadListNameEn(row);
-    if (nameMm && nameEn) {
-        return `${nameMm} / ${nameEn}`;
-    }
-    if (nameMm) {
-        return nameMm;
-    }
-    if (nameEn) {
-        return nameEn;
-    }
-    return `Road candidate ${row.id}`;
+    return getImportReviewDisplayName(row as ImportReviewBuildingListItem, { label: "Road" });
 }

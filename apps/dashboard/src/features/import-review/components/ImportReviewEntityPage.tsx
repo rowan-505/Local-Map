@@ -252,6 +252,7 @@ function ImportReviewEntityPageInner({
                                 rowActionBusyId={page.rowActionBusyId}
                                 emptyMessage={IMPORT_REVIEW_LOADING.noCandidatesFound}
                                 isLoading={false}
+                                showPromoted={page.showPromoted}
                                 onToggleSelectAll={(checked) => {
                                     if (checked) {
                                         page.setSelectedIds(new Set(items.map((r) => r.id)));
@@ -380,6 +381,7 @@ function ImportReviewEntityPageInner({
                         isSaving={page.isSaving}
                         isSavingOverrides={page.isSavingOverrides}
                         overrideSaveMessage={page.overrideSaveMessage}
+                        overrideSaveTechnicalError={page.overrideSaveTechnicalError}
                         decisionSaveMessage={page.decisionSaveMessage}
                         apiScope={page.apiScopeQuery}
                         onSaveOverrides={page.handleDrawerOverridesSave}

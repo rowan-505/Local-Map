@@ -4,8 +4,6 @@ export function buildingClassCodeExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'class_code',
-            ${a}.review_overrides->>'building_type',
             ${a}.class_code,
             ${a}.building_type,
             ${a}.normalized_data->>'class_code',
@@ -132,7 +130,6 @@ export function mapClassCodeExpr(alias: string, fallback?: string): Prisma.Sql {
     const tail = fallback != null ? Prisma.sql`${fallback}` : Prisma.sql`''`;
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'class_code',
             ${a}.class_code,
             ${a}.normalized_data->>'class_code',
             ${a}.normalized_data->>'water_type',
@@ -145,10 +142,8 @@ export function nameExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'name_en',
-            ${a}.review_overrides->>'name_mm',
-            ${a}.review_overrides->>'name',
-            ${a}.review_overrides->>'canonical_name',
+            ${a}.name_en,
+            ${a}.name_mm,
             ${a}.name,
             ${a}.canonical_name,
             ${a}.normalized_data->>'name:en',
@@ -163,7 +158,6 @@ export function externalIdExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'external_id',
             ${a}.external_id,
             ${a}.normalized_data->>'external_id',
             CASE
@@ -175,21 +169,14 @@ export function externalIdExpr(alias: string): Prisma.Sql {
     `;
 }
 
+/** Typed candidate geometry column (authoritative after Phase 2 merge). */
 export function geomSourceExpr(alias: string, geomColumn = "geom"): Prisma.Sql {
     const a = Prisma.raw(alias);
     const geomCol = Prisma.raw(geomColumn);
-    return Prisma.sql`
-        CASE
-            WHEN ${a}.review_overrides ? 'geom'
-                 AND ${a}.review_overrides->'geom' IS NOT NULL
-                 AND jsonb_typeof(${a}.review_overrides->'geom') = 'object'
-            THEN ST_SetSRID(ST_GeomFromGeoJSON(${a}.review_overrides->'geom'), 4326)
-            ELSE ${a}.${geomCol}
-        END
-    `;
+    return Prisma.sql`${a}.${geomCol}`;
 }
 
-/** Meters along effective road centerline (override geom when present, else candidate geom). */
+/** Meters along effective road centerline (candidate geom column). */
 export function effectiveRoadLengthMExpr(alias: string, geomColumn = "geom"): Prisma.Sql {
     const effectiveGeom = geomSourceExpr(alias, geomColumn);
     return Prisma.sql`
@@ -254,7 +241,6 @@ export function normalizedDataMergeExpr(alias: string, batchId: bigint): Prisma.
     const a = Prisma.raw(alias);
     return Prisma.sql`
         coalesce(${a}.normalized_data, '{}'::jsonb)
-        || coalesce(${a}.review_overrides, '{}'::jsonb)
         || jsonb_build_object(
             'promotion', jsonb_build_object(
                 'publish_batch_id', ${batchId}::text,
@@ -281,7 +267,6 @@ export function mapCandidateSrcColumns(
         ${c}.canonical_name,
         ${c}.class_code,
         ${c}.normalized_data,
-        ${c}.review_overrides,
         ${c}.source_refs,
         ${c}.matched_core_id,
         ${c}.geom AS candidate_geom
@@ -301,7 +286,6 @@ export function mapPrepRow(geomCaseSql: Prisma.Sql, alias = "r"): Prisma.Sql {
         ${a}.canonical_name,
         ${a}.class_code,
         ${a}.normalized_data,
-        ${a}.review_overrides,
         ${a}.source_refs,
         ${a}.matched_core_id,
         ${geomCaseSql} AS geom
@@ -321,7 +305,6 @@ export function mapReadyRow(alias = "p"): Prisma.Sql {
         ${a}.canonical_name,
         ${a}.class_code,
         ${a}.normalized_data,
-        ${a}.review_overrides,
         ${a}.source_refs,
         ${a}.matched_core_id,
         ${a}.geom

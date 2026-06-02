@@ -333,7 +333,6 @@ export const importReviewBuildingItemSchema = {
         "review_note",
         "normalized_data",
         "source_refs",
-        "review_overrides",
         "matched_core_id",
         "matched_core_table",
         "matched_core_data",
@@ -375,6 +374,22 @@ export const importReviewBuildingItemSchema = {
         landuse_class_code: { type: "string", nullable: true },
         landuse_class_name: { type: "string", nullable: true },
         landuse_class_name_mm: { type: "string", nullable: true },
+        category_id: {
+            type: "string",
+            nullable: true,
+            description:
+                "Places: typed POI category FK (import_review.place_candidates.category_id → ref.ref_poi_categories.id).",
+        },
+        primary_name: {
+            type: "string",
+            nullable: true,
+            description: "Places: typed primary_name column.",
+        },
+        display_name: {
+            type: "string",
+            nullable: true,
+            description: "Places: typed display_name column.",
+        },
         admin_area_id: { type: "string", nullable: true },
         levels: { type: "integer", nullable: true },
         height_m: { type: "number", nullable: true },
@@ -389,12 +404,6 @@ export const importReviewBuildingItemSchema = {
         review_note: { type: "string", nullable: true },
         normalized_data: {},
         source_refs: {},
-        review_overrides: {
-            nullable: true,
-            description: "Merged JSON patch layer distinct from normalized_data/source_refs.",
-            type: "object",
-            additionalProperties: true,
-        },
         matched_core_id: { type: "string", nullable: true },
         matched_core_table: { type: "string", nullable: true },
         matched_core_data: {},
@@ -433,7 +442,7 @@ export const importReviewBuildingItemSchema = {
             type: "number",
             nullable: true,
             description:
-                "Road candidates only — meters along effective centerline (review_overrides.geom when set, else geom), rounded to 2 decimals.",
+                "Road candidates only — meters along effective centerline (typed geom column when set, else geom), rounded to 2 decimals.",
         },
         effective_name: {
             type: "string",
@@ -444,23 +453,23 @@ export const importReviewBuildingItemSchema = {
             type: "string",
             nullable: true,
             description:
-                "Reviewer-facing Myanmar name from review_overrides.name_mm or imported Myanmar sources (tags, normalized_data).",
+                "Reviewer-facing Myanmar name from name_mm column or imported Myanmar sources (tags, normalized_data).",
         },
         name_en: {
             type: "string",
             nullable: true,
             description:
-                "Reviewer-facing English name from review_overrides.name_en or imported English sources (tags, normalized_data).",
+                "Reviewer-facing English name from name_en column or imported English sources (tags, normalized_data).",
         },
         effective_name_mm: {
             type: "string",
             nullable: true,
-            description: "Myanmar label from review_overrides.name_mm or imported Myanmar sources.",
+            description: "Myanmar label from name_mm column or imported Myanmar sources.",
         },
         effective_name_en: {
             type: "string",
             nullable: true,
-            description: "English label from review_overrides.name_en or imported English sources.",
+            description: "English label from name_en column or imported English sources.",
         },
         effective_name_und: {
             type: "string",
@@ -609,15 +618,20 @@ export const importReviewBuildingItemSchema = {
         effective_admin_level_id: { type: "string", nullable: true },
         effective_parent_id: { type: "string", nullable: true },
         effective_slug: { type: "string", nullable: true },
+        barrier_type: {
+            type: "string",
+            nullable: true,
+            description: "Routing barriers: typed barrier_type column.",
+        },
         effective_barrier_type: { type: "string", nullable: true },
         has_overrides: {
             type: "boolean",
-            description: "True when review_overrides contains at least one non-null key.",
+            description: "True when at least one typed edit column is set on the candidate.",
         },
         overridden_fields: {
             type: "array",
             items: { type: "string" },
-            description: "Keys present in review_overrides with non-null values.",
+            description: "Typed column keys with non-null values on the candidate.",
         },
     },
     additionalProperties: false,
@@ -1016,14 +1030,14 @@ const importReviewReviewOverridesPrimitiveOpenApi = {
 const importReviewReviewOverridesPatchOpenApi = {
     type: "object",
     description:
-        "Shallow JSON patch merged into review_overrides. Use name_mm (Myanmar) and name_en (English). null removes a key; {} clears all stored overrides.",
+        "Shallow field patch for typed columns. Use name_mm (Myanmar) and name_en (English). null clears a column; {} is a no-op.",
     additionalProperties: importReviewReviewOverridesPrimitiveOpenApi,
 } as const;
 
 const importReviewRoadReviewOverridesPatchOpenApi = {
     type: "object",
     description:
-        "Shallow JSON patch merged into review_overrides for road candidates. null removes a key; {} clears all stored overrides.",
+        "Shallow field patch for road typed columns. null clears a column; {} is a no-op.",
     additionalProperties: {
         anyOf: [
             ...importReviewReviewOverridesPrimitiveOpenApi.anyOf,
@@ -1034,10 +1048,10 @@ const importReviewRoadReviewOverridesPatchOpenApi = {
 
 const patchImportReviewCandidateOverridesBodyOpenApi = {
     type: "object",
-    required: ["review_overrides"],
+    required: ["fields"],
     properties: {
         ...importReviewScopeQueryProperties,
-        review_overrides: importReviewReviewOverridesPatchOpenApi,
+        fields: importReviewReviewOverridesPatchOpenApi,
         review_note: {
             type: "string",
             nullable: true,
@@ -1050,10 +1064,10 @@ const patchImportReviewCandidateOverridesBodyOpenApi = {
 
 const patchImportReviewBuildingOverridesBodyOpenApi = {
     type: "object",
-    required: ["review_overrides"],
+    required: ["fields"],
     properties: {
         ...importReviewScopeQueryProperties,
-        review_overrides: importReviewReviewOverridesPatchOpenApi,
+        fields: importReviewReviewOverridesPatchOpenApi,
         review_note: {
             type: "string",
             nullable: true,
@@ -1068,7 +1082,7 @@ export const patchImportReviewBuildingOverridesSchema = {
     tags: [Tags.ImportReview],
     summary: "Patch import_review building overrides",
     description:
-        "Shallow-merge JSON into `review_overrides` plus optional audit row (`import_review.review_candidate_edits`) when migration 024 tables exist.",
+        "Deprecated shim — writes typed columns via `fields` plus optional audit row (`import_review.review_candidate_edits`).",
     security: [...bearerAuth],
     params: {
         type: "object",
@@ -1092,10 +1106,10 @@ export const patchImportReviewBuildingOverridesSchema = {
 
 const patchImportReviewRoadOverridesBodyOpenApi = {
     type: "object",
-    required: ["review_overrides"],
+    required: ["fields"],
     properties: {
         ...importReviewScopeQueryProperties,
-        review_overrides: importReviewRoadReviewOverridesPatchOpenApi,
+        fields: importReviewRoadReviewOverridesPatchOpenApi,
         review_note: {
             type: "string",
             nullable: true,
@@ -1121,7 +1135,7 @@ export const patchImportReviewRoadOverridesSchema = {
     tags: [Tags.ImportReview],
     summary: "Patch import_review road overrides (routing-safe)",
     description:
-        "Validates LineString/MultiLineString geometry, ref road class FK, surface text, and routing continuity warnings before merging `review_overrides` and updating typed columns on `import_review.road_candidates`.",
+        "Validates LineString/MultiLineString geometry, ref road class FK, surface text, and routing continuity warnings before updating typed columns on `import_review.road_candidates`.",
     security: [...bearerAuth],
     params: {
         type: "object",
@@ -1184,7 +1198,6 @@ const postImportReviewRoadValidateRoutingBodyOpenApi = {
     type: "object",
     properties: {
         ...importReviewScopeQueryProperties,
-        use_review_overrides: { type: "boolean", default: true },
         connectivity_threshold_m: { type: "number", minimum: 1, maximum: 250, default: 10 },
         duplicate_threshold_m: { type: "number", minimum: 1, maximum: 100, default: 5 },
         confirm_warnings: { type: "boolean", default: false },
@@ -1582,7 +1595,6 @@ const importReviewPromotionReadyCandidateSchema = {
         source_snapshot_version: { type: "string" },
         review_batch_id: { type: "string" },
         normalized_data: {},
-        review_overrides: {},
         source_refs: {},
         geometry: { type: "object", nullable: true, additionalProperties: true },
     },
@@ -1729,6 +1741,215 @@ const importReviewPromotionFamilyEligibilitySchema = {
     additionalProperties: false,
 } as const;
 
+const importReviewPromotionEligibilityFamilySchema = {
+    type: "object",
+    required: [
+        "family",
+        "label",
+        "risk_level",
+        "target",
+        "ready",
+        "warnings",
+        "blocked",
+        "batched",
+        "promoted",
+    ],
+    properties: {
+        family: { type: "string" },
+        label: { type: "string" },
+        risk_level: { type: "string", enum: ["normal", "high_risk"] },
+        target: { type: "string" },
+        ready: { type: "integer", minimum: 0 },
+        warnings: { type: "integer", minimum: 0 },
+        blocked: { type: "integer", minimum: 0 },
+        batched: { type: "integer", minimum: 0 },
+        promoted: { type: "integer", minimum: 0 },
+    },
+    additionalProperties: false,
+} as const;
+
+const importReviewPromotionEligibilityTotalsSchema = {
+    type: "object",
+    required: ["ready", "warnings", "blocked", "batched", "promoted"],
+    properties: {
+        ready: { type: "integer", minimum: 0 },
+        warnings: { type: "integer", minimum: 0 },
+        blocked: { type: "integer", minimum: 0 },
+        batched: { type: "integer", minimum: 0 },
+        promoted: { type: "integer", minimum: 0 },
+    },
+    additionalProperties: false,
+} as const;
+
+const importReviewPromotionEligibilityDetailItemSchema = {
+    type: "object",
+    required: [
+        "id",
+        "external_id",
+        "display_name",
+        "match_status",
+        "auto_action",
+        "review_status",
+        "review_decision",
+        "promotion_status",
+        "confidence_score",
+        "reason_codes",
+        "reason_messages",
+        "validation_errors",
+        "validation_warnings",
+        "target",
+        "publish_batch_id",
+        "publish_batch_status",
+        "promoted_core_id",
+        "created_at",
+        "updated_at",
+    ],
+    properties: {
+        id: { type: "integer" },
+        external_id: { type: "string", nullable: true },
+        display_name: { type: "string", nullable: true },
+        match_status: { type: "string", nullable: true },
+        auto_action: { type: "string", nullable: true },
+        review_status: { type: "string", nullable: true },
+        review_decision: { type: "string", nullable: true },
+        promotion_status: { type: "string", nullable: true },
+        confidence_score: { type: "number", nullable: true },
+        reason_codes: { type: "array", items: { type: "string" } },
+        reason_messages: { type: "array", items: { type: "string" } },
+        validation_errors: {},
+        validation_warnings: {},
+        target: { type: "string" },
+        publish_batch_id: { type: "integer", nullable: true },
+        publish_batch_status: { type: "string", nullable: true },
+        promoted_core_id: { type: "integer", nullable: true },
+        created_at: { type: "string", format: "date-time" },
+        updated_at: { type: "string", format: "date-time" },
+    },
+    additionalProperties: false,
+} as const;
+
+export const getImportReviewPromotionEligibilityDetailsSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Promotion eligibility candidate details for a family bucket",
+    description:
+        "Paginated candidates for ready, warnings, blocked, batched, or promoted buckets. Uses the same bucket rules as GET /promotion/eligibility.",
+    security: [...bearerAuth],
+    querystring: {
+        type: "object",
+        required: ["review_batch_id", "family", "bucket"],
+        properties: {
+            review_batch_id: { type: "string", description: "Numeric review batch id" },
+            family: { type: "string", description: "Entity family slug, e.g. roads" },
+            bucket: {
+                type: "string",
+                enum: ["ready", "warnings", "blocked", "batched", "promoted"],
+            },
+            include_warnings: { type: "boolean", default: false },
+            limit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+            offset: { type: "integer", minimum: 0, default: 0 },
+            search: {
+                type: "string",
+                maxLength: 200,
+                description: "Filter by id, external_id, display name, or validation/reason text",
+            },
+            reason_code: {
+                type: "string",
+                maxLength: 120,
+                description: "Filter by normalized reason code (best-effort SQL match)",
+            },
+            sort_by: {
+                type: "string",
+                enum: ["id", "updated_at", "confidence_score"],
+                default: "id",
+            },
+            sort_order: { type: "string", enum: ["asc", "desc"], default: "asc" },
+        },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: [
+                "review_batch_id",
+                "family",
+                "bucket",
+                "target",
+                "total",
+                "limit",
+                "offset",
+                "items",
+            ],
+            properties: {
+                review_batch_id: { type: "integer" },
+                family: { type: "string" },
+                bucket: {
+                    type: "string",
+                    enum: ["ready", "warnings", "blocked", "batched", "promoted"],
+                },
+                target: { type: "string" },
+                total: { type: "integer", minimum: 0 },
+                limit: { type: "integer", minimum: 1 },
+                offset: { type: "integer", minimum: 0 },
+                items: { type: "array", items: importReviewPromotionEligibilityDetailItemSchema },
+            },
+            additionalProperties: false,
+        },
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const getImportReviewPromotionEligibilitySchema = {
+    tags: [Tags.ImportReview],
+    summary: "Promotion eligibility for checkbox-selected entity families",
+    description:
+        "Returns per-family ready, warning, blocked, batched, and promoted counts for a review batch. Requires explicit families query (comma-separated). Rejects legacy bus families with TRANSPORT_PROMOTION_DEPRECATED.",
+    security: [...bearerAuth],
+    querystring: {
+        type: "object",
+        required: ["review_batch_id", "families"],
+        properties: {
+            review_batch_id: { type: "string", description: "Numeric review batch id" },
+            families: {
+                type: "string",
+                description: "Comma-separated entity families, e.g. buildings,places,routing_barriers",
+            },
+            include_warnings: { type: "boolean", default: false },
+        },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: [
+                "review_batch_id",
+                "families",
+                "totals",
+                "has_high_risk",
+                "can_create_batch",
+                "messages",
+            ],
+            properties: {
+                review_batch_id: { type: "integer" },
+                families: { type: "array", items: importReviewPromotionEligibilityFamilySchema },
+                totals: importReviewPromotionEligibilityTotalsSchema,
+                has_high_risk: { type: "boolean" },
+                can_create_batch: { type: "boolean" },
+                messages: { type: "array", items: { type: "string" } },
+            },
+            additionalProperties: false,
+        },
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
 export const getImportReviewPromotionBatchEligibilitySchema = {
     tags: [Tags.ImportReview],
     summary: "Preview publish batch eligibility counts per entity family",
@@ -1787,23 +2008,31 @@ export const getImportReviewPromotionBatchEligibilitySchema = {
 
 export const postImportReviewPromotionBatchSchema = {
     tags: [Tags.ImportReview],
-    summary: "Create publish batch from approved candidates (multi-family)",
+    summary: "Create publish batch from checkbox-selected entity families",
     description:
-        "Transactional when dry_run=false: inserts system.system_publish_batches + system.system_publish_items, marks candidates promotion_status=batched. dry_run=true returns counts only. No core promotion.",
+        "Requires review_batch_id and families[]. When dry_run=false: inserts system.system_publish_batches + system.system_publish_items and marks candidates batched. dry_run=true previews counts only. Does not validate or promote.",
     security: [...bearerAuth],
     body: {
         type: "object",
+        required: ["review_batch_id", "families"],
         properties: {
-            ...importReviewScopeQueryProperties,
+            review_batch_id: { type: "integer", description: "Import review batch id" },
+            families: {
+                type: "array",
+                minItems: 1,
+                items: { type: "string" },
+                description: "Entity families to include, e.g. buildings, places, routing_barriers",
+            },
+            include_warnings: { type: "boolean", default: false },
+            dry_run: { type: "boolean", default: false },
             batch_name: { type: "string", minLength: 1, maxLength: 200 },
             note: { type: "string", maxLength: 4000 },
-            entity_families: { type: "array", items: { type: "string" } },
-            mode: { type: "string", enum: ["approved_only"], default: "approved_only" },
-            include_warnings: { type: "boolean", default: false },
-            warning_confirmation_note: { type: "string", maxLength: 4000 },
-            dry_run: { type: "boolean", default: false },
-            allow_high_risk_families: { type: "boolean", default: false },
             include_merged: { type: "boolean", default: false },
+            entity_families: {
+                type: "array",
+                items: { type: "string" },
+                description: "Deprecated alias for families",
+            },
         },
     },
     response: {
@@ -3352,7 +3581,6 @@ export const postImportReviewPromotionRoadDryRunSchema = {
         properties: {
             include_warnings: { type: "boolean", default: false },
             revalidate: { type: "boolean", default: true },
-            use_review_overrides: { type: "boolean", default: true },
             connectivity_threshold_m: { type: "number", minimum: 5, maximum: 250, default: 35 },
             duplicate_threshold_m: { type: "number", minimum: 1, maximum: 100, default: 15 },
         },
@@ -3456,7 +3684,6 @@ export const postImportReviewPromotionRoutingBarrierDryRunSchema = {
         properties: {
             include_warnings: { type: "boolean", default: false },
             revalidate: { type: "boolean", default: true },
-            use_review_overrides: { type: "boolean", default: true },
             nearby_core_road_threshold_m: { type: "number", minimum: 1, maximum: 250, default: 30 },
             nearby_review_road_threshold_m: { type: "number", minimum: 1, maximum: 250, default: 30 },
             duplicate_threshold_m: { type: "number", minimum: 1, maximum: 100, default: 10 },
@@ -3718,10 +3945,29 @@ const importReviewFormOptionItemSchema = {
     type: "object",
     required: ["value", "label"],
     properties: {
+        id: { type: "string" },
         value: { anyOf: [{ type: "string" }, { type: "number" }] },
         label: { type: "string" },
         code: { type: "string", nullable: true },
+        name: { type: "string", nullable: true },
         name_mm: { type: "string", nullable: true },
+        parent_id: { type: "string", nullable: true },
+    },
+    additionalProperties: false,
+} as const;
+
+/** POI categories need raw fields in the JSON response (not only value/label). */
+const importReviewPoiCategoryFormOptionSchema = {
+    type: "object",
+    required: ["id", "value", "label", "code", "name", "name_mm", "parent_id"],
+    properties: {
+        id: { type: "string" },
+        value: { type: "string" },
+        label: { type: "string" },
+        code: { type: "string" },
+        name: { type: "string", nullable: true },
+        name_mm: { type: "string", nullable: true },
+        parent_id: { type: "string", nullable: true },
     },
     additionalProperties: false,
 } as const;
@@ -3766,7 +4012,7 @@ export const getImportReviewFormOptionsSchema = {
                 admin_areas: { type: "array", items: importReviewAdminAreaFormOptionSchema },
                 admin_levels: { type: "array", items: importReviewFormOptionItemSchema },
                 road_classes: { type: "array", items: importReviewFormOptionItemSchema },
-                poi_categories: { type: "array", items: importReviewFormOptionItemSchema },
+                poi_categories: { type: "array", items: importReviewPoiCategoryFormOptionSchema },
                 building_types: { type: "array", items: importReviewFormOptionItemSchema },
                 landuse_classes: { type: "array", items: importReviewFormOptionItemSchema },
                 waterway_classes: { type: "array", items: importReviewFormOptionItemSchema },
@@ -3843,9 +4089,48 @@ export const patchImportReviewFamilyCandidateDecisionSchema = {
     },
 } satisfies FastifySchema;
 
+const patchImportReviewCandidateColumnsBodyOpenApi = {
+    type: "object",
+    required: ["fields"],
+    properties: {
+        ...importReviewScopeQueryProperties,
+        fields: importReviewReviewOverridesPatchOpenApi,
+        review_note: {
+            type: "string",
+            nullable: true,
+            description: "Optional candidate review_note column update.",
+        },
+    },
+    additionalProperties: false,
+} as const;
+
+export const patchImportReviewFamilyCandidateColumnsSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Patch typed candidate columns (authoritative)",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["family", "id"],
+        properties: {
+            ...importReviewFamilyParamProperties,
+            id: { type: "string", pattern: "^\\d+$" },
+        },
+    },
+    body: patchImportReviewCandidateColumnsBodyOpenApi,
+    response: {
+        200: importReviewBuildingItemSchema,
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
 export const patchImportReviewFamilyCandidateOverridesSchema = {
     tags: [Tags.ImportReview],
-    summary: "Patch review overrides for supported entity families (shallow merge into review_overrides JSON)",
+    summary:
+        "Deprecated shim: same as PATCH /:family/:id — writes typed columns only",
     security: [...bearerAuth],
     params: {
         type: "object",

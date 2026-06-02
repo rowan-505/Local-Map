@@ -59,7 +59,9 @@ export type ImportReviewPublishBatchValidationResult = {
     total_items: number;
     by_publish_action: { insert: number; update: number; merge: number };
     by_entity: Record<string, ImportReviewPublishBatchEntityValidationCounts>;
-    /** @deprecated Use by_entity */
+    /** Families present in this publish batch (from items at validation time). */
+    selected_entity_families?: string[];
+    /** @deprecated Use selected_entity_families / by_entity */
     entity_family?: { buildings: number };
     promotable_entity_families: string[];
 };

@@ -10,7 +10,7 @@ import {
     formatImportReviewApiError,
     getEntityCandidateDetail,
     patchEntityDecision,
-    patchEntityOverrides,
+    patchEntityColumns,
 } from "@/src/features/import-review/api";
 import {
     formatImportReviewTechnicalError,
@@ -47,6 +47,14 @@ import {
     type ReplaceImportReviewSearchParamsMeta,
 } from "../navigation/replaceImportReviewSearchParams";
 import {
+    assertValidDirectEditPatchResponse,
+    DirectEditSaveError,
+    logDirectEditSaveDev,
+    mergeDirectEditSaveDetailRow,
+    syncImportReviewListCacheAfterDirectEditSave,
+    verifyDirectEditPersisted,
+} from "../utils/directEditSave";
+import {
     diffImportReviewSearchKeys,
     logImportReviewPageRender,
     logImportReviewUrlSync,
@@ -62,6 +70,7 @@ import {
     readImportReviewListFilters,
     type ImportReviewListFilters,
 } from "../utils/entityPageUtils";
+import { overrideFieldDefsForEntity } from "../config/overrideFieldDefs";
 
 const ENV_SNAPSHOT_DEFAULT = process.env.NEXT_PUBLIC_IMPORT_REVIEW_SNAPSHOT_VERSION?.trim() ?? "";
 
@@ -170,6 +179,7 @@ export function useImportReviewEntityPage(
     const [isSaving, setIsSaving] = useState(false);
     const [isSavingOverrides, setIsSavingOverrides] = useState(false);
     const [overrideSaveMessage, setOverrideSaveMessage] = useState<string | null>(null);
+    const [overrideSaveTechnicalError, setOverrideSaveTechnicalError] = useState<string | null>(null);
     const [decisionSaveMessage, setDecisionSaveMessage] = useState<string | null>(null);
 
     const apiScopeQuery = batchContext.apiScopeQuery;
@@ -422,6 +432,7 @@ export function useImportReviewEntityPage(
         setIsLoadingDetail(false);
         setIsLoadingGeometry(false);
         setOverrideSaveMessage(null);
+        setOverrideSaveTechnicalError(null);
         setDecisionSaveMessage(null);
     }, []);
 
@@ -569,6 +580,7 @@ export function useImportReviewEntityPage(
         queryClient.setQueryData(detailQueryKeyFor(updated.id), updated);
         queryClient.setQueryData(geometryQueryKeyFor(updated.id), updated);
         patchListItemEverywhere(updated.id, () => updated);
+        patchListItem(updated.id, () => updated);
         if (mapPreviewRow?.id === updated.id) {
             setMapPreviewRow(updated);
         }
@@ -823,43 +835,145 @@ export function useImportReviewEntityPage(
         }
     };
 
-    const handleDrawerOverridesSave = async (
-        overridesPatch: Record<string, unknown>,
-        reviewNote: string | null
-    ) => {
+    const handleDrawerCandidateFieldsSave = async (
+        fieldsPatch: Record<string, unknown>,
+        reviewNote: string | null,
+        saveOptions?: {
+            verifyPatchKeys?: readonly string[];
+            referenceFieldsDevLog?: Record<string, unknown>;
+        }
+    ): Promise<ImportReviewBuildingListItem> => {
         if (!drawerRow || !canEditImportReview || !config || !apiScopeQuery) {
-            return;
+            throw new Error("Cannot save candidate edits: missing drawer row, scope, or config.");
         }
         if ((drawerRow.promotion_status ?? "").toLowerCase() === "promoted") {
-            setOverrideSaveMessage("Cannot edit review_overrides after promotion.");
-            return;
+            const msg = "Cannot edit candidate fields after promotion.";
+            setOverrideSaveMessage(msg);
+            throw new Error(msg);
         }
         const scopeBody = mutationScope(list, apiScopeQuery);
         if (!scopeBody.review_batch_id && !scopeBody.source_snapshot_version) {
-            return;
+            throw new Error("Cannot save candidate edits: review scope is missing.");
         }
         setIsSavingOverrides(true);
         setOverrideSaveMessage(null);
+        setOverrideSaveTechnicalError(null);
+
+        const fieldDefs = overrideFieldDefsForEntity(config);
+        const requestBody = {
+            ...scopeBody,
+            fields: fieldsPatch,
+            review_note: reviewNote,
+        };
+
         try {
-            const geometryTouched = Object.keys(overridesPatch).some((key) =>
+            const geometryTouched = Object.keys(fieldsPatch).some((key) =>
                 key.toLowerCase().includes("geom")
             );
-            const updated = await patchEntityOverrides(config.apiFamily, drawerRow.id, {
-                ...scopeBody,
-                review_overrides: overridesPatch,
-                review_note: reviewNote,
+
+            const patchResponse = await patchEntityColumns(config.apiFamily, drawerRow.id, requestBody);
+            assertValidDirectEditPatchResponse(patchResponse, drawerRow.id);
+
+            const refreshed = await getEntityCandidateDetail(config.apiFamily, drawerRow.id, {
+                ...apiScopeQuery,
+                include_geometry: false,
             });
-            mergeRow(updated);
+            assertValidDirectEditPatchResponse(refreshed, drawerRow.id);
+
+            const verifyPatchKeys = saveOptions?.verifyPatchKeys;
+            const categoryIdDev =
+                saveOptions?.referenceFieldsDevLog?.category_id &&
+                typeof saveOptions.referenceFieldsDevLog.category_id === "object"
+                    ? (saveOptions.referenceFieldsDevLog.category_id as Record<string, unknown>)
+                    : null;
+            const referenceFieldsDevLog =
+                categoryIdDev && process.env.NODE_ENV === "development"
+                    ? {
+                          category_id: {
+                              ...categoryIdDev,
+                              patchResponseCategoryId:
+                                  (patchResponse as Record<string, unknown>).category_id ?? null,
+                              refetchedCategoryId:
+                                  (refreshed as Record<string, unknown>).category_id ?? null,
+                          },
+                      }
+                    : saveOptions?.referenceFieldsDevLog;
+
+            const verificationDetail = verifyDirectEditPersisted(
+                fieldsPatch,
+                refreshed,
+                config.apiFamily,
+                fieldDefs,
+                verifyPatchKeys
+            );
+            if (verificationDetail) {
+                logDirectEditSaveDev({
+                    family: config.apiFamily,
+                    candidateId: drawerRow.id,
+                    request: requestBody,
+                    patchResponse,
+                    refetched: refreshed,
+                    verificationError: verificationDetail,
+                    referenceFields: referenceFieldsDevLog,
+                });
+                throw new DirectEditSaveError(
+                    "Save verification failed: database value did not change.",
+                    verificationDetail
+                );
+            }
+
+            logDirectEditSaveDev({
+                family: config.apiFamily,
+                candidateId: drawerRow.id,
+                request: requestBody,
+                patchResponse,
+                refetched: refreshed,
+                referenceFields: referenceFieldsDevLog,
+            });
+
+            const detailRow = mergeDirectEditSaveDetailRow(patchResponse, refreshed, fieldsPatch);
+            mergeRow(detailRow);
+            await syncImportReviewListCacheAfterDirectEditSave({
+                queryClient,
+                candidatesQueryKey,
+                candidateId: drawerRow.id,
+                savedRow: detailRow,
+                fieldsPatch,
+                verifyPatchKeys,
+                apiFamily: config.apiFamily,
+                fieldDefs,
+                patchListItem,
+                patchListItemEverywhere,
+            });
+            void queryClient.invalidateQueries({
+                queryKey: detailQueryKeyFor(detailRow.id),
+                exact: true,
+            });
             if (geometryTouched) {
-                queryClient.setQueryData(geometryQueryKeyFor(updated.id), updated);
+                queryClient.setQueryData(geometryQueryKeyFor(detailRow.id), detailRow);
                 void queryClient.invalidateQueries({
-                    queryKey: geometryQueryKeyFor(updated.id),
+                    queryKey: geometryQueryKeyFor(detailRow.id),
                     exact: true,
                 });
+                if (config.supportsMapPreview) {
+                    await fetchDrawerGeometry(detailRow.id);
+                }
             }
-            setOverrideSaveMessage("Overrides saved.");
+            setOverrideSaveMessage("Saved changes.");
+            setOverrideSaveTechnicalError(null);
+            return detailRow;
         } catch (err) {
-            setOverrideSaveMessage(formatImportReviewApiError(err, "Failed to save overrides."));
+            const msg =
+                err instanceof DirectEditSaveError
+                    ? err.message
+                    : formatImportReviewApiError(err, IMPORT_REVIEW_LOADING.failedToSaveCandidateChanges);
+            const technical =
+                err instanceof DirectEditSaveError
+                    ? (err.technicalDetail ?? formatImportReviewTechnicalError(err))
+                    : formatImportReviewTechnicalError(err);
+            setOverrideSaveMessage(msg);
+            setOverrideSaveTechnicalError(technical);
+            throw new Error(msg);
         } finally {
             setIsSavingOverrides(false);
         }
@@ -968,8 +1082,10 @@ export function useImportReviewEntityPage(
         isSaving,
         isSavingOverrides,
         overrideSaveMessage,
+        overrideSaveTechnicalError: isImportReviewDevMode ? overrideSaveTechnicalError : "",
         decisionSaveMessage,
-        handleDrawerOverridesSave,
+        handleDrawerOverridesSave: handleDrawerCandidateFieldsSave,
+        candidateMutationScope: mutationScope(list, apiScopeQuery),
         offset,
         replaceQuery,
         searchParams,

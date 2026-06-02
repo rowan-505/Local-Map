@@ -77,7 +77,7 @@ export const importReviewReviewOverridesPatchValueSchema = z.union([
     z.record(z.string(), z.unknown()),
 ]);
 
-/** PATCH body `review_overrides` — shallow merge object; `{}` clears all stored overrides. */
+/** PATCH body `fields` — shallow merge object; `{}` is a no-op field patch. */
 export const importReviewReviewOverridesPatchSchema = z.record(
     z.string(),
     importReviewReviewOverridesPatchValueSchema
@@ -107,11 +107,11 @@ function assertPrimitiveValue(key: string, value: unknown): void {
     }
     if (value !== null && typeof value === "object" && !Array.isArray(value)) {
         throw new ImportReviewDecisionRuleError(
-            `review_overrides.${key} must be a string, number, boolean, or null (objects are not supported).`
+            `fields.${key} must be a string, number, boolean, or null (objects are not supported).`
         );
     }
     throw new ImportReviewDecisionRuleError(
-        `review_overrides.${key} must be a string, number, boolean, or null.`
+        `fields.${key} must be a string, number, boolean, or null.`
     );
 }
 
@@ -123,7 +123,7 @@ function assertGeomOverrideValue(key: string, value: unknown): void {
         return;
     }
     throw new ImportReviewDecisionRuleError(
-        `review_overrides.${key} must be a GeoJSON object or null.`
+        `fields.${key} must be a GeoJSON object or null.`
     );
 }
 
@@ -154,7 +154,7 @@ function assertNameNotMatchingClassification(
         const classVal = normalizeOptionalOverrideString(patch[classKey], classKey);
         if (classVal && classVal.toLowerCase() === lower) {
             throw new ImportReviewDecisionRuleError(
-                `review_overrides.${key} must not match classification field ${classKey}.`
+                `fields.${key} must not match classification field ${classKey}.`
             );
         }
     }
@@ -235,12 +235,12 @@ function assertStoredFieldValue(
  */
 export function sanitizeReviewOverridesPatch(
     family: ImportReviewEntityFamilySlug,
-    review_overrides: unknown
+    fields: unknown
 ): Record<string, unknown> {
-    const parsed = importReviewReviewOverridesPatchSchema.safeParse(review_overrides ?? {});
+    const parsed = importReviewReviewOverridesPatchSchema.safeParse(fields ?? {});
     if (!parsed.success) {
         throw new ImportReviewDecisionRuleError(
-            `Invalid review_overrides: expected an object with string, number, boolean, or null values.`
+            `Invalid fields: expected an object with string, number, boolean, or null values.`
         );
     }
 
@@ -249,7 +249,7 @@ export function sanitizeReviewOverridesPatch(
     for (const key of Object.keys(patch)) {
         if (DISPLAY_ONLY_OVERRIDE_KEYS.has(key)) {
             throw new ImportReviewDecisionRuleError(
-                `Invalid review_overrides key "${key}": use admin_area_id (numeric id), not display text.`
+                `Invalid fields key "${key}": use admin_area_id (numeric id), not display text.`
             );
         }
     }
@@ -257,7 +257,7 @@ export function sanitizeReviewOverridesPatch(
     const unsupported = unsupportedOverrideKeys(family, patch);
     if (unsupported.length > 0) {
         throw new ImportReviewDecisionRuleError(
-            `Unsupported review_overrides field(s) for ${family}: ${unsupported.join(", ")}.`
+            `Unsupported fields field(s) for ${family}: ${unsupported.join(", ")}.`
         );
     }
 
@@ -277,10 +277,10 @@ export function sanitizeReviewOverridesPatch(
 /** Validate stored overrides on a candidate (after merge). Empty object is valid. */
 export function assertStoredReviewOverridesAllowlist(
     family: ImportReviewEntityFamilySlug,
-    review_overrides: unknown
+    fields: unknown
 ): void {
     const ov = applyPatchKeyAliases(
-        normalizeLegacyNameOverrides(family, asPatchRecord(review_overrides))
+        normalizeLegacyNameOverrides(family, asPatchRecord(fields))
     );
     if (Object.keys(ov).length === 0) {
         return;
@@ -289,7 +289,7 @@ export function assertStoredReviewOverridesAllowlist(
     for (const key of Object.keys(ov)) {
         if (DISPLAY_ONLY_OVERRIDE_KEYS.has(key)) {
             throw new ImportReviewDecisionRuleError(
-                `Invalid review_overrides key "${key}": use admin_area_id (numeric id), not display text.`
+                `Invalid fields key "${key}": use admin_area_id (numeric id), not display text.`
             );
         }
     }
@@ -297,7 +297,7 @@ export function assertStoredReviewOverridesAllowlist(
     const unsupported = unsupportedOverrideKeys(family, ov);
     if (unsupported.length > 0) {
         throw new ImportReviewDecisionRuleError(
-            `Invalid review_overrides on this ${family} candidate: unsupported field(s) ${unsupported.join(", ")}.`
+            `Invalid fields on this ${family} candidate: unsupported field(s) ${unsupported.join(", ")}.`
         );
     }
 

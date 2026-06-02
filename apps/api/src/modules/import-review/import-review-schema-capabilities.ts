@@ -38,7 +38,7 @@ export type ImportReviewEntityColumnCapabilities = {
     hasMatchedCoreData: boolean;
     hasValidationErrors: boolean;
     hasValidationWarnings: boolean;
-    hasReviewOverrides: boolean;
+    hasEditableFieldColumns: boolean;
     hasNormalizedData: boolean;
     hasSourceRefs: boolean;
     hasParentId: boolean;
@@ -192,7 +192,7 @@ export class ImportReviewSchemaCapabilityRegistry {
             hasMatchedCoreData: hasColumn("matched_core_data"),
             hasValidationErrors: hasColumn("validation_errors"),
             hasValidationWarnings: hasColumn("validation_warnings"),
-            hasReviewOverrides: hasColumn("review_overrides"),
+            hasEditableFieldColumns: hasColumn("name_mm") || hasColumn("road_class_id"),
             hasNormalizedData: hasColumn("normalized_data"),
             hasSourceRefs: hasColumn("source_refs"),
             hasParentId: hasColumn("parent_id"),

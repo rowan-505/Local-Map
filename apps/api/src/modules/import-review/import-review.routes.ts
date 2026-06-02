@@ -22,6 +22,8 @@ import {
     postBulkImportReviewPlacesDecisionSchema,
     postBulkImportReviewRoadsDecisionSchema,
     getImportReviewPromotionBatchEligibilitySchema,
+    getImportReviewPromotionEligibilitySchema,
+    getImportReviewPromotionEligibilityDetailsSchema,
     getImportReviewPromotionReadySchema,
     getImportReviewPromotionReadyCandidatesSchema,
     getImportReviewPromotionBatchesSchema,
@@ -63,6 +65,7 @@ import {
     getImportReviewFamilyFilterOptionsSchema,
     patchImportReviewFamilyCandidateDecisionSchema,
     patchImportReviewFamilyCandidateOverridesSchema,
+    patchImportReviewFamilyCandidateColumnsSchema,
     postImportReviewFamilyBulkDecisionSchema,
 } from "./import-review.openapi.js";
 import {
@@ -92,6 +95,7 @@ import {
     patchImportReviewBuildingDecisionBodySchema,
     patchImportReviewBuildingOverridesBodySchema,
     patchImportReviewCandidateOverridesBodySchema,
+    patchImportReviewCandidateColumnsBodySchema,
     patchImportReviewRoadOverridesBodySchema,
     postImportReviewRoadValidateRoutingBodySchema,
 } from "./import-review.schema.js";
@@ -105,6 +109,8 @@ import { postImportReviewPromotionRoadDryRunBodySchema } from "./import-review-p
 import { postImportReviewPromotionRoutingBarrierDryRunBodySchema } from "./import-review-promotion-routing-barrier-dry-run.schema.js";
 import {
     importReviewPromotionBatchEligibilityQuerySchema,
+    importReviewPromotionEligibilityQuerySchema,
+    importReviewPromotionEligibilityDetailsQuerySchema,
     importReviewPromotionBatchIdParamsSchema,
     importReviewPromotionBatchesListQuerySchema,
     importReviewPromotionReadyCandidatesQuerySchema,
@@ -152,9 +158,27 @@ import {
     importReviewHistoryReviewBatchIdParamsSchema,
     importReviewHistoryReviewBatchesListQuerySchema,
 } from "./import-review-history.schema.js";
+import type { ZodError } from "zod";
 
 function importReviewAuthorizedPreHandlers(): [typeof requireImportReviewAdmin] {
     return [requireImportReviewAdmin];
+}
+
+type ImportReviewUserValidationIssue = {
+    field: string;
+    message: string;
+    severity: "error" | "warning";
+};
+
+function mapZodIssuesToUserValidationIssues(error: ZodError): ImportReviewUserValidationIssue[] {
+    return error.issues.map((issue) => {
+        const fieldPath = issue.path.length > 0 ? issue.path.map((segment) => String(segment)).join(".") : "body";
+        return {
+            field: fieldPath,
+            message: issue.message,
+            severity: "error",
+        };
+    });
 }
 
 function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0], service: ImportReviewService): void {
@@ -273,6 +297,41 @@ function registerImportReviewFamilyRoutes(app: Parameters<FastifyPluginAsync>[0]
 
             try {
                 const item = await service.patchCandidateDecision(
+                    paramsParsed.data.family,
+                    paramsParsed.data.id,
+                    bodyParsed.data,
+                    request.user
+                );
+                return reply.send(item);
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.patch(
+        "/:family/:id",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: patchImportReviewFamilyCandidateColumnsSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewFamilyCandidateParamsSchema.safeParse(request.params);
+            const bodyParsed = patchImportReviewCandidateColumnsBodySchema.safeParse(request.body);
+
+            if (!paramsParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
+            }
+
+            if (!bodyParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
+            }
+
+            try {
+                const item = await service.patchCandidateColumns(
                     paramsParsed.data.family,
                     paramsParsed.data.id,
                     bodyParsed.data,
@@ -1115,6 +1174,50 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
     );
 
     app.get(
+        "/promotion/eligibility",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: getImportReviewPromotionEligibilitySchema,
+        },
+        async (request, reply) => {
+            const parsed = importReviewPromotionEligibilityQuerySchema.safeParse(request.query);
+            if (!parsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
+            }
+            try {
+                return reply.send(await promotionService.getPromotionEligibility(parsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.get(
+        "/promotion/eligibility/details",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: getImportReviewPromotionEligibilityDetailsSchema,
+        },
+        async (request, reply) => {
+            const parsed = importReviewPromotionEligibilityDetailsQuerySchema.safeParse(request.query);
+            if (!parsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid query", parsed.error.flatten());
+            }
+            try {
+                return reply.send(await promotionService.getPromotionEligibilityDetails(parsed.data));
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.get(
         "/promotion/batch-eligibility",
         {
             preHandler: importReviewAuthorizedPreHandlers(),
@@ -1696,7 +1799,18 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
                 request.body ?? {}
             );
             if (!bodyParsed.success) {
-                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
+                const validationIssues = mapZodIssuesToUserValidationIssues(bodyParsed.error);
+                const summaryErrors = validationIssues.map((issue) =>
+                    issue.field === "body" ? issue.message : `${issue.field}: ${issue.message}`
+                );
+                return sendImportReviewValidationError(
+                    reply,
+                    "Address validation request is incomplete.",
+                    {
+                        errors: summaryErrors,
+                        validation_errors: validationIssues,
+                    }
+                );
             }
             try {
                 return reply.send(await addressValidationService.validate(bodyParsed.data));

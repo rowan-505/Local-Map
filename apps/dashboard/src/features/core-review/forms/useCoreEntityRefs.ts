@@ -11,6 +11,7 @@ import type {
     ImportReviewReferenceOptionDto,
 } from "@/src/lib/api";
 import { mapRefBuildingTypesToSelectOptions } from "@/src/lib/building-type/display";
+import { placeFormOptionToPoiCategory } from "@/src/lib/poi-category/display";
 import {
     getImportReviewReferenceOptions,
     getPlaceFormOptions,
@@ -31,6 +32,9 @@ export type CoreRefOption = {
     value: string;
     label: string;
     code?: string;
+    name?: string | null;
+    name_mm?: string | null;
+    parent_id?: string | null;
 };
 
 export type CoreRefLoadState = {
@@ -52,12 +56,18 @@ function mapRoadClasses(items: RoadClassOption[]): CoreRefOption[] {
     }));
 }
 
-function mapPlaceFormOptions(items: PlaceFormOption[]): CoreRefOption[] {
-    return items.map((item) => ({
-        value: item.id,
-        label: item.label,
-        code: item.code,
-    }));
+function mapPlaceFormCategoryOptions(items: PlaceFormOption[]): CoreRefOption[] {
+    return items.map((item) => {
+        const normalized = placeFormOptionToPoiCategory(item);
+        return {
+            value: normalized.value,
+            label: normalized.label,
+            code: normalized.code ?? undefined,
+            name: normalized.name,
+            name_mm: normalized.name_mm,
+            parent_id: normalized.parent_id,
+        };
+    });
 }
 
 function mapReferenceOptions(items: ImportReviewReferenceOptionDto[]): CoreRefOption[] {
@@ -117,7 +127,14 @@ function optionsFromPlaceFormOptions(
     data: PlaceFormOptions,
     key: "categories" | "source_types" | "publish_statuses",
 ): CoreRefOption[] {
-    return mapPlaceFormOptions(data[key]);
+    if (key === "categories") {
+        return mapPlaceFormCategoryOptions(data.categories);
+    }
+    return data[key].map((item) => ({
+        value: item.id,
+        label: item.label ?? item.id,
+        code: item.code,
+    }));
 }
 
 function emptyRefState(reload: () => void = () => undefined): CoreRefLoadState {

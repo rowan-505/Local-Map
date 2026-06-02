@@ -77,6 +77,12 @@ export type ImportReviewBuildingListItem = {
     /** Reviewer-facing English label (override + imported sources). */
     name_en?: string | null;
     name: string | null;
+    /** Places: typed POI category FK. */
+    category_id?: string | null;
+    primary_name?: string | null;
+    display_name?: string | null;
+    /** Routing barriers: typed barrier type column. */
+    barrier_type?: string | null;
     class_code: string | null;
     building_type: string | null;
     building_type_id: string | null;
@@ -104,7 +110,6 @@ export type ImportReviewBuildingListItem = {
     review_note: string | null;
     normalized_data: unknown;
     source_refs: unknown;
-    review_overrides: unknown;
     matched_core_id: string | null;
     matched_core_table: string | null;
     matched_core_data: unknown;
@@ -126,7 +131,7 @@ export type ImportReviewBuildingListItem = {
     road_candidate_is_oneway: boolean | null;
     /** Meters along effective centerline (override geom when present). Roads only. */
     length_m?: number | null;
-    /** Merged view: review_overrides[field] when present, else imported/normalized. */
+    /** Merged view: typed columns when present, else imported/normalized. */
     effective_name?: string | null;
     effective_name_mm?: string | null;
     effective_name_en?: string | null;

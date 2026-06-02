@@ -8,6 +8,7 @@ export {
     getImportReviewReferenceOptionsBundle,
     patchEntityDecision,
     patchEntityOverrides,
+    patchEntityColumns,
     type GetImportReviewReferenceOptionsParams,
     type ImportReviewFetchInit,
     type ImportReviewReferenceOption,

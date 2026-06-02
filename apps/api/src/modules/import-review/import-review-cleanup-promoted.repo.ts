@@ -4,10 +4,7 @@ import {
     getImportReviewEntityConfig,
     type ImportReviewEntityFamilySlug,
 } from "./import-review-config.js";
-import {
-    getImportReviewPublishFamilyConfig,
-    IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG,
-} from "./import-review-promotion-config.js";
+import { getImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 import type {
     CleanupEvaluatedRow,
     CleanupIneligibleReason,
@@ -105,7 +102,10 @@ export class ImportReviewCleanupPromotedRepository {
     async listAlreadyCleaned(scope: CleanupPromotedScope): Promise<AlreadyCleanedRow[]> {
         const unions: Prisma.Sql[] = [];
         for (const family of scope.entityFamilies) {
-            const cfg = IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG[family];
+            const cfg = getImportReviewPublishFamilyConfig(family);
+            if (!cfg) {
+                continue;
+            }
             unions.push(Prisma.sql`
                 SELECT
                     spi.review_candidate_id AS candidate_id,
@@ -251,7 +251,10 @@ export class ImportReviewCleanupPromotedRepository {
         if (candidateIds.length === 0) {
             return 0;
         }
-        const cfg = IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG[family];
+        const cfg = getImportReviewPublishFamilyConfig(family);
+        if (!cfg) {
+            return 0;
+        }
         const result = await this.prisma.$executeRaw`
             DELETE FROM ${Prisma.raw(cfg.candidateTable)}
             WHERE id IN (${Prisma.join(candidateIds)})

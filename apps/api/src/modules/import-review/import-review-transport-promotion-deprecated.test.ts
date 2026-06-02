@@ -33,10 +33,10 @@ import {
 describe("deprecated core.core_bus_* publish families", () => {
     it("lists all four legacy bus publish families", () => {
         assert.deepEqual(DEPRECATED_CORE_BUS_PUBLISH_FAMILIES, [
-            "bus_stops",
             "bus_routes",
             "bus_route_variants",
             "bus_route_stops",
+            "bus_stops",
         ]);
     });
 
@@ -107,7 +107,7 @@ describe("deprecated core.core_bus_* publish families", () => {
     it("wires deprecated bus guards into active import-review promotion entry points", () => {
         assert.match(
             readPromotionModule("import-review-promotion-config.ts"),
-            /assertDeprecatedCoreBusPublishFamiliesNotRequested/
+            /assertImportReviewPromotionFamilyAllowed/
         );
         for (const file of ["import-review-promotion-promote.ts", "import-review-promotion-validation.ts"] as const) {
             assert.match(readPromotionModule(file), /assertPublishBatchHasNoDeprecatedCoreBusItems/);

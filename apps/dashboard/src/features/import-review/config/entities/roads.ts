@@ -6,6 +6,7 @@ import {
 } from "../constants";
 import { createImportReviewEntityConfig } from "../createEntityConfig";
 import { REF_ROAD_CLASS_ID, REF_ADMIN_AREA_ID } from "../refSources";
+import { getImportReviewNameColumns } from "../../utils/importReviewNaming";
 
 export const roadsImportReviewEntityConfig = createImportReviewEntityConfig({
     slug: "roads",
@@ -16,14 +17,11 @@ export const roadsImportReviewEntityConfig = createImportReviewEntityConfig({
     mapLayerType: "line",
     mapEntityType: "road",
     riskLevel: "high",
-    /** TODO: migrate to ImportReviewEntityPage after porting road routing-validation drawer UX. */
-    /** TODO: roads use dedicated effective-state path — table still shows raw columns until unified. */
-    legacyDedicatedPage: true,
+    legacyDedicatedPage: false,
     detailTitleField: "name_en",
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
-        { key: "name_mm", label: "Name MM", source: "row" },
-        { key: "name_en", label: "Name EN", source: "row" },
+        ...getImportReviewNameColumns(),
         { key: "class_code", label: "Road class", source: "row" },
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,
     ],
@@ -32,10 +30,16 @@ export const roadsImportReviewEntityConfig = createImportReviewEntityConfig({
     overrideEditableFields: [
         "name_mm",
         "name_en",
+        "canonical_name",
         "admin_area_id",
         "road_class_id",
         "surface",
         "is_oneway",
+        "bridge",
+        "tunnel",
+        "layer",
+        "access",
+        "speed_kph",
     ],
     refDropdownFields: [REF_ROAD_CLASS_ID, REF_ADMIN_AREA_ID],
     defaultSort: IMPORT_REVIEW_DEFAULT_SORT,

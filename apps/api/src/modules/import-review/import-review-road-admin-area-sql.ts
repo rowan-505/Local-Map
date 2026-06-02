@@ -2,13 +2,12 @@ import { Prisma } from "@prisma/client";
 
 import { geomSourceExpr } from "./import-review-promotion-promote-sql.js";
 
-/** Admin area id from review_overrides / normalized_data only (road_candidates has no column). */
+/** Admin area id from typed column, then normalized_data fallback. */
 export function roadsExplicitAdminAreaIdExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         coalesce(
-            CASE WHEN (${a}.review_overrides->>'admin_area_id') ~ '^[0-9]+$'
-                THEN (${a}.review_overrides->>'admin_area_id')::bigint END,
+            ${a}.admin_area_id,
             CASE WHEN (${a}.normalized_data->>'admin_area_id') ~ '^[0-9]+$'
                 THEN (${a}.normalized_data->>'admin_area_id')::bigint END
         )

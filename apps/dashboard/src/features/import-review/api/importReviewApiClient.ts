@@ -4,6 +4,9 @@ import {
     getImportReviewReferenceOptions,
     getImportReviewFormOptions,
     patchImportReviewFamilyOverrides,
+    patchImportReviewFamilyColumns,
+    patchImportReviewBuildingColumns,
+    patchImportReviewRoadColumns,
     getImportReviewBuildings,
     getImportReviewBuildingsFilterOptions,
     postImportReviewFamilyBulkDecision,
@@ -32,6 +35,8 @@ import {
     type ImportReviewSummaryResponse,
     type PatchImportReviewBuildingDecisionBody,
     type PatchImportReviewBuildingOverridesBody,
+    type PatchImportReviewCandidateColumnsBody,
+    type PatchImportReviewRoadColumnsBody,
     type PatchImportReviewRoadOverridesBody,
     type PostImportReviewBuildingsBulkBody,
 } from "@/src/lib/api";
@@ -151,6 +156,24 @@ export function patchEntityOverrides(
         return patchImportReviewRoadOverrides(id, body as PatchImportReviewRoadOverridesBody);
     }
     return patchImportReviewFamilyOverrides(normalizeApiFamily(apiFamily), id, body as PatchImportReviewBuildingOverridesBody);
+}
+
+export function patchEntityColumns(
+    apiFamily: string,
+    id: string,
+    body: PatchImportReviewCandidateColumnsBody | PatchImportReviewRoadColumnsBody
+): Promise<ImportReviewBuildingListItem> {
+    if (isBuildingsFamily(apiFamily)) {
+        return patchImportReviewBuildingColumns(id, body as PatchImportReviewCandidateColumnsBody);
+    }
+    if (isRoadsFamily(apiFamily)) {
+        return patchImportReviewRoadColumns(id, body as PatchImportReviewRoadColumnsBody);
+    }
+    return patchImportReviewFamilyColumns(
+        normalizeApiFamily(apiFamily),
+        id,
+        body as PatchImportReviewCandidateColumnsBody
+    );
 }
 
 export function getImportReviewReferenceOptionsBundle(fetchInit?: ImportReviewFetchInit) {

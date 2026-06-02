@@ -196,8 +196,17 @@ export class ImportReviewRoadDryRunRequiredError extends Error {
     }
 }
 
+export class ImportReviewPromotionUnknownFamilyError extends Error {
+    readonly statusCode = 400;
+
+    constructor(public readonly family: string) {
+        super(`Unknown import review promotion entity family: ${family}`);
+        this.name = "ImportReviewPromotionUnknownFamilyError";
+    }
+}
+
 export const TRANSPORT_PROMOTION_DEPRECATED_MESSAGE =
-    "Transport promotion moved to import_transport/core_transport.";
+    "Transport promotion moved to Import Transport.";
 
 export class ImportReviewTransportPromotionDeprecatedError extends Error {
     readonly statusCode = 409;

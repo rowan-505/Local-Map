@@ -72,6 +72,14 @@ curl -sS -X POST "{API}/api/import-review/promotion/batches/{PUBLISH_BATCH_ID}/p
 
 ## SQL verification
 
+### Promotion blocker breakdown (per review batch)
+
+```bash
+psql "$DATABASE_URL" -v review_batch_id=2 -f infrastructure/database/migrations/import-review/010_road-promotion-blocker-breakdown.sql
+```
+
+Reports eligibility buckets, top `validation_errors` / `validation_warnings` codes, and excluded-road primary reasons. Eligibility uses **promotion-blocking** error codes only (geometry, missing class without OSM fallback, duplicate `external_id` in core); attribute gaps (name, surface, speed) belong in warnings.
+
 ### Promoted import_review rows
 
 ```sql

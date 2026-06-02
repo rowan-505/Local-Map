@@ -32,7 +32,6 @@ type BusRouteVariantCandidateRow = {
     distance_m: Prisma.Decimal | number | string | null;
     source_refs: unknown;
     normalized_data: unknown;
-    review_overrides: unknown;
     matched_core_id: bigint | null;
     promoted_core_id: bigint | null;
 };
@@ -55,7 +54,7 @@ function optionalColumnExpr(
 function optionalJsonTextExpr(
     alias: string,
     caps: ImportReviewEntityColumnCapabilities,
-    jsonColumn: "review_overrides" | "normalized_data" | "source_refs",
+    jsonColumn: "normalized_data" | "source_refs",
     key: string
 ): Prisma.Sql {
     return caps.hasColumn(jsonColumn) ? Prisma.sql`${col(alias, jsonColumn)}->>${key}` : Prisma.sql`NULL::text`;
@@ -67,7 +66,6 @@ function textExpr(
     column: "external_id" | "route_code" | "variant_code" | "direction_name" | "origin_name" | "destination_name"
 ): Prisma.Sql {
     return Prisma.sql`nullif(trim(coalesce(
-        ${optionalJsonTextExpr(alias, caps, "review_overrides", column)},
         ${optionalColumnExpr(alias, caps, column, "text")},
         ${optionalJsonTextExpr(alias, caps, "normalized_data", column)},
         ''
@@ -76,7 +74,6 @@ function textExpr(
 
 function routeCodeExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`nullif(trim(coalesce(
-        ${optionalJsonTextExpr(alias, caps, "review_overrides", "route_code")},
         ${optionalColumnExpr(alias, caps, "route_code", "text")},
         ${optionalJsonTextExpr(alias, caps, "normalized_data", "route_code")},
         ${optionalJsonTextExpr(alias, caps, "source_refs", "route_code")},
@@ -86,7 +83,6 @@ function routeCodeExpr(alias: string, caps: ImportReviewEntityColumnCapabilities
 
 function variantCodeExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`nullif(trim(coalesce(
-        ${optionalJsonTextExpr(alias, caps, "review_overrides", "variant_code")},
         ${optionalColumnExpr(alias, caps, "variant_code", "text")},
         ${optionalJsonTextExpr(alias, caps, "normalized_data", "variant_code")},
         ${optionalJsonTextExpr(alias, caps, "normalized_data", "direction")},
@@ -96,8 +92,6 @@ function variantCodeExpr(alias: string, caps: ImportReviewEntityColumnCapabiliti
 
 function routeIdExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     return Prisma.sql`coalesce(
-        CASE WHEN ${optionalJsonTextExpr(alias, caps, "review_overrides", "route_id")} ~ '^[0-9]+$'
-            THEN ${optionalJsonTextExpr(alias, caps, "review_overrides", "route_id")}::bigint END,
         ${optionalColumnExpr(alias, caps, "route_id", "bigint")},
         CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", "route_id")} ~ '^[0-9]+$'
             THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", "route_id")}::bigint END,
@@ -109,8 +103,6 @@ function routeIdExpr(alias: string, caps: ImportReviewEntityColumnCapabilities):
 function distanceExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
     const geom = optionalColumnExpr(alias, caps, "geom", "geometry");
     return Prisma.sql`coalesce(
-        CASE WHEN ${optionalJsonTextExpr(alias, caps, "review_overrides", "distance_m")} ~ '^[0-9]+(\\.[0-9]+)?$'
-            THEN ${optionalJsonTextExpr(alias, caps, "review_overrides", "distance_m")}::numeric END,
         ${optionalColumnExpr(alias, caps, "distance_m", "numeric")},
         CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", "distance_m")} ~ '^[0-9]+(\\.[0-9]+)?$'
             THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", "distance_m")}::numeric END,
@@ -177,7 +169,6 @@ function buildSourceRefs(
 function buildNormalizedData(candidate: BusRouteVariantCandidateRow): Record<string, unknown> {
     return {
         ...asRecord(candidate.normalized_data),
-        review_overrides: asRecord(candidate.review_overrides),
         promotion: {
             promoted_from: BUS_ROUTE_VARIANT_CANDIDATE_TABLE,
             promoted_at: new Date().toISOString(),
@@ -472,7 +463,6 @@ export class ImportReviewPromotionPromoteBusRouteVariantsRepository {
                 ${distanceExpr("brv", caps)} AS distance_m,
                 ${optionalColumnExpr("brv", caps, "source_refs", "jsonb")} AS source_refs,
                 ${optionalColumnExpr("brv", caps, "normalized_data", "jsonb")} AS normalized_data,
-                ${optionalColumnExpr("brv", caps, "review_overrides", "jsonb")} AS review_overrides,
                 ${optionalColumnExpr("brv", caps, "matched_core_id", "bigint")} AS matched_core_id,
                 ${optionalColumnExpr("brv", caps, "promoted_core_id", "bigint")} AS promoted_core_id
             FROM system.system_publish_items AS spi

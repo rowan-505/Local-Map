@@ -21,6 +21,18 @@ test("building_candidates static registry has admin_area_id column", async () =>
     assert.equal(caps.hasBuildingTypeIdColumn, true);
 });
 
+test("road_candidates static registry has admin_area_id and Phase 1b routing columns", async () => {
+    const registry = new ImportReviewCandidateColumnRegistry({} as never);
+    const columns = await registry.getColumns("import_review.road_candidates");
+    assert.equal(columns.has("admin_area_id"), true);
+    assert.equal(columns.has("name_mm"), true);
+    assert.equal(columns.has("name_en"), true);
+    assert.equal(columns.has("access"), true);
+    assert.equal(columns.has("speed_kph"), true);
+    const caps = await registry.getCapabilities("import_review.road_candidates");
+    assert.equal(caps.hasAdminAreaIdColumn, true);
+});
+
 test("admin_area_candidates static registry exposes admin columns without admin_area_id", async () => {
     const registry = new ImportReviewCandidateColumnRegistry({} as never);
     const columns = await registry.getColumns("import_review.admin_area_candidates");
@@ -74,7 +86,7 @@ test("effectiveAdminAreaIdExpr omits physical column when unavailable", () => {
 
     assert.match(withColumn, /l\.admin_area_id/);
     assert.doesNotMatch(withoutColumn, /l\.admin_area_id/);
-    assert.match(withoutColumn, /review_overrides/);
+    assert.match(withoutColumn, /normalized_data/);
 });
 
 test("landuseClassCodeEffectiveExpr uses class_code and overrides only", () => {

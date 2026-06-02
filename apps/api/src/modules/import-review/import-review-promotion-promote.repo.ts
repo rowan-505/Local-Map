@@ -12,8 +12,8 @@ import { ImportReviewPromotionValidationRules } from "./import-review-promotion-
 import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
 import {
     PROMOTABLE_PUBLISH_FAMILIES,
-    IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG,
     type PromotablePublishEntityFamily,
+    getImportReviewPromotionCandidateTable,
 } from "./import-review-promotion-config.js";
 import { requireValidPublishStageStatus } from "./import-review-promotion-stage-status.js";
 import {
@@ -85,6 +85,7 @@ import { ROAD_CANDIDATE_TABLE, ImportReviewPromotionRoadDryRunRepository } from 
 import {
     ImportReviewPromotionPromoteRoutingBarriersRepository,
 } from "./import-review-promotion-promote-routing-barriers.repo.js";
+import { ImportReviewPromotionPromoteAddressesRepository } from "./import-review-promotion-promote-addresses.repo.js";
 import {
     ROUTING_BARRIER_CANDIDATE_TABLE,
     ROUTING_BARRIER_TARGET_TABLE,
@@ -143,7 +144,6 @@ const PROMOTE_BUILDING_SRC_COLUMNS = Prisma.sql`
     b.class_code,
     b.building_type,
     b.normalized_data,
-    b.review_overrides,
     b.source_refs,
     b.building_type_id,
     b.admin_area_id,
@@ -167,7 +167,6 @@ const PROMOTE_PREP_ROW = (geomCaseSql: Prisma.Sql) => Prisma.sql`
     r.class_code,
     r.building_type,
     r.normalized_data,
-    r.review_overrides,
     r.source_refs,
     r.building_type_id,
     r.admin_area_id,
@@ -191,7 +190,6 @@ const PROMOTE_READY_ROW = Prisma.sql`
     p.class_code,
     p.building_type,
     p.normalized_data,
-    p.review_overrides,
     p.source_refs,
     p.building_type_id,
     p.admin_area_id,
@@ -215,6 +213,7 @@ export class ImportReviewPromotionPromoteRepository {
     private readonly roadsRepo: ImportReviewPromotionPromoteRoadsRepository;
     private readonly adminAreasRepo: ImportReviewPromotionPromoteAdminAreasRepository;
     private readonly routingBarriersRepo: ImportReviewPromotionPromoteRoutingBarriersRepository;
+    private readonly addressesRepo: ImportReviewPromotionPromoteAddressesRepository;
     private readonly dryRunRepo: ImportReviewPromotionRoadDryRunRepository;
     private readonly routingBarrierDryRunRepo: ImportReviewPromotionRoutingBarrierDryRunRepository;
     private readonly publishSummaryRepo: ImportReviewPublishBatchSummaryRepository;
@@ -234,6 +233,7 @@ export class ImportReviewPromotionPromoteRepository {
         this.roadsRepo = new ImportReviewPromotionPromoteRoadsRepository(prisma);
         this.adminAreasRepo = new ImportReviewPromotionPromoteAdminAreasRepository(prisma);
         this.routingBarriersRepo = new ImportReviewPromotionPromoteRoutingBarriersRepository(prisma);
+        this.addressesRepo = new ImportReviewPromotionPromoteAddressesRepository(prisma);
         this.dryRunRepo = new ImportReviewPromotionRoadDryRunRepository(prisma);
         this.routingBarrierDryRunRepo = new ImportReviewPromotionRoutingBarrierDryRunRepository(prisma);
         this.publishSummaryRepo = new ImportReviewPublishBatchSummaryRepository(prisma);
@@ -371,6 +371,17 @@ export class ImportReviewPromotionPromoteRepository {
             FROM system.system_publish_items
             WHERE publish_batch_id = ${batchId}
               AND entity_family NOT IN (${Prisma.join(PROMOTABLE_PUBLISH_FAMILIES)})
+        `;
+        return Number(rows[0]?.count ?? 0n);
+    }
+
+    async countBlockedPendingItems(batchId: bigint): Promise<number> {
+        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
+            SELECT count(*)::bigint AS count
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+              AND publish_status = 'pending'
+              AND coalesce(validation_result->>'status', '') = 'blocked'
         `;
         return Number(rows[0]?.count ?? 0n);
     }
@@ -607,6 +618,26 @@ export class ImportReviewPromotionPromoteRepository {
                 UNION ALL
                 SELECT
                     spi.id AS publish_item_id,
+                    'addresses'::text AS entity_family,
+                    'core.core_addresses' AS target_table,
+                    spi.publish_action,
+                    spi.publish_status,
+                    spi.target_id,
+                    spi.review_candidate_id,
+                    a.review_batch_id,
+                    a.source_snapshot_version,
+                    a.promotion_status,
+                    a.promoted_core_id,
+                    a.matched_core_id
+                FROM system.system_publish_items AS spi
+                INNER JOIN import_review.address_candidates AS a
+                    ON a.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = 'import_review.address_candidates'
+                WHERE spi.publish_batch_id = ${batchId}
+                  AND spi.entity_family = 'addresses'
+                UNION ALL
+                SELECT
+                    spi.id AS publish_item_id,
                     'admin_areas'::text AS entity_family,
                     ${CORE_ADMIN_AREAS_TABLE} AS target_table,
                     spi.publish_action,
@@ -799,6 +830,9 @@ export class ImportReviewPromotionPromoteRepository {
         }
 
         if (item.publish_action === "insert") {
+            if (item.entity_family === "addresses") {
+                return this.addressesRepo.promoteFromPublishItem(args.batchId, args.publishItemId);
+            }
             if (item.entity_family === "places") {
                 return this.placesRepo.insertPlace(args.batchId, args.publishItemId, args.promotedBy);
             }
@@ -853,6 +887,9 @@ export class ImportReviewPromotionPromoteRepository {
         }
 
         if (item.publish_action === "update") {
+            if (item.entity_family === "addresses") {
+                return this.addressesRepo.promoteFromPublishItem(args.batchId, args.publishItemId);
+            }
             if (item.entity_family === "places") {
                 return this.placesRepo.updatePlace(args.batchId, args.publishItemId, args.promotedBy);
             }
@@ -916,7 +953,72 @@ export class ImportReviewPromotionPromoteRepository {
         };
     }
 
+    async promoteAndCommitItem(args: {
+        batchId: bigint;
+        publishItemId: bigint;
+        promotedBy: bigint | null;
+    }): Promise<PromoteItemResult> {
+        return this.prisma.$transaction(async (tx) => {
+            const repo = new ImportReviewPromotionPromoteRepository(
+                tx as PrismaClient,
+                new ImportReviewPromotionValidationRepository(tx as PrismaClient)
+            );
+            const items = await repo.listPromotableItems(args.batchId);
+            const item = items.find((row) => row.publish_item_id === args.publishItemId);
+            const result = await repo.promoteItem({
+                batchId: args.batchId,
+                publishItemId: args.publishItemId,
+                promotedBy: args.promotedBy,
+            });
+
+            if (result.outcome === "inserted" || result.outcome === "updated") {
+                if (!item) {
+                    throw new Error("Publish item missing after core promotion.");
+                }
+                await repo.applyItemSuccess({
+                    publishItemId: args.publishItemId,
+                    targetId: result.target_id,
+                    targetTable: item.target_table,
+                    beforeData: result.before_data,
+                    afterData: result.after_data ?? { id: result.target_id?.toString() ?? null },
+                });
+                if (item.entity_family !== "bus_route_stops" || result.target_id != null) {
+                    await repo.markCandidatePromoted({
+                        entityFamily: item.entity_family as ImportReviewEntityFamilySlug,
+                        reviewCandidateId: item.review_candidate_id,
+                        promotedCoreId: result.target_id,
+                        promotedBy: args.promotedBy,
+                    });
+                }
+                return result;
+            }
+
+            if (result.outcome === "skipped") {
+                if (item) {
+                    await repo.applyItemSuccess({
+                        publishItemId: args.publishItemId,
+                        targetId: result.target_id,
+                        targetTable: item.target_table,
+                        beforeData: result.before_data,
+                        afterData: result.after_data ?? { skipped: true },
+                    });
+                }
+                return result;
+            }
+
+            await repo.applyItemFailure({
+                publishItemId: args.publishItemId,
+                errorMessage: result.error_message ?? "Promotion failed.",
+                afterData: result.after_data,
+            });
+            return result;
+        });
+    }
+
     private async checkCoreRowExists(entityFamily: string, targetId: bigint): Promise<boolean> {
+        if (entityFamily === "addresses") {
+            return this.addressesRepo.checkAddressCoreExists(targetId);
+        }
         if (entityFamily === "places") {
             return this.placesRepo.checkPlaceCoreExists(targetId);
         }
@@ -1018,26 +1120,10 @@ export class ImportReviewPromotionPromoteRepository {
                 ${normalizedDataMergeExpr("g", batchId)},
                 ${sourceRefsMergeExpr("g", batchId, "buildings")},
                 g.geom,
-                coalesce(
-                    CASE WHEN (g.review_overrides->>'building_type_id') ~ '^[0-9]+$'
-                        THEN (g.review_overrides->>'building_type_id')::bigint END,
-                    g.building_type_id
-                ),
-                coalesce(
-                    CASE WHEN (g.review_overrides->>'admin_area_id') ~ '^[0-9]+$'
-                        THEN (g.review_overrides->>'admin_area_id')::bigint END,
-                    g.admin_area_id
-                ),
-                coalesce(
-                    CASE WHEN (g.review_overrides->>'levels') ~ '^-?[0-9]+$'
-                        THEN (g.review_overrides->>'levels')::integer END,
-                    g.levels
-                ),
-                coalesce(
-                    CASE WHEN (g.review_overrides->>'height_m') ~ '^-?[0-9]+(\\.[0-9]+)?$'
-                        THEN (g.review_overrides->>'height_m')::numeric END,
-                    g.height_m
-                ),
+                g.building_type_id,
+                g.admin_area_id,
+                g.levels,
+                g.height_m,
                 g.centroid,
                 g.area_m2,
                 coalesce(g.confidence_score, 80)${coreVerificationInsertValuesSql(BUILDING_VERIFICATION_COLUMNS)},
@@ -1147,26 +1233,10 @@ export class ImportReviewPromotionPromoteRepository {
                 normalized_data = ${normalizedDataMergeExpr("r", batchId)},
                 source_refs = ${sourceRefsMergeExpr("r", batchId, "buildings")},
                 geom = r.geom,
-                building_type_id = coalesce(
-                    CASE WHEN (r.review_overrides->>'building_type_id') ~ '^[0-9]+$'
-                        THEN (r.review_overrides->>'building_type_id')::bigint END,
-                    r.building_type_id
-                ),
-                admin_area_id = coalesce(
-                    CASE WHEN (r.review_overrides->>'admin_area_id') ~ '^[0-9]+$'
-                        THEN (r.review_overrides->>'admin_area_id')::bigint END,
-                    r.admin_area_id
-                ),
-                levels = coalesce(
-                    CASE WHEN (r.review_overrides->>'levels') ~ '^-?[0-9]+$'
-                        THEN (r.review_overrides->>'levels')::integer END,
-                    r.levels
-                ),
-                height_m = coalesce(
-                    CASE WHEN (r.review_overrides->>'height_m') ~ '^-?[0-9]+(\\.[0-9]+)?$'
-                        THEN (r.review_overrides->>'height_m')::numeric END,
-                    r.height_m
-                ),
+                building_type_id = r.building_type_id,
+                admin_area_id = r.admin_area_id,
+                levels = r.levels,
+                height_m = r.height_m,
                 centroid = r.centroid,
                 area_m2 = r.area_m2,
                 confidence_score = coalesce(r.confidence_score, c.confidence_score)${coreVerificationUpdateSetClauseSql("c", BUILDING_VERIFICATION_COLUMNS)},
@@ -1258,9 +1328,9 @@ export class ImportReviewPromotionPromoteRepository {
         promotedCoreId: bigint | null;
         promotedBy: bigint | null;
     }): Promise<void> {
-        const config = IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG[args.entityFamily];
+        const candidateTable = getImportReviewPromotionCandidateTable(args.entityFamily);
         await this.prisma.$executeRaw`
-            UPDATE ${Prisma.raw(config.candidateTable)}
+            UPDATE ${Prisma.raw(candidateTable)}
             SET promotion_status = 'promoted',
                 promoted_core_id = ${args.promotedCoreId},
                 promoted_at = now(),
@@ -1275,9 +1345,9 @@ export class ImportReviewPromotionPromoteRepository {
         entityFamily: ImportReviewEntityFamilySlug,
         reviewCandidateId: bigint
     ): Promise<void> {
-        const config = IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG[entityFamily];
+        const candidateTable = getImportReviewPromotionCandidateTable(entityFamily);
         await this.prisma.$executeRaw`
-            UPDATE ${Prisma.raw(config.candidateTable)}
+            UPDATE ${Prisma.raw(candidateTable)}
             SET promotion_status = 'failed',
                 review_status = 'promotion_failed',
                 updated_at = now()

@@ -3,8 +3,12 @@
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
 import type { ImportReviewEntityConfig } from "../../config/types";
-import { dash, formatBuildingTypeLabel, formatImportReviewTs, importReviewRowHasOverrides } from "../../utils/entityPageUtils";
+import { dash, formatBuildingTypeLabel, formatImportReviewTs } from "../../utils/entityPageUtils";
 import { resolveDrawerSubtitle, resolveDrawerTitle } from "../../utils/detailDrawerUtils";
+import {
+    formatCandidateName,
+    getImportReviewSourceImportedName,
+} from "../../utils/importReviewNaming";
 import {
     formatLanduseClassLabel,
     formatLanduseImportedClassCode,
@@ -22,8 +26,7 @@ export default function CandidateSummarySection({
     row: ImportReviewBuildingListItem;
 }) {
     const subtitle = resolveDrawerSubtitle(row, config);
-    const nameMm = row.effective_name_mm ?? null;
-    const nameEn = row.effective_name_en ?? null;
+    const sourceImportedName = getImportReviewSourceImportedName(row);
     const showNames = hasNameFields(config);
 
     return (
@@ -31,11 +34,6 @@ export default function CandidateSummarySection({
             <div>
                 <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Summary</h3>
-                    {importReviewRowHasOverrides(row) ? (
-                        <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-900">
-                            Overrides applied
-                        </span>
-                    ) : null}
                 </div>
                 <p className="mt-1 text-base font-semibold text-gray-900">{resolveDrawerTitle(row, config)}</p>
                 {subtitle ? (
@@ -47,15 +45,23 @@ export default function CandidateSummarySection({
             </div>
 
             {showNames ? (
-                <div className="grid grid-cols-1 gap-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3 text-sm sm:grid-cols-2">
-                    <div>
-                        <span className="font-medium text-gray-500">Myanmar name</span>
-                        <div className="text-gray-900">{dash(nameMm)}</div>
+                <div className="space-y-2">
+                    <div className="grid grid-cols-1 gap-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3 text-sm sm:grid-cols-2">
+                        <div>
+                            <span className="font-medium text-gray-500">Myanmar name</span>
+                            <div className="text-gray-900">{formatCandidateName(row, "name_mm")}</div>
+                        </div>
+                        <div>
+                            <span className="font-medium text-gray-500">English name</span>
+                            <div className="text-gray-900">{formatCandidateName(row, "name_en")}</div>
+                        </div>
                     </div>
-                    <div>
-                        <span className="font-medium text-gray-500">English name</span>
-                        <div className="text-gray-900">{dash(nameEn)}</div>
-                    </div>
+                    {sourceImportedName ? (
+                        <p className="text-[11px] text-gray-600">
+                            <span className="font-medium text-gray-500">Imported/source name:</span>{" "}
+                            <span className="font-mono text-gray-800">{sourceImportedName}</span>
+                        </p>
+                    ) : null}
                 </div>
             ) : null}
 

@@ -30,17 +30,16 @@ import {
     type EffectiveValuesRawRow,
 } from "./import-review-effective-values.js";
 import { SERIOUS_ROUTING_WARNING_CODES } from "./import-review-road-routing-validation.types.js";
-import { assertValidStoredReviewOverrides } from "./import-review-overrides-validator.js";
-import {
-    buildPersistableReviewOverridesPatch,
-    normalizeLegacyNameOverrides,
-    reviewOverridesPersistPatch,
-} from "./import-review-legacy-name-overrides.js";
 import {
     createImportReviewSummaryTimingSink,
     timeImportReviewSummaryStep,
 } from "./import-review-summary-timing.js";
 import { sanitizeReviewOverridesPatch } from "./import-review-overrides-sanitize.js";
+import {
+    assertFinalPatchedPlaceNameState,
+    assertPersistableDirectColumnPatch,
+    mapOverridePatchToColumnPatch,
+} from "./import-review-candidate-column-patch.js";
 import { normalizeReviewOverridesForJsonStorage } from "./import-review-overrides-normalize.js";
 import {
     applyImportReviewEssentialDefaults,
@@ -57,7 +56,6 @@ import {
     toLegacyReferenceOptionsBundle,
 } from "./import-review-options.repo.js";
 import type { ImportReviewFormOptionsResponse } from "./import-review-options.types.js";
-import type { ImportReviewReviewOverridesPatch } from "./import-review.schema.js";
 import type {
     BulkImportReviewBuildingDecisionBody,
     ImportReviewBatchesListQuery,
@@ -68,7 +66,9 @@ import type {
     ImportReviewRoadsQuery,
     PatchImportReviewBuildingDecisionBody,
     PatchImportReviewBuildingOverridesBody,
+    PatchImportReviewCandidateColumnsBody,
     PatchImportReviewCandidateOverridesBody,
+    ImportReviewReviewOverridesPatch,
     PatchImportReviewRoadOverridesBody,
     PostImportReviewRoadValidateRoutingBody,
 } from "./import-review.schema.js";
@@ -83,13 +83,17 @@ import type {
     ImportReviewSummaryResponse,
     ImportReviewBatchesListResponse,
 } from "./import-review.types.js";
-import { buildImportReviewRoadOverrideOutcome } from "./import-review-road-overrides-validator.js";
+import {
+    buildImportReviewRoadOverrideOutcome,
+    roadBaselineFieldValues,
+} from "./import-review-road-overrides-validator.js";
 import type { ImportReviewRoadOverridesPatchNormalized } from "./import-review-road-overrides.types.js";
 import {
     buildRoadDryRunSummaryResponse,
     ImportReviewRoadDryRunSummaryRepository,
 } from "./import-review-road-dry-run-summary.repo.js";
 import type { ImportReviewRoadDryRunSummaryResponse } from "./import-review-road-dry-run-summary.types.js";
+import { roadStoredValidationHasPromotionBlockers } from "./import-review-road-promotion-policy.js";
 import {
     issuesToStoredJson,
     runImportReviewRoadRoutingValidation,
@@ -225,6 +229,8 @@ function deriveRoadRoutingStatus(row: BuildingListRowDb): string {
 function toEffectiveRawRow(row: BuildingListRowDb): EffectiveValuesRawRow {
     return {
         name: row.name,
+        name_mm: row.name_mm ?? null,
+        name_en: row.name_en ?? null,
         canonical_name: row.canonical_name,
         class_code: row.class_code,
         admin_area_id: row.admin_area_id,
@@ -232,9 +238,10 @@ function toEffectiveRawRow(row: BuildingListRowDb): EffectiveValuesRawRow {
         levels: row.levels,
         height_m: row.height_m,
         normalized_data: row.normalized_data,
-        review_overrides: row.review_overrides,
         effective_admin_area_name: row.effective_admin_area_name ?? null,
         stop_code: row.stop_code ?? null,
+        barrier_type: row.barrier_type ?? null,
+        category_id: row.category_id ?? null,
     };
 }
 
@@ -262,6 +269,8 @@ function mapBuildingRow(
         name: row.name,
         name_mm: row.name_mm ?? null,
         name_en: row.name_en ?? null,
+        category_id: bigStr(row.category_id),
+        barrier_type: row.barrier_type ?? null,
         class_code: row.class_code,
         building_type: row.building_type,
         building_type_id: bigStr(row.building_type_id),
@@ -285,7 +294,6 @@ function mapBuildingRow(
         review_note: row.review_note,
         normalized_data: isListProjection ? {} : row.normalized_data,
         source_refs: isListProjection ? {} : row.source_refs,
-        review_overrides: isListProjection ? {} : row.review_overrides,
         matched_core_id: bigStr(row.matched_core_id),
         matched_core_table: row.matched_core_table,
         matched_core_data: isListProjection ? {} : row.matched_core_data,
@@ -316,6 +324,7 @@ function mapBuildingRow(
         routing_status: family === "roads" ? deriveRoadRoutingStatus(row) : null,
     };
 
+    // Typed direct-edit columns win over source/legacy names — docs/import-review/naming-contract.md
     return applyImportReviewEffectiveFields(family, base, toEffectiveRawRow(row));
 }
 
@@ -414,7 +423,13 @@ function scopeQueryFromBulkBody(body: BulkImportReviewBuildingDecisionBody): Imp
     };
 }
 
-function scopeQueryFromOverridesBody(body: PatchImportReviewBuildingOverridesBody): ImportReviewScopeQuery {
+type ImportReviewCandidatePatchScopeBody = {
+    latest: boolean;
+    review_batch_id?: bigint;
+    source_snapshot_version?: string;
+};
+
+function scopeQueryFromPatchScopeBody(body: ImportReviewCandidatePatchScopeBody): ImportReviewScopeQuery {
     return {
         source_snapshot_version: body.source_snapshot_version,
         review_batch_id: body.review_batch_id,
@@ -563,10 +578,10 @@ function assertGenericCandidateDecisionAllowed(args: {
             );
         }
 
-        const valErr = stringsFromStoredJsonArray(args.roadContext.validation_errors);
-        if (valErr.length > 0 && !args.body.force) {
+        if (roadStoredValidationHasPromotionBlockers(args.roadContext.validation_errors) && !args.body.force) {
+            const valErr = stringsFromStoredJsonArray(args.roadContext.validation_errors);
             throw new ImportReviewDecisionRuleError(
-                "Cannot approve while validation_errors persist on this road candidate — resolve overrides geometry/attributes first."
+                `Cannot approve while promotion-blocking validation_errors persist on this road candidate — resolve geometry/class issues first:\n${valErr.slice(0, 5).join("\n")}`
             );
         }
 
@@ -805,7 +820,7 @@ export class ImportReviewService {
         body: PatchImportReviewBuildingOverridesBody,
         user: JwtUser
     ): Promise<ImportReviewBuildingListItem> {
-        const scope = await this.resolveScopeChecked(scopeQueryFromOverridesBody(body));
+        const scope = await this.resolveScopeChecked(scopeQueryFromPatchScopeBody(body));
 
         const ctx = await this.repo.findBuildingCandidateReviewContext(scope, buildingId);
 
@@ -815,34 +830,28 @@ export class ImportReviewService {
 
         if ((ctx.promotion_status ?? "") === "promoted") {
             throw new ImportReviewDecisionRuleError(
-                "Cannot update review_overrides once promotion_status is promoted"
+                "Cannot update candidate fields once promotion_status is promoted"
             );
         }
 
-        const userPatch = await this.prepareValidatedOverridesPatch("buildings", body.review_overrides);
-        const overridesPatch = await this.mergeEssentialDefaultsForOverrideSave(
+        const userPatch = await this.prepareValidatedOverridesPatch("buildings", body.fields);
+        const mergedPatch = await this.mergeEssentialDefaultsForOverrideSave(
             "buildings",
             scope,
             buildingId,
             userPatch
         );
 
-        const existingOverrides =
-            ctx.review_overrides && typeof ctx.review_overrides === "object" && !Array.isArray(ctx.review_overrides)
-                ? (ctx.review_overrides as Record<string, unknown>)
-                : {};
-        const persistPatch = buildPersistableReviewOverridesPatch(
-            "buildings",
-            existingOverrides,
-            overridesPatch
-        );
-
-        const row = await this.repo.patchBuildingReviewOverrides({
+        const columnPatch = mapOverridePatchToColumnPatch("buildings", mergedPatch);
+        assertPersistableDirectColumnPatch("buildings", userPatch, columnPatch);
+        const row = await this.repo.patchCandidateColumns({
+            family: "buildings",
             scope,
             id: buildingId,
-            overridesPatch: persistPatch,
+            columnPatch,
             editedByUserId: reviewedByUserId(user),
             reviewNote: body.review_note,
+            requireTypedColumnUpdates: true,
         });
 
         if (row === null) {
@@ -858,7 +867,7 @@ export class ImportReviewService {
         user: JwtUser
     ): Promise<ImportReviewBuildingListItem> {
         const prisma = getImportReviewPrisma();
-        const scope = await this.resolveScopeChecked(scopeQueryFromOverridesBody(body));
+        const scope = await this.resolveScopeChecked(scopeQueryFromPatchScopeBody(body));
 
         const baseline = await this.repo.fetchRoadCandidatePatchBaseline(scope, roadId);
 
@@ -868,7 +877,7 @@ export class ImportReviewService {
 
         if ((baseline.promotion_status ?? "") === "promoted") {
             throw new ImportReviewDecisionRuleError(
-                "Cannot update review_overrides once promotion_status is promoted"
+                "Cannot update candidate fields once promotion_status is promoted"
             );
         }
 
@@ -876,7 +885,7 @@ export class ImportReviewService {
             "roads",
             scope,
             roadId,
-            await this.prepareValidatedOverridesPatch("roads", body.review_overrides)
+            await this.prepareValidatedOverridesPatch("roads", body.fields)
         );
 
         const leaf: Record<string, unknown> = { ...essentialMerged };
@@ -994,7 +1003,19 @@ export class ImportReviewService {
             streetsRepo: this.routingStreets,
             reviewBatchId: scope.reviewBatchId,
             roadId,
-            baseline_review_overrides: baseline.review_overrides,
+            baseline_field_values: roadBaselineFieldValues({
+                name_mm: baseline.name_mm,
+                name_en: baseline.name_en,
+                bridge: baseline.bridge,
+                tunnel: baseline.tunnel,
+                layer: baseline.layer,
+                access: baseline.access,
+                speed_kph: baseline.speed_kph,
+                admin_area_id: baseline.admin_area_id,
+                road_class_id: baseline.road_class_id,
+                surface: baseline.surface,
+                is_oneway: baseline.is_oneway,
+            }),
             baseline_canonical_name: baseline.canonical_name,
             baseline_road_class_id: baseline.road_class_id ?? null,
             baseline_is_oneway: baseline.is_oneway,
@@ -1026,17 +1047,24 @@ export class ImportReviewService {
                 ? JSON.stringify(outcome.normalizedPatchForJson.geom)
                 : null;
 
-        const mergedRaw: Record<string, unknown> = { ...outcome.mergedOverridesJson };
+        const mergedRaw: Record<string, unknown> = { ...outcome.mergedFieldsJson };
         for (const key of patchProvided) {
             if (Object.prototype.hasOwnProperty.call(essentialMerged, key)) {
                 mergedRaw[key] = essentialMerged[key];
             }
         }
 
-        const row = await this.repo.patchRoadCandidateReviewOverrides({
+        const roadUserPatch = await this.prepareValidatedOverridesPatch("roads", body.fields);
+        const roadColumnPatch = mapOverridePatchToColumnPatch("roads", {
+            ...essentialMerged,
+            ...mergedRaw,
+        });
+        assertPersistableDirectColumnPatch("roads", roadUserPatch, roadColumnPatch);
+
+        const row = await this.repo.patchRoadCandidateColumnFields({
             scope,
             id: roadId,
-            merged_review_overrides: normalizeReviewOverridesForJsonStorage("roads", mergedRaw),
+            merged_fields: normalizeReviewOverridesForJsonStorage("roads", mergedRaw),
             canonical_name: outcome.effectiveState.canonical_name,
             road_class_id: outcome.effectiveState.road_class_id,
             road_class_label: outcome.effectiveState.road_class_label,
@@ -1073,7 +1101,6 @@ export class ImportReviewService {
             prisma,
             streetsRepo: this.routingStreets,
             row,
-            useReviewOverrides: body.use_review_overrides,
             connectivityThresholdM: body.connectivity_threshold_m,
             duplicateThresholdM: body.duplicate_threshold_m,
             confirmWarnings: body.confirm_warnings,
@@ -1209,6 +1236,8 @@ export class ImportReviewService {
             auto_action: query.auto_action,
             review_status: query.review_status,
             review_decision: query.review_decision,
+            promotion_status: query.promotion_status,
+            include_promoted: query.include_promoted,
             q: query.q,
         };
 
@@ -1408,10 +1437,10 @@ export class ImportReviewService {
         }
 
         if (body.review_decision === "approved") {
-            const valErr = stringsFromStoredJsonArray(existing.validation_errors);
-            if (valErr.length > 0) {
+            if (roadStoredValidationHasPromotionBlockers(existing.validation_errors) && !body.force) {
+                const valErr = stringsFromStoredJsonArray(existing.validation_errors);
                 throw new ImportReviewDecisionRuleError(
-                    "Cannot approve while validation_errors persist on this road candidate — resolve overrides geometry/attributes first."
+                    `Cannot approve while promotion-blocking validation_errors persist on this road candidate — resolve geometry/class issues first:\n${valErr.slice(0, 5).join("\n")}`
                 );
             }
 
@@ -1737,8 +1766,16 @@ export class ImportReviewService {
             ctx,
             userPatch
         );
-        await assertImportReviewEssentialFieldsMet(prisma, family, ctx, userPatch);
-        return { ...overridesPatch, ...userPatch };
+        const mergedPatch = { ...overridesPatch, ...userPatch };
+        if (family === "places") {
+            assertFinalPatchedPlaceNameState({
+                existingNameMm: ctx.name_mm,
+                existingNameEn: ctx.name_en,
+                incomingPatch: mergedPatch,
+            });
+        }
+        await assertImportReviewEssentialFieldsMet(prisma, family, ctx, mergedPatch);
+        return mergedPatch;
     }
 
     private async persistEssentialDefaultsOnApprove(
@@ -1753,41 +1790,16 @@ export class ImportReviewService {
             throwCandidateNotFound(family, candidateId, scope);
         }
 
-        const existingOverrides =
-            ctx.review_overrides && typeof ctx.review_overrides === "object" && !Array.isArray(ctx.review_overrides)
-                ? (ctx.review_overrides as Record<string, unknown>)
-                : {};
-        const normalizedStored = normalizeLegacyNameOverrides(family, existingOverrides);
-        const legacyMigrationPatch = reviewOverridesPersistPatch(existingOverrides, normalizedStored);
-        if (Object.keys(legacyMigrationPatch).length > 0) {
-            await this.repo.patchCandidateReviewOverrides({
-                family,
-                scope,
-                id: candidateId,
-                overridesPatch: legacyMigrationPatch,
-                editedByUserId: null,
-                reviewNote: undefined,
-            });
-        }
-
-        const ctxForDefaults =
-            Object.keys(legacyMigrationPatch).length > 0
-                ? await essentialRepo.fetchEssentialContext(family, scope.reviewBatchId, candidateId)
-                : ctx;
-        if (ctxForDefaults === null) {
-            throwCandidateNotFound(family, candidateId, scope);
-        }
-
-        const outcome = await applyImportReviewEssentialDefaults(prisma, family, ctxForDefaults, {});
+        const outcome = await applyImportReviewEssentialDefaults(prisma, family, ctx, {});
         if (Object.keys(outcome.overridesPatch).length > 0) {
-            await this.repo.patchCandidateReviewOverrides({
+            await this.persistValidatedFieldPatch(
                 family,
                 scope,
-                id: candidateId,
-                overridesPatch: outcome.overridesPatch,
-                editedByUserId: null,
-                reviewNote: undefined,
-            });
+                candidateId,
+                outcome.overridesPatch,
+                null,
+                undefined
+            );
         }
 
         const refreshed = await essentialRepo.fetchEssentialContext(family, scope.reviewBatchId, candidateId);
@@ -1796,7 +1808,6 @@ export class ImportReviewService {
         }
 
         await assertImportReviewEssentialFieldsMet(prisma, family, refreshed, {});
-        assertValidStoredReviewOverrides(family, refreshed.review_overrides);
     }
 
     private async prepareValidatedOverridesPatch(
@@ -1849,10 +1860,8 @@ export class ImportReviewService {
         if (Object.prototype.hasOwnProperty.call(patch, "category_id")) {
             const id = parseId(patch.category_id);
             if (id !== null) {
-                const rows = await prisma.$queryRaw<{ id: bigint }[]>`
-                    SELECT id FROM ref.ref_poi_categories WHERE id = ${id} LIMIT 1
-                `;
-                if (rows[0] === undefined) {
+                const exists = await refRepo.poiCategoryExistsById(id);
+                if (!exists) {
                     throw new ImportReviewDecisionRuleError(
                         `Unknown category_id=${id.toString()} (must match ref.ref_poi_categories).`
                     );
@@ -1875,6 +1884,98 @@ export class ImportReviewService {
         return patch;
     }
 
+    private async persistValidatedFieldPatch(
+        family: ImportReviewEntityFamilySlug,
+        scope: ImportReviewScopeResolved,
+        candidateId: bigint,
+        patch: Record<string, unknown>,
+        editedByUserId: bigint | null,
+        reviewNote: string | null | undefined
+    ): Promise<void> {
+        const columnPatch = mapOverridePatchToColumnPatch(family, patch);
+        const row = await this.repo.patchCandidateColumns({
+            family,
+            scope,
+            id: candidateId,
+            columnPatch,
+            editedByUserId,
+            reviewNote,
+        });
+        if (row === null) {
+            throwCandidateNotFound(family, candidateId, scope);
+        }
+    }
+
+    async patchCandidateColumns(
+        family: ImportReviewEntityFamilySlug,
+        candidateId: bigint,
+        body: PatchImportReviewCandidateColumnsBody,
+        user: JwtUser
+    ): Promise<ImportReviewBuildingListItem> {
+        const config = getImportReviewEntityConfig(family);
+        if (!config.supportsOverrides) {
+            throw new ImportReviewDecisionRuleError(
+                `Direct column edits are not supported for entity family ${family}`
+            );
+        }
+
+        if (family === "roads") {
+            return this.patchRoadReviewOverrides(
+                candidateId,
+                {
+                    source_snapshot_version: body.source_snapshot_version,
+                    review_batch_id: body.review_batch_id,
+                    latest: body.latest,
+                    fields: body.fields,
+                    review_note: body.review_note,
+                    routing_validation_tolerance_meters:
+                        body.routing_validation_tolerance_meters ?? 35,
+                    confirm_acknowledge_routing_warnings:
+                        body.confirm_acknowledge_routing_warnings ?? false,
+                },
+                user
+            );
+        }
+
+        const scope = await this.resolveScopeChecked(scopeQueryFromPatchScopeBody(body));
+        const ctx = await this.repo.findCandidateReviewContext(family, scope, candidateId);
+        if (ctx === null) {
+            throwCandidateNotFound(family, candidateId, scope);
+        }
+
+        if ((ctx.promotion_status ?? "") === "promoted") {
+            throw new ImportReviewDecisionRuleError(
+                "Cannot update candidate fields once promotion_status is promoted"
+            );
+        }
+
+        const userPatch = await this.prepareValidatedOverridesPatch(family, body.fields);
+        const mergedPatch = await this.mergeEssentialDefaultsForOverrideSave(
+            family,
+            scope,
+            candidateId,
+            userPatch
+        );
+
+        const columnPatch = mapOverridePatchToColumnPatch(family, mergedPatch);
+        assertPersistableDirectColumnPatch(family, userPatch, columnPatch);
+        const row = await this.repo.patchCandidateColumns({
+            family,
+            scope,
+            id: candidateId,
+            columnPatch,
+            editedByUserId: reviewedByUserId(user),
+            reviewNote: body.review_note,
+            requireTypedColumnUpdates: true,
+        });
+
+        if (row === null) {
+            throwCandidateNotFound(family, candidateId, scope);
+        }
+
+        return this.mapCandidateResponse(row, family);
+    }
+
     async patchCandidateOverrides(
         family: ImportReviewEntityFamilySlug,
         candidateId: bigint,
@@ -1894,7 +1995,7 @@ export class ImportReviewService {
             );
         }
 
-        const scope = await this.resolveScopeChecked(scopeQueryFromOverridesBody(body));
+        const scope = await this.resolveScopeChecked(scopeQueryFromPatchScopeBody(body));
         const ctx = await this.repo.findCandidateReviewContext(family, scope, candidateId);
         if (ctx === null) {
             throwCandidateNotFound(family, candidateId, scope);
@@ -1902,33 +2003,24 @@ export class ImportReviewService {
 
         if ((ctx.promotion_status ?? "") === "promoted") {
             throw new ImportReviewDecisionRuleError(
-                "Cannot update review_overrides once promotion_status is promoted"
+                "Cannot update candidate fields once promotion_status is promoted"
             );
         }
 
-        const userPatch = await this.prepareValidatedOverridesPatch(family, body.review_overrides);
-        const overridesPatch = await this.mergeEssentialDefaultsForOverrideSave(
+        const userPatch = await this.prepareValidatedOverridesPatch(family, body.fields);
+        const mergedPatch = await this.mergeEssentialDefaultsForOverrideSave(
             family,
             scope,
             candidateId,
             userPatch
         );
 
-        const existingOverrides =
-            ctx.review_overrides && typeof ctx.review_overrides === "object" && !Array.isArray(ctx.review_overrides)
-                ? (ctx.review_overrides as Record<string, unknown>)
-                : {};
-        const persistPatch = buildPersistableReviewOverridesPatch(
-            family,
-            existingOverrides,
-            overridesPatch
-        );
-
-        const row = await this.repo.patchCandidateReviewOverrides({
+        const columnPatch = mapOverridePatchToColumnPatch(family, mergedPatch);
+        const row = await this.repo.patchCandidateColumns({
             family,
             scope,
             id: candidateId,
-            overridesPatch: persistPatch,
+            columnPatch,
             editedByUserId: reviewedByUserId(user),
             reviewNote: body.review_note,
         });

@@ -25,7 +25,6 @@ export function landuseClassCodeExpr(alias: string, classIdExpr: Prisma.Sql): Pr
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'class_code',
             ${a}.class_code,
             ${a}.normalized_data->>'class_code',
             (
@@ -62,7 +61,7 @@ export function landuseCropCodeExpr(
         CASE
             WHEN lower(coalesce(${classCodeExpr}, '')) IN ('paddy', 'rice') THEN 'rice'
             WHEN lower(coalesce(
-                nullif(trim(${a}.review_overrides->>'crop_code'), ''),
+                nullif(trim(${a}.normalized_data->>'crop_code'), ''),
                 nullif(trim(${a}.normalized_data->>'crop'), ''),
                 nullif(trim(${a}.normalized_data->'tags'->>'crop'), ''),
                 ''
@@ -138,8 +137,6 @@ export function landuseReadyFieldExprs(batchId: bigint, alias: string): Prisma.S
         ${sourceRefsMergeExpr(alias, batchId, "landuse")} AS merged_source_refs,
         ${normalizedDataMergeExpr(alias, batchId)} AS merged_normalized_data,
         least(100, greatest(0, coalesce(
-            CASE WHEN (${a}.review_overrides->>'confidence_score') ~ '^-?[0-9]+(\\.[0-9]+)?$'
-                THEN (${a}.review_overrides->>'confidence_score')::numeric END,
             ${a}.confidence_score,
             70
         ))) AS confidence_score_ready,
@@ -165,7 +162,6 @@ export const PROMOTE_LANDUSE_SRC_COLUMNS = Prisma.sql`
     lu.landuse_class_id,
     lu.confidence_score,
     lu.normalized_data,
-    lu.review_overrides,
     lu.source_refs,
     lu.matched_core_id,
     lu.geom AS candidate_geom

@@ -8,6 +8,7 @@ import {
     DEPRECATED_CORE_BUS_PROMOTION_BANNER,
     DEPRECATED_IMPORT_REVIEW_BUS_SLUGS,
     IMPORT_REVIEW_TRANSPORT_MOVED_MESSAGE,
+    IMPORT_REVIEW_TRANSPORT_PROMOTION_MOVED_MESSAGE,
     isDeprecatedCoreBusImportReviewFamily,
     isDeprecatedImportReviewBusSlug,
     isImportReviewNavEntitySlug,
@@ -60,10 +61,12 @@ describe("deprecatedCoreBusPromotion dashboard helper", () => {
         }
     });
 
-    it("includes transport migration guidance in banner and moved message", () => {
-        assert.match(DEPRECATED_CORE_BUS_PROMOTION_BANNER, /import_transport/i);
-        assert.match(DEPRECATED_CORE_BUS_PROMOTION_BANNER, /core_transport/i);
-        assert.match(DEPRECATED_CORE_BUS_PROMOTION_BANNER, /core\.core_bus_\*/);
-        assert.match(IMPORT_REVIEW_TRANSPORT_MOVED_MESSAGE, /\/dashboard\/import-transport/);
+    it("uses Import Transport promotion message for legacy publish batches", () => {
+        assert.equal(
+            IMPORT_REVIEW_TRANSPORT_PROMOTION_MOVED_MESSAGE,
+            "Transport promotion moved to Import Transport."
+        );
+        assert.equal(DEPRECATED_CORE_BUS_PROMOTION_BANNER, IMPORT_REVIEW_TRANSPORT_PROMOTION_MOVED_MESSAGE);
+        assert.match(IMPORT_REVIEW_TRANSPORT_MOVED_MESSAGE, /import-transport/);
     });
 });

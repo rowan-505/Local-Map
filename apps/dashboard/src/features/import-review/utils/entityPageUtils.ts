@@ -6,6 +6,10 @@ import {
     formatLanduseClassTableCell,
     formatLanduseSourceClassCell,
 } from "./importReviewLanduseListDisplay";
+import {
+    formatCandidateName,
+    isImportReviewNameTableColumn,
+} from "./importReviewNaming";
 
 export const IMPORT_REVIEW_UNREVIEWED_FILTER = "__unreviewed__";
 
@@ -126,6 +130,10 @@ export function importReviewRowHasOverrides(row: ImportReviewBuildingListItem): 
 }
 
 export function importReviewCellValue(row: ImportReviewBuildingListItem, col: ImportReviewTableColumn): string {
+    // Typed direct-edit columns win over source/legacy names — see docs/import-review/naming-contract.md
+    if (isImportReviewNameTableColumn(col.key)) {
+        return formatCandidateName(row, col.key);
+    }
     if (col.key === "building_type_display") {
         return dash(formatBuildingTypeLabel(row));
     }

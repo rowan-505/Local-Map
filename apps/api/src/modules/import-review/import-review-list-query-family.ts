@@ -2,16 +2,14 @@ import { Prisma } from "@prisma/client";
 
 import type { ImportReviewEntityFamilyConfig } from "./import-review-config.js";
 import {
+    buildLightweightTypedNameColumns,
     colRef,
     effectiveBuildingTypeIdExpr,
     effectiveLanduseClassIdExpr,
+    optionalTypedCandidateColumn,
     shapeColumn,
 } from "./import-review-candidate-sql.js";
-import {
-    busStopNameEnExpr,
-    busStopNameMmExpr,
-    effectiveAdminAreaIdExpr,
-} from "./import-review-effective-values.js";
+import { effectiveAdminAreaIdExpr } from "./import-review-effective-values.js";
 import { roadsExplicitAdminAreaIdExpr } from "./import-review-road-admin-area-sql.js";
 
 function tableAlias(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
@@ -72,10 +70,21 @@ export function buildGenericLightweightListExtensionSelect(
     }
 
     if (config.routeFamily === "bus_stops") {
-        parts.push(Prisma.sql`
-            , ${busStopNameMmExpr(config.tableAlias)} AS name_mm
-            , ${busStopNameEnExpr(config.tableAlias)} AS name_en
+        parts.push(
+            Prisma.sql`
+            ${buildLightweightTypedNameColumns(config)}
             , ${colRef(config, "stop_code")} AS stop_code
+        `
+        );
+    } else {
+        parts.push(buildLightweightTypedNameColumns(config));
+    }
+
+    if (config.routeFamily === "places") {
+        parts.push(Prisma.sql`
+            , ${optionalTypedCandidateColumn(config, "primary_name", "text")} AS primary_name
+            , ${optionalTypedCandidateColumn(config, "display_name", "text")} AS display_name
+            , ${optionalTypedCandidateColumn(config, "category_id", "bigint")} AS category_id
         `);
     }
 

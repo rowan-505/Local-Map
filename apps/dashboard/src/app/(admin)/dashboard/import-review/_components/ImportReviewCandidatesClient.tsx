@@ -390,17 +390,6 @@ export function ImportReviewCandidatesClient({
         [formOptions]
     );
 
-    const roadClassLabelById = useMemo(() => {
-        const map = new Map<string, string>();
-        for (const option of roadClassOptions) {
-            const label = option.code?.trim()
-                ? `${option.code} — ${option.name?.trim() || option.code}`
-                : option.name?.trim() || option.id;
-            map.set(option.id, label);
-        }
-        return map;
-    }, [roadClassOptions]);
-
     useEffect(() => {
         setCanEditImportReview(deriveImportReviewEditorUxCanMutate());
     }, []);
@@ -488,9 +477,9 @@ export function ImportReviewCandidatesClient({
             items,
             clientFilters: roadClientFilters,
             dryRunByCandidateId: roadDryRunSummary?.items_by_candidate_id,
-            roadClassLabelById,
+            roadClassOptions,
         });
-    }, [list?.items, family, roadClientFilters, roadDryRunSummary, roadClassLabelById]);
+    }, [list?.items, family, roadClientFilters, roadDryRunSummary, roadClassOptions]);
 
     const roadDryRunStatusOptions = useMemo(
         () => collectDryRunStatusOptions(roadDryRunSummary?.items_by_candidate_id),
@@ -932,7 +921,7 @@ export function ImportReviewCandidatesClient({
             const blocking = validationMessagesFromReviewJson(row.validation_errors);
             if (blocking.length > 0) {
                 window.alert(
-                    `Cannot approve while validation_errors persist on this candidate — fix overrides first:\n\n${blocking
+                    `Cannot approve while validation_errors persist on this candidate — fix direct-edit fields first:\n\n${blocking
                         .slice(0, 20)
                         .map((line) => `• ${line}`)
                         .join("\n")}${blocking.length > 20 ? `\n(+${blocking.length - 20} more)` : ""}`,
@@ -1070,7 +1059,7 @@ export function ImportReviewCandidatesClient({
             const blocking = validationMessagesFromReviewJson(drawerRow.validation_errors);
             if (blocking.length > 0) {
                 window.alert(
-                    `Cannot approve while validation_errors persist — fix overrides first:\n\n${blocking
+                    `Cannot approve while validation_errors persist — fix direct-edit fields first:\n\n${blocking
                         .slice(0, 20)
                         .map((line) => `• ${line}`)
                         .join("\n")}${blocking.length > 20 ? `\n(+${blocking.length - 20} more)` : ""}`,
@@ -1955,7 +1944,7 @@ export function ImportReviewCandidatesClient({
                                         family === "roads" ? deriveRoadListAdminArea(row) : null;
                                     const roadClassLabel =
                                         family === "roads"
-                                            ? deriveRoadListRoadClass(row, roadClassLabelById)
+                                            ? deriveRoadListRoadClass(row, roadClassOptions)
                                             : null;
                                     const roadSurface =
                                         family === "roads" ? deriveRoadListSurface(row) : null;
@@ -2493,7 +2482,7 @@ export function ImportReviewCandidatesClient({
                                         />
                                     ) : (
                                         <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-950">
-                                            Apply filters with review_batch_id or source snapshot version to edit road overrides.
+                                            Apply filters with review_batch_id or source snapshot version to use direct edit for roads.
                                         </p>
                                     )}
                                 </>
@@ -2523,7 +2512,7 @@ export function ImportReviewCandidatesClient({
                                     <option value="rejected">rejected</option>
                                     <option value="needs_more_review">needs_more_review</option>
                                     <option value="ignored">ignored</option>
-                                    <option value="merged">merged</option>
+                                    <option value="merged">finalized</option>
                                 </select>
                             </label>
                             <label className="flex flex-col gap-1">

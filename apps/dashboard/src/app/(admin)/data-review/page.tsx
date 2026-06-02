@@ -41,7 +41,7 @@ export default function DataReviewIndexPage() {
                     </li>
                     <li>
                         <Link
-                            href="/data-review/roads"
+                            href="/dashboard/import-review/roads"
                             className="font-medium text-blue-700 underline hover:text-blue-900"
                         >
                             Roads

@@ -156,7 +156,13 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
         scope: ImportReviewScopeResolved,
         filters: Pick<
             ImportReviewPlacesQuery,
-            "match_status" | "auto_action" | "review_status" | "review_decision" | "q"
+            | "match_status"
+            | "auto_action"
+            | "review_status"
+            | "review_decision"
+            | "promotion_status"
+            | "include_promoted"
+            | "q"
         >
     ) {
         return this.core.countPlaceCandidates(scope.reviewBatchId, filters);
@@ -170,6 +176,8 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
             | "auto_action"
             | "review_status"
             | "review_decision"
+            | "promotion_status"
+            | "include_promoted"
             | "q"
             | "limit"
             | "offset"
@@ -236,7 +244,14 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
         scope: ImportReviewScopeResolved,
         filters: Pick<
             ImportReviewRoadsQuery,
-            "match_status" | "auto_action" | "review_status" | "review_decision" | "q"
+            | "match_status"
+            | "auto_action"
+            | "review_status"
+            | "review_decision"
+            | "promotion_status"
+            | "class_code"
+            | "include_promoted"
+            | "q"
         >
     ) {
         return this.core.countRoadCandidates(scope.reviewBatchId, filters);
@@ -250,6 +265,9 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
             | "auto_action"
             | "review_status"
             | "review_decision"
+            | "promotion_status"
+            | "class_code"
+            | "include_promoted"
             | "q"
             | "limit"
             | "offset"
@@ -272,10 +290,10 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
         return this.core.fetchRoadCandidatePatchBaseline(id, scope.reviewBatchId);
     }
 
-    patchRoadCandidateReviewOverrides(args: {
+    patchRoadCandidateColumnFields(args: {
         scope: ImportReviewScopeResolved;
         id: bigint;
-        merged_review_overrides: Record<string, unknown>;
+        merged_fields: Record<string, unknown>;
         canonical_name: string | null;
         road_class_id: bigint | null;
         road_class_label: string | null;
@@ -287,10 +305,10 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
         editedByUserId: bigint | null;
         reviewNote: string | null | undefined;
     }) {
-        return this.core.patchRoadCandidateReviewOverrides({
+        return this.core.patchRoadCandidateColumnFields({
             id: args.id,
             reviewBatchId: args.scope.reviewBatchId,
-            merged_review_overrides: args.merged_review_overrides,
+            merged_fields: args.merged_fields,
             canonical_name: args.canonical_name,
             road_class_id: args.road_class_id,
             road_class_label: args.road_class_label,
@@ -480,6 +498,28 @@ export class RemoteImportReviewDataAdapter implements ImportReviewDataRepository
             overridesPatch: args.overridesPatch,
             editedByUserId: args.editedByUserId,
             reviewNote: args.reviewNote,
+        });
+    }
+
+    patchCandidateColumns(args: {
+        family: ImportReviewEntityFamilySlug;
+        scope: ImportReviewScopeResolved;
+        id: bigint;
+        columnPatch: Record<string, unknown>;
+        editedByUserId: bigint | null;
+        reviewNote: string | null | undefined;
+        extraSetParts?: import("@prisma/client").Prisma.Sql[];
+        requireTypedColumnUpdates?: boolean;
+    }) {
+        return this.core.patchCandidateColumns({
+            family: args.family,
+            id: args.id,
+            reviewBatchId: args.scope.reviewBatchId,
+            columnPatch: args.columnPatch,
+            editedByUserId: args.editedByUserId,
+            reviewNote: args.reviewNote,
+            extraSetParts: args.extraSetParts,
+            requireTypedColumnUpdates: args.requireTypedColumnUpdates,
         });
     }
 }

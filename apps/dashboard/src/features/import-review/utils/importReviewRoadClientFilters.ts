@@ -4,6 +4,7 @@ import {
     validationIssueCodesFromRow,
 } from "@/src/features/import-review/utils/importReviewRoadDryRunUi";
 import { deriveRoadListRoadClass } from "@/src/features/import-review/utils/importReviewRoadListDisplay";
+import type { ImportReviewRoadClassOptionInput } from "@/src/features/import-review/utils/importReviewRoadClassResolver";
 
 export type ImportReviewRoadClientFilters = {
     dry_run_status: string;
@@ -27,9 +28,9 @@ export function filterRoadListItems(args: {
     items: ImportReviewBuildingListItem[];
     clientFilters: ImportReviewRoadClientFilters;
     dryRunByCandidateId?: Record<string, RoadDryRunItemResult>;
-    roadClassLabelById: Map<string, string>;
+    roadClassOptions: readonly ImportReviewRoadClassOptionInput[];
 }): ImportReviewBuildingListItem[] {
-    const { items, clientFilters, dryRunByCandidateId, roadClassLabelById } = args;
+    const { items, clientFilters, dryRunByCandidateId, roadClassOptions } = args;
 
     return items.filter((row) => {
         const dryRun = mergeDryRunItem(row, dryRunByCandidateId);
@@ -54,7 +55,7 @@ export function filterRoadListItems(args: {
             }
         }
         if (clientFilters.road_class) {
-            const label = deriveRoadListRoadClass(row, roadClassLabelById);
+            const label = deriveRoadListRoadClass(row, roadClassOptions);
             if (label !== clientFilters.road_class) {
                 return false;
             }

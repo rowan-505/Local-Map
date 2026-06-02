@@ -34,7 +34,6 @@ function minimalRoadItem(
         review_note: null,
         normalized_data: {},
         source_refs: null,
-        review_overrides: {},
         matched_core_id: null,
         matched_core_table: null,
         matched_core_data: null,
@@ -62,7 +61,9 @@ describe("import-review road name fields on API responses", () => {
             "roads",
             minimalRoadItem({
                 normalized_data: {
-                    tags: { "name:my": "မြန်မာလမ်း", "name:en": "Myanmar Street" },
+                    name_mm: "မြန်မာလမ်း",
+                    name_en: "Myanmar Street",
+                    tags: {},
                 },
             })
         );
@@ -74,11 +75,12 @@ describe("import-review road name fields on API responses", () => {
         assert.equal(mapped.canonical_name, "osm:W:382363624");
     });
 
-    it("prefers review_overrides name fields over imported tags", () => {
+    it("prefers explicit name_mm/name_en columns over imported tags", () => {
         const mapped = applyImportReviewEffectiveFields(
             "roads",
             minimalRoadItem({
-                review_overrides: { name_mm: "Override MM", name_en: "Override EN" },
+                name_mm: "Override MM",
+                name_en: "Override EN",
                 normalized_data: {
                     tags: { "name:my": "Tag MM", "name:en": "Tag EN" },
                 },

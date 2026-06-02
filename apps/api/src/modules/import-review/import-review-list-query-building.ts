@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import type { ImportReviewEntityFamilyConfig } from "./import-review-config.js";
 import {
+    buildLightweightTypedNameColumns,
     colRef,
     effectiveBuildingTypeIdExpr,
     shapeColumn,
@@ -44,5 +45,6 @@ export function buildBuildingLightweightListExtensionSelect(
         , bt.name AS building_type_name
         , eff_aa.canonical_name AS effective_admin_area_name
         , (${colRef(config, "geom")} IS NOT NULL) AS has_geometry
+        ${buildLightweightTypedNameColumns(config)}
     `;
 }

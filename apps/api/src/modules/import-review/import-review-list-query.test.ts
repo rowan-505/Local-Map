@@ -54,3 +54,35 @@ test("lightweight list FROM is defined for every family", () => {
         assert.match(from, new RegExp(config.importReviewTable), `${family} FROM must reference table`);
     }
 });
+
+test("bilingual families lightweight list selects typed name columns", () => {
+    for (const family of ["places", "buildings", "roads", "landuse", "water_lines", "water_polygons", "admin_areas"] as const) {
+        const config = getImportReviewEntityConfig(family);
+        const select = sqlText(buildLightweightListSelect(config));
+        assert.match(select, /\bname_mm\b/, `${family} list must select name_mm`);
+        assert.match(select, /\bname_en\b/, `${family} list must select name_en`);
+    }
+});
+
+test("roads lightweight list uses text keys for jsonb operators", () => {
+    const config = getImportReviewEntityConfig("roads");
+    const selectSql = buildLightweightListSelect(config);
+    const values = (selectSql as unknown as { values?: unknown[] }).values ?? [];
+
+    assert.ok(
+        values.includes("is_oneway"),
+        "roads list should parameterize normalized_data key 'is_oneway' as text"
+    );
+    assert.ok(
+        values.includes("bridge"),
+        "roads list should parameterize normalized_data key 'bridge' as text"
+    );
+    assert.ok(
+        values.includes("tunnel"),
+        "roads list should parameterize normalized_data key 'tunnel' as text"
+    );
+    assert.ok(
+        values.includes("layer"),
+        "roads list should parameterize normalized_data key 'layer' as text"
+    );
+});

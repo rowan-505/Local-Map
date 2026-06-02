@@ -106,7 +106,7 @@ function extractLineGeometry(raw: unknown): LineString | MultiLineString | null 
 }
 
 function pickReviewOverridesField(row: ImportReviewBuildingListItem, key: string): unknown {
-    const ov = row.review_overrides;
+    const ov = row.fields;
     if (!ov || typeof ov !== "object" || Array.isArray(ov)) {
         return null;
     }
@@ -221,7 +221,7 @@ export function placeDrawerMapInput(row: ImportReviewBuildingListItem): {
     return { geometry: null, geometryKind: "point", fallbackNote: null };
 }
 
-/** Road centerline from API geometry, geom, or review_overrides. */
+/** Road centerline from API geometry, geom, or fields. */
 export function roadDrawerMapInput(row: ImportReviewBuildingListItem): {
     geometry: ImportReviewGeoJson | null;
     geometryKind: DataReviewGeometryKind;

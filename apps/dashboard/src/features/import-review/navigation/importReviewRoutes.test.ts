@@ -15,9 +15,9 @@ describe("importReviewRoutes", () => {
         assert.equal(getImportReviewEntitySlugFromPathname("/dashboard/import-review/promotion"), null);
     });
 
-    it("detects legacy roads candidate routes", () => {
+    it("detects roads candidate route on import-review only", () => {
         assert.equal(isImportReviewCandidatesRoute("/dashboard/import-review/roads", "roads"), true);
-        assert.equal(isImportReviewCandidatesRoute("/data-review/roads", "roads"), true);
+        assert.equal(isImportReviewCandidatesRoute("/data-review/roads", "roads"), false);
         assert.equal(isImportReviewCandidatesRoute("/dashboard/import-review", "roads"), false);
     });
 });

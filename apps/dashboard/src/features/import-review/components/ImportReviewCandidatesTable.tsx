@@ -40,17 +40,32 @@ function OverrideEditedBadge() {
     return (
         <span
             className="inline-flex shrink-0 rounded-full border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-900"
-            title="Has review overrides"
+            title="Edited candidate"
         >
             Edited
         </span>
     );
 }
 
+function PromotedRowBadge() {
+    return (
+        <span
+            className="inline-flex shrink-0 rounded-full border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-950"
+            title="Promoted to core"
+        >
+            Promoted
+        </span>
+    );
+}
+
+function isPromotedRow(row: ImportReviewBuildingListItem): boolean {
+    return (row.promotion_status ?? "").trim().toLowerCase() === "promoted";
+}
+
 function renderCell(
     row: ImportReviewBuildingListItem,
     col: ImportReviewTableColumn,
-    showOverrideBadge: boolean
+    showRowBadges: boolean
 ): ReactNode {
     let content: ReactNode;
     if (col.key === "display_full_address") {
@@ -73,15 +88,25 @@ function renderCell(
         content = text;
     }
     }
-    if (showOverrideBadge && importReviewRowHasOverrides(row)) {
-        return (
-            <span className="inline-flex max-w-full items-center gap-1.5">
-                <span className="truncate">{content}</span>
-                <OverrideEditedBadge />
-            </span>
-        );
+    if (!showRowBadges) {
+        return content;
     }
-    return content;
+    const badges: ReactNode[] = [];
+    if (isPromotedRow(row)) {
+        badges.push(<PromotedRowBadge key="promoted" />);
+    }
+    if (importReviewRowHasOverrides(row)) {
+        badges.push(<OverrideEditedBadge key="edited" />);
+    }
+    if (badges.length === 0) {
+        return content;
+    }
+    return (
+        <span className="inline-flex max-w-full items-center gap-1.5">
+            <span className="truncate">{content}</span>
+            {badges}
+        </span>
+    );
 }
 
 export default function ImportReviewCandidatesTable({
@@ -93,6 +118,7 @@ export default function ImportReviewCandidatesTable({
     rowActionBusyId,
     emptyMessage,
     isLoading,
+    showPromoted = false,
     onToggleSelectAll,
     onToggleRow,
     onRowClick,
@@ -107,6 +133,8 @@ export default function ImportReviewCandidatesTable({
     rowActionBusyId: string | null;
     emptyMessage: string;
     isLoading: boolean;
+    /** When true, promoted rows show a row-level Promoted badge in the first data column. */
+    showPromoted?: boolean;
     onToggleSelectAll: (checked: boolean) => void;
     onToggleRow: (id: string, checked: boolean) => void;
     onRowClick: (row: ImportReviewBuildingListItem) => void;
@@ -185,7 +213,7 @@ export default function ImportReviewCandidatesTable({
                                             className={`max-w-[220px] truncate px-3 py-2 ${col.mono ? "font-mono text-xs" : ""}`}
                                             title={importReviewCellValue(row, col)}
                                         >
-                                            {renderCell(row, col, colIndex === 0)}
+                                            {renderCell(row, col, showPromoted && colIndex === 0)}
                                         </td>
                                     ))}
                                     <td

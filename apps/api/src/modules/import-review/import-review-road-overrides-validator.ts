@@ -260,12 +260,65 @@ function jsonObjectFromMerged(
     return { ...baseline, ...patch };
 }
 
+/** Typed column snapshot for merge/preview prior to PATCH (replaces legacy JSON overrides). */
+export type ImportReviewRoadBaselineFieldValues = {
+    name_mm?: string | null;
+    name_en?: string | null;
+    bridge?: boolean | null;
+    tunnel?: boolean | null;
+    layer?: number | null;
+    access?: string | null;
+    speed_kph?: number | null;
+    admin_area_id?: bigint | null;
+    road_class_id?: bigint | null;
+    surface?: string | null;
+    is_oneway?: boolean | null;
+};
+
+export function roadBaselineFieldValues(baseline: ImportReviewRoadBaselineFieldValues): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    if (baseline.name_mm !== undefined && baseline.name_mm !== null) {
+        out.name_mm = baseline.name_mm;
+    }
+    if (baseline.name_en !== undefined && baseline.name_en !== null) {
+        out.name_en = baseline.name_en;
+    }
+    if (baseline.bridge !== undefined && baseline.bridge !== null) {
+        out.bridge = baseline.bridge;
+    }
+    if (baseline.tunnel !== undefined && baseline.tunnel !== null) {
+        out.tunnel = baseline.tunnel;
+    }
+    if (baseline.layer !== undefined && baseline.layer !== null) {
+        out.layer = baseline.layer;
+    }
+    if (baseline.access !== undefined && baseline.access !== null) {
+        out.access = baseline.access;
+    }
+    if (baseline.speed_kph !== undefined && baseline.speed_kph !== null) {
+        out.speed_kph = baseline.speed_kph;
+    }
+    if (baseline.admin_area_id !== undefined && baseline.admin_area_id !== null) {
+        out.admin_area_id = baseline.admin_area_id;
+    }
+    if (baseline.road_class_id !== undefined && baseline.road_class_id !== null) {
+        out.road_class_id = baseline.road_class_id;
+    }
+    if (baseline.surface !== undefined && baseline.surface !== null) {
+        out.surface = baseline.surface;
+    }
+    if (baseline.is_oneway !== undefined && baseline.is_oneway !== null) {
+        out.is_oneway = baseline.is_oneway;
+    }
+    return out;
+}
+
 export async function buildImportReviewRoadOverrideOutcome(args: {
     prisma: PrismaClient;
     streetsRepo: StreetsRepository;
     reviewBatchId: bigint;
     roadId: bigint;
-    baseline_review_overrides: unknown;
+    baseline_field_values: Record<string, unknown>;
     baseline_canonical_name: string | null;
     baseline_road_class_id: bigint | null;
     baseline_is_oneway: boolean | null;
@@ -289,10 +342,7 @@ export async function buildImportReviewRoadOverrideOutcome(args: {
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    const existingOverridesRaw =
-        args.baseline_review_overrides && typeof args.baseline_review_overrides === "object"
-            ? (args.baseline_review_overrides as Record<string, unknown>)
-            : {};
+    const existingOverridesRaw = args.baseline_field_values;
 
     const normalizedPatchForJson: Record<string, unknown> = {};
 
@@ -409,10 +459,10 @@ export async function buildImportReviewRoadOverrideOutcome(args: {
         );
     }
 
-    const mergedOverridesJson = jsonObjectFromMerged(existingOverridesRaw, normalizedPatchForJson);
+    const mergedFieldsJson = jsonObjectFromMerged(existingOverridesRaw, normalizedPatchForJson);
 
     const effectiveCanon =
-        pickEffectiveDisplayName(mergedOverridesJson, {
+        pickEffectiveDisplayName(mergedFieldsJson, {
             canonical_name: args.baseline_canonical_name,
             normalized_data: args.normalized_data,
         }) ?? args.baseline_canonical_name;
@@ -566,7 +616,7 @@ export async function buildImportReviewRoadOverrideOutcome(args: {
         errors,
         warnings,
         normalizedPatchForJson,
-        mergedOverridesJson,
+        mergedFieldsJson,
         effectiveState,
     };
 }

@@ -7,6 +7,7 @@ import {
 /** @deprecated UI hidden — use /dashboard/import-transport. Config retained for legacy API/tests. */
 import { createImportReviewEntityConfig } from "../createEntityConfig";
 import { REF_ADMIN_AREA_ID } from "../refSources";
+import { getImportReviewNameColumns } from "../../utils/importReviewNaming";
 
 export const busStopsImportReviewEntityConfig = createImportReviewEntityConfig({
     slug: "bus-stops",
@@ -19,8 +20,7 @@ export const busStopsImportReviewEntityConfig = createImportReviewEntityConfig({
     riskLevel: "low",
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
-        { key: "effective_name_mm", label: "Myanmar name", source: "row" },
-        { key: "effective_name_en", label: "English name", source: "row" },
+        ...getImportReviewNameColumns(),
         { key: "effective_stop_code", label: "Stop code", source: "row", mono: true },
         { key: "effective_admin_area_name", label: "Admin area", source: "row" },
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,

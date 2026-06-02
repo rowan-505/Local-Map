@@ -6,7 +6,7 @@ export function normalizeOptionalOverrideString(value: unknown, fieldName: strin
     }
     if (typeof value !== "string") {
         throw new ImportReviewDecisionRuleError(
-            `review_overrides.${fieldName} must be a string or null.`
+            `fields.${fieldName} must be a string or null.`
         );
     }
     const trimmed = value.trim();
@@ -24,7 +24,7 @@ export function normalizeOverrideBoolean(value: unknown, fieldName: string): boo
         return false;
     }
     throw new ImportReviewDecisionRuleError(
-        `review_overrides.${fieldName} must be a boolean.`
+        `fields.${fieldName} must be a boolean.`
     );
 }
 
@@ -39,7 +39,7 @@ export function normalizeOverrideConfidenceScore(value: unknown, fieldName: stri
     if (typeof value === "number" && Number.isFinite(value)) {
         if (value < 0 || value > 100) {
             throw new ImportReviewDecisionRuleError(
-                `review_overrides.${fieldName} must be between 0 and 100.`
+                `fields.${fieldName} must be between 0 and 100.`
             );
         }
         return value;
@@ -48,13 +48,13 @@ export function normalizeOverrideConfidenceScore(value: unknown, fieldName: stri
         const n = Number(value.trim());
         if (!Number.isFinite(n) || n < 0 || n > 100) {
             throw new ImportReviewDecisionRuleError(
-                `review_overrides.${fieldName} must be between 0 and 100.`
+                `fields.${fieldName} must be between 0 and 100.`
             );
         }
         return n;
     }
     throw new ImportReviewDecisionRuleError(
-        `review_overrides.${fieldName} must be a number between 0 and 100.`
+        `fields.${fieldName} must be a number between 0 and 100.`
     );
 }
 
@@ -79,13 +79,13 @@ export function normalizeOverrideOptionalNumber(value: unknown, fieldName: strin
         const n = Number(value.trim());
         if (!Number.isFinite(n)) {
             throw new ImportReviewDecisionRuleError(
-                `review_overrides.${fieldName} must be a number or null.`
+                `fields.${fieldName} must be a number or null.`
             );
         }
         return n;
     }
     throw new ImportReviewDecisionRuleError(
-        `review_overrides.${fieldName} must be a number or null.`
+        `fields.${fieldName} must be a number or null.`
     );
 }
 
@@ -100,7 +100,7 @@ export function normalizeOverrideOptionalInteger(value: unknown, fieldName: stri
     if (typeof value === "number") {
         if (!Number.isFinite(value) || !Number.isInteger(value)) {
             throw new ImportReviewDecisionRuleError(
-                `review_overrides.${fieldName} must be an integer or null.`
+                `fields.${fieldName} must be an integer or null.`
             );
         }
         return value;
@@ -112,19 +112,19 @@ export function normalizeOverrideOptionalInteger(value: unknown, fieldName: stri
         }
         if (!/^-?\d+$/.test(trimmed)) {
             throw new ImportReviewDecisionRuleError(
-                `review_overrides.${fieldName} must be an integer or null.`
+                `fields.${fieldName} must be an integer or null.`
             );
         }
         const n = Number(trimmed);
         if (!Number.isSafeInteger(n)) {
             throw new ImportReviewDecisionRuleError(
-                `review_overrides.${fieldName} must be an integer or null.`
+                `fields.${fieldName} must be an integer or null.`
             );
         }
         return n;
     }
     throw new ImportReviewDecisionRuleError(
-        `review_overrides.${fieldName} must be an integer or null.`
+        `fields.${fieldName} must be an integer or null.`
     );
 }
 
@@ -136,7 +136,7 @@ export function normalizeOverrideNumericId(value: unknown, fieldName: string): n
     if (typeof value === "number") {
         if (!Number.isInteger(value) || value <= 0) {
             throw new ImportReviewDecisionRuleError(
-                `review_overrides.${fieldName} must be a positive integer or null.`
+                `fields.${fieldName} must be a positive integer or null.`
             );
         }
         return value;
@@ -145,7 +145,7 @@ export function normalizeOverrideNumericId(value: unknown, fieldName: string): n
         const asNumber = Number(value);
         if (!Number.isSafeInteger(asNumber) || asNumber <= 0) {
             throw new ImportReviewDecisionRuleError(
-                `review_overrides.${fieldName} must be a positive integer or null.`
+                `fields.${fieldName} must be a positive integer or null.`
             );
         }
         return asNumber;
@@ -157,32 +157,32 @@ export function normalizeOverrideNumericId(value: unknown, fieldName: string): n
         }
         if (!/^\d+$/.test(trimmed)) {
             throw new ImportReviewDecisionRuleError(
-                `review_overrides.${fieldName} must be a positive integer or null.`
+                `fields.${fieldName} must be a positive integer or null.`
             );
         }
         const asNumber = Number(trimmed);
         if (!Number.isSafeInteger(asNumber) || asNumber <= 0) {
             throw new ImportReviewDecisionRuleError(
-                `review_overrides.${fieldName} must be a positive integer or null.`
+                `fields.${fieldName} must be a positive integer or null.`
             );
         }
         return asNumber;
     }
     throw new ImportReviewDecisionRuleError(
-        `review_overrides.${fieldName} must be a number or null.`
+        `fields.${fieldName} must be a number or null.`
     );
 }
 
 const ROAD_ID_OVERRIDE_KEYS = new Set(["road_class_id", "admin_area_id"]);
 
-/** Coerce legacy string ids to numbers before persisting review_overrides JSON. */
+/** Coerce legacy string ids to numbers before persisting fields JSON. */
 export function normalizeReviewOverridesForJsonStorage(
     family: "roads",
-    review_overrides: Record<string, unknown>
+    fields: Record<string, unknown>
 ): Record<string, unknown> {
     const out: Record<string, unknown> = {};
 
-    for (const [key, value] of Object.entries(review_overrides)) {
+    for (const [key, value] of Object.entries(fields)) {
         if (value === undefined) {
             continue;
         }

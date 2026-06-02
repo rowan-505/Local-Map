@@ -7,13 +7,10 @@ import DataReviewMapHeaderControls from "@/src/components/map/DataReviewMapHeade
 import { fitMapToReviewCandidate, type DataReviewBasemapMode } from "@/src/components/map/dataReviewBasemap";
 import { MAP_PREVIEW_CARD_CLASS } from "@/src/components/map/mapPreviewUi";
 import StreetEditorMap from "@/src/components/streets/StreetEditorMap";
-import {
-    ensureRoadClassSelected,
-    prepareLocalStreetGeometryForSave,
-} from "@/src/features/streets/streetSaveLocalChecks";
+import { prepareLocalStreetGeometryForSave } from "@/src/features/streets/streetSaveLocalChecks";
 import { STREET_SURFACE_PRESETS } from "@/src/features/streets/streetSurfaces";
 import {
-    patchImportReviewRoadOverrides,
+    patchImportReviewRoadColumns,
     postImportReviewRoadValidateRouting,
     type ImportReviewBuildingListItem,
     type ImportReviewGeoJson,
@@ -29,11 +26,15 @@ import {
     ValidationModeBanner,
     ApprovalGuidanceNote,
 } from "@/src/lib/importReviewRoadDrawerValidation";
+import { ImportReviewRoadOverridesSaveError } from "@/src/features/import-review/api/importReviewApiErrors";
 import {
-    asOverrideRecord,
-    parseValidationBulletsFromApiErrorMessage,
+    resolveImportReviewRoadClassValue,
+} from "@/src/features/import-review/utils/importReviewRoadClassResolver";
+import {
+    typedColumnFields,
+    resolveRoadClassForSave,
     roadEditorSeedFromRow,
-    SAVE_IMPORT_REVIEW_ROAD_ROUTING_WARNINGS_CONFIRM,
+    ROAD_CLASS_REQUIRED_MESSAGE,
 } from "@/src/lib/importReviewRoadEditorState";
 import {
     deriveRoadDisplayStreetName,
@@ -46,6 +47,7 @@ import { labelWithEssentialMarker } from "@/src/features/import-review/config/es
 import { buildRoadReviewOverridesPatch } from "@/src/features/import-review/utils/importReviewRoadOverridesPayload";
 import {
     roadClassOptionsFromFormOptions,
+    selectOptionsWithCurrentValue,
     surfacePresetOptionsFromFormOptions,
     toAdminAreaComboboxOptions,
 } from "@/src/features/import-review/utils/formOptionsUtils";
@@ -147,6 +149,10 @@ export default function ImportReviewRoadOverridesPanel({
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState("");
     const [saveSuccessMessage, setSaveSuccessMessage] = useState("");
+    const [roadClassError, setRoadClassError] = useState("");
+    const [pendingRoutingWarnings, setPendingRoutingWarnings] = useState<string[]>([]);
+    const [routingWarningsAcknowledgedInSession, setRoutingWarningsAcknowledgedInSession] =
+        useState(false);
     const [geometryError, setGeometryError] = useState("");
     const [validating, setValidating] = useState(false);
     const [validateError, setValidateError] = useState("");
@@ -159,17 +165,22 @@ export default function ImportReviewRoadOverridesPanel({
     const initialHadGeometryRef = useRef(false);
     const baselineOnewayRef = useRef(false);
 
-    const roadClassIdByCode = useMemo(() => {
-        const m = new Map<string, string>();
-        for (const rc of roadClasses) {
-            m.set(rc.code.toLowerCase(), rc.id);
-        }
-        return m;
-    }, [roadClasses]);
+    const roadClassSelectOptions = useMemo(() => {
+        const base = roadClasses.map((rc) => ({
+            value: rc.id,
+            label: `${rc.code} — ${rc.name}`,
+        }));
+        const resolved = resolveImportReviewRoadClassValue(row, roadClasses);
+        const currentLabel =
+            roadClasses.find((rc) => rc.id === roadClassId)?.code ??
+            resolved.displayLabel ??
+            null;
+        return selectOptionsWithCurrentValue(base, roadClassId, currentLabel);
+    }, [roadClasses, roadClassId, row]);
 
     const hydrateFromRow = useCallback(
         (target: ImportReviewBuildingListItem) => {
-            const seed = roadEditorSeedFromRow(target, roadClassIdByCode);
+            const seed = roadEditorSeedFromRow(target, roadClasses);
             setNameMm(seed.nameMm);
             setNameEn(seed.nameEn);
             setRoadClassId(seed.roadClassId);
@@ -194,7 +205,7 @@ export default function ImportReviewRoadOverridesPanel({
             setSaveError("");
             setSaveSuccessMessage("");
         },
-        [roadClassIdByCode],
+        [roadClasses],
     );
 
     useEffect(() => {
@@ -205,7 +216,32 @@ export default function ImportReviewRoadOverridesPanel({
     }, [row, roadClasses, optionsLoading, hydrateFromRow]);
 
     useEffect(() => {
+        if (optionsLoading || roadClassId.trim() !== "" || roadClasses.length === 0) {
+            return;
+        }
+        const resolved = resolveImportReviewRoadClassValue(row, roadClasses);
+        if (resolved.roadClassId) {
+            setRoadClassId(resolved.roadClassId);
+        }
+        if (
+            process.env.NODE_ENV === "development" &&
+            row.external_id === "osm:W:1361455046"
+        ) {
+            console.debug("[import-review/roads] road class seed", {
+                external_id: row.external_id,
+                listLabel: resolved.displayLabel,
+                dropdownId: resolved.roadClassId,
+                roadClassCode: resolved.roadClassCode,
+                source: resolved.resolutionSource,
+            });
+        }
+    }, [optionsLoading, roadClasses, row, roadClassId]);
+
+    useEffect(() => {
         setLastValidation(null);
+        setPendingRoutingWarnings([]);
+        setRoutingWarningsAcknowledgedInSession(false);
+        setRoadClassError("");
     }, [row.id]);
 
     const rowValidationBundle = useMemo(() => bundleFromRow(row), [row]);
@@ -330,7 +366,7 @@ export default function ImportReviewRoadOverridesPanel({
         try {
             const result = await postImportReviewRoadValidateRouting(row.id, {
                 ...mutationScope,
-                use_review_overrides: true,
+                use_fields: true,
                 connectivity_threshold_m: 10,
                 duplicate_threshold_m: 5,
                 confirm_warnings: confirmWarnings,
@@ -358,9 +394,27 @@ export default function ImportReviewRoadOverridesPanel({
             return;
         }
 
-        const rcId = roadClassId.trim() === "" ? null : ensureRoadClassSelected(roadClassId);
+        const hasRenderableGeometry =
+            Boolean(
+                editableGeometry &&
+                    editableGeometry.type === "LineString" &&
+                    editableGeometry.coordinates.length >= 2
+            ) || initialHadGeometryRef.current;
 
-        let review_overrides: Record<string, unknown>;
+        const resolvedClass = resolveRoadClassForSave({
+            roadClassId,
+            row,
+            roadClassOptions: roadClasses,
+            hasGeometry: hasRenderableGeometry,
+        });
+        if (!resolvedClass.ok) {
+            setRoadClassError(resolvedClass.message);
+            setSaveError("");
+            return;
+        }
+        setRoadClassError("");
+
+        let fieldsPatch: Record<string, unknown>;
         let includeGeom = false;
         let geomPayload: ImportReviewGeoJson | null = null;
 
@@ -383,10 +437,11 @@ export default function ImportReviewRoadOverridesPanel({
                 geomPayload = prep.sanitized as ImportReviewGeoJson;
             }
 
-            review_overrides = buildRoadReviewOverridesPatch({
+            fieldsPatch = buildRoadReviewOverridesPatch({
                 nameMm,
                 nameEn,
-                roadClassId: rcId ?? roadClassId,
+                roadClassId: resolvedClass.roadClassId,
+                roadClassCode: resolvedClass.roadClassCode,
                 adminAreaId,
                 surface,
                 isOneway,
@@ -400,7 +455,7 @@ export default function ImportReviewRoadOverridesPanel({
                 includeGeom,
             });
         } catch (err) {
-            setSaveError(err instanceof Error ? err.message : "Invalid override values.");
+            setSaveError(err instanceof Error ? err.message : "Invalid direct-edit values.");
             return;
         }
 
@@ -410,8 +465,11 @@ export default function ImportReviewRoadOverridesPanel({
             noteTrimmed.length > 0
                 ? noteTrimmed
                 : onewayChanged
-                  ? "Reviewed one-way change during import-review road override."
+                  ? "Reviewed one-way change during import-review direct edit."
                   : null;
+
+        const acknowledgeRoutingWarnings =
+            confirmRoutingWarnings || routingWarningsAcknowledgedInSession;
 
         setSaving(true);
         setSaveError("");
@@ -419,53 +477,57 @@ export default function ImportReviewRoadOverridesPanel({
         setGeometryError("");
 
         try {
-            const updated = await patchImportReviewRoadOverrides(row.id, {
+            const updated = await patchImportReviewRoadColumns(row.id, {
                 ...mutationScope,
-                review_overrides,
+                fields: fieldsPatch,
                 review_note,
-                confirm_acknowledge_routing_warnings: confirmRoutingWarnings,
+                confirm_acknowledge_routing_warnings: acknowledgeRoutingWarnings,
             });
             onSaved(updated);
             hydrateFromRow(updated);
             setStreetMapRefreshKey((k) => k + 1);
+            setPendingRoutingWarnings([]);
             setSaveSuccessMessage("Saved");
         } catch (err) {
-            const msg = err instanceof Error ? err.message : "Failed to save road overrides";
-
-            if (!confirmRoutingWarnings && msg.includes("confirm_acknowledge_routing_warnings")) {
-                const parsed = parseValidationBulletsFromApiErrorMessage(msg);
-                const warnText =
-                    parsed.warnings.length > 0
-                        ? parsed.warnings.join("\n• ")
-                        : msg;
-                if (window.confirm(`${SAVE_IMPORT_REVIEW_ROAD_ROUTING_WARNINGS_CONFIRM}\n\n• ${warnText}`)) {
-                    setSaving(false);
-                    await submitOverrides(true);
+            if (err instanceof ImportReviewRoadOverridesSaveError) {
+                if (err.issues.errors.length > 0) {
+                    setPendingRoutingWarnings([]);
+                    setSaveError(
+                        err.issues.errors.length === 1
+                            ? err.issues.errors[0]!
+                            : err.issues.errors.map((e) => `• ${e}`).join("\n")
+                    );
                     return;
                 }
-                setSaveError(msg);
-                return;
+                if (err.issues.requiresAcknowledgement && err.issues.warnings.length > 0) {
+                    setPendingRoutingWarnings(err.issues.warnings);
+                    setSaveError("");
+                    return;
+                }
             }
 
+            const msg = err instanceof Error ? err.message : "Failed to save road candidate";
             setSaveError(msg);
         } finally {
             setSaving(false);
         }
     }
 
+    function handleSaveOverrides() {
+        void submitOverrides(false);
+    }
+
     return (
         <section className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/30 p-4">
             <div>
-                <h3 className="text-xs font-semibold uppercase text-violet-900">review_overrides edit</h3>
+                <h3 className="text-xs font-semibold uppercase text-violet-900">Edit candidate</h3>
                 <p className="mt-1 text-[11px] leading-relaxed text-violet-950/85">
-                    PATCH <span className="font-mono">/api/import-review/roads/:id/overrides</span> — merges name,
-                    road class, surface, one-way, and centerline into{" "}
-                    <span className="font-mono">review_overrides</span> with routing-safe validation. Does not promote
-                    to core.
+                    Saves name, road class, surface, one-way, and centerline to typed road candidate columns with
+                    routing-safe validation. Does not promote to core.
                 </p>
                 {promoted ? (
                     <p className="mt-1 text-[11px] font-semibold text-red-800">
-                        promotion_status=promoted — overrides are blocked.
+                        promotion_status=promoted — edits are blocked.
                     </p>
                 ) : null}
                 {rowValidationBundle.errors.length > 0 ? (
@@ -478,7 +540,7 @@ export default function ImportReviewRoadOverridesPanel({
                         Current validation has {rowValidationBundle.warnings.length} warning
                         {rowValidationBundle.warnings.length === 1 ? "" : "s"}. See Routing Validation section.
                         <span className="mt-0.5 block text-gray-600">
-                            Saving overrides may require acknowledging routing warnings.
+                            Saving changes may require acknowledging routing warnings.
                         </span>
                     </p>
                 ) : null}
@@ -488,8 +550,34 @@ export default function ImportReviewRoadOverridesPanel({
             {multiLineWarning ? <InlineAlert message={multiLineWarning} tone="amber" /> : null}
             {geometryLoadNotice ? <InlineAlert message={geometryLoadNotice} tone="amber" /> : null}
 
-            {(geometryError || saveError || saveSuccessMessage) && (
+            {pendingRoutingWarnings.length > 0 ? (
+                <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                    <p className="text-xs font-semibold text-amber-950">Routing continuity warnings</p>
+                    <ul className="list-inside list-disc space-y-1 text-xs text-amber-950/90">
+                        {pendingRoutingWarnings.map((warning) => (
+                            <li key={warning}>{warning}</li>
+                        ))}
+                    </ul>
+                    <label className="flex items-start gap-2 text-xs text-amber-950">
+                        <input
+                            type="checkbox"
+                            className="mt-0.5 rounded border-amber-400"
+                            checked={routingWarningsAcknowledgedInSession}
+                            disabled={disabled || optionsLoading}
+                            onChange={(e) => {
+                                setRoutingWarningsAcknowledgedInSession(e.target.checked);
+                            }}
+                        />
+                        <span>
+                            I reviewed these routing warnings and want to save anyway.
+                        </span>
+                    </label>
+                </div>
+            ) : null}
+
+            {(geometryError || saveError || saveSuccessMessage || roadClassError) && (
                 <div className="space-y-2">
+                    {roadClassError ? <InlineAlert message={roadClassError} tone="red" /> : null}
                     {geometryError ? <InlineAlert message={geometryError} tone="amber" /> : null}
                     {saveSuccessMessage ? (
                         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-950">
@@ -512,11 +600,17 @@ export default function ImportReviewRoadOverridesPanel({
                     <div className="flex flex-wrap gap-2">
                         <button
                             type="button"
-                            disabled={saving || disabled || optionsLoading}
-                            onClick={() => void submitOverrides(false)}
+                            disabled={
+                                saving ||
+                                disabled ||
+                                optionsLoading ||
+                                (pendingRoutingWarnings.length > 0 &&
+                                    !routingWarningsAcknowledgedInSession)
+                            }
+                            onClick={handleSaveOverrides}
                             className="rounded-lg border border-violet-700 bg-violet-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-900 disabled:opacity-50"
                         >
-                            {saving ? "Saving overrides…" : "Save overrides"}
+                            {saving ? "Saving…" : "Save Changes"}
                         </button>
                         <button
                             type="button"
@@ -542,8 +636,8 @@ export default function ImportReviewRoadOverridesPanel({
             <section className="space-y-2 rounded-lg border border-teal-100 bg-white/90 p-3">
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-800">Names</h4>
                 <p className="text-[11px] text-gray-600">
-                    Stored as <span className="font-mono">review_overrides.name_mm</span> /{" "}
-                    <span className="font-mono">name_en</span> — not road class or surface.
+                    Saved to candidate <span className="font-mono">name_mm</span> /{" "}
+                    <span className="font-mono">name_en</span> columns — separate from road class and surface.
                 </p>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 sm:col-span-2">
@@ -584,16 +678,25 @@ export default function ImportReviewRoadOverridesPanel({
                     <select
                         value={roadClassId}
                         disabled={disabled || optionsLoading}
-                        onChange={(e) => setRoadClassId(e.target.value)}
+                        onChange={(e) => {
+                            setRoadClassId(e.target.value);
+                            if (e.target.value.trim()) {
+                                setRoadClassError("");
+                            }
+                        }}
                         className={selectCls}
+                        aria-invalid={roadClassError ? true : undefined}
                     >
                         <option value="">Select road class…</option>
-                        {roadClasses.map((rc) => (
-                            <option key={rc.id} value={rc.id}>
-                                {rc.code} — {rc.name}
+                        {roadClassSelectOptions.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                                {opt.label}
                             </option>
                         ))}
                     </select>
+                    {roadClassError ? (
+                        <span className="text-[11px] font-medium text-red-800">{roadClassError}</span>
+                    ) : null}
                 </label>
 
                 <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 sm:col-span-2">
@@ -710,7 +813,7 @@ export default function ImportReviewRoadOverridesPanel({
                 </label>
 
                 <label className="flex flex-col gap-1 text-xs font-medium text-gray-700 sm:col-span-2">
-                    review_note (saved with overrides)
+                    review_note (saved with direct edit)
                     <textarea
                         value={overridesReviewNote}
                         disabled={disabled || optionsLoading}
@@ -766,12 +869,21 @@ export default function ImportReviewRoadOverridesPanel({
                 <p className="text-xs font-medium text-emerald-800">{saveSuccessMessage}</p>
             ) : null}
 
-            <div>
-                <h4 className="text-[11px] font-semibold uppercase text-gray-500">Stored review_overrides</h4>
-                <pre className="mt-1 max-h-40 overflow-auto rounded-lg border border-gray-100 bg-white p-2 text-[11px]">
-                    {JSON.stringify(asOverrideRecord(row.review_overrides), null, 2)}
-                </pre>
-            </div>
+            <details className="rounded-lg border border-gray-200 bg-white/80">
+                <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase text-gray-500">
+                    Original source data
+                </summary>
+                <div className="space-y-2 border-t border-gray-100 p-3">
+                    <p className="text-[10px] font-semibold uppercase text-gray-500">normalized_data</p>
+                    <pre className="max-h-32 overflow-auto text-[11px]">
+                        {JSON.stringify(row.normalized_data ?? null, null, 2)}
+                    </pre>
+                    <p className="text-[10px] font-semibold uppercase text-gray-500">source_refs</p>
+                    <pre className="max-h-32 overflow-auto text-[11px]">
+                        {JSON.stringify(row.source_refs ?? null, null, 2)}
+                    </pre>
+                </div>
+            </details>
         </section>
     );
 }

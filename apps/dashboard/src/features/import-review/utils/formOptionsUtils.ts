@@ -8,7 +8,11 @@ import {
 } from "@/src/lib/building-type/display";
 
 import type { ImportReviewFormOptionsBundle } from "../hooks/useImportReviewFormOptions";
-import type { ImportReviewBuildingListItem } from "@/src/lib/api";
+import type { ImportReviewBuildingListItem, ImportReviewFormOption } from "@/src/lib/api";
+import {
+    importReviewFormOptionToPoiCategory,
+    type PoiCategoryDropdownOption,
+} from "@/src/lib/poi-category/display";
 
 export type ImportReviewFormOptionsKey = keyof ImportReviewFormOptionsBundle;
 
@@ -59,6 +63,13 @@ export function formOptionsKeyForField(
     }
 }
 
+export function poiCategoryOptionsFromFormOptions(
+    formOptions: ImportReviewFormOptionsBundle | null | undefined
+): PoiCategoryDropdownOption[] {
+    const rows = formOptions?.poi_categories ?? [];
+    return rows.map((row) => importReviewFormOptionToPoiCategory(row));
+}
+
 export function selectOptionsForField(
     formOptions: ImportReviewFormOptionsBundle | null | undefined,
     key: ImportReviewFormOptionsKey | null
@@ -87,6 +98,27 @@ export function toAdminAreaComboboxOptions(
         admin_level_id: row.admin_level_id,
         parent_id: row.parent_id ?? null,
     }));
+}
+
+export function includeCurrentAdminAreaOption(
+    options: AdminAreaOption[],
+    currentId: string | null | undefined
+): AdminAreaOption[] {
+    const id = currentId?.trim() ?? "";
+    if (!id || options.some((opt) => opt.id === id)) {
+        return options;
+    }
+    return [
+        ...options,
+        {
+            id,
+            canonical_name: id,
+            name_mm: null,
+            name_en: null,
+            admin_level_id: "",
+            parent_id: null,
+        },
+    ];
 }
 
 export function roadClassOptionsFromFormOptions(
@@ -131,6 +163,38 @@ export function selectOptionsWithCurrentValue(
             label: currentLabel?.trim() || `${trimmed} (imported)`,
         },
     ];
+}
+
+/** Map imported label/code/id text to a dropdown option value (numeric DB id when possible). */
+export function resolveDirectEditReferenceFormValue(
+    raw: string,
+    options: Array<{ value: string; label: string; code?: string | null }>
+): string | null {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+        return null;
+    }
+    if (/^\d+$/.test(trimmed)) {
+        return trimmed;
+    }
+    return resolveOptionValueFromSource(options, trimmed);
+}
+
+export function resolveOptionValueFromSource(
+    options: Array<{ value: string; label: string; code?: string | null }>,
+    sourceValue: string
+): string | null {
+    const needle = sourceValue.trim().toLowerCase();
+    if (!needle) {
+        return null;
+    }
+    const matched = options.find((opt) => {
+        const value = opt.value.trim().toLowerCase();
+        const label = opt.label.trim().toLowerCase();
+        const code = (opt.code ?? "").trim().toLowerCase();
+        return value === needle || label === needle || (code !== "" && code === needle);
+    });
+    return matched?.value ?? null;
 }
 
 export function buildingTypeSelectOptionsForRow(

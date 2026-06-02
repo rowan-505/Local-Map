@@ -16,21 +16,24 @@ export class PlaceFormOptionsRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
     async listCategories() {
-        return this.prisma.refPoiCategory.findMany({
-            select: {
-                id: true,
-                code: true,
-                name: true,
-            },
-            orderBy: [
-                {
-                    sortOrder: "asc",
-                },
-                {
-                    name: "asc",
-                },
-            ],
-        });
+        return this.prisma.$queryRaw<
+            {
+                id: bigint;
+                code: string;
+                name: string;
+                name_mm: string | null;
+                parent_id: bigint | null;
+            }[]
+        >`
+            SELECT
+                id,
+                code,
+                name,
+                name_mm,
+                parent_id
+            FROM ref.ref_poi_categories
+            ORDER BY sort_order ASC NULLS LAST, name ASC
+        `;
     }
 
     async listAdminAreas() {

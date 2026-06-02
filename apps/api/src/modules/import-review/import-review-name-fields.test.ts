@@ -41,7 +41,7 @@ describe("import-review-name-fields", () => {
         assert.equal(en, "Kyauktan");
     });
 
-    it("reads review_overrides.name_mm before legacy keys", () => {
+    it("reads explicit name_mm before legacy keys", () => {
         const mm = pickEffectiveNameMm(
             { name_mm: "Override MM", name_local: "Legacy" },
             { canonical_name: "Imported" }
@@ -49,9 +49,17 @@ describe("import-review-name-fields", () => {
         assert.equal(mm, "Override MM");
     });
 
-    it("reads review_overrides.name_en before legacy name", () => {
+    it("reads explicit name_en before legacy name", () => {
         const en = pickEffectiveNameEn({ name_en: "Override EN", name: "Legacy EN" }, { canonical_name: "Imported EN" });
         assert.equal(en, "Override EN");
+    });
+
+    it("reads name_en from overrides when typed column is null", () => {
+        const en = pickEffectiveNameEn(
+            { name_en: "Patched EN" },
+            { name_en: null, canonical_name: "residential", class_code: "residential" }
+        );
+        assert.equal(en, "Patched EN");
     });
 
     it("derives name_mm from tags name:my", () => {

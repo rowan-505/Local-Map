@@ -1,6 +1,10 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { invalidateImportReviewAfterPromotion } from "@/src/features/import-review/hooks/invalidateImportReviewAfterPromotion";
+import { resolveBatchSelectedFamilies } from "@/src/features/import-review/utils/importReviewPromotionBatchFamilies";
 
 import {
     PromotionStatusBadge,
@@ -66,11 +70,14 @@ function sortLogs(items: ImportReviewPublishStageLogItem[]): ImportReviewPublish
 type Props = {
     batchId: string;
     batchStatus: string;
+    sourceReviewBatchId?: string | null;
     hasRoadItems?: boolean;
     hasAdminAreaItems?: boolean;
     hasRoutingBarrierItems?: boolean;
     roadDryRunResult?: ImportReviewPromotionRoadDryRunResult | null;
     routingBarrierDryRunResult?: ImportReviewPromotionRoutingBarrierDryRunResult | null;
+    workflowBlocked?: boolean;
+    workflowBlockedMessage?: string;
     onBatchUpdated: (detail: ImportReviewPublishBatchDetail) => void;
     formatError: (err: unknown) => string;
 };
@@ -78,11 +85,14 @@ type Props = {
 export default function ImportReviewPromotionPromotePanel({
     batchId,
     batchStatus,
+    sourceReviewBatchId = null,
     hasRoadItems = false,
     hasAdminAreaItems = false,
     hasRoutingBarrierItems = false,
     roadDryRunResult = null,
     routingBarrierDryRunResult = null,
+    workflowBlocked = false,
+    workflowBlockedMessage,
     onBatchUpdated,
     formatError,
 }: Props) {
@@ -97,6 +107,7 @@ export default function ImportReviewPromotionPromotePanel({
     const [confirmText, setConfirmText] = useState("");
     const [warningNote, setWarningNote] = useState("");
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const queryClient = useQueryClient();
 
     const stopPolling = useCallback(() => {
         if (pollRef.current) {
@@ -105,10 +116,11 @@ export default function ImportReviewPromotionPromotePanel({
         }
     }, []);
 
-    const refreshBatchDetail = useCallback(async () => {
+    const refreshBatchDetail = useCallback(async (): Promise<ImportReviewPublishBatchDetail> => {
         const detail = await getImportReviewPromotionBatchById(batchId);
         setStatus(detail.status);
         onBatchUpdated(detail);
+        return detail;
     }, [batchId, onBatchUpdated]);
 
     const pollOnce = useCallback(async () => {
@@ -121,9 +133,16 @@ export default function ImportReviewPromotionPromotePanel({
         setStatus(p.status);
         if (p.status !== "promoting") {
             stopPolling();
-            await refreshBatchDetail();
+            const detail = await refreshBatchDetail();
+            if (p.status === "promoted" || p.status === "partially_promoted") {
+                await invalidateImportReviewAfterPromotion(queryClient, {
+                    publishBatchId: batchId,
+                    reviewBatchId: sourceReviewBatchId ?? undefined,
+                    promotedFamilies: resolveBatchSelectedFamilies(detail),
+                });
+            }
         }
-    }, [batchId, refreshBatchDetail, stopPolling]);
+    }, [batchId, queryClient, refreshBatchDetail, sourceReviewBatchId, stopPolling]);
 
     const startPolling = useCallback(() => {
         stopPolling();
@@ -222,11 +241,14 @@ export default function ImportReviewPromotionPromotePanel({
         hasRoutingBarrierItems &&
         (!routingBarrierDryRunResult || routingBarrierDryRunResult.disabled_because_env_flag_false);
     const canPromote =
+        !workflowBlocked &&
         status === "ready" &&
         validationForModal?.can_promote !== false &&
         !roadPromoteBlocked &&
         !routingBarrierPromoteBlocked;
-    const promoteDisabledReason = roadPromoteBlocked
+    const promoteDisabledReason = workflowBlocked
+        ? (workflowBlockedMessage ?? "Transport promotion moved to Import Transport.")
+        : roadPromoteBlocked
         ? !roadDryRunResult
             ? "Run road dry-run first. Road batches require routing validation preview before promotion."
             : "Road promotion is disabled. Run road dry-run and complete routing validation first."

@@ -27,48 +27,41 @@ export async function assertPoiCategoriesTableExists(prisma: PrismaClient): Prom
     poiCategoriesTableVerified = true;
 }
 
-/** Numeric category_id from review_overrides, candidate column, or normalized_data (no code lookup). */
+/** Numeric category_id from candidate column or normalized_data (no code lookup). */
 export function placeExplicitCategoryIdExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         coalesce(
-            CASE WHEN (${a}.review_overrides->>'category_id') ~ '^[0-9]+$'
-                THEN (${a}.review_overrides->>'category_id')::bigint END,
             ${a}.category_id,
             CASE WHEN (${a}.normalized_data->>'category_id') ~ '^[0-9]+$'
                 THEN (${a}.normalized_data->>'category_id')::bigint END,
-            CASE WHEN (${a}.review_overrides->>'poi_category_id') ~ '^[0-9]+$'
-                THEN (${a}.review_overrides->>'poi_category_id')::bigint END,
             CASE WHEN (${a}.normalized_data->>'poi_category_id') ~ '^[0-9]+$'
                 THEN (${a}.normalized_data->>'poi_category_id')::bigint END
         )
     `;
 }
 
-/** class_code / category_code from overrides and normalized_data only (no candidate column). */
+/** class_code / category_code from column and normalized_data only. */
 export function placeClassCodeJsonExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'class_code',
+            ${a}.class_code,
             ${a}.normalized_data->>'class_code',
             ${a}.normalized_data->>'category_code',
-            ${a}.review_overrides->>'category_code',
             ''
         )), '')
     `;
 }
 
-/** class_code / category_code from overrides, candidate column, or normalized_data. */
+/** class_code / category_code from candidate column or normalized_data. */
 export function placeClassCodeExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.review_overrides->>'class_code',
             ${a}.class_code,
             ${a}.normalized_data->>'class_code',
             ${a}.normalized_data->>'category_code',
-            ${a}.review_overrides->>'category_code',
             ''
         )), '')
     `;
@@ -90,7 +83,7 @@ export function placeResolvedCategoryIdExpr(alias: string): Prisma.Sql {
 }
 
 /**
- * Promotion-safe category resolution: JSON fields first, then candidate class_code column.
+ * Promotion-safe category resolution: typed columns first, then normalized_data.
  * Uses ref.ref_poi_categories only (never ref.ref_place_categories).
  */
 export function placeResolvedCategoryIdExprForPromotion(alias: string): Prisma.Sql {
@@ -102,11 +95,9 @@ export function placeResolvedCategoryIdExprForPromotion(alias: string): Prisma.S
                 SELECT c.id
                 FROM ref.ref_poi_categories AS c
                 WHERE c.code = nullif(trim(coalesce(
-                    ${a}.review_overrides->>'class_code',
                     ${a}.class_code,
                     ${a}.normalized_data->>'class_code',
                     ${a}.normalized_data->>'category_code',
-                    ${a}.review_overrides->>'category_code',
                     ''
                 )), '')
                 LIMIT 1
