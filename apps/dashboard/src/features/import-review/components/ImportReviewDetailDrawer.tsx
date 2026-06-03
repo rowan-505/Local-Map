@@ -17,9 +17,11 @@ import ImportReviewStatusBanner from "./ImportReviewStatusBanner";
 import CandidateJsonSection from "./detail/CandidateJsonSection";
 import CandidateMapSection from "./detail/CandidateMapSection";
 import CandidateOverrideSection from "./detail/CandidateOverrideSection";
+import CandidatePromoteAction from "./detail/CandidatePromoteAction";
 import CandidateReviewActionsSection from "./detail/CandidateReviewActionsSection";
 import CandidateSummarySection from "./detail/CandidateSummarySection";
 import CandidateValidationSection from "./detail/CandidateValidationSection";
+import { reviewBatchIdFromApiScopeQuery } from "@/src/lib/importReviewSnapshot";
 
 export default function ImportReviewDetailDrawer({
     config,
@@ -100,6 +102,7 @@ export default function ImportReviewDetailDrawer({
 
     const metadataWarning = Boolean(detailError && !detailNotFound);
     const showBody = !detailNotFound;
+    const reviewBatchId = reviewBatchIdFromApiScopeQuery(apiScope);
 
     return (
         <div
@@ -208,6 +211,14 @@ export default function ImportReviewDetailDrawer({
                             ) : null}
 
                             <CandidateValidationSection row={row} isLoadingDetail={isLoadingDetail} />
+
+                            <CandidatePromoteAction
+                                apiFamily={config.apiFamily}
+                                row={row}
+                                reviewBatchId={reviewBatchId}
+                                canEdit={canEdit}
+                            />
+
                             {showMatchedCore ? (
                                 <CandidateJsonSection title="matched_core_data" data={row.matched_core_data} />
                             ) : null}

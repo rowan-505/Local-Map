@@ -57,7 +57,11 @@ export class AdminAreasService {
         );
     }
 
-    async listAdminAreaOptions(args: { limit: number; q?: string | undefined }) {
+    async listAdminAreaOptions(args: {
+        limit: number;
+        q?: string | undefined;
+        adminLevelCode?: "township";
+    }) {
         const rows = await this.adminAreasRepo.listAdminAreaOptions(args);
         return rows.map(
             (row): AdminAreaOptionResponse => ({

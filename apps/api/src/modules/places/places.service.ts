@@ -1,5 +1,10 @@
 import type { z } from "zod";
 
+import type { JwtUser } from "../../plugins/auth.js";
+import {
+    EntityAdminAreaService,
+    EntityAdminAreaValidationError,
+} from "../entity-admin-area/entity-admin-area.service.js";
 import {
     effectiveVerificationStatusFromRow,
     isVerifiedFromVerificationStatus,
@@ -14,6 +19,7 @@ import {
     derivePrimaryName,
 } from "./places.repo.js";
 import type { UpdatePlaceInput } from "./places.repo.js";
+import { placeCategoryValidationError } from "./places-category-validation.js";
 import { createPlaceBodySchema, updatePlaceBodySchema } from "./places.schema.js";
 
 type CreatePlaceBody = z.infer<typeof createPlaceBodySchema>;
@@ -45,7 +51,10 @@ export class PlaceValidationError extends Error {
 }
 
 export class PlacesService {
-    constructor(private readonly placesRepo: PlacesRepository) {}
+    constructor(
+        private readonly placesRepo: PlacesRepository,
+        private readonly entityAdminArea: EntityAdminAreaService
+    ) {}
 
     private serializePlace(place: PlaceRow) {
         const verificationStatus = effectiveVerificationStatusFromRow(place);
@@ -125,8 +134,15 @@ export class PlacesService {
 
         return {
             categories: options.categories.map((category) => ({
-                id: category.id.toString(),
-                label: category.name,
+                id: category.id,
+                code: category.code,
+                name: category.name,
+                name_mm: category.name_mm,
+                parent_id: category.parent_id,
+                label: category.label,
+                sort_order: category.sort_order,
+                is_public: category.is_public,
+                is_searchable: category.is_searchable,
             })),
             admin_areas: options.admin_areas.map((adminArea) => ({
                 id: adminArea.id.toString(),
@@ -145,7 +161,7 @@ export class PlacesService {
         };
     }
 
-    async createPlace(body: CreatePlaceBody) {
+    async createPlace(body: CreatePlaceBody, user: JwtUser) {
         const categoryId = body.categoryId;
 
         const names = normalizePlaceNames({
@@ -163,17 +179,26 @@ export class PlacesService {
         const hasCategory = await this.placesRepo.hasCategory(categoryId);
 
         if (!hasCategory) {
-            throw new PlaceValidationError("category_id is invalid");
+            throw new PlaceValidationError(placeCategoryValidationError(categoryId));
         }
 
-        const adminAreaId = body.adminAreaId ?? null;
-
-        if (adminAreaId !== null) {
-            const hasAdminArea = await this.placesRepo.hasActiveAdminArea(adminAreaId);
-
-            if (!hasAdminArea) {
-                throw new PlaceValidationError("admin_area_id is invalid");
+        let adminAreaId: bigint | null;
+        try {
+            const resolved = await this.entityAdminArea.resolveForWrite({
+                kind: "place",
+                lat: body.lat,
+                lng: body.lng,
+                requested_admin_area_id:
+                    body.adminAreaId === undefined ? undefined : body.adminAreaId,
+                user,
+                path: "adminAreaId",
+            });
+            adminAreaId = resolved.admin_area_id;
+        } catch (error) {
+            if (error instanceof EntityAdminAreaValidationError) {
+                throw new PlaceValidationError(error.message);
             }
+            throw error;
         }
 
         let resolvedSourceTypeId = body.sourceTypeId ?? undefined;
@@ -240,7 +265,12 @@ export class PlacesService {
         return this.serializePlaceDetail(createdPlace);
     }
 
-    async updatePlace(publicId: string, body: UpdatePlaceBody) {
+    async updatePlace(publicId: string, body: UpdatePlaceBody, user: JwtUser) {
+        const existing = await this.placesRepo.getPlaceDetailByPublicId(publicId);
+        if (!existing) {
+            throw new PlaceNotFoundError();
+        }
+
         const patch = mapUpdateBodyToRepo(body);
 
         if (patch.category_id === null) {
@@ -255,15 +285,30 @@ export class PlacesService {
             const hasCategory = await this.placesRepo.hasCategory(patch.category_id);
 
             if (!hasCategory) {
-                throw new PlaceValidationError("category_id is invalid");
+                throw new PlaceValidationError(placeCategoryValidationError(patch.category_id));
             }
         }
 
-        if (patch.admin_area_id !== undefined && patch.admin_area_id !== null) {
-            const hasAdminArea = await this.placesRepo.hasActiveAdminArea(patch.admin_area_id);
+        const lat = patch.lat ?? existing.lat;
+        const lng = patch.lng ?? existing.lng;
 
-            if (!hasAdminArea) {
-                throw new PlaceValidationError("admin_area_id is invalid");
+        if (lat !== undefined && lng !== undefined) {
+            try {
+                const resolved = await this.entityAdminArea.resolveForWrite({
+                    kind: "place",
+                    lat,
+                    lng,
+                    requested_admin_area_id:
+                        body.adminAreaId === undefined ? undefined : body.adminAreaId,
+                    user,
+                    path: "adminAreaId",
+                });
+                patch.admin_area_id = resolved.admin_area_id;
+            } catch (error) {
+                if (error instanceof EntityAdminAreaValidationError) {
+                    throw new PlaceValidationError(error.message);
+                }
+                throw error;
             }
         }
 

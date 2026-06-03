@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ImportReviewBatchPicker from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewBatchPicker";
+import ImportReviewPromotionEligibilityPanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionEligibilityPanel";
 import {
     PromotionCardBody,
     PromotionSectionHeading,
@@ -13,22 +14,32 @@ import {
 import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
 import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
 import ImportReviewPromotionEligibilityDetailsDrawer from "@/src/features/import-review/components/ImportReviewPromotionEligibilityDetailsDrawer";
-import ImportReviewTransportMovedNotice from "@/src/features/import-review/components/ImportReviewTransportMovedNotice";
 import {
-    HIGH_RISK_IMPORT_REVIEW_PROMOTION_FAMILY_META,
-    NORMAL_IMPORT_REVIEW_PROMOTION_FAMILY_META,
-} from "@/src/features/import-review/config/importReviewPromotionFamilies";
+    formatImportReviewPromotionError,
+    ImportReviewPromotionDryRunNotice,
+    ImportReviewPromotionFamilyChecklist,
+    ImportReviewPromotionStepBar,
+} from "@/src/features/import-review/promotion";
+import ImportReviewPromotionBatchLimitsConfirm from "@/src/features/import-review/promotion/ImportReviewPromotionBatchLimitsConfirm";
+import {
+    estimateAllReadyBatchItemCount,
+    evaluatePublishBatchLimits,
+    type PublishBatchLimitsConfirmationState,
+} from "@/src/features/import-review/promotion/batchLimits";
+import { importReviewPromotionEntityHref } from "@/src/features/import-review/promotion/promotionEntityUrl";
+import { IMPORT_REVIEW_PROMOTION_FAMILY_META } from "@/src/features/import-review/config/importReviewPromotionFamilies";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
-import {
-    logImportReviewRouterCall,
-    logImportReviewUserAction,
-} from "@/src/features/import-review/utils/importReviewRequestDebug";
+import { logImportReviewEligibilityFetch } from "@/src/features/import-review/utils/importReviewRequestDebug";
 import { IMPORT_REVIEW_PROMOTION_COMPLETED_EVENT } from "@/src/features/import-review/hooks/invalidateImportReviewAfterPromotion";
 import { isDeprecatedCoreBusImportReviewFamily } from "@/src/features/import-review/utils/deprecatedCoreBusPromotion";
-import { replaceImportReviewSearchParams } from "@/src/features/import-review/navigation/replaceImportReviewSearchParams";
 import { normalizePromotionEligibilityResponse } from "@/src/features/import-review/utils/normalizePromotionEligibilityResponse";
-import { logImportReviewEligibilityFetch } from "@/src/features/import-review/utils/importReviewRequestDebug";
+import {
+    logCreatePublishBatchResponseDev,
+    resolveCreatedPublishBatchId,
+} from "@/src/features/import-review/utils/createPublishBatchResponse";
+import { replaceImportReviewSearchParams } from "@/src/features/import-review/navigation/replaceImportReviewSearchParams";
 import { importReviewPath } from "@/src/lib/dashboardNavigation";
+import { importReviewHistoryHref } from "@/src/lib/importReviewEntityConfig";
 import {
     getImportReviewPromotionBatches,
     getImportReviewPromotionEligibility,
@@ -37,20 +48,19 @@ import {
     postImportReviewPromotionBatch,
     type ImportReviewBatchChoice,
     type ImportReviewCreatePublishBatchDryRunResult,
-    type ImportReviewCreatePublishBatchResult,
     type ImportReviewPromotionEligibilityBucket,
     type ImportReviewPromotionEligibilityResponse,
     type ImportReviewPublishBatchSummary,
 } from "@/src/lib/api";
-import ImportReviewPromotionEligibilityPanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionEligibilityPanel";
-import { isImportReviewDevTokenConfigured } from "@/src/lib/importReviewDevAccess";
 import {
     applyImportReviewScopeSearchParams,
     reviewBatchIdFromImportReviewSearch,
     snapshotVersionFromImportReviewSearch,
 } from "@/src/lib/importReviewSnapshot";
 
-const DEFAULT_SELECTED_FAMILIES = NORMAL_IMPORT_REVIEW_PROMOTION_FAMILY_META.map((row) => row.family);
+const DEFAULT_FAMILIES = IMPORT_REVIEW_PROMOTION_FAMILY_META.map((row) => row.family);
+
+type BatchCreateMode = "all_ready" | "selected";
 
 type EligibilityDetailsSelection = {
     family: string;
@@ -58,100 +68,25 @@ type EligibilityDetailsSelection = {
     bucket: ImportReviewPromotionEligibilityBucket;
 };
 
-function formatPromotionError(err: unknown): string {
-    if (!(err instanceof Error)) {
-        return "Request failed.";
-    }
-    const m = err.message;
-    if (m.includes("401") || m.toLowerCase().includes("authentication")) {
-        if (isImportReviewDevTokenConfigured()) {
-            return "Unauthorized — check NEXT_PUBLIC_IMPORT_REVIEW_ADMIN_TOKEN matches the API IMPORT_REVIEW_ADMIN_TOKEN.";
-        }
-        return "Unauthorized — sign in as an admin or configure the dev admin token.";
-    }
-    if (m.includes("403") || m.toLowerCase().includes("forbidden")) {
-        return "Forbidden — import review requires admin access.";
-    }
-    return m;
-}
-
 function defaultBatchName(reviewBatchId: string, families: string[]): string {
     const stamp = new Date().toISOString().slice(0, 16).replace("T", "-").replace(":", "");
     const familyTag = families.length === 1 ? families[0] : "multi";
     return `${familyTag}-publish-batch-${reviewBatchId}-${stamp}`;
 }
 
-function DryRunResultPanel({ result }: { result: ImportReviewCreatePublishBatchDryRunResult }) {
-    const rows = result.families?.length ? result.families : [];
-    return (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950" role="status">
-            <div className="font-semibold">Dry-run preview</div>
-            <dl className="mt-2 space-y-1">
-                <div className="flex justify-between gap-4">
-                    <dt>Would include</dt>
-                    <dd className="tabular-nums font-medium">{result.totals.included.toLocaleString()}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                    <dt>Would skip</dt>
-                    <dd className="tabular-nums font-medium">{result.totals.skipped.toLocaleString()}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                    <dt>Excluded</dt>
-                    <dd className="tabular-nums font-medium">{result.totals.excluded.toLocaleString()}</dd>
-                </div>
-            </dl>
-            {rows.length > 0 ? (
-                <ul className="mt-2 list-inside list-disc text-xs opacity-90">
-                    {rows.map((row) => (
-                        <li key={row.family}>
-                            {row.label}: {row.included.toLocaleString()} included
-                        </li>
-                    ))}
-                </ul>
-            ) : null}
-            {result.messages.length > 0 ? (
-                <ul className="mt-2 list-inside list-disc text-xs opacity-90">
-                    {result.messages.map((msg) => (
-                        <li key={msg}>{msg}</li>
-                    ))}
-                </ul>
-            ) : null}
-            <p className="mt-2 text-xs opacity-90">{result.message}</p>
-        </div>
-    );
-}
-
-function FamilyCheckboxGroup({
-    title,
-    families,
-    selected,
-    onToggle,
-    disabled,
-}: {
-    title: string;
-    families: readonly { family: string; label: string }[];
-    selected: Set<string>;
-    onToggle: (family: string, checked: boolean) => void;
-    disabled?: boolean;
-}) {
-    return (
-        <fieldset className="space-y-2" disabled={disabled}>
-            <legend className="text-sm font-medium text-gray-900">{title}</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-                {families.map((row) => (
-                    <label key={row.family} className="flex items-center gap-2 text-sm text-gray-800">
-                        <input
-                            type="checkbox"
-                            className="rounded border-gray-300"
-                            checked={selected.has(row.family)}
-                            onChange={(e) => onToggle(row.family, e.target.checked)}
-                        />
-                        {row.label}
-                    </label>
-                ))}
-            </div>
-        </fieldset>
-    );
+function sumEligibilityCounts(
+    rows: ImportReviewPromotionEligibilityResponse["families"] | undefined,
+    key: "ready" | "warnings" | "blocked"
+): number {
+    if (!rows?.length) {
+        return 0;
+    }
+    return rows.reduce((sum, row) => {
+        if (isDeprecatedCoreBusImportReviewFamily(row.family)) {
+            return sum;
+        }
+        return sum + (row[key] ?? 0);
+    }, 0);
 }
 
 export default function ImportReviewPromotionClient() {
@@ -161,19 +96,18 @@ export default function ImportReviewPromotionClient() {
     const urlBatch = reviewBatchIdFromImportReviewSearch(searchParams);
     const envDefault = process.env.NEXT_PUBLIC_IMPORT_REVIEW_SNAPSHOT_VERSION?.trim() ?? "";
 
-    /** Active scope for API queries (synced from URL; Apply updates both). */
     const [scopeReviewBatchId, setScopeReviewBatchId] = useState(urlBatch);
     const activeReviewBatchId = scopeReviewBatchId.trim();
 
     const [changeBatchOpen, setChangeBatchOpen] = useState(false);
     const [batchDraft, setBatchDraft] = useState(urlBatch);
-    const [advancedOpen, setAdvancedOpen] = useState(false);
     const [snapshotDraft, setSnapshotDraft] = useState(urlVersion || envDefault);
 
-    const [selectedFamilies, setSelectedFamilies] = useState<string[]>([...DEFAULT_SELECTED_FAMILIES]);
+    const [selectedFamilies, setSelectedFamilies] = useState<string[]>([...DEFAULT_FAMILIES]);
+    const [batchMode, setBatchMode] = useState<BatchCreateMode>("all_ready");
     const [includeWarnings, setIncludeWarnings] = useState(false);
-    const [reviewNote, setReviewNote] = useState("");
     const [batchName, setBatchName] = useState("");
+    const [batchNote, setBatchNote] = useState("");
 
     const [eligibility, setEligibility] = useState<ImportReviewPromotionEligibilityResponse | null>(null);
     const [eligibilityLoading, setEligibilityLoading] = useState(false);
@@ -191,8 +125,14 @@ export default function ImportReviewPromotionClient() {
     const [dryRunResult, setDryRunResult] = useState<ImportReviewCreatePublishBatchDryRunResult | null>(null);
     const [isDryRunning, setIsDryRunning] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
+    const [successMessage, setSuccessMessage] = useState("");
 
     const [error, setError] = useState("");
+    const [limitsConfirmation, setLimitsConfirmation] = useState<PublishBatchLimitsConfirmationState>({
+        confirmLargeBatch: false,
+        allowHighRiskFamilies: false,
+        mixedHighRiskConfirm: false,
+    });
     const [ambiguousBatches, setAmbiguousBatches] = useState<ImportReviewBatchChoice[] | null>(null);
     const [ambiguousSnapshot, setAmbiguousSnapshot] = useState("");
 
@@ -214,12 +154,8 @@ export default function ImportReviewPromotionClient() {
         [selectedFamilies]
     );
 
-    const hasHighRiskSelected = useMemo(
-        () => selectedFamilies.some((f) => HIGH_RISK_IMPORT_REVIEW_PROMOTION_FAMILY_META.some((m) => m.family === f)),
-        [selectedFamilies]
-    );
-
-    const routingBarriersSelected = selectedSet.has("routing_barriers");
+    const hasRoads = selectedSet.has("roads");
+    const hasRoutingBarriers = selectedSet.has("routing_barriers");
 
     const toggleFamily = useCallback((family: string, checked: boolean) => {
         setSelectedFamilies((prev) => {
@@ -229,14 +165,34 @@ export default function ImportReviewPromotionClient() {
             return prev.filter((f) => f !== family);
         });
         setDryRunResult(null);
+        setSuccessMessage("");
+        setLimitsConfirmation({
+            confirmLargeBatch: false,
+            allowHighRiskFamilies: false,
+            mixedHighRiskConfirm: false,
+        });
     }, []);
 
-    const openEligibilityDetails = useCallback(
-        (family: string, label: string, bucket: ImportReviewPromotionEligibilityBucket) => {
-            setEligibilityDetailsSelection({ family, label, bucket });
-        },
-        []
+    const eligibilityRows = useMemo(
+        () =>
+            (eligibility?.families ?? [])
+                .filter((row) => !isDeprecatedCoreBusImportReviewFamily(row.family))
+                .map((row) => ({
+                    family: row.family,
+                    label: row.label,
+                    target: row.target,
+                    ready: row.ready,
+                    warnings: row.warnings,
+                    blocked: row.blocked,
+                    batched: row.batched,
+                    promoted: row.promoted,
+                })),
+        [eligibility?.families]
     );
+
+    const readyTotal = sumEligibilityCounts(eligibility?.families, "ready");
+    const warningTotal = sumEligibilityCounts(eligibility?.families, "warnings");
+    const blockedTotal = sumEligibilityCounts(eligibility?.families, "blocked");
 
     const loadBatches = useCallback(
         async (reviewBatchId: string, signal?: AbortSignal) => {
@@ -281,16 +237,14 @@ export default function ImportReviewPromotionClient() {
         setError("");
         void loadBatches(activeReviewBatchId, controller.signal).catch((err) => {
             if (!isAbortError(err)) {
-                setError(formatPromotionError(err));
+                setError(formatImportReviewPromotionError(err));
             }
         });
         return () => controller.abort();
     }, [activeReviewBatchId, loadBatches, promotionRefreshToken]);
 
     useEffect(() => {
-        const onPromotionCompleted = () => {
-            setPromotionRefreshToken((t) => t + 1);
-        };
+        const onPromotionCompleted = () => setPromotionRefreshToken((t) => t + 1);
         window.addEventListener(IMPORT_REVIEW_PROMOTION_COMPLETED_EVENT, onPromotionCompleted);
         return () => window.removeEventListener(IMPORT_REVIEW_PROMOTION_COMPLETED_EVENT, onPromotionCompleted);
     }, []);
@@ -330,24 +284,12 @@ export default function ImportReviewPromotionClient() {
             setBatchName((prev) =>
                 prev.trim() ? prev : defaultBatchName(String(res.review_batch_id), families)
             );
-            logImportReviewEligibilityFetch({
-                phase: "success",
-                review_batch_id: activeReviewBatchId,
-                families: families.join(","),
-                row_count: res.families.length,
-            });
         } catch (err) {
             if (fetchGeneration !== eligibilityFetchGenerationRef.current) {
                 return;
             }
             setEligibility(null);
-            setEligibilityError(formatPromotionError(err));
-            logImportReviewEligibilityFetch({
-                phase: "error",
-                review_batch_id: activeReviewBatchId,
-                families: families.join(","),
-                message: err instanceof Error ? err.message : "unknown",
-            });
+            setEligibilityError(formatImportReviewPromotionError(err));
         } finally {
             if (fetchGeneration === eligibilityFetchGenerationRef.current) {
                 setEligibilityLoading(false);
@@ -362,23 +304,62 @@ export default function ImportReviewPromotionClient() {
         };
     }, [loadEligibility, promotionRefreshToken, eligibilityFetchNonce]);
 
+    const projectedItemCount = useMemo(() => {
+        if (dryRunResult?.totals?.included !== undefined) {
+            return dryRunResult.totals.included;
+        }
+        return estimateAllReadyBatchItemCount({
+            families: selectedFamilies,
+            eligibilityRows: eligibility?.families ?? [],
+            includeWarnings,
+        });
+    }, [dryRunResult, selectedFamilies, eligibility?.families, includeWarnings]);
+
+    const limitsEvaluation = useMemo(
+        () =>
+            evaluatePublishBatchLimits({
+                families: selectedFamilies,
+                totalItems: projectedItemCount,
+                confirmation: limitsConfirmation,
+            }),
+        [selectedFamilies, projectedItemCount, limitsConfirmation]
+    );
+
     const createBody = useMemo(() => {
         if (!activeReviewBatchId || selectedFamilies.length === 0) {
             return null;
         }
         return {
             review_batch_id: activeReviewBatchId,
+            mode: batchMode,
             families: selectedFamilies,
+            filters: {
+                review_decision: "approved",
+                include_warnings: includeWarnings,
+            },
             include_warnings: includeWarnings,
             batch_name: batchName.trim() || defaultBatchName(activeReviewBatchId, selectedFamilies),
-            note: reviewNote.trim() || undefined,
+            note: batchNote.trim() || undefined,
+            confirm_large_batch: limitsConfirmation.confirmLargeBatch,
+            allow_high_risk_families: limitsConfirmation.allowHighRiskFamilies,
+            mixed_high_risk_confirm: limitsConfirmation.mixedHighRiskConfirm,
         };
-    }, [activeReviewBatchId, selectedFamilies, includeWarnings, batchName, reviewNote]);
+    }, [
+        activeReviewBatchId,
+        selectedFamilies,
+        batchMode,
+        includeWarnings,
+        batchName,
+        batchNote,
+        limitsConfirmation,
+    ]);
 
-    const canCreate =
+    const canCreateBatch =
         Boolean(eligibility?.can_create_batch) &&
         selectedFamilies.length > 0 &&
-        Boolean(activeReviewBatchId);
+        Boolean(activeReviewBatchId) &&
+        batchMode === "all_ready" &&
+        limitsEvaluation.canProceed;
 
     async function handleDryRun() {
         if (!createBody) {
@@ -387,62 +368,62 @@ export default function ImportReviewPromotionClient() {
         setIsDryRunning(true);
         setDryRunResult(null);
         setError("");
+        setSuccessMessage("");
         try {
             const result = await postImportReviewPromotionBatch({ ...createBody, dry_run: true });
             if ("dry_run" in result && result.dry_run) {
                 setDryRunResult(result);
+                setSuccessMessage("Dry-run completed. No publish batch was created.");
             }
         } catch (err) {
-            setError(formatPromotionError(err));
+            setError(formatImportReviewPromotionError(err));
         } finally {
             setIsDryRunning(false);
         }
     }
 
-    async function handleCreate() {
+    async function handleCreateAllReady() {
         if (!createBody) {
             return;
         }
         setIsCreating(true);
         setError("");
+        setSuccessMessage("");
         try {
             const result = await postImportReviewPromotionBatch({ ...createBody, dry_run: false });
             if ("dry_run" in result) {
                 return;
             }
-            const publishBatchId = result.publish_batch_id || result.batch_id || result.batch?.id;
+            const publishBatchId = resolveCreatedPublishBatchId(result);
+            logCreatePublishBatchResponseDev(
+                "createPublishBatch(all ready)",
+                { ...createBody, dry_run: false },
+                result,
+                publishBatchId
+            );
             if (!publishBatchId) {
-                setError("Batch created but no publish batch id was returned.");
+                setError("Failed to create promotion batch.");
                 return;
             }
+            setSuccessMessage(
+                `Publish batch #${publishBatchId} created with ${result.items_added ?? result.total_selected ?? "—"} item(s). Continue with Validate → Promote → Verify.`
+            );
             void loadBatches(activeReviewBatchId);
             const detailQuery = searchParams.toString();
             const detailHref = `${importReviewPath("promotion")}/${publishBatchId}${detailQuery ? `?${detailQuery}` : ""}`;
-            logImportReviewRouterCall({
-                method: "push",
-                source: "ImportReviewPromotionClient:create_batch",
-                pathname: importReviewPath("promotion"),
-                from_query: searchParams.toString(),
-                to_href: detailHref,
-            });
             router.push(detailHref);
         } catch (err) {
-            setError(formatPromotionError(err));
+            setError(formatImportReviewPromotionError(err));
         } finally {
             setIsCreating(false);
         }
     }
 
-    function applyReviewBatchId(batchId: string, source: "change_batch" | "apply_draft" = "change_batch") {
+    function applyReviewBatchId(batchId: string) {
         const id = batchId.trim();
         if (!id) {
             return;
         }
-        logImportReviewUserAction({
-            action: "select_batch",
-            source: `ImportReviewPromotionClient:${source}`,
-            route_slug: "promotion",
-        });
         setScopeReviewBatchId(id);
         setBatchDraft(id);
         setEligibility(null);
@@ -455,14 +436,11 @@ export default function ImportReviewPromotionClient() {
             (params) => {
                 applyImportReviewScopeSearchParams(params, "", id);
             },
-            { source: `ImportReviewPromotionClient:${source}` }
+            { source: "ImportReviewPromotionClient:apply_batch" }
         );
         setChangeBatchOpen(false);
         setDryRunResult(null);
-    }
-
-    function applyReviewBatchFromDraft() {
-        applyReviewBatchId(batchDraft, "apply_draft");
+        setSuccessMessage("");
     }
 
     function applySnapshotScope() {
@@ -479,23 +457,18 @@ export default function ImportReviewPromotionClient() {
             },
             { source: "ImportReviewPromotionClient:apply_snapshot" }
         );
-        setAdvancedOpen(false);
     }
-
-    const eligibilityRows = (eligibility?.families ?? []).filter(
-        (row) => !isDeprecatedCoreBusImportReviewFamily(row.family)
-    );
 
     return (
         <main className="p-6">
             <div className="mx-auto max-w-7xl space-y-8">
-                <header className="border-b border-gray-200 pb-6">
+                <header className="space-y-4 border-b border-gray-200 pb-6">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                         <div>
-                            <h1 className="text-2xl font-bold text-gray-900">Create publish batch</h1>
+                            <h1 className="text-2xl font-bold text-gray-900">Promotion</h1>
                             <p className="mt-1 max-w-2xl text-sm text-gray-600">
-                                Select approved import-review candidates and create a draft publish batch. Validation
-                                and promotion happen on the batch detail page.
+                                Select scope, review typed-column readiness, validate the publish batch, promote to
+                                core or routing tables, then verify results.
                             </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -506,29 +479,58 @@ export default function ImportReviewPromotionClient() {
                             >
                                 Import review
                             </Link>
+                            <Link
+                                href={importReviewHistoryHref()}
+                                prefetch={false}
+                                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50"
+                            >
+                                History
+                            </Link>
                         </div>
                     </div>
+                    <ImportReviewPromotionStepBar activeStep="scope" />
                 </header>
 
-                <ImportReviewTransportMovedNotice compact />
+                {successMessage ? (
+                    <ImportReviewStatusBanner message={successMessage} tone="success" />
+                ) : null}
+                {error ? <ImportReviewStatusBanner message={error} tone="error" /> : null}
+
+                {ambiguousBatches && ambiguousBatches.length > 0 ? (
+                    <>
+                        <ImportReviewStatusBanner
+                            message={IMPORT_REVIEW_LOADING.multipleBatchesFound}
+                            tone="warning"
+                        />
+                        <ImportReviewBatchPicker
+                            sourceSnapshotVersion={ambiguousSnapshot}
+                            batches={ambiguousBatches}
+                            onSelectBatch={(id) => applyReviewBatchId(id)}
+                            onUseLatest={() => {
+                                const latest = ambiguousBatches[0];
+                                if (latest?.id) {
+                                    applyReviewBatchId(String(latest.id));
+                                }
+                            }}
+                        />
+                    </>
+                ) : null}
 
                 <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
                     <PromotionCardBody>
                         <PromotionSectionHeading
-                            title="Scope"
-                            subtitle="Publish batches are scoped to a single import review batch."
+                            title="1. Scope"
+                            subtitle="Choose the import review batch and entity families for this promotion run."
                         />
                         <div className="mt-4 flex flex-wrap items-center gap-3">
                             <p className="text-sm text-gray-700">
-                                Review batch:{" "}
-                                <span className="font-mono font-semibold text-gray-900">
-                                    {activeReviewBatchId || "—"}
-                                </span>
+                                <span className="font-medium text-gray-900">review_batch_id:</span>{" "}
+                                <span className="font-mono">{activeReviewBatchId || "—"}</span>
                             </p>
                             <button
                                 type="button"
                                 onClick={() => {
-                                    setChangeBatchOpen((open) => !open);
+                                    setChangeBatchOpen((o) => !o);
                                     setBatchDraft(activeReviewBatchId);
                                 }}
                                 className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50"
@@ -544,132 +546,195 @@ export default function ImportReviewPromotionClient() {
                                         type="text"
                                         value={batchDraft}
                                         onChange={(e) => setBatchDraft(e.target.value)}
-                                        placeholder="numeric review batch id"
                                         className="mt-1 w-full min-w-[12rem] rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm sm:w-64"
                                     />
                                 </label>
                                 <button
                                     type="button"
-                                    disabled={!batchDraft.trim() || eligibilityLoading}
-                                    onClick={() => applyReviewBatchFromDraft()}
+                                    disabled={!batchDraft.trim()}
+                                    onClick={() => applyReviewBatchId(batchDraft)}
                                     className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                                 >
-                                    {eligibilityLoading ? "Applying…" : "Apply"}
+                                    Apply
                                 </button>
                             </div>
                         ) : null}
 
-                        <details
-                            className="mt-4 rounded-md border border-gray-200 bg-gray-50/80"
-                            open={advancedOpen}
-                            onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
-                        >
-                            <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-gray-700">
-                                Advanced
-                            </summary>
-                            <div className="border-t border-gray-200 px-3 py-3">
-                                <label className="block text-sm">
-                                    <span className="font-medium text-gray-700">source_snapshot_version</span>
-                                    <span className="ml-1 text-xs font-normal text-gray-500">
-                                        (resolve batch from snapshot — optional)
-                                    </span>
+                        <div className="mt-4 rounded-md border border-gray-100 bg-gray-50/80 px-3 py-3">
+                            <p className="text-sm font-medium text-gray-800">Batch mode</p>
+                            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:gap-6">
+                                <label className="flex items-center gap-2 text-sm text-gray-800">
                                     <input
-                                        type="text"
-                                        value={snapshotDraft}
-                                        onChange={(e) => setSnapshotDraft(e.target.value)}
-                                        placeholder={envDefault || "e.g. kyauktan_2026_05_15_v2"}
-                                        className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm"
+                                        type="radio"
+                                        name="batch_mode"
+                                        checked={batchMode === "all_ready"}
+                                        onChange={() => setBatchMode("all_ready")}
+                                        disabled={!activeReviewBatchId}
                                     />
+                                    All ready — include approved candidates in selected families
                                 </label>
+                                <label className="flex items-center gap-2 text-sm text-gray-500">
+                                    <input
+                                        type="radio"
+                                        name="batch_mode"
+                                        checked={batchMode === "selected"}
+                                        onChange={() => setBatchMode("selected")}
+                                        disabled
+                                    />
+                                    Selected IDs — pick rows on entity pages first (not wired here yet)
+                                </label>
+                            </div>
+                            <label className="mt-3 flex items-center gap-2 text-sm text-gray-800">
+                                <input
+                                    type="checkbox"
+                                    className="rounded border-gray-300"
+                                    checked={includeWarnings}
+                                    onChange={(e) => setIncludeWarnings(e.target.checked)}
+                                    disabled={!activeReviewBatchId}
+                                />
+                                Include warning candidates when creating an all-ready batch
+                            </label>
+                        </div>
+
+                        <details className="mt-4 text-sm">
+                            <summary className="cursor-pointer font-medium text-gray-700">
+                                Resolve batch from snapshot (optional)
+                            </summary>
+                            <div className="mt-2 flex flex-wrap items-end gap-3">
+                                <input
+                                    type="text"
+                                    value={snapshotDraft}
+                                    onChange={(e) => setSnapshotDraft(e.target.value)}
+                                    placeholder={envDefault || "snapshot version"}
+                                    className="min-w-[16rem] rounded-md border border-gray-300 px-3 py-2 text-sm"
+                                />
                                 <button
                                     type="button"
-                                    onClick={() => applySnapshotScope()}
                                     disabled={!snapshotDraft.trim()}
-                                    className="mt-3 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50 disabled:opacity-50"
+                                    onClick={() => applySnapshotScope()}
+                                    className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-gray-50 disabled:opacity-50"
                                 >
                                     Load by snapshot
                                 </button>
                             </div>
                         </details>
-                    </PromotionCardBody>
-                </section>
 
-                {ambiguousBatches && ambiguousBatches.length > 0 ? (
-                    <>
-                        <ImportReviewStatusBanner
-                            message={IMPORT_REVIEW_LOADING.multipleBatchesFound}
-                            tone="warning"
-                        />
-                        <ImportReviewBatchPicker
-                            sourceSnapshotVersion={ambiguousSnapshot}
-                            batches={ambiguousBatches}
-                            onSelectBatch={(batchId) => applyReviewBatchId(batchId)}
-                            onUseLatest={() => {
-                                const latest = ambiguousBatches[0];
-                                if (latest?.id) {
-                                    applyReviewBatchId(String(latest.id));
-                                }
-                            }}
-                        />
-                    </>
-                ) : null}
-
-                {!activeReviewBatchId ? (
-                    <ImportReviewStatusBanner
-                        message="Select a review batch to choose entity families and check eligibility."
-                        tone="info"
-                    />
-                ) : null}
-
-                {error ? <ImportReviewStatusBanner message={error} tone="error" /> : null}
-
-                <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
-                    <PromotionCardBody>
-                        <PromotionSectionHeading
-                            title="Entity families"
-                            subtitle="Choose which approved candidates to include in the publish batch."
-                        />
-                        <div className="mt-4 space-y-6">
-                            <FamilyCheckboxGroup
-                                title="Normal"
-                                families={NORMAL_IMPORT_REVIEW_PROMOTION_FAMILY_META}
-                                selected={selectedSet}
-                                onToggle={toggleFamily}
-                                disabled={!activeReviewBatchId}
-                            />
-                            <FamilyCheckboxGroup
-                                title="High-risk"
-                                families={HIGH_RISK_IMPORT_REVIEW_PROMOTION_FAMILY_META}
+                        <div className="mt-6">
+                            <ImportReviewPromotionFamilyChecklist
                                 selected={selectedSet}
                                 onToggle={toggleFamily}
                                 disabled={!activeReviewBatchId}
                             />
                         </div>
-                        {hasHighRiskSelected ? (
-                            <ImportReviewStatusBanner
-                                message="High-risk entities can affect routing, search, admin hierarchy, address linking, and production behavior. Review carefully before creating a publish batch."
-                                tone="warning"
-                                compact
-                                className="mt-4"
-                            />
-                        ) : null}
-                        {routingBarriersSelected ? (
-                            <ImportReviewStatusBanner
-                                message="Routing barriers will promote to routing.routing_barriers, not core.*."
-                                tone="info"
-                                compact
-                                className="mt-3"
-                            />
-                        ) : null}
+
+                        <ImportReviewPromotionDryRunNotice
+                            hasRoads={hasRoads}
+                            hasRoutingBarriers={hasRoutingBarriers}
+                            className="mt-4"
+                        />
+                    </PromotionCardBody>
+                </section>
+
+                {!activeReviewBatchId ? (
+                    <ImportReviewStatusBanner
+                        message="Set a review batch id to see candidate counts and create a publish batch."
+                        tone="info"
+                    />
+                ) : null}
+
+                <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
+                    <PromotionCardBody>
+                        <PromotionSectionHeading
+                            title="2. Candidate selection"
+                            subtitle="Ready counts per family in this review batch. Open entity pages to review typed fields before promoting."
+                        />
+                        {eligibilityLoading && eligibilityRows.length === 0 ? (
+                            <div className="mt-4">
+                                <ImportReviewLoadingBannerWithSpinner
+                                    message={IMPORT_REVIEW_LOADING.loadingEligibility}
+                                />
+                            </div>
+                        ) : eligibilityRows.length === 0 ? (
+                            <p className="mt-4 text-sm text-gray-600">
+                                Select families in scope to load counts.
+                            </p>
+                        ) : (
+                            <div className="mt-4 overflow-x-auto rounded-md border border-gray-200">
+                                <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
+                                    <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                        <tr>
+                                            <th className="px-4 py-3">Family</th>
+                                            <th className="px-4 py-3 text-right">Ready</th>
+                                            <th className="px-4 py-3">Entity page</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200 bg-white">
+                                        {eligibilityRows.map((row) => {
+                                            const href = importReviewPromotionEntityHref(
+                                                row.family,
+                                                activeReviewBatchId
+                                            );
+                                            return (
+                                                <tr key={row.family}>
+                                                    <td className="px-4 py-3 font-medium text-gray-900">
+                                                        {row.label}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right tabular-nums text-emerald-800">
+                                                        {row.ready.toLocaleString()}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        {href ? (
+                                                            <Link
+                                                                href={href}
+                                                                prefetch={false}
+                                                                className="font-medium text-emerald-800 hover:underline"
+                                                            >
+                                                                Open {row.label.toLowerCase()}
+                                                            </Link>
+                                                        ) : (
+                                                            <span className="text-gray-400">—</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </PromotionCardBody>
                 </section>
 
                 <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
                     <PromotionCardBody>
                         <PromotionSectionHeading
-                            title="Eligibility"
-                            subtitle="Counts for selected families in this review batch."
+                            title="3. Validation result"
+                            subtitle="Pre-batch eligibility. After you create a publish batch, run batch validation on the batch page."
                         />
+                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                                <p className="text-xs font-semibold uppercase text-emerald-800">Ready</p>
+                                <p className="mt-1 text-2xl font-semibold tabular-nums text-emerald-950">
+                                    {readyTotal.toLocaleString()}
+                                </p>
+                            </div>
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                                <p className="text-xs font-semibold uppercase text-amber-800">Warnings</p>
+                                <p className="mt-1 text-2xl font-semibold tabular-nums text-amber-950">
+                                    {warningTotal.toLocaleString()}
+                                </p>
+                                <p className="mt-1 text-xs text-amber-900">
+                                    Promote requires a confirmation note when warnings remain on the batch.
+                                </p>
+                            </div>
+                            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+                                <p className="text-xs font-semibold uppercase text-red-800">Blocked</p>
+                                <p className="mt-1 text-2xl font-semibold tabular-nums text-red-950">
+                                    {blockedTotal.toLocaleString()}
+                                </p>
+                                <p className="mt-1 text-xs text-red-900">Blocked items cannot be promoted.</p>
+                            </div>
+                        </div>
                         <ImportReviewPromotionEligibilityPanel
                             reviewBatchId={activeReviewBatchId}
                             selectedFamilyCount={selectedFamilies.length}
@@ -677,43 +742,21 @@ export default function ImportReviewPromotionClient() {
                             errorMessage={eligibilityError}
                             eligibility={eligibility}
                             rows={eligibilityRows}
-                            onRetry={() => {
-                                setEligibilityFetchNonce((n) => n + 1);
-                            }}
-                            onOpenDetails={openEligibilityDetails}
+                            onRetry={() => setEligibilityFetchNonce((n) => n + 1)}
+                            onOpenDetails={(family, label, bucket) =>
+                                setEligibilityDetailsSelection({ family, label, bucket })
+                            }
                         />
                     </PromotionCardBody>
                 </section>
 
                 <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
                     <PromotionCardBody>
-                        <PromotionSectionHeading title="Options" />
+                        <PromotionSectionHeading
+                            title="4. Promotion action"
+                            subtitle="Create a publish batch, then validate and promote on the batch page."
+                        />
                         <div className="mt-4 space-y-4">
-                            <label className="flex items-center gap-2 text-sm text-gray-800">
-                                <input
-                                    type="checkbox"
-                                    className="rounded border-gray-300"
-                                    checked={includeWarnings}
-                                    onChange={(e) => {
-                                        setIncludeWarnings(e.target.checked);
-                                        setDryRunResult(null);
-                                    }}
-                                    disabled={!activeReviewBatchId}
-                                />
-                                Include candidates with warnings
-                            </label>
-                            <label className="block text-sm">
-                                <span className="font-medium text-gray-700">Review note</span>
-                                <span className="ml-1 text-xs font-normal text-gray-500">(optional at creation)</span>
-                                <textarea
-                                    value={reviewNote}
-                                    onChange={(e) => setReviewNote(e.target.value)}
-                                    rows={3}
-                                    placeholder="Optional note stored on the publish batch"
-                                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm"
-                                    disabled={!activeReviewBatchId}
-                                />
-                            </label>
                             <label className="block text-sm">
                                 <span className="font-medium text-gray-700">Batch name</span>
                                 <input
@@ -724,34 +767,83 @@ export default function ImportReviewPromotionClient() {
                                     disabled={!activeReviewBatchId}
                                 />
                             </label>
+                            <label className="block text-sm">
+                                <span className="font-medium text-gray-700">Note</span>
+                                <span className="ml-1 text-xs text-gray-500">(optional, stored on batch)</span>
+                                <textarea
+                                    value={batchNote}
+                                    onChange={(e) => setBatchNote(e.target.value)}
+                                    rows={2}
+                                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm"
+                                    disabled={!activeReviewBatchId}
+                                />
+                            </label>
                         </div>
-                    </PromotionCardBody>
-                </section>
-
-                <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
-                    <PromotionCardBody>
-                        <PromotionSectionHeading title="Actions" />
+                        {activeReviewBatchId && selectedFamilies.length > 0 ? (
+                            <ImportReviewPromotionBatchLimitsConfirm
+                                evaluation={limitsEvaluation}
+                                confirmation={limitsConfirmation}
+                                onConfirmationChange={setLimitsConfirmation}
+                                actionLabel="Create this publish batch"
+                            />
+                        ) : null}
                         <div className="mt-4 flex flex-wrap gap-3">
                             <button
                                 type="button"
-                                onClick={() => void handleDryRun()}
-                                disabled={!createBody || isDryRunning || isCreating}
-                                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50 disabled:opacity-50"
+                                onClick={() => void handleCreateAllReady()}
+                                disabled={!canCreateBatch || isCreating || isDryRunning}
+                                className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
                             >
-                                {isDryRunning ? IMPORT_REVIEW_LOADING.loadingPromotionBatch : "Dry-run preview"}
+                                {isCreating
+                                    ? IMPORT_REVIEW_LOADING.loadingPromotionBatch
+                                    : "Create publish batch (all ready)"}
                             </button>
                             <button
                                 type="button"
-                                onClick={() => void handleCreate()}
-                                disabled={!canCreate || isDryRunning || isCreating}
-                                className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+                                onClick={() => void handleDryRun()}
+                                disabled={
+                                    !createBody ||
+                                    isDryRunning ||
+                                    isCreating ||
+                                    limitsEvaluation.missingConfirmations.some(
+                                        (key) => key !== "confirm_large_batch"
+                                    )
+                                }
+                                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50 disabled:opacity-50"
                             >
-                                {isCreating ? IMPORT_REVIEW_LOADING.loadingPromotionBatch : "Create publish batch"}
+                                {isDryRunning ? "Previewing…" : "Preview batch (dry-run)"}
                             </button>
                         </div>
+                        {!canCreateBatch && activeReviewBatchId && selectedFamilies.length > 0 && !eligibilityLoading ? (
+                            <p className="mt-3 text-sm text-amber-800">
+                                Cannot create batch yet — resolve blocked items or adjust family selection.
+                            </p>
+                        ) : null}
                         {dryRunResult ? (
-                            <div className="mt-4">
-                                <DryRunResultPanel result={dryRunResult} />
+                            <p className="mt-3 text-sm text-blue-900">
+                                Preview: {dryRunResult.totals.included.toLocaleString()} would be included,{" "}
+                                {dryRunResult.totals.skipped.toLocaleString()} skipped.
+                            </p>
+                        ) : null}
+                        {batches.length > 0 ? (
+                            <div className="mt-6 border-t border-gray-100 pt-4">
+                                <p className="text-sm font-medium text-gray-900">Continue on an existing batch</p>
+                                <ul className="mt-2 space-y-2">
+                                    {batches.slice(0, 5).map((b) => (
+                                        <li key={b.id} className="flex flex-wrap items-center gap-2 text-sm">
+                                            <span className="font-mono text-xs text-gray-600">#{b.id}</span>
+                                            <span className="font-medium text-gray-900">{b.batch_name}</span>
+                                            <PromotionStatusBadge value={b.derived_status ?? b.status} />
+                                            <Link
+                                                href={`${importReviewPath("promotion")}/${b.id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`}
+                                                prefetch={false}
+                                                className="font-medium text-emerald-800 hover:underline"
+                                            >
+                                                Validate → Promote → Verify
+                                            </Link>
+                                        </li>
+                                    ))}
+                                </ul>
                             </div>
                         ) : null}
                     </PromotionCardBody>
@@ -760,70 +852,16 @@ export default function ImportReviewPromotionClient() {
                 <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
                     <PromotionCardBody>
                         <PromotionSectionHeading
-                            id="promotion-batches"
-                            title="Existing publish batches"
-                            subtitle={
-                                activeReviewBatchId
-                                    ? batchesTotal > 0
-                                        ? `${batchesTotal} batch(es) for review batch ${activeReviewBatchId}.`
-                                        : "No batches created for this review batch yet."
-                                    : "Select a review batch to list publish batches."
-                            }
+                            title="5. History"
+                            subtitle="Audit past review and publish batches."
                         />
-                        {batchesLoading && batches.length === 0 ? (
-                            <div className="mt-4">
-                                <ImportReviewLoadingBannerWithSpinner
-                                    message={IMPORT_REVIEW_LOADING.loadingPromotionBatch}
-                                />
-                            </div>
-                        ) : batches.length === 0 ? (
-                            <ImportReviewStatusBanner message="No publish batches yet." tone="info" compact />
-                        ) : (
-                            <div className="mt-4 overflow-x-auto rounded-md border border-gray-200">
-                                <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-                                    <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                                        <tr>
-                                            <th className="px-4 py-3">ID</th>
-                                            <th className="px-4 py-3">Name</th>
-                                            <th className="px-4 py-3">Status</th>
-                                            <th className="px-4 py-3">Items</th>
-                                            <th className="px-4 py-3">Success</th>
-                                            <th className="px-4 py-3">Failed</th>
-                                            <th className="px-4 py-3">Created</th>
-                                            <th className="px-4 py-3" />
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-200 bg-white">
-                                        {batches.map((b) => (
-                                            <tr key={b.id}>
-                                                <td className="px-4 py-3 font-mono text-xs">{b.id}</td>
-                                                <td className="px-4 py-3 font-medium text-gray-900">{b.batch_name}</td>
-                                                <td className="px-4 py-3">
-                                                    <PromotionStatusBadge value={b.derived_status ?? b.status} />
-                                                </td>
-                                                <td className="px-4 py-3 tabular-nums">{b.total_item_count}</td>
-                                                <td className="px-4 py-3 tabular-nums text-emerald-700">
-                                                    {b.success_count}
-                                                </td>
-                                                <td className="px-4 py-3 tabular-nums text-red-700">{b.failed_count}</td>
-                                                <td className="px-4 py-3 whitespace-nowrap text-gray-600">
-                                                    {new Date(b.created_at).toLocaleString()}
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    <Link
-                                                        href={`${importReviewPath("promotion")}/${b.id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`}
-                                                        prefetch={false}
-                                                        className="text-sm font-medium text-emerald-800 hover:underline"
-                                                    >
-                                                        View details
-                                                    </Link>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                        <Link
+                            href={importReviewHistoryHref()}
+                            prefetch={false}
+                            className="mt-3 inline-flex rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                        >
+                            Open promotion history
+                        </Link>
                     </PromotionCardBody>
                 </section>
             </div>
@@ -836,7 +874,7 @@ export default function ImportReviewPromotionClient() {
                 familyLabel={eligibilityDetailsSelection?.label ?? ""}
                 bucket={eligibilityDetailsSelection?.bucket ?? "ready"}
                 includeWarnings={includeWarnings}
-                formatError={formatPromotionError}
+                formatError={formatImportReviewPromotionError}
             />
         </main>
     );

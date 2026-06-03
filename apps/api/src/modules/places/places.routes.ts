@@ -6,6 +6,8 @@ import {
     placesQuerySchema,
     updatePlaceBodySchema,
 } from "./places.schema.js";
+import { EntityAdminAreaRepository } from "../entity-admin-area/entity-admin-area.repo.js";
+import { EntityAdminAreaService } from "../entity-admin-area/entity-admin-area.service.js";
 import { PlacesRepository } from "./places.repo.js";
 import { PlaceNotFoundError, PlacesService, PlaceValidationError } from "./places.service.js";
 import {
@@ -49,7 +51,8 @@ function sanitizePlacePatchBody(body: unknown) {
 
 const placesRoutes: FastifyPluginAsync = async (app) => {
     const placesRepo = new PlacesRepository(app.prisma);
-    const placesService = new PlacesService(placesRepo);
+    const entityAdminAreaService = new EntityAdminAreaService(new EntityAdminAreaRepository(app.prisma));
+    const placesService = new PlacesService(placesRepo, entityAdminAreaService);
 
     app.get(
         "/places",
@@ -151,7 +154,7 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
             }
 
             try {
-                const createdPlace = await placesService.createPlace(parsed.data);
+                const createdPlace = await placesService.createPlace(parsed.data, request.user);
                 return reply.code(201).send(createdPlace);
             } catch (error) {
                 if (error instanceof PlaceValidationError) {
@@ -211,7 +214,8 @@ const placesRoutes: FastifyPluginAsync = async (app) => {
             try {
                 const updatedPlace = await placesService.updatePlace(
                     paramsParsed.data.id,
-                    bodyParsed.data
+                    bodyParsed.data,
+                    request.user
                 );
 
                 return reply.send(updatedPlace);

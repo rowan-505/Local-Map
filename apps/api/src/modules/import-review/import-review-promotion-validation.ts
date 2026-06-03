@@ -1,28 +1,45 @@
 import type { FastifyBaseLogger } from "fastify";
-import { Prisma } from "@prisma/client";
 
+import { batchPromotionBlocksValidationReset } from "./import-review-promotion-batch-status.js";
 import { isValidatablePublishFamily, PROMOTABLE_PUBLISH_FAMILIES } from "./import-review-promotion-config.js";
 import {
     ImportReviewPublishBatchInvalidStatusError,
     ImportReviewPublishBatchNotFoundError,
     ImportReviewPublishBatchValidationConflictError,
+    ImportReviewPublishBatchValidationNotRunningError,
+    ImportReviewPublishBatchValidationResetError,
 } from "./import-review-promotion.errors.js";
-import { ImportReviewPromotionValidationRules } from "./import-review-promotion-validation-rules.js";
 import {
-    IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES,
+    ImportReviewPromotionSimpleBatchValidation,
+    type PublishItemSimpleValidationOutcome,
+} from "./import-review-promotion-simple-batch-validation.js";
+import { computePublishBatchValidationFinalize } from "./import-review-promotion-validation-summary.js";
+import {
     IMPORT_REVIEW_PUBLISH_VALIDATION_STAGES,
     type ImportReviewPublishBatchEntityValidationCounts,
     type ImportReviewPublishBatchValidationResult,
-    type ImportReviewPublishItemValidationStageKey,
     type ImportReviewPublishValidationStageKey,
     type ImportReviewValidationIssue,
     type ImportReviewValidationSeverity,
 } from "./import-review-promotion-validation.types.js";
 import {
-    IMPORT_REVIEW_VALIDATION_CHUNK_SIZE,
     ImportReviewPromotionValidationRepository,
     type PublishItemEntityRow,
 } from "./import-review-promotion-validation.repo.js";
+import {
+    buildValidateCandidateStateStageHeartbeatDetails,
+    buildValidatePublishBatchProgressMessage,
+    type ValidatePublishBatchChunkHeartbeat,
+    type ValidatePublishBatchProgressEvent,
+} from "./import-review-promotion-validation-progress.js";
+import {
+    extractStageLogHeartbeatIso,
+    heartbeatAnchorAt,
+    ImportReviewPublishBatchValidationAbortedError,
+    isValidationHeartbeatStale,
+    isValidationHeartbeatStalled,
+    type ImportReviewValidationHeartbeatState,
+} from "./import-review-promotion-validation-control.js";
 import { assertPublishBatchHasNoDeprecatedCoreBusItems } from "./import-review-transport-promotion-deprecated.js";
 
 const runningBatchIds = new Set<bigint>();
@@ -54,73 +71,6 @@ function progressBetweenStages(
     }
     const ratio = Math.min(1, Math.max(0, done / total));
     return prevEnd + (nextEnd - prevEnd) * ratio;
-}
-
-function itemsFullyValidated(globalStagePasses: number, totalItems: number): number {
-    const stageCount = IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES.length;
-    if (stageCount <= 0 || totalItems <= 0) {
-        return 0;
-    }
-    return Math.min(Math.floor(globalStagePasses / stageCount), totalItems);
-}
-
-function mergeIssues(
-    state: Map<string, ItemIssueState>,
-    rows: {
-        publish_item_id: bigint;
-        code: string;
-        message: string;
-        severity: ImportReviewValidationSeverity;
-        entity_family?: string;
-    }[],
-    stageKey: ImportReviewPublishValidationStageKey,
-    entityFamily: string
-): void {
-    for (const row of rows) {
-        const id = row.publish_item_id.toString();
-        let entry = state.get(id);
-        if (!entry) {
-            continue;
-        }
-        if (entry.skipped) {
-            continue;
-        }
-        entry.issues.push({
-            code: row.code,
-            message: row.message,
-            severity: row.severity,
-            stage_key: stageKey,
-            entity_family: row.entity_family ?? entityFamily,
-        });
-        if (row.severity === "error") {
-            entry.blocked = true;
-        } else if (row.severity === "warning") {
-            entry.warned = true;
-        }
-    }
-}
-
-function formatValidationStageError(
-    err: unknown,
-    entityFamily: string,
-    stageKey: ImportReviewPublishItemValidationStageKey
-): string {
-    const stage = stageByKey(stageKey);
-    if (err instanceof Prisma.PrismaClientKnownRequestError) {
-        const meta = err.meta as { code?: string; message?: string } | undefined;
-        const pgCode = meta?.code ?? "";
-        const pgMessage = meta?.message ?? err.message;
-        if (pgCode === "42703" || pgMessage.includes("does not exist")) {
-            return [
-                `VALIDATION_SYSTEM_ERROR during ${stage.label} for ${entityFamily}:`,
-                pgMessage,
-                "An optional candidate column was referenced directly in validation SQL.",
-                "Re-run validation after deploying schema-aware validation fixes.",
-            ].join(" ");
-        }
-        return `VALIDATION_SYSTEM_ERROR during ${stage.label} for ${entityFamily}: ${pgMessage}`;
-    }
-    return err instanceof Error ? err.message : `Validation failed during ${stage.label} for ${entityFamily}.`;
 }
 
 function markUnsupportedSkipped(
@@ -169,11 +119,104 @@ function groupItemsByFamily(rows: PublishItemEntityRow[]): Map<string, bigint[]>
     return grouped;
 }
 
+function mergeSimpleValidationOutcomeIntoItemState(
+    outcome: PublishItemSimpleValidationOutcome,
+    itemState: Map<string, ItemIssueState>,
+    stageKey: ImportReviewPublishValidationStageKey
+): void {
+    const key = outcome.publish_item_id.toString();
+    const entry = itemState.get(key);
+    if (!entry) {
+        return;
+    }
+
+    entry.issues = [];
+    entry.blocked = false;
+    entry.warned = false;
+    entry.skipped = outcome.skipped;
+
+    const pushIssue = (
+        issue: { code: string; message: string; field?: string },
+        severity: ImportReviewValidationSeverity
+    ) => {
+        entry.issues.push({
+            code: issue.code,
+            message: issue.message,
+            severity,
+            stage_key: stageKey,
+            entity_family: outcome.entity_family,
+            ...(issue.field !== undefined ? { field: issue.field } : {}),
+        });
+        if (severity === "error") {
+            entry.blocked = true;
+        } else if (severity === "warning") {
+            entry.warned = true;
+        }
+    };
+
+    for (const err of outcome.result.errors) {
+        pushIssue(err, "error");
+    }
+    for (const warn of outcome.result.warnings) {
+        pushIssue(warn, "warning");
+    }
+
+    if (outcome.skipped) {
+        entry.warned = true;
+    } else if (outcome.status === "blocked") {
+        entry.blocked = true;
+    } else if (outcome.status === "warning") {
+        entry.warned = true;
+    }
+}
+
+function persistRowsFromSimpleValidationOutcomes(
+    outcomes: readonly PublishItemSimpleValidationOutcome[],
+    batchValidation: ImportReviewPromotionSimpleBatchValidation,
+    stageKey: ImportReviewPublishValidationStageKey
+): {
+    publishItemId: bigint;
+    status: string;
+    validationJson: Record<string, unknown>;
+    errorMessage: string | null;
+}[] {
+    return outcomes.map((outcome) => {
+        const errors = outcome.result.errors.map((e) => ({
+            ...e,
+            severity: "error" as const,
+            stage_key: stageKey,
+            entity_family: outcome.entity_family,
+        }));
+        const warnings = outcome.result.warnings.map((w) => ({
+            ...w,
+            severity: "warning" as const,
+            stage_key: stageKey,
+            entity_family: outcome.entity_family,
+        }));
+        const status = outcome.skipped
+            ? "skipped"
+            : outcome.status === "ready"
+              ? "ready"
+              : outcome.status === "warning"
+                ? "warning"
+                : "blocked";
+        const firstError = outcome.result.errors[0];
+        return {
+            publishItemId: outcome.publish_item_id,
+            status,
+            validationJson: batchValidation.toPersistedValidationJson(outcome),
+            errorMessage: firstError?.message ?? null,
+        };
+    });
+}
+
 export class ImportReviewPromotionValidationRunner {
-    private readonly rules: ImportReviewPromotionValidationRules;
+    private readonly simpleBatchValidation: ImportReviewPromotionSimpleBatchValidation;
 
     constructor(private readonly repo: ImportReviewPromotionValidationRepository) {
-        this.rules = new ImportReviewPromotionValidationRules(repo.getPrismaClient());
+        this.simpleBatchValidation = new ImportReviewPromotionSimpleBatchValidation(
+            repo.getPrismaClient()
+        );
     }
 
     isRunning(batchId: bigint): boolean {
@@ -193,18 +236,34 @@ export class ImportReviewPromotionValidationRunner {
             throw new ImportReviewPublishBatchNotFoundError(batchId.toString());
         }
 
-        if (before.status === "validating") {
-            throw new ImportReviewPublishBatchValidationConflictError(
-                batchId.toString(),
-                "Publish batch is already validating."
-            );
+        let batchRow = before;
+        if (batchRow.status === "validating") {
+            if (runningBatchIds.has(batchId)) {
+                throw new ImportReviewPublishBatchValidationConflictError(
+                    batchId.toString(),
+                    "Validation is already running for this publish batch."
+                );
+            }
+            const anchor = await this.resolveValidationHeartbeatAnchor(batchId, batchRow);
+            if (isValidationHeartbeatStale(anchor)) {
+                await this.repo.failStaleValidationBatch(batchId);
+                const refreshed = await this.repo.fetchBatchProgress(batchId);
+                if (refreshed) {
+                    batchRow = refreshed;
+                }
+            } else {
+                throw new ImportReviewPublishBatchValidationConflictError(
+                    batchId.toString(),
+                    "Publish batch is already validating. Cancel validation or wait for completion."
+                );
+            }
         }
 
-        if (!["draft", "blocked", "failed", "ready"].includes(before.status)) {
+        if (!["draft", "blocked", "failed", "ready", "partial"].includes(batchRow.status)) {
             throw new ImportReviewPublishBatchInvalidStatusError(
                 batchId.toString(),
-                before.status,
-                `Cannot validate publish batch with status=${before.status}.`
+                batchRow.status,
+                `Cannot validate publish batch with status=${batchRow.status}.`
             );
         }
 
@@ -243,6 +302,138 @@ export class ImportReviewPromotionValidationRunner {
         };
     }
 
+    async cancelValidation(batchId: bigint): Promise<{ batch_id: string; status: string; message: string }> {
+        const batch = await this.repo.fetchBatchProgress(batchId);
+        if (!batch) {
+            throw new ImportReviewPublishBatchNotFoundError(batchId.toString());
+        }
+        if (batch.status !== "validating") {
+            throw new ImportReviewPublishBatchValidationNotRunningError(
+                batchId.toString(),
+                batch.status,
+                `Cannot cancel validation when batch status is ${batch.status}.`
+            );
+        }
+
+        await this.repo.requestValidationCancel(batchId);
+
+        const anchor = await this.resolveValidationHeartbeatAnchor(batchId, batch);
+        const workerInProcess = runningBatchIds.has(batchId);
+        const heartbeatStalled = isValidationHeartbeatStalled(anchor);
+
+        if (!workerInProcess || heartbeatStalled) {
+            await this.repo.finalizeValidationAborted(batchId, "cancelled");
+            runningBatchIds.delete(batchId);
+            return {
+                batch_id: batchId.toString(),
+                status: "failed",
+                message: heartbeatStalled
+                    ? "Validation cancelled (worker was not responding)."
+                    : "Validation cancelled.",
+            };
+        }
+
+        return {
+            batch_id: batchId.toString(),
+            status: "validating",
+            message: "Validation cancel requested; worker stops at the next checkpoint.",
+        };
+    }
+
+    async resetValidation(batchId: bigint): Promise<{ batch_id: string; status: string; message: string }> {
+        const batch = await this.repo.fetchBatchProgress(batchId);
+        if (!batch) {
+            throw new ImportReviewPublishBatchNotFoundError(batchId.toString());
+        }
+        if (
+            batchPromotionBlocksValidationReset({
+                status: batch.status,
+                promoted_at: batch.promoted_at,
+                success_count: null,
+                summary: batch.summary,
+            })
+        ) {
+            throw new ImportReviewPublishBatchValidationResetError(
+                batchId.toString(),
+                "Cannot reset validation on a promoted publish batch."
+            );
+        }
+        if (batch.status === "promoting") {
+            throw new ImportReviewPublishBatchValidationResetError(
+                batchId.toString(),
+                "Cannot reset validation while batch is promoting."
+            );
+        }
+        if (batch.status === "validating") {
+            const anchor = await this.resolveValidationHeartbeatAnchor(batchId, batch);
+            const workerInProcess = runningBatchIds.has(batchId);
+            const heartbeatStalled =
+                isValidationHeartbeatStalled(anchor) || isValidationHeartbeatStale(anchor);
+            const cancelRequested = batch.validation_cancel_requested_at != null;
+
+            if (workerInProcess && !heartbeatStalled && !cancelRequested) {
+                throw new ImportReviewPublishBatchValidationConflictError(
+                    batchId.toString(),
+                    "Validation is still running in this API process. Cancel validation first."
+                );
+            }
+
+            const reason: "cancelled" | "stale_worker" = cancelRequested ? "cancelled" : "stale_worker";
+            await this.repo.finalizeValidationAborted(batchId, reason);
+            runningBatchIds.delete(batchId);
+        } else if (runningBatchIds.has(batchId)) {
+            throw new ImportReviewPublishBatchValidationConflictError(
+                batchId.toString(),
+                "Validation is still running in this API process. Cancel validation first."
+            );
+        }
+
+        await this.repo.resetValidationState(batchId);
+        return {
+            batch_id: batchId.toString(),
+            status: "draft",
+            message: "Validation state reset. Publish items were kept; validation results cleared.",
+        };
+    }
+
+    private async resolveValidationHeartbeatAnchor(
+        batchId: bigint,
+        batch: ImportReviewValidationHeartbeatState
+    ): Promise<Date | null> {
+        const logs = await this.repo.listStageLogs(batchId);
+        const runningCandidate = logs.find(
+            (l) => l.stage_key === "validate_candidate_state" && l.stage_status === "running"
+        );
+        const stageIso = runningCandidate
+            ? extractStageLogHeartbeatIso(runningCandidate.details)
+            : null;
+        return heartbeatAnchorAt(batch, stageIso);
+    }
+
+    private async ensureNotAborted(batchId: bigint): Promise<void> {
+        if (await this.repo.isValidationCancelRequested(batchId)) {
+            throw new ImportReviewPublishBatchValidationAbortedError(
+                batchId.toString(),
+                "cancelled",
+                "Validation cancelled."
+            );
+        }
+    }
+
+    private async handleValidationAborted(
+        batchId: bigint,
+        err: ImportReviewPublishBatchValidationAbortedError,
+        _progressTotal: number,
+        log?: FastifyBaseLogger
+    ): Promise<void> {
+        await this.repo.finalizeValidationAborted(batchId, err.reason);
+
+        log?.info(
+            { batchId: batchId.toString(), reason: err.reason },
+            "[import-review] publish validation aborted"
+        );
+    }
+
     private async runValidation(batchId: bigint, log?: FastifyBaseLogger): Promise<void> {
         let itemRows: PublishItemEntityRow[] = [];
         let itemState = new Map<string, ItemIssueState>();
@@ -251,6 +442,7 @@ export class ImportReviewPromotionValidationRunner {
         let validatableItemTotal = 0;
 
         try {
+            await this.ensureNotAborted(batchId);
             await this.runStage(batchId, "load_batch", async () => {
                 const batch = await this.repo.fetchBatchProgress(batchId);
                 if (!batch) {
@@ -310,29 +502,22 @@ export class ImportReviewPromotionValidationRunner {
             }
 
             const progressTotal = validatableItemTotal || validationTotal || 1;
-            let globalStagePasses = 0;
 
-            for (const stageKey of IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES) {
-                const stageOk = await this.runMultiFamilyItemStage({
-                    batchId,
-                    stageKey,
-                    groupedItems,
-                    itemState,
-                    progressTotal,
-                    globalStagePassesRef: { value: globalStagePasses },
-                    onProgress: (passes) => {
-                        globalStagePasses = passes;
-                    },
-                });
-                if (!stageOk) {
-                    return;
-                }
+            const simpleValidationOk = await this.runSimplePublishItemValidation({
+                batchId,
+                itemRows,
+                itemState,
+                progressTotal,
+                log,
+            });
+            if (!simpleValidationOk) {
+                return;
             }
 
             await this.runStage(batchId, "write_validation_summary", async () => {
                 const actionCounts = await this.repo.fetchItemActionCounts(batchId);
 
-                let validCount = 0;
+                let readyCount = 0;
                 let warningCount = 0;
                 let blockedCount = 0;
                 let skippedCount = 0;
@@ -340,7 +525,14 @@ export class ImportReviewPromotionValidationRunner {
                 const byEntity: Record<string, ImportReviewPublishBatchEntityValidationCounts> = {};
                 const initEntity = (family: string): ImportReviewPublishBatchEntityValidationCounts => {
                     if (!byEntity[family]) {
-                        byEntity[family] = { total: 0, valid: 0, warning: 0, blocked: 0, skipped: 0 };
+                        byEntity[family] = {
+                            total: 0,
+                            ready: 0,
+                            valid: 0,
+                            warning: 0,
+                            blocked: 0,
+                            skipped: 0,
+                        };
                     }
                     return byEntity[family];
                 };
@@ -348,7 +540,7 @@ export class ImportReviewPromotionValidationRunner {
                 const persistRows: {
                     publishItemId: bigint;
                     status: string;
-                    issues: ImportReviewValidationIssue[];
+                    validationJson: Record<string, unknown>;
                     errorMessage: string | null;
                 }[] = [];
 
@@ -364,7 +556,7 @@ export class ImportReviewPromotionValidationRunner {
                     const bucket = initEntity(row.entity_family);
                     bucket.total += 1;
 
-                    let status: "valid" | "warning" | "blocked" | "skipped" = "valid";
+                    let status: "ready" | "warning" | "blocked" | "skipped" = "ready";
                     if (state.skipped) {
                         status = "skipped";
                         skippedCount += 1;
@@ -378,15 +570,23 @@ export class ImportReviewPromotionValidationRunner {
                         warningCount += 1;
                         bucket.warning += 1;
                     } else {
-                        validCount += 1;
+                        readyCount += 1;
+                        bucket.ready += 1;
                         bucket.valid += 1;
                     }
 
-                    const firstError = state.issues.find((i) => i.severity === "error");
+                    const errors = state.issues.filter((i) => i.severity === "error");
+                    const warnings = state.issues.filter((i) => i.severity === "warning");
+                    const firstError = errors[0];
                     persistRows.push({
                         publishItemId: row.id,
                         status,
-                        issues: state.issues,
+                        validationJson: {
+                            status,
+                            errors,
+                            warnings,
+                            issues: state.issues,
+                        },
                         errorMessage: firstError?.message ?? null,
                     });
                 }
@@ -395,20 +595,16 @@ export class ImportReviewPromotionValidationRunner {
 
                 const promotableFamilies = PROMOTABLE_PUBLISH_FAMILIES.filter(
                     (family) =>
-                        (byEntity[family]?.valid ?? 0) + (byEntity[family]?.warning ?? 0) > 0
+                        (byEntity[family]?.ready ?? 0) + (byEntity[family]?.warning ?? 0) > 0
                 );
-                const canPromote = blockedCount === 0 && promotableFamilies.length > 0;
-                const requiresWarningConfirmation = warningCount > 0;
 
-                const validationResult: ImportReviewPublishBatchValidationResult = {
-                    outcome: blockedCount > 0 ? "blocked" : "passed",
-                    can_promote: canPromote,
-                    requires_warning_confirmation: requiresWarningConfirmation,
-                    valid_count: validCount,
-                    warning_count: warningCount,
-                    blocked_count: blockedCount,
-                    skipped_count: skippedCount,
-                    total_items: validationTotal,
+                const finalized = computePublishBatchValidationFinalize({
+                    readyCount,
+                    warningCount,
+                    blockedCount,
+                    skippedCount,
+                    totalCount: validationTotal,
+                    promotableFamiliesCount: promotableFamilies.length,
                     by_publish_action: {
                         insert: actionCounts.insert,
                         update: actionCounts.update,
@@ -419,26 +615,15 @@ export class ImportReviewPromotionValidationRunner {
                         ...new Set(itemRows.map((row) => row.entity_family)),
                     ].sort(),
                     promotable_entity_families: [...promotableFamilies],
-                };
-
-                let logsSummary: string;
-                if (blockedCount > 0) {
-                    logsSummary = `Validation blocked. ${blockedCount} item(s) have errors.`;
-                } else if (requiresWarningConfirmation) {
-                    logsSummary = `Validation passed with ${warningCount} warning(s). Confirmation required before promotion.`;
-                } else {
-                    logsSummary = "Validation passed. Batch is ready for promotion.";
-                }
-
-                const finalStatus = blockedCount > 0 ? "blocked" : "ready";
+                });
 
                 await this.repo.finalizeBatch({
                     batchId,
-                    status: finalStatus,
+                    status: finalized.batchStatus,
                     validationTotal,
                     summary: {
-                        validation_result: validationResult,
-                        validation_logs_summary: logsSummary,
+                        validation_result: finalized.validationResult,
+                        validation_logs_summary: finalized.logsSummary,
                     },
                 });
 
@@ -450,139 +635,219 @@ export class ImportReviewPromotionValidationRunner {
                 });
 
                 return {
-                    message: logsSummary,
-                    details: validationResult as unknown as Record<string, unknown>,
-                    stageStatus: blockedCount > 0 ? "warning" : requiresWarningConfirmation ? "warning" : "success",
+                    message: finalized.logsSummary,
+                    details: finalized.validationResult as unknown as Record<string, unknown>,
+                    stageStatus: finalized.stageStatus,
                 };
             });
         } catch (err) {
-            const message = err instanceof Error ? err.message : "Validation failed unexpectedly.";
-            log?.error({ err, batchId: batchId.toString() }, "publish batch validation failed");
-            await this.repo.failBatch(batchId, message);
+            if (err instanceof ImportReviewPublishBatchValidationAbortedError) {
+                await this.handleValidationAborted(
+                    batchId,
+                    err,
+                    validatableItemTotal || validationTotal || 1,
+                    log
+                );
+            } else {
+                const message = err instanceof Error ? err.message : "Validation failed unexpectedly.";
+                log?.error({ err, batchId: batchId.toString() }, "publish batch validation failed");
+                await this.repo.failRunningValidationStages(batchId, "stale_worker", message);
+                await this.repo.skipPendingValidationStages(batchId, "Skipped (validation failed).");
+                await this.repo.failBatch(batchId, message);
+            }
         } finally {
             runningBatchIds.delete(batchId);
         }
     }
 
-    private async runMultiFamilyItemStage(args: {
+    private async runSimplePublishItemValidation(args: {
         batchId: bigint;
-        stageKey: ImportReviewPublishItemValidationStageKey;
-        groupedItems: Map<string, bigint[]>;
+        itemRows: PublishItemEntityRow[];
         itemState: Map<string, ItemIssueState>;
         progressTotal: number;
-        globalStagePassesRef: { value: number };
-        onProgress: (passes: number) => void;
+        log?: FastifyBaseLogger;
     }): Promise<boolean> {
-        const stage = stageByKey(args.stageKey);
-        const prevStage =
-            IMPORT_REVIEW_PUBLISH_VALIDATION_STAGES[
-                IMPORT_REVIEW_PUBLISH_VALIDATION_STAGES.indexOf(stage) - 1
-            ];
-        const prevEnd = prevStage?.progressEnd ?? 0;
-        const stageCount = IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES.length;
+        const stageKey = "validate_candidate_state" as ImportReviewPublishValidationStageKey;
+        const stage = stageByKey(stageKey);
+        const prevEnd = stageByKey("group_by_entity").progressEnd;
 
         await this.repo.updateStageLog({
             batchId: args.batchId,
-            stageKey: args.stageKey,
+            stageKey,
             stageStatus: "running",
-            message: `Running ${stage.label.toLowerCase()}…`,
+            message: "Validating publish items (typed columns per family)…",
             progressPercent: prevEnd,
             details: {
                 process_state: "running",
-                stage_count: stageCount,
-                item_processed_count: 0,
+                engine: "import-review-promotion-simple-validation",
+                processed_count: 0,
                 total_item_count: args.progressTotal,
+                elapsed_ms: 0,
+                last_heartbeat_at: new Date().toISOString(),
             },
         });
 
-        let stageDone = 0;
-        let currentFamily = "unknown";
-        const validatableFamilies = [...args.groupedItems.entries()].filter(([family]) =>
-            isValidatablePublishFamily(family)
-        );
-
         try {
-            for (const [family, familyItemIds] of validatableFamilies) {
-                currentFamily = family;
-                for (let i = 0; i < familyItemIds.length; i += IMPORT_REVIEW_VALIDATION_CHUNK_SIZE) {
-                    const chunk = familyItemIds.slice(i, i + IMPORT_REVIEW_VALIDATION_CHUNK_SIZE);
-                    const rows = await this.rules.validateStage(args.stageKey, family, chunk);
-                    mergeIssues(args.itemState, rows, args.stageKey, family);
-                    stageDone += chunk.length;
-                    args.globalStagePassesRef.value += chunk.length;
-                    args.onProgress(args.globalStagePassesRef.value);
-
-                    const itemsValidated = itemsFullyValidated(
-                        args.globalStagePassesRef.value,
-                        args.progressTotal
-                    );
-                    const percent = progressBetweenStages(
-                        prevEnd,
-                        stage.progressEnd,
-                        itemsValidated,
-                        args.progressTotal
-                    );
-                    await this.repo.updateBatchProgress({
-                        batchId: args.batchId,
-                        validationDone: itemsValidated,
-                        validationPercent: Math.round(percent * 100) / 100,
+            await this.ensureNotAborted(args.batchId);
+            const outcomes = await this.simpleBatchValidation.validatePublishBatch(args.batchId, {
+                shouldAbort: async () => this.repo.isValidationCancelRequested(args.batchId),
+                onProgress: async (event) => {
+                    await this.handleValidatePublishBatchProgress({
+                        event,
+                        progressTotal: args.progressTotal,
+                        stageProgressStart: prevEnd,
+                        stageProgressEnd: stage.progressEnd,
+                        log: args.log,
                     });
-                    await this.repo.updateStageLog({
-                        batchId: args.batchId,
-                        stageKey: args.stageKey,
-                        stageStatus: "running",
-                        message: `Validating ${family} (${stageDone}/${familyItemIds.length} in stage)…`,
-                        progressPercent: Math.round(percent * 100) / 100,
-                        details: {
-                            entity_family: family,
-                            process_state: "running",
-                            stage_count: stageCount,
-                            item_processed_count: stageDone,
-                            total_item_count: args.progressTotal,
-                            counts: { done: stageDone, family_total: familyItemIds.length },
+                },
+                onChunkComplete: async (chunkEvent) => {
+                    await this.ensureNotAborted(args.batchId);
+                    for (const outcome of chunkEvent.outcomes) {
+                        mergeSimpleValidationOutcomeIntoItemState(
+                            outcome,
+                            args.itemState,
+                            stageKey
+                        );
+                    }
+                    await this.repo.persistItemValidationResults(
+                        persistRowsFromSimpleValidationOutcomes(
+                            chunkEvent.outcomes,
+                            this.simpleBatchValidation,
+                            stageKey
+                        )
+                    );
+                    await this.handleValidatePublishBatchProgress({
+                        event: {
+                            batchId: chunkEvent.batchId,
+                            done: chunkEvent.done,
+                            total: chunkEvent.total,
+                            family: chunkEvent.family,
+                            candidateId: chunkEvent.lastCandidateId,
+                            stageKey: "validate_candidate_state",
+                            message: buildValidatePublishBatchProgressMessage({
+                                done: chunkEvent.done,
+                                total: chunkEvent.total,
+                                family: chunkEvent.family,
+                            }),
+                            elapsedMs: chunkEvent.elapsedMs,
                         },
+                        progressTotal: args.progressTotal,
+                        stageProgressStart: prevEnd,
+                        stageProgressEnd: stage.progressEnd,
+                        chunk: {
+                            chunkIndex: chunkEvent.chunkIndex,
+                            chunkSize: chunkEvent.chunkSize,
+                        },
+                        log: args.log,
                     });
-                }
-            }
-        } catch (err) {
-            const message = formatValidationStageError(err, currentFamily, args.stageKey);
+                },
+            });
+
+            await this.ensureNotAborted(args.batchId);
+
+            const processedCount = outcomes.length;
+            await this.repo.updateBatchProgress({
+                batchId: args.batchId,
+                validationTotal: args.progressTotal,
+                validationDone: processedCount,
+                validationPercent: stage.progressEnd,
+            });
+
+            const flagged = outcomes.filter((o) => o.result.status !== "ready").length;
             await this.repo.updateStageLog({
                 batchId: args.batchId,
-                stageKey: args.stageKey,
+                stageKey,
+                stageStatus: flagged > 0 ? "warning" : "success",
+                message: `Simple validation complete (${flagged} item(s) with warnings or blockers).`,
+                progressPercent: stage.progressEnd,
+                details: {
+                    flagged_items: flagged,
+                    process_state: "completed",
+                    engine: "import-review-promotion-simple-validation",
+                    processed_count: processedCount,
+                    total_item_count: args.progressTotal,
+                },
+                finished: true,
+            });
+            return true;
+        } catch (err) {
+            if (err instanceof ImportReviewPublishBatchValidationAbortedError) {
+                await this.handleValidationAborted(
+                    args.batchId,
+                    err,
+                    args.progressTotal,
+                    args.log
+                );
+                return false;
+            }
+            const message =
+                err instanceof Error ? err.message : "Simple publish-item validation failed.";
+            const progress = await this.repo.fetchBatchProgress(args.batchId);
+            await this.repo.updateStageLog({
+                batchId: args.batchId,
+                stageKey,
                 stageStatus: "failed",
                 message,
-                progressPercent: prevEnd,
+                progressPercent: progress?.validation_percent ?? prevEnd,
                 details: {
-                    entity_family: currentFamily,
                     process_state: "failed",
-                    failed_check: args.stageKey,
+                    engine: "import-review-promotion-simple-validation",
+                    processed_count: progress?.validation_done ?? 0,
+                    total_item_count: args.progressTotal,
+                    error_message: message,
                 },
                 finished: true,
             });
             await this.repo.failBatch(args.batchId, message);
             return false;
         }
+    }
 
-        const issueCount = [...args.itemState.values()].filter((s) =>
-            s.issues.some((i) => i.stage_key === args.stageKey && i.severity !== "info")
-        ).length;
+    private async handleValidatePublishBatchProgress(args: {
+        event: ValidatePublishBatchProgressEvent;
+        progressTotal: number;
+        stageProgressStart: number;
+        stageProgressEnd: number;
+        chunk?: ValidatePublishBatchChunkHeartbeat;
+        log?: FastifyBaseLogger;
+    }): Promise<void> {
+        const total = Math.max(args.progressTotal, args.event.total, 1);
+        const percent = progressBetweenStages(
+            args.stageProgressStart,
+            args.stageProgressEnd,
+            args.event.done,
+            total
+        );
+        const roundedPercent = Math.round(percent * 100) / 100;
 
-        await this.repo.updateStageLog({
-            batchId: args.batchId,
-            stageKey: args.stageKey,
-            stageStatus: issueCount > 0 ? "warning" : "success",
-            message: `${stage.label} complete (${issueCount} item(s) flagged).`,
-            progressPercent: stage.progressEnd,
-            details: {
-                flagged_items: issueCount,
-                process_state: "completed",
-                stage_count: stageCount,
-                item_processed_count: args.progressTotal,
-                total_item_count: args.progressTotal,
-            },
-            finished: true,
+        await this.repo.updateValidationHeartbeat({
+            batchId: args.event.batchId,
+            stageKey: args.event.stageKey,
+            validationTotal: total,
+            validationDone: args.event.done,
+            validationPercent: roundedPercent,
+            message: args.event.message,
+            stageLogDetails: buildValidateCandidateStateStageHeartbeatDetails(
+                args.event,
+                args.chunk
+            ),
         });
-        return true;
+
+        args.log?.info(
+            {
+                batchId: args.event.batchId.toString(),
+                done: args.event.done,
+                total: args.event.total,
+                family: args.event.family,
+                candidateId: args.event.candidateId.toString(),
+                elapsedMs: args.event.elapsedMs,
+                validationPercent: roundedPercent,
+                ...(args.chunk?.chunkIndex !== undefined
+                    ? { chunkIndex: args.chunk.chunkIndex, chunkSize: args.chunk.chunkSize }
+                    : {}),
+            },
+            "[import-review] publish validation progress"
+        );
     }
 
     private async runStage(
@@ -594,7 +859,9 @@ export class ImportReviewPromotionValidationRunner {
             stageStatus?: string;
         }>
     ): Promise<boolean> {
+        await this.ensureNotAborted(batchId);
         const stage = stageByKey(stageKey);
+        await this.repo.touchValidationHeartbeat(batchId);
         await this.repo.updateStageLog({
             batchId,
             stageKey,
@@ -623,6 +890,9 @@ export class ImportReviewPromotionValidationRunner {
             });
             return true;
         } catch (err) {
+            if (err instanceof ImportReviewPublishBatchValidationAbortedError) {
+                throw err;
+            }
             const message = err instanceof Error ? err.message : "Stage failed.";
             await this.repo.updateStageLog({
                 batchId,
@@ -632,6 +902,7 @@ export class ImportReviewPromotionValidationRunner {
                 progressPercent: stage.progressEnd,
                 finished: true,
             });
+            await this.repo.skipPendingValidationStages(batchId, "Skipped (validation failed).");
             await this.repo.failBatch(batchId, message);
             return false;
         }

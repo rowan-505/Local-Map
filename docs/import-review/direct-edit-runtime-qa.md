@@ -2,6 +2,8 @@
 
 This checklist is for **runtime/browser QA** and **API smoke QA** (not static route consistency).
 
+**Related:** [direct-edit-promotion-contract.md](./direct-edit-promotion-contract.md) (promotion flow after edits), [simple-promotion-runtime-qa.md](./simple-promotion-runtime-qa.md) (validate → promote smoke + manual QA), [naming-contract.md](./naming-contract.md) (name fields).
+
 Do **not** mark a family PASS unless it was actually tested in browser and/or by smoke script.
 
 ## Scope

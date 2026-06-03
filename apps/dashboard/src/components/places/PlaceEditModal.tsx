@@ -26,7 +26,7 @@ import { coreReviewFitButtonLabel, placeCoordinatesToGeoJson } from "@/src/compo
 import { dashDevLog } from "@/src/lib/dashDevLog";
 import PlaceLinkedBuildingsPanel from "./PlaceLinkedBuildingsPanel";
 import PoiCategoryCombobox from "@/src/components/poi-categories/PoiCategoryCombobox";
-import { placeFormOptionToPoiCategory } from "@/src/lib/poi-category/display";
+import { buildPoiCategoryDropdownOptions } from "@/src/lib/poi-category/display";
 
 const scoreFieldSchema = z.union([z.number().finite(), z.literal("")]);
 
@@ -406,8 +406,9 @@ export default function PlaceEditModal({ open, placeId, onClose, onSaved }: Plac
                                                 <PoiCategoryCombobox
                                                     value={field.value}
                                                     onChange={field.onChange}
-                                                    options={options.categories.map((option) =>
-                                                        placeFormOptionToPoiCategory(option)
+                                                    options={buildPoiCategoryDropdownOptions(
+                                                        options.categories,
+                                                        { selectedValue: field.value }
                                                     )}
                                                     placeholder="Search category…"
                                                     allowEmpty={false}

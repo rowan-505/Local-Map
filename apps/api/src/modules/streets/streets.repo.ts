@@ -103,6 +103,7 @@ export type UpdateStreetInput = {
     tunnel?: boolean;
     verification_status?: string;
     is_verified?: boolean;
+    manual_override?: boolean;
 };
 
 export type CreateStreetInput = {
@@ -122,6 +123,7 @@ export type CreateStreetInput = {
     is_active?: boolean;
     verification_status?: string;
     is_verified?: boolean;
+    manual_override?: boolean;
 };
 
 export type StreetMutationContext = {
@@ -736,7 +738,7 @@ export class StreetsRepository {
                     ${input.is_oneway},
                     ${input.bridge},
                     ${input.tunnel},
-                    true,
+                    ${input.manual_override ?? false},
                     'published',
                     'needs_rebuild',
                     now(),

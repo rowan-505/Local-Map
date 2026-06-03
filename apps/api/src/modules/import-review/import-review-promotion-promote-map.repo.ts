@@ -1,4 +1,6 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+
+import type { PromotionDb } from "./import-review-promotion-db.js";
 
 import type { PromotablePublishEntityFamily } from "./import-review-promotion-config.js";
 import {
@@ -11,18 +13,20 @@ import {
 } from "./import-review-promotion-core-verification.js";
 import type { PromoteItemResult } from "./import-review-promotion-promote.types.js";
 import {
-    externalIdExpr,
     geomSourceExpr,
     lineToMultiLineStringSql,
     mapCandidateSrcColumns,
-    mapClassCodeExpr,
     mapPrepRow,
     mapReadyRow,
-    nameExpr,
     normalizedDataMergeExpr,
     polygonToMultiPolygonSql,
     sourceRefsMergeExpr,
 } from "./import-review-promotion-promote-sql.js";
+import {
+    promotionTypedClassCodeExpr,
+    promotionTypedExternalIdExpr,
+    promotionTypedNameExpr,
+} from "./import-review-promotion-typed-promote-sql.js";
 
 const WATER_LINE_CANDIDATE_TABLE = "import_review.water_line_candidates";
 const WATER_POLYGON_CANDIDATE_TABLE = "import_review.water_polygon_candidates";
@@ -70,11 +74,11 @@ function geomCaseSql(config: MapEntityConfig): Prisma.Sql {
 }
 
 function classCodeSql(config: MapEntityConfig, alias: string): Prisma.Sql {
-    return mapClassCodeExpr(alias, config.classCodeFallback);
+    return promotionTypedClassCodeExpr(alias, config.classCodeFallback);
 }
 
 export class ImportReviewPromotionPromoteMapRepository {
-    constructor(private readonly prisma: PrismaClient) {}
+    constructor(private readonly prisma: PromotionDb) {}
 
     async checkMapCoreExists(entityFamily: MapEntityFamily, targetId: bigint): Promise<boolean> {
         const config = MAP_ENTITY_CONFIG[entityFamily];
@@ -92,12 +96,21 @@ export class ImportReviewPromotionPromoteMapRepository {
         batchId: bigint,
         publishItemId: bigint
     ): Promise<PromoteItemResult> {
+        return this.insertMapEntityTx(this.prisma, entityFamily, batchId, publishItemId);
+    }
+
+    async insertMapEntityTx(
+        tx: PromotionDb,
+        entityFamily: MapEntityFamily,
+        batchId: bigint,
+        publishItemId: bigint
+    ): Promise<PromoteItemResult> {
         const config = MAP_ENTITY_CONFIG[entityFamily];
         const alias = config.candidateAlias;
         const verificationColumns = getCoreVerificationColumnsForEntity(config.entityKey);
         const srcColumns = mapCandidateSrcColumns(alias, config.candidateTable);
 
-        const rows = await this.prisma.$queryRaw<
+        const rows = await tx.$queryRaw<
             {
                 id: bigint;
                 external_id: string | null;
@@ -116,7 +129,7 @@ export class ImportReviewPromotionPromoteMapRepository {
                   AND spi.publish_batch_id = ${batchId}
             ),
             raw_geom AS (
-                SELECT s.*, ${geomSourceExpr("s")} AS g_raw FROM src AS s
+                SELECT s.*, ${geomSourceExpr("s", "candidate_geom")} AS g_raw FROM src AS s
             ),
             prep AS (
                 SELECT ${mapPrepRow(geomCaseSql(config))}
@@ -133,7 +146,7 @@ export class ImportReviewPromotionPromoteMapRepository {
             resolved AS (
                 SELECT
                     r.*,
-                    ${externalIdExpr("r")} AS resolved_external_id,
+                    ${promotionTypedExternalIdExpr("r")} AS resolved_external_id,
                     ${classCodeSql(config, "r")} AS resolved_class_code
                 FROM ready AS r
             ),
@@ -159,7 +172,7 @@ export class ImportReviewPromotionPromoteMapRepository {
             SELECT
                 g.local_staging_id,
                 g.resolved_external_id,
-                ${nameExpr("g")},
+                ${promotionTypedNameExpr("g")},
                 g.resolved_class_code,
                 ${normalizedDataMergeExpr("g", batchId)},
                 ${sourceRefsMergeExpr("g", batchId, config.entityFamily)},
@@ -211,12 +224,21 @@ export class ImportReviewPromotionPromoteMapRepository {
         batchId: bigint,
         publishItemId: bigint
     ): Promise<PromoteItemResult> {
+        return this.updateMapEntityTx(this.prisma, entityFamily, batchId, publishItemId);
+    }
+
+    async updateMapEntityTx(
+        tx: PromotionDb,
+        entityFamily: MapEntityFamily,
+        batchId: bigint,
+        publishItemId: bigint
+    ): Promise<PromoteItemResult> {
         const config = MAP_ENTITY_CONFIG[entityFamily];
         const alias = config.candidateAlias;
         const verificationColumns = getCoreVerificationColumnsForEntity(config.entityKey);
         const srcColumns = mapCandidateSrcColumns(alias, config.candidateTable);
 
-        const beforeRows = await this.prisma.$queryRaw<{ row_json: unknown }[]>`
+        const beforeRows = await tx.$queryRaw<{ row_json: unknown }[]>`
             SELECT to_jsonb(c) AS row_json
             FROM system.system_publish_items AS spi
             INNER JOIN ${Prisma.raw(config.candidateTable)} AS ${Prisma.raw(alias)}
@@ -239,7 +261,7 @@ export class ImportReviewPromotionPromoteMapRepository {
             };
         }
 
-        const rows = await this.prisma.$queryRaw<
+        const rows = await tx.$queryRaw<
             { id: bigint; external_id: string | null; name: string | null; class_code: string }[]
         >`
             WITH src AS (
@@ -253,7 +275,7 @@ export class ImportReviewPromotionPromoteMapRepository {
                   AND ${Prisma.raw(alias)}.matched_core_id IS NOT NULL
             ),
             raw_geom AS (
-                SELECT s.*, ${geomSourceExpr("s")} AS g_raw FROM src AS s
+                SELECT s.*, ${geomSourceExpr("s", "candidate_geom")} AS g_raw FROM src AS s
             ),
             prep AS (
                 SELECT ${mapPrepRow(geomCaseSql(config))}
@@ -267,7 +289,7 @@ export class ImportReviewPromotionPromoteMapRepository {
             resolved AS (
                 SELECT
                     r.*,
-                    ${externalIdExpr("r")} AS resolved_external_id,
+                    ${promotionTypedExternalIdExpr("r")} AS resolved_external_id,
                     ${classCodeSql(config, "r")} AS resolved_class_code
                 FROM ready AS r
             )
@@ -275,7 +297,7 @@ export class ImportReviewPromotionPromoteMapRepository {
             SET
                 source_staging_id = r.local_staging_id,
                 external_id = r.resolved_external_id,
-                name = ${nameExpr("r")},
+                name = ${promotionTypedNameExpr("r")},
                 class_code = r.resolved_class_code,
                 normalized_data = ${normalizedDataMergeExpr("r", batchId)},
                 source_refs = ${sourceRefsMergeExpr("r", batchId, config.entityFamily)},

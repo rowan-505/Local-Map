@@ -1,4 +1,6 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+
+import type { PromotionDb } from "./import-review-promotion-db.js";
 
 import type { PromoteItemResult } from "./import-review-promotion-promote.types.js";
 import {
@@ -81,8 +83,9 @@ function busStopCandidateReadyExprs(batchId: bigint): Prisma.Sql {
     `;
 }
 
+/** @deprecated import_review bus_stops promotion — use import_transport. Kept for verify helpers only. */
 export class ImportReviewPromotionPromoteBusStopsRepository {
-    constructor(private readonly prisma: PrismaClient) {}
+    constructor(private readonly prisma: PromotionDb) {}
 
     async checkBusStopCoreExists(targetId: bigint): Promise<boolean> {
         const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
@@ -96,8 +99,7 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
 
     async insertBusStop(batchId: bigint, publishItemId: bigint): Promise<PromoteItemResult> {
         try {
-            return await this.prisma.$transaction(async (tx) => {
-                const rows = await tx.$queryRaw<
+                const rows = await this.prisma.$queryRaw<
                     {
                         id: bigint;
                         external_id: string | null;
@@ -170,7 +172,7 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
                 `;
 
                 if (rows.length === 0) {
-                    const reason = await this.explainBusStopInsertBlocked(tx, batchId, publishItemId);
+                    const reason = await this.explainBusStopInsertBlocked(this.prisma, batchId, publishItemId);
                     return {
                         publish_item_id: publishItemId,
                         outcome: "failed",
@@ -183,7 +185,7 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
 
                 const row = rows[0]!;
                 const namesSynced = await this.syncBusStopNames(
-                    tx,
+                    this.prisma,
                     publishItemId,
                     row.id,
                     row.name
@@ -210,7 +212,6 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
                     },
                     ...verificationMeta,
                 };
-            });
         } catch (err) {
             return {
                 publish_item_id: publishItemId,
@@ -255,8 +256,7 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
         }
 
         try {
-            return await this.prisma.$transaction(async (tx) => {
-                const rows = await tx.$queryRaw<
+                const rows = await this.prisma.$queryRaw<
                     {
                         id: bigint;
                         external_id: string | null;
@@ -317,7 +317,7 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
                 `;
 
                 if (rows.length === 0) {
-                    const reason = await this.explainBusStopUpdateBlocked(tx, batchId, publishItemId);
+                    const reason = await this.explainBusStopUpdateBlocked(this.prisma, batchId, publishItemId);
                     return {
                         publish_item_id: publishItemId,
                         outcome: "failed",
@@ -330,7 +330,7 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
 
                 const row = rows[0]!;
                 const namesSynced = await this.syncBusStopNames(
-                    tx,
+                    this.prisma,
                     publishItemId,
                     row.id,
                     row.name
@@ -357,7 +357,6 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
                     },
                     ...verificationMeta,
                 };
-            });
         } catch (err) {
             return {
                 publish_item_id: publishItemId,
@@ -371,7 +370,7 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
     }
 
     private async explainBusStopInsertBlocked(
-        tx: Prisma.TransactionClient,
+        tx: PromotionDb,
         batchId: bigint,
         publishItemId: bigint
     ): Promise<string> {
@@ -412,7 +411,7 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
     }
 
     private async explainBusStopUpdateBlocked(
-        tx: Prisma.TransactionClient,
+        tx: PromotionDb,
         batchId: bigint,
         publishItemId: bigint
     ): Promise<string> {
@@ -448,7 +447,7 @@ export class ImportReviewPromotionPromoteBusStopsRepository {
     }
 
     private async syncBusStopNames(
-        tx: Prisma.TransactionClient,
+        tx: PromotionDb,
         publishItemId: bigint,
         stopId: bigint,
         displayName: string

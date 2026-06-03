@@ -63,6 +63,11 @@ import {
 } from "../utils/importReviewRequestDebug";
 import { useImportReviewBatchContext } from "./useImportReviewBatchContext";
 import { useImportReviewBulkActions } from "./useImportReviewBulkActions";
+import {
+    IMPORT_REVIEW_PROMOTION_COMPLETED_EVENT,
+    type ImportReviewPromotionCompletedDetail,
+} from "./invalidateImportReviewAfterPromotion";
+import { importReviewApiFamilyForPromotionFamily } from "../utils/importReviewPromotionCoreReviewMap";
 import { importReviewQueryKeys } from "./importReviewQueryKeys";
 import {
     buildImportReviewListQueryKey,
@@ -284,6 +289,25 @@ export function useImportReviewEntityPage(
         patchListItem,
         patchListItemEverywhere,
     } = useImportReviewEntityList(listParams, hasValidScope);
+
+    useEffect(() => {
+        if (!routeActive || !config?.apiFamily) {
+            return;
+        }
+        const apiFamily = config.apiFamily;
+        const onPromotionCompleted = (event: Event) => {
+            const detail = (event as CustomEvent<ImportReviewPromotionCompletedDetail>).detail;
+            const promoted = detail?.promotedFamilies ?? [];
+            if (
+                promoted.length === 0 ||
+                promoted.some((family) => importReviewApiFamilyForPromotionFamily(family) === apiFamily)
+            ) {
+                void refetchList();
+            }
+        };
+        window.addEventListener(IMPORT_REVIEW_PROMOTION_COMPLETED_EVENT, onPromotionCompleted);
+        return () => window.removeEventListener(IMPORT_REVIEW_PROMOTION_COMPLETED_EVENT, onPromotionCompleted);
+    }, [routeActive, config?.apiFamily, refetchList]);
 
     useEffect(() => {
         if (list?.total !== undefined) {

@@ -20,6 +20,7 @@ export type PublishBatchDerivedStatus =
     | "validating"
     | "promoting"
     | "blocked"
+    | "partial"
     | "ready"
     | "promoted"
     | "partially_promoted"
@@ -55,8 +56,10 @@ export type PublishBatchStoredStatus =
     | "draft"
     | "validating"
     | "ready"
+    | "partial"
     | "promoting"
     | "promoted"
+    | "partially_promoted"
     | "failed"
     | "blocked"
     | "archived";
@@ -66,7 +69,7 @@ export type PublishBatchSummaryInput = {
     validated_at: Date | null;
     promoted_at: Date | null;
     dry_run: boolean;
-    validation_outcome: "passed" | "blocked" | null;
+    validation_outcome: "passed" | "partial" | "blocked" | null;
     can_promote: boolean;
     item_counts: PublishBatchItemCounts;
     action_counts: PublishBatchActionCounts;
@@ -78,7 +81,34 @@ export type PublishBatchSummaryInput = {
     promotion_result_marked_promoted_count: number | null;
     /** When true, skip workflow-only statuses (promoting) and evaluate promotion outcome. */
     evaluate_promotion_outcome?: boolean;
+    /** Last promotion run outcome from summary.promotion_status (separate from validation_result). */
+    promotion_status?: string | null;
 };
+
+const PROMOTION_FAILED_RETRY_MESSAGE =
+    "Promotion failed. Create a new retry batch after fixing the error.";
+
+/** True when a promotion run finished with no successes and publish items failed. */
+export function isPromotionFailedBatchState(input: PublishBatchSummaryInput): boolean {
+    const promo = (input.promotion_status ?? "").trim();
+    if (promo === "promotion_failed") {
+        return true;
+    }
+    const { success, failed, pending, total } = input.item_counts;
+    if (total === 0 || success > 0) {
+        return false;
+    }
+    if (failed === 0) {
+        return false;
+    }
+    if (pending > 0) {
+        return false;
+    }
+    if (input.promotion_result_success_count != null && input.promotion_result_success_count === 0) {
+        return true;
+    }
+    return false;
+}
 
 export type PublishBatchDerivedCounts = PublishBatchItemCounts & {
     core_verified_count: number;
@@ -137,7 +167,7 @@ export function parseEntityFamiliesFromBatchSummary(summary: unknown): string[] 
 
 export function parseValidationOutcomeFromSummary(
     summary: unknown
-): "passed" | "blocked" | null {
+): "passed" | "partial" | "blocked" | null {
     if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
         return null;
     }
@@ -148,6 +178,9 @@ export function parseValidationOutcomeFromSummary(
     const outcome = (vr as Record<string, unknown>).outcome;
     if (outcome === "blocked") {
         return "blocked";
+    }
+    if (outcome === "partial") {
+        return "partial";
     }
     if (outcome === "passed") {
         return "passed";
@@ -179,6 +212,28 @@ export function parseCanPromoteFromSummary(summary: unknown): boolean {
 
 export function parsePromotionResultTotalFromSummary(summary: unknown): number | null {
     return parsePromotionResultFieldsFromSummary(summary)?.total ?? null;
+}
+
+export function parsePromotionStatusFromSummary(summary: unknown): string | null {
+    if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
+        return null;
+    }
+    const root = summary as Record<string, unknown>;
+    const direct = root.promotion_status;
+    if (typeof direct === "string" && direct.trim()) {
+        return direct.trim();
+    }
+    const pr = root.promotion_result;
+    if (pr && typeof pr === "object" && !Array.isArray(pr)) {
+        const status = (pr as Record<string, unknown>).status;
+        if (status === "promoted" || status === "partially_promoted") {
+            return status;
+        }
+        if (status === "failed" || status === "promotion_failed") {
+            return "promotion_failed";
+        }
+    }
+    return null;
 }
 
 export type PromotionResultSummaryFields = {
@@ -246,8 +301,10 @@ function asStoredStatus(status: string): PublishBatchStoredStatus {
         "draft",
         "validating",
         "ready",
+        "partial",
         "promoting",
         "promoted",
+        "partially_promoted",
         "failed",
         "blocked",
         "archived",
@@ -341,7 +398,23 @@ export function derivePublishBatchStatus(input: PublishBatchSummaryInput): Publi
         return buildDerivedResult(input, "archived", "archived", null);
     }
     if (stored_status === "draft") {
-        return buildDerivedResult(input, "draft", "draft", null);
+        const validationComplete =
+            input.can_promote !== false &&
+            (input.validation_outcome === "passed" || input.validation_outcome === "partial");
+        if (!validationComplete) {
+            return buildDerivedResult(input, "draft", "draft", null);
+        }
+        if (input.validation_outcome === "partial") {
+            return buildDerivedResult(
+                input,
+                "partial",
+                "partial",
+                input.item_counts.pending > 0
+                    ? "Some items are promotable; blocked items remain pending."
+                    : null
+            );
+        }
+        return buildDerivedResult(input, "ready", "ready", null);
     }
     if (stored_status === "validating") {
         return buildDerivedResult(input, "validating", "validating", null);
@@ -362,6 +435,35 @@ export function derivePublishBatchStatus(input: PublishBatchSummaryInput): Publi
 
     if (stored_status === "blocked" || input.validation_outcome === "blocked") {
         return buildDerivedResult(input, "blocked", "blocked", null);
+    }
+
+    if (isPromotionFailedBatchState(input)) {
+        return buildDerivedResult(
+            input,
+            "failed",
+            "failed",
+            PROMOTION_FAILED_RETRY_MESSAGE
+        );
+    }
+
+    if (stored_status === "partial" || input.validation_outcome === "partial") {
+        return buildDerivedResult(
+            input,
+            "partial",
+            "partial",
+            input.can_promote ? "Some items are promotable; blocked items remain pending." : null
+        );
+    }
+
+    if (stored_status === "partially_promoted") {
+        return buildDerivedResult(
+            input,
+            "partially_promoted",
+            "partially_promoted",
+            input.item_counts.pending > 0
+                ? `${input.item_counts.success} promoted; ${input.item_counts.pending} still pending.`
+                : null
+        );
     }
 
     // Rule B: fully promoted
@@ -413,15 +515,17 @@ export function derivePublishBatchStatus(input: PublishBatchSummaryInput): Publi
         input.validated_at != null &&
         input.promoted_at == null &&
         input.can_promote &&
-        input.validation_outcome === "passed" &&
+        (input.validation_outcome === "passed" || input.validation_outcome === "partial") &&
         pending === total &&
         total > 0
     ) {
-        return buildDerivedResult(input, "ready", "ready", null);
+        const derivedStatus: PublishBatchDerivedStatus =
+            input.stored_status === "partial" ? "partial" : "ready";
+        return buildDerivedResult(input, derivedStatus, derivedStatus, null);
     }
 
-    if (stored_status === "ready") {
-        return buildDerivedResult(input, "ready", "ready", null);
+    if (stored_status === "ready" || stored_status === "partial") {
+        return buildDerivedResult(input, stored_status, stored_status, null);
     }
 
     if (stored_status === "failed") {
@@ -554,6 +658,7 @@ export class ImportReviewPublishBatchSummaryRepository {
             dry_run: parseDryRunFromSummary(batch.summary),
             validation_outcome: parseValidationOutcomeFromSummary(batch.summary),
             can_promote: parseCanPromoteFromSummary(batch.summary),
+            promotion_status: parsePromotionStatusFromSummary(batch.summary),
             item_counts,
             action_counts,
             core_verified_count: coreVerified,
@@ -744,6 +849,10 @@ export class ImportReviewPublishBatchSummaryRepository {
         const { item_counts, derived_status, derived_status_reason, stored_status_recommendation } =
             computed;
         let storedStatus = computed.stored_status;
+        const summaryRows = await this.prisma.$queryRaw<{ summary: unknown }[]>`
+            SELECT summary FROM system.system_publish_batches WHERE id = ${batchId} LIMIT 1
+        `;
+        const promotionStatus = parsePromotionStatusFromSummary(summaryRows[0]?.summary);
 
         if (
             derived_status === "invalid_empty_promoted" ||
@@ -753,7 +862,12 @@ export class ImportReviewPublishBatchSummaryRepository {
         } else if (derived_status === "promoted" && stored_status_recommendation === "promoted") {
             storedStatus = "promoted";
         } else if (derived_status === "failed" || derived_status === "blocked") {
-            if (storedStatus === "promoted" || storedStatus === "promoting") {
+            if (
+                storedStatus === "promoted" ||
+                storedStatus === "promoting" ||
+                storedStatus === "partial" ||
+                promotionStatus === "promotion_failed"
+            ) {
                 storedStatus = stored_status_recommendation;
             }
         }
@@ -761,7 +875,9 @@ export class ImportReviewPublishBatchSummaryRepository {
         const repairNote =
             derived_status === "invalid_empty_promoted" ? INVALID_EMPTY_PROMOTED_REPAIR_NOTE : null;
         const repairedAt = repairNote ? new Date().toISOString() : null;
-        const clearPromotedAt = derived_status === "invalid_empty_promoted" && item_counts.success === 0;
+        const clearPromotedAt =
+            (derived_status === "invalid_empty_promoted" && item_counts.success === 0) ||
+            (promotionStatus === "promotion_failed" && item_counts.success === 0);
 
         const summaryPatch = JSON.stringify({
             recomputed_at: new Date().toISOString(),

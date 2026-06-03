@@ -1,5 +1,8 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
+import type { PromotionDb } from "./import-review-promotion-db.js";
+
+import { buildPromoteItemFailureResult } from "./import-review-promotion-failure.js";
 import type { PromoteItemResult } from "./import-review-promotion-promote.types.js";
 import {
     buildVerificationMetadataTracking,
@@ -8,10 +11,13 @@ import {
     coreVerificationUpdateSetClauseSql,
     getCoreVerificationColumnsForEntity,
 } from "./import-review-promotion-core-verification.js";
+import { assertPoiCategoriesTableExists } from "./import-review-promotion-place-category.js";
 import {
-    assertPoiCategoriesTableExists,
-    placeResolvedCategoryIdExprForPromotion,
-} from "./import-review-promotion-place-category.js";
+    promotionTypedPlaceAdminAreaIdExpr,
+    promotionTypedPlaceCategoryIdExpr,
+    promotionTypedPlaceDisplayNameExpr,
+    promotionTypedPlacePrimaryNameExpr,
+} from "./import-review-promotion-typed-promote-sql.js";
 import {
     normalizedDataMergeExpr,
     sourceRefsMergeExpr,
@@ -54,64 +60,19 @@ const PROMOTE_PLACE_SRC_COLUMNS = Prisma.sql`
 `;
 
 function placePrimaryNameExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${a}.primary_name,
-            ${a}.display_name,
-            ${a}.name_en,
-            ${a}.name_mm,
-            ${a}.canonical_name,
-            ${a}.normalized_data->>'primary_name',
-            ${a}.normalized_data->>'display_name',
-            ${a}.normalized_data->>'name',
-            ${a}.normalized_data->>'canonical_name',
-            ''
-        )), '')
-    `;
+    return promotionTypedPlacePrimaryNameExpr(alias);
 }
 
 function placeDisplayNameExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        coalesce(
-            nullif(trim(coalesce(
-                ${a}.display_name,
-                ${a}.primary_name,
-                ${a}.name_en,
-                ${a}.name_mm,
-                ${a}.canonical_name,
-                ${a}.normalized_data->>'display_name',
-                ${a}.normalized_data->>'primary_name',
-                ${a}.normalized_data->>'name',
-                ''
-            )), ''),
-            ${placePrimaryNameExpr(alias)}
-        )
-    `;
+    return promotionTypedPlaceDisplayNameExpr(alias);
 }
 
 function placeCategoryIdExpr(alias: string): Prisma.Sql {
-    return placeResolvedCategoryIdExprForPromotion(alias);
+    return promotionTypedPlaceCategoryIdExpr(alias);
 }
 
 function placeAdminAreaIdExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    const resolved = Prisma.sql`coalesce(
-        ${a}.admin_area_id,
-        CASE WHEN (${a}.normalized_data->>'admin_area_id') ~ '^[0-9]+$'
-            THEN (${a}.normalized_data->>'admin_area_id')::bigint END
-    )`;
-    return Prisma.sql`
-        CASE
-            WHEN ${resolved} IS NULL THEN NULL::bigint
-            WHEN EXISTS (
-                SELECT 1 FROM core.core_admin_areas AS aa
-                WHERE aa.id = ${resolved}
-            ) THEN ${resolved}
-            ELSE NULL::bigint
-        END
-    `;
+    return promotionTypedPlaceAdminAreaIdExpr(alias);
 }
 
 function placePointGeomExpr(alias: string): Prisma.Sql {
@@ -134,27 +95,14 @@ function placeSourceTypeIdExpr(alias: string): Prisma.Sql {
         WHERE st.code = coalesce(
             nullif(trim(${a}.source_refs->>'source_type_code'), ''),
             nullif(trim(${a}.source_refs->>'source'), ''),
-            nullif(trim(${a}.normalized_data->>'source_type_code'), ''),
-            nullif(trim(${a}.normalized_data->>'source'), ''),
             'osm'
         )
         LIMIT 1
     )`;
 }
 
-function placeIsPublicExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        CASE
-            WHEN ${a}.normalized_data ? 'is_public' THEN
-                CASE lower(trim(${a}.normalized_data->>'is_public'))
-                    WHEN 'false' THEN false
-                    WHEN '0' THEN false
-                    ELSE true
-                END
-            ELSE true
-        END
-    `;
+function placeIsPublicExpr(_alias: string): Prisma.Sql {
+    return Prisma.sql`true`;
 }
 
 /** Candidate-field expressions for ready/valid CTEs — alias must be place_candidates (pc), not src (s). */
@@ -173,7 +121,7 @@ function placeCandidateReadyExprs(batchId: bigint): Prisma.Sql {
 }
 
 export class ImportReviewPromotionPromotePlacesRepository {
-    constructor(private readonly prisma: PrismaClient) {}
+    constructor(private readonly prisma: PromotionDb) {}
 
     async tableExists(regclass: string): Promise<boolean> {
         const rows = await this.prisma.$queryRaw<{ exists: boolean }[]>`
@@ -194,13 +142,34 @@ export class ImportReviewPromotionPromotePlacesRepository {
     async insertPlace(
         batchId: bigint,
         publishItemId: bigint,
+        promotedBy: bigint | null
+    ): Promise<PromoteItemResult> {
+        return this.insertPlaceTx(this.prisma, batchId, publishItemId, promotedBy);
+    }
+
+    async promotePlaceTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint,
+        publishAction: "insert" | "update",
+        promotedBy: bigint | null
+    ): Promise<PromoteItemResult> {
+        if (publishAction === "insert") {
+            return this.insertPlaceTx(tx, batchId, publishItemId, promotedBy);
+        }
+        return this.updatePlaceTx(tx, batchId, publishItemId, promotedBy);
+    }
+
+    async insertPlaceTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint,
         _promotedBy: bigint | null
     ): Promise<PromoteItemResult> {
         try {
-            await assertPoiCategoriesTableExists(this.prisma);
+            await assertPoiCategoriesTableExists(tx);
 
-            return await this.prisma.$transaction(async (tx) => {
-                const rows = await tx.$queryRaw<
+            const rows = await tx.$queryRaw<
                     {
                         id: bigint;
                         external_id: string | null;
@@ -263,11 +232,7 @@ export class ImportReviewPromotionPromotePlacesRepository {
                         g.point_geom_ready,
                         ST_Y(g.point_geom_ready),
                         ST_X(g.point_geom_ready),
-                        nullif(trim(coalesce(
-                            g.plus_code,
-                            g.normalized_data->>'plus_code',
-                            ''
-                        )), ''),
+                        nullif(trim(g.plus_code), ''),
                         coalesce(g.importance_score, 0),
                         coalesce(g.popularity_score, 0),
                         least(100, greatest(0, coalesce(g.confidence_score, 80))),
@@ -283,61 +248,62 @@ export class ImportReviewPromotionPromotePlacesRepository {
                     RETURNING id, external_id, primary_name, display_name, source_type_id, source_refs
                 `;
 
-                if (rows.length === 0) {
-                    const reason = await this.explainPlaceInsertBlocked(tx, batchId, publishItemId);
-                    return {
-                        publish_item_id: publishItemId,
-                        outcome: "failed",
-                        target_id: null,
-                        error_message: reason,
-                        before_data: null,
-                        after_data: null,
-                    };
-                }
+            if (rows.length === 0) {
+                const reason = await this.explainPlaceInsertBlocked(tx, batchId, publishItemId);
+                return buildPromoteItemFailureResult({
+                    publishItemId,
+                    message: reason,
+                });
+            }
 
-                const row = rows[0]!;
-                await this.syncPlaceNames(tx, publishItemId, row.id, row.primary_name);
-                await this.syncPlaceSources(tx, publishItemId, row.id, row.source_type_id, row.external_id);
+            const row = rows[0]!;
+            await this.syncPlaceNames(tx, publishItemId, row.id, row.primary_name);
+            await this.syncPlaceSources(tx, publishItemId, row.id, row.source_type_id, row.external_id);
 
-                return {
-                    publish_item_id: publishItemId,
-                    outcome: "inserted",
-                    target_id: row.id,
-                    error_message: null,
-                    before_data: null,
-                    after_data: {
-                        id: row.id.toString(),
-                        external_id: row.external_id,
-                        primary_name: row.primary_name,
-                        display_name: row.display_name,
-                        entity_family: "places",
-                    },
-                    ...buildVerificationMetadataTracking({
-                        outcome: "inserted",
-                        beforeData: null,
-                        entityKey: "places",
-                    }),
-                };
-            });
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
             return {
                 publish_item_id: publishItemId,
-                outcome: "failed",
-                target_id: null,
-                error_message: `Place promotion failed: ${message}`,
+                outcome: "inserted",
+                target_id: row.id,
+                error_message: null,
                 before_data: null,
-                after_data: null,
+                after_data: {
+                    id: row.id.toString(),
+                    external_id: row.external_id,
+                    primary_name: row.primary_name,
+                    display_name: row.display_name,
+                    entity_family: "places",
+                },
+                ...buildVerificationMetadataTracking({
+                    outcome: "inserted",
+                    beforeData: null,
+                    entityKey: "places",
+                }),
             };
+        } catch (err) {
+            const cause = err instanceof Error ? err : new Error(String(err));
+            return buildPromoteItemFailureResult({
+                publishItemId,
+                message: `Place promotion failed: ${cause.message}`,
+                err: cause,
+            });
         }
     }
 
     async updatePlace(
         batchId: bigint,
         publishItemId: bigint,
+        promotedBy: bigint | null
+    ): Promise<PromoteItemResult> {
+        return this.updatePlaceTx(this.prisma, batchId, publishItemId, promotedBy);
+    }
+
+    async updatePlaceTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint,
         _promotedBy: bigint | null
     ): Promise<PromoteItemResult> {
-        const beforeRows = await this.prisma.$queryRaw<{ row_json: unknown }[]>`
+        const beforeRows = await tx.$queryRaw<{ row_json: unknown }[]>`
             SELECT to_jsonb(c) AS row_json
             FROM system.system_publish_items AS spi
             INNER JOIN import_review.place_candidates AS p
@@ -353,21 +319,16 @@ export class ImportReviewPromotionPromotePlacesRepository {
         `;
         const beforeData = beforeRows[0]?.row_json ?? null;
         if (!beforeData) {
-            return {
-                publish_item_id: publishItemId,
-                outcome: "failed",
-                target_id: null,
-                error_message:
+            return buildPromoteItemFailureResult({
+                publishItemId,
+                message:
                     "Update blocked: matched_core_id missing, wrong matched_core_table, core row inactive, or dashboard-protected target.",
-                before_data: null,
-                after_data: null,
-            };
+            });
         }
 
-        await assertPoiCategoriesTableExists(this.prisma);
+        await assertPoiCategoriesTableExists(tx);
 
         try {
-            return await this.prisma.$transaction(async (tx) => {
             const rows = await tx.$queryRaw<
                 {
                     id: bigint;
@@ -415,12 +376,7 @@ export class ImportReviewPromotionPromotePlacesRepository {
                     point_geom = v.point_geom_ready,
                     lat = ST_Y(v.point_geom_ready),
                     lng = ST_X(v.point_geom_ready),
-                    plus_code = nullif(trim(coalesce(
-                        v.plus_code,
-                        v.normalized_data->>'plus_code',
-                        c.plus_code,
-                        ''
-                    )), ''),
+                    plus_code = coalesce(nullif(trim(v.plus_code), ''), c.plus_code),
                     importance_score = coalesce(v.importance_score, c.importance_score),
                     popularity_score = coalesce(v.popularity_score, c.popularity_score),
                     confidence_score = least(100, greatest(0, coalesce(v.confidence_score, c.confidence_score))),
@@ -440,14 +396,11 @@ export class ImportReviewPromotionPromotePlacesRepository {
 
             if (rows.length === 0) {
                 const reason = await this.explainPlaceUpdateBlocked(tx, batchId, publishItemId);
-                return {
-                    publish_item_id: publishItemId,
-                    outcome: "failed",
-                    target_id: null,
-                    error_message: reason,
-                    before_data: beforeData,
-                    after_data: null,
-                };
+                return buildPromoteItemFailureResult({
+                    publishItemId,
+                    message: reason,
+                    beforeData,
+                });
             }
 
             const row = rows[0]!;
@@ -473,26 +426,23 @@ export class ImportReviewPromotionPromotePlacesRepository {
                     entityKey: "places",
                 }),
             };
-            });
         } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return {
-                publish_item_id: publishItemId,
-                outcome: "failed",
-                target_id: null,
-                error_message: `Place promotion failed: ${message}`,
-                before_data: beforeData,
-                after_data: null,
-            };
+            const cause = err instanceof Error ? err : new Error(String(err));
+            return buildPromoteItemFailureResult({
+                publishItemId,
+                message: `Place promotion failed: ${cause.message}`,
+                err: cause,
+                beforeData,
+            });
         }
     }
 
     private async explainPlaceInsertBlocked(
-        tx: Prisma.TransactionClient,
+        db: PromotionDb,
         batchId: bigint,
         publishItemId: bigint
     ): Promise<string> {
-        const rows = await tx.$queryRaw<{ reason: string }[]>`
+        const rows = await db.$queryRaw<{ reason: string }[]>`
             WITH src AS (
                 SELECT ${PROMOTE_PLACE_SRC_COLUMNS}
                 FROM system.system_publish_items AS spi
@@ -516,8 +466,12 @@ export class ImportReviewPromotionPromotePlacesRepository {
                     'Invalid or missing point geometry.'
                 WHEN (SELECT primary_name_ready IS NULL FROM ready LIMIT 1) THEN
                     'Missing primary name.'
+                WHEN (SELECT category_id IS NOT NULL AND category_id_ready IS NULL FROM ready LIMIT 1) THEN
+                    'INVALID_CATEGORY_ID: typed category_id is not an active ref.ref_poi_categories row.'
                 WHEN (SELECT category_id_ready IS NULL FROM ready LIMIT 1) THEN
-                    'CATEGORY_REQUIRED: class_code or category_code does not map to ref.ref_poi_categories.code (category_id is required for core.core_places).'
+                    'CATEGORY_REQUIRED: typed category_id or class_code must map to ref.ref_poi_categories.'
+                WHEN (SELECT admin_area_id IS NOT NULL AND admin_area_id_ready IS NULL FROM ready LIMIT 1) THEN
+                    'INVALID_ADMIN_AREA_ID: typed admin_area_id is not an active core.core_admin_areas row.'
                 WHEN (SELECT source_type_id_ready IS NULL FROM ready LIMIT 1) THEN
                     'Missing or unmapped source_type_id.'
                 WHEN EXISTS (
@@ -536,11 +490,11 @@ export class ImportReviewPromotionPromotePlacesRepository {
     }
 
     private async explainPlaceUpdateBlocked(
-        tx: Prisma.TransactionClient,
+        db: PromotionDb,
         batchId: bigint,
         publishItemId: bigint
     ): Promise<string> {
-        const rows = await tx.$queryRaw<{ reason: string }[]>`
+        const rows = await db.$queryRaw<{ reason: string }[]>`
             WITH src AS (
                 SELECT ${PROMOTE_PLACE_SRC_COLUMNS}
                 FROM system.system_publish_items AS spi
@@ -566,8 +520,12 @@ export class ImportReviewPromotionPromotePlacesRepository {
                     'Invalid or missing point geometry.'
                 WHEN (SELECT primary_name_ready IS NULL FROM ready LIMIT 1) THEN
                     'Missing primary name.'
+                WHEN (SELECT category_id IS NOT NULL AND category_id_ready IS NULL FROM ready LIMIT 1) THEN
+                    'INVALID_CATEGORY_ID: typed category_id is not an active ref.ref_poi_categories row.'
                 WHEN (SELECT category_id_ready IS NULL FROM ready LIMIT 1) THEN
-                    'CATEGORY_REQUIRED: class_code or category_code does not map to ref.ref_poi_categories.code (category_id is required for core.core_places).'
+                    'CATEGORY_REQUIRED: typed category_id or class_code must map to ref.ref_poi_categories.'
+                WHEN (SELECT admin_area_id IS NOT NULL AND admin_area_id_ready IS NULL FROM ready LIMIT 1) THEN
+                    'INVALID_ADMIN_AREA_ID: typed admin_area_id is not an active core.core_admin_areas row.'
                 WHEN (SELECT source_type_id_ready IS NULL FROM ready LIMIT 1) THEN
                     'Missing or unmapped source_type_id.'
                 ELSE
@@ -578,44 +536,44 @@ export class ImportReviewPromotionPromotePlacesRepository {
     }
 
     private async syncPlaceNames(
-        tx: Prisma.TransactionClient,
+        db: PromotionDb,
         publishItemId: bigint,
         placeId: bigint,
         primaryName: string
     ): Promise<void> {
-        await tx.$executeRaw`
+        await db.$executeRaw`
             WITH src AS (
                 SELECT
-                    p.normalized_data,
-                    p.source_refs,
+                    nullif(trim(p.name_mm), '') AS name_mm,
+                    nullif(trim(p.name_en), '') AS name_en,
                     ${placePrimaryNameExpr("p")} AS primary_name_ready
                 FROM system.system_publish_items AS spi
                 INNER JOIN import_review.place_candidates AS p
                     ON p.id = spi.review_candidate_id
                 WHERE spi.id = ${publishItemId}
             ),
-            child_names AS (
+            typed_names AS (
                 SELECT
-                    nullif(trim(elem->>'name'), '') AS name,
-                    nullif(trim(elem->>'language_code'), '') AS language_code,
-                    nullif(trim(elem->>'script_code'), '') AS script_code,
-                    coalesce(nullif(trim(elem->>'name_type'), ''), 'official') AS name_type,
-                    coalesce((elem->>'is_primary')::boolean, false) AS is_primary,
-                    coalesce((elem->>'search_weight')::integer, 0) AS search_weight
-                FROM src AS s,
-                LATERAL jsonb_array_elements(
-                    coalesce(
-                        s.normalized_data->'place_name_candidates',
-                        s.source_refs->'place_name_candidates',
-                        '[]'::jsonb
-                    )
-                ) AS elem
-                WHERE nullif(trim(elem->>'name'), '') IS NOT NULL
-                  AND coalesce(elem->>'name_type', '') <> 'generated'
-                  AND coalesce(elem->'normalized_data'->>'is_generated', 'false') <> 'true'
-                  AND coalesce(elem->>'source', '') <> 'generated'
+                    s.name_mm AS name,
+                    'mm'::text AS language_code,
+                    'MYMR'::text AS script_code,
+                    'official'::text AS name_type,
+                    true AS is_primary,
+                    100 AS search_weight
+                FROM src AS s
+                WHERE s.name_mm IS NOT NULL
+                UNION ALL
+                SELECT
+                    s.name_en,
+                    'en',
+                    'Latn',
+                    'english',
+                    CASE WHEN s.name_mm IS NULL THEN true ELSE false END,
+                    90
+                FROM src AS s
+                WHERE s.name_en IS NOT NULL
             ),
-            primary_row AS (
+            fallback_primary AS (
                 SELECT
                     s.primary_name_ready AS name,
                     NULL::text AS language_code,
@@ -625,17 +583,12 @@ export class ImportReviewPromotionPromotePlacesRepository {
                     100 AS search_weight
                 FROM src AS s
                 WHERE s.primary_name_ready IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM typed_names)
             ),
             all_names AS (
-                SELECT * FROM child_names
+                SELECT * FROM typed_names
                 UNION ALL
-                SELECT pr.* FROM primary_row AS pr
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM child_names AS cn
-                    WHERE cn.name = pr.name
-                      AND cn.name_type = pr.name_type
-                      AND coalesce(cn.language_code, '') = coalesce(pr.language_code, '')
-                )
+                SELECT * FROM fallback_primary
             )
             INSERT INTO core.core_place_names (
                 place_id, name, language_code, script_code, name_type, is_primary, search_weight
@@ -659,13 +612,13 @@ export class ImportReviewPromotionPromotePlacesRepository {
             )
         `;
 
-        const nameCount = await tx.$queryRaw<{ count: bigint }[]>`
+        const nameCount = await db.$queryRaw<{ count: bigint }[]>`
             SELECT count(*)::bigint AS count
             FROM core.core_place_names
             WHERE place_id = ${placeId}
         `;
         if (Number(nameCount[0]?.count ?? 0n) === 0 && primaryName.trim()) {
-            await tx.$executeRaw`
+            await db.$executeRaw`
                 INSERT INTO core.core_place_names (
                     place_id, name, language_code, script_code, name_type, is_primary, search_weight
                 )
@@ -677,7 +630,7 @@ export class ImportReviewPromotionPromotePlacesRepository {
     }
 
     private async syncPlaceSources(
-        tx: Prisma.TransactionClient,
+        db: PromotionDb,
         publishItemId: bigint,
         placeId: bigint,
         sourceTypeId: bigint,
@@ -688,7 +641,7 @@ export class ImportReviewPromotionPromotePlacesRepository {
             return;
         }
 
-        await tx.$executeRaw`
+        await db.$executeRaw`
             WITH src AS (
                 SELECT
                     p.id AS candidate_id,
@@ -710,11 +663,7 @@ export class ImportReviewPromotionPromotePlacesRepository {
                 ${placeId},
                 ${sourceTypeId},
                 nullif(trim(coalesce(s.external_id, ${externalId ?? ""})), ''),
-                coalesce(
-                    nullif(trim(s.source_refs->>'source_name'), ''),
-                    nullif(trim(s.normalized_data->>'source_name'), ''),
-                    'import_review'
-                ),
+                coalesce(nullif(trim(s.source_refs->>'source_name'), ''), 'import_review'),
                 0,
                 now(),
                 jsonb_build_object(

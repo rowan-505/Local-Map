@@ -81,6 +81,7 @@ export type PublishBatchItemRowDb = {
     target_table: string | null;
     target_id: bigint | null;
     error_message: string | null;
+    after_data: unknown;
     validation_result: unknown;
     published_at: Date | null;
     created_at: Date;
@@ -521,6 +522,11 @@ export class ImportReviewHistoryRepository {
         if (query.publish_status) {
             parts.push(Prisma.sql`publish_status = ${query.publish_status}`);
         }
+        if (query.validation_status) {
+            parts.push(
+                Prisma.sql`coalesce(validation_result->>'status', '') = ${query.validation_status}`
+            );
+        }
         if (query.entity_family) {
             parts.push(Prisma.sql`entity_family = ${query.entity_family}`);
         }
@@ -548,6 +554,7 @@ export class ImportReviewHistoryRepository {
                 target_table,
                 target_id,
                 error_message,
+                after_data,
                 validation_result,
                 published_at,
                 created_at

@@ -48,7 +48,11 @@ export class AdminAreasRepository {
         });
     }
 
-    async listAdminAreaOptions(args: { limit: number; q?: string | undefined }): Promise<AdminAreaOptionRow[]> {
+    async listAdminAreaOptions(args: {
+        limit: number;
+        q?: string | undefined;
+        adminLevelCode?: "township";
+    }): Promise<AdminAreaOptionRow[]> {
         const pattern = args.q?.trim() ? `%${args.q.trim()}%` : null;
 
         const searchClause =
@@ -62,6 +66,16 @@ export class AdminAreasRepository {
                           OR a.slug ILIKE ${pattern}
                       )
                   `;
+
+        const townshipOnlyClause =
+            args.adminLevelCode === "township"
+                ? Prisma.sql`
+                      AND (
+                          lower(btrim(al.code)) IN ('township', 'town')
+                          OR lower(btrim(al.name)) IN ('township', 'town')
+                      )
+                  `
+                : Prisma.empty;
 
         return this.prisma.$queryRaw<AdminAreaOptionRow[]>`
             SELECT
@@ -164,6 +178,7 @@ export class AdminAreasRepository {
             WHERE a.is_active = true
               AND a.deleted_at IS NULL
               AND a.address_usage <> 'disabled'
+            ${townshipOnlyClause}
             ${searchClause}
             ORDER BY a.canonical_name ASC
             LIMIT ${args.limit}

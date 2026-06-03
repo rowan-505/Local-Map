@@ -1,4 +1,6 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+
+import type { PromotionDb } from "./import-review-promotion-db.js";
 
 import {
     deriveImportReviewNames,
@@ -63,13 +65,7 @@ function effectiveTextExpr(
     caps: ImportReviewEntityColumnCapabilities,
     column: "canonical_name" | "slug" | "external_id" | "class_code"
 ): Prisma.Sql {
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${optionalColumnExpr(alias, caps, column, "text")},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", column)},
-            ''
-        )), '')
-    `;
+    return Prisma.sql`nullif(trim(${optionalColumnExpr(alias, caps, column, "text")}::text), '')`;
 }
 
 function canonicalNameExpr(alias: string, caps: ImportReviewEntityColumnCapabilities): Prisma.Sql {
@@ -79,10 +75,6 @@ function canonicalNameExpr(alias: string, caps: ImportReviewEntityColumnCapabili
             ${optionalColumnExpr(alias, caps, "name_mm", "text")},
             ${optionalColumnExpr(alias, caps, "name_en", "text")},
             ${optionalColumnExpr(alias, caps, "name", "text")},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", "canonical_name")},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", "name")},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", "name:my")},
-            ${optionalJsonTextExpr(alias, caps, "normalized_data", "name:en")},
             ''
         )), '')
     `;
@@ -93,13 +85,7 @@ function numericIdExpr(
     caps: ImportReviewEntityColumnCapabilities,
     column: "admin_level_id" | "parent_id"
 ): Prisma.Sql {
-    const direct = Prisma.sql`
-        coalesce(
-            ${optionalColumnExpr(alias, caps, column, "bigint")},
-            CASE WHEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)} ~ '^[0-9]+$'
-                THEN ${optionalJsonTextExpr(alias, caps, "normalized_data", column)}::bigint END
-        )
-    `;
+    const direct = optionalColumnExpr(alias, caps, column, "bigint");
     if (column !== "admin_level_id") {
         return direct;
     }
@@ -110,11 +96,9 @@ function numericIdExpr(
                 SELECT al.id
                 FROM ref.ref_admin_levels AS al
                 WHERE al.code = lower(trim(coalesce(
-                    ${optionalJsonTextExpr(alias, caps, "normalized_data", "admin_level_code")},
-                    ${optionalJsonTextExpr(alias, caps, "normalized_data", "admin_level")},
                     ${optionalColumnExpr(alias, caps, "class_code", "text")},
-                    ${optionalJsonTextExpr(alias, caps, "normalized_data", "class_code")}
-                )))
+                    ''
+                )::text))
                 LIMIT 1
             )
         )
@@ -128,8 +112,6 @@ function sourceTypeIdExpr(alias: string, caps: ImportReviewEntityColumnCapabilit
         WHERE st.code = coalesce(
             nullif(trim(${optionalJsonTextExpr(alias, caps, "source_refs", "source_type_code")}), ''),
             nullif(trim(${optionalJsonTextExpr(alias, caps, "source_refs", "source")}), ''),
-            nullif(trim(${optionalJsonTextExpr(alias, caps, "normalized_data", "source_type_code")}), ''),
-            nullif(trim(${optionalJsonTextExpr(alias, caps, "normalized_data", "source")}), ''),
             'osm'
         )
         LIMIT 1
@@ -363,8 +345,8 @@ function pushName(
 export class ImportReviewPromotionPromoteAdminAreasRepository {
     private readonly schemaRegistry: ImportReviewSchemaCapabilityRegistry;
 
-    constructor(private readonly prisma: PrismaClient) {
-        this.schemaRegistry = new ImportReviewSchemaCapabilityRegistry(prisma);
+    constructor(private readonly prisma: PromotionDb) {
+        this.schemaRegistry = new ImportReviewSchemaCapabilityRegistry(prisma as import("@prisma/client").PrismaClient);
     }
 
     async checkAdminAreaCoreExists(targetId: bigint): Promise<boolean> {
@@ -383,12 +365,41 @@ export class ImportReviewPromotionPromoteAdminAreasRepository {
         publishItemId: bigint,
         promotedBy: bigint | null
     ): Promise<PromoteItemResult> {
+        return this.insertAdminAreaForTx(this.prisma, batchId, publishItemId, promotedBy);
+    }
+
+    async insertAdminAreaForTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint,
+        promotedBy: bigint | null
+    ): Promise<PromoteItemResult> {
         const caps = await this.schemaRegistry.getEntityColumnCapabilities("admin_areas");
         const targetCaps = await this.schemaRegistry.getTargetColumnCapabilities(CORE_ADMIN_AREAS_TABLE);
-        const { columns, values } = insertColumnsAndValues(targetCaps);
 
         try {
-            return await this.prisma.$transaction(async (tx) => {
+            return await this.insertAdminAreaTx(tx, batchId, publishItemId, promotedBy, caps, targetCaps);
+        } catch (err) {
+            return {
+                publish_item_id: publishItemId,
+                outcome: "failed",
+                target_id: null,
+                error_message: err instanceof Error ? err.message : "Admin area insert failed.",
+                before_data: null,
+                after_data: null,
+            };
+        }
+    }
+
+    async insertAdminAreaTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint,
+        promotedBy: bigint | null,
+        caps: ImportReviewEntityColumnCapabilities,
+        targetCaps: ImportReviewTargetColumnCapabilities
+    ): Promise<PromoteItemResult> {
+        const { columns, values } = insertColumnsAndValues(targetCaps);
                 const rows = await tx.$queryRaw<
                     { id: bigint; canonical_name: string | null; slug: string | null; external_id: string | null }[]
                 >(Prisma.sql`
@@ -484,17 +495,6 @@ export class ImportReviewPromotionPromoteAdminAreasRepository {
                         entityKey: "admin_areas",
                     }),
                 };
-            });
-        } catch (err) {
-            return {
-                publish_item_id: publishItemId,
-                outcome: "failed",
-                target_id: null,
-                error_message: err instanceof Error ? err.message : "Admin area insert failed.",
-                before_data: null,
-                after_data: null,
-            };
-        }
     }
 
     async updateAdminArea(
@@ -502,10 +502,19 @@ export class ImportReviewPromotionPromoteAdminAreasRepository {
         publishItemId: bigint,
         promotedBy: bigint | null
     ): Promise<PromoteItemResult> {
+        return this.updateAdminAreaForTx(this.prisma, batchId, publishItemId, promotedBy);
+    }
+
+    async updateAdminAreaForTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint,
+        promotedBy: bigint | null
+    ): Promise<PromoteItemResult> {
         const caps = await this.schemaRegistry.getEntityColumnCapabilities("admin_areas");
         const targetCaps = await this.schemaRegistry.getTargetColumnCapabilities(CORE_ADMIN_AREAS_TABLE);
 
-        const beforeRows = await this.prisma.$queryRaw<{ id: bigint; row_json: unknown }[]>`
+        const beforeRows = await tx.$queryRaw<{ id: bigint; row_json: unknown }[]>`
             SELECT c.id, to_jsonb(c) AS row_json
             FROM system.system_publish_items AS spi
             INNER JOIN import_review.admin_area_candidates AS aa
@@ -532,7 +541,36 @@ export class ImportReviewPromotionPromoteAdminAreasRepository {
         }
 
         try {
-            return await this.prisma.$transaction(async (tx) => {
+            return await this.updateAdminAreaTx(
+                tx,
+                batchId,
+                publishItemId,
+                promotedBy,
+                before,
+                caps,
+                targetCaps
+            );
+        } catch (err) {
+            return {
+                publish_item_id: publishItemId,
+                outcome: "failed",
+                target_id: null,
+                error_message: err instanceof Error ? err.message : "Admin area update failed.",
+                before_data: before.row_json,
+                after_data: null,
+            };
+        }
+    }
+
+    async updateAdminAreaTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint,
+        promotedBy: bigint | null,
+        before: { id: bigint; row_json: unknown },
+        caps: ImportReviewEntityColumnCapabilities,
+        targetCaps: ImportReviewTargetColumnCapabilities
+    ): Promise<PromoteItemResult> {
                 const rows = await tx.$queryRaw<
                     { id: bigint; canonical_name: string | null; slug: string | null; external_id: string | null }[]
                 >(Prisma.sql`
@@ -599,21 +637,10 @@ export class ImportReviewPromotionPromoteAdminAreasRepository {
                         entityKey: "admin_areas",
                     }),
                 };
-            });
-        } catch (err) {
-            return {
-                publish_item_id: publishItemId,
-                outcome: "failed",
-                target_id: null,
-                error_message: err instanceof Error ? err.message : "Admin area update failed.",
-                before_data: before.row_json,
-                after_data: null,
-            };
-        }
     }
 
     private async findExistingPromotedCore(
-        tx: Prisma.TransactionClient,
+        tx: PromotionDb,
         batchId: bigint,
         publishItemId: bigint
     ): Promise<{ id: bigint; row_json: unknown } | null> {
@@ -639,7 +666,7 @@ export class ImportReviewPromotionPromoteAdminAreasRepository {
     }
 
     private async syncNames(
-        tx: Prisma.TransactionClient,
+        tx: PromotionDb,
         adminAreaId: bigint,
         publishItemId: bigint
     ): Promise<number> {

@@ -1,6 +1,11 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import {
+    poiCategoryRowToFormOption,
+    type PoiCategoryOptionRow,
+} from "../../lib/poi-category/poi-category-form-option.js";
+
+import {
     coreReviewListStatusClause,
     type CoreReviewListStatus,
 } from "../core-review/core-review-list-status.js";
@@ -165,10 +170,7 @@ export type PlaceNameRow = {
     search_weight: number;
 };
 
-type PlaceFormCategoryRow = {
-    id: bigint;
-    name: string;
-};
+type PlaceFormCategoryOption = ReturnType<typeof poiCategoryRowToFormOption>;
 
 type PlaceFormAdminAreaRow = {
     id: bigint;
@@ -186,7 +188,7 @@ type PlaceDeleteRow = {
 };
 
 export type PlaceFormOptionsRow = {
-    categories: PlaceFormCategoryRow[];
+    categories: PlaceFormCategoryOption[];
     admin_areas: PlaceFormAdminAreaRow[];
     source_types: PlaceFormRefRow[];
     publish_statuses: PlaceFormRefRow[];
@@ -424,14 +426,24 @@ export class PlacesRepository {
     }
 
     async getPlaceFormOptions(): Promise<PlaceFormOptionsRow> {
-        const [categories, adminAreas, sourceTypes, publishStatuses] = await Promise.all([
-            this.prisma.refPoiCategory.findMany({
-                select: {
-                    id: true,
-                    name: true,
-                },
-                orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-            }),
+        const [categoryRows, adminAreas, sourceTypes, publishStatuses] = await Promise.all([
+            this.prisma.$queryRaw<PoiCategoryOptionRow[]>`
+                SELECT
+                    id,
+                    parent_id,
+                    code,
+                    name,
+                    name_mm,
+                    sort_order,
+                    is_public,
+                    is_searchable
+                FROM ref.ref_poi_categories
+                ORDER BY
+                    (parent_id IS NULL) DESC,
+                    sort_order ASC NULLS LAST,
+                    name ASC,
+                    id ASC
+            `,
             this.prisma.coreAdminArea.findMany({
                 where: {
                     isActive: true,
@@ -457,10 +469,7 @@ export class PlacesRepository {
         ]);
 
         return {
-            categories: categories.map((category) => ({
-                id: category.id,
-                name: category.name,
-            })),
+            categories: categoryRows.map((row) => poiCategoryRowToFormOption(row)),
             admin_areas: adminAreas.map((adminArea) => ({
                 id: adminArea.id,
                 canonical_name: adminArea.canonicalName,

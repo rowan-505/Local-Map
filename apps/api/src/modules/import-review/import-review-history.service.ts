@@ -105,6 +105,7 @@ function mapPublishBatchListItem(
         row.validated_at != null &&
         row.status !== "failed" &&
         row.status !== "blocked" &&
+        row.status !== "partial" &&
         validationResult?.outcome !== "blocked"
             ? 1
             : 0;
@@ -213,6 +214,7 @@ function mapPublishItem(row: PublishBatchItemRowDb): ImportReviewHistoryPublishB
         target_table: row.target_table,
         target_id: bigStr(row.target_id),
         error_message: row.error_message,
+        after_data: row.after_data,
         validation_result: row.validation_result,
         published_at: toIso(row.published_at),
         created_at: row.created_at.toISOString(),

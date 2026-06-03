@@ -9,11 +9,13 @@ import type {
 import { getPlace } from "@/src/lib/api";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
+import { entityAdminAreaIdForPayload } from "@/src/lib/core-review/entityAdminAreaPayload";
 
 import { scoreFieldSchema } from "./buildings";
 import {
     createCoreReviewWriteMutations,
     detailRecordId,
+    parseRequiredFormRefId,
     verificationStatusFormField,
     verificationStatusFromDetail,
     verificationStatusWritePayload,
@@ -32,6 +34,7 @@ function placeFormSchema(mode: CoreEntityFormMode) {
         englishName: z.string(),
         categoryId: z.string().min(1, "Category is required"),
         adminAreaId: z.string(),
+        admin_area_manual_override: z.boolean().optional(),
         plusCode: z.string(),
         importanceScore: scoreFieldSchema,
         popularityScore: scoreFieldSchema,
@@ -81,8 +84,10 @@ function formValuesToPlacePayload(values: CoreEntityFormValues): CreatePlacePayl
     return {
         ...(mm ? { myanmarName: mm } : {}),
         ...(en ? { englishName: en } : {}),
-        categoryId: String(values.categoryId),
-        adminAreaId: String(values.adminAreaId ?? "").trim() || null,
+        categoryId: String(parseRequiredFormRefId(values.categoryId, "Category")),
+        ...(entityAdminAreaIdForPayload(values, "adminAreaId") !== undefined
+            ? { adminAreaId: entityAdminAreaIdForPayload(values, "adminAreaId") }
+            : {}),
         lat,
         lng,
         plusCode: String(values.plusCode ?? "").trim() || null,
@@ -130,7 +135,16 @@ export const PLACES_ENTITY_CONFIG: CoreEntityConfig<
             refSource: "place-form-options:categories",
             required: true,
         },
-        { key: "adminAreaId", label: "Admin area", type: "ref", refSource: "admin-areas" },
+        {
+            key: "township_admin",
+            label: "Township",
+            type: "township-admin",
+            townshipAdmin: {
+                entityKind: "place",
+                geometryFieldKey: POINT_GEOM_FIELD,
+                adminAreaIdKey: "adminAreaId",
+            },
+        },
         { key: "plusCode", label: "Plus code", type: "text", placeholder: "Optional" },
         { key: "importanceScore", label: "Importance score", type: "number", placeholder: "Optional" },
         { key: "popularityScore", label: "Popularity score", type: "number", placeholder: "Optional" },
@@ -165,6 +179,7 @@ export const PLACES_ENTITY_CONFIG: CoreEntityConfig<
         englishName: "",
         categoryId: "",
         adminAreaId: "",
+        admin_area_manual_override: false,
         plusCode: "",
         importanceScore: "",
         popularityScore: "",

@@ -1,6 +1,8 @@
 import type { FastifyReply } from "fastify";
 import { Prisma } from "@prisma/client";
 
+import { extractPrismaRawQueryErrorDetails } from "./import-review-prisma-raw-error.js";
+
 import {
     ImportReviewBatchAmbiguousError,
     ImportReviewBatchNotFoundError,
@@ -23,12 +25,17 @@ import {
     ImportReviewPublishBatchCreationTimeoutError,
     ImportReviewPublishBatchNameConflictError,
     ImportReviewPublishBatchNotFoundError,
+    ImportReviewPublishBatchRetryNotAvailableError,
     ImportReviewPublishInvalidStageStatusError,
     ImportReviewPublishBatchInvalidStatusError,
     ImportReviewPublishBatchPromotionConfirmationError,
     ImportReviewPublishBatchPromotionConflictError,
     ImportReviewPublishBatchValidationConflictError,
+    ImportReviewPublishBatchValidationNotRunningError,
+    ImportReviewPublishBatchValidationResetError,
+    ImportReviewPromotionBatchLimitsError,
     ImportReviewPromotionNoEligibleCandidatesError,
+    ImportReviewPromotionSelectedCandidateError,
     ImportReviewAdminAreaPromotionBatchLimitError,
     ImportReviewRoadDryRunRequiredError,
     ImportReviewRoadPromotionBatchLimitError,
@@ -160,8 +167,45 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
         return true;
     }
 
+    if (error instanceof ImportReviewPublishBatchRetryNotAvailableError) {
+        sendImportReviewApiError(reply, 400, error.code, error.message, {
+            batch_id: error.batchId,
+        });
+        return true;
+    }
+
+    if (error instanceof ImportReviewPromotionSelectedCandidateError) {
+        sendImportReviewApiError(reply, 400, error.code, error.message, {
+            reason: error.reason,
+            family: error.family,
+            candidate_id: error.candidateId.toString(),
+            ...error.details,
+        });
+        return true;
+    }
+
+    if (error instanceof ImportReviewPromotionBatchLimitsError) {
+        sendImportReviewApiError(reply, 400, error.code, error.message, error.details);
+        return true;
+    }
+
     if (error instanceof ImportReviewPublishBatchValidationConflictError) {
         sendImportReviewApiError(reply, 409, "PUBLISH_BATCH_VALIDATION_CONFLICT", error.message, {
+            batch_id: error.batchId,
+        });
+        return true;
+    }
+
+    if (error instanceof ImportReviewPublishBatchValidationNotRunningError) {
+        sendImportReviewApiError(reply, 409, "PUBLISH_BATCH_VALIDATION_NOT_RUNNING", error.message, {
+            batch_id: error.batchId,
+            status: error.status,
+        });
+        return true;
+    }
+
+    if (error instanceof ImportReviewPublishBatchValidationResetError) {
+        sendImportReviewApiError(reply, 400, "PUBLISH_BATCH_VALIDATION_RESET", error.message, {
             batch_id: error.batchId,
         });
         return true;
@@ -313,6 +357,20 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
     }
 
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        const rawQueryDetails = extractPrismaRawQueryErrorDetails(error);
+        if (rawQueryDetails) {
+            const message =
+                rawQueryDetails.database_message ??
+                "Import-review database query failed.";
+            sendImportReviewApiError(reply, 400, "DATABASE_QUERY_ERROR", message, {
+                ...rawQueryDetails,
+                ...(process.env.NODE_ENV !== "production"
+                    ? { technical_message: error.message }
+                    : {}),
+            });
+            return true;
+        }
+
         sendImportReviewApiError(
             reply,
             400,

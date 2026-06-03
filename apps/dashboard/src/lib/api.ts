@@ -112,9 +112,12 @@ export type PlaceFormOption = {
     id: string;
     label?: string;
     code?: string;
-    name?: string;
+    name?: string | null;
     name_mm?: string | null;
     parent_id?: string | null;
+    sort_order?: number;
+    is_public?: boolean;
+    is_searchable?: boolean;
 };
 
 export type PlaceFormOptions = {
@@ -759,6 +762,8 @@ export type ImportReviewBuildingListItem = {
     validation_errors: unknown;
     promotion_status: string | null;
     promoted_core_id: string | null;
+    /** Present on some detail/history payloads when promoted. */
+    promoted_at?: string | null;
     created_at: string;
     updated_at: string;
     geometry: ImportReviewGeoJson | null;
@@ -1512,7 +1517,12 @@ export type AdminAreaOption = {
     address_usage?: string | null;
 };
 
-export function getAdminAreaOptions(params?: { limit?: number; q?: string }) {
+export function getAdminAreaOptions(params?: {
+    limit?: number;
+    q?: string;
+    /** Limit picker to township-level areas (place/road/building manual override). */
+    townshipOnly?: boolean;
+}) {
     const search = new URLSearchParams();
     if (params?.limit !== undefined) {
         search.set("limit", String(params.limit));
@@ -1520,8 +1530,56 @@ export function getAdminAreaOptions(params?: { limit?: number; q?: string }) {
     if (params?.q?.trim()) {
         search.set("q", params.q.trim());
     }
+    if (params?.townshipOnly) {
+        search.set("admin_level_code", "township");
+    }
     const qs = search.toString();
     return apiFetch<AdminAreaOption[]>(`/admin-areas/options${qs ? `?${qs}` : ""}`, { method: "GET" });
+}
+
+export type EntityAdminAreaKind = "place" | "street" | "building";
+
+export type EntityAdminAreaInferResult = {
+    admin_area_id: string | null;
+    canonical_name: string | null;
+    admin_level_code: string | null;
+    geometry_contains: boolean;
+};
+
+export type EntityAdminAreaValidateManualResult = {
+    valid: boolean;
+    geometry_contains: boolean;
+    inferred_admin_area_id: string | null;
+    admin_level_code: string | null;
+    message: string | null;
+    can_save_without_override: boolean;
+};
+
+export function inferEntityAdminArea(payload: {
+    kind: EntityAdminAreaKind;
+    lat?: number;
+    lng?: number;
+    geometry?: { type: string; coordinates: unknown };
+}) {
+    return apiFetch<EntityAdminAreaInferResult>("/entity-admin-area/infer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+}
+
+export function validateEntityAdminAreaManual(payload: {
+    kind: EntityAdminAreaKind;
+    admin_area_id: string;
+    lat?: number;
+    lng?: number;
+    geometry?: { type: string; coordinates: unknown };
+}) {
+    return apiFetch<EntityAdminAreaValidateManualResult>("/entity-admin-area/validate-manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
 }
 
 export function getDashboardStats(fetchInit?: Pick<RequestInit, "signal">) {
@@ -2670,13 +2728,19 @@ export type ImportReviewCreatePublishBatchDryRunResult = {
 };
 
 export type ImportReviewCreatePublishBatchResult = {
+    id: number;
+    public_id: string;
+    review_batch_id: number;
+    mode: "selected" | "all_ready";
+    total_item_count: number;
+    count_by_family: Record<string, number>;
     message: string;
     batch: ImportReviewPublishBatchDetail;
     batch_id: string;
     publish_batch_id: string;
-    review_batch_id: number;
     families: string[];
     status: string;
+    total_items?: number;
     items_added: number;
     total_selected: number;
     candidates_marked_batched: number;
@@ -2711,13 +2775,28 @@ export type ImportReviewPromotionBatchesListParams = ImportReviewPromotionScopeP
 
 export type PostImportReviewPromotionBatchBody = {
     review_batch_id: string | number;
-    families: string[];
+    mode?: "selected" | "all_ready";
+    families?: string[];
+    candidate_ids_by_family?: Record<string, Array<string | number>>;
+    filters?: {
+        review_decision?: string;
+        include_warnings?: boolean;
+    };
     include_warnings?: boolean;
     dry_run?: boolean;
     batch_name?: string;
     note?: string;
+    confirm_large_batch?: boolean;
+    allow_high_risk_families?: boolean;
+    mixed_high_risk_confirm?: boolean;
     /** @deprecated Use `families` — still accepted by API preprocess */
     entity_families?: string[];
+};
+
+export type PostImportReviewPromotionBatchValidateBody = {
+    confirm_large_batch?: boolean;
+    allow_high_risk_families?: boolean;
+    mixed_high_risk_confirm?: boolean;
 };
 
 export type ImportReviewPromotionBatchesListResponse = {
@@ -2959,13 +3038,17 @@ export type ImportReviewPublishBatchEntityValidationCounts = {
 };
 
 export type ImportReviewPublishBatchValidationResultSummary = {
-    outcome: "passed" | "blocked";
+    outcome: "passed" | "partial" | "blocked" | "ready";
     can_promote: boolean;
     requires_warning_confirmation: boolean;
     valid_count: number;
+    ready_count?: number;
     warning_count: number;
     blocked_count: number;
     skipped_count: number;
+    promotable_count: number;
+    total_count: number;
+    /** @deprecated Prefer total_count */
     total_items: number;
     by_publish_action: { insert: number; update: number; merge: number };
     by_entity: Record<string, ImportReviewPublishBatchEntityValidationCounts>;
@@ -2975,11 +3058,27 @@ export type ImportReviewPublishBatchValidationResultSummary = {
     promotable_entity_families: string[];
 };
 
+export type ImportReviewPromotionFailureSample = {
+    publish_item_id: string;
+    entity_family: string;
+    review_candidate_id: string | null;
+    external_id: string | null;
+    target_schema: string | null;
+    target_table: string | null;
+    error_code: string;
+    error_message: string;
+    reason: string;
+};
+
 export type ImportReviewPublishBatchPromotionResultSummary = {
-    status: "promoted" | "failed";
+    status: "promoted" | "partially_promoted" | "failed";
+    promoted_count: number;
+    skipped_blocked_count: number;
+    skipped_warning_count: number;
     inserted_count: number;
     updated_count: number;
     success_count: number;
+    partial_promotion?: boolean;
     failed_count: number;
     skipped_count: number;
     total: number;
@@ -2992,6 +3091,15 @@ export type ImportReviewPublishBatchPromotionResultSummary = {
     finished_at: string;
     duration_ms: number;
     promoted_entity_families: string[];
+    sample_failures?: ImportReviewPromotionFailureSample[];
+};
+
+export type ImportReviewPublishItemStatusCounts = {
+    pending: number;
+    success: number;
+    failed: number;
+    skipped: number;
+    total: number;
 };
 
 export type ImportReviewPublishBatchProgressResponse = {
@@ -3018,6 +3126,34 @@ export type ImportReviewPublishBatchProgressResponse = {
     validation_logs_summary: string | null;
     promotion_result: ImportReviewPublishBatchPromotionResultSummary | null;
     promotion_logs_summary: string | null;
+    validation_heartbeat_at: string | null;
+    validation_cancel_requested_at: string | null;
+    validation_heartbeat_stale_warning: boolean;
+    current_promotable_count?: number;
+    validation_promotable_count?: number | null;
+    publish_item_status_counts?: ImportReviewPublishItemStatusCounts;
+    promotion_status?:
+        | "not_started"
+        | "promoting"
+        | "promoted"
+        | "partially_promoted"
+        | "promotion_failed"
+        | null;
+    failed_ready_retry_count?: number;
+};
+
+export type ImportReviewCreateRetryPublishBatchResult = ImportReviewCreatePublishBatchResult & {
+    source_publish_batch_id: string;
+    failed_ready_source_count: number;
+    failed_ready_retry_count: number;
+};
+
+export type PostImportReviewPromotionBatchRetryFailedReadyBody = {
+    batch_name?: string;
+    note?: string;
+    confirm_large_batch?: boolean;
+    allow_high_risk_families?: boolean;
+    mixed_high_risk_confirm?: boolean;
 };
 
 export type ImportReviewPublishBatchVerifyResponse = {
@@ -3039,10 +3175,12 @@ export type ImportReviewPublishBatchVerifyResponse = {
 };
 
 export type PostImportReviewPromotionBatchPromoteBody = {
-    confirmation_text: "PROMOTE";
+    confirmation_text?: "PROMOTE";
     chunk_size?: number;
     confirm_warnings?: boolean;
+    promotion_note?: string;
     warning_confirmation_note?: string;
+    review_note?: string;
 };
 
 export type ImportReviewStartPublishBatchPromotionResponse = {
@@ -3082,10 +3220,36 @@ export function canValidateImportReviewPublishBatch(status: string): boolean {
 
 export function postImportReviewPromotionBatchValidate(
     id: string,
+    body: PostImportReviewPromotionBatchValidateBody = {},
     fetchInit?: Pick<RequestInit, "signal">
 ) {
     return apiFetch<ImportReviewStartPublishBatchValidationResponse>(
         `/api/import-review/promotion/batches/${id}/validate`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function postImportReviewPromotionBatchCancelValidation(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewStartPublishBatchValidationResponse>(
+        `/api/import-review/promotion/batches/${id}/cancel-validation`,
+        { method: "POST", ...fetchInit }
+    );
+}
+
+export function postImportReviewPromotionBatchResetValidation(
+    id: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewStartPublishBatchValidationResponse>(
+        `/api/import-review/promotion/batches/${id}/reset-validation`,
         { method: "POST", ...fetchInit }
     );
 }
@@ -3117,6 +3281,22 @@ export function postImportReviewPromotionBatchPromote(
 ) {
     return apiFetch<ImportReviewStartPublishBatchPromotionResponse>(
         `/api/import-review/promotion/batches/${id}/promote`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function postImportReviewPromotionBatchRetryFailedReady(
+    id: string,
+    body: PostImportReviewPromotionBatchRetryFailedReadyBody = {},
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<ImportReviewCreateRetryPublishBatchResult>(
+        `/api/import-review/promotion/batches/${id}/retry-failed-ready`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -3787,6 +3967,7 @@ export type ImportReviewHistoryPublishBatchItem = {
     target_table: string | null;
     target_id: string | null;
     error_message: string | null;
+    after_data: unknown;
     validation_result: unknown;
     published_at: string | null;
     created_at: string;
@@ -3821,7 +4002,10 @@ export type ImportReviewHistoryPublishBatchesListParams = {
 };
 
 export type ImportReviewHistoryPublishBatchItemsParams = {
+    /** Filter token or raw publish_status (failed, pending, success, …). */
     publish_status?: string;
+    /** Alias for publish_status — same accepted tokens. */
+    status?: string;
     entity_family?: string;
     limit?: number;
     offset?: number;

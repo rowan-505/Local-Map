@@ -3,7 +3,7 @@ import type { Geometry } from "geojson";
 import type { z } from "zod";
 
 import type { CoreGeometryType } from "@/src/components/core-review/geometry";
-import type { CoreReviewEntitySlug } from "@/src/lib/api";
+import type { CoreReviewEntitySlug, EntityAdminAreaKind } from "@/src/lib/api";
 
 export type CoreEntityKey =
     | "buildings"
@@ -25,6 +25,7 @@ export type CoreEntityFieldType =
     | "boolean"
     | "select"
     | "ref"
+    | "township-admin"
     | "surface-preset"
     | "date-readonly"
     | "json-readonly";
@@ -52,6 +53,13 @@ export type CoreEntityFieldDef = {
     placeholder?: string;
     helpText?: string;
     refSource?: CoreRefSourceKind;
+    /** For type `township-admin`: geometry field and API entity kind. */
+    townshipAdmin?: {
+        entityKind: EntityAdminAreaKind;
+        geometryFieldKey: string;
+        adminAreaIdKey: string;
+        manualOverrideKey?: string;
+    };
     /** Static select options when type is `select`. */
     selectOptions?: { value: string; label: string }[];
     numberMin?: number;
@@ -75,6 +83,8 @@ export type CoreEntityGeometryConfig = {
 export type CoreEntityFormMode = "create" | "edit";
 
 export type CoreEntityFormValues = Record<string, unknown> & {
+    /** When false, admin_area_id is inferred server-side from geometry (not sent on save). */
+    admin_area_manual_override?: boolean;
     /** Polygon/line footprint (buildings, streets, landuse, etc.). */
     geom?: Geometry | null;
     /** Point location (places, addresses). */

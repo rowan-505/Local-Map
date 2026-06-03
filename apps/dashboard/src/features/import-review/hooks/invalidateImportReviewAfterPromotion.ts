@@ -46,8 +46,14 @@ async function invalidateImportReviewFamilyCaches(
 
     if (apiFamilies.length === 0) {
         await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ["import-review", "candidates"] }),
-            queryClient.invalidateQueries({ queryKey: ["import-review", "candidates-count"] }),
+            queryClient.invalidateQueries({
+                queryKey: ["import-review", "candidates"],
+                refetchType: "all",
+            }),
+            queryClient.invalidateQueries({
+                queryKey: ["import-review", "candidates-count"],
+                refetchType: "all",
+            }),
             queryClient.invalidateQueries({ queryKey: ["import-review", "filter-options"] }),
         ]);
     } else {
@@ -55,9 +61,11 @@ async function invalidateImportReviewFamilyCaches(
             apiFamilies.flatMap((apiFamily) => [
                 queryClient.invalidateQueries({
                     queryKey: ["import-review", "candidates", apiFamily],
+                    refetchType: "all",
                 }),
                 queryClient.invalidateQueries({
                     queryKey: ["import-review", "candidates-count", apiFamily],
+                    refetchType: "all",
                 }),
                 queryClient.invalidateQueries({
                     queryKey: ["import-review", "filter-options", apiFamily],

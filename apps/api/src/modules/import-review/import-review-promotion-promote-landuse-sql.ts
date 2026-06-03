@@ -1,32 +1,30 @@
 import { Prisma } from "@prisma/client";
 
-import { effectiveAdminAreaIdExpr } from "./import-review-candidate-column-registry.js";
 import {
-    externalIdExpr,
     geomSourceExpr,
     normalizedDataMergeExpr,
     sourceRefsMergeExpr,
 } from "./import-review-promotion-promote-sql.js";
+import { promotionTypedExternalIdExpr } from "./import-review-promotion-typed-promote-sql.js";
+import {
+    promotionTypedLanduseClassCodeExpr,
+    promotionTypedLanduseClassIdExpr,
+} from "./import-review-promotion-typed-promote-sql.js";
 
 /** Paddy parcels at or below this area (m²) promote as detail_level = parcel. */
 export const LANDUSE_PADDY_PARCEL_MAX_AREA_M2 = 25_000;
 
 export const LANDUSE_CANDIDATE_SQL_ALIAS = "lu";
 
-export {
-    landuseClassIdExpr,
-    landuseEffectiveClassIdRawExpr,
-} from "./import-review-candidate-column-registry.js";
-import {
-    landuseClassIdExpr,
-} from "./import-review-candidate-column-registry.js";
+export function landuseClassIdExpr(alias: string): Prisma.Sql {
+    return promotionTypedLanduseClassIdExpr(alias);
+}
 
 export function landuseClassCodeExpr(alias: string, classIdExpr: Prisma.Sql): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         nullif(trim(coalesce(
-            ${a}.class_code,
-            ${a}.normalized_data->>'class_code',
+            ${promotionTypedLanduseClassCodeExpr(alias)},
             (
                 SELECT lc.code
                 FROM ref.ref_landuse_classes AS lc
@@ -42,8 +40,6 @@ export function landuseSourceTagsExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         CASE
-            WHEN jsonb_typeof(${a}.normalized_data->'tags') = 'object'
-                THEN ${a}.normalized_data->'tags'
             WHEN jsonb_typeof(${a}.source_refs->'tags') = 'object'
                 THEN ${a}.source_refs->'tags'
             ELSE '{}'::jsonb
@@ -60,12 +56,6 @@ export function landuseCropCodeExpr(
     return Prisma.sql`
         CASE
             WHEN lower(coalesce(${classCodeExpr}, '')) IN ('paddy', 'rice') THEN 'rice'
-            WHEN lower(coalesce(
-                nullif(trim(${a}.normalized_data->>'crop_code'), ''),
-                nullif(trim(${a}.normalized_data->>'crop'), ''),
-                nullif(trim(${a}.normalized_data->'tags'->>'crop'), ''),
-                ''
-            )) = 'rice' THEN 'rice'
             WHEN EXISTS (
                 SELECT 1 FROM ref.ref_landuse_classes AS lc
                 WHERE lc.id = ${classIdExpr}
@@ -107,25 +97,14 @@ export function landusePolygonFromRawExpr(rawGeomExpr: Prisma.Sql): Prisma.Sql {
     `;
 }
 
-export function landuseAdminAreaIdExpr(alias: string): Prisma.Sql {
-    const raw = effectiveAdminAreaIdExpr(alias, { hasAdminAreaColumn: false });
-    return Prisma.sql`
-        CASE
-            WHEN ${raw} IS NULL THEN NULL::bigint
-            WHEN EXISTS (
-                SELECT 1 FROM core.core_admin_areas AS aa
-                WHERE aa.id = ${raw}
-                  AND coalesce(aa.is_active, true)
-            ) THEN ${raw}
-            ELSE NULL::bigint
-        END
-    `;
+export function landuseAdminAreaIdExpr(_alias: string): Prisma.Sql {
+    return Prisma.sql`NULL::bigint`;
 }
 
 /** Ready-row expressions — alias must reference a row that already has `geom` (MultiPolygon). */
 export function landuseReadyFieldExprs(batchId: bigint, alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
-    const classId = landuseClassIdExpr(alias, { hasLanduseClassIdColumn: true });
+    const classId = landuseClassIdExpr(alias);
     const classCode = landuseClassCodeExpr(alias, classId);
     const areaM2 = Prisma.sql`ROUND(ST_Area(${a}.geom::geography)::numeric, 2)`;
     return Prisma.sql`
@@ -133,7 +112,7 @@ export function landuseReadyFieldExprs(batchId: bigint, alias: string): Prisma.S
         ${classCode} AS class_code_ready,
         ${landuseAdminAreaIdExpr(alias)} AS admin_area_id_ready,
         ${landuseSourceTagsExpr(alias)} AS source_tags_ready,
-        ${externalIdExpr(alias)} AS external_id_ready,
+        ${promotionTypedExternalIdExpr(alias)} AS external_id_ready,
         ${sourceRefsMergeExpr(alias, batchId, "landuse")} AS merged_source_refs,
         ${normalizedDataMergeExpr(alias, batchId)} AS merged_normalized_data,
         least(100, greatest(0, coalesce(

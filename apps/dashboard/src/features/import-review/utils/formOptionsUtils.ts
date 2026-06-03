@@ -10,7 +10,7 @@ import {
 import type { ImportReviewFormOptionsBundle } from "../hooks/useImportReviewFormOptions";
 import type { ImportReviewBuildingListItem, ImportReviewFormOption } from "@/src/lib/api";
 import {
-    importReviewFormOptionToPoiCategory,
+    buildPoiCategoryDropdownOptions,
     type PoiCategoryDropdownOption,
 } from "@/src/lib/poi-category/display";
 
@@ -64,10 +64,21 @@ export function formOptionsKeyForField(
 }
 
 export function poiCategoryOptionsFromFormOptions(
-    formOptions: ImportReviewFormOptionsBundle | null | undefined
+    formOptions: ImportReviewFormOptionsBundle | null | undefined,
+    selectedValue?: string | null
 ): PoiCategoryDropdownOption[] {
     const rows = formOptions?.poi_categories ?? [];
-    return rows.map((row) => importReviewFormOptionToPoiCategory(row));
+    return buildPoiCategoryDropdownOptions(
+        rows.map((row) => ({
+            id: row.id ?? String(row.value),
+            value: row.value,
+            code: row.code ?? null,
+            name: row.name ?? null,
+            name_mm: row.name_mm ?? null,
+            parent_id: row.parent_id,
+        })),
+        { selectedValue }
+    );
 }
 
 export function selectOptionsForField(

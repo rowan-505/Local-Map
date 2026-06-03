@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
+    filterPoiCategoryDropdownOptions,
     getPoiCategoryDisplayText,
     isPoiParentCategory,
     type PoiCategoryDropdownOption,
@@ -50,7 +51,7 @@ export default function PoiCategoryCombobox({
     const inputId = idProp ?? autoId;
     const listboxId = `${inputId}-listbox`;
 
-    const [query, setQuery] = useState("");
+    const [filterQuery, setFilterQuery] = useState("");
     const [open, setOpen] = useState(false);
     const [activeIndex, setActiveIndex] = useState(-1);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -60,15 +61,22 @@ export default function PoiCategoryCombobox({
         [options, value]
     );
 
-    const displayValue = open ? query : selected ? getPoiCategoryDisplayText(selected) : query;
+    const filtered = useMemo(
+        () => filterPoiCategoryDropdownOptions(options, filterQuery),
+        [options, filterQuery]
+    );
 
-    const filtered = useMemo(() => {
-        const q = query.trim().toLowerCase();
-        if (!q) {
-            return options;
-        }
-        return options.filter((option) => option.searchText.toLowerCase().includes(q));
-    }, [options, query]);
+    const displayValue = open
+        ? filterQuery
+        : selected
+          ? getPoiCategoryDisplayText(selected)
+          : filterQuery;
+
+    const closeList = useCallback(() => {
+        setOpen(false);
+        setFilterQuery("");
+        setActiveIndex(-1);
+    }, []);
 
     useEffect(() => {
         if (!open) {
@@ -76,29 +84,26 @@ export default function PoiCategoryCombobox({
         }
         const onDoc = (e: MouseEvent) => {
             if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-                setOpen(false);
-                setQuery("");
+                closeList();
             }
         };
         document.addEventListener("mousedown", onDoc);
         return () => document.removeEventListener("mousedown", onDoc);
-    }, [open]);
+    }, [closeList, open]);
 
     const pick = useCallback(
         (option: PoiCategoryDropdownOption | null) => {
             onChange(option?.value ?? "");
-            setQuery("");
-            setOpen(false);
-            setActiveIndex(-1);
+            closeList();
         },
-        [onChange]
+        [closeList, onChange]
     );
 
     const handleInputChange = (text: string) => {
-        setQuery(text);
+        setFilterQuery(text);
         setOpen(true);
         setActiveIndex(0);
-        if (text.trim() === "") {
+        if (allowEmpty && text.trim() === "") {
             onChange("");
         }
     };
@@ -121,8 +126,7 @@ export default function PoiCategoryCombobox({
             return;
         }
         if (e.key === "Escape") {
-            setOpen(false);
-            setQuery("");
+            closeList();
         }
     };
 
@@ -156,7 +160,8 @@ export default function PoiCategoryCombobox({
                     onChange={(e) => handleInputChange(e.target.value)}
                     onFocus={() => {
                         setOpen(true);
-                        setQuery(selected ? getPoiCategoryDisplayText(selected) : "");
+                        setFilterQuery("");
+                        setActiveIndex(-1);
                     }}
                     onKeyDown={handleKeyDown}
                     className={`${inputClass} ${showSelectedStar ? "pl-6" : ""}`}

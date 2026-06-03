@@ -1,12 +1,16 @@
 import { Prisma } from "@prisma/client";
 
 import { roadsExplicitAdminAreaIdExpr } from "./import-review-road-admin-area-sql.js";
+import { effectiveRoadLengthMExpr, geomSourceExpr } from "./import-review-promotion-promote-sql.js";
 import {
-    effectiveRoadLengthMExpr,
-    externalIdExpr,
-    geomSourceExpr,
-    nameExpr,
-} from "./import-review-promotion-promote-sql.js";
+    promotionTypedExternalIdExpr,
+    promotionTypedNameExpr,
+    promotionTypedRoadBoolFieldExpr,
+    promotionTypedRoadClassCodeExpr,
+    promotionTypedRoadClassIdExpr,
+    promotionTypedRoadIntFieldExpr,
+    promotionTypedRoadTextFieldExpr,
+} from "./import-review-promotion-typed-promote-sql.js";
 
 export const ROAD_CANDIDATE_SQL_ALIAS = "r";
 
@@ -49,72 +53,23 @@ function roadAlias(alias: string): Prisma.Sql {
 }
 
 export function roadEffectiveTextFieldExpr(alias: string, field: string): Prisma.Sql {
-    const a = roadAlias(alias);
-    const f = Prisma.raw(field);
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${a}.${f},
-            ${a}.normalized_data->>${f}
-        )), '')
-    `;
+    return promotionTypedRoadTextFieldExpr(alias, field);
 }
 
 export function roadEffectiveBoolFieldExpr(alias: string, field: string, defaultSql: Prisma.Sql): Prisma.Sql {
-    const a = roadAlias(alias);
-    const f = Prisma.raw(field);
-    return Prisma.sql`
-        coalesce(
-            ${a}.${f},
-            CASE
-                WHEN ${a}.normalized_data ? ${f}
-                    THEN (${a}.normalized_data->>${f})::boolean
-            END,
-            ${defaultSql}
-        )
-    `;
+    return promotionTypedRoadBoolFieldExpr(alias, field, defaultSql);
 }
 
 export function roadEffectiveIntFieldExpr(alias: string, field: string, defaultSql: Prisma.Sql): Prisma.Sql {
-    const a = roadAlias(alias);
-    const f = Prisma.raw(field);
-    return Prisma.sql`
-        coalesce(
-            ${a}.${f},
-            CASE
-                WHEN (${a}.normalized_data->>${f}) ~ '^-?[0-9]+$'
-                    THEN (${a}.normalized_data->>${f})::integer
-            END,
-            ${defaultSql}
-        )
-    `;
+    return promotionTypedRoadIntFieldExpr(alias, field, defaultSql);
 }
 
 export function roadEffectiveRoadClassIdExpr(alias: string): Prisma.Sql {
-    const a = roadAlias(alias);
-    return Prisma.sql`
-        coalesce(
-            ${a}.road_class_id,
-            CASE
-                WHEN (${a}.normalized_data->>'road_class_id') ~ '^[0-9]+$'
-                    THEN (${a}.normalized_data->>'road_class_id')::bigint
-            END
-        )
-    `;
+    return promotionTypedRoadClassIdExpr(alias);
 }
 
 export function roadEffectiveRoadClassCodeExpr(alias: string): Prisma.Sql {
-    const a = roadAlias(alias);
-    const classId = roadEffectiveRoadClassIdExpr(alias);
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            (SELECT rc.code FROM ref.ref_road_classes AS rc WHERE rc.id = ${classId}),
-            ${a}.road_class,
-            ${a}.class_code,
-            ${a}.normalized_data->>'road_class',
-            ${a}.normalized_data->>'class_code',
-            ${a}.normalized_data->>'highway'
-        )), '')
-    `;
+    return promotionTypedRoadClassCodeExpr(alias);
 }
 
 export function roadLineGeomExpr(alias: string, geomColumn = "geom"): Prisma.Sql {
@@ -138,7 +93,7 @@ export function roadCanonicalNameExpr(alias: string): Prisma.Sql {
     const a = roadAlias(alias);
     return Prisma.sql`
         coalesce(
-            nullif(trim(${nameExpr(alias)}), ''),
+            nullif(trim(${promotionTypedNameExpr(alias)}), ''),
             nullif(trim(${a}.canonical_name), ''),
             'Unnamed Street'
         )
@@ -210,7 +165,7 @@ export function roadReadyFieldExprs(
     return Prisma.sql`
         ${roadLineGeomExpr(alias)} AS geom_ready,
         ${roadCanonicalNameExpr(alias)} AS canonical_name_ready,
-        ${externalIdExpr(alias)} AS external_id_ready,
+        ${promotionTypedExternalIdExpr(alias)} AS external_id_ready,
         ${roadEffectiveRoadClassIdExpr(alias)} AS road_class_id_ready,
         ${roadEffectiveRoadClassCodeExpr(alias)} AS road_class_code_ready,
         ${roadEffectiveTextFieldExpr(alias, "surface")} AS surface_ready,

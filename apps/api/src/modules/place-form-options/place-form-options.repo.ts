@@ -23,16 +23,26 @@ export class PlaceFormOptionsRepository {
                 name: string;
                 name_mm: string | null;
                 parent_id: bigint | null;
+                sort_order: number;
+                is_public: boolean;
+                is_searchable: boolean;
             }[]
         >`
             SELECT
                 id,
+                parent_id,
                 code,
                 name,
                 name_mm,
-                parent_id
+                sort_order,
+                is_public,
+                is_searchable
             FROM ref.ref_poi_categories
-            ORDER BY sort_order ASC NULLS LAST, name ASC
+            ORDER BY
+                (parent_id IS NULL) DESC,
+                sort_order ASC NULLS LAST,
+                name ASC,
+                id ASC
         `;
     }
 

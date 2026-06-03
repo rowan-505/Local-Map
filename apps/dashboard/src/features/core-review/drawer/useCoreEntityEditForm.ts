@@ -22,6 +22,7 @@ import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 import { summarizeCoreReviewSavePayload } from "@/src/lib/core-review/savePayloadUtils";
 
+import { townshipAdminSaveBlockMessage } from "../forms/EntityTownshipAdminField";
 import { collectRefSources, useCoreEntityRefs } from "../forms/useCoreEntityRefs";
 import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
 import { SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM } from "../forms/CoreEntityGeometrySection";
@@ -157,6 +158,12 @@ export function useCoreEntityEditForm({
 
         const run = handleSubmit(async (values) => {
             try {
+                const townshipBlock = townshipAdminSaveBlockMessage(values);
+                if (townshipBlock) {
+                    setSaveError(townshipBlock);
+                    return;
+                }
+
                 if (entityKey === "streets") {
                     const geom = getFormGeometry(values, geometryFieldKey);
                     const prep = prepareLocalStreetGeometryForSave(

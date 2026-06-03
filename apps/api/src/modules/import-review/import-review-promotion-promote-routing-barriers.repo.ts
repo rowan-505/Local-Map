@@ -1,5 +1,6 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 
+import type { PromotionDb } from "./import-review-promotion-db.js";
 import type { PromoteItemResult } from "./import-review-promotion-promote.types.js";
 import {
     ROUTING_BARRIER_CANDIDATE_TABLE,
@@ -29,15 +30,13 @@ type TargetRow = {
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
-    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-function effectiveText(row: CandidateRow, key: string, fallback: string | null = null): string | null {
-    const normalized = asRecord(row.normalized_data);
-    for (const value of [row[key as keyof CandidateRow], normalized[key], fallback]) {
-        if (typeof value === "string" && value.trim()) {
-            return value.trim();
-        }
+function typedBarrierType(row: CandidateRow): string | null {
+    const value = row.barrier_type;
+    if (typeof value === "string" && value.trim()) {
+        return value.trim();
     }
     return null;
 }
@@ -68,8 +67,8 @@ function normalizedData(row: CandidateRow, dryRunResult: unknown): Record<string
 export class ImportReviewPromotionPromoteRoutingBarriersRepository {
     private readonly schemaRegistry: ImportReviewSchemaCapabilityRegistry;
 
-    constructor(private readonly prisma: PrismaClient) {
-        this.schemaRegistry = new ImportReviewSchemaCapabilityRegistry(prisma);
+    constructor(private readonly prisma: PromotionDb) {
+        this.schemaRegistry = new ImportReviewSchemaCapabilityRegistry(prisma as PrismaClient);
     }
 
     async checkRoutingBarrierExists(targetId: bigint): Promise<boolean> {
@@ -86,14 +85,31 @@ export class ImportReviewPromotionPromoteRoutingBarriersRepository {
     }
 
     async insertRoutingBarrier(batchId: bigint, publishItemId: bigint): Promise<PromoteItemResult> {
-        return this.upsertRoutingBarrier(batchId, publishItemId, "insert");
+        return this.upsertRoutingBarrierTx(this.prisma, batchId, publishItemId, "insert");
     }
 
     async updateRoutingBarrier(batchId: bigint, publishItemId: bigint): Promise<PromoteItemResult> {
-        return this.upsertRoutingBarrier(batchId, publishItemId, "update");
+        return this.upsertRoutingBarrierTx(this.prisma, batchId, publishItemId, "update");
     }
 
-    private async upsertRoutingBarrier(
+    async insertRoutingBarrierTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint
+    ): Promise<PromoteItemResult> {
+        return this.upsertRoutingBarrierTx(tx, batchId, publishItemId, "insert");
+    }
+
+    async updateRoutingBarrierTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint
+    ): Promise<PromoteItemResult> {
+        return this.upsertRoutingBarrierTx(tx, batchId, publishItemId, "update");
+    }
+
+    async upsertRoutingBarrierTx(
+        tx: PromotionDb,
         batchId: bigint,
         publishItemId: bigint,
         mode: "insert" | "update"
@@ -111,7 +127,7 @@ export class ImportReviewPromotionPromoteRoutingBarriersRepository {
                 };
             }
 
-            const candidates = await this.prisma.$queryRaw<CandidateRow[]>`
+            const candidates = await tx.$queryRaw<CandidateRow[]>`
                 SELECT
                     spi.id AS publish_item_id,
                     rb.id,
@@ -146,7 +162,7 @@ export class ImportReviewPromotionPromoteRoutingBarriersRepository {
                 };
             }
 
-            const barrierType = effectiveText(candidate, "barrier_type", candidate.external_id);
+            const barrierType = typedBarrierType(candidate);
             if (!barrierType) {
                 return {
                     publish_item_id: publishItemId,
@@ -158,18 +174,18 @@ export class ImportReviewPromotionPromoteRoutingBarriersRepository {
                 };
             }
 
-            const dryRun = await this.readDryRunItem(batchId, candidate.id);
+            const dryRun = await this.readDryRunItem(tx, batchId, candidate.id);
             const sourceRefsJson = JSON.stringify(sourceRefs(candidate, batchId));
             const normalizedJson = JSON.stringify(normalizedData(candidate, dryRun));
 
             const targetId =
                 mode === "update"
                     ? (candidate.matched_core_id ?? candidate.promoted_core_id)
-                    : await this.findExistingPromotedId(candidate.id);
-            const before = targetId ? await this.fetchTargetRow(targetId) : null;
+                    : await this.findExistingPromotedId(tx, candidate.id);
+            const before = targetId ? await this.fetchTargetRow(tx, targetId) : null;
 
             if (targetId) {
-                const updated = await this.prisma.$queryRaw<TargetRow[]>`
+                const updated = await tx.$queryRaw<TargetRow[]>`
                     UPDATE routing.routing_barriers
                     SET barrier_type = ${barrierType},
                         geom = ${candidate.point_geom}::geometry(Point, 4326),
@@ -208,7 +224,7 @@ export class ImportReviewPromotionPromoteRoutingBarriersRepository {
                 };
             }
 
-            const inserted = await this.prisma.$queryRaw<TargetRow[]>`
+            const inserted = await tx.$queryRaw<TargetRow[]>`
                 INSERT INTO routing.routing_barriers (
                     barrier_type,
                     core_street_id,
@@ -293,8 +309,11 @@ export class ImportReviewPromotionPromoteRoutingBarriersRepository {
         }
     }
 
-    private async fetchTargetRow(targetId: bigint): Promise<Record<string, unknown> | null> {
-        const rows = await this.prisma.$queryRaw<{ data: unknown }[]>`
+    private async fetchTargetRow(
+        tx: PromotionDb,
+        targetId: bigint
+    ): Promise<Record<string, unknown> | null> {
+        const rows = await tx.$queryRaw<{ data: unknown }[]>`
             SELECT to_jsonb(rb.*) AS data
             FROM routing.routing_barriers AS rb
             WHERE rb.id = ${targetId}
@@ -303,8 +322,8 @@ export class ImportReviewPromotionPromoteRoutingBarriersRepository {
         return asRecord(rows[0]?.data);
     }
 
-    private async findExistingPromotedId(candidateId: bigint): Promise<bigint | null> {
-        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+    private async findExistingPromotedId(tx: PromotionDb, candidateId: bigint): Promise<bigint | null> {
+        const rows = await tx.$queryRaw<{ id: bigint }[]>`
             SELECT id
             FROM routing.routing_barriers
             WHERE source_refs->>'entity_family' = 'routing_barriers'
@@ -314,8 +333,8 @@ export class ImportReviewPromotionPromoteRoutingBarriersRepository {
         return rows[0]?.id ?? null;
     }
 
-    private async readDryRunItem(batchId: bigint, candidateId: bigint): Promise<unknown> {
-        const rows = await this.prisma.$queryRaw<{ item: unknown }[]>`
+    private async readDryRunItem(tx: PromotionDb, batchId: bigint, candidateId: bigint): Promise<unknown> {
+        const rows = await tx.$queryRaw<{ item: unknown }[]>`
             SELECT item
             FROM system.system_publish_batches AS pb,
                  jsonb_array_elements(coalesce(pb.summary->'routing_barrier_dry_run_result'->'items', '[]'::jsonb)) AS item

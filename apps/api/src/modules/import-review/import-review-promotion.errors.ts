@@ -7,6 +7,19 @@ export class ImportReviewPublishBatchNotFoundError extends Error {
     }
 }
 
+export class ImportReviewPublishBatchRetryNotAvailableError extends Error {
+    readonly statusCode = 400;
+    readonly code = "PROMOTION_RETRY_NOT_AVAILABLE";
+
+    constructor(
+        public readonly batchId: string,
+        messageDetail: string
+    ) {
+        super(messageDetail);
+        this.name = "ImportReviewPublishBatchRetryNotAvailableError";
+    }
+}
+
 export class ImportReviewPublishBatchNameConflictError extends Error {
     readonly statusCode = 409;
 
@@ -27,6 +40,33 @@ export type ImportReviewPromotionFamilySkipSummary = {
     skipped_reasons: ImportReviewPromotionSkippedReasonCount[];
 };
 
+export type ImportReviewPromotionBatchLimitsViolation = {
+    code: string;
+    message: string;
+    required_flag?: string;
+};
+
+export class ImportReviewPromotionBatchLimitsError extends Error {
+    readonly statusCode = 400;
+    readonly code = "PROMOTION_BATCH_LIMITS";
+
+    constructor(
+        public readonly details: {
+            context: "create" | "validate";
+            totalItems: number;
+            maxItems: number;
+            families: string[];
+            highRiskFamilies: readonly string[];
+            normalFamilies: readonly string[];
+            violations: ImportReviewPromotionBatchLimitsViolation[];
+        }
+    ) {
+        const summary = details.violations.map((v) => v.message).join(" ");
+        super(summary);
+        this.name = "ImportReviewPromotionBatchLimitsError";
+    }
+}
+
 export class ImportReviewPromotionNoEligibleCandidatesError extends Error {
     readonly statusCode = 400;
 
@@ -40,6 +80,52 @@ export class ImportReviewPromotionNoEligibleCandidatesError extends Error {
     }
 }
 
+export type ImportReviewPromotionSelectedCandidateReason =
+    | "wrong_review_batch"
+    | "wrong_family"
+    | "not_found"
+    | "already_promoted"
+    | "not_approved"
+    | "review_status_not_ready"
+    | "validation_blocked"
+    | "missing_required_field"
+    | "already_in_active_publish_batch"
+    | "manual_protected"
+    | "duplicate_needs_review_note"
+    | "promotion_status_not_ready"
+    | "not_eligible";
+
+export type ImportReviewPromotionSelectedCandidateErrorDetails = {
+    review_status?: string | null;
+    review_decision?: string | null;
+    promoted_core_id?: string | null;
+    promoted_at?: string | null;
+    target_table?: string | null;
+    validation_errors?: unknown;
+    missing_fields?: string[];
+    active_publish_batch_id?: string | null;
+    actual_family?: string;
+    expected_family?: string;
+    expected_review_batch_id?: string;
+    actual_review_batch_id?: string;
+};
+
+export class ImportReviewPromotionSelectedCandidateError extends Error {
+    readonly statusCode = 400;
+    readonly code = "PROMOTION_SELECTED_CANDIDATE";
+
+    constructor(
+        public readonly reason: ImportReviewPromotionSelectedCandidateReason,
+        public readonly messageDetail: string,
+        public readonly family: string,
+        public readonly candidateId: bigint,
+        public readonly details: ImportReviewPromotionSelectedCandidateErrorDetails = {}
+    ) {
+        super(messageDetail);
+        this.name = "ImportReviewPromotionSelectedCandidateError";
+    }
+}
+
 export class ImportReviewPublishBatchValidationConflictError extends Error {
     readonly statusCode = 409;
 
@@ -49,6 +135,31 @@ export class ImportReviewPublishBatchValidationConflictError extends Error {
     ) {
         super(messageDetail);
         this.name = "ImportReviewPublishBatchValidationConflictError";
+    }
+}
+
+export class ImportReviewPublishBatchValidationNotRunningError extends Error {
+    readonly statusCode = 409;
+
+    constructor(
+        public readonly batchId: string,
+        public readonly status: string,
+        public readonly messageDetail: string
+    ) {
+        super(messageDetail);
+        this.name = "ImportReviewPublishBatchValidationNotRunningError";
+    }
+}
+
+export class ImportReviewPublishBatchValidationResetError extends Error {
+    readonly statusCode = 400;
+
+    constructor(
+        public readonly batchId: string,
+        public readonly messageDetail: string
+    ) {
+        super(messageDetail);
+        this.name = "ImportReviewPublishBatchValidationResetError";
     }
 }
 

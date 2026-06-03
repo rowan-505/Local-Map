@@ -1,3 +1,4 @@
+import type { JwtUser } from "../../../plugins/auth.js";
 import { createBuildingBodySchema, updateBuildingBodySchema } from "../../buildings/buildings.schema.js";
 import {
     BuildingNotFoundError,
@@ -13,6 +14,7 @@ export async function createCoreReviewBuilding(
     repo: BuildingsRepository,
     service: BuildingsService,
     body: Record<string, unknown>,
+    user: JwtUser,
 ) {
     const mapped = mapCoreReviewBuildingCreate(body);
     const parsed = createBuildingBodySchema.safeParse(mapped);
@@ -23,7 +25,7 @@ export async function createCoreReviewBuilding(
     }
 
     try {
-        const created = await service.createBuilding(parsed.data);
+        const created = await service.createBuilding(parsed.data, user);
         const detail = await getCoreReviewBuildingDetail(repo, created.public_id);
         if (!detail) {
             throw new CoreReviewValidationError("Building was created but could not be loaded");
@@ -42,6 +44,7 @@ export async function updateCoreReviewBuilding(
     service: BuildingsService,
     id: string,
     body: Record<string, unknown>,
+    user: JwtUser,
 ) {
     const mapped = mapCoreReviewBuildingPatch(body);
     const parsed = updateBuildingBodySchema.safeParse(mapped);
@@ -52,7 +55,7 @@ export async function updateCoreReviewBuilding(
     }
 
     try {
-        await service.updateCoreReviewBuilding(id, parsed.data);
+        await service.updateCoreReviewBuilding(id, parsed.data, user);
         const detail = await getCoreReviewBuildingDetail(repo, id);
         if (!detail) {
             throw new CoreReviewValidationError("Building was updated but could not be loaded");

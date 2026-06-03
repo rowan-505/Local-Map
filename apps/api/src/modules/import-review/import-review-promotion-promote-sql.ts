@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { promotionTypedBuildingClassCodeExpr } from "./import-review-promotion-typed-promote-sql.js";
 
 export function buildingClassCodeExpr(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
@@ -241,6 +242,23 @@ export function normalizedDataMergeExpr(alias: string, batchId: bigint): Prisma.
     const a = Prisma.raw(alias);
     return Prisma.sql`
         coalesce(${a}.normalized_data, '{}'::jsonb)
+        || jsonb_build_object(
+            'promotion', jsonb_build_object(
+                'publish_batch_id', ${batchId}::text,
+                'promoted_at', to_jsonb(now())
+            )
+        )
+    `;
+}
+
+/** Core buildings have no class_code column; persist typed class in normalized_data. */
+export function buildingNormalizedDataMergeExpr(alias: string, batchId: bigint): Prisma.Sql {
+    const a = Prisma.raw(alias);
+    return Prisma.sql`
+        coalesce(${a}.normalized_data, '{}'::jsonb)
+        || jsonb_strip_nulls(
+            jsonb_build_object('class_code', ${promotionTypedBuildingClassCodeExpr(alias)})
+        )
         || jsonb_build_object(
             'promotion', jsonb_build_object(
                 'publish_batch_id', ${batchId}::text,

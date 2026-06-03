@@ -26,6 +26,8 @@ import ImportReviewInlineSpinner from "@/src/features/import-review/components/I
 import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
 import ImportReviewSkeletonCards from "@/src/features/import-review/components/ImportReviewSkeletonCards";
 import ImportReviewSkeletonTable from "@/src/features/import-review/components/ImportReviewSkeletonTable";
+import { PUBLISH_BATCH_ITEM_FILTER_OPTIONS } from "@/src/features/import-review/promotion/publishBatchItemsQuery";
+import { validationStatusFromPublishItem } from "@/src/features/import-review/promotion/publishBatchItemDetail";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 
 export default function ImportReviewHistoryPublishBatchDetailClient() {
@@ -71,7 +73,9 @@ export default function ImportReviewHistoryPublishBatchDetailClient() {
             const res = await getImportReviewHistoryPublishBatchItems(
                 id,
                 {
-                    publish_status: statusFilter || undefined,
+                    ...(statusFilter
+                        ? { publish_status: statusFilter }
+                        : {}),
                     entity_family: entityFilter || undefined,
                     limit: itemsLimit,
                     offset: itemsOffset,
@@ -252,16 +256,22 @@ export default function ImportReviewHistoryPublishBatchDetailClient() {
                         <section>
                             <h2 className="text-lg font-semibold text-gray-900">Publish items</h2>
                             <div className="mt-3 flex flex-wrap gap-2">
-                                <input
-                                    type="text"
-                                    placeholder="publish_status"
+                                <select
                                     value={statusFilter}
                                     onChange={(e) => {
                                         setStatusFilter(e.target.value);
                                         setItemsOffset(0);
                                     }}
                                     className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
-                                />
+                                    aria-label="Filter publish items by status"
+                                >
+                                    <option value="">All statuses</option>
+                                    {PUBLISH_BATCH_ITEM_FILTER_OPTIONS.map((token) => (
+                                        <option key={token} value={token}>
+                                            {token}
+                                        </option>
+                                    ))}
+                                </select>
                                 <input
                                     type="text"
                                     placeholder="entity_family"
@@ -284,31 +294,52 @@ export default function ImportReviewHistoryPublishBatchDetailClient() {
                                     <thead className="bg-gray-50 text-left text-xs font-semibold uppercase text-gray-500">
                                         <tr>
                                             <th className="px-3 py-2">Family</th>
-                                            <th className="px-3 py-2">Status</th>
-                                            <th className="px-3 py-2">Action</th>
                                             <th className="px-3 py-2">Candidate</th>
+                                            <th className="px-3 py-2">Publish status</th>
+                                            <th className="px-3 py-2">Validation</th>
+                                            <th className="px-3 py-2">Action</th>
                                             <th className="px-3 py-2">Core target</th>
                                             <th className="px-3 py-2">Error</th>
+                                            <th className="px-3 py-2">Detail</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {items.map((item) => (
-                                            <tr key={item.id}>
+                                            <tr key={item.id} className="align-top">
                                                 <td className="px-3 py-2">{item.entity_family}</td>
+                                                <td className="px-3 py-2 font-mono text-xs tabular-nums">
+                                                    {item.review_candidate_id ?? "—"}
+                                                </td>
                                                 <td className="px-3 py-2">
                                                     <HistoryStatusBadge status={item.publish_status} />
                                                 </td>
-                                                <td className="px-3 py-2">{item.publish_action ?? "—"}</td>
                                                 <td className="px-3 py-2 font-mono text-xs">
-                                                    {item.review_candidate_id ?? "—"}
+                                                    {validationStatusFromPublishItem(item.validation_result) ??
+                                                        "—"}
                                                 </td>
+                                                <td className="px-3 py-2">{item.publish_action ?? "—"}</td>
                                                 <td className="px-3 py-2 font-mono text-xs">
                                                     {item.target_table && item.target_id
                                                         ? `${item.target_table}#${item.target_id}`
                                                         : "—"}
                                                 </td>
-                                                <td className="px-3 py-2 max-w-xs truncate text-red-800" title={item.error_message ?? undefined}>
+                                                <td className="px-3 py-2 max-w-xs whitespace-pre-wrap break-words text-red-800">
                                                     {item.error_message ?? "—"}
+                                                </td>
+                                                <td className="px-3 py-2 min-w-[8rem]">
+                                                    {item.after_data != null ||
+                                                    item.error_message ? (
+                                                        <CollapsibleJson
+                                                            label="Result JSON"
+                                                            value={
+                                                                item.after_data ?? {
+                                                                    message: item.error_message,
+                                                                }
+                                                            }
+                                                        />
+                                                    ) : (
+                                                        "—"
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}

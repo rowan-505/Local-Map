@@ -1,4 +1,6 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+
+import type { DbExecutor } from "./import-review-promotion-db.js";
 
 import { composeAddress } from "../addresses/address-composer.js";
 import { assessAddressPromotionEligibility } from "./import-review-address-promotion-eligibility.js";
@@ -57,7 +59,7 @@ function pickUndComponent(
 export class ImportReviewPromotionPromoteAddressesRepository {
     private readonly addressRepo: ImportReviewAddressPromotionRepository;
 
-    constructor(private readonly prisma: PrismaClient) {
+    constructor(private readonly prisma: DbExecutor) {
         this.addressRepo = new ImportReviewAddressPromotionRepository(prisma);
     }
 
@@ -74,7 +76,15 @@ export class ImportReviewPromotionPromoteAddressesRepository {
         batchId: bigint,
         publishItemId: bigint
     ): Promise<PromoteItemResult> {
-        const rows = await this.prisma.$queryRaw<
+        return this.promoteFromPublishItemTx(this.prisma, batchId, publishItemId);
+    }
+
+    async promoteFromPublishItemTx(
+        db: DbExecutor,
+        batchId: bigint,
+        publishItemId: bigint
+    ): Promise<PromoteItemResult> {
+        const rows = await db.$queryRaw<
             Array<{
                 publish_action: string;
                 candidate_id: bigint;

@@ -11,6 +11,8 @@ import {
     updateStreetBodySchema,
     validateStreetGeometryBodySchema,
 } from "./streets.schema.js";
+import { EntityAdminAreaRepository } from "../entity-admin-area/entity-admin-area.repo.js";
+import { EntityAdminAreaService } from "../entity-admin-area/entity-admin-area.service.js";
 import { StreetsRepository } from "./streets.repo.js";
 import { StreetNotFoundError, StreetsService, StreetValidationError } from "./streets.service.js";
 import {
@@ -43,7 +45,8 @@ function sanitizeStreetPatchBody(body: unknown) {
 
 const streetsRoutes: FastifyPluginAsync = async (app) => {
     const streetsRepo = new StreetsRepository(app.prisma);
-    const streetsService = new StreetsService(streetsRepo);
+    const entityAdminAreaService = new EntityAdminAreaService(new EntityAdminAreaRepository(app.prisma));
+    const streetsService = new StreetsService(streetsRepo, entityAdminAreaService);
 
     app.get(
         "/road-classes",

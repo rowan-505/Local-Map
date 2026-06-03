@@ -2097,17 +2097,50 @@ export const postImportReviewPromotionBatchSchema = {
         201: {
             type: "object",
             required: [
+                "id",
+                "public_id",
+                "review_batch_id",
+                "mode",
+                "total_item_count",
+                "count_by_family",
                 "message",
                 "batch",
+                "batch_id",
+                "publish_batch_id",
+                "families",
+                "status",
+                "total_items",
                 "items_added",
+                "total_selected",
                 "candidates_marked_batched",
                 "by_family",
+                "by_entity",
+                "skipped",
                 "building_candidates_marked_batched",
             ],
             properties: {
+                id: {
+                    type: "integer",
+                    minimum: 1,
+                    description: "Numeric system.system_publish_batches.id (use for navigation)",
+                },
+                public_id: { type: "string", description: "Publish batch public id (uuid)" },
                 message: { type: "string" },
                 batch: importReviewPublishBatchDetailSchema,
+                batch_id: { type: "string", description: "Publish batch id as string" },
+                publish_batch_id: { type: "string", description: "Alias of batch_id" },
+                review_batch_id: { type: "integer" },
+                mode: { type: "string", enum: ["selected", "all_ready"] },
+                families: { type: "array", items: { type: "string" } },
+                status: { type: "string" },
+                total_items: { type: "integer", minimum: 0 },
+                total_item_count: { type: "integer", minimum: 0 },
+                count_by_family: {
+                    type: "object",
+                    additionalProperties: { type: "integer", minimum: 0 },
+                },
                 items_added: { type: "integer", minimum: 0 },
+                total_selected: { type: "integer", minimum: 0 },
                 candidates_marked_batched: { type: "integer", minimum: 0 },
                 by_family: {
                     type: "array",
@@ -2122,6 +2155,22 @@ export const postImportReviewPromotionBatchSchema = {
                         },
                         additionalProperties: false,
                     },
+                },
+                by_entity: {
+                    type: "object",
+                    additionalProperties: { type: "integer", minimum: 0 },
+                },
+                skipped: { type: "integer", minimum: 0 },
+                timing_ms: {
+                    type: "object",
+                    properties: {
+                        resolve_ms: { type: "number" },
+                        eligibility_ms: { type: "number" },
+                        payload_ms: { type: "number" },
+                        transaction_ms: { type: "number" },
+                        total_ms: { type: "number" },
+                    },
+                    additionalProperties: false,
                 },
                 building_candidates_marked_batched: { type: "integer", minimum: 0 },
             },
@@ -2165,13 +2214,16 @@ const importReviewPublishBatchValidationResultSchema = {
         "promotable_entity_families",
     ],
     properties: {
-        outcome: { type: "string", enum: ["passed", "blocked"] },
+        outcome: { type: "string", enum: ["passed", "partial", "blocked"] },
         can_promote: { type: "boolean" },
         requires_warning_confirmation: { type: "boolean" },
         valid_count: { type: "integer", minimum: 0 },
+        ready_count: { type: "integer", minimum: 0 },
         warning_count: { type: "integer", minimum: 0 },
         blocked_count: { type: "integer", minimum: 0 },
         skipped_count: { type: "integer", minimum: 0 },
+        promotable_count: { type: "integer", minimum: 0 },
+        total_count: { type: "integer", minimum: 0 },
         total_items: { type: "integer", minimum: 0 },
         by_publish_action: {
             type: "object",
@@ -2224,16 +2276,87 @@ const importReviewPublishStageLogItemSchema = {
     additionalProperties: false,
 } as const;
 
-export const postImportReviewPromotionBatchValidateSchema = {
+export const postImportReviewPromotionBatchCancelValidationSchema = {
     tags: [Tags.ImportReview],
-    summary: "Start publish batch validation (multi-family)",
+    summary: "Request cancel of in-flight publish batch validation",
     description:
-        "Validates publish items across supported entity families without writing to core. Returns 202 immediately; poll progress and logs endpoints.",
+        "Sets validation_cancel_requested_at while status=validating. Stops at the next checkpoint; if the worker is not responding, finalizes the batch as cancelled immediately.",
     security: [...bearerAuth],
     params: {
         type: "object",
         required: ["id"],
         properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        202: {
+            type: "object",
+            required: ["batch_id", "status", "message"],
+            properties: {
+                batch_id: { type: "string" },
+                status: { type: "string" },
+                message: { type: "string" },
+            },
+            additionalProperties: false,
+        },
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewPromotionBatchResetValidationSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Reset publish batch validation state to draft",
+    description:
+        "Clears per-item validation_result and batch validation counters. Does not delete publish items. Not allowed on promoted batches.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["batch_id", "status", "message"],
+            properties: {
+                batch_id: { type: "string" },
+                status: { type: "string" },
+                message: { type: "string" },
+            },
+            additionalProperties: false,
+        },
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewPromotionBatchValidateSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Start publish batch validation (multi-family)",
+    description:
+        "Validates publish items across supported entity families without writing to core. Returns 202 immediately; poll progress and logs endpoints. Batches over 200 items or with high-risk families require explicit confirmation flags in the body.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    body: {
+        type: "object",
+        properties: {
+            confirm_large_batch: { type: "boolean", default: false },
+            allow_high_risk_families: { type: "boolean", default: false },
+            mixed_high_risk_confirm: { type: "boolean", default: false },
+        },
+        additionalProperties: false,
     },
     response: {
         202: {
@@ -2275,10 +2398,14 @@ const importReviewPublishBatchPromotionResultSchema = {
         "promoted_entity_families",
     ],
     properties: {
-        status: { type: "string", enum: ["promoted", "failed"] },
+        status: { type: "string", enum: ["promoted", "partially_promoted", "failed"] },
+        promoted_count: { type: "integer", minimum: 0 },
+        skipped_blocked_count: { type: "integer", minimum: 0 },
+        skipped_warning_count: { type: "integer", minimum: 0 },
         inserted_count: { type: "integer", minimum: 0 },
         updated_count: { type: "integer", minimum: 0 },
         success_count: { type: "integer", minimum: 0 },
+        partial_promotion: { type: "boolean" },
         failed_count: { type: "integer", minimum: 0 },
         skipped_count: { type: "integer", minimum: 0 },
         total: { type: "integer", minimum: 0 },
@@ -2331,6 +2458,14 @@ export const getImportReviewPromotionBatchProgressSchema = {
                 "validation_logs_summary",
                 "promotion_result",
                 "promotion_logs_summary",
+                "validation_heartbeat_at",
+                "validation_cancel_requested_at",
+                "validation_heartbeat_stale_warning",
+                "current_promotable_count",
+                "validation_promotable_count",
+                "publish_item_status_counts",
+                "promotion_status",
+                "failed_ready_retry_count",
             ],
             properties: {
                 batch_id: { type: "string" },
@@ -2362,6 +2497,35 @@ export const getImportReviewPromotionBatchProgressSchema = {
                     nullable: true,
                 },
                 promotion_logs_summary: { type: "string", nullable: true },
+                validation_heartbeat_at: { type: "string", format: "date-time", nullable: true },
+                validation_cancel_requested_at: { type: "string", format: "date-time", nullable: true },
+                validation_heartbeat_stale_warning: { type: "boolean" },
+                current_promotable_count: { type: "integer", minimum: 0 },
+                validation_promotable_count: { type: "integer", minimum: 0, nullable: true },
+                publish_item_status_counts: {
+                    type: "object",
+                    required: ["pending", "success", "failed", "skipped", "total"],
+                    properties: {
+                        pending: { type: "integer", minimum: 0 },
+                        success: { type: "integer", minimum: 0 },
+                        failed: { type: "integer", minimum: 0 },
+                        skipped: { type: "integer", minimum: 0 },
+                        total: { type: "integer", minimum: 0 },
+                    },
+                    additionalProperties: false,
+                },
+                promotion_status: {
+                    type: "string",
+                    nullable: true,
+                    enum: [
+                        "not_started",
+                        "promoting",
+                        "promoted",
+                        "partially_promoted",
+                        "promotion_failed",
+                    ],
+                },
+                failed_ready_retry_count: { type: "integer", minimum: 0 },
             },
             additionalProperties: false,
         },
@@ -3440,6 +3604,71 @@ export const postImportReviewPromotionBatchPromoteSchema = {
     },
 } satisfies FastifySchema;
 
+export const postImportReviewPromotionBatchRetryFailedReadySchema = {
+    tags: [Tags.ImportReview],
+    summary: "Create retry publish batch from failed ready items",
+    description:
+        "Creates a new draft publish batch from publish items on the source batch that failed promotion but had validation_result.status=ready. Does not modify the source batch. User must validate the new batch before promotion.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    body: {
+        type: "object",
+        properties: {
+            batch_name: { type: "string", minLength: 1, maxLength: 200 },
+            note: { type: "string", maxLength: 4000 },
+            confirm_large_batch: { type: "boolean", default: false },
+            allow_high_risk_families: { type: "boolean", default: false },
+            mixed_high_risk_confirm: { type: "boolean", default: false },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        201: {
+            type: "object",
+            required: [
+                "id",
+                "public_id",
+                "review_batch_id",
+                "source_publish_batch_id",
+                "failed_ready_source_count",
+                "failed_ready_retry_count",
+                "total_item_count",
+                "message",
+                "batch_id",
+                "publish_batch_id",
+            ],
+            properties: {
+                id: { type: "integer", minimum: 1 },
+                public_id: { type: "string" },
+                review_batch_id: { type: "integer" },
+                source_publish_batch_id: { type: "string" },
+                failed_ready_source_count: { type: "integer", minimum: 0 },
+                failed_ready_retry_count: { type: "integer", minimum: 0 },
+                total_item_count: { type: "integer", minimum: 0 },
+                message: { type: "string" },
+                batch_id: { type: "string" },
+                publish_batch_id: { type: "string" },
+                batch: importReviewPublishBatchDetailSchema,
+                count_by_family: {
+                    type: "object",
+                    additionalProperties: { type: "integer", minimum: 0 },
+                },
+            },
+            additionalProperties: true,
+        },
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
 const roadDryRunSampleItemSchema = {
     type: "object",
     required: [
@@ -4373,9 +4602,17 @@ export const getImportReviewHistoryPublishBatchItemsSchema = {
     querystring: {
         type: "object",
         properties: {
-            publish_status: { type: "string" },
+            publish_status: {
+                type: "string",
+                description:
+                    "Filter token or publish_status value. Tokens: failed, pending, skipped, promoted, blocked, skipped_blocked.",
+            },
+            status: {
+                type: "string",
+                description: "Alias for publish_status (same accepted tokens).",
+            },
             entity_family: { type: "string" },
-            limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+            limit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
             offset: { type: "integer", minimum: 0, default: 0 },
         },
     },

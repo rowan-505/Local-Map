@@ -1,18 +1,32 @@
 import {
-    IMPORT_REVIEW_PROMOTION_TARGETS,
     PROMOTABLE_PUBLISH_FAMILIES,
-    type ImportReviewPromotionAllowedFamily,
     type PromotablePublishEntityFamily,
     isDisabledImportReviewPromotionFamily,
     isPromotablePublishFamily,
 } from "./import-review-promotion-config.js";
+import {
+    getPromotionFamilyConfig,
+    promotionTargetQualifiedTable,
+} from "./import-review-promotion-simple-config.js";
 import { isDeprecatedCoreBusPublishFamily } from "./import-review-transport-promotion-deprecated.js";
+import type {
+    PublishItemPromotionSelection,
+    PublishItemValidationRow,
+} from "./import-review-promotion-execution.js";
+import {
+    isPublishItemValidationBlocked,
+    isPublishItemValidationReady,
+    isPublishItemValidationWarning,
+    parsePublishItemValidationResult,
+} from "./import-review-promotion-publish-item-validation.js";
 import type { PostImportReviewPromotionBatchPromoteBody } from "./import-review-promotion.schema.js";
 
 export type PromotionPreflightValidation = {
     outcome: string;
     blocked_count: number;
     warning_count: number;
+    ready_count: number;
+    promotable_count: number;
     can_promote: boolean;
     requires_warning_confirmation: boolean;
 };
@@ -29,10 +43,14 @@ export function getImportReviewPromotionTargetTable(family: string): string | nu
     if (isDisabledImportReviewPromotionFamily(family) || isDeprecatedCoreBusPublishFamily(family)) {
         return null;
     }
+    const config = getPromotionFamilyConfig(family);
+    if (config) {
+        return promotionTargetQualifiedTable(config);
+    }
     if (!isPromotablePublishFamily(family)) {
         return null;
     }
-    return IMPORT_REVIEW_PROMOTION_TARGETS[family as ImportReviewPromotionAllowedFamily];
+    return null;
 }
 
 export function assertBusFamilyCannotPromote(family: string): void {
@@ -42,12 +60,16 @@ export function assertBusFamilyCannotPromote(family: string): void {
 }
 
 export function resolvePromotionWarningNote(body: PostImportReviewPromotionBatchPromoteBody): string | undefined {
-    const note = body.warning_confirmation_note?.trim() || body.review_note?.trim();
+    const note =
+        body.promotion_note?.trim() ||
+        body.warning_confirmation_note?.trim() ||
+        body.review_note?.trim();
     return note || undefined;
 }
 
 export type PromotionWarningConfirmationInput = {
     confirm_warnings?: boolean;
+    promotion_note?: string;
     warning_confirmation_note?: string;
     review_note?: string;
 };
@@ -63,23 +85,77 @@ export function assertPromotionWarningConfirmationAllowed(
         throw new Error("Validation warnings require confirm_warnings=true before promotion.");
     }
     const note =
+        body.promotion_note?.trim() ||
         body.warning_confirmation_note?.trim() ||
         body.review_note?.trim() ||
         undefined;
     if (!note) {
-        throw new Error("Validation warnings require a non-empty review_note before promotion.");
+        throw new Error("Validation warnings require a non-empty promotion_note before promotion.");
     }
 }
 
+/** Item-level preflight from pending publish items (authority over stale batch summary). */
+export function buildPromotionPreflightFromItemSelection(
+    pendingRows: readonly PublishItemValidationRow[],
+    selection: PublishItemPromotionSelection
+): PromotionPreflightValidation {
+    let ready_count = 0;
+    let warning_count = 0;
+    let blocked_count = 0;
+
+    for (const row of pendingRows) {
+        const status = parsePublishItemValidationResult(row.validation_result).status;
+        if (isPublishItemValidationReady(status)) {
+            ready_count += 1;
+        } else if (isPublishItemValidationWarning(status)) {
+            warning_count += 1;
+        } else if (isPublishItemValidationBlocked(status)) {
+            blocked_count += 1;
+        }
+    }
+
+    const promotable_count = selection.promotableIds.length;
+    const can_promote = promotable_count > 0;
+
+    let outcome: string;
+    if (!can_promote) {
+        outcome = "blocked";
+    } else if (blocked_count > 0 || warning_count > 0) {
+        outcome = "partial";
+    } else {
+        outcome = "passed";
+    }
+
+    return {
+        outcome,
+        blocked_count,
+        warning_count,
+        ready_count,
+        promotable_count,
+        can_promote,
+        requires_warning_confirmation: warning_count > 0,
+    };
+}
+
+/**
+ * Batch promotion gate: validated batch with at least one promotable publish item for this run.
+ * Does not require blocked_count = 0 or whole-batch status = ready.
+ */
 export function assertPromotionNotBlocked(validation: PromotionPreflightValidation | null): void {
     if (!validation) {
         throw new Error("Batch validation summary is missing.");
     }
-    if (validation.blocked_count > 0 || validation.outcome === "blocked") {
-        throw new Error("Batch has blocked validation items; resolve blockers before promotion.");
-    }
-    if (!validation.can_promote) {
-        throw new Error("Batch validation does not allow promotion (can_promote=false).");
+    const promotableCount =
+        validation.promotable_count > 0
+            ? validation.promotable_count
+            : Math.max(0, validation.ready_count);
+
+    if (promotableCount === 0) {
+        throw new Error(
+            validation.blocked_count > 0
+                ? "Batch has no promotable items; resolve blockers before promotion."
+                : "Batch has no promotable items; run batch validation first."
+        );
     }
 }
 

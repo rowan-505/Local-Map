@@ -30,9 +30,12 @@ import {
     getImportReviewPromotionBatchByIdSchema,
     postImportReviewPromotionBatchSchema,
     postImportReviewPromotionBatchValidateSchema,
+    postImportReviewPromotionBatchCancelValidationSchema,
+    postImportReviewPromotionBatchResetValidationSchema,
     getImportReviewPromotionBatchProgressSchema,
     getImportReviewPromotionBatchLogsSchema,
     postImportReviewPromotionBatchPromoteSchema,
+    postImportReviewPromotionBatchRetryFailedReadySchema,
     postImportReviewRepairInvalidPromotedBatchesSchema,
     getImportReviewPromotionBatchVerifySchema,
     postImportReviewPromotionRoadDryRunSchema,
@@ -117,6 +120,8 @@ import {
     importReviewPromotionReadyQuerySchema,
     postImportReviewPromotionBatchBodySchema,
     postImportReviewPromotionBatchPromoteBodySchema,
+    postImportReviewPromotionBatchRetryFailedReadyBodySchema,
+    postImportReviewPromotionBatchValidateBodySchema,
     postImportReviewRepairInvalidPromotedBatchesBodySchema,
 } from "./import-review-promotion.schema.js";
 import {
@@ -1326,12 +1331,65 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
             if (!paramsParsed.success) {
                 return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
             }
+            const bodyParsed = postImportReviewPromotionBatchValidateBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid request body", bodyParsed.error.flatten());
+            }
             try {
                 const result = await promotionService.startValidateBatch(
                     BigInt(paramsParsed.data.id),
+                    bodyParsed.data,
                     request.log
                 );
                 return reply.code(202).send(result);
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/promotion/batches/:id/cancel-validation",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewPromotionBatchCancelValidationSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
+            if (!paramsParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
+            }
+            try {
+                const result = await promotionService.cancelValidateBatch(BigInt(paramsParsed.data.id));
+                return reply.code(202).send(result);
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/promotion/batches/:id/reset-validation",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewPromotionBatchResetValidationSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
+            if (!paramsParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
+            }
+            try {
+                const result = await promotionService.resetValidateBatch(BigInt(paramsParsed.data.id));
+                return reply.send(result);
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {
                     return;
@@ -1380,6 +1438,40 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
                 return reply.send(
                     await promotionService.getBatchLogs(BigInt(paramsParsed.data.id))
                 );
+            } catch (error) {
+                if (sendImportReviewError(reply, error)) {
+                    return;
+                }
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/promotion/batches/:id/retry-failed-ready",
+        {
+            preHandler: importReviewAuthorizedPreHandlers(),
+            schema: postImportReviewPromotionBatchRetryFailedReadySchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = importReviewPromotionBatchIdParamsSchema.safeParse(request.params);
+            if (!paramsParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid path parameters", paramsParsed.error.flatten());
+            }
+            const bodyParsed = postImportReviewPromotionBatchRetryFailedReadyBodySchema.safeParse(
+                request.body ?? {}
+            );
+            if (!bodyParsed.success) {
+                return sendImportReviewValidationError(reply, "Invalid body", bodyParsed.error.flatten());
+            }
+            try {
+                const result = await promotionService.createRetryBatchFromFailedReady(
+                    BigInt(paramsParsed.data.id),
+                    bodyParsed.data,
+                    request.user,
+                    request.log
+                );
+                return reply.code(201).send(result);
             } catch (error) {
                 if (sendImportReviewError(reply, error)) {
                     return;

@@ -261,6 +261,8 @@ export function CoreEntityEditFieldsSection({
                     disabled={disabled}
                     refStates={refStates}
                     editDetail={detail}
+                    watch={watch}
+                    setValue={setValue}
                 />
             ))}
             {entityKey === "admin-areas" ? (

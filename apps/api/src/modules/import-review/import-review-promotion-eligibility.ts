@@ -6,7 +6,11 @@ import {
     roadClassMissingWithoutFallbackSql,
     roadDuplicateCoreExternalIdSql,
 } from "./import-review-road-promotion-policy.js";
-import { IMPORT_REVIEW_PUBLISH_ACTIVE_BATCH_STATUSES } from "./import-review-promotion.types.js";
+import {
+    IMPORT_REVIEW_PUBLISH_ACTIVE_BATCH_STATUSES,
+    IMPORT_REVIEW_PUBLISH_ITEM_RETRY_ALLOWED_STATUSES,
+    IMPORT_REVIEW_SELECTED_PROMOTION_BLOCKING_BATCH_STATUSES,
+} from "./import-review-promotion.types.js";
 
 export type PublishEligibilityOptions = {
     includeWarnings: boolean;
@@ -79,14 +83,59 @@ function hasValidationWarningsSql(alias: string): Prisma.Sql {
     )`;
 }
 
-function isPromotedSql(alias: string): Prisma.Sql {
+export function isPromotedSql(alias: string): Prisma.Sql {
     return Prisma.sql`(
         ${col(alias, "promotion_status")} = 'promoted'
         OR ${col(alias, "review_status")} = 'promoted'
     )`;
 }
 
-function isBlockedInActiveBatchSql(config: ImportReviewPublishFamilyConfig, alias: string): Prisma.Sql {
+/** Selected-mode: only truly promoted rows (not review_status-only flags). */
+export function isSelectedCandidatePromotedSql(alias: string): Prisma.Sql {
+    return Prisma.sql`(
+        ${col(alias, "promotion_status")} = 'promoted'
+        OR ${col(alias, "promoted_core_id")} IS NOT NULL
+    )`;
+}
+
+export function selectedCandidateReviewStatusEligibleSql(alias: string): Prisma.Sql {
+    return Prisma.sql`${col(alias, "review_status")} IN ('approved', 'promotion_failed')`;
+}
+
+export function selectedCandidatePromotionStatusEligibleSql(alias: string): Prisma.Sql {
+    return Prisma.sql`(
+        ${col(alias, "promotion_status")} IS NULL
+        OR trim(coalesce(${col(alias, "promotion_status")}::text, '')) = ''
+        OR ${col(alias, "promotion_status")} IN ('not_ready', 'ready', 'batched', 'failed')
+    )`;
+}
+
+/**
+ * Selected-mode retry: block only in-flight batches (draft/validating/promoting) with non-terminal items.
+ * Failed/cancelled batches and failed/skipped publish items do not block a new batch.
+ */
+export function isBlockedInSelectedPromotionRetrySql(
+    config: ImportReviewPublishFamilyConfig,
+    alias: string
+): Prisma.Sql {
+    const blockingStatuses = IMPORT_REVIEW_SELECTED_PROMOTION_BLOCKING_BATCH_STATUSES.map(
+        (s) => Prisma.sql`${s}`
+    );
+    const retryAllowedItemStatuses = IMPORT_REVIEW_PUBLISH_ITEM_RETRY_ALLOWED_STATUSES.map(
+        (s) => Prisma.sql`${s}`
+    );
+    return Prisma.sql`EXISTS (
+        SELECT 1
+        FROM system.system_publish_items AS spi
+        INNER JOIN system.system_publish_batches AS spb ON spb.id = spi.publish_batch_id
+        WHERE spi.review_candidate_table = ${config.candidateTable}
+          AND spi.review_candidate_id = ${col(alias, "id")}
+          AND spb.status IN (${Prisma.join(blockingStatuses)})
+          AND COALESCE(spi.publish_status, 'pending') NOT IN (${Prisma.join(retryAllowedItemStatuses)})
+    )`;
+}
+
+export function isBlockedInActiveBatchSql(config: ImportReviewPublishFamilyConfig, alias: string): Prisma.Sql {
     const activeStatuses = IMPORT_REVIEW_PUBLISH_ACTIVE_BATCH_STATUSES.map((s) => Prisma.sql`${s}`);
     return Prisma.sql`EXISTS (
         SELECT 1

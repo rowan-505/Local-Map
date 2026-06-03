@@ -5,6 +5,16 @@ export const IMPORT_REVIEW_PUBLISH_ACTIVE_BATCH_STATUSES = [
     "promoting",
 ] as const;
 
+/** Batch statuses that block creating another selected publish batch for the same candidate. */
+export const IMPORT_REVIEW_SELECTED_PROMOTION_BLOCKING_BATCH_STATUSES = [
+    "draft",
+    "validating",
+    "promoting",
+] as const;
+
+/** Publish-item statuses that do not block selected-mode retry (failed/cancelled attempts). */
+export const IMPORT_REVIEW_PUBLISH_ITEM_RETRY_ALLOWED_STATUSES = ["failed", "skipped"] as const;
+
 export type ImportReviewPromotionReadyCounts = {
     entity_family: "buildings";
     review_batch_id: string;
@@ -167,13 +177,20 @@ export type ImportReviewCreatePublishBatchDryRunResult = {
 
 export type ImportReviewCreatePublishBatchResult = {
     dry_run?: false;
+    /** Numeric system.system_publish_batches.id — primary navigation key. */
+    id: number;
+    public_id: string;
+    review_batch_id: number;
+    mode: "selected" | "all_ready";
+    total_item_count: number;
+    count_by_family: Record<string, number>;
     message: string;
     batch: ImportReviewPublishBatchDetail;
     batch_id: string;
     publish_batch_id: string;
-    review_batch_id: number;
     families: string[];
     status: string;
+    total_items: number;
     items_added: number;
     total_selected: number;
     candidates_marked_batched: number;
@@ -183,6 +200,20 @@ export type ImportReviewCreatePublishBatchResult = {
     timing_ms: ImportReviewCreatePublishBatchTimingMs;
     /** @deprecated Use candidates_marked_batched / by_family for buildings slice */
     building_candidates_marked_batched: number;
+};
+
+export type ImportReviewCreateRetryPublishBatchResult = ImportReviewCreatePublishBatchResult & {
+    source_publish_batch_id: string;
+    failed_ready_source_count: number;
+    failed_ready_retry_count: number;
+};
+
+export type PostImportReviewPromotionBatchRetryFailedReadyBody = {
+    batch_name?: string;
+    note?: string;
+    confirm_large_batch?: boolean;
+    allow_high_risk_families?: boolean;
+    mixed_high_risk_confirm?: boolean;
 };
 
 export type ImportReviewPromotionReadyCandidateItem = {
@@ -214,6 +245,8 @@ export type ImportReviewPromotionReadyCandidateItem = {
 
 export type ImportReviewPublishBatchEntityValidationCounts = {
     total: number;
+    ready: number;
+    /** @deprecated Prefer ready */
     valid: number;
     warning: number;
     blocked: number;
@@ -221,13 +254,18 @@ export type ImportReviewPublishBatchEntityValidationCounts = {
 };
 
 export type ImportReviewPublishBatchValidationResultSummary = {
-    outcome: "passed" | "blocked";
+    outcome: "passed" | "partial" | "blocked";
     can_promote: boolean;
     requires_warning_confirmation: boolean;
+    ready_count: number;
+    /** @deprecated Prefer ready_count */
     valid_count: number;
     warning_count: number;
     blocked_count: number;
     skipped_count: number;
+    promotable_count: number;
+    total_count: number;
+    /** @deprecated Prefer total_count */
     total_items: number;
     by_publish_action: { insert: number; update: number; merge: number };
     by_entity: Record<string, ImportReviewPublishBatchEntityValidationCounts>;
@@ -236,8 +274,28 @@ export type ImportReviewPublishBatchValidationResultSummary = {
     promotable_entity_families: string[];
 };
 
+export type ImportReviewPromotionFailureSample = {
+    publish_item_id: string;
+    entity_family: string;
+    review_candidate_id: string | null;
+    external_id: string | null;
+    target_schema: string | null;
+    target_table: string | null;
+    error_code: string;
+    error_message: string;
+    reason: string;
+};
+
+export type PublishBatchPromotionOutcomeStatus =
+    | "not_started"
+    | "promoting"
+    | "promoted"
+    | "partially_promoted"
+    | "promotion_failed";
+
 export type ImportReviewPublishBatchPromotionResultSummary = {
-    status: "promoted" | "failed";
+    status: "promoted" | "partially_promoted" | "failed";
+    promoted_count?: number;
     inserted_count: number;
     updated_count: number;
     success_count: number;
@@ -253,6 +311,15 @@ export type ImportReviewPublishBatchPromotionResultSummary = {
     finished_at: string;
     duration_ms: number;
     promoted_entity_families: string[];
+    sample_failures?: ImportReviewPromotionFailureSample[];
+};
+
+export type ImportReviewPublishItemStatusCounts = {
+    pending: number;
+    success: number;
+    failed: number;
+    skipped: number;
+    total: number;
 };
 
 export type ImportReviewPublishBatchProgressResponse = {
@@ -282,6 +349,18 @@ export type ImportReviewPublishBatchProgressResponse = {
     validation_logs_summary: string | null;
     promotion_result: ImportReviewPublishBatchPromotionResultSummary | null;
     promotion_logs_summary: string | null;
+    validation_heartbeat_at: string | null;
+    validation_cancel_requested_at: string | null;
+    validation_heartbeat_stale_warning: boolean;
+    /** Pending publish items that can promote now (publish_status pending + validation_result ready/warning). */
+    current_promotable_count: number;
+    /** Snapshot from last validation run (ready + warning); unchanged after a failed promotion attempt. */
+    validation_promotable_count: number | null;
+    publish_item_status_counts: ImportReviewPublishItemStatusCounts;
+    /** Last promotion run outcome (separate from validation_result and batch status). */
+    promotion_status: PublishBatchPromotionOutcomeStatus | null;
+    /** Eligible failed+ready items that can be copied into a new retry publish batch. */
+    failed_ready_retry_count: number;
 };
 
 export type ImportReviewStartPublishBatchPromotionResponse = {

@@ -1,13 +1,24 @@
 "use client";
 
-import { Controller, type Control, type FieldErrors } from "react-hook-form";
+import {
+    Controller,
+    type Control,
+    type FieldErrors,
+    type UseFormSetValue,
+    type UseFormWatch,
+} from "react-hook-form";
 
 import { isStreetSurfacePreset, STREET_SURFACE_PRESETS } from "@/src/features/streets/streetSurfaces";
-import type { CoreEntityFieldDef, CoreEntityFormMode } from "@/src/lib/core-review/entityConfigs/types";
+import type {
+    CoreEntityFieldDef,
+    CoreEntityFormMode,
+    CoreEntityFormValues,
+} from "@/src/lib/core-review/entityConfigs/types";
 
 import { formatBuildingTypeDisplay } from "@/src/lib/building-type/display";
 
 import CoreRefDropdown from "./CoreRefDropdown";
+import EntityTownshipAdminField from "./EntityTownshipAdminField";
 import type { CoreRefLoadState } from "./useCoreEntityRefs";
 import type { CoreRefSourceKind } from "@/src/lib/core-review/entityConfigs/types";
 
@@ -17,11 +28,13 @@ const inputClass =
 export type CoreEntityFieldRendererProps = {
     field: CoreEntityFieldDef;
     mode: CoreEntityFormMode;
-    control: Control<Record<string, unknown>>;
-    errors: FieldErrors<Record<string, unknown>>;
+    control: Control<CoreEntityFormValues>;
+    errors: FieldErrors<CoreEntityFormValues>;
     disabled?: boolean;
     refStates: Record<CoreRefSourceKind, CoreRefLoadState>;
     editDetail?: unknown | null;
+    watch?: UseFormWatch<CoreEntityFormValues>;
+    setValue?: UseFormSetValue<CoreEntityFormValues>;
 };
 
 function buildingTypeOrphanLabel(detail: unknown | null | undefined): string | null {
@@ -67,12 +80,32 @@ export default function CoreEntityFieldRenderer({
     disabled,
     refStates,
     editDetail,
+    watch,
+    setValue,
 }: CoreEntityFieldRendererProps) {
     if (field.createOnly && mode === "edit") return null;
     if (field.editOnly && mode === "create") return null;
 
     const error = fieldError(errors, field.key);
     const id = `core-field-${field.key}`;
+
+    if (field.type === "township-admin" && field.townshipAdmin && watch && setValue) {
+        return (
+            <EntityTownshipAdminField
+                config={{
+                    entityKind: field.townshipAdmin.entityKind,
+                    geometryFieldKey: field.townshipAdmin.geometryFieldKey,
+                    adminAreaIdKey: field.townshipAdmin.adminAreaIdKey,
+                    manualOverrideKey: field.townshipAdmin.manualOverrideKey,
+                }}
+                control={control}
+                watch={watch}
+                setValue={setValue}
+                disabled={disabled}
+                error={error}
+            />
+        );
+    }
 
     if (field.type === "ref" && field.refSource) {
         return (

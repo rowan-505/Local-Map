@@ -36,18 +36,16 @@ export const importReviewHistoryPublishBatchesListQuerySchema = z.object({
     ...paginationSchema,
 });
 
-export const importReviewHistoryPublishBatchItemsQuerySchema = z.object({
-    publish_status: z.string().trim().min(1).optional(),
-    entity_family: z.string().trim().min(1).optional(),
-    ...paginationSchema,
-});
-
 export type ImportReviewHistoryReviewBatchesListQuery = z.infer<
     typeof importReviewHistoryReviewBatchesListQuerySchema
 >;
 export type ImportReviewHistoryPublishBatchesListQuery = z.infer<
     typeof importReviewHistoryPublishBatchesListQuerySchema
 >;
-export type ImportReviewHistoryPublishBatchItemsQuery = z.infer<
-    typeof importReviewHistoryPublishBatchItemsQuerySchema
->;
+
+export {
+    importReviewHistoryPublishBatchItemsQuerySchema,
+    type ImportReviewHistoryPublishBatchItemsQuery,
+    PUBLISH_BATCH_ITEM_FILTER_VALUES,
+    PUBLISH_BATCH_ITEMS_MAX_LIMIT,
+} from "./import-review-history-publish-batch-items-query.js";

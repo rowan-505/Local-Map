@@ -8,7 +8,9 @@ import ReverseAddressSuggestionPanel from "@/src/features/addresses/ReverseAddre
 import { buildAddressPreviewFeatureCollection } from "../utils/importReviewAddressMapGeometry";
 import { reverseComponentsToImportReviewRows } from "@/src/features/addresses/reverseAddressToRows";
 import { useReverseAddressSuggestion } from "@/src/features/addresses/useReverseAddressSuggestion";
+import CandidatePromoteAction from "./detail/CandidatePromoteAction";
 import CandidateReviewActionsSection from "./detail/CandidateReviewActionsSection";
+import { reviewBatchIdFromApiScopeQuery } from "@/src/lib/importReviewSnapshot";
 import ImportReviewErrorState from "./ImportReviewErrorState";
 import ImportReviewInlineSpinner from "./ImportReviewInlineSpinner";
 import ImportReviewStatusBanner from "./ImportReviewStatusBanner";
@@ -1356,6 +1358,13 @@ export default function ImportReviewAddressDetailDrawer({
                                     onApplySuggested={applySuggestedComponents}
                                 />
                             </section>
+
+                            <CandidatePromoteAction
+                                apiFamily={config.apiFamily}
+                                row={row}
+                                reviewBatchId={reviewBatchIdFromApiScopeQuery(apiScope)}
+                                canEdit={canEdit}
+                            />
 
                             <CandidateReviewActionsSection
                                 config={config}

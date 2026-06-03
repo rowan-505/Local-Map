@@ -1,4 +1,6 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+
+import type { DbExecutor } from "./import-review-promotion-db.js";
 
 export const POI_CATEGORIES_TABLE = "ref.ref_poi_categories";
 export const POI_CATEGORIES_REGCLASS = "ref.ref_poi_categories";
@@ -14,11 +16,11 @@ export class ImportReviewMissingPoiCategoriesTableError extends Error {
 
 let poiCategoriesTableVerified = false;
 
-export async function assertPoiCategoriesTableExists(prisma: PrismaClient): Promise<void> {
+export async function assertPoiCategoriesTableExists(db: DbExecutor): Promise<void> {
     if (poiCategoriesTableVerified) {
         return;
     }
-    const rows = await prisma.$queryRaw<{ exists: boolean }[]>`
+    const rows = await db.$queryRaw<{ exists: boolean }[]>`
         SELECT to_regclass(${POI_CATEGORIES_REGCLASS}) IS NOT NULL AS exists
     `;
     if (rows[0]?.exists !== true) {

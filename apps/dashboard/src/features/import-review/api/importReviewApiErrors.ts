@@ -1,3 +1,4 @@
+import { formatPromotionSelectedCandidateErrorDetails } from "@/src/features/import-review/promotion/formatPromotionSelectedCandidateError";
 import {
     ImportReviewBatchAmbiguousError,
     isImportReviewBatchAmbiguousError,
@@ -168,6 +169,32 @@ export function formatImportReviewApiErrorBody(
     const parsed = parseImportReviewApiErrorBody(data);
     if (parsed) {
         let message = parsed.message;
+        if (
+            parsed.code === "PROMOTION_SELECTED_CANDIDATE" &&
+            parsed.details &&
+            typeof parsed.details === "object" &&
+            !Array.isArray(parsed.details)
+        ) {
+            const d = parsed.details as Record<string, unknown>;
+            const selectedLines = formatPromotionSelectedCandidateErrorDetails({
+                reason: typeof d.reason === "string" ? d.reason : undefined,
+                review_status: typeof d.review_status === "string" ? d.review_status : null,
+                review_decision: typeof d.review_decision === "string" ? d.review_decision : null,
+                promoted_core_id: typeof d.promoted_core_id === "string" ? d.promoted_core_id : null,
+                promoted_at: typeof d.promoted_at === "string" ? d.promoted_at : null,
+                target_table: typeof d.target_table === "string" ? d.target_table : null,
+                missing_fields: Array.isArray(d.missing_fields)
+                    ? d.missing_fields.filter((f): f is string => typeof f === "string")
+                    : undefined,
+                active_publish_batch_id:
+                    typeof d.active_publish_batch_id === "string" ? d.active_publish_batch_id : null,
+                actual_family: typeof d.actual_family === "string" ? d.actual_family : undefined,
+                expected_family: typeof d.expected_family === "string" ? d.expected_family : undefined,
+            });
+            if (selectedLines) {
+                message = message.length > 0 ? `${message}\n\n${selectedLines}` : selectedLines;
+            }
+        }
         const issueBullets = formatDetailsIssueBullets(parsed.details);
         if (issueBullets) {
             message = message.length > 0 ? `${message}\n\n${issueBullets}` : issueBullets;

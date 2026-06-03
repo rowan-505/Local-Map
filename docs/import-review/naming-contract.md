@@ -2,7 +2,7 @@
 
 This document defines how candidate **name fields** relate to each other for import-review list, detail, and direct-edit UI. All dashboard and API mappers must follow it.
 
-**Related:** [direct-edit-runtime-qa.md](./direct-edit-runtime-qa.md) (PATCH persistence), dashboard helpers in `apps/dashboard/src/features/import-review/utils/importReviewNaming.ts`, API mappers in `apps/api/src/modules/import-review/import-review-effective-values.ts` and `import-review-name-fields.ts`.
+**Related:** [direct-edit-runtime-qa.md](./direct-edit-runtime-qa.md) (PATCH persistence), [direct-edit-promotion-contract.md](./direct-edit-promotion-contract.md) (validate/promote; typed columns only for core writes), dashboard helpers in `apps/dashboard/src/features/import-review/utils/importReviewNaming.ts`, API mappers in `apps/api/src/modules/import-review/import-review-effective-values.ts` and `import-review-name-fields.ts`.
 
 ---
 

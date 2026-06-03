@@ -43,6 +43,7 @@ import { SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM } from "./CoreEntityGeometrySection
 import CoreEntityValidationPanel from "./CoreEntityValidationPanel";
 import CoreEntityWriteApiBanner from "./CoreEntityWriteApiBanner";
 import CoreFormActions from "./CoreFormActions";
+import { townshipAdminSaveBlockMessage } from "./EntityTownshipAdminField";
 import CoreReviewEntityFormLifecycleActions from "../lifecycle/CoreReviewEntityFormLifecycleActions";
 import CoreReviewTransportSourceBadge, {
     CORE_REVIEW_TRANSPORT_DATA_SOURCE,
@@ -170,6 +171,13 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
         setCreateIsSaving(true);
 
         try {
+            const townshipBlock = townshipAdminSaveBlockMessage(values);
+            if (townshipBlock) {
+                setCreateSaveError(townshipBlock);
+                setCreateIsSaving(false);
+                return;
+            }
+
             if (entityKey === "streets") {
                 const geom = getFormGeometry(values, geometryFieldKey);
                 const prep = prepareLocalStreetGeometryForSave(

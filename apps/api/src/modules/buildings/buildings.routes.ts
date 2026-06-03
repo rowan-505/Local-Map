@@ -6,6 +6,8 @@ import {
     createBuildingBodySchema,
     updateBuildingBodySchema,
 } from "./buildings.schema.js";
+import { EntityAdminAreaRepository } from "../entity-admin-area/entity-admin-area.repo.js";
+import { EntityAdminAreaService } from "../entity-admin-area/entity-admin-area.service.js";
 import { BuildingsRepository } from "./buildings.repo.js";
 import {
     BuildingNotFoundError,
@@ -69,7 +71,8 @@ function sanitizeBuildingPatchBody(body: unknown) {
 
 const buildingsRoutes: FastifyPluginAsync = async (app) => {
     const buildingsRepo = new BuildingsRepository(app.prisma);
-    const buildingsService = new BuildingsService(buildingsRepo);
+    const entityAdminAreaService = new EntityAdminAreaService(new EntityAdminAreaRepository(app.prisma));
+    const buildingsService = new BuildingsService(buildingsRepo, entityAdminAreaService);
 
     app.get(
         "/building-types",
@@ -179,7 +182,7 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
             }
 
             try {
-                const created = await buildingsService.createBuilding(parsed.data);
+                const created = await buildingsService.createBuilding(parsed.data, request.user);
                 if (IS_BUILDINGS_DEV_DEBUG) {
                     request.log.info(
                         {
@@ -251,7 +254,8 @@ const buildingsRoutes: FastifyPluginAsync = async (app) => {
             try {
                 const updated = await buildingsService.updateBuilding(
                     paramsParsed.data.id,
-                    bodyParsed.data
+                    bodyParsed.data,
+                    request.user
                 );
 
                 if (IS_BUILDINGS_DEV_DEBUG) {

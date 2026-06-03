@@ -1,9 +1,16 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { invalidateImportReviewAfterPromotion } from "@/src/features/import-review/hooks/invalidateImportReviewAfterPromotion";
+import ImportReviewPromotionEligibilityDetailsDrawer from "@/src/features/import-review/components/ImportReviewPromotionEligibilityDetailsDrawer";
+import { promotionPromoteUiState } from "@/src/features/import-review/utils/promotionPromoteUiState";
+import {
+    formatPublishBatchPromotionStatus,
+    formatPublishBatchValidationOutcome,
+} from "@/src/features/import-review/utils/publishBatchPromotionStatus";
 import { resolveBatchSelectedFamilies } from "@/src/features/import-review/utils/importReviewPromotionBatchFamilies";
 
 import {
@@ -15,67 +22,38 @@ import ImportReviewOperationLogPanel from "@/src/features/import-review/componen
 import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import {
+    ImportReviewPromotionDryRunNotice,
+    ImportReviewPromotionFailedItemsPanel,
+} from "@/src/features/import-review/promotion";
+import {
+    filterPromotionStageLogs,
+    hasUnsettledPromotionStageLogs,
+    sortPromotionStageLogs,
+} from "@/src/features/import-review/promotion/promotionStageLogs";
+import {
     getImportReviewPromotionBatchById,
     getImportReviewPromotionBatchLogs,
     getImportReviewPromotionBatchProgress,
     getImportReviewPromotionBatchVerify,
     isAbortError,
     postImportReviewPromotionBatchPromote,
+    postImportReviewPromotionBatchRetryFailedReady,
     type ImportReviewPublishBatchDetail,
     type ImportReviewPublishBatchLogsResponse,
     type ImportReviewPublishBatchProgressResponse,
     type ImportReviewPublishBatchVerifyResponse,
-    type ImportReviewPromotionRoadDryRunResult,
-    type ImportReviewPromotionRoutingBarrierDryRunResult,
-    type ImportReviewPublishStageLogItem,
 } from "@/src/lib/api";
 
 const POLL_MS = 1500;
-
-const STAGE_ORDER = [
-    "promote_preflight",
-    "load_promotable_items",
-    "final_validation_before_write",
-    "promote_buildings_to_core",
-    "promote_places_to_core",
-    "promote_landuse_to_core",
-    "promote_water_lines_to_core",
-    "promote_water_polygons_to_core",
-    "promote_bus_routes_to_core",
-    "promote_bus_route_variants_to_core",
-    "promote_bus_route_stops_to_core",
-    "promote_bus_stops_to_core",
-    "promote_roads_to_core",
-    "promote_admin_areas_to_core",
-    "promote_routing_barriers_to_routing",
-    "write_publish_item_results",
-    "verify_core_rows",
-    "mark_import_review_promoted",
-    "update_batch_summary",
-    "promotion_final_response",
-] as const;
-
-function sortLogs(items: ImportReviewPublishStageLogItem[]): ImportReviewPublishStageLogItem[] {
-    const order = new Map(STAGE_ORDER.map((k, i) => [k, i]));
-    return [...items].sort((a, b) => {
-        const ia = order.get(a.stage_key as (typeof STAGE_ORDER)[number]) ?? 99;
-        const ib = order.get(b.stage_key as (typeof STAGE_ORDER)[number]) ?? 99;
-        if (ia !== ib) {
-            return ia - ib;
-        }
-        return a.started_at.localeCompare(b.started_at);
-    });
-}
+const POST_PROMOTION_STAGE_SETTLE_POLLS = 8;
 
 type Props = {
     batchId: string;
     batchStatus: string;
     sourceReviewBatchId?: string | null;
+    entityFamilies?: string[];
     hasRoadItems?: boolean;
-    hasAdminAreaItems?: boolean;
     hasRoutingBarrierItems?: boolean;
-    roadDryRunResult?: ImportReviewPromotionRoadDryRunResult | null;
-    routingBarrierDryRunResult?: ImportReviewPromotionRoutingBarrierDryRunResult | null;
     workflowBlocked?: boolean;
     workflowBlockedMessage?: string;
     onBatchUpdated: (detail: ImportReviewPublishBatchDetail) => void;
@@ -86,17 +64,17 @@ export default function ImportReviewPromotionPromotePanel({
     batchId,
     batchStatus,
     sourceReviewBatchId = null,
+    entityFamilies = [],
     hasRoadItems = false,
-    hasAdminAreaItems = false,
     hasRoutingBarrierItems = false,
-    roadDryRunResult = null,
-    routingBarrierDryRunResult = null,
     workflowBlocked = false,
     workflowBlockedMessage,
     onBatchUpdated,
     formatError,
 }: Props) {
+    const router = useRouter();
     const [status, setStatus] = useState(batchStatus);
+    const [isCreatingRetryBatch, setIsCreatingRetryBatch] = useState(false);
     const [progress, setProgress] = useState<ImportReviewPublishBatchProgressResponse | null>(null);
     const [logs, setLogs] = useState<ImportReviewPublishBatchLogsResponse | null>(null);
     const [verify, setVerify] = useState<ImportReviewPublishBatchVerifyResponse | null>(null);
@@ -106,7 +84,9 @@ export default function ImportReviewPromotionPromotePanel({
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [confirmText, setConfirmText] = useState("");
     const [warningNote, setWarningNote] = useState("");
+    const [blockedDrawerOpen, setBlockedDrawerOpen] = useState(false);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const postPromotionSettlePollsRef = useRef(0);
     const queryClient = useQueryClient();
 
     const stopPolling = useCallback(() => {
@@ -132,9 +112,21 @@ export default function ImportReviewPromotionPromotePanel({
         setLogs(l);
         setStatus(p.status);
         if (p.status !== "promoting") {
+            if (
+                hasUnsettledPromotionStageLogs(l.items) &&
+                postPromotionSettlePollsRef.current < POST_PROMOTION_STAGE_SETTLE_POLLS
+            ) {
+                postPromotionSettlePollsRef.current += 1;
+                return;
+            }
+            postPromotionSettlePollsRef.current = 0;
             stopPolling();
             const detail = await refreshBatchDetail();
-            if (p.status === "promoted" || p.status === "partially_promoted") {
+            if (
+                p.status === "promoted" ||
+                p.status === "partially_promoted" ||
+                (p.promotion_result?.promoted_count ?? p.promotion_result?.success_count ?? 0) > 0
+            ) {
                 await invalidateImportReviewAfterPromotion(queryClient, {
                     publishBatchId: batchId,
                     reviewBatchId: sourceReviewBatchId ?? undefined,
@@ -146,6 +138,7 @@ export default function ImportReviewPromotionPromotePanel({
 
     const startPolling = useCallback(() => {
         stopPolling();
+        postPromotionSettlePollsRef.current = 0;
         void pollOnce();
         pollRef.current = setInterval(() => {
             void pollOnce().catch((err) => {
@@ -163,8 +156,15 @@ export default function ImportReviewPromotionPromotePanel({
 
     useEffect(() => {
         const controller = new AbortController();
-        void getImportReviewPromotionBatchProgress(batchId, { signal: controller.signal })
-            .then(setProgress)
+        void Promise.all([
+            getImportReviewPromotionBatchProgress(batchId, { signal: controller.signal }),
+            getImportReviewPromotionBatchLogs(batchId, { signal: controller.signal }),
+        ])
+            .then(([p, l]) => {
+                setProgress(p);
+                setLogs(l);
+                setStatus(p.status);
+            })
             .catch((err) => {
                 if (!isAbortError(err)) {
                     setError(formatError(err));
@@ -176,21 +176,107 @@ export default function ImportReviewPromotionPromotePanel({
     useEffect(() => {
         if (status === "promoting") {
             startPolling();
+            return () => stopPolling();
+        }
+        if (
+            status === "promoted" ||
+            status === "partially_promoted" ||
+            status === "failed"
+        ) {
+            void pollOnce();
         }
         return () => stopPolling();
-    }, [status, startPolling, stopPolling]);
+    }, [status, startPolling, stopPolling, pollOnce]);
+
+    const validation = progress?.validation_result ?? null;
+    const promotionResult = progress?.promotion_result;
+    const promotionOutcomeLabel = formatPublishBatchPromotionStatus(
+        progress?.promotion_status ??
+            (promotionResult?.promoted_count ?? promotionResult?.success_count ?? 0) > 0
+            ? promotionResult?.status === "partially_promoted"
+                ? "partially_promoted"
+                : promotionResult?.status === "promoted"
+                  ? "promoted"
+                  : null
+            : promotionResult && (promotionResult.failed_count ?? 0) > 0
+              ? "promotion_failed"
+              : null
+    );
+    const validationOutcomeLabel = formatPublishBatchValidationOutcome(validation?.outcome);
+    const ui = useMemo(
+        () =>
+            promotionPromoteUiState({
+                batchStatus: status,
+                workflowBlocked,
+                validatedAt: progress?.validated_at,
+                validationPercent: progress?.validation_percent,
+                validation,
+                currentPromotableCount: progress?.current_promotable_count,
+                validationPromotableCount: progress?.validation_promotable_count,
+                publishItemStatus: progress?.publish_item_status_counts,
+                failedReadyRetryCount: progress?.failed_ready_retry_count,
+                promotionStatus: progress?.promotion_status,
+            }),
+        [
+            status,
+            workflowBlocked,
+            progress?.validated_at,
+            progress?.validation_percent,
+            validation,
+            progress?.current_promotable_count,
+            progress?.validation_promotable_count,
+            progress?.publish_item_status_counts,
+            progress?.failed_ready_retry_count,
+            progress?.promotion_status,
+        ]
+    );
+
+    useEffect(() => {
+        if (progress?.status) {
+            setStatus(progress.status);
+        }
+    }, [progress?.status]);
+
+    async function handleCreateRetryBatch() {
+        if (!ui.canCreateRetryBatch || !sourceReviewBatchId) {
+            return;
+        }
+        setError(null);
+        setIsCreatingRetryBatch(true);
+        try {
+            const result = await postImportReviewPromotionBatchRetryFailedReady(batchId, {
+                confirm_large_batch: (progress?.failed_ready_retry_count ?? 0) > 200,
+            });
+            const newBatchId = String(result.id ?? result.publish_batch_id ?? result.batch_id);
+            router.push(
+                `/dashboard/import-review/promotion/${encodeURIComponent(newBatchId)}?review_batch_id=${encodeURIComponent(sourceReviewBatchId)}`
+            );
+        } catch (err) {
+            setError(formatError(err));
+        } finally {
+            setIsCreatingRetryBatch(false);
+        }
+    }
+
+    const requiresWarningNote = validation?.requires_warning_confirmation === true;
+    const warningNoteReady = warningNote.trim().length > 0;
 
     async function handlePromote() {
         setError(null);
         setIsStarting(true);
         try {
+            const note = warningNote.trim();
+            const includeWarnings =
+                ui.warningCount > 0 && note.length > 0 ? { confirm_warnings: true as const } : {};
             await postImportReviewPromotionBatchPromote(batchId, {
                 confirmation_text: "PROMOTE",
                 chunk_size: 100,
-                ...(validationForModal?.requires_warning_confirmation && warningNote.trim()
+                ...includeWarnings,
+                ...(note
                     ? {
-                          confirm_warnings: true,
-                          warning_confirmation_note: warningNote.trim(),
+                          promotion_note: note,
+                          warning_confirmation_note: note,
+                          review_note: note,
                       }
                     : {}),
             });
@@ -223,54 +309,162 @@ export default function ImportReviewPromotionPromotePanel({
     const derivedStatus = progress?.derived_status ?? status;
     const isInvalidEmptyPromoted = derivedStatus === "invalid_empty_promoted";
     const percent = progress?.validation_percent ?? 0;
-    const promotionResult = progress?.promotion_result;
-    const validationForModal = progress?.validation_result;
-    const requiresWarningNote = validationForModal?.requires_warning_confirmation === true;
-    const roadPromotionEnvEnabled =
-        roadDryRunResult !== null && roadDryRunResult.disabled_because_env_flag_false === false;
-    const roadPromotedSuccess =
-        promotionResult?.promoted_entity_families.includes("roads") === true
-            ? promotionResult.success_count
-            : 0;
-    const roadPromoteBlocked =
-        hasRoadItems && (!roadDryRunResult || roadDryRunResult.disabled_because_env_flag_false);
-    const routingBarrierPromotionEnvEnabled =
-        routingBarrierDryRunResult !== null &&
-        routingBarrierDryRunResult.disabled_because_env_flag_false === false;
-    const routingBarrierPromoteBlocked =
-        hasRoutingBarrierItems &&
-        (!routingBarrierDryRunResult || routingBarrierDryRunResult.disabled_because_env_flag_false);
-    const canPromote =
-        !workflowBlocked &&
-        status === "ready" &&
-        validationForModal?.can_promote !== false &&
-        !roadPromoteBlocked &&
-        !routingBarrierPromoteBlocked;
-    const promoteDisabledReason = workflowBlocked
-        ? (workflowBlockedMessage ?? "Transport promotion moved to Import Transport.")
-        : roadPromoteBlocked
-        ? !roadDryRunResult
-            ? "Run road dry-run first. Road batches require routing validation preview before promotion."
-            : "Road promotion is disabled. Run road dry-run and complete routing validation first."
-        : routingBarrierPromoteBlocked
-          ? !routingBarrierDryRunResult
-              ? "Run routing barrier dry-run first. Barrier batches require network impact preview before promotion."
-              : "Routing barrier promotion is disabled. Enable the API env gate before promotion."
-        : null;
     const canConfirmPromote =
         confirmText === "PROMOTE" &&
         !isStarting &&
-        (!requiresWarningNote || warningNote.trim().length > 0);
+        (!requiresWarningNote || warningNoteReady);
+    const promoteDisabledReason = workflowBlocked
+        ? (workflowBlockedMessage ?? "Transport promotion moved to Import Transport.")
+        : ui.promoteDisabledReason;
+    const canPromote = !workflowBlocked && ui.canPromote;
     const summaryMessage = isInvalidEmptyPromoted
         ? "This batch was marked promoted but no items were promoted. Treat as failed/invalid and create a new batch."
         : (progress?.promotion_logs_summary ?? progress?.current_message);
     const showPromotionLogs =
         logs &&
         logs.items.length > 0 &&
-        (progress?.workflow === "promotion" || isPromoting || status === "promoted" || status === "failed");
+        (progress?.workflow === "promotion" ||
+            isPromoting ||
+            status === "promoted" ||
+            status === "partially_promoted" ||
+            status === "failed");
+    const canVerify =
+        !isVerifying &&
+        status !== "draft" &&
+        status !== "validating" &&
+        (promotionResult?.promoted_count ?? promotionResult?.success_count ?? 0) > 0;
+
+    const blockedDrawerFamily = ui.blockedDetailsFamily ?? entityFamilies[0] ?? null;
 
     return (
-        <div className="mt-6 space-y-4 border-t border-gray-100 pt-6">
+        <div className="space-y-4">
+            <ImportReviewPromotionDryRunNotice
+                hasRoads={hasRoadItems}
+                hasRoutingBarriers={hasRoutingBarrierItems}
+            />
+
+            <div className="flex flex-wrap gap-4 rounded-md border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm">
+                <div>
+                    <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Lifecycle
+                    </span>
+                    <div className="mt-1">
+                        <PromotionStatusBadge value={status} />
+                    </div>
+                </div>
+                {validation ? (
+                    <div>
+                        <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                            Validation
+                        </span>
+                        <p className="font-medium text-gray-900">{validationOutcomeLabel}</p>
+                    </div>
+                ) : percent >= 100 ? (
+                    <div>
+                        <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                            Validation
+                        </span>
+                        <p className="font-medium text-gray-500">Summary unavailable</p>
+                    </div>
+                ) : null}
+                {progress?.promotion_status || promotionResult ? (
+                    <div>
+                        <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                            Promotion result
+                        </span>
+                        <p className="font-medium text-gray-900">{promotionOutcomeLabel}</p>
+                    </div>
+                ) : null}
+            </div>
+
+            {validation ? (
+                <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Validation snapshot
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                        <CountCard label="Total" value={validation.total_count ?? validation.total_items} />
+                        <CountCard label="Ready" value={ui.readyCount} tone="success" />
+                        <CountCard label="Warnings" value={ui.warningCount} tone="warning" />
+                        <CountCard label="Blocked" value={ui.blockedCount} tone="error" />
+                        <CountCard
+                            label="Promotable at validation"
+                            value={ui.validationPromotableCount}
+                        />
+                    </div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Publish items now
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <CountCard
+                            label="Ready to promote now"
+                            value={ui.currentPromotableCount}
+                            tone={ui.currentPromotableCount > 0 ? "success" : "error"}
+                        />
+                        <CountCard label="Pending" value={progress?.publish_item_status_counts?.pending ?? 0} />
+                        <CountCard
+                            label="Failed"
+                            value={ui.publishItemFailedCount}
+                            tone={ui.publishItemFailedCount > 0 ? "error" : undefined}
+                        />
+                        <CountCard label="Promoted" value={ui.publishItemSuccessCount} tone="success" />
+                    </div>
+                </div>
+            ) : null}
+
+            {ui.exhaustedBatchMessage && !isPromoting ? (
+                <ImportReviewStatusBanner message={ui.exhaustedBatchMessage} tone="warning" compact />
+            ) : null}
+
+            {ui.retryBatchMessage && ui.promotionAttemptExhausted && !isPromoting ? (
+                <div className="flex flex-wrap items-center gap-3">
+                    <p className="text-sm text-amber-900">{ui.retryBatchMessage}</p>
+                    {ui.canCreateRetryBatch && sourceReviewBatchId ? (
+                        <button
+                            type="button"
+                            onClick={() => void handleCreateRetryBatch()}
+                            disabled={isCreatingRetryBatch}
+                            className="rounded-md border border-amber-400 bg-white px-3 py-1.5 text-sm font-medium text-amber-950 hover:bg-amber-50 disabled:opacity-50"
+                        >
+                            {isCreatingRetryBatch
+                                ? "Creating retry batch…"
+                                : (ui.retryBatchButtonLabel ?? "Create retry batch")}
+                        </button>
+                    ) : null}
+                </div>
+            ) : null}
+
+            {ui.blockedWarningMessage && !isPromoting ? (
+                <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <span>{ui.blockedWarningMessage}</span>
+                    {sourceReviewBatchId && blockedDrawerFamily ? (
+                        <button
+                            type="button"
+                            onClick={() => setBlockedDrawerOpen(true)}
+                            className="font-medium text-amber-950 underline hover:no-underline"
+                        >
+                            View blocked item details
+                        </button>
+                    ) : null}
+                </div>
+            ) : null}
+
+            {ui.showWarningNoteField && !isPromoting ? (
+                <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50/80 p-3">
+                    <p className="text-sm text-amber-900">
+                        {ui.warningCount.toLocaleString()} warning item
+                        {ui.warningCount === 1 ? "" : "s"} require a confirmation note before promotion.
+                    </p>
+                    <textarea
+                        value={warningNote}
+                        onChange={(e) => setWarningNote(e.target.value)}
+                        rows={2}
+                        className="w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm"
+                        placeholder="Promotion note (required to include warnings)"
+                    />
+                </div>
+            ) : null}
+
             <div className="flex flex-wrap items-center gap-3">
                 <button
                     type="button"
@@ -279,19 +473,25 @@ export default function ImportReviewPromotionPromotePanel({
                     title={promoteDisabledReason ?? undefined}
                     className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
                 >
-                    {isPromoting ? IMPORT_REVIEW_LOADING.promoting : "Promote to core"}
+                    {isPromoting ? IMPORT_REVIEW_LOADING.promoting : ui.promoteButtonLabel}
                 </button>
                 <button
                     type="button"
                     onClick={() => void handleVerify()}
-                    disabled={isVerifying || status === "draft" || status === "validating"}
+                    disabled={!canVerify}
+                    title={
+                        canVerify
+                            ? "Checks core rows for promoted publish items only"
+                            : "Promote at least one item before verifying"
+                    }
                     className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
                 >
                     {isVerifying ? IMPORT_REVIEW_LOADING.verifying : "Verify promotion"}
                 </button>
-                <PromotionStatusBadge value={derivedStatus} />
-                {derivedStatus !== status ? (
-                    <span className="text-xs text-gray-500">stored: {status}</span>
+                {derivedStatus !== status && validation ? (
+                    <span className="text-xs text-gray-500">
+                        derived: <PromotionStatusBadge value={derivedStatus} />
+                    </span>
                 ) : null}
                 {isPromoting ? (
                     <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.promoting} />
@@ -302,77 +502,8 @@ export default function ImportReviewPromotionPromotePanel({
             </div>
 
             {error ? <ImportReviewStatusBanner message={error} tone="error" compact /> : null}
-
-            {hasRoadItems ? (
-                <div className="space-y-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-950">
-                    <p className="font-semibold">High-risk road promotion</p>
-                    <p>
-                        Roads write to <code className="rounded bg-white/80 px-1">core.core_streets</code> only.
-                        Routing graph tables are <strong>not</strong> built in this phase (Phase 9E). Controlled
-                        batches: max 3 road items unless{" "}
-                        <code className="rounded bg-white/80 px-1">
-                            ENABLE_IMPORT_REVIEW_ROAD_BULK_PROMOTION=true
-                        </code>
-                        .
-                    </p>
-                    <p>
-                        Env gate:{" "}
-                        {roadPromotionEnvEnabled ? (
-                            <span className="font-semibold text-emerald-800">ENABLED</span>
-                        ) : (
-                            <span className="font-semibold">DISABLED</span>
-                        )}{" "}
-                        (<code className="rounded bg-white/80 px-1">ENABLE_IMPORT_REVIEW_ROAD_PROMOTION</code>)
-                    </p>
-                    {roadDryRunResult ? (
-                        <p>
-                            Dry-run promotable:{" "}
-                            {roadDryRunResult.safe_to_promote_count + roadDryRunResult.promote_with_warning_count}{" "}
-                            of {roadDryRunResult.total_count} · blocked {roadDryRunResult.blocked_count}
-                        </p>
-                    ) : null}
-                    {promotionResult && roadPromotedSuccess > 0 ? (
-                        <p className="text-emerald-900">
-                            Roads promoted to core: {roadPromotedSuccess.toLocaleString()} (routing rebuild pending)
-                        </p>
-                    ) : null}
-                    {!roadPromotionEnvEnabled ? <p>{promoteDisabledReason}</p> : null}
-                </div>
-            ) : null}
-
-            {hasRoutingBarrierItems ? (
-                <div className="space-y-2 rounded-md border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-950">
-                    <p className="font-semibold">High-risk routing barrier promotion</p>
-                    <p>
-                        Barriers write to{" "}
-                        <code className="rounded bg-white/80 px-1">routing.routing_barriers</code> only.
-                        They do not directly edit <code className="rounded bg-white/80 px-1">routing_edges</code>
-                        or rebuild the graph.
-                    </p>
-                    <p>
-                        Env gate:{" "}
-                        {routingBarrierPromotionEnvEnabled ? (
-                            <span className="font-semibold text-emerald-800">ENABLED</span>
-                        ) : (
-                            <span className="font-semibold">DISABLED</span>
-                        )}{" "}
-                        (
-                        <code className="rounded bg-white/80 px-1">
-                            ENABLE_IMPORT_REVIEW_ROUTING_BARRIER_PROMOTION
-                        </code>
-                        )
-                    </p>
-                    {routingBarrierDryRunResult ? (
-                        <p>
-                            Dry-run promotable:{" "}
-                            {routingBarrierDryRunResult.safe_to_promote_count +
-                                routingBarrierDryRunResult.promote_with_warning_count}{" "}
-                            of {routingBarrierDryRunResult.total_count} · blocked{" "}
-                            {routingBarrierDryRunResult.blocked_count}
-                        </p>
-                    ) : null}
-                    {!routingBarrierPromotionEnvEnabled ? <p>{promoteDisabledReason}</p> : null}
-                </div>
+            {promoteDisabledReason && !canPromote && !isPromoting ? (
+                <ImportReviewStatusBanner message={promoteDisabledReason} tone="warning" compact />
             ) : null}
 
             {(isPromoting || (progress?.workflow === "promotion" && percent > 0)) && (
@@ -403,25 +534,39 @@ export default function ImportReviewPromotionPromotePanel({
             )}
 
             {promotionResult && !isPromoting ? (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <CountCard label="Inserted" value={promotionResult.inserted_count} />
-                    <CountCard label="Updated" value={promotionResult.updated_count} />
-                    <CountCard label="Success" value={promotionResult.success_count} tone="success" />
-                    <CountCard label="Failed" value={promotionResult.failed_count} tone="error" />
-                    <CountCard label="Core verified" value={promotionResult.core_verified_count} />
-                    <CountCard
-                        label="Import review marked"
-                        value={promotionResult.import_review_marked_promoted_count}
-                    />
+                <div className="space-y-2">
+                    <p className="text-sm font-medium text-gray-900">Promotion run summary</p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <CountCard
+                            label="Promoted"
+                            value={promotionResult.promoted_count ?? promotionResult.success_count}
+                            tone="success"
+                        />
+                        <CountCard
+                            label="Left blocked (skipped)"
+                            value={promotionResult.skipped_blocked_count ?? 0}
+                            tone="warning"
+                        />
+                        <CountCard
+                            label="Warnings skipped"
+                            value={promotionResult.skipped_warning_count ?? 0}
+                        />
+                        <CountCard label="Failed" value={promotionResult.failed_count} tone="error" />
+                        <CountCard label="Inserted" value={promotionResult.inserted_count} />
+                        <CountCard label="Updated" value={promotionResult.updated_count} />
+                        <CountCard label="Core verified" value={promotionResult.core_verified_count} />
+                        <CountCard
+                            label="Candidates marked"
+                            value={promotionResult.import_review_marked_promoted_count}
+                        />
+                    </div>
                     {promotionResult.promoted_entity_families.length > 0 ? (
-                        <div className="rounded-lg border border-gray-100 bg-white px-3 py-2 sm:col-span-2">
-                            <p className="text-xs text-gray-500">Promoted families</p>
-                            <p className="text-sm font-medium text-gray-900">
-                                {promotionResult.promoted_entity_families
-                                    .map((f) => publishEntityFamilyLabel(f))
-                                    .join(", ")}
-                            </p>
-                        </div>
+                        <p className="text-xs text-gray-600">
+                            Families:{" "}
+                            {promotionResult.promoted_entity_families
+                                .map((f) => publishEntityFamilyLabel(f))
+                                .join(", ")}
+                        </p>
                     ) : null}
                 </div>
             ) : null}
@@ -431,9 +576,8 @@ export default function ImportReviewPromotionPromotePanel({
                     className={`rounded-md border px-3 py-2 text-sm ${
                         isInvalidEmptyPromoted
                             ? "border-red-200 bg-red-50 text-red-900"
-                            : promotionResult?.status === "promoted" &&
-                                !promotionResult.partial_success &&
-                                promotionResult.success_count > 0
+                            : promotionResult?.status === "promoted" ||
+                                promotionResult?.status === "partially_promoted"
                               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
                               : "border-amber-200 bg-amber-50 text-amber-900"
                     }`}
@@ -442,11 +586,19 @@ export default function ImportReviewPromotionPromotePanel({
                 </p>
             ) : null}
 
+            {promotionResult && !isPromoting && (promotionResult.failed_count ?? 0) > 0 ? (
+                <ImportReviewPromotionFailedItemsPanel
+                    batchId={batchId}
+                    failedCount={promotionResult.failed_count}
+                    sampleFailures={promotionResult.sample_failures}
+                />
+            ) : null}
+
             {showPromotionLogs ? (
                 <ImportReviewOperationLogPanel
                     title="Promotion stages"
                     loadingMessage={IMPORT_REVIEW_LOADING.loadingLogs}
-                    entries={sortLogs(logs!.items).map((item) => ({
+                    entries={sortPromotionStageLogs(filterPromotionStageLogs(logs!.items)).map((item) => ({
                         id: item.id,
                         label: item.stage_label,
                         message: item.message,
@@ -479,9 +631,14 @@ export default function ImportReviewPromotionPromotePanel({
                             {verify.verification_status}
                         </span>
                     </p>
+                    <p className="mt-1 text-xs text-gray-600">
+                        Checks {verify.publish_items.success.toLocaleString()} promoted publish item
+                        {verify.publish_items.success === 1 ? "" : "s"} only. Pending blocked items (
+                        {verify.publish_items.pending.toLocaleString()}) are excluded.
+                    </p>
                     <ul className="mt-2 space-y-1 text-xs text-gray-600">
                         <li>
-                            Publish items — success: {verify.publish_items.success}, failed:{" "}
+                            Promoted items — success: {verify.publish_items.success}, failed:{" "}
                             {verify.publish_items.failed}
                         </li>
                         <li>Core rows missing: {verify.core_rows_missing}</li>
@@ -497,37 +654,24 @@ export default function ImportReviewPromotionPromotePanel({
                     aria-modal="true"
                 >
                     <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-                        <h3 className="text-lg font-semibold text-gray-900">Promote to core</h3>
+                        <h3 className="text-lg font-semibold text-gray-900">{ui.promoteButtonLabel}</h3>
                         <p className="mt-2 text-sm text-gray-600">
-                            This will write approved items to core. Road batches also write{" "}
-                            <code className="rounded bg-gray-100 px-1 text-xs">core.core_streets</code> and{" "}
-                            <code className="rounded bg-gray-100 px-1 text-xs">core.core_street_names</code> when
-                            names exist. Admin area batches write{" "}
-                            <code className="rounded bg-gray-100 px-1 text-xs">core.core_admin_areas</code> and{" "}
-                            <code className="rounded bg-gray-100 px-1 text-xs">core.core_admin_area_names</code>.
-                            Routing graph is not built yet.
+                            Only publish items with validation status ready (or warning with confirmation)
+                            are promoted. Blocked items stay in import-review.
                         </p>
-                        {hasAdminAreaItems ? (
-                            <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-                                High-risk admin area promotion can change search, address hierarchy, clipping,
-                                analytics, routing region selection, and dashboard filters. Promote only a tiny
-                                reviewed batch unless the bulk env flag is explicitly enabled.
-                            </p>
-                        ) : null}
-                        {validationForModal ? (
+                        {validation ? (
                             <ul className="mt-3 space-y-1 text-sm text-gray-700">
-                                <li>Total items: {validationForModal.total_items}</li>
-                                <li>Insert: {validationForModal.by_publish_action.insert}</li>
-                                <li>Update: {validationForModal.by_publish_action.update}</li>
-                                {validationForModal.promotable_entity_families.length > 0 ? (
-                                    <li>
-                                        Promotable families:{" "}
-                                        {validationForModal.promotable_entity_families.join(", ")}
-                                    </li>
+                                <li>Ready at validation: {ui.readyCount.toLocaleString()}</li>
+                                <li>Ready to promote now: {ui.currentPromotableCount.toLocaleString()}</li>
+                                <li>Warnings: {ui.warningCount.toLocaleString()}</li>
+                                <li>Blocked (skipped): {ui.blockedCount.toLocaleString()}</li>
+                                {ui.publishItemFailedCount > 0 ? (
+                                    <li>Already failed: {ui.publishItemFailedCount.toLocaleString()}</li>
                                 ) : null}
-                                {validationForModal.warning_count > 0 ? (
-                                    <li className="text-amber-800">
-                                        Warnings: {validationForModal.warning_count}
+                                {validation.promotable_entity_families.length > 0 ? (
+                                    <li>
+                                        Families:{" "}
+                                        {validation.promotable_entity_families.join(", ")}
                                     </li>
                                 ) : null}
                             </ul>
@@ -535,16 +679,14 @@ export default function ImportReviewPromotionPromotePanel({
                         {requiresWarningNote ? (
                             <>
                                 <p className="mt-4 text-sm text-amber-900">
-                                    This batch has validation warnings. Enter a confirmation note explaining why
-                                    promotion should proceed. CATEGORY_UNMAPPED means class_code or category_code
-                                    could not be mapped to ref.ref_poi_categories.code.
+                                    Enter a confirmation note to include warning items in this run.
                                 </p>
                                 <textarea
                                     value={warningNote}
                                     onChange={(e) => setWarningNote(e.target.value)}
                                     rows={3}
                                     className="mt-2 w-full rounded-md border border-amber-300 px-3 py-2 text-sm"
-                                    placeholder="Confirmation note (required)"
+                                    placeholder="Promotion note (required for warnings)"
                                 />
                             </>
                         ) : null}
@@ -565,7 +707,6 @@ export default function ImportReviewPromotionPromotePanel({
                                 onClick={() => {
                                     setConfirmOpen(false);
                                     setConfirmText("");
-                                    setWarningNote("");
                                 }}
                                 className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                             >
@@ -582,6 +723,19 @@ export default function ImportReviewPromotionPromotePanel({
                         </div>
                     </div>
                 </div>
+            ) : null}
+
+            {sourceReviewBatchId && blockedDrawerFamily ? (
+                <ImportReviewPromotionEligibilityDetailsDrawer
+                    open={blockedDrawerOpen}
+                    onClose={() => setBlockedDrawerOpen(false)}
+                    reviewBatchId={sourceReviewBatchId}
+                    family={blockedDrawerFamily}
+                    familyLabel={publishEntityFamilyLabel(blockedDrawerFamily)}
+                    bucket="blocked"
+                    includeWarnings={false}
+                    formatError={formatError}
+                />
             ) : null}
         </div>
     );

@@ -78,8 +78,8 @@ function OverrideFieldGrid({
         [formOptions, form.admin_area_id]
     );
     const poiCategoryOptions = useMemo(
-        () => poiCategoryOptionsFromFormOptions(formOptions),
-        [formOptions]
+        () => poiCategoryOptionsFromFormOptions(formOptions, form.category_id),
+        [formOptions, form.category_id]
     );
 
     if (defs.length === 0) {
@@ -335,8 +335,8 @@ export default function ImportReviewOverrideEditor({
     const promoted = (row.promotion_status ?? "").toLowerCase() === "promoted";
 
     const poiCategoryOptions = useMemo(
-        () => poiCategoryOptionsFromFormOptions(formOptions),
-        [formOptions]
+        () => poiCategoryOptionsFromFormOptions(formOptions, form.category_id),
+        [formOptions, form.category_id]
     );
 
     useEffect(() => {

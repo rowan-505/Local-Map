@@ -1,4 +1,6 @@
-import { Prisma, type PrismaClient, type Prisma as PrismaNamespace } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+
+import type { PromotionDb } from "./import-review-promotion-db.js";
 
 import { syncLanduseFeatureNames } from "../../lib/entity-names/sync-primary-names.js";
 import { deriveImportReviewNames, type ImportReviewNameCandidate } from "./import-review-name-fields.js";
@@ -33,7 +35,7 @@ type LanduseCandidateNameRow = {
 };
 
 export class ImportReviewPromotionPromoteLanduseRepository {
-    constructor(private readonly prisma: PrismaClient) {}
+    constructor(private readonly prisma: PromotionDb) {}
 
     async checkLanduseCoreExists(targetId: bigint): Promise<boolean> {
         const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
@@ -48,7 +50,25 @@ export class ImportReviewPromotionPromoteLanduseRepository {
 
     async insertLanduse(batchId: bigint, publishItemId: bigint): Promise<PromoteItemResult> {
         try {
-            return await this.prisma.$transaction(async (tx) => {
+            return await this.insertLanduseTx(this.prisma, batchId, publishItemId);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return {
+                publish_item_id: publishItemId,
+                outcome: "failed",
+                target_id: null,
+                error_message: `Landuse promotion failed: ${message}`,
+                before_data: null,
+                after_data: null,
+            };
+        }
+    }
+
+    async insertLanduseTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint
+    ): Promise<PromoteItemResult> {
                 const rows = await tx.$queryRaw<
                     {
                         id: bigint;
@@ -199,22 +219,13 @@ export class ImportReviewPromotionPromoteLanduseRepository {
                         entityKey: "landuse",
                     }),
                 };
-            });
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return {
-                publish_item_id: publishItemId,
-                outcome: "failed",
-                target_id: null,
-                error_message: `Landuse promotion failed: ${message}`,
-                before_data: null,
-                after_data: null,
-            };
-        }
     }
 
-    async updateLanduse(batchId: bigint, publishItemId: bigint): Promise<PromoteItemResult> {
-        const beforeRows = await this.prisma.$queryRaw<{ row_json: unknown }[]>`
+    async loadLanduseUpdateBeforeData(
+        tx: PromotionDb,
+        publishItemId: bigint
+    ): Promise<unknown | null> {
+        const beforeRows = await tx.$queryRaw<{ row_json: unknown }[]>`
             SELECT to_jsonb(c) AS row_json
             FROM system.system_publish_items AS spi
             INNER JOIN import_review.landuse_candidates AS lu
@@ -226,7 +237,11 @@ export class ImportReviewPromotionPromoteLanduseRepository {
               AND c.deleted_at IS NULL
             LIMIT 1
         `;
-        const beforeData = beforeRows[0]?.row_json ?? null;
+        return beforeRows[0]?.row_json ?? null;
+    }
+
+    async updateLanduse(batchId: bigint, publishItemId: bigint): Promise<PromoteItemResult> {
+        const beforeData = await this.loadLanduseUpdateBeforeData(this.prisma, publishItemId);
         if (!beforeData) {
             return {
                 publish_item_id: publishItemId,
@@ -239,7 +254,26 @@ export class ImportReviewPromotionPromoteLanduseRepository {
         }
 
         try {
-            return await this.prisma.$transaction(async (tx) => {
+            return await this.updateLanduseTx(this.prisma, batchId, publishItemId, beforeData);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return {
+                publish_item_id: publishItemId,
+                outcome: "failed",
+                target_id: null,
+                error_message: `Landuse promotion failed: ${message}`,
+                before_data: beforeData,
+                after_data: null,
+            };
+        }
+    }
+
+    async updateLanduseTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint,
+        beforeData: unknown
+    ): Promise<PromoteItemResult> {
                 const rows = await tx.$queryRaw<
                     {
                         id: bigint;
@@ -360,22 +394,10 @@ export class ImportReviewPromotionPromoteLanduseRepository {
                         entityKey: "landuse",
                     }),
                 };
-            });
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return {
-                publish_item_id: publishItemId,
-                outcome: "failed",
-                target_id: null,
-                error_message: `Landuse promotion failed: ${message}`,
-                before_data: beforeData,
-                after_data: null,
-            };
-        }
     }
 
     private async loadCandidateNames(
-        tx: PrismaNamespace.TransactionClient,
+        tx: PromotionDb,
         publishItemId: bigint
     ): Promise<LanduseCandidateNameRow> {
         const rows = await tx.$queryRaw<LanduseCandidateNameRow[]>`
@@ -407,7 +429,7 @@ export class ImportReviewPromotionPromoteLanduseRepository {
     }
 
     private async explainInsertBlocked(
-        tx: PrismaNamespace.TransactionClient,
+        tx: PromotionDb,
         batchId: bigint,
         publishItemId: bigint
     ): Promise<string> {

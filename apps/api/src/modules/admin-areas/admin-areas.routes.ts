@@ -49,6 +49,7 @@ const adminAreasRoutes: FastifyPluginAsync = async (app) => {
             const options = await adminAreasService.listAdminAreaOptions({
                 limit: parsed.data.limit,
                 q: parsed.data.q,
+                adminLevelCode: parsed.data.admin_level_code,
             });
             return reply.send(options);
         }

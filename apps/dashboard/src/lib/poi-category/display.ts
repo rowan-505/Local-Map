@@ -1,4 +1,5 @@
 export type PoiCategoryLabelFields = {
+    id?: string;
     code?: string | null;
     name?: string | null;
     name_mm?: string | null;
@@ -23,7 +24,14 @@ export function getPoiCategoryDisplayText(option: PoiCategoryLabelFields): strin
     if (code && displayName) {
         return `${code} — ${displayName}`;
     }
-    return displayName || code || "Unknown category";
+    if (displayName) {
+        return displayName;
+    }
+    if (code) {
+        return code;
+    }
+    const id = String(option.id ?? "").trim();
+    return id ? `Category #${id}` : "Category";
 }
 
 export function isPoiParentCategory(option: PoiCategoryLabelFields): boolean {
@@ -34,6 +42,17 @@ export function isPoiParentCategory(option: PoiCategoryLabelFields): boolean {
         return option.parentId === null;
     }
     return false;
+}
+
+export function filterPoiCategoryDropdownOptions(
+    options: readonly PoiCategoryDropdownOption[],
+    filterQuery: string
+): PoiCategoryDropdownOption[] {
+    const q = filterQuery.trim().toLowerCase();
+    if (!q) {
+        return [...options];
+    }
+    return options.filter((option) => option.searchText.toLowerCase().includes(q));
 }
 
 export function poiCategoryOptionSearchText(option: PoiCategoryLabelFields & { label?: string }): string {
@@ -60,6 +79,7 @@ export function normalizePoiCategoryDropdownOption(input: {
     const name_mm = input.name_mm ?? input.nameMm ?? null;
 
     const fields: PoiCategoryLabelFields = {
+        id,
         code,
         name,
         name_mm,
@@ -83,6 +103,92 @@ export function normalizePoiCategoryDropdownOption(input: {
         label,
         searchText: poiCategoryOptionSearchText({ ...fields, label }),
     };
+}
+
+function comparePoiCategoryDropdownOptions(
+    a: PoiCategoryDropdownOption,
+    b: PoiCategoryDropdownOption
+): number {
+    const aParent = isPoiParentCategory(a);
+    const bParent = isPoiParentCategory(b);
+    if (aParent !== bParent) {
+        return aParent ? -1 : 1;
+    }
+    if (!aParent && !bParent) {
+        const parentCmp = String(a.parent_id ?? "").localeCompare(String(b.parent_id ?? ""));
+        if (parentCmp !== 0) {
+            return parentCmp;
+        }
+    }
+    return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
+}
+
+export function dedupePoiCategoryDropdownOptions(
+    options: readonly PoiCategoryDropdownOption[]
+): PoiCategoryDropdownOption[] {
+    const seen = new Set<string>();
+    const out: PoiCategoryDropdownOption[] = [];
+    for (const option of options) {
+        const key = option.value.trim();
+        if (!key || seen.has(key)) {
+            continue;
+        }
+        seen.add(key);
+        out.push(option);
+    }
+    return out;
+}
+
+export function missingPoiCategoryOption(categoryId: string): PoiCategoryDropdownOption {
+    const id = categoryId.trim();
+    return normalizePoiCategoryDropdownOption({
+        id,
+        value: id,
+        code: null,
+        name: `Missing category #${id}`,
+        name_mm: null,
+    });
+}
+
+export function withMissingPoiCategorySelection(
+    options: readonly PoiCategoryDropdownOption[],
+    selectedValue: string | null | undefined
+): PoiCategoryDropdownOption[] {
+    const id = selectedValue?.trim() ?? "";
+    if (!id || options.some((option) => option.value === id)) {
+        return [...options];
+    }
+    return [...options, missingPoiCategoryOption(id)];
+}
+
+export type PoiCategoryDropdownInput = {
+    id?: string | number;
+    value?: string | number;
+    code?: string | null;
+    name?: string | null;
+    name_mm?: string | null;
+    parent_id?: string | null;
+};
+
+export function buildPoiCategoryDropdownOptions(
+    rows: readonly PoiCategoryDropdownInput[],
+    args?: { selectedValue?: string | null }
+): PoiCategoryDropdownOption[] {
+    const normalized = rows.map((row) => {
+        const payload: Parameters<typeof normalizePoiCategoryDropdownOption>[0] = {
+            id: row.id ?? row.value,
+            value: row.value ?? row.id,
+            code: row.code ?? null,
+            name: row.name ?? null,
+            name_mm: row.name_mm ?? null,
+        };
+        if (Object.prototype.hasOwnProperty.call(row, "parent_id")) {
+            payload.parent_id = row.parent_id ?? null;
+        }
+        return normalizePoiCategoryDropdownOption(payload);
+    });
+    const deduped = dedupePoiCategoryDropdownOptions(normalized).sort(comparePoiCategoryDropdownOptions);
+    return withMissingPoiCategorySelection(deduped, args?.selectedValue);
 }
 
 export function importReviewFormOptionToPoiCategory(row: {
@@ -109,7 +215,7 @@ export function importReviewFormOptionToPoiCategory(row: {
 export function placeFormOptionToPoiCategory(row: {
     id: string;
     code?: string;
-    name?: string;
+    name?: string | null;
     name_mm?: string | null;
     parent_id?: string | null;
 }): PoiCategoryDropdownOption {

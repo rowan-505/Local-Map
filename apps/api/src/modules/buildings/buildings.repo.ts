@@ -345,9 +345,15 @@ export class BuildingsRepository {
                     admin_area_id = (
                         SELECT a.id
                         FROM core.core_admin_areas AS a
+                        INNER JOIN ref.ref_admin_levels AS al ON al.id = a.admin_level_id
                         WHERE a.is_active IS TRUE
+                          AND a.deleted_at IS NULL
                           AND a.geom IS NOT NULL
                           AND ST_IsValid(a.geom)
+                          AND (
+                              lower(btrim(al.code)) IN ('township', 'town')
+                              OR lower(btrim(al.name)) IN ('township', 'town')
+                          )
                           AND ST_Contains(a.geom::geometry, ST_PointOnSurface(b.geom))
                         ORDER BY ST_Area(a.geom::geography) ASC NULLS LAST
                         LIMIT 1

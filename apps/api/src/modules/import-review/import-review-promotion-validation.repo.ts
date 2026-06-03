@@ -7,13 +7,14 @@ import {
     type ImportReviewPublishValidationStageKey,
 } from "./import-review-promotion-validation.types.js";
 import { requireValidPublishStageStatus } from "./import-review-promotion-stage-status.js";
+import { hasPublishBatchValidationControlColumns } from "./import-review-publish-batch-validation-control-columns.js";
 
 export const IMPORT_REVIEW_VALIDATION_CHUNK_SIZE = Math.max(
     10,
     Number.parseInt(process.env.IMPORT_REVIEW_VALIDATION_CHUNK_SIZE ?? "200", 10) || 200
 );
 
-const VALIDATABLE_BATCH_STATUSES = ["draft", "blocked", "failed", "ready"] as const;
+const VALIDATABLE_BATCH_STATUSES = ["draft", "blocked", "failed", "ready", "partial"] as const;
 
 export type PublishItemEntityRow = {
     id: bigint;
@@ -21,42 +22,138 @@ export type PublishItemEntityRow = {
 };
 
 export class ImportReviewPromotionValidationRepository {
+    private validationControlColumns: boolean | null = null;
+
     constructor(private readonly prisma: PrismaClient) {}
 
     getPrismaClient(): PrismaClient {
         return this.prisma;
     }
 
+    private async useValidationControlColumns(): Promise<boolean> {
+        if (this.validationControlColumns === null) {
+            this.validationControlColumns = await hasPublishBatchValidationControlColumns(this.prisma);
+        }
+        return this.validationControlColumns;
+    }
+
     async fetchBatchProgress(batchId: bigint): Promise<ImportReviewPublishBatchProgressRow | null> {
-        const rows = await this.prisma.$queryRaw<ImportReviewPublishBatchProgressRow[]>`
-            SELECT
-                id,
-                status,
-                validation_total,
-                validation_done,
-                validation_percent::float8 AS validation_percent,
-                validated_at,
-                summary
+        const hasControlColumns = await this.useValidationControlColumns();
+        const rows = hasControlColumns
+            ? await this.prisma.$queryRaw<ImportReviewPublishBatchProgressRow[]>`
+                  SELECT
+                      id,
+                      status,
+                      validation_total,
+                      validation_done,
+                      validation_percent::float8 AS validation_percent,
+                      validated_at,
+                      validation_heartbeat_at,
+                      validation_cancel_requested_at,
+                      promoted_at,
+                      summary
+                  FROM system.system_publish_batches
+                  WHERE id = ${batchId}
+                  LIMIT 1
+              `
+            : await this.prisma.$queryRaw<ImportReviewPublishBatchProgressRow[]>`
+                  SELECT
+                      id,
+                      status,
+                      validation_total,
+                      validation_done,
+                      validation_percent::float8 AS validation_percent,
+                      validated_at,
+                      NULL::timestamptz AS validation_heartbeat_at,
+                      NULL::timestamptz AS validation_cancel_requested_at,
+                      promoted_at,
+                      summary
+                  FROM system.system_publish_batches
+                  WHERE id = ${batchId}
+                  LIMIT 1
+              `;
+        return rows[0] ?? null;
+    }
+
+    async isValidationCancelRequested(batchId: bigint): Promise<boolean> {
+        if (!(await this.useValidationControlColumns())) {
+            return false;
+        }
+        const rows = await this.prisma.$queryRaw<{ cancel_requested: boolean }[]>`
+            SELECT (validation_cancel_requested_at IS NOT NULL) AS cancel_requested
             FROM system.system_publish_batches
             WHERE id = ${batchId}
             LIMIT 1
         `;
-        return rows[0] ?? null;
+        return rows[0]?.cancel_requested === true;
+    }
+
+    async requestValidationCancel(batchId: bigint): Promise<boolean> {
+        if (!(await this.useValidationControlColumns())) {
+            return false;
+        }
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            UPDATE system.system_publish_batches
+            SET validation_cancel_requested_at = now()
+            WHERE id = ${batchId}
+              AND status = 'validating'
+              AND validation_cancel_requested_at IS NULL
+            RETURNING id
+        `;
+        return rows.length > 0;
+    }
+
+    async clearValidationCancelFlag(batchId: bigint): Promise<void> {
+        if (!(await this.useValidationControlColumns())) {
+            return;
+        }
+        await this.prisma.$executeRaw`
+            UPDATE system.system_publish_batches
+            SET validation_cancel_requested_at = NULL
+            WHERE id = ${batchId}
+        `;
+    }
+
+    async touchValidationHeartbeat(batchId: bigint): Promise<void> {
+        if (!(await this.useValidationControlColumns())) {
+            return;
+        }
+        await this.prisma.$executeRaw`
+            UPDATE system.system_publish_batches
+            SET validation_heartbeat_at = now()
+            WHERE id = ${batchId}
+        `;
     }
 
     async claimBatchForValidation(batchId: bigint): Promise<{ claimed: boolean; status: string | null }> {
-        const rows = await this.prisma.$queryRaw<{ id: bigint; status: string }[]>`
-            UPDATE system.system_publish_batches
-            SET
-                status = 'validating',
-                validation_done = 0,
-                validation_percent = 0,
-                validation_total = 0,
-                validated_at = NULL
-            WHERE id = ${batchId}
-              AND status IN (${Prisma.join(VALIDATABLE_BATCH_STATUSES.map((s) => Prisma.sql`${s}`))})
-            RETURNING id, status
-        `;
+        const hasControlColumns = await this.useValidationControlColumns();
+        const rows = hasControlColumns
+            ? await this.prisma.$queryRaw<{ id: bigint; status: string }[]>`
+                  UPDATE system.system_publish_batches
+                  SET
+                      status = 'validating',
+                      validation_done = 0,
+                      validation_percent = 0,
+                      validation_total = 0,
+                      validated_at = NULL,
+                      validation_cancel_requested_at = NULL,
+                      validation_heartbeat_at = now()
+                  WHERE id = ${batchId}
+                    AND status IN (${Prisma.join(VALIDATABLE_BATCH_STATUSES.map((s) => Prisma.sql`${s}`))})
+                  RETURNING id, status
+              `
+            : await this.prisma.$queryRaw<{ id: bigint; status: string }[]>`
+                  UPDATE system.system_publish_batches
+                  SET
+                      status = 'validating',
+                      validation_done = 0,
+                      validation_percent = 0,
+                      validation_total = 0,
+                      validated_at = NULL
+                  WHERE id = ${batchId}
+                    AND status IN (${Prisma.join(VALIDATABLE_BATCH_STATUSES.map((s) => Prisma.sql`${s}`))})
+                  RETURNING id, status
+              `;
         if (rows.length > 0) {
             return { claimed: true, status: "validating" };
         }
@@ -156,6 +253,35 @@ export class ImportReviewPromotionValidationRepository {
         `;
     }
 
+    /**
+     * Updates batch counters and the running validation stage log in one heartbeat (P0 observability).
+     */
+    async updateValidationHeartbeat(args: {
+        batchId: bigint;
+        stageKey: ImportReviewPublishValidationStageKey;
+        validationTotal: number;
+        validationDone: number;
+        validationPercent: number;
+        message: string;
+        stageLogDetails: Record<string, unknown>;
+    }): Promise<void> {
+        await this.updateBatchProgress({
+            batchId: args.batchId,
+            validationTotal: args.validationTotal,
+            validationDone: args.validationDone,
+            validationPercent: args.validationPercent,
+        });
+        await this.touchValidationHeartbeat(args.batchId);
+        await this.updateStageLog({
+            batchId: args.batchId,
+            stageKey: args.stageKey,
+            stageStatus: "running",
+            message: args.message,
+            progressPercent: args.validationPercent,
+            details: args.stageLogDetails,
+        });
+    }
+
     async updateBatchProgress(args: {
         batchId: bigint;
         validationTotal?: number;
@@ -231,18 +357,201 @@ export class ImportReviewPromotionValidationRepository {
         `;
     }
 
-    async failBatch(batchId: bigint, message: string): Promise<void> {
-        const summary = JSON.stringify({ validation_error: message });
+    async failBatch(batchId: bigint, message: string, summaryPatch?: Record<string, unknown>): Promise<void> {
+        const summary = JSON.stringify({
+            validation_error: message,
+            ...summaryPatch,
+        });
+        const hasControlColumns = await this.useValidationControlColumns();
+        if (hasControlColumns) {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_batches
+                SET
+                    status = 'failed',
+                    validation_cancel_requested_at = NULL,
+                    summary = coalesce(summary, '{}'::jsonb) || ${summary}::jsonb
+                WHERE id = ${batchId}
+            `;
+        } else {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_batches
+                SET
+                    status = 'failed',
+                    summary = coalesce(summary, '{}'::jsonb) || ${summary}::jsonb
+                WHERE id = ${batchId}
+            `;
+        }
+    }
+
+    async skipPendingValidationStages(batchId: bigint, reason: string): Promise<void> {
         await this.prisma.$executeRaw`
-            UPDATE system.system_publish_batches
-            SET status = 'failed', summary = coalesce(summary, '{}'::jsonb) || ${summary}::jsonb
-            WHERE id = ${batchId}
+            UPDATE system.system_publish_stage_logs
+            SET
+                stage_status = 'skipped',
+                message = ${reason},
+                finished_at = now()
+            WHERE publish_batch_id = ${batchId}
+              AND stage_status = 'pending'
         `;
+    }
+
+    async failRunningValidationStages(
+        batchId: bigint,
+        reason: "cancelled" | "stale_worker",
+        message: string
+    ): Promise<void> {
+        const detailsJson = JSON.stringify({
+            process_state: reason,
+            validation_aborted: true,
+        });
+        await this.prisma.$executeRaw`
+            UPDATE system.system_publish_stage_logs
+            SET
+                stage_status = 'failed',
+                message = ${message},
+                finished_at = now(),
+                details = coalesce(details, '{}'::jsonb) || ${detailsJson}::jsonb
+            WHERE publish_batch_id = ${batchId}
+              AND stage_status = 'running'
+        `;
+    }
+
+    async finalizeValidationAborted(
+        batchId: bigint,
+        reason: "cancelled" | "stale_worker"
+    ): Promise<void> {
+        const logsSummary =
+            reason === "cancelled"
+                ? "Validation cancelled."
+                : "Validation stopped: no worker heartbeat (stale_worker). Use reset-validation to try again.";
+        const summary = JSON.stringify({
+            validation_status: reason === "cancelled" ? "cancelled" : "failed",
+            validation_outcome: reason,
+            validation_cancelled: reason === "cancelled",
+            validation_aborted: true,
+            validation_logs_summary: logsSummary,
+        });
+        const stageMessage =
+            reason === "cancelled"
+                ? "Validation cancelled."
+                : "Validation worker stopped responding (stale_worker).";
+
+        await this.failRunningValidationStages(batchId, reason, stageMessage);
+        await this.skipPendingValidationStages(batchId, "Skipped (validation aborted).");
+
+        const hasControlColumns = await this.useValidationControlColumns();
+        if (hasControlColumns) {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_batches
+                SET
+                    status = 'failed',
+                    validation_cancel_requested_at = NULL,
+                    summary = coalesce(summary, '{}'::jsonb) || ${summary}::jsonb
+                WHERE id = ${batchId}
+            `;
+        } else {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_batches
+                SET
+                    status = 'failed',
+                    summary = coalesce(summary, '{}'::jsonb) || ${summary}::jsonb
+                WHERE id = ${batchId}
+            `;
+        }
+    }
+
+    async failStaleValidationBatch(batchId: bigint): Promise<void> {
+        await this.finalizeValidationAborted(batchId, "stale_worker");
+    }
+
+    /** @deprecated Use finalizeValidationAborted(batchId, "cancelled") */
+    async finishValidationCancelled(batchId: bigint): Promise<void> {
+        await this.finalizeValidationAborted(batchId, "cancelled");
+    }
+
+    async resetValidationState(batchId: bigint): Promise<void> {
+        await this.prisma.$executeRaw`
+            UPDATE system.system_publish_items
+            SET
+                validation_result = '{}'::jsonb,
+                error_message = NULL
+            WHERE publish_batch_id = ${batchId}
+        `;
+        await this.clearStageLogs(batchId);
+        const resetDetails = JSON.stringify({
+            action: "reset_validation",
+            reset_at: new Date().toISOString(),
+        });
+        await this.prisma.$executeRaw`
+            INSERT INTO system.system_publish_stage_logs (
+                publish_batch_id,
+                stage_key,
+                stage_label,
+                stage_status,
+                message,
+                progress_percent,
+                details,
+                started_at,
+                finished_at
+            )
+            VALUES (
+                ${batchId},
+                'load_batch',
+                'Validation reset',
+                'skipped',
+                'Validation state was reset to draft.',
+                0,
+                ${resetDetails}::jsonb,
+                now(),
+                now()
+            )
+        `;
+        const summaryPatch = JSON.stringify({
+            validation_result: null,
+            validation_logs_summary: null,
+            validation_error: null,
+            validation_outcome: null,
+            validation_cancelled: null,
+            validation_aborted: null,
+            promotion_status: null,
+            promotion_result: null,
+            promotion_logs_summary: null,
+        });
+        const hasControlColumns = await this.useValidationControlColumns();
+        if (hasControlColumns) {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_batches
+                SET
+                    status = 'draft',
+                    validation_total = 0,
+                    validation_done = 0,
+                    validation_percent = 0,
+                    validated_at = NULL,
+                    validation_cancel_requested_at = NULL,
+                    validation_heartbeat_at = NULL,
+                    promoted_at = NULL,
+                    summary = coalesce(summary, '{}'::jsonb) || ${summaryPatch}::jsonb
+                WHERE id = ${batchId}
+            `;
+        } else {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_batches
+                SET
+                    status = 'draft',
+                    validation_total = 0,
+                    validation_done = 0,
+                    validation_percent = 0,
+                    validated_at = NULL,
+                    promoted_at = NULL,
+                    summary = coalesce(summary, '{}'::jsonb) || ${summaryPatch}::jsonb
+                WHERE id = ${batchId}
+            `;
+        }
     }
 
     async finalizeBatch(args: {
         batchId: bigint;
-        status: "ready" | "blocked";
+        status: "ready" | "partial" | "blocked";
         validationTotal: number;
         summary: Record<string, unknown>;
     }): Promise<void> {
@@ -264,13 +573,13 @@ export class ImportReviewPromotionValidationRepository {
         results: {
             publishItemId: bigint;
             status: string;
-            issues: unknown[];
+            validationJson: Record<string, unknown>;
             errorMessage: string | null;
         }[]
     ): Promise<void> {
         for (const chunk of chunkArray(results, 100)) {
             for (const row of chunk) {
-                const validationJson = JSON.stringify({ status: row.status, issues: row.issues });
+                const validationJson = JSON.stringify(row.validationJson);
                 await this.prisma.$executeRaw`
                     UPDATE system.system_publish_items
                     SET

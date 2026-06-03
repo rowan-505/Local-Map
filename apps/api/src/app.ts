@@ -9,6 +9,7 @@ import authPlugin from "./plugins/auth.js";
 import prismaPlugin from "./plugins/prisma.js";
 import { swaggerCorePlugin, swaggerUiPlugin } from "./plugins/swagger.js";
 import adminAreasRoutes from "./modules/admin-areas/admin-areas.routes.js";
+import entityAdminAreaRoutes from "./modules/entity-admin-area/entity-admin-area.routes.js";
 import authRoutes from "./modules/auth/auth.routes.js";
 import categoriesRoutes from "./modules/categories/categories.routes.js";
 import placesRoutes from "./modules/places/places.routes.js";
@@ -81,6 +82,7 @@ export async function buildApp() {
     await app.register(authRoutes);
     await app.register(categoriesRoutes);
     await app.register(adminAreasRoutes);
+    await app.register(entityAdminAreaRoutes);
     await app.register(placesRoutes);
     await app.register(publicMapRoutes);
     await app.register(addressesRoutes);

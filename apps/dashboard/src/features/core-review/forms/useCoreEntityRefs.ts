@@ -11,7 +11,6 @@ import type {
     ImportReviewReferenceOptionDto,
 } from "@/src/lib/api";
 import { mapRefBuildingTypesToSelectOptions } from "@/src/lib/building-type/display";
-import { placeFormOptionToPoiCategory } from "@/src/lib/poi-category/display";
 import {
     getImportReviewReferenceOptions,
     getPlaceFormOptions,
@@ -57,17 +56,14 @@ function mapRoadClasses(items: RoadClassOption[]): CoreRefOption[] {
 }
 
 function mapPlaceFormCategoryOptions(items: PlaceFormOption[]): CoreRefOption[] {
-    return items.map((item) => {
-        const normalized = placeFormOptionToPoiCategory(item);
-        return {
-            value: normalized.value,
-            label: normalized.label,
-            code: normalized.code ?? undefined,
-            name: normalized.name,
-            name_mm: normalized.name_mm,
-            parent_id: normalized.parent_id,
-        };
-    });
+    return items.map((item) => ({
+        value: item.id,
+        label: item.label ?? item.id,
+        code: item.code,
+        name: item.name ?? null,
+        name_mm: item.name_mm ?? null,
+        parent_id: item.parent_id,
+    }));
 }
 
 function mapReferenceOptions(items: ImportReviewReferenceOptionDto[]): CoreRefOption[] {

@@ -1,32 +1,21 @@
 import type { PublishStageStatus } from "./import-review-promotion-stage-status.js";
+import {
+    IMPORT_REVIEW_LEGACY_PUBLISH_ITEM_VALIDATION_STAGES,
+    IMPORT_REVIEW_SIMPLE_PUBLISH_VALIDATION_STAGES,
+    type ImportReviewLegacyPublishItemValidationStageKey,
+} from "./import-review-promotion-validation-stages.js";
 
-export const IMPORT_REVIEW_PUBLISH_VALIDATION_STAGES = [
-    { key: "load_batch", label: "Load batch", progressEnd: 5 },
-    { key: "load_items", label: "Load items", progressEnd: 10 },
-    { key: "group_by_entity", label: "Group by entity", progressEnd: 15 },
-    { key: "validate_candidate_state", label: "Candidate state", progressEnd: 30 },
-    { key: "validate_geometry", label: "Geometry", progressEnd: 45 },
-    { key: "validate_required_fields", label: "Required fields", progressEnd: 58 },
-    { key: "validate_references", label: "References", progressEnd: 70 },
-    { key: "validate_duplicates", label: "Duplicates", progressEnd: 82 },
-    { key: "validate_entity_specific_rules", label: "Entity-specific rules", progressEnd: 94 },
-    { key: "write_validation_summary", label: "Write summary", progressEnd: 100 },
-] as const;
+/** Stages seeded and run by the simple validation runner. */
+export const IMPORT_REVIEW_PUBLISH_VALIDATION_STAGES = IMPORT_REVIEW_SIMPLE_PUBLISH_VALIDATION_STAGES;
 
-export const IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES = [
-    "validate_candidate_state",
-    "validate_geometry",
-    "validate_required_fields",
-    "validate_references",
-    "validate_duplicates",
-    "validate_entity_specific_rules",
-] as const;
+/** @deprecated Alias for legacy rules engine sub-stages (not seeded in simple mode). */
+export const IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES =
+    IMPORT_REVIEW_LEGACY_PUBLISH_ITEM_VALIDATION_STAGES;
 
 export type ImportReviewPublishValidationStageKey =
     (typeof IMPORT_REVIEW_PUBLISH_VALIDATION_STAGES)[number]["key"];
 
-export type ImportReviewPublishItemValidationStageKey =
-    (typeof IMPORT_REVIEW_PUBLISH_ITEM_VALIDATION_STAGES)[number];
+export type ImportReviewPublishItemValidationStageKey = ImportReviewLegacyPublishItemValidationStageKey;
 
 export type ImportReviewValidationSeverity = "error" | "warning" | "info";
 
@@ -38,10 +27,18 @@ export type ImportReviewValidationIssue = {
     entity_family?: string;
 };
 
-export type ImportReviewPublishItemValidationStatus = "valid" | "warning" | "blocked" | "skipped";
+export type ImportReviewPublishItemValidationStatus =
+    | "ready"
+    | "valid"
+    | "warning"
+    | "blocked"
+    | "skipped";
 
 export type ImportReviewPublishBatchEntityValidationCounts = {
     total: number;
+    /** Contract status ready (legacy summaries used valid). */
+    ready: number;
+    /** @deprecated Prefer ready — kept for backward-compatible dashboards. */
     valid: number;
     warning: number;
     blocked: number;
@@ -49,13 +46,19 @@ export type ImportReviewPublishBatchEntityValidationCounts = {
 };
 
 export type ImportReviewPublishBatchValidationResult = {
-    outcome: "passed" | "blocked";
+    outcome: "passed" | "partial" | "blocked";
     can_promote: boolean;
     requires_warning_confirmation: boolean;
+    ready_count: number;
+    /** @deprecated Prefer ready_count */
     valid_count: number;
     warning_count: number;
     blocked_count: number;
     skipped_count: number;
+    /** Promotable pending items (ready + warning). */
+    promotable_count: number;
+    total_count: number;
+    /** @deprecated Prefer total_count */
     total_items: number;
     by_publish_action: { insert: number; update: number; merge: number };
     by_entity: Record<string, ImportReviewPublishBatchEntityValidationCounts>;
@@ -73,6 +76,9 @@ export type ImportReviewPublishBatchProgressRow = {
     validation_done: number;
     validation_percent: number;
     validated_at: Date | null;
+    validation_heartbeat_at: Date | null;
+    validation_cancel_requested_at: Date | null;
+    promoted_at: Date | null;
     summary: unknown;
 };
 

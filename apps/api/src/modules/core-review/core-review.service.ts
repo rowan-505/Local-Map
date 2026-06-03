@@ -3,6 +3,8 @@ import type { PrismaClient } from "@prisma/client";
 import type { JwtUser } from "../../plugins/auth.js";
 import { BuildingsRepository } from "../buildings/buildings.repo.js";
 import { BuildingsService } from "../buildings/buildings.service.js";
+import { EntityAdminAreaRepository } from "../entity-admin-area/entity-admin-area.repo.js";
+import { EntityAdminAreaService } from "../entity-admin-area/entity-admin-area.service.js";
 import { PlacesRepository } from "../places/places.repo.js";
 import { PlacesService } from "../places/places.service.js";
 import { StreetsRepository } from "../streets/streets.repo.js";
@@ -124,12 +126,13 @@ export class CoreReviewService {
     private readonly addressesWriteService: CoreReviewAddressesWriteService;
 
     constructor(prisma: PrismaClient) {
+        const entityAdminAreaService = new EntityAdminAreaService(new EntityAdminAreaRepository(prisma));
         this.buildingsRepo = new BuildingsRepository(prisma);
-        this.buildingsService = new BuildingsService(this.buildingsRepo);
+        this.buildingsService = new BuildingsService(this.buildingsRepo, entityAdminAreaService);
         this.placesRepo = new PlacesRepository(prisma);
-        this.placesService = new PlacesService(this.placesRepo);
+        this.placesService = new PlacesService(this.placesRepo, entityAdminAreaService);
         this.streetsRepo = new StreetsRepository(prisma);
-        this.streetsService = new StreetsService(this.streetsRepo);
+        this.streetsService = new StreetsService(this.streetsRepo, entityAdminAreaService);
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
         this.genericWriteService = new CoreReviewGenericWriteService(prisma);
         this.lifecycleService = new CoreReviewLifecycleService(prisma);
@@ -293,9 +296,19 @@ export class CoreReviewService {
 
         switch (def.slug) {
             case "buildings":
-                return createCoreReviewBuilding(this.buildingsRepo, this.buildingsService, body);
+                return createCoreReviewBuilding(
+                    this.buildingsRepo,
+                    this.buildingsService,
+                    body,
+                    user ?? { sub: "system", email: "system@local", roles: ["admin"] },
+                );
             case "places":
-                return createCoreReviewPlace(this.placesRepo, this.placesService, body);
+                return createCoreReviewPlace(
+                    this.placesRepo,
+                    this.placesService,
+                    body,
+                    user ?? { sub: "system", email: "system@local", roles: ["admin"] },
+                );
             case "streets":
                 return createCoreReviewStreet(
                     this.streetsRepo,
@@ -324,9 +337,21 @@ export class CoreReviewService {
 
         switch (def.slug) {
             case "buildings":
-                return updateCoreReviewBuilding(this.buildingsRepo, this.buildingsService, id, body);
+                return updateCoreReviewBuilding(
+                    this.buildingsRepo,
+                    this.buildingsService,
+                    id,
+                    body,
+                    user ?? { sub: "system", email: "system@local", roles: ["admin"] },
+                );
             case "places":
-                return updateCoreReviewPlace(this.placesRepo, this.placesService, id, body);
+                return updateCoreReviewPlace(
+                    this.placesRepo,
+                    this.placesService,
+                    id,
+                    body,
+                    user ?? { sub: "system", email: "system@local", roles: ["admin"] },
+                );
             case "streets":
                 return updateCoreReviewStreet(
                     this.streetsRepo,

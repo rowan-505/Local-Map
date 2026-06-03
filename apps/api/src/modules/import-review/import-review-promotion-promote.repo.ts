@@ -1,15 +1,35 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import type { ImportReviewPublishBatchProgressRow } from "./import-review-promotion-validation.types.js";
+import type { PromotionStagePlan, PromotionWorkflowStageDef } from "./import-review-promotion-promote-stages.js";
 import {
-    IMPORT_REVIEW_PUBLISH_PROMOTION_STAGES,
+    buildPromotionStageReconcileUpdates,
+    type PromotionStageLogSnapshot,
+} from "./import-review-promotion-promote-stage-finalize.js";
+import {
     type ImportReviewPublishPromotionStageKey,
     type ImportReviewPublishBatchVerifyResponse,
     type PromoteItemResult,
 } from "./import-review-promotion-promote.types.js";
 import { ImportReviewPromotionValidationRepository } from "./import-review-promotion-validation.repo.js";
-import { ImportReviewPromotionValidationRules } from "./import-review-promotion-validation-rules.js";
 import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
+import {
+    buildPromotionItemFailureRecord,
+    buildPublishItemFailureAfterData,
+    dedupePromotionFailureSamples,
+    promotionFailureSampleFromRow,
+    type PromotionFailureSample,
+} from "./import-review-promotion-failure.js";
+import { extractPromotionFailureCause } from "./import-review-promotion-failure-cause.js";
+import type { PromotionFailureCause } from "./import-review-promotion-failure-cause.js";
+import {
+    classifyPublishItemsForPromotion,
+    type PublishItemValidationRow,
+} from "./import-review-promotion-execution.js";
+import {
+    publishItemPromotionBlockReason,
+    type PublishItemPromotionGateInput,
+} from "./import-review-promotion-publish-item-validation.js";
 import {
     PROMOTABLE_PUBLISH_FAMILIES,
     type PromotablePublishEntityFamily,
@@ -37,9 +57,6 @@ import {
     coreVerificationUpdateSetClauseSql,
     getCoreVerificationColumnsForEntity,
 } from "./import-review-promotion-core-verification.js";
-import {
-    type ImportReviewPublishItemValidationStageKey,
-} from "./import-review-promotion-validation.types.js";
 import {
     ImportReviewPromotionPromoteMapRepository,
     CORE_WATER_LINES_TABLE,
@@ -92,21 +109,35 @@ import {
     ImportReviewPromotionRoutingBarrierDryRunRepository,
 } from "./import-review-promotion-routing-barrier-dry-run.repo.js";
 import {
-    simplifiedBuildingClassCodeExpr,
     geomSourceExpr,
-    nameExpr,
-    normalizedDataMergeExpr,
+    buildingNormalizedDataMergeExpr,
     polygonToMultiPolygonSql,
     sourceRefsMergeExpr,
 } from "./import-review-promotion-promote-sql.js";
+import {
+    promotionTypedBuildingNameExpr,
+} from "./import-review-promotion-typed-promote-sql.js";
+import { getPromotionFamilyConfig } from "./import-review-promotion-simple-config.js";
+import {
+    promoteImportReviewItemTx,
+    type PromoteImportReviewItemConfig,
+} from "./import-review-promotion-promote-item-tx.js";
 
-const PROMOTE_PREFLIGHT_VALIDATION_STAGES: ImportReviewPublishItemValidationStageKey[] = [
-    "validate_candidate_state",
-    "validate_geometry",
-    "validate_required_fields",
-    "validate_references",
-    "validate_entity_specific_rules",
-];
+export type { PromoteImportReviewItemConfig } from "./import-review-promotion-promote-item-tx.js";
+export { promoteImportReviewItemTx } from "./import-review-promotion-promote-item-tx.js";
+
+export async function promoteAndCommitImportReviewItem(
+    prisma: PrismaClient,
+    config: PromoteImportReviewItemConfig
+): Promise<PromoteItemResult> {
+    return prisma.$transaction((tx) => {
+        const txRepo = new ImportReviewPromotionPromoteRepository(
+            tx as PrismaClient,
+            new ImportReviewPromotionValidationRepository(tx as PrismaClient)
+        );
+        return promoteImportReviewItemTx(txRepo, config);
+    });
+}
 
 const BUILDING_CANDIDATE_TABLE = "import_review.building_candidates";
 
@@ -120,6 +151,7 @@ export type PromotableItemRow = {
     publish_item_id: bigint;
     entity_family: string;
     target_table: string;
+    target_schema?: string;
     publish_action: string;
     publish_status: string;
     target_id: bigint | null;
@@ -129,6 +161,7 @@ export type PromotableItemRow = {
     promotion_status: string | null;
     promoted_core_id: bigint | null;
     matched_core_id: bigint | null;
+    external_id?: string | null;
 };
 
 /** Building candidate columns used for core INSERT/UPDATE (excludes geom to avoid ambiguous aliases). */
@@ -139,6 +172,8 @@ const PROMOTE_BUILDING_SRC_COLUMNS = Prisma.sql`
     b.source_snapshot_version,
     b.local_staging_id,
     b.external_id,
+    b.name_en,
+    b.name_mm,
     b.name,
     b.canonical_name,
     b.class_code,
@@ -162,6 +197,8 @@ const PROMOTE_PREP_ROW = (geomCaseSql: Prisma.Sql) => Prisma.sql`
     r.source_snapshot_version,
     r.local_staging_id,
     r.external_id,
+    r.name_en,
+    r.name_mm,
     r.name,
     r.canonical_name,
     r.class_code,
@@ -185,6 +222,8 @@ const PROMOTE_READY_ROW = Prisma.sql`
     p.source_snapshot_version,
     p.local_staging_id,
     p.external_id,
+    p.name_en,
+    p.name_mm,
     p.name,
     p.canonical_name,
     p.class_code,
@@ -290,8 +329,11 @@ export class ImportReviewPromotionPromoteRepository {
         return this.validationRepo.clearStageLogs(batchId);
     }
 
-    async seedPromotionStageLogs(batchId: bigint): Promise<void> {
-        for (const stage of IMPORT_REVIEW_PUBLISH_PROMOTION_STAGES) {
+    async seedPromotionStageLogs(
+        batchId: bigint,
+        stages: readonly PromotionWorkflowStageDef[]
+    ): Promise<void> {
+        for (const stage of stages) {
             await this.prisma.$executeRaw`
                 INSERT INTO system.system_publish_stage_logs (
                     publish_batch_id, stage_key, stage_label, stage_status,
@@ -339,6 +381,46 @@ export class ImportReviewPromotionPromoteRepository {
         }
     }
 
+    async listPromotionStageLogs(batchId: bigint): Promise<PromotionStageLogSnapshot[]> {
+        const rows = await this.validationRepo.listStageLogs(batchId);
+        return rows.map((row) => ({
+            stage_key: row.stage_key,
+            stage_status: row.stage_status,
+            finished_at: row.finished_at,
+            message: row.message,
+        }));
+    }
+
+    async reconcilePromotionStageLogs(args: {
+        batchId: bigint;
+        stagePlan: PromotionStagePlan;
+        batchStatus: string;
+        failedStageKey?: string | null;
+        failureMessage?: string | null;
+        promotionLogsSummary?: string | null;
+        familyPromotedCounts?: Readonly<Record<string, number>>;
+    }): Promise<number> {
+        const logs = await this.listPromotionStageLogs(args.batchId);
+        const updates = buildPromotionStageReconcileUpdates(args.stagePlan, logs, {
+            batchStatus: args.batchStatus,
+            failedStageKey: args.failedStageKey,
+            failureMessage: args.failureMessage,
+            promotionLogsSummary: args.promotionLogsSummary,
+            familyPromotedCounts: args.familyPromotedCounts,
+        });
+        for (const update of updates) {
+            await this.updateStageLog({
+                batchId: args.batchId,
+                stageKey: update.stageKey,
+                stageStatus: update.stageStatus,
+                message: update.message,
+                progressPercent: update.progressPercent,
+                finished: update.finished,
+            });
+        }
+        return updates.length;
+    }
+
     async updateBatchProgress(args: {
         batchId: bigint;
         validationTotal?: number;
@@ -353,7 +435,7 @@ export class ImportReviewPromotionPromoteRepository {
             UPDATE system.system_publish_batches
             SET status = 'promoting', validation_done = 0, validation_percent = 0
             WHERE id = ${batchId}
-              AND status = 'ready'
+              AND status NOT IN ('validating', 'promoting')
               AND validation_percent = 100
               AND validated_at IS NOT NULL
             RETURNING id, status
@@ -384,6 +466,91 @@ export class ImportReviewPromotionPromoteRepository {
               AND coalesce(validation_result->>'status', '') = 'blocked'
         `;
         return Number(rows[0]?.count ?? 0n);
+    }
+
+    async fetchPublishItemValidationResult(
+        publishItemId: bigint
+    ): Promise<unknown | null> {
+        const rows = await this.prisma.$queryRaw<{ validation_result: unknown }[]>`
+            SELECT validation_result
+            FROM system.system_publish_items
+            WHERE id = ${publishItemId}
+            LIMIT 1
+        `;
+        return rows[0]?.validation_result ?? null;
+    }
+
+    async listPendingPublishItemValidationRows(
+        batchId: bigint
+    ): Promise<Array<{ publish_item_id: bigint; validation_result: unknown }>> {
+        return this.prisma.$queryRaw<
+            { publish_item_id: bigint; validation_result: unknown }[]
+        >`
+            SELECT id AS publish_item_id, validation_result
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+              AND publish_status = 'pending'
+              AND entity_family IN (${Prisma.join(PROMOTABLE_PUBLISH_FAMILIES)})
+        `;
+    }
+
+    async listPendingPublishItemEntityFamilies(
+        batchId: bigint
+    ): Promise<Array<{ publish_item_id: bigint; entity_family: string }>> {
+        return this.prisma.$queryRaw<{ publish_item_id: bigint; entity_family: string }[]>`
+            SELECT id AS publish_item_id, entity_family::text AS entity_family
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+              AND publish_status = 'pending'
+              AND entity_family IN (${Prisma.join(PROMOTABLE_PUBLISH_FAMILIES)})
+        `;
+    }
+
+    /**
+     * Pending items allowed to promote for this run (publish-item validation_result authority).
+     */
+    async listPromotablePendingPublishItemIds(
+        batchId: bigint,
+        gate: PublishItemPromotionGateInput = {}
+    ): Promise<bigint[]> {
+        return (await this.selectPublishItemsForPromotion(batchId, gate)).promotableIds;
+    }
+
+    async selectPublishItemsForPromotion(
+        batchId: bigint,
+        gate: PublishItemPromotionGateInput = {}
+    ) {
+        const rows = await this.listPendingPublishItemValidationRows(batchId);
+        return classifyPublishItemsForPromotion(rows as PublishItemValidationRow[], gate);
+    }
+
+    async countPublishItemsByStatus(batchId: bigint): Promise<{
+        pending: number;
+        success: number;
+        failed: number;
+        skipped: number;
+        total: number;
+    }> {
+        const rows = await this.prisma.$queryRaw<
+            { pending: bigint; success: bigint; failed: bigint; skipped: bigint; total: bigint }[]
+        >`
+            SELECT
+                count(*) FILTER (WHERE publish_status = 'pending')::bigint AS pending,
+                count(*) FILTER (WHERE publish_status = 'success')::bigint AS success,
+                count(*) FILTER (WHERE publish_status = 'failed')::bigint AS failed,
+                count(*) FILTER (WHERE publish_status = 'skipped')::bigint AS skipped,
+                count(*)::bigint AS total
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+        `;
+        const r = rows[0];
+        return {
+            pending: Number(r?.pending ?? 0n),
+            success: Number(r?.success ?? 0n),
+            failed: Number(r?.failed ?? 0n),
+            skipped: Number(r?.skipped ?? 0n),
+            total: Number(r?.total ?? 0n),
+        };
     }
 
     /** @deprecated Use countReservedNonPromotableItems */
@@ -680,15 +847,12 @@ export class ImportReviewPromotionPromoteRepository {
         `;
     }
 
-    async countPendingPromotableItems(batchId: bigint): Promise<number> {
-        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
-            SELECT count(*)::bigint AS count
-            FROM system.system_publish_items
-            WHERE publish_batch_id = ${batchId}
-              AND entity_family IN (${Prisma.join(PROMOTABLE_PUBLISH_FAMILIES)})
-              AND publish_status = 'pending'
-        `;
-        return Number(rows[0]?.count ?? 0n);
+    async countPendingPromotableItems(
+        batchId: bigint,
+        gate: PublishItemPromotionGateInput = {}
+    ): Promise<number> {
+        const ids = await this.listPromotablePendingPublishItemIds(batchId, gate);
+        return ids.length;
     }
 
     async countByPublishAction(
@@ -711,33 +875,18 @@ export class ImportReviewPromotionPromoteRepository {
         };
     }
 
-    async runFinalValidationBeforeWrite(itemIds: bigint[]): Promise<number> {
+    async runFinalValidationBeforeWrite(
+        itemIds: bigint[],
+        gate: PublishItemPromotionGateInput = {}
+    ): Promise<number> {
         if (itemIds.length === 0) {
             return 0;
         }
-        const familyRows = await this.prisma.$queryRaw<{ id: bigint; entity_family: string }[]>`
-            SELECT id, entity_family
-            FROM system.system_publish_items
-            WHERE id IN (${Prisma.join(itemIds)})
-              AND entity_family IN (${Prisma.join(PROMOTABLE_PUBLISH_FAMILIES)})
-        `;
-        const byFamily = new Map<string, bigint[]>();
-        for (const row of familyRows) {
-            const list = byFamily.get(row.entity_family) ?? [];
-            list.push(row.id);
-            byFamily.set(row.entity_family, list);
-        }
-
-        const rules = new ImportReviewPromotionValidationRules(this.prisma);
         let errors = 0;
-        for (const [family, ids] of byFamily) {
-            for (const stage of PROMOTE_PREFLIGHT_VALIDATION_STAGES) {
-                const rows = await rules.validateStage(
-                    stage,
-                    family as PromotablePublishEntityFamily,
-                    ids
-                );
-                errors += rows.filter((r) => r.severity === "error").length;
+        for (const publishItemId of itemIds) {
+            const validationResult = await this.fetchPublishItemValidationResult(publishItemId);
+            if (publishItemPromotionBlockReason(validationResult, gate) !== null) {
+                errors += 1;
             }
         }
         const pendingCheck = await this.prisma.$queryRaw<{ count: bigint }[]>`
@@ -754,10 +903,16 @@ export class ImportReviewPromotionPromoteRepository {
         return this.validationRepo.failBatch(batchId, message);
     }
 
-    async promoteItem(args: {
+    /**
+     * Tx-safe core promotion for one publish item (no publish-item / candidate status writes).
+     * Called only from {@link promoteImportReviewItemTx} inside an active transaction.
+     */
+    async promotePublishItemTx(args: {
         batchId: bigint;
         publishItemId: bigint;
         promotedBy: bigint | null;
+        confirmWarnings?: boolean;
+        promotionNote?: string;
     }): Promise<PromoteItemResult> {
         const itemRows = await this.listPromotableItems(args.batchId);
         const item = itemRows.find((r) => r.publish_item_id === args.publishItemId);
@@ -829,116 +984,166 @@ export class ImportReviewPromotionPromoteRepository {
             };
         }
 
+        const publishValidation = await this.fetchPublishItemValidationResult(args.publishItemId);
+        const promotionGate: PublishItemPromotionGateInput = {
+            confirm_warnings: args.confirmWarnings,
+            promotion_note: args.promotionNote,
+            warning_confirmation_note: args.promotionNote,
+            review_note: args.promotionNote,
+        };
+        const blockReason = publishItemPromotionBlockReason(publishValidation, promotionGate);
+        if (blockReason !== null) {
+            return {
+                publish_item_id: args.publishItemId,
+                outcome: "failed",
+                target_id: null,
+                error_message: blockReason,
+                before_data: null,
+                after_data: null,
+            };
+        }
+
         if (item.publish_action === "insert") {
             if (item.entity_family === "addresses") {
-                return this.addressesRepo.promoteFromPublishItem(args.batchId, args.publishItemId);
+                return this.addressesRepo.promoteFromPublishItemTx(
+                    this.prisma,
+                    args.batchId,
+                    args.publishItemId
+                );
             }
             if (item.entity_family === "places") {
-                return this.placesRepo.insertPlace(args.batchId, args.publishItemId, args.promotedBy);
-            }
-            if (item.entity_family === "bus_stops") {
-                return this.busStopsRepo.insertBusStop(args.batchId, args.publishItemId);
-            }
-            if (item.entity_family === "bus_routes") {
-                return this.busRoutesRepo.insertBusRoute(
+                return this.placesRepo.promotePlaceTx(
+                    this.prisma,
                     args.batchId,
                     args.publishItemId,
-                    args.promotedBy
-                );
-            }
-            if (item.entity_family === "bus_route_variants") {
-                return this.busRouteVariantsRepo.insertBusRouteVariant(
-                    args.batchId,
-                    args.publishItemId,
-                    args.promotedBy
-                );
-            }
-            if (item.entity_family === "bus_route_stops") {
-                return this.busRouteStopsRepo.insertBusRouteStop(
-                    args.batchId,
-                    args.publishItemId,
+                    "insert",
                     args.promotedBy
                 );
             }
             if (item.entity_family === "landuse") {
-                return this.landuseRepo.insertLanduse(args.batchId, args.publishItemId);
+                return this.landuseRepo.insertLanduseTx(
+                    this.prisma,
+                    args.batchId,
+                    args.publishItemId
+                );
             }
             if (item.entity_family === "roads") {
-                return this.roadsRepo.insertRoad(args.batchId, args.publishItemId, args.promotedBy);
+                return this.roadsRepo.insertRoadForTx(
+                    this.prisma,
+                    args.batchId,
+                    args.publishItemId,
+                    args.promotedBy
+                );
             }
             if (item.entity_family === "admin_areas") {
-                return this.adminAreasRepo.insertAdminArea(
+                return this.adminAreasRepo.insertAdminAreaForTx(
+                    this.prisma,
                     args.batchId,
                     args.publishItemId,
                     args.promotedBy
                 );
             }
             if (item.entity_family === "routing_barriers") {
-                return this.routingBarriersRepo.insertRoutingBarrier(
+                return this.routingBarriersRepo.insertRoutingBarrierTx(
+                    this.prisma,
                     args.batchId,
                     args.publishItemId
                 );
             }
             const mapFamily = item.entity_family as PromotablePublishEntityFamily;
             if (this.mapRepo.isMapEntityFamily(mapFamily)) {
-                return this.mapRepo.insertMapEntity(mapFamily, args.batchId, args.publishItemId);
+                return this.mapRepo.insertMapEntityTx(
+                    this.prisma,
+                    mapFamily,
+                    args.batchId,
+                    args.publishItemId
+                );
             }
             return this.insertBuilding(args.batchId, args.publishItemId, args.promotedBy);
         }
 
         if (item.publish_action === "update") {
             if (item.entity_family === "addresses") {
-                return this.addressesRepo.promoteFromPublishItem(args.batchId, args.publishItemId);
+                return this.addressesRepo.promoteFromPublishItemTx(
+                    this.prisma,
+                    args.batchId,
+                    args.publishItemId
+                );
             }
             if (item.entity_family === "places") {
-                return this.placesRepo.updatePlace(args.batchId, args.publishItemId, args.promotedBy);
-            }
-            if (item.entity_family === "bus_stops") {
-                return this.busStopsRepo.updateBusStop(args.batchId, args.publishItemId);
-            }
-            if (item.entity_family === "bus_routes") {
-                return this.busRoutesRepo.updateBusRoute(
+                return this.placesRepo.promotePlaceTx(
+                    this.prisma,
                     args.batchId,
                     args.publishItemId,
-                    args.promotedBy
-                );
-            }
-            if (item.entity_family === "bus_route_variants") {
-                return this.busRouteVariantsRepo.updateBusRouteVariant(
-                    args.batchId,
-                    args.publishItemId,
-                    args.promotedBy
-                );
-            }
-            if (item.entity_family === "bus_route_stops") {
-                return this.busRouteStopsRepo.updateBusRouteStop(
-                    args.batchId,
-                    args.publishItemId,
+                    "update",
                     args.promotedBy
                 );
             }
             if (item.entity_family === "landuse") {
-                return this.landuseRepo.updateLanduse(args.batchId, args.publishItemId);
+                const beforeData = await this.landuseRepo.loadLanduseUpdateBeforeData(
+                    this.prisma,
+                    args.publishItemId
+                );
+                if (!beforeData) {
+                    return {
+                        publish_item_id: args.publishItemId,
+                        outcome: "failed",
+                        target_id: null,
+                        error_message: "Update blocked: matched_core_id missing or core row inactive.",
+                        before_data: null,
+                        after_data: null,
+                    };
+                }
+                try {
+                    return await this.landuseRepo.updateLanduseTx(
+                        this.prisma,
+                        args.batchId,
+                        args.publishItemId,
+                        beforeData
+                    );
+                } catch (err) {
+                    const message = err instanceof Error ? err.message : String(err);
+                    return {
+                        publish_item_id: args.publishItemId,
+                        outcome: "failed",
+                        target_id: null,
+                        error_message: `Landuse promotion failed: ${message}`,
+                        before_data: beforeData,
+                        after_data: null,
+                    };
+                }
             }
             if (item.entity_family === "roads") {
-                return this.roadsRepo.updateRoad(args.batchId, args.publishItemId, args.promotedBy);
+                return this.roadsRepo.updateRoadForTx(
+                    this.prisma,
+                    args.batchId,
+                    args.publishItemId,
+                    args.promotedBy
+                );
             }
             if (item.entity_family === "admin_areas") {
-                return this.adminAreasRepo.updateAdminArea(
+                return this.adminAreasRepo.updateAdminAreaForTx(
+                    this.prisma,
                     args.batchId,
                     args.publishItemId,
                     args.promotedBy
                 );
             }
             if (item.entity_family === "routing_barriers") {
-                return this.routingBarriersRepo.updateRoutingBarrier(
+                return this.routingBarriersRepo.updateRoutingBarrierTx(
+                    this.prisma,
                     args.batchId,
                     args.publishItemId
                 );
             }
             const mapFamily = item.entity_family as PromotablePublishEntityFamily;
             if (this.mapRepo.isMapEntityFamily(mapFamily)) {
-                return this.mapRepo.updateMapEntity(mapFamily, args.batchId, args.publishItemId);
+                return this.mapRepo.updateMapEntityTx(
+                    this.prisma,
+                    mapFamily,
+                    args.batchId,
+                    args.publishItemId
+                );
             }
             return this.updateBuilding(args.batchId, args.publishItemId, args.promotedBy);
         }
@@ -953,66 +1158,10 @@ export class ImportReviewPromotionPromoteRepository {
         };
     }
 
-    async promoteAndCommitItem(args: {
-        batchId: bigint;
-        publishItemId: bigint;
-        promotedBy: bigint | null;
-    }): Promise<PromoteItemResult> {
-        return this.prisma.$transaction(async (tx) => {
-            const repo = new ImportReviewPromotionPromoteRepository(
-                tx as PrismaClient,
-                new ImportReviewPromotionValidationRepository(tx as PrismaClient)
-            );
-            const items = await repo.listPromotableItems(args.batchId);
-            const item = items.find((row) => row.publish_item_id === args.publishItemId);
-            const result = await repo.promoteItem({
-                batchId: args.batchId,
-                publishItemId: args.publishItemId,
-                promotedBy: args.promotedBy,
-            });
-
-            if (result.outcome === "inserted" || result.outcome === "updated") {
-                if (!item) {
-                    throw new Error("Publish item missing after core promotion.");
-                }
-                await repo.applyItemSuccess({
-                    publishItemId: args.publishItemId,
-                    targetId: result.target_id,
-                    targetTable: item.target_table,
-                    beforeData: result.before_data,
-                    afterData: result.after_data ?? { id: result.target_id?.toString() ?? null },
-                });
-                if (item.entity_family !== "bus_route_stops" || result.target_id != null) {
-                    await repo.markCandidatePromoted({
-                        entityFamily: item.entity_family as ImportReviewEntityFamilySlug,
-                        reviewCandidateId: item.review_candidate_id,
-                        promotedCoreId: result.target_id,
-                        promotedBy: args.promotedBy,
-                    });
-                }
-                return result;
-            }
-
-            if (result.outcome === "skipped") {
-                if (item) {
-                    await repo.applyItemSuccess({
-                        publishItemId: args.publishItemId,
-                        targetId: result.target_id,
-                        targetTable: item.target_table,
-                        beforeData: result.before_data,
-                        afterData: result.after_data ?? { skipped: true },
-                    });
-                }
-                return result;
-            }
-
-            await repo.applyItemFailure({
-                publishItemId: args.publishItemId,
-                errorMessage: result.error_message ?? "Promotion failed.",
-                afterData: result.after_data,
-            });
-            return result;
-        });
+    async promoteAndCommitItem(
+        args: PromoteImportReviewItemConfig
+    ): Promise<PromoteItemResult> {
+        return promoteAndCommitImportReviewItem(this.prisma, args);
     }
 
     private async checkCoreRowExists(entityFamily: string, targetId: bigint): Promise<boolean> {
@@ -1080,7 +1229,7 @@ export class ImportReviewPromotionPromoteRepository {
                   AND spi.publish_batch_id = ${batchId}
             ),
             raw_geom AS (
-                SELECT s.*, ${geomSourceExpr("s")} AS g_raw FROM src AS s
+                SELECT s.*, ${geomSourceExpr("s", "candidate_geom")} AS g_raw FROM src AS s
             ),
             prep AS (
                 SELECT ${PROMOTE_PREP_ROW(polygonToMultiPolygonSql("r"))}
@@ -1107,7 +1256,7 @@ export class ImportReviewPromotionPromoteRepository {
                 )
             )
             INSERT INTO core.core_map_buildings (
-                source_staging_id, external_id, name, class_code, normalized_data, source_refs,
+                source_staging_id, external_id, name, normalized_data, source_refs,
                 geom, building_type_id, admin_area_id, levels, height_m,
                 centroid, area_m2, confidence_score${coreVerificationInsertColumnsSql(BUILDING_VERIFICATION_COLUMNS)}, is_active,
                 created_at, updated_at, deleted_at
@@ -1115,9 +1264,8 @@ export class ImportReviewPromotionPromoteRepository {
             SELECT
                 g.local_staging_id,
                 nullif(trim(g.external_id), ''),
-                ${nameExpr("g")},
-                ${simplifiedBuildingClassCodeExpr("g")},
-                ${normalizedDataMergeExpr("g", batchId)},
+                ${promotionTypedBuildingNameExpr("g")},
+                ${buildingNormalizedDataMergeExpr("g", batchId)},
                 ${sourceRefsMergeExpr("g", batchId, "buildings")},
                 g.geom,
                 g.building_type_id,
@@ -1132,7 +1280,7 @@ export class ImportReviewPromotionPromoteRepository {
                 now(),
                 NULL::timestamptz
             FROM guard AS g
-            RETURNING id, external_id, source_staging_id, name, class_code
+            RETURNING id, external_id, source_staging_id, name, normalized_data->>'class_code' AS class_code
         `;
 
         if (rows.length === 0) {
@@ -1213,7 +1361,7 @@ export class ImportReviewPromotionPromoteRepository {
                   AND b.matched_core_id IS NOT NULL
             ),
             raw_geom AS (
-                SELECT s.*, ${geomSourceExpr("s")} AS g_raw FROM src AS s
+                SELECT s.*, ${geomSourceExpr("s", "candidate_geom")} AS g_raw FROM src AS s
             ),
             prep AS (
                 SELECT ${PROMOTE_PREP_ROW(polygonToMultiPolygonSql("r"))}
@@ -1228,9 +1376,8 @@ export class ImportReviewPromotionPromoteRepository {
             SET
                 source_staging_id = r.local_staging_id,
                 external_id = nullif(trim(r.external_id), ''),
-                name = ${nameExpr("r")},
-                class_code = ${simplifiedBuildingClassCodeExpr("r")},
-                normalized_data = ${normalizedDataMergeExpr("r", batchId)},
+                name = ${promotionTypedBuildingNameExpr("r")},
+                normalized_data = ${buildingNormalizedDataMergeExpr("r", batchId)},
                 source_refs = ${sourceRefsMergeExpr("r", batchId, "buildings")},
                 geom = r.geom,
                 building_type_id = r.building_type_id,
@@ -1247,7 +1394,7 @@ export class ImportReviewPromotionPromoteRepository {
             WHERE c.id = r.matched_core_id
               AND coalesce(c.is_active, true) AND c.deleted_at IS NULL
               AND NOT (c.source_refs @> '{"source":"dashboard"}'::jsonb)
-            RETURNING c.id, c.external_id, c.name, c.class_code
+            RETURNING c.id, c.external_id, c.name, c.normalized_data->>'class_code' AS class_code
         `;
 
         if (rows.length === 0) {
@@ -1287,18 +1434,26 @@ export class ImportReviewPromotionPromoteRepository {
         publishItemId: bigint;
         targetId: bigint | null;
         targetTable: string;
+        entityFamily?: string;
         beforeData: unknown | null;
         afterData: unknown;
     }): Promise<void> {
         const afterJson = JSON.stringify(args.afterData);
         const beforeJson = args.beforeData != null ? JSON.stringify(args.beforeData) : null;
-        const targetSchema = args.targetTable.startsWith("routing.") ? "routing" : "core";
+        const familyConfig =
+            args.entityFamily ? getPromotionFamilyConfig(args.entityFamily) : null;
+        const targetSchema =
+            familyConfig?.targetSchema ??
+            (args.targetTable.startsWith("routing.") ? "routing" : "core");
+        const targetTable =
+            familyConfig?.targetTable ??
+            (args.targetTable.includes(".") ? args.targetTable.split(".")[1]! : args.targetTable);
         await this.prisma.$executeRaw`
             UPDATE system.system_publish_items
             SET publish_status = 'success',
                 target_id = ${args.targetId},
                 target_schema = ${targetSchema},
-                target_table = ${args.targetTable},
+                target_table = ${targetTable},
                 before_data = ${beforeJson}::jsonb,
                 after_data = ${afterJson}::jsonb,
                 error_message = NULL,
@@ -1310,16 +1465,100 @@ export class ImportReviewPromotionPromoteRepository {
     async applyItemFailure(args: {
         publishItemId: bigint;
         errorMessage: string;
-        afterData?: unknown;
+        entityFamily?: string;
+        reviewCandidateId?: bigint;
+        externalId?: string | null;
+        targetSchema?: string;
+        targetTable?: string;
+        publishAction?: string;
+        technicalDetail?: unknown;
+        failureCause?: PromotionFailureCause | null;
     }): Promise<void> {
-        const afterJson = JSON.stringify(args.afterData ?? { error: args.errorMessage });
+        const cause =
+            args.failureCause ?? extractPromotionFailureCause(new Error(args.errorMessage));
+        const failure = buildPromotionItemFailureRecord({
+            errorMessage: args.errorMessage,
+            entityFamily: args.entityFamily,
+            reviewCandidateId: args.reviewCandidateId,
+            publishItemId: args.publishItemId,
+            externalId: args.externalId,
+            targetSchema: args.targetSchema,
+            targetTable: args.targetTable,
+            publishAction: args.publishAction,
+            technicalDetail: args.technicalDetail,
+            failureCause: cause,
+        });
+        const afterPayload = buildPublishItemFailureAfterData(failure, cause);
+        const afterJson = JSON.stringify(afterPayload);
         await this.prisma.$executeRaw`
             UPDATE system.system_publish_items
             SET publish_status = 'failed',
-                error_message = ${args.errorMessage},
+                error_message = ${failure.error_message},
                 after_data = ${afterJson}::jsonb
             WHERE id = ${args.publishItemId}
         `;
+    }
+
+    async listFailedPublishItemsForFamily(
+        batchId: bigint,
+        entityFamily: string
+    ): Promise<
+        {
+            review_candidate_id: bigint | null;
+            error_message: string | null;
+            after_data: unknown;
+        }[]
+    > {
+        return this.prisma.$queryRaw<
+            {
+                review_candidate_id: bigint | null;
+                error_message: string | null;
+                after_data: unknown;
+            }[]
+        >`
+            SELECT review_candidate_id, error_message, after_data
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+              AND entity_family = ${entityFamily}
+              AND publish_status = 'failed'
+            ORDER BY id ASC
+        `;
+    }
+
+    async listPromotionFailureSamples(
+        batchId: bigint,
+        limit = 10
+    ): Promise<PromotionFailureSample[]> {
+        const capped = Math.min(50, Math.max(1, limit));
+        const rows = await this.prisma.$queryRaw<
+            {
+                id: bigint;
+                entity_family: string;
+                review_candidate_id: bigint | null;
+                external_id: string | null;
+                target_schema: string | null;
+                target_table: string | null;
+                error_message: string | null;
+                after_data: unknown;
+            }[]
+        >`
+            SELECT
+                id,
+                entity_family,
+                review_candidate_id,
+                external_id,
+                target_schema,
+                target_table,
+                error_message,
+                after_data
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+              AND publish_status = 'failed'
+            ORDER BY id ASC
+            LIMIT ${capped}
+        `;
+        const samples = rows.map((row) => promotionFailureSampleFromRow(row));
+        return dedupePromotionFailureSamples(samples, Math.min(5, capped));
     }
 
     async markCandidatePromoted(args: {
@@ -1857,6 +2096,7 @@ export class ImportReviewPromotionPromoteRepository {
         skippedCount: number;
         totalItemCount: number;
         promotedBy: bigint | null;
+        setPromotedAt: boolean;
         summary: Record<string, unknown>;
     }): Promise<void> {
         const summaryJson = JSON.stringify(args.summary);
@@ -1870,8 +2110,8 @@ export class ImportReviewPromotionPromoteRepository {
                 total_item_count = ${args.totalItemCount},
                 validation_done = ${args.totalItemCount},
                 validation_percent = 100,
-                promoted_at = now(),
-                promoted_by = ${args.promotedBy},
+                promoted_at = CASE WHEN ${args.setPromotedAt} THEN now() ELSE NULL END,
+                promoted_by = CASE WHEN ${args.setPromotedAt} THEN ${args.promotedBy} ELSE promoted_by END,
                 summary = coalesce(summary, '{}'::jsonb) || ${summaryJson}::jsonb
             WHERE id = ${args.batchId}
         `;

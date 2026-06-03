@@ -73,6 +73,7 @@ export const getAdminAreaOptionsSchema = {
         properties: {
             limit: { type: "integer", minimum: 1, maximum: 2000, default: 500 },
             q: { type: "string", minLength: 1, maxLength: 200 },
+            admin_level_code: { type: "string", enum: ["township"] },
         },
         additionalProperties: false,
     },

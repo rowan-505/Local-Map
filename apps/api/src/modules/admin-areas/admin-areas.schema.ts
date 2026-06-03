@@ -12,4 +12,6 @@ export const adminAreaOptionsQuerySchema = z.object({
         .min(1)
         .max(200)
         .optional(),
+    /** When `township`, only township-level areas (for place/road/building manual override). */
+    admin_level_code: z.enum(["township"]).optional(),
 });

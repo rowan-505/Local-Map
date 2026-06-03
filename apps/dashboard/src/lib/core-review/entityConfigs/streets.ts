@@ -11,6 +11,7 @@ import { getStreet } from "@/src/lib/api";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 import { formatVerificationStatusLabel } from "@/src/features/core-review/config/verificationStatus";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
+import { entityAdminAreaIdForPayload } from "@/src/lib/core-review/entityAdminAreaPayload";
 
 import {
     createCoreReviewWriteMutations,
@@ -35,6 +36,7 @@ function streetFormSchema(mode: CoreEntityFormMode) {
         englishName: z.string(),
         road_class_id: z.string().trim().min(1, "Road class is required"),
         admin_area_id: nullableStringIdSchema,
+        admin_area_manual_override: z.boolean().optional(),
         is_oneway: z.boolean(),
         bridge: z.boolean(),
         tunnel: z.boolean(),
@@ -67,7 +69,9 @@ function formValuesToStreetCreatePayload(values: CoreEntityFormValues): CreateSt
     return {
         myanmarName: String(values.myanmarName ?? "").trim() || undefined,
         englishName: String(values.englishName ?? "").trim() || undefined,
-        admin_area_id: values.admin_area_id as string | null,
+        ...(entityAdminAreaIdForPayload(values, "admin_area_id") !== undefined
+            ? { admin_area_id: entityAdminAreaIdForPayload(values, "admin_area_id") as string | null }
+            : {}),
         road_class_id: String(values.road_class_id),
         is_oneway: Boolean(values.is_oneway),
         bridge: Boolean(values.bridge),
@@ -84,7 +88,9 @@ function formValuesToStreetUpdatePayload(values: CoreEntityFormValues): UpdateSt
     return {
         myanmarName: String(values.myanmarName ?? "").trim() || undefined,
         englishName: String(values.englishName ?? "").trim() || undefined,
-        admin_area_id: values.admin_area_id as string | null,
+        ...(entityAdminAreaIdForPayload(values, "admin_area_id") !== undefined
+            ? { admin_area_id: entityAdminAreaIdForPayload(values, "admin_area_id") as string | null }
+            : {}),
         road_class_id: String(values.road_class_id).trim() || null,
         is_oneway: Boolean(values.is_oneway),
         bridge: Boolean(values.bridge),
@@ -132,7 +138,16 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
             type: "surface-preset",
             helpText: "Common OSM-style surface values, or type a custom value.",
         },
-        { key: "admin_area_id", label: "Admin area", type: "ref", refSource: "admin-areas" },
+        {
+            key: "township_admin",
+            label: "Township",
+            type: "township-admin",
+            townshipAdmin: {
+                entityKind: "street",
+                geometryFieldKey: GEOM_FIELD,
+                adminAreaIdKey: "admin_area_id",
+            },
+        },
         { key: "is_oneway", label: "One-way", type: "boolean" },
         { key: "bridge", label: "Bridge", type: "boolean" },
         { key: "tunnel", label: "Tunnel", type: "boolean" },
@@ -193,6 +208,7 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
         englishName: "",
         road_class_id: "",
         admin_area_id: "",
+        admin_area_manual_override: false,
         is_oneway: false,
         bridge: false,
         tunnel: false,

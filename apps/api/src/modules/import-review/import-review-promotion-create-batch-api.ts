@@ -1,13 +1,14 @@
 import type { FamilyEligibilityCountDb } from "./import-review-promotion-eligibility.js";
-import {
-    buildPromotionEligibilityResponse,
-    parsePromotionEligibilityFamiliesParam,
-} from "./import-review-promotion-eligibility-api.js";
+import { buildPromotionEligibilityResponse } from "./import-review-promotion-eligibility-api.js";
 import type { ImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
+import { resolveCreateBatchFamiliesFromSimpleRegistry } from "./import-review-promotion-create-batch.js";
 import { importReviewPromotionFamilyTarget } from "./import-review-promotion-family-meta.js";
 import type {
     ImportReviewCreatePublishBatchDryRunResult,
+    ImportReviewCreatePublishBatchResult,
     ImportReviewCreatePublishBatchTimingMs,
+    ImportReviewPromotionCreateBatchFamilyResult,
+    ImportReviewPublishBatchDetail,
 } from "./import-review-promotion.types.js";
 
 export type CreatePublishBatchDryRunPreview = {
@@ -33,7 +34,7 @@ export function resolveCreateBatchFamilies(
             : legacyEntityFamilies && legacyEntityFamilies.length > 0
               ? legacyEntityFamilies
               : [];
-    return parsePromotionEligibilityFamiliesParam(selected);
+    return resolveCreateBatchFamiliesFromSimpleRegistry(selected);
 }
 
 export function defaultCreateBatchName(
@@ -134,4 +135,70 @@ export function buildCreateBatchDryRunResponse(args: {
 
 function reviewBatchIdString(reviewBatchId: bigint): string {
     return reviewBatchId.toString();
+}
+
+export function publishBatchIdToNumber(batchId: bigint): number {
+    const id = Number(batchId);
+    if (!Number.isSafeInteger(id) || id < 1) {
+        throw new Error(`Invalid system_publish_batches.id: ${batchId.toString()}`);
+    }
+    return id;
+}
+
+export function reviewBatchIdToNumber(reviewBatchId: bigint): number {
+    const id = Number(reviewBatchId);
+    if (!Number.isSafeInteger(id) || id < 1) {
+        throw new Error(`Invalid review_batch_id: ${reviewBatchId.toString()}`);
+    }
+    return id;
+}
+
+/** Canonical POST /promotion/batches success body (201). Top-level `id` is always numeric. */
+export function buildCreateBatchSuccessResponse(args: {
+    batch: { id: bigint; batch_name: string; status: string };
+    detail: ImportReviewPublishBatchDetail;
+    reviewBatchId: bigint;
+    mode: "selected" | "all_ready";
+    families: string[];
+    countByFamily: Record<string, number>;
+    itemsAdded: number;
+    totalSelected: number;
+    candidatesMarked: number;
+    byFamily: ImportReviewPromotionCreateBatchFamilyResult[];
+    skipped: number;
+    timing_ms: ImportReviewCreatePublishBatchTimingMs;
+    buildingsMarked: number;
+    message: string;
+}): ImportReviewCreatePublishBatchResult {
+    const id = publishBatchIdToNumber(args.batch.id);
+    const batchId = id.toString();
+    const review_batch_id = reviewBatchIdToNumber(args.reviewBatchId);
+    const by_entity = Object.fromEntries(
+        args.byFamily.map((f) => [f.entity_family, f.items_added])
+    );
+    const total_item_count = args.detail.total_item_count ?? args.itemsAdded;
+
+    return {
+        id,
+        public_id: args.detail.public_id,
+        review_batch_id,
+        mode: args.mode,
+        total_item_count,
+        count_by_family: { ...args.countByFamily },
+        message: args.message,
+        batch: args.detail,
+        batch_id: batchId,
+        publish_batch_id: batchId,
+        families: args.families,
+        status: args.batch.status,
+        total_items: args.itemsAdded,
+        items_added: args.itemsAdded,
+        total_selected: args.totalSelected,
+        candidates_marked_batched: args.candidatesMarked,
+        by_family: args.byFamily,
+        by_entity,
+        skipped: args.skipped,
+        timing_ms: args.timing_ms,
+        building_candidates_marked_batched: args.buildingsMarked,
+    };
 }

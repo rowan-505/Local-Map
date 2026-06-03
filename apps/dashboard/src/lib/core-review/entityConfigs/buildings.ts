@@ -5,6 +5,7 @@ import type { Building, BuildingGeometry, CreateBuildingPayload, UpdateBuildingP
 import { getBuilding } from "@/src/lib/api";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
+import { entityAdminAreaIdForPayload } from "@/src/lib/core-review/entityAdminAreaPayload";
 
 import {
     createCoreReviewWriteMutations,
@@ -26,6 +27,7 @@ function buildingFormSchema() {
         fallback_name: z.string(),
         building_type_id: z.string(),
         admin_area_id: z.string(),
+        admin_area_manual_override: z.boolean().optional(),
         levels: z.string(),
         height_m: z.string(),
         confidence_score: z.string(),
@@ -58,14 +60,18 @@ function formValuesToBuildingPayload(values: CoreEntityFormValues, isEdit: boole
     };
 
     const buildingTypeId = String(values.building_type_id ?? "").trim();
-    const adminAreaId = String(values.admin_area_id ?? "").trim();
 
+    const manualAdmin = entityAdminAreaIdForPayload(values, "admin_area_id");
     if (isEdit) {
         payload.building_type_id = buildingTypeId || null;
-        payload.admin_area_id = adminAreaId || null;
+        if (manualAdmin !== undefined) {
+            payload.admin_area_id = manualAdmin;
+        }
     } else {
         if (buildingTypeId) payload.building_type_id = buildingTypeId;
-        if (adminAreaId) payload.admin_area_id = adminAreaId;
+        if (manualAdmin !== undefined && manualAdmin) {
+            payload.admin_area_id = manualAdmin;
+        }
     }
 
     const levelsTrimmed = String(values.levels ?? "").trim();
@@ -123,7 +129,16 @@ export const BUILDINGS_ENTITY_CONFIG: CoreEntityConfig<
         { key: "name_en", label: "English name", type: "text" },
         { key: "fallback_name", label: "Fallback name", type: "text", helpText: "Used when localized names are empty." },
         { key: "building_type_id", label: "Building type", type: "ref", refSource: "building-types" },
-        { key: "admin_area_id", label: "Admin area", type: "ref", refSource: "admin-areas" },
+        {
+            key: "township_admin",
+            label: "Township",
+            type: "township-admin",
+            townshipAdmin: {
+                entityKind: "building",
+                geometryFieldKey: GEOM_FIELD,
+                adminAreaIdKey: "admin_area_id",
+            },
+        },
         { key: "levels", label: "Levels", type: "number", numberMin: 0, numberStep: 1, placeholder: "Optional" },
         { key: "height_m", label: "Height (m)", type: "number", numberMin: 0, placeholder: "Optional" },
         { key: "confidence_score", label: "Confidence score", type: "number", numberMin: 0, numberMax: 100 },
@@ -159,6 +174,7 @@ export const BUILDINGS_ENTITY_CONFIG: CoreEntityConfig<
         fallback_name: "",
         building_type_id: "",
         admin_area_id: "",
+        admin_area_manual_override: false,
         levels: "",
         height_m: "",
         confidence_score: "80",

@@ -1,5 +1,9 @@
 import type { JwtUser } from "../../plugins/auth.js";
 import {
+    EntityAdminAreaService,
+    EntityAdminAreaValidationError,
+} from "../entity-admin-area/entity-admin-area.service.js";
+import {
     effectiveVerificationStatusFromRow,
     isVerifiedFromVerificationStatus,
     pickCoreReviewVerificationWrite,
@@ -141,7 +145,10 @@ export class StreetValidationError extends Error {
 }
 
 export class StreetsService {
-    constructor(private readonly streetsRepo: StreetsRepository) {}
+    constructor(
+        private readonly streetsRepo: StreetsRepository,
+        private readonly entityAdminArea: EntityAdminAreaService
+    ) {}
 
     private serializeStreet(street: Awaited<ReturnType<StreetsRepository["getStreetByPublicId"]>>) {
         if (!street) {
@@ -405,17 +412,29 @@ export class StreetsService {
             throw new StreetValidationError("geometry must be a GeoJSON LineString in WGS 84 (EPSG:4326)");
         }
 
-        const adminAreaId = body.admin_area_id ?? body.adminAreaId;
+        const requestedAdmin = body.admin_area_id ?? body.adminAreaId;
         const sourceTypeId =
             body.source_type_id ?? body.sourceTypeId ?? (await this.streetsRepo.getSourceTypeIdByCode("manual"));
         const names = normalizeStreetNames(body);
 
-        if (adminAreaId !== undefined && adminAreaId !== null) {
-            const hasAdminArea = await this.streetsRepo.hasActiveAdminArea(adminAreaId);
-
-            if (!hasAdminArea) {
-                throw new StreetValidationError("admin_area_id is invalid or inactive");
+        let adminAreaId: bigint | null;
+        let manualOverride = false;
+        try {
+            const resolved = await this.entityAdminArea.resolveForWrite({
+                kind: "street",
+                geometry: body.geometry,
+                requested_admin_area_id:
+                    requestedAdmin === undefined ? undefined : requestedAdmin,
+                user: _user,
+                path: "admin_area_id",
+            });
+            adminAreaId = resolved.admin_area_id;
+            manualOverride = resolved.manual_override;
+        } catch (error) {
+            if (error instanceof EntityAdminAreaValidationError) {
+                throw new StreetValidationError(error.message);
             }
+            throw error;
         }
 
         if (!sourceTypeId) {
@@ -446,6 +465,7 @@ export class StreetsService {
                 englishName: names.englishName,
                 canonical_name: deriveStreetCanonicalName(names),
                 admin_area_id: adminAreaId,
+                manual_override: manualOverride,
                 source_type_id: sourceTypeId,
                 road_class_id: body.road_class_id,
                 is_oneway: body.is_oneway,
@@ -472,16 +492,36 @@ export class StreetsService {
     }
 
     async updateStreet(publicId: string, body: UpdateStreetBody, user: JwtUser): Promise<StreetResponse> {
-        const adminAreaId = body.admin_area_id ?? body.adminAreaId;
+        const requestedAdmin = body.admin_area_id ?? body.adminAreaId;
         const roadClassId = body.road_class_id ?? body.roadClassId;
         const isOneway = body.is_oneway ?? body.isOneway;
 
-        if (adminAreaId !== undefined && adminAreaId !== null) {
-            const hasAdminArea = await this.streetsRepo.hasActiveAdminArea(adminAreaId);
+        const existing = await this.streetsRepo.getStreetByPublicId(publicId);
+        if (!existing) {
+            throw new StreetNotFoundError();
+        }
 
-            if (!hasAdminArea) {
-                throw new StreetValidationError("admin_area_id is invalid or inactive");
+        const geometry =
+            body.geometry ??
+            (existing.geometry as StreetLineStringGeometry | null) ??
+            undefined;
+
+        let adminAreaId: bigint | null | undefined;
+        try {
+            const resolved = await this.entityAdminArea.resolveForWrite({
+                kind: "street",
+                geometry,
+                requested_admin_area_id:
+                    requestedAdmin === undefined ? undefined : requestedAdmin,
+                user,
+                path: "admin_area_id",
+            });
+            adminAreaId = resolved.admin_area_id;
+        } catch (error) {
+            if (error instanceof EntityAdminAreaValidationError) {
+                throw new StreetValidationError(error.message);
             }
+            throw error;
         }
 
         const input: UpdateStreetInput = {
@@ -491,7 +531,7 @@ export class StreetsService {
             road_class_id: roadClassId,
             is_oneway: isOneway,
             surface: body.surface,
-            admin_area_id: adminAreaId,
+            admin_area_id: adminAreaId ?? null,
             bridge: body.bridge,
             tunnel: body.tunnel,
         };

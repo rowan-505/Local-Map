@@ -1,6 +1,11 @@
 import type { z } from "zod";
 
+import type { JwtUser } from "../../plugins/auth.js";
 import { BUILDING_TYPE_ID_VALIDATION_MESSAGE } from "../../lib/building-type/active-building-type-sql.js";
+import {
+    EntityAdminAreaService,
+    EntityAdminAreaValidationError,
+} from "../entity-admin-area/entity-admin-area.service.js";
 import {
     buildBuildingTypeRef,
     resolveBuildingTypeCode,
@@ -51,7 +56,10 @@ export class BuildingValidationError extends Error {
 }
 
 export class BuildingsService {
-    constructor(private readonly buildingsRepo: BuildingsRepository) {}
+    constructor(
+        private readonly buildingsRepo: BuildingsRepository,
+        private readonly entityAdminArea: EntityAdminAreaService
+    ) {}
 
     async listBuildings(params: {
         limit: number;
@@ -74,12 +82,12 @@ export class BuildingsService {
         return this.serializeBuilding(row);
     }
 
-    async createBuilding(body: CreateBuildingBody) {
+    async createBuilding(body: CreateBuildingBody, user: JwtUser) {
         const geojsonText = JSON.stringify(body.geometry);
 
         await this.validateGeoJsonPipeline(geojsonText);
 
-        const snapshot = await this.buildPersistSnapshotFromCreate(body);
+        const snapshot = await this.buildPersistSnapshotFromCreate(body, user);
         const created = await this.buildingsRepo.createDashboardBuilding(geojsonText, snapshot);
 
         if (!created) {
@@ -95,14 +103,14 @@ export class BuildingsService {
         return this.serializeBuilding(created);
     }
 
-    async updateBuilding(publicId: string, body: UpdateBuildingBody) {
+    async updateBuilding(publicId: string, body: UpdateBuildingBody, user: JwtUser) {
         const existing = await this.buildingsRepo.getDashboardBuildingByPublicId(publicId);
 
         if (!existing) {
             throw new BuildingNotFoundError();
         }
 
-        const snapshot = await this.mergePersistSnapshot(existing, body);
+        const snapshot = await this.mergePersistSnapshot(existing, body, user);
 
         if (body.geometry !== undefined) {
             const geojsonText = JSON.stringify(body.geometry);
@@ -137,14 +145,14 @@ export class BuildingsService {
     }
 
     /** Core Review inline edit — any active building (import or dashboard). */
-    async updateCoreReviewBuilding(publicId: string, body: UpdateBuildingBody) {
+    async updateCoreReviewBuilding(publicId: string, body: UpdateBuildingBody, user: JwtUser) {
         const existing = await this.buildingsRepo.getActiveBuildingByPublicId(publicId);
 
         if (!existing) {
             throw new BuildingNotFoundError();
         }
 
-        const snapshot = await this.mergePersistSnapshot(existing, body);
+        const snapshot = await this.mergePersistSnapshot(existing, body, user);
 
         if (body.geometry !== undefined) {
             const geojsonText = JSON.stringify(body.geometry);
@@ -242,16 +250,15 @@ export class BuildingsService {
         };
     }
 
-    private async buildPersistSnapshotFromCreate(body: CreateBuildingBody): Promise<BuildingPersistSnapshot> {
-        const userPinnedAdmin = typeof body.admin_area_id === "bigint";
-
-        let admin_area_id: bigint | null = null;
-        let admin_area_resolve_spatial = true;
-
-        if (userPinnedAdmin) {
-            admin_area_id = await this.resolveAdminAreaOrThrow(body.admin_area_id, "create");
-            admin_area_resolve_spatial = false;
-        }
+    private async buildPersistSnapshotFromCreate(
+        body: CreateBuildingBody,
+        user: JwtUser
+    ): Promise<BuildingPersistSnapshot> {
+        const { admin_area_id, admin_area_resolve_spatial } = await this.resolveBuildingAdminAssignment(
+            body.geometry,
+            body.admin_area_id,
+            user
+        );
 
         const verification = resolveCoreReviewVerificationWrite(
             body as unknown as Record<string, unknown>,
@@ -326,7 +333,8 @@ export class BuildingsService {
 
     private async mergePersistSnapshot(
         existing: BuildingDetailRow,
-        patch: UpdateBuildingBody
+        patch: UpdateBuildingBody,
+        user: JwtUser
     ): Promise<BuildingPersistSnapshot> {
         let building_type_id: bigint | null = existing.building_type_id ? BigInt(existing.building_type_id) : null;
         let resolvedType: string;
@@ -407,24 +415,19 @@ export class BuildingsService {
             ...classificationPatch,
         };
 
-        let admin_area_id: bigint | null =
-            existing.admin_area_id !== null &&
-            existing.admin_area_id !== undefined &&
-            existing.admin_area_id !== ""
-                ? BigInt(existing.admin_area_id)
-                : null;
+        const geometry =
+            patch.geometry ??
+            (existing.geometry as CreateBuildingBody["geometry"] | null | undefined);
+        const requested =
+            patch.admin_area_id === undefined
+                ? undefined
+                : patch.admin_area_id;
 
-        let admin_area_resolve_spatial = false;
-
-        if (patch.admin_area_id === null) {
-            admin_area_id = null;
-        } else if (patch.admin_area_id !== undefined) {
-            admin_area_id = await this.resolveAdminAreaOrThrow(patch.admin_area_id, "patch");
-            admin_area_resolve_spatial = false;
-        } else if (patch.geometry !== undefined) {
-            admin_area_resolve_spatial = true;
-            admin_area_id = null;
-        }
+        const { admin_area_id, admin_area_resolve_spatial } = await this.resolveBuildingAdminAssignment(
+            geometry ?? undefined,
+            requested,
+            user
+        );
 
         return {
             name,
@@ -444,27 +447,33 @@ export class BuildingsService {
         };
     }
 
-    /** Resolves nullable admin FK; rejects inactive or unknown ids when non-null. */
-    private async resolveAdminAreaOrThrow(
-        adminAreaId: bigint | undefined | null,
-        _context: "create" | "patch"
-    ): Promise<bigint | null> {
-        if (adminAreaId === undefined || adminAreaId === null) {
-            return null;
+    private async resolveBuildingAdminAssignment(
+        geometry: CreateBuildingBody["geometry"] | undefined,
+        requestedAdminAreaId: bigint | null | undefined,
+        user: JwtUser
+    ): Promise<{ admin_area_id: bigint | null; admin_area_resolve_spatial: boolean }> {
+        if (!geometry) {
+            return { admin_area_id: requestedAdminAreaId ?? null, admin_area_resolve_spatial: false };
         }
 
-        const has = await this.buildingsRepo.hasActiveAdminArea(adminAreaId);
-
-        if (!has) {
-            throw new BuildingValidationError("Invalid admin area", [
-                {
-                    path: "admin_area_id",
-                    message: "Not found or inactive.",
-                },
-            ]);
+        try {
+            const resolved = await this.entityAdminArea.resolveForWrite({
+                kind: "building",
+                geometry,
+                requested_admin_area_id: requestedAdminAreaId,
+                user,
+                path: "admin_area_id",
+            });
+            return {
+                admin_area_id: resolved.admin_area_id,
+                admin_area_resolve_spatial: resolved.admin_area_id === null,
+            };
+        } catch (error) {
+            if (error instanceof EntityAdminAreaValidationError) {
+                throw new BuildingValidationError(error.message, error.issues);
+            }
+            throw error;
         }
-
-        return adminAreaId;
     }
 
     private async validateGeoJsonPipeline(geojsonText: string) {

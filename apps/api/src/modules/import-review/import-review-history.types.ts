@@ -146,6 +146,7 @@ export type ImportReviewHistoryPublishBatchItem = {
     target_table: string | null;
     target_id: string | null;
     error_message: string | null;
+    after_data: unknown;
     validation_result: unknown;
     published_at: string | null;
     created_at: string;

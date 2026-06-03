@@ -5,10 +5,7 @@ import { useMemo } from "react";
 import AdminAreaCombobox from "@/src/components/admin-areas/AdminAreaCombobox";
 import PoiCategoryCombobox from "@/src/components/poi-categories/PoiCategoryCombobox";
 import { mergeBuildingTypeSelectOptions } from "@/src/lib/building-type/display";
-import {
-    normalizePoiCategoryDropdownOption,
-    type PoiCategoryDropdownOption,
-} from "@/src/lib/poi-category/display";
+import { buildPoiCategoryDropdownOptions } from "@/src/lib/poi-category/display";
 
 import type { CoreRefLoadState } from "./useCoreEntityRefs";
 
@@ -46,24 +43,22 @@ export default function CoreRefDropdown({
     const loadError = refState?.error ?? null;
     const options = refState?.options ?? [];
 
-    const poiCategoryOptions: PoiCategoryDropdownOption[] = useMemo(() => {
+    const poiCategoryOptions = useMemo(() => {
         if (refSource !== "place-form-options:categories") {
             return [];
         }
-        return options.map((opt) => {
-            const payload: Parameters<typeof normalizePoiCategoryDropdownOption>[0] = {
+        return buildPoiCategoryDropdownOptions(
+            options.map((opt) => ({
                 id: opt.value,
                 value: opt.value,
                 code: opt.code ?? null,
                 name: opt.name ?? null,
                 name_mm: opt.name_mm ?? null,
-            };
-            if (Object.prototype.hasOwnProperty.call(opt, "parent_id")) {
-                payload.parent_id = opt.parent_id ?? null;
-            }
-            return normalizePoiCategoryDropdownOption(payload);
-        });
-    }, [options, refSource]);
+                parent_id: opt.parent_id,
+            })),
+            { selectedValue: value }
+        );
+    }, [options, refSource, value]);
 
     if (refSource === "admin-areas") {
         return (
@@ -132,6 +127,7 @@ export default function CoreRefDropdown({
                     optionsLoading={isLoading}
                     options={poiCategoryOptions}
                     placeholder={placeholder}
+                    allowEmpty={!required}
                 />
                 {helpText ? <p className="mt-1 text-xs text-slate-500">{helpText}</p> : null}
                 {error ? <p className="mt-1 text-sm text-red-600">{error}</p> : null}
