@@ -10,6 +10,12 @@ import {
 import type { SimplePromotionCandidateValidationRow } from "./import-review-promotion-simple-validation.js";
 import { resolvePromotionValidationChunkSize } from "./import-review-promotion-validation-chunks.js";
 
+function prismaForBatchValidation(): PrismaClient {
+    return {
+        $queryRaw: async () => [],
+    } as unknown as PrismaClient;
+}
+
 function readyOutcome(
     publishItemId: bigint,
     entityFamily: string
@@ -70,6 +76,7 @@ function stubBuildingBatchLoad(svc: ImportReviewPromotionSimpleBatchValidation):
         }
         return map;
     };
+    svc.simpleRepo.resolveInsertTargetConflictsBatch = async () => new Map();
 }
 
 describe("ImportReviewPromotionSimpleBatchValidation.validatePublishBatch progress", () => {
@@ -78,7 +85,7 @@ describe("ImportReviewPromotionSimpleBatchValidation.validatePublishBatch progre
         const total = chunkSize + 5;
         const targets = Array.from({ length: total }, (_, i) => makeTarget(i + 1));
 
-        const svc = new ImportReviewPromotionSimpleBatchValidation({} as PrismaClient);
+        const svc = new ImportReviewPromotionSimpleBatchValidation(prismaForBatchValidation());
         svc.listPublishItemTargets = async () => targets;
         stubBuildingBatchLoad(svc);
 
@@ -98,7 +105,7 @@ describe("ImportReviewPromotionSimpleBatchValidation.validatePublishBatch progre
         const total = chunkSize * 2;
         const targets = Array.from({ length: total }, (_, i) => makeTarget(i + 1));
 
-        const svc = new ImportReviewPromotionSimpleBatchValidation({} as PrismaClient);
+        const svc = new ImportReviewPromotionSimpleBatchValidation(prismaForBatchValidation());
         svc.listPublishItemTargets = async () => targets;
         stubBuildingBatchLoad(svc);
 

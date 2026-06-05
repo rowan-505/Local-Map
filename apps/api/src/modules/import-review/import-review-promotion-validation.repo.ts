@@ -8,6 +8,11 @@ import {
 } from "./import-review-promotion-validation.types.js";
 import { requireValidPublishStageStatus } from "./import-review-promotion-stage-status.js";
 import { hasPublishBatchValidationControlColumns } from "./import-review-publish-batch-validation-control-columns.js";
+import {
+    cleanupPublishBatchTerminalFailure,
+    PUBLISH_BATCH_VALIDATION_SYSTEM_ERROR_CODE,
+    type PublishBatchTerminalFailureOptions,
+} from "./import-review-promotion-batch-failure-cleanup.js";
 
 export const IMPORT_REVIEW_VALIDATION_CHUNK_SIZE = Math.max(
     10,
@@ -24,11 +29,7 @@ export type PublishItemEntityRow = {
 export class ImportReviewPromotionValidationRepository {
     private validationControlColumns: boolean | null = null;
 
-    constructor(private readonly prisma: PrismaClient) {}
-
-    getPrismaClient(): PrismaClient {
-        return this.prisma;
-    }
+    constructor(readonly prisma: PrismaClient) {}
 
     private async useValidationControlColumns(): Promise<boolean> {
         if (this.validationControlColumns === null) {
@@ -357,7 +358,12 @@ export class ImportReviewPromotionValidationRepository {
         `;
     }
 
-    async failBatch(batchId: bigint, message: string, summaryPatch?: Record<string, unknown>): Promise<void> {
+    async failBatch(
+        batchId: bigint,
+        message: string,
+        summaryPatch?: Record<string, unknown>,
+        options?: PublishBatchTerminalFailureOptions
+    ): Promise<void> {
         const summary = JSON.stringify({
             validation_error: message,
             ...summaryPatch,
@@ -381,6 +387,17 @@ export class ImportReviewPromotionValidationRepository {
                 WHERE id = ${batchId}
             `;
         }
+
+        const cleanup = options?.cleanupPublishItemsAndCandidates ?? true;
+        if (!cleanup) {
+            return;
+        }
+        const errorCode =
+            options?.terminalFailureErrorCode ?? PUBLISH_BATCH_VALIDATION_SYSTEM_ERROR_CODE;
+        await cleanupPublishBatchTerminalFailure(this.prisma, batchId, {
+            errorCode,
+            errorMessage: message,
+        });
     }
 
     async skipPendingValidationStages(batchId: bigint, reason: string): Promise<void> {
@@ -439,12 +456,13 @@ export class ImportReviewPromotionValidationRepository {
         await this.failRunningValidationStages(batchId, reason, stageMessage);
         await this.skipPendingValidationStages(batchId, "Skipped (validation aborted).");
 
+        const nextStatus = reason === "cancelled" ? "cancelled" : "failed";
         const hasControlColumns = await this.useValidationControlColumns();
         if (hasControlColumns) {
             await this.prisma.$executeRaw`
                 UPDATE system.system_publish_batches
                 SET
-                    status = 'failed',
+                    status = ${nextStatus},
                     validation_cancel_requested_at = NULL,
                     summary = coalesce(summary, '{}'::jsonb) || ${summary}::jsonb
                 WHERE id = ${batchId}
@@ -453,7 +471,7 @@ export class ImportReviewPromotionValidationRepository {
             await this.prisma.$executeRaw`
                 UPDATE system.system_publish_batches
                 SET
-                    status = 'failed',
+                    status = ${nextStatus},
                     summary = coalesce(summary, '{}'::jsonb) || ${summary}::jsonb
                 WHERE id = ${batchId}
             `;
@@ -551,7 +569,7 @@ export class ImportReviewPromotionValidationRepository {
 
     async finalizeBatch(args: {
         batchId: bigint;
-        status: "ready" | "partial" | "blocked";
+        status: "ready" | "partial" | "blocked" | "failed" | "cancelled";
         validationTotal: number;
         summary: Record<string, unknown>;
     }): Promise<void> {
@@ -577,17 +595,28 @@ export class ImportReviewPromotionValidationRepository {
             errorMessage: string | null;
         }[]
     ): Promise<void> {
-        for (const chunk of chunkArray(results, 100)) {
-            for (const row of chunk) {
-                const validationJson = JSON.stringify(row.validationJson);
-                await this.prisma.$executeRaw`
-                    UPDATE system.system_publish_items
-                    SET
-                        validation_result = ${validationJson}::jsonb,
-                        error_message = ${row.errorMessage}
-                    WHERE id = ${row.publishItemId}
-                `;
-            }
+        if (results.length === 0) {
+            return;
+        }
+
+        for (const chunk of chunkArray(results, 500)) {
+            const payload = chunk.map((row) => ({
+                publish_item_id: row.publishItemId.toString(),
+                validation_json: row.validationJson,
+                error_message: row.errorMessage,
+            }));
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_items AS spi
+                SET
+                    validation_result = rec.validation_json,
+                    error_message = rec.error_message
+                FROM jsonb_to_recordset(${JSON.stringify(payload)}::jsonb) AS rec(
+                    publish_item_id bigint,
+                    validation_json jsonb,
+                    error_message text
+                )
+                WHERE spi.id = rec.publish_item_id
+            `;
         }
     }
 

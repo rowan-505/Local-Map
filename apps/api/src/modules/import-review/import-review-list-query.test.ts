@@ -27,7 +27,7 @@ test("all entity families use lightweight list by default", () => {
 test("lightweight list SELECT excludes GeoJSON and heavy JSON payloads", () => {
     for (const family of IMPORT_REVIEW_ENTITY_FAMILIES) {
         const config = getImportReviewEntityConfig(family);
-        const select = sqlText(buildLightweightListSelect(config));
+        const select = sqlText(buildLightweightListSelect(config, 1n));
         assert.doesNotMatch(select, /ST_AsGeoJSON/i, `${family} list must not use ST_AsGeoJSON`);
         assert.match(
             select,
@@ -58,7 +58,7 @@ test("lightweight list FROM is defined for every family", () => {
 test("bilingual families lightweight list selects typed name columns", () => {
     for (const family of ["places", "buildings", "roads", "landuse", "water_lines", "water_polygons", "admin_areas"] as const) {
         const config = getImportReviewEntityConfig(family);
-        const select = sqlText(buildLightweightListSelect(config));
+        const select = sqlText(buildLightweightListSelect(config, 1n));
         assert.match(select, /\bname_mm\b/, `${family} list must select name_mm`);
         assert.match(select, /\bname_en\b/, `${family} list must select name_en`);
     }
@@ -66,7 +66,7 @@ test("bilingual families lightweight list selects typed name columns", () => {
 
 test("roads lightweight list uses text keys for jsonb operators", () => {
     const config = getImportReviewEntityConfig("roads");
-    const selectSql = buildLightweightListSelect(config);
+    const selectSql = buildLightweightListSelect(config, 1n);
     const values = (selectSql as unknown as { values?: unknown[] }).values ?? [];
 
     assert.ok(

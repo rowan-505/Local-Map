@@ -18,7 +18,11 @@ export function PromotionStatusBadge({ value }: { value: string | null | undefin
         className += " bg-amber-50 text-amber-900 ring-amber-200";
     } else if (v === "invalid_empty_promoted") {
         className += " bg-red-50 text-red-800 ring-red-200";
-    } else if (v === "partial" || v === "partially_promoted") {
+    } else if (
+        v === "partial" ||
+        v === "partially_promoted" ||
+        v === "partial promotion completed"
+    ) {
         className += " bg-orange-50 text-orange-900 ring-orange-200";
     } else if (v === "not_ready" || v === "ready") {
         className += " bg-amber-50 text-amber-900 ring-amber-200";

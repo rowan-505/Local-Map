@@ -45,14 +45,14 @@ export function resolveCoreReviewVerificationFilter(query: {
     return { verificationStatus: query.verificationStatus };
 }
 
-function effectiveVerificationStatusExpr(alias: string): Prisma.Sql {
+/** Exported for COUNT FILTER breakdown queries on core-review streets lists. */
+export function effectiveVerificationStatusExpr(alias: string) {
     return Prisma.sql`COALESCE(
         NULLIF(${Prisma.raw(alias)}.verification_status, ''),
         CASE WHEN ${Prisma.raw(alias)}.is_verified THEN 'verified' ELSE 'unverified' END
     )`;
 }
 
-/** Prefer verification_status; fall back to is_verified for verified/unverified only. */
 export function coreReviewVerificationFilterCondition(
     alias: string,
     filter?: CoreReviewVerificationFilterParams

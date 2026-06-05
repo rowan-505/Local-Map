@@ -15,3 +15,28 @@ export class ImportReviewPromotionRoadDryRunNoItemsError extends Error {
         this.name = "ImportReviewPromotionRoadDryRunNoItemsError";
     }
 }
+
+export class ImportReviewPromotionRoadDryRunValidationIncompleteError extends Error {
+    readonly statusCode = 409;
+
+    constructor(
+        public readonly batchId: string,
+        public readonly validationPercent: number
+    ) {
+        super(
+            `Publish batch ${batchId} must complete validation (validation_percent=100) before road dry-run. Current: ${validationPercent}.`
+        );
+        this.name = "ImportReviewPromotionRoadDryRunValidationIncompleteError";
+    }
+}
+
+export class ImportReviewPromotionRoadDryRunNoEligibleItemsError extends Error {
+    readonly statusCode = 400;
+
+    constructor(public readonly batchId: string) {
+        super(
+            `Publish batch ${batchId} has no pending ready road publish items to dry-run.`
+        );
+        this.name = "ImportReviewPromotionRoadDryRunNoEligibleItemsError";
+    }
+}

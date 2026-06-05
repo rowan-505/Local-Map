@@ -1,6 +1,8 @@
 -- =============================================================================
 -- 00_inspect_admin_area_health.sql
--- Read-only health report: core.core_admin_areas + entity admin_area_id assignment.
+-- Read-only health report for core.core_admin_areas (+ optional entity assignment).
+-- Uses only core.core_admin_areas and ref.ref_admin_levels unless
+-- inspect_entity_assignment=true (then also places/streets/buildings).
 -- Does not touch import_review. No UPDATE/DELETE.
 -- =============================================================================
 
@@ -175,6 +177,8 @@ INNER JOIN core.core_admin_areas AS p ON p.id = a.parent_id
 INNER JOIN ref.ref_admin_levels AS al_parent ON al_parent.id = p.admin_level_id
 WHERE a.deleted_at IS NULL
   AND al_parent.rank >= al_child.rank;
+
+\if :inspect_entity_assignment
 
 \echo ''
 \echo '========================================================================'
@@ -587,6 +591,11 @@ UNION ALL
     ORDER BY b.id
     LIMIT 10
 );
+
+\else
+\echo ''
+\echo '=== Skipped entity assignment checks (inspect_entity_assignment=false) ==='
+\endif
 
 \echo ''
 \echo '=== Inspection complete (read-only) ==='

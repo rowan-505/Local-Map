@@ -1,12 +1,114 @@
-# Remote review & lineage (Stages 11–14)
+# Remote review & lineage (Stages 11–15)
 
 This document describes how **local staging**, the **local outbound package** (`system.system_remote_review_*`), **Supabase `import_review.*`**, and **future `core.*` promotion** stay aligned on lineage. It supplements `README.md` in this folder.
+
+For **`ENTITY_FAMILIES`**, operating modes (dry-run, resume, overwrite), and the admin-before-roads promotion order, see **`README.md`** § [Operating modes](README.md#operating-modes), [Entity-specific pipeline runs](README.md#entity-specific-pipeline-runs), and [Classified place / address families](README.md#classified-place--address-families).
 
 **Hard rules**
 
 - **Do not** promote to `core` from these scripts.
 - **Do not** modify `core.*` from the local OSM pipeline or from `import_review` migrations in this repo unless a separate approved workflow says otherwise.
+- **Stage K** writes **`import_review.*` only** — never **`core.*`**. Core promotion is dashboard/API workflow after review.
 - Verification SQL is meant to be **run deliberately** (operators or CI), not hidden side effects.
+
+---
+
+## Operating modes (remote review)
+
+| Mode | Configuration | Stages |
+|------|---------------|--------|
+| **Full upload** | `REMOTE_REVIEW_UPLOAD_ENABLED=true` + `REMOTE_REVIEW_PACKAGE_NAME` + `SUPABASE_DATABASE_URL` | J → K → L |
+| **Local dry path** | `REMOTE_REVIEW_PREPARE_VERIFY_ONLY=true` + `REMOTE_REVIEW_PACKAGE_NAME` | J → L (no Supabase) |
+| **Smoke / capped upload** | Above + `REMOTE_REVIEW_MAX_ROWS_PER_FAMILY=N` | J and K process at most **N** rows per family |
+| **Lineage QA** | + `REMOTE_LINEAGE_ALIGNMENT_VERIFY=true` | + **14** after L |
+| **Coverage report** | + `LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=true` | + **15** after remote-review block |
+| **Resume upload only** | `PIPELINE_FROM_STAGE=12` or `./run_resume_from_stage12.sh` | Skips **J**, runs K → L (+ 14/15) |
+
+### Package replace (`replace_package`)
+
+| Context | Behavior |
+|---------|----------|
+| **`run_local_osm_pipeline.sh`** | Always `-v replace_package=false`. If `REMOTE_REVIEW_PACKAGE_NAME` already exists locally, Stage **J fails**. |
+| **Manual rebuild** | Re-run `11_prepare_remote_review_package.sql` with **`-v replace_package=true`** — deletes the existing package row (cascade items) and recreates. |
+| **New name** | Pick a new `REMOTE_REVIEW_PACKAGE_NAME` (recommended for parallel experiments). |
+
+### Stage K re-upload (overwrite vs preserve)
+
+Stage **K** is **idempotent** on `(review_batch_id, local_staging_id)`:
+
+- **Pending** remote rows (`review_decision IS NULL`, `review_status IN ('pending','needs_review')`) — **refreshed** from the local package on re-upload.
+- **Reviewed** remote rows — **preserved** (source fields not overwritten).
+
+Upload runs in **transactions of 500 rows** per family with console progress (`[family roads] progress 500/822520 …`). Large national packages (800k+ roads) are expected; allow sufficient runtime.
+
+Stage **K** CLI/env filters apply **after** loading the full local package into memory; family caps use a per-family loop (safe for large slices).
+
+---
+
+## Entity-specific pipeline runs
+
+Set **`ENTITY_FAMILIES`** in the import env (and optionally **`REMOTE_REVIEW_ENTITY_FAMILY`** for Stage K) to scope the whole remote-review path to admin areas, roads, or both.
+
+| Value | Local stages (05–11, 13–15) | Stage K upload target |
+|-------|----------------------------|------------------------|
+| `admin_areas` | Only `staging_admin_area_candidates` + package items | `import_review.admin_area_candidates` |
+| `roads` | Only `staging_road_candidates` + package items | `import_review.road_candidates` |
+| `admin_areas,roads` | Both families | Both candidate tables (families with zero package rows are skipped) |
+| `places`, `addresses`, `address_components`, `place_address_links` | Classified POI/address workflow (Stage 08 classification pass) | Matching `import_review.*_candidates` tables |
+| `all` | All configured families | All families present in the package |
+
+**Stage J coupling:** selecting `addresses` also enables **`address_components`** export; selecting **both** `places` and `addresses` (or explicit `place_address_links`) enables **place–address link** export. See `system.pipeline_stage11_family_enabled` in `pipeline_entity_families_functions.sql`.
+
+Example:
+
+```bash
+export ENTITY_FAMILIES=admin_areas
+export REMOTE_REVIEW_ENTITY_FAMILY=admin_areas
+export REMOTE_REVIEW_PACKAGE_NAME=remote_review_pkg_admin_v1
+export REMOTE_REVIEW_UPLOAD_ENABLED=true
+
+./run_local_osm_pipeline.sh imports/myanmar_admin_only_2026_06_03.env
+```
+
+Stage K CLI (same filter semantics):
+
+```bash
+npx tsx ./12_upload_remote_review_package.ts \
+  --package-name="$REMOTE_REVIEW_PACKAGE_NAME" \
+  --entity-family=admin_areas
+
+npx tsx ./12_upload_remote_review_package.ts \
+  --package-name="$REMOTE_REVIEW_PACKAGE_NAME" \
+  --entity-family=roads
+
+npx tsx ./12_upload_remote_review_package.ts \
+  --package-name="$REMOTE_REVIEW_PACKAGE_NAME" \
+  --entity-family=admin_areas,roads
+```
+
+Stage **L** reports **`family_upload_summary`**: local package count vs remote uploaded count **per selected family** (`-v entity_families=…`).
+
+### Local vs Supabase vs core
+
+```text
+PBF → tmp_import → raw → staging → system (package)     [local PostgreSQL only]
+                              ↓
+                    Stage K → import_review.*             [Supabase review workspace]
+                              ↓
+                    Dashboard/API promotion → core.*      [later; not this pipeline]
+```
+
+- **Local-osm** never writes Supabase **`core`**. Local schemas are **`tmp_import`**, **`raw`**, **`staging`**, and **`system`** only.
+- **`import_review`** is the handoff surface for remote reviewers. **`confidence_score`** stays on the **0–100** scale end-to-end.
+- **Admin hierarchy** (parent/child admin levels, `parent_id`) must be finalized **after admin area candidates are promoted to `core.core_admin_areas`** in Supabase. Do not assume a full hierarchy pass on local staging replaces that step.
+- **Road `admin_area_id`**: upload may carry null or staging-local hints. After **`core.core_admin_areas`** exists in Supabase, **recalculate `admin_area_id` on road candidates (or promoted streets) in Supabase** using core admin geometry — local staging IDs do not substitute for production core FKs.
+
+Recommended sequence for a new region:
+
+1. `ENTITY_FAMILIES=admin_areas` → J → K → review → **promote admin to core**
+2. Run hierarchy / parent resolution against **Supabase core** admin rows
+3. `ENTITY_FAMILIES=roads` (or `admin_areas,roads` for re-package) → J → K → review → promote roads
+4. **Recalculate road `admin_area_id` in Supabase** against promoted core admin polygons
 
 ---
 
@@ -17,9 +119,10 @@ This document describes how **local staging**, the **local outbound package** (`
 | **J** | `11_prepare_remote_review_package.sql` | Local only — `system.system_remote_review_packages` + `_items` |
 | **K** | `12_upload_remote_review_package.ts` | Supabase only — `import_review.review_batches` + `*_candidates` |
 | **L** | `13_verify_remote_review_upload.sql` | Local or Supabase — Part A local package; Part B `import_review`; Part C coverage report |
-| **14** (optional) | `14_verify_lineage_alignment.sql` | Local — staging ↔ package + payload mirrors; optional after L via `REMOTE_LINEAGE_ALIGNMENT_VERIFY` |
+| **14** (optional) | `14_verify_lineage_alignment.sql` | Local — staging ↔ package + payload mirrors; after L via `REMOTE_LINEAGE_ALIGNMENT_VERIFY` |
+| **15** (optional) | `15_entity_coverage_report.sql` | Local — staging health + `stage15_promotion_readiness`; via `LOCAL_ENTITY_COVERAGE_REPORT_ENABLED` |
 
-Orchestration: `run_local_osm_pipeline.sh`.
+Orchestration: `run_local_osm_pipeline.sh`. Resume: `run_resume_from_stage12.sh` (`PIPELINE_FROM_STAGE=12`).
 
 ---
 
@@ -32,7 +135,7 @@ Canonical names below match **Supabase `import_review` candidate columns** and t
 | `source_snapshot_version` | On **package** (`snapshot_version`); duplicated on each Supabase row | `source_snapshot_version NOT NULL` | Stage K copies from package `snapshot_version`. |
 | `source_snapshot_id_local` | On **package** (`source_snapshot_id` → `system.system_source_snapshots.id`) | `source_snapshot_id_local` (nullable DDL; **set by K**) | Local package row is the source of truth for the bigint id used in staging FKs. |
 | `local_staging_id` | `local_staging_id` | `local_staging_id NOT NULL` | Join key to `staging_*_candidates.id`. |
-| `entity_family` | `entity_family`, `source_table` | `entity_family NOT NULL` | Ten families: `buildings`, `places`, `roads`, `bus_stops`, `landuse`, `water_lines`, `water_polygons`, `addresses`, `admin_areas`, `routing_barriers`. |
+| `entity_family` | `entity_family`, `source_table` | `entity_family NOT NULL` | Twelve upload families in `remote-review-entity-config.ts` (includes `address_components`, `place_address_links`). |
 | `external_id` | `external_id` | `external_id` | OSM / natural id; may be null for edge cases (**WARN** in Stage 14, not FAIL). |
 | `source_refs` | `source_refs` (jsonb, default `{}`) | `source_refs NOT NULL` default `{}` | |
 | `normalized_data` | `normalized_data` (jsonb, default `{}`) | `normalized_data NOT NULL` default `{}` | |
@@ -76,12 +179,23 @@ Stage K upload entity mapping: `remote-review-entity-config.ts`.
 # all families in package (default)
 REMOTE_REVIEW_ENTITY_FAMILY=all
 
-# subset
+# admin areas only → import_review.admin_area_candidates
+npx tsx ./12_upload_remote_review_package.ts --entity-family=admin_areas
+
+# roads only → import_review.road_candidates
+npx tsx ./12_upload_remote_review_package.ts --entity-family=roads
+
+# both (skips families with zero package_items)
+npx tsx ./12_upload_remote_review_package.ts --entity-family=admin_areas,roads
+
+# legacy subset example
 npx tsx ./12_upload_remote_review_package.ts --entity-family=buildings,places
 
 # safe test cap per family
-npx tsx ./12_upload_remote_review_package.ts --entity-family=buildings --max-rows-per-family=10
+npx tsx ./12_upload_remote_review_package.ts --entity-family=admin_areas --max-rows-per-family=10
 ```
+
+Align **`REMOTE_REVIEW_ENTITY_FAMILY`** with **`ENTITY_FAMILIES`** in the import env when running entity-scoped pipeline imports. Stage **12** also reads **`ENTITY_FAMILIES`** if **`REMOTE_REVIEW_ENTITY_FAMILY`** is unset.
 
 Promotion is **future work**; preserve at minimum:
 
@@ -102,7 +216,24 @@ Stage J exports review-ready staging rows for the current `source_snapshot_id` w
 
 Rows with null `match_status` / `auto_action` are packaged with defaults: `match_status = 'needs_review'`, `auto_action = 'needs_review'`, `review_status = 'pending'`.
 
+**Classified families:** places/addresses/links carry `source_classification`, `address_strength`, `validation_status`, and `promotion_status` in `normalized_data` / dedicated columns — mirrored into package items and Supabase on upload.
+
 Package `summary.staging_eligible_counts` compares staging eligibility vs `counts_by_entity_family` after each Stage J run.
+
+### Custom family promotion (outside this pipeline)
+
+This repo **prepares and uploads** candidates only. Per-family promotion to **`core.*`** is intentional separate work:
+
+| Priority (Stage 15 comments) | Family | Notes |
+|------------------------------|--------|-------|
+| P0 | `buildings` | Full review + promotion path in dashboard |
+| P1 | `places` | Review UI; Stage J/K + promotion |
+| P2 | `landuse`, `water_*` | Map layers, lower risk |
+| P3 | `bus_stops` | + names |
+| P4 | `roads` | Review exists; defer bulk promotion (routing graph risk) |
+| P5+ | `admin_areas`, `addresses`, routing | Highest complexity |
+
+Stage **15** `stage15_promotion_readiness` reports blockers (missing geometry, unmapped component types, etc.) — it does **not** promote.
 
 ---
 
@@ -130,6 +261,19 @@ Stage **13** Part C `coverage_report` compares `staging_eligible`, `package_item
 
 ## Commands (operators)
 
+### 0. Resume from Stage K (package already prepared)
+
+```bash
+cd tools/data-pipeline/local-osm
+source imports/your_import.env
+
+./run_resume_from_stage12.sh imports/your_import.env
+# equivalent:
+PIPELINE_FROM_STAGE=12 ./run_local_osm_pipeline.sh imports/your_import.env
+```
+
+Requires the same `REMOTE_REVIEW_PACKAGE_NAME`, `SNAPSHOT_VERSION`, and `SUPABASE_DATABASE_URL` as the original run. Stage **J** is skipped.
+
 ### 1. Prepare package (Stage J — local)
 
 ```bash
@@ -144,31 +288,51 @@ PAGER=cat psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
 # Capture package_name from output → export REMOTE_REVIEW_PACKAGE_NAME=...
 ```
 
-Replace an existing package name safely:
+Replace an existing package name safely (**overwrite enable**):
 
 ```bash
 PAGER=cat psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
   -v snapshot_version="$SNAPSHOT_VERSION" \
+  -v staging_schema="${STAGING_SCHEMA:-staging}" \
+  -v entity_families="${ENTITY_FAMILIES:-all}" \
   -v package_name="$REMOTE_REVIEW_PACKAGE_NAME" \
   -v replace_package=true \
   -f ./11_prepare_remote_review_package.sql
 ```
 
-### 2. Upload all families (Stage K)
+### 2. Upload (Stage K)
+
+**Full upload:**
 
 ```bash
 export REMOTE_REVIEW_UPLOAD_ENABLED=true
 npx tsx ./12_upload_remote_review_package.ts --entity-family=all
 ```
 
-Upload only the seven newly supported families:
+**Dry-run / smoke test cap** (does not skip Supabase — limits row count):
+
+```bash
+export REMOTE_REVIEW_MAX_ROWS_PER_FAMILY=5
+npx tsx ./12_upload_remote_review_package.ts \
+  --package-name="$REMOTE_REVIEW_PACKAGE_NAME" \
+  --entity-family=roads \
+  --max-rows-per-family=5
+```
+
+**Local-only dry path** (no Supabase at all):
+
+```bash
+export REMOTE_REVIEW_PREPARE_VERIFY_ONLY=true
+export REMOTE_REVIEW_PACKAGE_NAME=your_pkg
+./run_local_osm_pipeline.sh imports/your_import.env
+```
+
+Upload only selected families:
 
 ```bash
 npx tsx ./12_upload_remote_review_package.ts \
   --entity-family=bus_stops,landuse,water_lines,water_polygons,addresses,admin_areas,routing_barriers
 ```
-
-Dry-run cap: `--max-rows-per-family=5`
 
 ### 3. Verify (Stage L)
 
@@ -177,6 +341,7 @@ Part A + coverage (local):
 ```bash
 PAGER=cat psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
   -v package_name="$REMOTE_REVIEW_PACKAGE_NAME" \
+  -v entity_families="${ENTITY_FAMILIES:-all}" \
   -f ./13_verify_remote_review_upload.sql
 ```
 
@@ -185,10 +350,11 @@ Part B + coverage (Supabase):
 ```bash
 PAGER=cat psql "$SUPABASE_DATABASE_URL" -v ON_ERROR_STOP=1 \
   -v package_name="$REMOTE_REVIEW_PACKAGE_NAME" \
+  -v entity_families="${ENTITY_FAMILIES:-all}" \
   -f ./13_verify_remote_review_upload.sql
 ```
 
-Run both connections and compare `coverage_report` sections for a full picture.
+Inspect **`family_upload_summary`** for local vs remote counts per selected family. Run both connections and compare `coverage_report` sections for a full picture.
 
 ### Local — Stage 14 (lineage QA)
 
@@ -200,6 +366,7 @@ PAGER=cat psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
   -v staging_schema="${STAGING_SCHEMA:-staging}" \
   -v snapshot_version="$SNAPSHOT_VERSION" \
   -v package_name="$REMOTE_REVIEW_PACKAGE_NAME" \
+  -v entity_families="${ENTITY_FAMILIES:-all}" \
   -f ./14_verify_lineage_alignment.sql
 ```
 
@@ -212,9 +379,18 @@ If you created the package **before** Stage J started writing `payload.source_sn
 export REMOTE_LINEAGE_ALIGNMENT_VERIFY='true'
 ```
 
-Runs **automatically after Stage L** whenever Stages **11–13** run (`REMOTE_REVIEW_UPLOAD_ENABLED` **or** `REMOTE_REVIEW_PREPARE_VERIFY_ONLY`).
+Runs **automatically after Stage L** whenever Stages **11–13** run (`REMOTE_REVIEW_UPLOAD_ENABLED` **or** `REMOTE_REVIEW_PREPARE_VERIFY_ONLY`) and `REMOTE_LINEAGE_ALIGNMENT_VERIFY=true`.
 
-Stage **13** is also run on Supabase for Part B remote counts; see commands above.
+### Stage 15 — promotion-readiness coverage (optional)
+
+```bash
+export LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=true
+./run_local_osm_pipeline.sh imports/your_import.env
+```
+
+Or run SQL directly after a successful import. Inspect **`stage15_promotion_readiness`** in the output.
+
+Stage **13** Part B can also be run on Supabase for remote counts; see commands above.
 
 ### Supabase — manual **`import_review`** checks
 

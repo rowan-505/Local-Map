@@ -147,6 +147,23 @@ export type LanduseFeatureNameSlots = PrimaryNameSlots & {
 };
 
 /** Upserts primary official my/en/und feature names for one landuse polygon. */
+export const ADMIN_AREA_NAMES_CONFIG = (adminAreaId: bigint): EntityNamesTableConfig => ({
+    namesTable: "core.core_admin_area_names",
+    fkColumn: "admin_area_id",
+    entityId: adminAreaId,
+    myanmarWriteLanguageCode: "my",
+    myanmarScriptCode: "MYMR",
+    englishScriptCode: "LATN",
+});
+
+export async function syncAdminAreaPrimaryNames(
+    tx: DbClient,
+    adminAreaId: bigint,
+    slots: PrimaryNameSlots
+): Promise<void> {
+    await syncPrimaryOfficialNames(tx, ADMIN_AREA_NAMES_CONFIG(adminAreaId), slots);
+}
+
 export async function syncLanduseFeatureNames(
     tx: DbClient,
     landuseId: bigint,

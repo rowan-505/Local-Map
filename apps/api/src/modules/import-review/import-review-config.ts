@@ -38,6 +38,20 @@ export function isImportReviewRoadBulkPromotionEnabled(): boolean {
     return process.env.ENABLE_IMPORT_REVIEW_ROAD_BULK_PROMOTION === "true";
 }
 
+/**
+ * When true, dashboard/API may promote road publish batches with more than
+ * {@link ROAD_SQL_BULK_PROMOTION_READY_THRESHOLD} ready items via the API path.
+ * Large batches should use SQL bulk scripts instead.
+ */
+export function isImportReviewRoadApiBulkPromotionEnabled(): boolean {
+    return process.env.ENABLE_IMPORT_REVIEW_ROAD_API_BULK_PROMOTION === "true";
+}
+
+export const ROAD_API_BULK_PROMOTION_ENV_VAR = "ENABLE_IMPORT_REVIEW_ROAD_API_BULK_PROMOTION=true";
+
+/** Recommend SQL bulk promotion when validation ready_count exceeds this (dashboard + API). */
+export const ROAD_SQL_BULK_PROMOTION_READY_THRESHOLD = 50;
+
 /** Max road publish items per batch without ENABLE_IMPORT_REVIEW_ROAD_BULK_PROMOTION. */
 export const IMPORT_REVIEW_ROAD_PROMOTION_MAX_ITEMS = 3;
 

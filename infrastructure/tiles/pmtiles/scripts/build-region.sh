@@ -3,240 +3,467 @@
 # Writes regions/<region>/<region>-<version>.pmtiles and updates regions/<region>/current.json
 # only after a successful archive write. Older *.pmtiles in that folder are never deleted.
 #
-# Loads optional variables (e.g. BASE_URL) from the repository root .env when not set in the environment.
-#
 # Usage:
-#   bash infrastructure/tiles/pmtiles/scripts/build-region.sh <region> <version>
-# Example:
-#   bash infrastructure/tiles/pmtiles/scripts/build-region.sh mandalay v1
+#   bash infrastructure/tiles/pmtiles/scripts/build-region.sh <region> <version> [options]
 #
-# Arguments:
-#   $1 = region
-#   $2 = version (e.g. v1 → file <region>-v1.pmtiles)
+# Options:
+#   --skip-buildings       omit buildings layer (faster debug build)
+#   --roads-only           only streets + road_labels (fastest debug; no admin/water/landuse)
+#   --light-only           admin/water/landuse only (no streets or road_labels)
+#   --no-progress-ticker   disable estimated progress ticker during long commands
 #
-# Optional:
-#   BASE_URL=https://cdn.example.com bash .../build-region.sh yangon v2
+# Examples:
+#   npm run tiles:build -- yangon v2
+#   npm run tiles:build -- yangon v2 --skip-buildings
+#   npm run tiles:build -- yangon v2 --roads-only
 #
-# Prerequisites: tippecanoe, pmtiles CLI (e.g. brew install tippecanoe pmtiles)
+# Optional env:
+#   PMTILES_MIN_ZOOM=8   PMTILES_MAX_ZOOM=20   PMTILES_DEBUG=1   BASE_URL=...
+#
+# Prerequisites: tippecanoe, tile-join, pmtiles, python3, ogr2ogr
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/load-root-env.sh"
-if [[ -n "${DATABASE_URL:-}" ]]; then
-  local_map_log_database_url_host
-else
-  echo "[env] DATABASE_URL not set (not required for build; export step needs it)" >&2
-fi
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/build-stages.sh"
 
 if [[ $# -lt 2 ]]; then
-  echo "usage: bash infrastructure/tiles/pmtiles/scripts/build-region.sh <region> <version>" >&2
-  echo "example: bash infrastructure/tiles/pmtiles/scripts/build-region.sh yangon v2" >&2
+  echo "usage: bash infrastructure/tiles/pmtiles/scripts/build-region.sh <region> <version> [--skip-buildings] [--roads-only] [--light-only] [--no-progress-ticker]" >&2
   exit 1
 fi
 
 REGION="$1"
 VERSION="$2"
+shift 2
+SKIP_BUILDINGS="${SKIP_BUILDINGS:-0}"
+ROADS_ONLY=0
+LIGHT_ONLY=0
+NO_PROGRESS_TICKER=0
+BUILD_MODE="full"
+[[ "$SKIP_BUILDINGS" == "1" ]] && SKIP_BUILDINGS=1 || SKIP_BUILDINGS=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --skip-buildings) SKIP_BUILDINGS=1 ;;
+    --roads-only) ROADS_ONLY=1 ;;
+    --light-only) LIGHT_ONLY=1 ;;
+    --no-progress-ticker) NO_PROGRESS_TICKER=1 ;;
+    *)
+      echo "error: unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+if [[ "$NO_PROGRESS_TICKER" == "1" ]]; then
+  export PMTILES_PROGRESS_TICKER_ENABLED=0
+fi
+
 PMTILES_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 EXPORTS="${PMTILES_ROOT}/exports/${REGION}"
 OUT_DIR="${PMTILES_ROOT}/regions/${REGION}"
 OUT_PMTILES="${OUT_DIR}/${REGION}-${VERSION}.pmtiles"
+PREP_DIR="${PMTILES_ROOT}/.tmp-prep-${REGION}-${VERSION}-$$"
+MBTILES_LIGHT="${PMTILES_ROOT}/.tmp-build-light-${REGION}-${VERSION}-$$.mbtiles"
+MBTILES_LABELS="${PMTILES_ROOT}/.tmp-build-labels-${REGION}-${VERSION}-$$.mbtiles"
+MBTILES_STREETS="${PMTILES_ROOT}/.tmp-build-streets-${REGION}-${VERSION}-$$.mbtiles"
 MBTILES="${PMTILES_ROOT}/.tmp-build-${REGION}-${VERSION}-$$.mbtiles"
 PMTILES_NEW="${OUT_DIR}/${REGION}-${VERSION}.pmtiles.new.$$"
 CURRENT_NEW="${OUT_DIR}/current.json.new.$$"
+PREPARE_PY="${SCRIPT_DIR}/prepare-tippecanoe-input.py"
 BUILD_STARTED_AT="$(date +%s)"
 BUILD_SUCCESS=false
 PMTILES_DEBUG="${PMTILES_DEBUG:-0}"
+PMTILES_MIN_ZOOM="${PMTILES_MIN_ZOOM:-8}"
+PMTILES_MAX_ZOOM="${PMTILES_MAX_ZOOM:-20}"
+PMTILES_CURRENT_STAGE="starting"
+PMTILES_LAST_CMD=""
 
-timestamp() {
-  date '+%Y-%m-%dT%H:%M:%S%z'
-}
+LOG_DIR="${PMTILES_ROOT}/logs"
+mkdir -p "$LOG_DIR"
+BUILD_LOG="${LOG_DIR}/build-${REGION}-${VERSION}-$(date '+%Y%m%dT%H%M%S').log"
+export PMTILES_BUILD_LOG="$BUILD_LOG"
 
-elapsed_seconds() {
-  local now
-  now="$(date +%s)"
-  echo "$((now - BUILD_STARTED_AT))s"
-}
+# Tee all stdout/stderr to terminal and build log.
+exec 3>&1 4>&2
+exec > >(tee -a "$BUILD_LOG" >&3)
+exec 2> >(tee -a "$BUILD_LOG" >&4)
 
-log() {
-  echo "[$(timestamp)] [build] $*" >&2
-}
+export PMTILES_PIPELINE_SCOPE=build
+export PMTILES_PIPELINE_STARTED_AT="$BUILD_STARTED_AT"
+export PMTILES_STAGE_STARTED_AT="$BUILD_STARTED_AT"
 
-debug() {
-  if [[ "$PMTILES_DEBUG" == "1" ]]; then
-    log "DEBUG: $*"
+# Stage milestones (source of truth). Rebuild maps build phase onto 25–100%.
+if [[ "${PMTILES_REBUILD_ACTIVE:-0}" == "1" ]]; then
+  PCT_INPUT=28.95
+  PCT_VALIDATE=32.89
+  PCT_PREPARE=38.42
+  PCT_LIGHT=43.16
+  PCT_STREETS=64.47
+  PCT_LABELS=80.26
+  PCT_FINALIZE=92.11
+  PCT_DONE=100.00
+else
+  PCT_INPUT=5.00
+  PCT_VALIDATE=15.00
+  PCT_PREPARE=22.00
+  PCT_LIGHT=28.00
+  PCT_STREETS=55.00
+  PCT_LABELS=75.00
+  PCT_FINALIZE=90.00
+  PCT_DONE=100.00
+fi
+
+timestamp() { date '+%Y-%m-%dT%H:%M:%S%z'; }
+log() { echo "[$(timestamp)] [build] $*" >&2; }
+debug() { [[ "$PMTILES_DEBUG" == "1" ]] && log "DEBUG: $*"; }
+
+on_build_error() {
+  local exit_code=$?
+  local line="${1:-?}"
+  local cmd="${2:-?}"
+  pmtiles_ticker_stop || true
+  log "BUILD FAILED"
+  log "  line: ${line}"
+  log "  exit code: ${exit_code}"
+  log "  stage: ${PMTILES_CURRENT_STAGE}"
+  log "  command: ${cmd}"
+  if [[ -n "${PMTILES_LAST_CMD}" ]]; then
+    log "  last logged command: ${PMTILES_LAST_CMD}"
   fi
+  log "  log file: ${BUILD_LOG}"
+  exit "${exit_code}"
+}
+trap 'on_build_error ${LINENO} "${BASH_COMMAND}"' ERR
+
+build_stage() {
+  PMTILES_CURRENT_STAGE="$2"
+  pmtiles_stage "$1" "$2"
+}
+
+run_logged() {
+  local name="$1"
+  shift
+  PMTILES_CURRENT_STAGE="${name}"
+  PMTILES_LAST_CMD="$(printf '%q ' "$@")"
+  if [[ -z "${PMTILES_TICKER_PID:-}" ]]; then
+    log "running: ${name}"
+    pmtiles_stage_note "command: ${PMTILES_LAST_CMD}"
+  fi
+  "$@"
+}
+
+run_tippecanoe_tickered() {
+  local pct_start="$1"
+  local pct_end="$2"
+  local stage_label="$3"
+  shift 3
+
+  PMTILES_CURRENT_STAGE="${stage_label}"
+  PMTILES_LAST_CMD="$(printf '%q ' "$@")"
+  log "running tippecanoe: ${stage_label}"
+  log "  ${PMTILES_LAST_CMD}"
+
+  pmtiles_ticker_start "$pct_start" "$pct_end" "${stage_label}"
+  pmtiles_run_tippecanoe "${stage_label}" "$@"
+  pmtiles_ticker_stop
+}
+
+close_log_fds() {
+  exec 3>&- 4>&- 2>/dev/null || true
 }
 
 cleanup() {
+  pmtiles_ticker_stop || true
   if [[ "$BUILD_SUCCESS" != "true" ]]; then
-    log "cleanup after failure/interruption: removing temp files"
+    log "cleanup after failure: removing temp prep/mbtiles (keeps exports/ and published .pmtiles)"
+    log "failure log preserved at: ${BUILD_LOG}"
   fi
-  rm -f "$MBTILES" "$PMTILES_NEW" "$CURRENT_NEW"
+  rm -rf "$PREP_DIR"
+  rm -f "$MBTILES_LIGHT" "$MBTILES_LABELS" "$MBTILES_STREETS" "$MBTILES" "$PMTILES_NEW" "$CURRENT_NEW"
+  close_log_fds
 }
 
 feature_count() {
   python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1], encoding="utf-8")).get("features", [])))' "$1"
 }
 
+human_size() { ls -lh "$1" | awk '{print $5}'; }
+
+print_prepare_stats() {
+  local base="$1"
+  local stats="${PREP_DIR}/${base}.annotated.geojsonseq.stats.json"
+  [[ -f "$stats" ]] || return 0
+  python3 - "$stats" <<'PY'
+import json, sys
+stats = json.load(open(sys.argv[1], encoding="utf-8"))
+layer = stats["layer"]
+before = stats["input_features"]
+after = stats["output_features"]
+visible = stats.get("visible_at_zoom", {})
+print(f"  {layer:22s} before={before:>8d}  after={after:>8d}  "
+      f"visible@z8={visible.get('8', before):>8}  "
+      f"z10={visible.get('10', before):>8}  "
+      f"z12={visible.get('12', before):>8}  "
+      f"z14={visible.get('14', before):>8}")
+if layer == "streets" and stats.get("road_class_histogram"):
+    top = list(stats["road_class_histogram"].items())[:6]
+    summary = ", ".join(f"{k}={v}" for k, v in top)
+    print(f"  {'':22s} top classes: {summary}")
+PY
+}
+
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  local_map_log_database_url_host
+fi
+
 echo "" >&2
-log "region:            ${REGION}"
-log "version:           ${VERSION}"
-log "GeoJSON source:    ${EXPORTS}/"
-log "PMTiles output:    ${OUT_PMTILES}"
-log "current.json:      ${OUT_DIR}/current.json  (updated only after successful build)"
-debug "PMTILES_DEBUG=1"
-debug "temp mbtiles:      ${MBTILES}"
-debug "temp pmtiles:      ${PMTILES_NEW}"
-debug "temp current.json: ${CURRENT_NEW}"
+log "region=${REGION} version=${VERSION} zoom=z${PMTILES_MIN_ZOOM}-z${PMTILES_MAX_ZOOM}"
+log "source=${EXPORTS}/ output=${OUT_PMTILES}"
+if [[ "$ROADS_ONLY" == "1" && "$LIGHT_ONLY" == "1" ]]; then
+  echo "error: --roads-only and --light-only are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "$ROADS_ONLY" == "1" ]]; then
+  BUILD_MODE="roads-only"
+elif [[ "$LIGHT_ONLY" == "1" ]]; then
+  BUILD_MODE="light-only"
+elif [[ "$SKIP_BUILDINGS" == "1" ]]; then
+  BUILD_MODE="skip-buildings"
+else
+  BUILD_MODE="full"
+fi
+
+log "mode: ${BUILD_MODE} progress_ticker=$([[ "${PMTILES_PROGRESS_TICKER_ENABLED:-1}" == "1" ]] && echo on || echo off)"
+log "log file: ${BUILD_LOG}"
 echo "" >&2
 
-for cmd in tippecanoe pmtiles python3; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "error: '${cmd}' not found. Install tippecanoe, pmtiles, and python3 (e.g. brew install tippecanoe pmtiles)." >&2
+for cmd in tippecanoe tile-join pmtiles python3 ogr2ogr; do
+  command -v "$cmd" >/dev/null 2>&1 || {
+    echo "error: '${cmd}' not found (brew install gdal tippecanoe pmtiles)" >&2
     exit 1
-  fi
+  }
 done
 
-# GeoJSON basenames / vector layer names (must match packages/map-style/base-map.json source-layer).
-LAYERS=(
-  buildings
-  streets
-  road_labels
-  water_polygons
-  water_lines
-  landuse
-  admin_boundaries
-  admin_areas
-  village_labels
+ALL_LAYERS=(
+  buildings streets road_labels water_polygons water_lines
+  landuse admin_boundaries admin_areas admin_area_label_points village_labels
 )
 
+INVENTORY_LAYERS=(
+  streets road_labels admin_areas admin_boundaries admin_area_label_points
+  buildings landuse water_lines water_polygons
+)
+
+LIGHT_LAYER_BASES=(
+  buildings water_polygons water_lines landuse admin_boundaries admin_areas
+  admin_area_label_points village_labels
+)
+
+LAYERS=()
+if [[ "$ROADS_ONLY" == "1" ]]; then
+  LAYERS=(streets road_labels)
+  log "roads-only: streets + road_labels (no admin/water/landuse)"
+elif [[ "$LIGHT_ONLY" == "1" ]]; then
+  LAYERS=("${LIGHT_LAYER_BASES[@]}")
+  log "light-only: admin/water/landuse/buildings (no streets or road_labels)"
+else
+  LAYERS=("${ALL_LAYERS[@]}")
+  if [[ "$SKIP_BUILDINGS" == "1" ]]; then
+    filtered=()
+    for base in "${LAYERS[@]}"; do
+      [[ "$base" != "buildings" ]] && filtered+=("$base")
+    done
+    LAYERS=("${filtered[@]}")
+    log "skip-buildings: all layers except buildings"
+  fi
+fi
+
 for base in "${LAYERS[@]}"; do
-  f="${EXPORTS}/${base}.geojson"
-  if [[ ! -f "$f" ]]; then
-    echo "error: missing ${f}" >&2
-    echo "  Run: npm run tiles:export -- ${REGION} ${VERSION}" >&2
-    echo "  or:  bash infrastructure/tiles/pmtiles/scripts/export-region.sh ${REGION} ${VERSION}" >&2
+  [[ -f "${EXPORTS}/${base}.geojson" ]] || {
+    echo "error: missing ${EXPORTS}/${base}.geojson — run: npm run tiles:export -- ${REGION} ${VERSION}" >&2
     exit 1
+  }
+done
+
+build_stage "$PCT_INPUT" "input inventory"
+printf '  %-22s %8s %12s\n' "layer" "size" "features" >&2
+for base in "${INVENTORY_LAYERS[@]}"; do
+  f="${EXPORTS}/${base}.geojson"
+  if [[ -f "$f" ]]; then
+    printf '  %-22s %8s %12s\n' "${base}.geojson" "$(human_size "$f")" "$(feature_count "$f")" >&2
+  else
+    printf '  %-22s %8s %12s\n' "${base}.geojson" "—" "missing" >&2
   fi
 done
+echo "" >&2
 
-log "input GeoJSON file sizes:"
+build_stage "$PCT_VALIDATE" "validating GeoJSON"
 for base in "${LAYERS[@]}"; do
-  f="${EXPORTS}/${base}.geojson"
-  ls -lh "$f" >&2
+  run_logged "validate GeoJSON: ${base}" python3 -m json.tool "${EXPORTS}/${base}.geojson" >/dev/null
 done
-
-log "validating GeoJSON before tippecanoe"
-validated_count=0
-for base in "${LAYERS[@]}"; do
-  f="${EXPORTS}/${base}.geojson"
-  log "validating layer: ${base}"
-  if ! python3 -m json.tool "$f" >/dev/null; then
-    echo "error: invalid GeoJSON before tippecanoe: ${f}" >&2
-    echo "  Run: npm run tiles:export -- ${REGION} ${VERSION}" >&2
-    exit 1
-  fi
-  log "JSON validation passed: ${base}.geojson"
-  validated_count=$((validated_count + 1))
-done
-log "JSON validation passed for ${validated_count} GeoJSON files"
-
-log "starting buildings layer inspection"
-buildings_count="$(feature_count "${EXPORTS}/buildings.geojson")"
-log "buildings.geojson feature count: ${buildings_count}"
-
-log "starting streets layer inspection"
-streets_count="$(feature_count "${EXPORTS}/streets.geojson")"
-log "streets.geojson feature count: ${streets_count}"
+pmtiles_stage_note "validated ${#LAYERS[@]} layer(s)"
 
 mkdir -p "$OUT_DIR"
-
-log "cleaning temp files"
-rm -f "$MBTILES" "$PMTILES_NEW" "$CURRENT_NEW"
-log "temp paths cleared: mbtiles=${MBTILES}, pmtiles.new=${PMTILES_NEW}, current.new=${CURRENT_NEW}"
-debug "elapsed after temp cleanup: $(elapsed_seconds)"
-echo "" >&2
-
 trap cleanup EXIT
 
-log "starting tippecanoe -> ${MBTILES}"
-named=()
-for base in "${LAYERS[@]}"; do
-  named+=(--named-layer="${base}:${EXPORTS}/${base}.geojson")
-done
+rm -rf "$PREP_DIR"
+mkdir -p "$PREP_DIR"
+rm -f "$MBTILES_LIGHT" "$MBTILES_LABELS" "$MBTILES_STREETS" "$MBTILES" "$PMTILES_NEW" "$CURRENT_NEW"
 
-tippecanoe_cmd=(
-  tippecanoe
-  -o "$MBTILES"
-  --force
-  -pC
-  --progress-interval=5
-  --minimum-zoom=8
-  --maximum-zoom=18
+build_stage "$PCT_PREPARE" "preparing GeoJSONSeq + zoom hints"
+pmtiles_ticker_start "$PCT_PREPARE" "$PCT_LIGHT" "preparing GeoJSONSeq + zoom hints"
+
+LIGHT_LAYERS=()
+HAS_STREETS=0
+HAS_LABELS=0
+prepare_i=0
+for base in "${LAYERS[@]}"; do
+  prepare_i=$((prepare_i + 1))
+  src="${EXPORTS}/${base}.geojson"
+  seq_in="${PREP_DIR}/${base}.geojsonseq"
+  seq_out="${PREP_DIR}/${base}.annotated.geojsonseq"
+
+  case "$base" in
+    streets)
+      run_logged "ogr2ogr streets GeoJSONSeq" ogr2ogr -overwrite -f GeoJSONSeq "$seq_in" "$src"
+      run_logged "prepare-tippecanoe streets" python3 "$PREPARE_PY" "$base" "$seq_in" "$seq_out"
+      HAS_STREETS=1
+      ;;
+    road_labels)
+      run_logged "ogr2ogr road_labels GeoJSONSeq" ogr2ogr -overwrite -f GeoJSONSeq "$seq_in" "$src"
+      run_logged "prepare-tippecanoe road_labels" python3 "$PREPARE_PY" "$base" "$seq_in" "$seq_out"
+      HAS_LABELS=1
+      ;;
+    *)
+      count="$(feature_count "$src")"
+      if [[ "$count" == "0" ]]; then
+        : >"$seq_out"
+      elif [[ "$base" == "admin_areas" || "$base" == "admin_boundaries" ]]; then
+        run_logged "ogr2ogr ${base} GeoJSONSeq" ogr2ogr -overwrite -f GeoJSONSeq "$seq_in" "$src"
+        run_logged "prepare-tippecanoe ${base}" python3 "$PREPARE_PY" "$base" "$seq_in" "$seq_out"
+        LIGHT_LAYERS+=("$base")
+      else
+        run_logged "prepare-tippecanoe ${base}" python3 "$PREPARE_PY" "$base" "$src" "$seq_out"
+        LIGHT_LAYERS+=("$base")
+      fi
+      ;;
+  esac
+done
+pmtiles_ticker_stop
+
+echo "" >&2
+log "prepare summary (mode=${BUILD_MODE}): before/after features + tippecanoe visibility"
+printf '  %-22s %s\n' "layer" "before/after + visible@z8/z10/z12/z14" >&2
+for base in "${LAYERS[@]}"; do
+  print_prepare_stats "$base"
+done
+echo "" >&2
+
+common_flags=(
+  tippecanoe --force -pC
+  "--minimum-zoom=${PMTILES_MIN_ZOOM}"
+  "--maximum-zoom=${PMTILES_MAX_ZOOM}"
   --drop-densest-as-needed
   --attribution="Local Map"
-  "${named[@]}"
 )
 
-if [[ "$PMTILES_DEBUG" == "1" ]]; then
-  debug "full tippecanoe command:"
-  printf '  ' >&2
-  printf '%q ' "${tippecanoe_cmd[@]}" >&2
-  printf '\n' >&2
+HAS_LIGHT=0
+if [[ ${#LIGHT_LAYERS[@]} -gt 0 ]]; then
+  HAS_LIGHT=1
+  build_stage "$PCT_LIGHT" "building light layers (admin/water/landuse/buildings)"
+  light_named=()
+  for base in "${LIGHT_LAYERS[@]}"; do
+    light_named+=(--named-layer="${base}:${PREP_DIR}/${base}.annotated.geojsonseq")
+  done
+  light_cmd=("${common_flags[@]}" -o "$MBTILES_LIGHT" "${light_named[@]}")
+  LIGHT_TICKER_END="$PCT_STREETS"
+  [[ "$LIGHT_ONLY" == "1" ]] && LIGHT_TICKER_END="$PCT_FINALIZE"
+  run_tippecanoe_tickered "$PCT_LIGHT" "$LIGHT_TICKER_END" "building light layers" "${light_cmd[@]}"
 fi
 
-tippecanoe_started_at="$(date +%s)"
-if "${tippecanoe_cmd[@]}"; then
-  tippecanoe_elapsed="$(( $(date +%s) - tippecanoe_started_at ))s"
-  log "tippecanoe completed successfully in ${tippecanoe_elapsed}"
-else
-  status=$?
-  log "FAILURE: tippecanoe exited ${status}. Temp files will be removed; did not write or update ${OUT_PMTILES} or current.json."
+if [[ "$HAS_STREETS" == "1" ]]; then
+  build_stage "$PCT_STREETS" "building roads (streets dense pass)"
+  # Per-feature minzoom hints reduce low/mid zoom density; coalesce instead of drop at high zoom.
+  streets_cmd=(
+    tippecanoe --force -pC
+    "--minimum-zoom=${PMTILES_MIN_ZOOM}"
+    "--maximum-zoom=${PMTILES_MAX_ZOOM}"
+    --coalesce-densest-as-needed
+    --coalesce-smallest-as-needed
+    --simplify-only-low-zooms
+    --simplification=10
+    --no-feature-limit
+    --maximum-tile-bytes=750000
+    --read-parallel
+    --reorder
+    --attribution="Local Map"
+    -l streets
+    -o "$MBTILES_STREETS"
+    "${PREP_DIR}/streets.annotated.geojsonseq"
+  )
+  run_tippecanoe_tickered "$PCT_STREETS" "$PCT_LABELS" "building roads" "${streets_cmd[@]}"
+fi
+
+if [[ "$HAS_LABELS" == "1" ]]; then
+  build_stage "$PCT_LABELS" "building road labels"
+  labels_cmd=(
+    "${common_flags[@]}"
+    -o "$MBTILES_LABELS"
+    --named-layer="road_labels:${PREP_DIR}/road_labels.annotated.geojsonseq"
+  )
+  run_tippecanoe_tickered "$PCT_LABELS" "$PCT_FINALIZE" "building road labels" "${labels_cmd[@]}"
+fi
+
+join_inputs=()
+[[ "$HAS_LIGHT" == "1" && -f "$MBTILES_LIGHT" ]] && join_inputs+=("$MBTILES_LIGHT")
+[[ "$HAS_STREETS" == "1" && -f "$MBTILES_STREETS" ]] && join_inputs+=("$MBTILES_STREETS")
+[[ "$HAS_LABELS" == "1" && -f "$MBTILES_LABELS" ]] && join_inputs+=("$MBTILES_LABELS")
+
+if [[ ${#join_inputs[@]} -eq 0 ]]; then
+  echo "error: no mbtiles produced" >&2
   exit 1
 fi
 
-log "converting mbtiles to pmtiles -> ${PMTILES_NEW}"
-if pmtiles convert "$MBTILES" "$PMTILES_NEW"; then
-  log "pmtiles convert completed successfully"
+build_stage "$PCT_FINALIZE" "finalizing PMTiles"
+pmtiles_ticker_start "$PCT_FINALIZE" "$PCT_DONE" "finalizing PMTiles"
+
+if [[ ${#join_inputs[@]} -eq 1 ]]; then
+  run_logged "copy single mbtiles" cp -f "${join_inputs[0]}" "$MBTILES"
 else
-  status=$?
-  log "FAILURE: pmtiles convert exited ${status}. Temp files will be removed; did not update ${OUT_PMTILES} or current.json."
-  exit 1
+  run_logged "tile-join" tile-join -f -o "$MBTILES" "${join_inputs[@]}"
 fi
+
+run_logged "pmtiles convert" pmtiles convert "$MBTILES" "$PMTILES_NEW"
+pmtiles_ticker_stop
 
 mv -f "$PMTILES_NEW" "$OUT_PMTILES"
-log "installed PMTiles: ${OUT_PMTILES}"
-
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 BASE_URL="${BASE_URL%/}"
 filename="${REGION}-${VERSION}.pmtiles"
 url="${BASE_URL}/regions/${REGION}/${filename}"
 CURRENT="${OUT_DIR}/current.json"
 
-log "updating current.json -> ${CURRENT}"
+PMTILES_RECOMMENDED_MAP_MAX_ZOOM="${PMTILES_RECOMMENDED_MAP_MAX_ZOOM:-20}"
 {
-  printf '{\n'
-  printf '  "region": "%s",\n' "$REGION"
-  printf '  "version": "%s",\n' "$VERSION"
-  printf '  "filename": "%s",\n' "$filename"
-  printf '  "url": "%s"\n' "$url"
-  printf '}\n'
+  printf '{\n  "region": "%s",\n  "version": "%s",\n  "filename": "%s",\n  "url": "%s",\n  "minZoom": %s,\n  "maxZoom": %s,\n  "minzoom": %s,\n  "maxzoom": %s,\n  "nativeMaxzoom": %s,\n  "recommendedMapMaxZoom": %s\n}\n' \
+    "$REGION" "$VERSION" "$filename" "$url" \
+    "$PMTILES_MIN_ZOOM" "$PMTILES_MAX_ZOOM" \
+    "$PMTILES_MIN_ZOOM" "$PMTILES_MAX_ZOOM" \
+    "$PMTILES_MAX_ZOOM" "$PMTILES_RECOMMENDED_MAP_MAX_ZOOM"
 } >"$CURRENT_NEW"
 mv -f "$CURRENT_NEW" "$CURRENT"
-log "updated current.json -> ${CURRENT}"
 
 trap - EXIT
-rm -f "$MBTILES"
+rm -rf "$PREP_DIR"
+rm -f "$MBTILES_LIGHT" "$MBTILES_LABELS" "$MBTILES_STREETS" "$MBTILES"
 BUILD_SUCCESS=true
 
-final_size="$(ls -lh "$OUT_PMTILES" | awk '{print $5}')"
-total_elapsed="$(elapsed_seconds)"
-echo "" >&2
-log "SUCCESS"
-log "output PMTiles:       ${OUT_PMTILES}"
-log "output file size:     ${final_size}"
-log "current.json:         ${CURRENT}"
-log "total build duration: ${total_elapsed}"
-debug "elapsed build time:   ${total_elapsed}"
-log "older versioned .pmtiles in ${OUT_DIR}/ were not deleted"
+build_stage "$PCT_DONE" "done"
+log "SUCCESS output=${OUT_PMTILES} size=$(human_size "$OUT_PMTILES")"
+log "current.json=${CURRENT}"
+log "inspect layers: pmtiles show ${OUT_PMTILES}"
+log "build log: ${BUILD_LOG}"

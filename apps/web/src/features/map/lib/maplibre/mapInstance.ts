@@ -12,6 +12,7 @@ import { getPublicMapMapLibreInitOptions } from '../../config/publicMapViewport'
 import type { MapEngine } from '../mapEngineTypes';
 import { registerPmtilesProtocol } from './registerPmtilesProtocol';
 import { applyMvpBasemapStyle } from './basemapMvpStyle';
+import { logBasemapDebugSnapshot } from './basemapDebug';
 import { logGlyphServingHealthInDev } from './glyphDevCheck';
 
 type BoundsLike = maplibregl.LngLatBoundsLike;
@@ -31,7 +32,6 @@ function exposeMaplibreDebugGlobals(map: MapEngine): void {
   window.__MAP_STYLE__ = map.getStyle.bind(map);
   window.__MAP_SOURCES__ = () => map.getStyle().sources;
   window.__MAP_LAYERS__ = () => map.getStyle().layers;
-  console.log('[debug] MapLibre map exposed as window.__MAP__');
 }
 
 export async function createMaplibreMap(container: HTMLDivElement): Promise<MapEngine> {
@@ -65,6 +65,9 @@ export async function createMaplibreMap(container: HTMLDivElement): Promise<MapE
   map.once('load', () => {
     applyMvpBasemapStyle(map);
     exposeMaplibreDebugGlobals(map);
+    if (isMapDebugExposeEnabled()) {
+      window.__MAP_DEBUG_BASEMAP__ = () => logBasemapDebugSnapshot(map);
+    }
   });
 
   return map;

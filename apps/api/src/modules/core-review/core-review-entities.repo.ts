@@ -69,6 +69,52 @@ const ADMIN_AREA_BOUNDARY_JOINS = Prisma.sql`
     LEFT JOIN ref.ref_address_usage_types AS au ON au.code = a.address_usage
 `;
 
+const ADMIN_AREA_NAME_COLUMNS = Prisma.sql`
+    an_mm.name AS "nameMm",
+    an_en.name AS "nameEn"
+`;
+
+const ADMIN_AREA_NAME_JOINS = Prisma.sql`
+    LEFT JOIN LATERAL (
+        SELECT n.name
+        FROM core.core_admin_area_names AS n
+        WHERE n.admin_area_id = a.id
+          AND (
+              lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+              OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
+          )
+        ORDER BY
+            CASE
+                WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                WHEN n.is_primary = true THEN 2
+                WHEN n.name_type = 'official' THEN 3
+                ELSE 4
+            END,
+            n.search_weight DESC NULLS LAST,
+            n.name ASC
+        LIMIT 1
+    ) AS an_mm ON true
+    LEFT JOIN LATERAL (
+        SELECT n.name
+        FROM core.core_admin_area_names AS n
+        WHERE n.admin_area_id = a.id
+          AND (
+              lower(trim(coalesce(n.language_code, ''))) = 'en'
+              OR upper(trim(coalesce(n.script_code, ''))) = 'LATN'
+          )
+        ORDER BY
+            CASE
+                WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
+                WHEN n.is_primary = true THEN 2
+                WHEN n.name_type = 'official' THEN 3
+                ELSE 4
+            END,
+            n.search_weight DESC NULLS LAST,
+            n.name ASC
+        LIMIT 1
+    ) AS an_en ON true
+`;
+
 function adminAreaBoundaryListFilters(params: CoreReviewEntityListParams): Prisma.Sql {
     const parts: Prisma.Sql[] = [];
     if (params.boundaryStatus !== undefined) {
@@ -313,12 +359,14 @@ export class CoreReviewEntitiesRepository {
                 a.is_verified AS "isVerified",
                 a.verification_status AS "verificationStatus",
                 ${ADMIN_AREA_BOUNDARY_COLUMNS},
+                ${ADMIN_AREA_NAME_COLUMNS},
                 a.created_at AS "createdAt",
                 a.updated_at AS "updatedAt",
                 ST_AsGeoJSON(a.geom)::json AS geometry,
                 ST_AsGeoJSON(a.centroid)::json AS centroid
             FROM core.core_admin_areas AS a
             ${ADMIN_AREA_BOUNDARY_JOINS}
+            ${ADMIN_AREA_NAME_JOINS}
             WHERE ${genericListStatusClause("admin-areas", "a", params.status)}
               ${search}
               ${verificationFilterClause("a", params)}
@@ -357,12 +405,14 @@ export class CoreReviewEntitiesRepository {
                 a.is_verified AS "isVerified",
                 a.verification_status AS "verificationStatus",
                 ${ADMIN_AREA_BOUNDARY_COLUMNS},
+                ${ADMIN_AREA_NAME_COLUMNS},
                 a.created_at AS "createdAt",
                 a.updated_at AS "updatedAt",
                 ST_AsGeoJSON(a.geom)::json AS geometry,
                 ST_AsGeoJSON(a.centroid)::json AS centroid
             FROM core.core_admin_areas AS a
             ${ADMIN_AREA_BOUNDARY_JOINS}
+            ${ADMIN_AREA_NAME_JOINS}
             WHERE a.public_id = CAST(${publicId} AS uuid)
             LIMIT 1
         `);

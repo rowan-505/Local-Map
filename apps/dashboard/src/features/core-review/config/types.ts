@@ -271,6 +271,8 @@ export type CoreReviewAdminAreaRow = {
     id: string;
     publicId: string;
     canonicalName: string;
+    nameMm?: string | null;
+    nameEn?: string | null;
     slug: string | null;
     parentId: string | null;
     adminLevelId: string | null;

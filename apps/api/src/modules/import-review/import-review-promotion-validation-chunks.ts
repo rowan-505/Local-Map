@@ -1,4 +1,3 @@
-import { IMPORT_REVIEW_VALIDATION_CHUNK_SIZE } from "./import-review-promotion-validation.repo.js";
 import type { PublishItemValidationTarget } from "./import-review-promotion-simple-batch-validation.js";
 
 /** Validation order: simple polygon/point families first, then lines/high-risk. */
@@ -23,12 +22,12 @@ const SMALL_CHUNK_FAMILIES = new Set<string>([
 
 const SIMPLE_FAMILY_CHUNK_CAP = 100;
 
-/** Roads, admin_areas, routing_barriers, addresses use smaller chunks; others use env cap (max 100). */
+/** Roads, admin_areas, routing_barriers, addresses use 25; polygon/point families use 100. */
 export function resolvePromotionValidationChunkSize(entityFamily: string): number {
     if (SMALL_CHUNK_FAMILIES.has(entityFamily)) {
         return 25;
     }
-    return Math.min(SIMPLE_FAMILY_CHUNK_CAP, IMPORT_REVIEW_VALIDATION_CHUNK_SIZE);
+    return SIMPLE_FAMILY_CHUNK_CAP;
 }
 
 export function chunkArray<T>(items: readonly T[], size: number): T[][] {

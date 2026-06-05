@@ -102,3 +102,13 @@ export class ImportReviewRoadOverridesWarningsPendingError extends Error {
         super(warnings[0] ?? "Routing warnings require acknowledgement");
     }
 }
+
+/** Bulk approve rejected because selection includes duplicate_candidate rows without force. */
+export class ImportReviewBulkDuplicateApprovalError extends Error {
+    readonly statusCode = 409;
+    override readonly name = "ImportReviewBulkDuplicateApprovalError";
+
+    constructor(public readonly duplicate_ids: number[]) {
+        super("Duplicate candidates require force approval.");
+    }
+}

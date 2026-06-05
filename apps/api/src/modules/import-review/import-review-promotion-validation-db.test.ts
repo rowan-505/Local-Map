@@ -136,11 +136,11 @@ describe("import-review promotion validation DB contract", () => {
         });
         await repo.finalizeBatch({
             batchId: 18n,
-            status: "blocked",
+            status: "partial",
             validationTotal: 2,
             summary: { validation_result: { blocked_count: 2 } },
         });
-        assert.deepEqual(statuses, ["ready", "partial", "blocked"]);
+        assert.deepEqual(statuses, ["ready", "partial", "partial"]);
     });
 
     it("hasPublishBatchValidationControlColumns reads information_schema once when cached", async () => {

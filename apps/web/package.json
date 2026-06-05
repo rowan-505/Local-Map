@@ -10,7 +10,7 @@
     "data:kyauktan": "tsx scripts/fetchKyauktanOsmPois.ts",
     "pois:refresh": "tsx scripts/fetchKyauktanOsmPois.ts",
     "lint": "eslint .",
-    "test:map": "node --import tsx --test src/features/map/config/overviewPmtilesUrl.test.ts src/features/map/config/publicMapViewport.test.ts src/features/map/lib/maplibre/basemapZoomVisibility.test.ts src/features/map/lib/maplibre/overviewBasemap.test.ts src/features/map/lib/maplibre/composeWebMapStyle.test.ts src/features/map/lib/maplibre/mapLayerInsert.test.ts src/features/map/lib/maplibre/localizedBasemapLabels.test.ts",
+    "test:map": "node --import tsx --test src/features/map/config/overviewPmtilesUrl.test.ts src/features/map/config/publicMapViewport.test.ts src/features/map/lib/maplibre/basemapZoomVisibility.test.ts src/features/map/lib/maplibre/overviewBasemap.test.ts src/features/map/lib/maplibre/composeWebMapStyle.test.ts src/features/map/lib/maplibre/regionalBasemapValidation.test.ts src/features/map/lib/maplibre/mapLayerInsert.test.ts src/features/map/lib/maplibre/localizedBasemapLabels.test.ts src/features/map/lib/maplibre/roadLabelTextFields.test.ts src/features/map/lib/maplibre/webBasemapMode.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -3,7 +3,8 @@
   "name": "Local Map Production Light",
   "metadata": {
     "local-map:purpose": "Rendering-only production basemap. Search, detail cards, and live CRUD data come from API/core.",
-    "local-map:glyphs": "Self-hosted in apps/web/public/fonts/{fontstack}/ and apps/dashboard/public/fonts/{fontstack}/. MapLibre requests /fonts/{fontstack}/{range}.pbf. Use NotoSansMyanmar-Regular — the only self-hosted fontstack."
+    "local-map:glyphs": "Self-hosted in apps/web/public/fonts/{fontstack}/ and apps/dashboard/public/fonts/{fontstack}/. MapLibre requests /fonts/{fontstack}/{range}.pbf. Use NotoSansMyanmar-Regular — the only self-hosted fontstack.",
+    "local-map:road-hierarchy": "CoreMap warm road stack. streets lines only; road_labels text only. Each tier: casing directly under fill, round cap/join, casing width = fill + 1.0–1.8px. Paint order bottom→top: minor, local, medium, major."
   },
   "glyphs": "/fonts/{fontstack}/{range}.pbf",
   "sources": {
@@ -11,7 +12,7 @@
       "type": "vector",
       "url": "pmtiles://https://pub-1f8b4bea1a884f51966c7916c5e618ce.r2.dev/basemaps/yangon/v1/basemap.pmtiles",
       "minzoom": 0,
-      "maxzoom": 22
+      "maxzoom": 20
     }
   },
   "layers": [
@@ -86,7 +87,11 @@
       "type": "line",
       "source": "local-basemap",
       "source-layer": "admin_boundaries",
-      "minzoom": 8,
+      "minzoom": 7,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
       "filter": [
         "any",
         ["!=", ["get", "admin_level_code"], "village"],
@@ -101,199 +106,542 @@
         ]
       ],
       "paint": {
-        "line-color": "#8f9690",
-        "line-dasharray": [2.5, 2.5],
+        "line-color": [
+          "case",
+          ["in", ["get", "admin_level_code"], ["literal", ["state_region"]]],
+          "#aaa4bd",
+          "#b8bcb6"
+        ],
+        "line-dasharray": [3, 2.5],
         "line-width": [
           "interpolate",
           ["linear"],
           ["zoom"],
-          8, 0.45,
-          12, 0.75,
-          16, 1.1
+          7,
+          ["case", ["in", ["get", "admin_level_code"], ["literal", ["state_region"]]], 0.6, 0.35],
+          10,
+          ["case", ["in", ["get", "admin_level_code"], ["literal", ["state_region"]]], 0.9, 0.55]
         ],
         "line-opacity": [
           "interpolate",
           ["linear"],
           ["zoom"],
-          8,
+          7,
           [
             "case",
+            ["==", ["get", "admin_level_code"], "country"],
+            0,
+            ["in", ["get", "admin_level_code"], ["literal", ["state_region"]]],
+            0.45,
             ["==", ["get", "admin_level_code"], "village"],
             0,
             0.22
           ],
-          12,
+          10,
           [
             "case",
+            ["==", ["get", "admin_level_code"], "country"],
+            0,
+            ["in", ["get", "admin_level_code"], ["literal", ["state_region"]]],
+            0.45,
             ["==", ["get", "admin_level_code"], "village"],
-            0.28,
-            0.34
-          ],
-          16,
-          [
-            "case",
-            ["==", ["get", "admin_level_code"], "village"],
-            0.38,
-            0.42
+            0,
+            0.28
           ]
         ]
       }
     },
     {
-      "id": "admin-labels",
-      "type": "symbol",
-      "source": "local-basemap",
-      "source-layer": "admin_areas",
-      "minzoom": 12,
-      "maxzoom": 19,
-      "filter": ["!=", ["get", "admin_level_code"], "village"],
-      "layout": {
-        "text-field": [
-          "coalesce",
-          ["get", "name_mm"],
-          ["get", "name"],
-          ["get", "name_en"],
-          ["get", "canonical_name"]
-        ],
-        "visibility": "visible",
-        "text-font": ["NotoSansMyanmar-Regular"],
-        "text-size": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          12, 11,
-          15, 12.5,
-          17, 14,
-          19, 15
-        ],
-        "text-max-width": 8,
-        "text-padding": 80,
-        "text-allow-overlap": false,
-        "text-ignore-placement": false,
-        "text-optional": true
-      },
-      "paint": {
-        "text-color": "#475569",
-        "text-halo-color": "#ffffff",
-        "text-halo-width": 2.5,
-        "text-halo-blur": 0.5,
-        "text-opacity": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          12, 0.35,
-          14, 0.68,
-          17, 0.84,
-          19, 0.8
-        ]
-      }
-    },
-    {
-      "id": "village-labels",
-      "type": "symbol",
-      "source": "local-basemap",
-      "source-layer": "village_labels",
-      "minzoom": 12,
-      "maxzoom": 14,
-      "layout": {
-        "text-field": [
-          "coalesce",
-          ["get", "name_mm"],
-          ["get", "name"],
-          ["get", "name_en"],
-          ["get", "canonical_name"]
-        ],
-        "visibility": "visible",
-        "text-font": ["NotoSansMyanmar-Regular"],
-        "text-size": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          12, 9,
-          14, 10.2
-        ],
-        "text-max-width": 10,
-        "text-padding": 80,
-        "text-allow-overlap": false,
-        "text-ignore-placement": false,
-        "text-optional": true
-      },
-      "paint": {
-        "text-color": "#475569",
-        "text-halo-color": "#ffffff",
-        "text-halo-width": 2.5,
-        "text-halo-blur": 0.5,
-        "text-opacity": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          12, 0.35,
-          13, 0.68,
-          14, 0.78
-        ]
-      }
-    },
-    {
-      "id": "road-casing",
+      "id": "road-minor-casing",
       "type": "line",
       "source": "local-basemap",
       "source-layer": "streets",
-      "minzoom": 10,
-      "layout": {
-        "line-cap": "round",
-        "line-join": "round"
-      },
+      "minzoom": 14,
+      "metadata": { "local-map:road-tier": "minor casing z14+ service — #dcd8d0, width = fill + 0.8px" },
+      "filter": [
+        "==",
+        ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]],
+        "service"
+      ],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#dcd8d0",
+        "line-opacity": 1,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 14, 1.7, 15, 2.1, 16, 2.6, 17, 3.3, 18, 4.3]
+      }
+    },
+    {
+      "id": "road-minor-fill",
+      "type": "line",
+      "source": "local-basemap",
+      "source-layer": "streets",
+      "minzoom": 14,
+      "metadata": { "local-map:road-tier": "minor z14+ service/track/path — service #fafafa with casing below" },
+      "filter": [
+        "in",
+        ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]],
+        ["literal", ["service", "track", "path", "footway", "pedestrian"]]
+      ],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#fafafa",
+        "line-opacity": 1,
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          14,
+          [
+            "case",
+            ["==", ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]], "service"],
+            0.9,
+            0.6
+          ],
+          15,
+          [
+            "case",
+            ["==", ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]], "service"],
+            1.3,
+            0.85
+          ],
+          16,
+          [
+            "case",
+            ["==", ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]], "service"],
+            1.8,
+            1.1
+          ],
+          17,
+          [
+            "case",
+            ["==", ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]], "service"],
+            2.5,
+            1.5
+          ],
+          18,
+          [
+            "case",
+            ["==", ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]], "service"],
+            3.5,
+            2.0
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-local-casing",
+      "type": "line",
+      "source": "local-basemap",
+      "source-layer": "streets",
+      "minzoom": 13,
+      "metadata": { "local-map:road-tier": "local casing z13+ residential — #d8d4cc, width = fill + 0.8px" },
+      "filter": [
+        "in",
+        ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]],
+        ["literal", ["residential", "unclassified", "living_street", "unknown"]]
+      ],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#d8d4cc",
+        "line-opacity": 1,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 13, 1.8, 14, 2.2, 15, 2.6, 16, 3.1, 17, 3.8, 18, 4.8]
+      }
+    },
+    {
+      "id": "road-local-fill",
+      "type": "line",
+      "source": "local-basemap",
+      "source-layer": "streets",
+      "minzoom": 13,
+      "metadata": { "local-map:road-tier": "local fill z13+ residential — white #ffffff, full opacity" },
+      "filter": [
+        "in",
+        ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]],
+        ["literal", ["residential", "unclassified", "living_street", "unknown"]]
+      ],
+      "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
         "line-color": "#ffffff",
-        "line-opacity": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          10, 0.62,
-          13, 0.82,
-          17, 0.94
-        ],
-        "line-width": [
-          "interpolate",
-          ["exponential", 1.45],
-          ["zoom"],
-          10, 1.488,
-          12, 2.232,
-          14, 4.216,
-          16, 7.936,
-          19, 16.74
-        ]
+        "line-opacity": 1,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 13, 1.0, 14, 1.4, 15, 1.8, 16, 2.3, 17, 3.0, 18, 4.0]
       }
     },
     {
-      "id": "road-fill",
+      "id": "road-medium-casing",
       "type": "line",
       "source": "local-basemap",
       "source-layer": "streets",
       "minzoom": 10,
-      "layout": {
-        "line-cap": "round",
-        "line-join": "round"
-      },
+      "metadata": { "local-map:road-tier": "medium casing z10+ — directly under road-medium-fill, width = fill + 1.2–1.5px" },
+      "filter": [
+        "in",
+        ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]],
+        ["literal", ["secondary", "tertiary"]]
+      ],
+      "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
-        "line-color": "#c1c4bf",
-        "line-opacity": [
+        "line-color": "#a89f92",
+        "line-opacity": 0.45,
+        "line-width": [
           "interpolate",
           ["linear"],
           ["zoom"],
-          10, 0.52,
-          13, 0.78,
-          17, 0.92
-        ],
+          11, 2.5,
+          13, 3.1,
+          14, 3.7,
+          15, 4.3,
+          17, 5.4
+        ]
+      }
+    },
+    {
+      "id": "road-medium-fill",
+      "type": "line",
+      "source": "local-basemap",
+      "source-layer": "streets",
+      "minzoom": 10,
+      "metadata": { "local-map:road-tier": "medium fill z10+ secondary/tertiary — warm light gray" },
+      "filter": [
+        "in",
+        ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]],
+        ["literal", ["secondary", "tertiary"]]
+      ],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#ebe6de",
+        "line-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.9, 13, 0.96, 16, 1],
         "line-width": [
           "interpolate",
-          ["exponential", 1.45],
+          ["linear"],
           ["zoom"],
-          10, 0.737,
-          12, 1.273,
-          14, 2.546,
-          16, 5.36,
-          19, 12.596
+          11, 1.2,
+          13, 1.8,
+          14, 2.4,
+          15, 3.0,
+          17, 4.0
+        ]
+      }
+    },
+    {
+      "id": "road-major-casing",
+      "type": "line",
+      "source": "local-basemap",
+      "source-layer": "streets",
+      "minzoom": 8,
+      "metadata": { "local-map:road-tier": "major casing z8+ — directly under road-major-fill, width = fill + 1.4–1.8px" },
+      "filter": [
+        "in",
+        ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]],
+        ["literal", ["motorway", "trunk", "primary"]]
+      ],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#c49a5c",
+        "line-opacity": 0.65,
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          9, 3.0,
+          11, 3.4,
+          13, 4.4,
+          15, 5.9,
+          17, 7.6
+        ]
+      }
+    },
+    {
+      "id": "road-major-fill",
+      "type": "line",
+      "source": "local-basemap",
+      "source-layer": "streets",
+      "minzoom": 8,
+      "metadata": { "local-map:road-tier": "major fill z8+ warm cream accent" },
+      "filter": [
+        "in",
+        ["downcase", ["coalesce", ["get", "road_class_code"], ["get", "road_class"], "unknown"]],
+        ["literal", ["motorway", "trunk", "primary"]]
+      ],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#fff4d4",
+        "line-opacity": ["interpolate", ["linear"], ["zoom"], 8, 0.92, 11, 0.96, 14, 1, 16, 1],
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          9, 1.6,
+          11, 2.0,
+          13, 3.0,
+          15, 4.5,
+          17, 6.0
+        ]
+      }
+    },
+    {
+      "id": "road-labels-major",
+      "type": "symbol",
+      "source": "local-basemap",
+      "source-layer": "road_labels",
+      "minzoom": 11,
+      "maxzoom": 20,
+      "metadata": { "local-map:road-tier": "labels z11+ major roads from road_labels only" },
+      "filter": [
+        "all",
+        [
+          "any",
+          ["==", ["coalesce", ["get", "layer_type"], "road_label"], "road_label"],
+          ["!", ["has", "layer_type"]]
+        ],
+        [
+          "in",
+          ["downcase", ["coalesce", ["get", "road_class_code"], "unknown"]],
+          ["literal", ["motorway", "trunk", "primary"]]
+        ],
+        ["!=", ["coalesce", ["get", "name"], ""], ""],
+        ["!=", ["index-of", "road-", ["downcase", ["coalesce", ["get", "name"], ""]]], 0]
+      ],
+      "layout": {
+        "symbol-placement": "line",
+        "symbol-spacing": 520,
+        "text-field": ["coalesce", ["get", "name_mm"], ["get", "name"], ["get", "name_en"]],
+        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 11, 10, 14, 11, 17, 12],
+        "text-padding": 6,
+        "text-max-angle": 28,
+        "text-rotation-alignment": "map",
+        "text-keep-upright": true,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#5a6268",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2,
+        "text-halo-blur": 0.3,
+        "text-opacity": ["interpolate", ["linear"], ["zoom"], 11, 0.82, 14, 0.92, 17, 0.94]
+      }
+    },
+    {
+      "id": "road-labels-medium",
+      "type": "symbol",
+      "source": "local-basemap",
+      "source-layer": "road_labels",
+      "minzoom": 12,
+      "maxzoom": 20,
+      "metadata": { "local-map:road-tier": "labels z12+ medium roads from road_labels only" },
+      "filter": [
+        "all",
+        [
+          "any",
+          ["==", ["coalesce", ["get", "layer_type"], "road_label"], "road_label"],
+          ["!", ["has", "layer_type"]]
+        ],
+        [
+          "in",
+          ["downcase", ["coalesce", ["get", "road_class_code"], "unknown"]],
+          ["literal", ["secondary", "tertiary"]]
+        ],
+        ["!=", ["coalesce", ["get", "name"], ""], ""],
+        ["!=", ["index-of", "road-", ["downcase", ["coalesce", ["get", "name"], ""]]], 0]
+      ],
+      "layout": {
+        "symbol-placement": "line",
+        "symbol-spacing": 560,
+        "text-field": ["coalesce", ["get", "name_mm"], ["get", "name"], ["get", "name_en"]],
+        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 12, 9.5, 15, 10.5, 17, 11],
+        "text-padding": 6,
+        "text-max-angle": 28,
+        "text-rotation-alignment": "map",
+        "text-keep-upright": true,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#5a6268",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2,
+        "text-halo-blur": 0.3,
+        "text-opacity": ["interpolate", ["linear"], ["zoom"], 12, 0.76, 15, 0.88, 17, 0.9]
+      }
+    },
+    {
+      "id": "road-labels-local",
+      "type": "symbol",
+      "source": "local-basemap",
+      "source-layer": "road_labels",
+      "minzoom": 14,
+      "maxzoom": 20,
+      "metadata": { "local-map:road-tier": "labels z14+ local named roads from road_labels only" },
+      "filter": [
+        "all",
+        [
+          "any",
+          ["==", ["coalesce", ["get", "layer_type"], "road_label"], "road_label"],
+          ["!", ["has", "layer_type"]]
+        ],
+        [
+          "in",
+          ["downcase", ["coalesce", ["get", "road_class_code"], "unknown"]],
+          ["literal", ["residential", "unclassified", "living_street"]]
+        ],
+        ["!=", ["coalesce", ["get", "name"], ""], ""],
+        ["!=", ["index-of", "road-", ["downcase", ["coalesce", ["get", "name"], ""]]], 0]
+      ],
+      "layout": {
+        "symbol-placement": "line",
+        "symbol-spacing": 600,
+        "text-field": ["coalesce", ["get", "name_mm"], ["get", "name"], ["get", "name_en"]],
+        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 14, 9, 16, 10, 18, 10.5],
+        "text-padding": 6,
+        "text-max-angle": 26,
+        "text-rotation-alignment": "map",
+        "text-keep-upright": true,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#636b72",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.15,
+        "text-halo-blur": 0.3,
+        "text-opacity": ["interpolate", ["linear"], ["zoom"], 14, 0.68, 16, 0.82, 18, 0.84]
+      }
+    },
+    {
+      "id": "admin-labels-township",
+      "type": "symbol",
+      "source": "local-basemap",
+      "source-layer": "admin_area_label_points",
+      "minzoom": 7,
+      "maxzoom": 13,
+      "filter": ["==", ["get", "admin_level_code"], "township"],
+      "layout": {
+        "symbol-placement": "point",
+        "symbol-avoid-edges": true,
+        "text-field": ["coalesce", ["get", "name_mm"], ["get", "name"], ["get", "name_en"]],
+        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-size": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          7, 11,
+          10, 13,
+          13, 15
+        ],
+        "text-line-height": 1.15,
+        "text-max-width": 10,
+        "text-padding": 48,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#475569",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2,
+        "text-halo-blur": 0.4,
+        "text-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          7, 0.72,
+          10, 0.88,
+          13, 0.92
+        ]
+      }
+    },
+    {
+      "id": "admin-labels-ward-village-tract",
+      "type": "symbol",
+      "source": "local-basemap",
+      "source-layer": "admin_area_label_points",
+      "minzoom": 10,
+      "maxzoom": 16,
+      "filter": ["==", ["get", "admin_level_code"], "ward_village_tract"],
+      "layout": {
+        "symbol-placement": "point",
+        "symbol-avoid-edges": true,
+        "text-field": ["coalesce", ["get", "name_mm"], ["get", "name"], ["get", "name_en"]],
+        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-size": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          10, 10,
+          13, 12,
+          16, 14
+        ],
+        "text-line-height": 1.15,
+        "text-max-width": 10,
+        "text-padding": 40,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#475569",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2,
+        "text-halo-blur": 0.4,
+        "text-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          10, 0.64,
+          13, 0.82,
+          16, 0.86
+        ]
+      }
+    },
+    {
+      "id": "admin-labels-village-local",
+      "type": "symbol",
+      "source": "local-basemap",
+      "source-layer": "admin_area_label_points",
+      "minzoom": 13,
+      "filter": [
+        "in",
+        ["get", "admin_level_code"],
+        ["literal", ["village", "locality", "hamlet", "neighborhood", "quarter"]]
+      ],
+      "layout": {
+        "symbol-placement": "point",
+        "symbol-avoid-edges": true,
+        "text-field": ["coalesce", ["get", "name_mm"], ["get", "name"], ["get", "name_en"]],
+        "text-font": ["NotoSansMyanmar-Regular"],
+        "text-size": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          13, 9,
+          15, 11,
+          17, 13
+        ],
+        "text-line-height": 1.15,
+        "text-max-width": 10,
+        "text-padding": 32,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#475569",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2,
+        "text-halo-blur": 0.4,
+        "text-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          13, 0.58,
+          15, 0.76,
+          17, 0.8
         ]
       }
     },
@@ -311,181 +659,9 @@
           ["zoom"],
           14, 0.48,
           17, 0.72,
-          22, 0.72
+          20, 0.72
         ],
         "fill-outline-color": "#c7beb2"
-      }
-    },
-    {
-      "id": "admin-neighborhood-labels",
-      "type": "symbol",
-      "source": "local-basemap",
-      "source-layer": "village_labels",
-      "minzoom": 14,
-      "maxzoom": 19,
-      "layout": {
-        "symbol-placement": "point",
-        "symbol-avoid-edges": true,
-        "text-field": [
-          "let",
-          "primary",
-          ["coalesce", ["get", "name_en"], ["get", "name"], ["get", "canonical_name"], ""],
-          "mm",
-          ["coalesce", ["get", "name_mm"], ""],
-          [
-            "case",
-            ["all", ["!=", ["var", "primary"], ""], ["!=", ["var", "mm"], ""], ["!=", ["var", "primary"], ["var", "mm"]]],
-            ["concat", ["var", "primary"], "\n", ["var", "mm"]],
-            ["!=", ["var", "primary"], ""],
-            ["var", "primary"],
-            ["var", "mm"]
-          ]
-        ],
-        "visibility": "visible",
-        "text-font": ["NotoSansMyanmar-Regular"],
-        "text-size": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          13, 12,
-          15, 15,
-          17, 17,
-          19, 18
-        ],
-        "text-line-height": 1.15,
-        "text-max-width": 10,
-        "text-padding": 80,
-        "text-allow-overlap": false,
-        "text-ignore-placement": false,
-        "text-optional": true
-      },
-      "paint": {
-        "text-color": "#475569",
-        "text-halo-color": "#ffffff",
-        "text-halo-width": 2.5,
-        "text-halo-blur": 0.5,
-        "text-opacity": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          14, 0.42,
-          15, 0.74,
-          17, 0.84,
-          19, 0.78
-        ]
-      }
-    },
-    {
-      "id": "admin-area-label-points",
-      "type": "symbol",
-      "source": "local-basemap",
-      "source-layer": "admin_area_label_points",
-      "minzoom": 13,
-      "maxzoom": 19,
-      "layout": {
-        "symbol-placement": "point",
-        "symbol-avoid-edges": true,
-        "text-field": [
-          "let",
-          "primary",
-          ["coalesce", ["get", "name_en"], ["get", "name"], ["get", "canonical_name"], ""],
-          "mm",
-          ["coalesce", ["get", "name_mm"], ""],
-          [
-            "case",
-            ["all", ["!=", ["var", "primary"], ""], ["!=", ["var", "mm"], ""], ["!=", ["var", "primary"], ["var", "mm"]]],
-            ["concat", ["var", "primary"], "\n", ["var", "mm"]],
-            ["!=", ["var", "mm"], ""],
-            ["var", "mm"],
-            ["var", "primary"]
-          ]
-        ],
-        "text-font": ["NotoSansMyanmar-Regular"],
-        "text-size": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          13, 11.5,
-          15, 13,
-          17, 14.5,
-          19, 15.5
-        ],
-        "text-line-height": 1.15,
-        "text-max-width": 10,
-        "text-padding": 88,
-        "text-allow-overlap": false,
-        "text-ignore-placement": false,
-        "text-optional": true
-      },
-      "paint": {
-        "text-color": "#475569",
-        "text-halo-color": "#ffffff",
-        "text-halo-width": 2.8,
-        "text-halo-blur": 0.5,
-        "text-opacity": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          13, 0.35,
-          14, 0.68,
-          17, 0.84,
-          19, 0.8
-        ]
-      }
-    },
-    {
-      "id": "road-labels",
-      "type": "symbol",
-      "source": "local-basemap",
-      "source-layer": "road_labels",
-      "minzoom": 13,
-      "filter": [
-        "!",
-        [
-          "match",
-          ["downcase", ["coalesce", ["get", "name_en"], ["get", "name"], ""]],
-          [
-            "unnamed street",
-            "unnamed road",
-            "unnamed tertiary",
-            "unnamed tertiary road",
-            "unnamed residential",
-            "unnamed residential road",
-            "unnamed unclassified",
-            "unnamed service"
-          ],
-          true,
-          false
-        ]
-      ],
-      "layout": {
-        "symbol-placement": "line",
-        "symbol-spacing": 350,
-        "text-field": [
-          "coalesce",
-          ["get", "name_mm"],
-          ["get", "name_en"],
-          ["get", "name"]
-        ],
-        "text-font": ["NotoSansMyanmar-Regular"],
-        "text-size": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          13, 10,
-          16, 11.5,
-          19, 14
-        ],
-        "text-padding": 4,
-        "text-max-angle": 30,
-        "text-rotation-alignment": "map",
-        "text-keep-upright": true
-      },
-      "paint": {
-        "text-color": "#4f575c",
-        "text-halo-color": "#ffffff",
-        "text-halo-width": 1.45,
-        "text-halo-blur": 0.25
       }
     }
   ]

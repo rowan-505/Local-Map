@@ -25,6 +25,7 @@ import {
     HistoryStatusBadge,
 } from "@/src/app/(admin)/dashboard/import-review/_components/importReviewHistoryUi";
 import ImportReviewPromotionCleanupPanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionCleanupPanel";
+import ImportReviewPromotionStaleBatchedReleasePanel from "@/src/app/(admin)/dashboard/import-review/_components/ImportReviewPromotionStaleBatchedReleasePanel";
 import ImportReviewErrorState from "@/src/features/import-review/components/ImportReviewErrorState";
 import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
 import ImportReviewSkeletonCards from "@/src/features/import-review/components/ImportReviewSkeletonCards";
@@ -245,6 +246,9 @@ export default function ImportReviewHistoryReviewBatchDetailClient() {
                         </section>
 
                         <CollapsibleJson label="Upload batch summary (JSON)" value={data.summary} />
+                        <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                            <ImportReviewPromotionStaleBatchedReleasePanel reviewBatchId={id} />
+                        </section>
                         <ImportReviewPromotionCleanupPanel reviewBatchId={id} />
                     </>
                 ) : null}

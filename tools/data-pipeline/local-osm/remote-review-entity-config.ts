@@ -1,6 +1,10 @@
 /**
  * Stage J/K entity mapping: local staging package items → Supabase import_review.*
  * Read-only upload workspace — never promotes to core.
+ *
+ * Candidate tables (Stage 12):
+ *   admin_areas → import_review.admin_area_candidates
+ *   roads       → import_review.road_candidates
  */
 
 export const REMOTE_REVIEW_ENTITY_FAMILIES = [
@@ -381,7 +385,22 @@ export function isEntityFamilySlug(v: string): v is EntityFamilySlug {
   return (REMOTE_REVIEW_ENTITY_FAMILIES as readonly string[]).includes(v);
 }
 
-/** Parse `--entity-family=all|buildings,places` or env string. null = all families. */
+/** Clamp/validate pipeline confidence scores (0–100 scale). */
+export function parseConfidenceScore(raw: string | number | null | undefined): number | null {
+  if (raw === null || raw === undefined) return null;
+  const s = typeof raw === 'number' ? String(raw) : raw.trim();
+  if (s === '') return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) {
+    throw new Error(`confidence_score is not numeric: ${String(raw).slice(0, 64)}`);
+  }
+  if (n < 0 || n > 100) {
+    throw new Error(`confidence_score must be 0–100, got ${n}`);
+  }
+  return n;
+}
+
+/** Parse `--entity-family=all|admin_areas,roads` or env string. null = all families. */
 export function parseEntityFamilyFilter(raw: string | undefined): EntityFamilySlug[] | null {
   const s = (raw ?? '').trim().toLowerCase();
   if (s === '' || s === 'all' || s === '*') return null;
@@ -418,7 +437,16 @@ export function resolveEntityFamiliesForUpload(params: {
     return orderedItems;
   }
   const filterSet = new Set(params.filter);
-  return orderedItems.filter((f) => filterSet.has(f));
+  return REMOTE_REVIEW_ENTITY_FAMILIES.filter((f) => filterSet.has(f) && itemSet.has(f));
+}
+
+/** Families requested by filter but absent from package_items (zero rows). */
+export function filterFamiliesWithoutPackageItems(params: {
+  filter: EntityFamilySlug[] | null;
+  packageItemCounts: Record<EntityFamilySlug, number>;
+}): EntityFamilySlug[] {
+  if (params.filter === null) return [];
+  return params.filter.filter((f) => (params.packageItemCounts[f] ?? 0) === 0);
 }
 
 export function importReviewTableQualified(family: EntityFamilySlug): string {

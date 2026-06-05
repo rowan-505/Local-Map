@@ -109,7 +109,7 @@ Record on each rebuild (paste into PR / release notes):
 1. Run `npm run tiles:verify:overview` — file exists, `PMTiles` header OK.
 2. Record **file size**; flag if size jumps >~20% without explanation.
 3. Re-run **§2 Data rules** at z4, z6, z8 — especially no accidental OSM layers in tippecanoe inputs.
-4. Confirm all **10 source-layers** still present: `land`, `ocean`, `coastline`, `countries`, `country_boundaries`, `populated_places`, `lakes`, `rivers`, `mmr_admin0`, `mmr_admin1`.
+4. Confirm all **12 source-layers** still present: `land`, `ocean`, `coastline`, `countries`, `country_boundaries`, `populated_places`, `lakes`, `rivers`, `mmr_admin0_z0_2`, `mmr_admin0_z3_4`, `mmr_admin0_z5_6`, `mmr_admin1`. Must **not** include `mmr_country_highlight`, `mmr_admin0`, or `mmr_admin0_overview`.
 5. Pan to **edges** (Arakan coast, Shan plateau, Tanintharyi) — no tile gaps or wrong projection.
 
 ### After changing MapLibre style (`overview-map.json` / filters)

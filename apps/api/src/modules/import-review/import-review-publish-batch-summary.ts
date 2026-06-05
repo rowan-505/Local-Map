@@ -23,7 +23,6 @@ export type PublishBatchDerivedStatus =
     | "partial"
     | "ready"
     | "promoted"
-    | "partially_promoted"
     | "failed"
     | "invalid_empty_promoted"
     | "archived";
@@ -59,7 +58,6 @@ export type PublishBatchStoredStatus =
     | "partial"
     | "promoting"
     | "promoted"
-    | "partially_promoted"
     | "failed"
     | "blocked"
     | "archived";
@@ -226,7 +224,7 @@ export function parsePromotionStatusFromSummary(summary: unknown): string | null
     const pr = root.promotion_result;
     if (pr && typeof pr === "object" && !Array.isArray(pr)) {
         const status = (pr as Record<string, unknown>).status;
-        if (status === "promoted" || status === "partially_promoted") {
+        if (status === "promoted" || status === "partial") {
             return status;
         }
         if (status === "failed" || status === "promotion_failed") {
@@ -304,7 +302,6 @@ function asStoredStatus(status: string): PublishBatchStoredStatus {
         "partial",
         "promoting",
         "promoted",
-        "partially_promoted",
         "failed",
         "blocked",
         "archived",
@@ -381,8 +378,19 @@ export function isGenuinelyPromotedBatch(input: PublishBatchSummaryInput): boole
     );
 }
 
+function batchHasPromotablePendingItems(input: PublishBatchSummaryInput): boolean {
+    return input.can_promote !== false && input.item_counts.pending > 0;
+}
+
+function validationBlockedWithNoPromotable(input: PublishBatchSummaryInput): boolean {
+    return (
+        (input.stored_status === "blocked" || input.validation_outcome === "blocked") &&
+        input.can_promote === false
+    );
+}
+
 function failedRecommendation(input: PublishBatchSummaryInput): PublishBatchStoredStatus {
-    if (input.stored_status === "blocked" || input.validation_outcome === "blocked") {
+    if (validationBlockedWithNoPromotable(input)) {
         return "blocked";
     }
     return "failed";
@@ -433,7 +441,22 @@ export function derivePublishBatchStatus(input: PublishBatchSummaryInput): Publi
         );
     }
 
-    if (stored_status === "blocked" || input.validation_outcome === "blocked") {
+    if (batchHasPromotablePendingItems(input)) {
+        const partialNote =
+            input.item_counts.pending > 0
+                ? "Some items are promotable; blocked items remain pending."
+                : null;
+        if (
+            stored_status === "partial" ||
+            input.validation_outcome === "partial" ||
+            stored_status === "blocked" ||
+            input.validation_outcome === "blocked"
+        ) {
+            return buildDerivedResult(input, "partial", "partial", partialNote);
+        }
+    }
+
+    if (validationBlockedWithNoPromotable(input)) {
         return buildDerivedResult(input, "blocked", "blocked", null);
     }
 
@@ -455,11 +478,11 @@ export function derivePublishBatchStatus(input: PublishBatchSummaryInput): Publi
         );
     }
 
-    if (stored_status === "partially_promoted") {
+    if (stored_status === "partial") {
         return buildDerivedResult(
             input,
-            "partially_promoted",
-            "partially_promoted",
+            "partial",
+            "partial",
             input.item_counts.pending > 0
                 ? `${input.item_counts.success} promoted; ${input.item_counts.pending} still pending.`
                 : null
@@ -481,7 +504,7 @@ export function derivePublishBatchStatus(input: PublishBatchSummaryInput): Publi
     if (success > 0 && failed > 0) {
         return buildDerivedResult(
             input,
-            "partially_promoted",
+            "partial",
             failedRecommendation(input),
             `${success} succeeded, ${failed} failed.`
         );
@@ -490,7 +513,7 @@ export function derivePublishBatchStatus(input: PublishBatchSummaryInput): Publi
     if (success > 0 && (core_verified_count < success || import_review_marked_promoted_count < success)) {
         return buildDerivedResult(
             input,
-            "partially_promoted",
+            "partial",
             failedRecommendation(input),
             "Some successful items lack core verification or import_review promotion marking."
         );
@@ -515,17 +538,26 @@ export function derivePublishBatchStatus(input: PublishBatchSummaryInput): Publi
         input.validated_at != null &&
         input.promoted_at == null &&
         input.can_promote &&
-        (input.validation_outcome === "passed" || input.validation_outcome === "partial") &&
         pending === total &&
         total > 0
     ) {
         const derivedStatus: PublishBatchDerivedStatus =
-            input.stored_status === "partial" ? "partial" : "ready";
+            stored_status === "partial" ||
+            stored_status === "blocked" ||
+            input.validation_outcome === "blocked"
+                ? "partial"
+                : "ready";
         return buildDerivedResult(input, derivedStatus, derivedStatus, null);
     }
 
-    if (stored_status === "ready" || stored_status === "partial") {
-        return buildDerivedResult(input, stored_status, stored_status, null);
+    if (stored_status === "ready" || stored_status === "partial" || stored_status === "blocked") {
+        const recommendation: PublishBatchStoredStatus =
+            stored_status === "blocked" && batchHasPromotablePendingItems(input)
+                ? "partial"
+                : stored_status;
+        const derived: PublishBatchDerivedStatus =
+            recommendation === "partial" ? "partial" : stored_status === "blocked" ? "blocked" : stored_status;
+        return buildDerivedResult(input, derived, recommendation, null);
     }
 
     if (stored_status === "failed") {
@@ -534,7 +566,7 @@ export function derivePublishBatchStatus(input: PublishBatchSummaryInput): Publi
 
     return buildDerivedResult(
         input,
-        stored_status === "promoted" ? "partially_promoted" : "ready",
+        stored_status === "promoted" ? "partial" : "ready",
         storedRec,
         null
     );

@@ -65,6 +65,8 @@ type AddressDetail = CoreReviewAddressRow & {
 
 type AdminAreaDetail = CoreReviewAdminAreaRow & {
     sourceTypeId?: string | null;
+    nameMm?: string | null;
+    nameEn?: string | null;
 };
 
 type MapFeatureDetail = CoreReviewMapFeatureRow & {
@@ -775,6 +777,8 @@ function adminAreaFormSchema(_mode: CoreEntityFormMode) {
     return z
         .object({
             canonical_name: z.string().trim().min(1, "Canonical name is required"),
+            name_mm: optionalStringSchema,
+            name_en: optionalStringSchema,
             slug: optionalStringSchema,
             parent_id: optionalStringSchema,
             admin_level_id: z.string().min(1, "Admin level is required"),
@@ -820,6 +824,8 @@ function adminAreaPayload(values: CoreEntityFormValues) {
     }
     return {
         canonical_name: canonicalName,
+        name_mm: nullableFormString(values.name_mm),
+        name_en: nullableFormString(values.name_en),
         slug: nullableFormString(values.slug),
         adminLevelId,
         admin_level_id: adminLevelId,
@@ -859,9 +865,13 @@ export const ADMIN_AREAS_ENTITY_CONFIG = baseWriteConfig<AdminAreaDetail>({
         geometryType: "polygon",
         title: "Admin boundary",
         showVertices: true,
+        autoEnterVertexEdit: false,
+        basemapOnly: true,
     },
     editableFields: [
         { key: "canonical_name", label: "Canonical name", type: "text", required: true },
+        { key: "name_mm", label: "Myanmar name", type: "text" },
+        { key: "name_en", label: "English name", type: "text" },
         { key: "slug", label: "Slug", type: "text" },
         { key: "parent_id", label: "Parent admin area", type: "ref", refSource: "admin-areas" },
         {
@@ -894,6 +904,8 @@ export const ADMIN_AREAS_ENTITY_CONFIG = baseWriteConfig<AdminAreaDetail>({
     ],
     defaultFormValues: {
         canonical_name: "",
+        name_mm: "",
+        name_en: "",
         slug: "",
         parent_id: "",
         admin_level_id: "",
@@ -910,6 +922,8 @@ export const ADMIN_AREAS_ENTITY_CONFIG = baseWriteConfig<AdminAreaDetail>({
     formSchema: adminAreaFormSchema,
     detailToFormValues: (detail) => ({
         canonical_name: str(detail.canonicalName),
+        name_mm: str(detail.nameMm),
+        name_en: str(detail.nameEn),
         slug: str(detail.slug),
         parent_id: str(detail.parentId),
         admin_level_id: str(detail.adminLevelId),

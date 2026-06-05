@@ -11,9 +11,12 @@ import { IMPORT_REVIEW_LOADING } from "../../utils/loadingMessages";
 export default function CandidateValidationSection({
     row,
     isLoadingDetail = false,
+    showRoadRoutingWarningBanner = false,
 }: {
     row: ImportReviewBuildingListItem;
     isLoadingDetail?: boolean;
+    /** Roads: routing warnings are informational only. */
+    showRoadRoutingWarningBanner?: boolean;
 }) {
     const errors = validationMessagesFromReviewJson(row.validation_errors);
     const warnings = validationMessagesFromReviewJson(row.validation_warnings);
@@ -39,6 +42,11 @@ export default function CandidateValidationSection({
             {hasWarnings ? (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
                     <span className="font-semibold uppercase tracking-wide">Warnings</span>
+                    {showRoadRoutingWarningBanner ? (
+                        <p className="mt-2 font-normal text-amber-950/90">
+                            Routing warning only — does not block save, approval, or promotion.
+                        </p>
+                    ) : null}
                     {warnings.length > 0 ? (
                         <ul className="mt-2 list-disc space-y-1 pl-4 font-normal">
                             {warnings.map((w) => (

@@ -298,23 +298,7 @@ export async function buildEssentialDefaultOverridesPatch(
         }
     }
 
-    if (family === "roads") {
-        const roadClassId = await resolveRoadClassId(ctx, overrides, refRepo);
-        if (
-            roadClassId !== null &&
-            parseBigintId(overrides.road_class_id) === null &&
-            ctx.road_class_id === null
-        ) {
-            patch.road_class_id = Number(roadClassId);
-        }
-        if (!Object.prototype.hasOwnProperty.call(overrides, "is_oneway")) {
-            patch.is_oneway = false;
-        }
-        const adminId = await resolveAdminAreaId(family, ctx, overrides, essentialRepo);
-        if (adminId !== null && parseBigintId(overrides.admin_area_id) === null) {
-            patch.admin_area_id = Number(adminId);
-        }
-    }
+    /** Roads: do not auto-fill admin_area_id or road_class_id on save — promotion may derive them later. */
 
     if (family === "landuse" || family === "water_lines" || family === "water_polygons") {
         if (!resolveClassCode(ctx, overrides)) {

@@ -18,6 +18,14 @@ import {
     getImportReviewPublishFamilyConfig,
 } from "./import-review-promotion-config.js";
 import {
+    CREATE_BATCH_NO_ELIGIBLE_MESSAGE,
+    buildSelectCreateBatchEligibleCandidateIdsSql,
+} from "./import-review-promotion-create-batch-eligibility.js";
+import {
+    buildFamilyPromotionScopeCountSql,
+    type FamilyPromotionScopeCountDb,
+} from "./import-review-promotion-scope-counts.js";
+import {
     buildFamilyEligibilityCountSql,
     buildInsertPublishItemsByIdsSql,
     buildMarkBatchedByIdsSql,
@@ -25,6 +33,11 @@ import {
     type FamilyEligibilityCountDb,
     type PublishEligibilityOptions,
 } from "./import-review-promotion-eligibility.js";
+import {
+    buildFamilyEligibilityReadonlyCountSql,
+    type FamilyEligibilityReadonlyCountDb,
+} from "./import-review-promotion-eligibility-readonly.js";
+import { reconcileRoadDuplicateExternalIds } from "./import-review-promotion-road-duplicate-external-id.js";
 import { requireValidPublishStageStatus } from "./import-review-promotion-stage-status.js";
 
 const BUILDING_CANDIDATE_TABLE = "import_review.building_candidates";
@@ -202,11 +215,7 @@ function publishActionExpr(): Prisma.Sql {
 }
 
 export class ImportReviewPromotionRepository {
-    constructor(private readonly prisma: PrismaClient) {}
-
-    getPrisma(): PrismaClient {
-        return this.prisma;
-    }
+    constructor(readonly prisma: PrismaClient) {}
 
     async resolveScope(query: ImportReviewScopeQuery): Promise<ImportReviewScopeResolved> {
         return resolveImportReviewBatchScope(this.prisma, query);
@@ -515,6 +524,33 @@ export class ImportReviewPromotionRepository {
         return rows[0] ?? null;
     }
 
+    /** Read-only scope counts for GET /promotion/eligibility (no validation or candidate writes). */
+    async countFamilyEligibilityReadonly(
+        config: ImportReviewPublishFamilyConfig,
+        reviewBatchId: bigint
+    ): Promise<FamilyEligibilityReadonlyCountDb | null> {
+        if (!(await this.pgRegclassExists(config.candidateTable))) {
+            return null;
+        }
+        const sql = buildFamilyEligibilityReadonlyCountSql(config, reviewBatchId);
+        const rows = await this.prisma.$queryRaw<FamilyEligibilityReadonlyCountDb[]>`${sql}`;
+        return rows[0] ?? null;
+    }
+
+    /** Promotion scope page counts (ready now, retry, active/stale locked, promoted). */
+    async countFamilyPromotionScope(
+        config: ImportReviewPublishFamilyConfig,
+        reviewBatchId: bigint,
+        options: PublishEligibilityOptions
+    ): Promise<FamilyPromotionScopeCountDb | null> {
+        if (!(await this.pgRegclassExists(config.candidateTable))) {
+            return null;
+        }
+        const sql = buildFamilyPromotionScopeCountSql(config, reviewBatchId, options);
+        const rows = await this.prisma.$queryRaw<FamilyPromotionScopeCountDb[]>`${sql}`;
+        return rows[0] ?? null;
+    }
+
     async countBatchEligibilityByFamilies(args: {
         scope: ImportReviewScopeResolved;
         families: ImportReviewPublishFamilyConfig[];
@@ -594,9 +630,28 @@ export class ImportReviewPromotionRepository {
         const readyCount = byFamily.reduce((sum, f) => sum + f.included, 0);
         return new ImportReviewPromotionNoEligibleCandidatesError(
             readyCount,
-            "No eligible candidates for publish batch creation. Review per-family skipped reasons.",
+            CREATE_BATCH_NO_ELIGIBLE_MESSAGE,
             byFamily
         );
+    }
+
+    async selectCreateBatchEligibleCandidateIds(
+        config: ImportReviewPublishFamilyConfig,
+        reviewBatchId: bigint,
+        options: PublishEligibilityOptions,
+        selectOptions?: { limit?: number; candidateIds?: readonly bigint[] }
+    ): Promise<bigint[]> {
+        if (!(await this.pgRegclassExists(config.candidateTable))) {
+            return [];
+        }
+        const sql = buildSelectCreateBatchEligibleCandidateIdsSql(
+            config,
+            reviewBatchId,
+            options,
+            selectOptions
+        );
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`${sql}`;
+        return rows.map((r) => r.id);
     }
 
     async batchNameExists(batchName: string): Promise<boolean> {
@@ -623,27 +678,35 @@ export class ImportReviewPromotionRepository {
         tx: Prisma.TransactionClient,
         config: ImportReviewPublishFamilyConfig,
         batchId: bigint,
-        candidateIds: bigint[]
-    ): Promise<number> {
+        candidateIds: bigint[],
+        reviewBatchId: bigint,
+        options: PublishEligibilityOptions
+    ): Promise<{ inserted: number; candidateIds: bigint[] }> {
         if (candidateIds.length === 0) {
-            return 0;
+            return { inserted: 0, candidateIds: [] };
         }
         let inserted = 0;
+        const insertedCandidateIds: bigint[] = [];
         for (let i = 0; i < candidateIds.length; i += PUBLISH_ITEM_INSERT_CHUNK_SIZE) {
             const chunk = candidateIds.slice(i, i + PUBLISH_ITEM_INSERT_CHUNK_SIZE);
-            const rows = await tx.$queryRaw<{ id: bigint }[]>`
-                ${buildInsertPublishItemsByIdsSql(config, batchId, chunk)}
-                RETURNING id
+            const rows = await tx.$queryRaw<{ review_candidate_id: bigint }[]>`
+                ${buildInsertPublishItemsByIdsSql(config, batchId, chunk, reviewBatchId, options)}
+                RETURNING review_candidate_id
             `;
             inserted += rows.length;
+            for (const row of rows) {
+                insertedCandidateIds.push(row.review_candidate_id);
+            }
         }
-        return inserted;
+        return { inserted, candidateIds: insertedCandidateIds };
     }
 
     private async markCandidatesBatchedByIdsChunked(
         tx: Prisma.TransactionClient,
         config: ImportReviewPublishFamilyConfig,
-        candidateIds: bigint[]
+        candidateIds: bigint[],
+        reviewBatchId: bigint,
+        options: PublishEligibilityOptions
     ): Promise<number> {
         if (candidateIds.length === 0) {
             return 0;
@@ -651,7 +714,12 @@ export class ImportReviewPromotionRepository {
         let marked = 0;
         for (let i = 0; i < candidateIds.length; i += PUBLISH_ITEM_INSERT_CHUNK_SIZE) {
             const chunk = candidateIds.slice(i, i + PUBLISH_ITEM_INSERT_CHUNK_SIZE);
-            const count = await tx.$executeRaw`${buildMarkBatchedByIdsSql(config, chunk)}`;
+            const count = await tx.$executeRaw`${buildMarkBatchedByIdsSql(
+                config,
+                chunk,
+                reviewBatchId,
+                options
+            )}`;
             marked += Number(count);
         }
         return marked;
@@ -664,8 +732,9 @@ export class ImportReviewPromotionRepository {
         families: ImportReviewPublishFamilyConfig[];
         options: PublishEligibilityOptions;
         createdByUserId: bigint | null;
-        /** When set, skips eligibility re-query and uses these candidate ids per family. */
+        /** Pre-selected ids (re-filtered with create-batch eligibility before insert). */
         candidateIdsByFamily?: Readonly<Record<string, readonly bigint[]>>;
+        limitPerFamily?: Readonly<Record<string, number>>;
     }): Promise<MultiFamilyBatchCreateResult> {
         const totalStart = Date.now();
         let resolveMs = 0;
@@ -686,47 +755,27 @@ export class ImportReviewPromotionRepository {
             skippedReasons: ImportReviewPromotionSkippedReasonCount[];
         }> = [];
 
-        if (args.candidateIdsByFamily) {
-            for (const config of args.families) {
-                const candidateIds = [...(args.candidateIdsByFamily[config.entityFamily] ?? [])];
-                if (candidateIds.length === 0) {
-                    continue;
+        for (const config of args.families) {
+            const preselected = args.candidateIdsByFamily?.[config.entityFamily];
+            const familyLimit = args.limitPerFamily?.[config.entityFamily];
+            const candidateIds = await this.selectCreateBatchEligibleCandidateIds(
+                config,
+                args.scope.reviewBatchId,
+                args.options,
+                {
+                    limit: familyLimit,
+                    candidateIds:
+                        preselected && preselected.length > 0 ? [...preselected] : undefined,
                 }
-                familyCandidateIds.push({
-                    config,
-                    candidateIds,
-                    skippedReasons: [],
-                });
+            );
+            if (candidateIds.length === 0) {
+                continue;
             }
-        } else {
-            const preCounts = await this.countBatchEligibilityByFamilies({
-                scope: args.scope,
-                families: args.families,
-                options: args.options,
+            familyCandidateIds.push({
+                config,
+                candidateIds,
+                skippedReasons: [],
             });
-            const readyCount = preCounts.reduce((sum, row) => sum + Number(row.approved_ready), 0);
-            if (readyCount === 0) {
-                throw this.buildNoEligibleError(preCounts);
-            }
-
-            const countsByFamily = new Map(preCounts.map((row) => [row.entity_family, row]));
-
-            for (const config of args.families) {
-                const countRow = countsByFamily.get(config.entityFamily);
-                if (!countRow || Number(countRow.approved_ready) === 0) {
-                    continue;
-                }
-                const candidateIds = await this.selectEligibleCandidateIds(
-                    config,
-                    args.scope.reviewBatchId,
-                    args.options
-                );
-                familyCandidateIds.push({
-                    config,
-                    candidateIds,
-                    skippedReasons: mapSkippedReasons(countRow),
-                });
-            }
         }
         eligibilityMs = Date.now() - eligibilityStart;
 
@@ -735,7 +784,7 @@ export class ImportReviewPromotionRepository {
         if (totalSelected === 0) {
             throw new ImportReviewPromotionNoEligibleCandidatesError(
                 0,
-                "No candidates found for publish batch creation.",
+                CREATE_BATCH_NO_ELIGIBLE_MESSAGE,
                 args.families.map((cfg) => ({
                     entity_family: cfg.entityFamily,
                     included: 0,
@@ -831,23 +880,33 @@ export class ImportReviewPromotionRepository {
                 const byFamily: MultiFamilyBatchCreateResult["byFamily"] = [];
 
                 for (const { config, candidateIds, skippedReasons } of familyCandidateIds) {
-                    const familyItems = await this.insertPublishItemsByIdsChunked(
+                    if (config.entityFamily === "roads" && candidateIds.length > 0) {
+                        await reconcileRoadDuplicateExternalIds(tx, {
+                            reviewBatchId: args.scope.reviewBatchId,
+                            candidateIds,
+                        });
+                    }
+                    const insertResult = await this.insertPublishItemsByIdsChunked(
                         tx,
                         config,
                         batch.id,
-                        candidateIds
+                        candidateIds,
+                        args.scope.reviewBatchId,
+                        args.options
                     );
                     const marked = await this.markCandidatesBatchedByIdsChunked(
                         tx,
                         config,
-                        candidateIds
+                        insertResult.candidateIds,
+                        args.scope.reviewBatchId,
+                        args.options
                     );
 
-                    itemsAdded += familyItems;
+                    itemsAdded += insertResult.inserted;
                     candidatesMarked += marked;
                     byFamily.push({
                         entity_family: config.entityFamily,
-                        items_added: familyItems,
+                        items_added: insertResult.inserted,
                         marked_batched: marked,
                         skipped_reasons: skippedReasons,
                     });
@@ -855,8 +914,8 @@ export class ImportReviewPromotionRepository {
 
                 if (itemsAdded === 0) {
                     throw new ImportReviewPromotionNoEligibleCandidatesError(
-                        totalSelected,
-                        "Eligible candidates changed during batch creation (concurrent publish). Retry.",
+                        0,
+                        CREATE_BATCH_NO_ELIGIBLE_MESSAGE,
                         byFamily.map((f) => ({
                             entity_family: f.entity_family,
                             included: f.items_added,

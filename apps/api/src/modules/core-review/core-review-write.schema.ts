@@ -187,6 +187,8 @@ export const coreReviewCreateStreetSchema = z
         geometry: lineStringGeometrySchema,
         myanmarName: optionalTrimmedString,
         englishName: optionalTrimmedString,
+        name_mm: optionalTrimmedString,
+        name_en: optionalTrimmedString,
         roadClassId: requiredBigintId,
         road_class_id: requiredBigintId,
         adminAreaId: nullableBigintId,
@@ -199,7 +201,11 @@ export const coreReviewCreateStreetSchema = z
         ...coreReviewVerificationWriteFields,
     })
     .refine(
-        (v) => Boolean(v.myanmarName?.trim()) || Boolean(v.englishName?.trim()),
+        (v) =>
+            Boolean(v.myanmarName?.trim()) ||
+            Boolean(v.englishName?.trim()) ||
+            Boolean(v.name_mm?.trim()) ||
+            Boolean(v.name_en?.trim()),
         { message: "myanmarName or englishName is required", path: ["myanmarName"] },
     );
 
@@ -208,6 +214,8 @@ export const coreReviewPatchStreetSchema = z
         geometry: lineStringGeometrySchema.optional(),
         myanmarName: optionalTrimmedString,
         englishName: optionalTrimmedString,
+        name_mm: optionalTrimmedString,
+        name_en: optionalTrimmedString,
         roadClassId: nullableBigintId,
         road_class_id: nullableBigintId,
         adminAreaId: nullableBigintId,
@@ -564,6 +572,10 @@ export const coreReviewCreateAdminAreaSchema = z
         address_usage: optionalTrimmedString,
         boundaryNote: nullableTrimmedString,
         boundary_note: nullableTrimmedString,
+        nameMm: nullableTrimmedString,
+        name_mm: nullableTrimmedString,
+        nameEn: nullableTrimmedString,
+        name_en: nullableTrimmedString,
         geometry: polygonOrMultiPolygonSchema.optional(),
         geom: polygonOrMultiPolygonSchema.optional(),
     })
@@ -604,6 +616,10 @@ export const coreReviewPatchAdminAreaSchema = z
         address_usage: optionalTrimmedString,
         boundaryNote: nullableTrimmedString,
         boundary_note: nullableTrimmedString,
+        nameMm: nullableTrimmedString,
+        name_mm: nullableTrimmedString,
+        nameEn: nullableTrimmedString,
+        name_en: nullableTrimmedString,
         geometry: polygonOrMultiPolygonSchema.optional(),
         geom: polygonOrMultiPolygonSchema.optional(),
     })

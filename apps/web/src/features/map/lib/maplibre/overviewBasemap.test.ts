@@ -92,17 +92,72 @@ describe('overview label text-field', () => {
     assert.deepEqual(places?.layout?.['text-field'], OVERVIEW_POPULATED_PLACES_TEXT_FIELD);
   });
 
-  it('boundary line-opacity uses top-level interpolate (zoom not nested)', () => {
-    for (const id of [
-      'overview-coastline',
-      'overview-country-boundaries',
-      'overview-mmr-admin0-outline',
-      'overview-mmr-admin1-boundaries',
-    ] as const) {
+  it('boundary line-opacity uses top-level interpolate or constant (no nested zoom)', () => {
+    for (const id of ['overview-coastline', 'myanmar-internal-admin-boundary-line'] as const) {
       const opacity = layers.find((l) => l.id === id)?.paint?.['line-opacity'];
       assert.ok(Array.isArray(opacity) && opacity[0] === 'interpolate');
       assert.equal(JSON.stringify(opacity).includes('"*"'), false);
     }
+    const neighbor = layers.find((l) => l.id === 'neighbor-country-boundary-line');
+    assert.equal((neighbor?.paint?.['line-opacity'] as unknown[])?.[0], 'interpolate');
+    const admin0 = layers.find((l) => l.id === 'myanmar-admin0-boundary-line-z56');
+    assert.equal((admin0?.paint?.['line-opacity'] as unknown[])?.[0], 'interpolate');
+    const casing = layers.find((l) => l.id === 'myanmar-admin0-boundary-casing-z56');
+    assert.equal((casing?.paint?.['line-opacity'] as unknown[])?.[0], 'interpolate');
+    const casingWidth = casing?.paint?.['line-width'];
+    assert.ok(Array.isArray(casingWidth) && casingWidth[0] === 'interpolate');
+    assert.equal(JSON.stringify(casingWidth).includes('"+"'), false);
+  });
+
+  it('paints Myanmar admin0 above neighbor and internal boundaries', () => {
+    const ids = layers.map((l) => l.id);
+    assert.ok(
+      ids.indexOf('neighbor-country-boundary-line') < ids.indexOf('myanmar-admin0-boundary-casing-z02'),
+      'neighbor boundaries below Myanmar admin0 casing',
+    );
+    assert.ok(
+      ids.indexOf('myanmar-internal-admin-boundary-line') < ids.indexOf('myanmar-admin0-boundary-line-z56'),
+      'internal admin boundaries below Myanmar admin0 line',
+    );
+    assert.ok(
+      ids.indexOf('myanmar-admin0-boundary-casing-z56') < ids.indexOf('myanmar-admin0-boundary-line-z56'),
+      'casing below main Myanmar admin0 line',
+    );
+    assert.ok(
+      ids.indexOf('myanmar-admin0-boundary-line-z56') < ids.indexOf('overview-country-labels'),
+      'Myanmar admin0 line below labels',
+    );
+  });
+
+  it('Myanmar admin0 uses zoom-tier source-layers and hides at z7', () => {
+    const tiers = [
+      { line: 'myanmar-admin0-boundary-line-z02', casing: 'myanmar-admin0-boundary-casing-z02', sl: 'mmr_admin0_z0_2', min: 0, max: 3 },
+      { line: 'myanmar-admin0-boundary-line-z34', casing: 'myanmar-admin0-boundary-casing-z34', sl: 'mmr_admin0_z3_4', min: 3, max: 5 },
+      { line: 'myanmar-admin0-boundary-line-z56', casing: 'myanmar-admin0-boundary-casing-z56', sl: 'mmr_admin0_z5_6', min: 5, max: 7 },
+    ] as const;
+    for (const tier of tiers) {
+      const line = layers.find((l) => l.id === tier.line);
+      const casing = layers.find((l) => l.id === tier.casing);
+      assert.equal(line?.['source-layer'], tier.sl);
+      assert.equal(casing?.['source-layer'], tier.sl);
+      assert.equal(line?.minzoom, tier.min);
+      assert.equal(line?.maxzoom, tier.max);
+      assert.equal(casing?.maxzoom, tier.max);
+    }
+    const admin0 = JSON.stringify(
+      layers.find((l) => l.id === 'myanmar-admin0-boundary-line-z56')?.paint?.['line-width'],
+    );
+    const casingWidth = JSON.stringify(
+      layers.find((l) => l.id === 'myanmar-admin0-boundary-casing-z56')?.paint?.['line-width'],
+    );
+    assert.ok(admin0.includes('0,0.9') && admin0.includes('6,1.65'));
+    assert.ok(casingWidth.includes('0,1.4') && casingWidth.includes('6,2.2'));
+    assert.equal(
+      layers.find((l) => l.id === 'myanmar-admin0-boundary-line-z56')?.paint?.['line-color'],
+      '#5f5478',
+    );
+    assert.equal(layers.find((l) => l.id === 'myanmar-internal-admin-boundary-line')?.minzoom, 3);
+    assert.equal(layers.find((l) => l.id === 'myanmar-internal-admin-boundary-line')?.maxzoom, 10);
   });
 
   it('country and place labels do not use regional-only name_mm/name_en fields', () => {

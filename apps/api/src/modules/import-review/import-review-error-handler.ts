@@ -1,5 +1,5 @@
-import type { FastifyReply } from "fastify";
 import { Prisma } from "@prisma/client";
+import type { FastifyReply } from "fastify";
 
 import { extractPrismaRawQueryErrorDetails } from "./import-review-prisma-raw-error.js";
 
@@ -12,6 +12,7 @@ import {
     ImportReviewInvalidScopeError,
     ImportReviewPlaceNotFoundError,
     ImportReviewRoadNotFoundError,
+    ImportReviewBulkDuplicateApprovalError,
     ImportReviewRoadOverridesValidationFailedError,
     ImportReviewRoadOverridesWarningsPendingError,
 } from "./import-review-errors.js";
@@ -33,6 +34,7 @@ import {
     ImportReviewPublishBatchValidationConflictError,
     ImportReviewPublishBatchValidationNotRunningError,
     ImportReviewPublishBatchValidationResetError,
+    ImportReviewPublishBatchStageControlError,
     ImportReviewPromotionBatchLimitsError,
     ImportReviewPromotionNoEligibleCandidatesError,
     ImportReviewPromotionSelectedCandidateError,
@@ -47,8 +49,10 @@ import {
     ImportReviewTransportPromotionDeprecatedError,
 } from "./import-review-promotion.errors.js";
 import {
+    ImportReviewPromotionRoadDryRunNoEligibleItemsError,
     ImportReviewPromotionRoadDryRunNoItemsError,
     ImportReviewPromotionRoadDryRunNotFoundError,
+    ImportReviewPromotionRoadDryRunValidationIncompleteError,
 } from "./import-review-promotion-road-dry-run.errors.js";
 import {
     ImportReviewPromotionRoutingBarrierDryRunNoItemsError,
@@ -127,6 +131,17 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
         return true;
     }
 
+    if (error instanceof ImportReviewBulkDuplicateApprovalError) {
+        sendImportReviewApiError(
+            reply,
+            409,
+            "BULK_DUPLICATE_APPROVAL_REQUIRED",
+            error.message,
+            { duplicate_ids: error.duplicate_ids }
+        );
+        return true;
+    }
+
     if (error instanceof ImportReviewPublishBatchNotFoundError) {
         sendImportReviewApiError(reply, 404, "PUBLISH_BATCH_NOT_FOUND", error.message);
         return true;
@@ -160,7 +175,10 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
     }
 
     if (error instanceof ImportReviewPromotionNoEligibleCandidatesError) {
-        sendImportReviewApiError(reply, 400, "PROMOTION_NO_ELIGIBLE_CANDIDATES", error.message, {
+        sendImportReviewApiError(reply, 400, error.errorCode, error.message, {
+            status: error.responseStatus,
+            code: error.errorCode,
+            message: error.message,
             ready_count: error.readyCount,
             ...(error.byFamily ? { by_family: error.byFamily } : {}),
         });
@@ -206,6 +224,13 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
 
     if (error instanceof ImportReviewPublishBatchValidationResetError) {
         sendImportReviewApiError(reply, 400, "PUBLISH_BATCH_VALIDATION_RESET", error.message, {
+            batch_id: error.batchId,
+        });
+        return true;
+    }
+
+    if (error instanceof ImportReviewPublishBatchStageControlError) {
+        sendImportReviewApiError(reply, 409, "PUBLISH_BATCH_STAGE_CONTROL", error.message, {
             batch_id: error.batchId,
         });
         return true;
@@ -334,9 +359,18 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
         return true;
     }
 
+    if (error instanceof ImportReviewPromotionRoadDryRunValidationIncompleteError) {
+        sendImportReviewApiError(reply, 409, "ROAD_DRY_RUN_VALIDATION_INCOMPLETE", error.message, {
+            batch_id: error.batchId,
+            validation_percent: error.validationPercent,
+        });
+        return true;
+    }
+
     if (
         error instanceof ImportReviewPromotionRoadDryRunNotFoundError ||
         error instanceof ImportReviewPromotionRoadDryRunNoItemsError ||
+        error instanceof ImportReviewPromotionRoadDryRunNoEligibleItemsError ||
         error instanceof ImportReviewPromotionRoutingBarrierDryRunNotFoundError ||
         error instanceof ImportReviewPromotionRoutingBarrierDryRunNoItemsError
     ) {
@@ -352,6 +386,20 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
             400,
             "VALIDATION_ERROR",
             "Invalid PATCH payload for import-review candidate."
+        );
+        return true;
+    }
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2024") {
+        sendImportReviewApiError(
+            reply,
+            503,
+            "DB_POOL_TIMEOUT",
+            "Database connection timed out while loading counts. Try one family or refresh.",
+            {
+                prisma_code: error.code,
+                hint: "Supabase pooler with connection_limit=1 cannot serve validation plus progress polling concurrently.",
+            }
         );
         return true;
     }

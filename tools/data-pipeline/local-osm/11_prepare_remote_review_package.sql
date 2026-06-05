@@ -13,7 +13,8 @@
 -- psql vars:
 --   snapshot_version        (required)
 --   staging_schema          optional → default staging
---   entity_family           optional → narrow to one slug; blank = manifest set
+--   entity_families        optional → comma list or all (see pipeline_entity_families.sql)
+--   entity_family            optional legacy single-slug filter (REMOTE_REVIEW_ENTITY_FAMILY)
 --   max_rows_per_family     optional integer string; blank = unlimited
 --   package_name            optional; blank → auto name from snapshot_version + UTC
 --   replace_package         optional literal true|false; default false (delete+recreate same name when true)
@@ -39,6 +40,11 @@
 \if :{?entity_family}
 \else
 \set entity_family ''
+\endif
+
+\if :{?entity_families}
+\else
+\set entity_families 'all'
 \endif
 
 \if :{?max_rows_per_family}
@@ -305,9 +311,22 @@ VALUES
      '(s.point_geom IS NOT NULL OR s.geom IS NOT NULL)',
      'jsonb_build_object(''barrier_type'', s.barrier_type, ''raw_table'', s.raw_table, ''raw_id'', s.raw_id)');
 
+\ir pipeline_entity_families.sql
+
+DELETE FROM stage11_manifest AS mf
+WHERE NOT pg_temp.pipeline_stage11_family_enabled(mf.entity_family);
+
 DELETE FROM stage11_manifest mf
 WHERE (SELECT trim(entity_family_filter) <> '' FROM stage11_params LIMIT 1)
   AND mf.entity_family <> (SELECT trim(entity_family_filter) FROM stage11_params LIMIT 1);
+
+DELETE FROM stage11_family_export AS fe
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM stage11_manifest AS mf
+    WHERE mf.entity_family = fe.entity_family
+      AND mf.implemented
+);
 
 DO $ef$
 BEGIN
@@ -321,7 +340,7 @@ BEGIN
         WHERE mf.entity_family = trim((SELECT entity_family_filter FROM stage11_params LIMIT 1))
     ) THEN
         RAISE EXCEPTION
-            'unsupported entity_family "%"',
+            'legacy entity_family filter "%" is not in the remaining ENTITY_FAMILIES manifest set',
             trim((SELECT entity_family_filter FROM stage11_params LIMIT 1));
     END IF;
 END
@@ -341,6 +360,14 @@ DROP TABLE IF EXISTS stage11_last_pkg;
 CREATE TEMPORARY TABLE stage11_last_pkg (
     pkg_id bigint not null primary key,
     pkg_name text not null
+);
+
+DROP TABLE IF EXISTS stage11_family_summary;
+
+CREATE TEMPORARY TABLE stage11_family_summary (
+    entity_family text NOT NULL PRIMARY KEY,
+    package_item_count bigint NOT NULL,
+    staging_eligible_count bigint NOT NULL
 );
 
 -- Core work
@@ -1074,6 +1101,33 @@ $ex$,
     TRUNCATE stage11_last_pkg;
     INSERT INTO stage11_last_pkg VALUES (v_pkg_id, v_pkg_name);
 
+    TRUNCATE stage11_family_summary;
+
+    INSERT INTO stage11_family_summary (entity_family, package_item_count, staging_eligible_count)
+    SELECT
+        fam.entity_family,
+        coalesce(items.package_item_count, 0)::bigint,
+        coalesce(
+            nullif(j_staging ->> fam.entity_family, '')::bigint,
+            0
+        )::bigint
+    FROM (
+        SELECT entity_family
+        FROM stage11_manifest
+        WHERE implemented
+        UNION
+        SELECT entity_family
+        FROM system.system_remote_review_package_items
+        WHERE package_id = v_pkg_id
+    ) AS fam(entity_family)
+    LEFT JOIN (
+        SELECT entity_family, count(*)::bigint AS package_item_count
+        FROM system.system_remote_review_package_items
+        WHERE package_id = v_pkg_id
+        GROUP BY entity_family
+    ) AS items
+        ON items.entity_family = fam.entity_family;
+
     RAISE NOTICE 'stage11_package id=% name=% snapshot=% total_rows=% families=% match_status_buckets=% auto_action_buckets=%',
         v_pkg_id,
         v_pkg_name,
@@ -1101,6 +1155,14 @@ SELECT pkg_id AS package_id,
     pk.created_at
 FROM stage11_last_pkg AS last
 JOIN system.system_remote_review_packages AS pk ON pk.id = last.pkg_id;
+
+SELECT
+    'stage11_family_summary' AS section,
+    fs.entity_family,
+    fs.package_item_count,
+    fs.staging_eligible_count
+FROM stage11_family_summary AS fs
+ORDER BY fs.entity_family;
 
 -- =============================================================================
 -- Verification SQL (manual)

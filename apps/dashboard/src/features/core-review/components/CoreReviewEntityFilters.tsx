@@ -59,7 +59,7 @@ export default function CoreReviewEntityFilters({
     const [refsEnabled, setRefsEnabled] = useState({
         buildingTypes: false,
         categories: false,
-        roadClasses: false,
+        roadClasses: Boolean(filterSupport.roadClassId),
         adminAreas: false,
         routes: false,
         landuseClasses: false,

@@ -27,6 +27,7 @@ export type ImportReviewHistoryReviewBatchListItem = {
     batch_name: string;
     source_snapshot_version: string;
     source_snapshot_id_local: string | null;
+    region_code: string | null;
     status: string;
     derived_status: string;
     derived_status_reason: string | null;
@@ -59,7 +60,6 @@ export type ImportReviewHistoryPublishAttemptSummary = {
 };
 
 export type ImportReviewHistoryReviewBatchDetail = ImportReviewHistoryReviewBatchListItem & {
-    region_code: string | null;
     upload_mode: string;
     uploaded_candidate_count: number;
     preserved_reviewed_count: number;
@@ -98,6 +98,24 @@ export type ImportReviewHistoryPublishBatchListItem = {
     promoted_at: string | null;
     validation_success_count: number;
     validation_fail_count: number;
+    item_validation_counts: {
+        ready: number;
+        warning: number;
+        blocked: number;
+        failed: number;
+    };
+    publish_status_counts: {
+        success: number;
+        failed: number;
+        pending: number;
+        skipped: number;
+    };
+    current_stage: string | null;
+    current_stage_label: string | null;
+    pipeline_percent: number;
+    promotion_percent: number | null;
+    resumable_actions: string[];
+    can_promote?: boolean;
 };
 
 export type ImportReviewHistoryPublishBatchDetail = ImportReviewHistoryPublishBatchListItem & {
@@ -146,6 +164,7 @@ export type ImportReviewHistoryPublishBatchItem = {
     target_table: string | null;
     target_id: string | null;
     error_message: string | null;
+    candidate_promotion_status: string | null;
     after_data: unknown;
     validation_result: unknown;
     published_at: string | null;

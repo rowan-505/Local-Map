@@ -4,7 +4,9 @@ import { describe, it } from "node:test";
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
 import type { ImportReviewOverrideFieldDef } from "../config/overrideFieldDefs";
-import { buildColumnPatch } from "./overrideEditorUtils.js";
+import { buildColumnPatch, validateOverrideForm } from "./overrideEditorUtils.js";
+import { overrideFieldDefsForEntity } from "../config/overrideFieldDefs.js";
+import { getImportReviewEntityConfigBySlug } from "../config/importReviewEntityConfigs.js";
 
 const categoryDef: ImportReviewOverrideFieldDef = {
     configKey: "category_id",
@@ -80,5 +82,74 @@ describe("buildColumnPatch", () => {
                 }),
             /numeric id/i
         );
+    });
+});
+
+describe("validateOverrideForm roads", () => {
+    const roadsConfig = getImportReviewEntityConfigBySlug("roads");
+    assert.ok(roadsConfig);
+    const roadDefs = overrideFieldDefsForEntity(roadsConfig);
+
+    it("allows empty admin_area_id and road_class_id", () => {
+        const err = validateOverrideForm(
+            roadDefs,
+            {
+                name_mm: "",
+                name_en: "",
+                admin_area_id: "",
+                road_class_id: "",
+                surface: "",
+                is_oneway: "",
+                access: "",
+                speed_kph: "",
+                bridge: "",
+                tunnel: "",
+                layer: "",
+            },
+            "roads"
+        );
+        assert.equal(err, null);
+    });
+
+    it("rejects non-numeric speed_kph", () => {
+        const err = validateOverrideForm(
+            roadDefs,
+            {
+                name_mm: "",
+                name_en: "",
+                admin_area_id: "",
+                road_class_id: "",
+                surface: "",
+                is_oneway: "",
+                access: "",
+                speed_kph: "fast",
+                bridge: "",
+                tunnel: "",
+                layer: "",
+            },
+            "roads"
+        );
+        assert.ok(err?.includes("Speed"));
+    });
+
+    it("rejects invalid admin_area_id format", () => {
+        const err = validateOverrideForm(
+            roadDefs,
+            {
+                name_mm: "",
+                name_en: "",
+                admin_area_id: "not-a-number",
+                road_class_id: "",
+                surface: "",
+                is_oneway: "",
+                access: "",
+                speed_kph: "",
+                bridge: "",
+                tunnel: "",
+                layer: "",
+            },
+            "roads"
+        );
+        assert.ok(err?.includes("admin area"));
     });
 });

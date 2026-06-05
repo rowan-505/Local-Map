@@ -3,7 +3,7 @@
   "type": "overview",
   "version": "v1",
   "filename": "myanmar-overview-v1.pmtiles",
-  "url": "http://localhost:8080/overview/myanmar-overview-v1.pmtiles",
+  "url": "http://localhost:8080/overview/regions/myanmar-overview-v1.pmtiles",
   "minZoom": 0,
   "maxZoom": 8,
   "center": [96.2, 20.5],
@@ -22,7 +22,9 @@
     "populated_places",
     "lakes",
     "rivers",
-    "mmr_admin0",
+    "mmr_admin0_z0_2",
+    "mmr_admin0_z3_4",
+    "mmr_admin0_z5_6",
     "mmr_admin1"
   ]
 }

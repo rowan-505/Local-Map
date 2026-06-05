@@ -79,18 +79,41 @@ export const coreReviewListQuerySchema = z
         boundaryStatus: optionalSearchSchema,
         addressUsage: optionalSearchSchema,
         isOfficialBoundary: optionalBooleanSchema,
+        /** Keyset cursor — ISO timestamp from prior page `meta.nextCursor.updatedAt`. */
+        cursorUpdatedAt: z.string().trim().min(1).optional(),
+        /** Keyset cursor — internal street id from prior page `meta.nextCursor.id`. */
+        cursorId: optionalBigintIdSchema,
+        /** When false (default for streets list), skips COUNT(*) — use meta.hasNextPage and GET /streets/count. */
+        includeTotal: z
+            .preprocess((v) => {
+                if (v === undefined || v === null || v === "") {
+                    return undefined;
+                }
+                return !(v === false || v === "false" || v === "0" || v === 0);
+            }, z.boolean())
+            .optional(),
+        include_total: z
+            .preprocess((v) => {
+                if (v === undefined || v === null || v === "") {
+                    return undefined;
+                }
+                return !(v === false || v === "false" || v === "0" || v === 0);
+            }, z.boolean())
+            .optional(),
     })
     .transform((query) => {
         let verificationStatus = query.verificationStatus ?? query.verification_status;
         if (!verificationStatus && query.isVerified !== undefined) {
             verificationStatus = query.isVerified ? "verified" : "unverified";
         }
+        const includeTotal = query.includeTotal ?? query.include_total;
         const {
             verification_status: _verification_status,
             isVerified: _isVerified,
+            include_total: _include_total,
             ...rest
         } = query;
-        return { ...rest, verificationStatus };
+        return { ...rest, verificationStatus, includeTotal };
     });
 
 export type CoreReviewListQueryParsed = z.infer<typeof coreReviewListQuerySchema>;

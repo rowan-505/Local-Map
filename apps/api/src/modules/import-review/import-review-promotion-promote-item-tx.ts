@@ -1,5 +1,10 @@
 import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
+import { isPromotablePublishFamily } from "./import-review-promotion-config.js";
 import type { ImportReviewPromotionPromoteRepository } from "./import-review-promotion-promote.repo.js";
+import {
+    promoteItemResultFromThrownPromotionError,
+    unwrapAbortedTransactionError,
+} from "./import-review-promotion-road-sql-steps.js";
 import type { PromoteItemResult } from "./import-review-promotion-promote.types.js";
 
 /** Inputs shared by single-item and batch publish promotion. */
@@ -12,24 +17,33 @@ export type PromoteImportReviewItemConfig = {
 };
 
 /**
- * Promote one publish item inside an existing transaction.
- * Performs core write (promotePublishItemTx) plus publish-item / candidate bookkeeping.
- * Must not call `$transaction` — the caller owns the commit boundary.
+ * Core write for one publish item inside an existing transaction.
+ * Does not update publish-item or candidate status — caller must commit bookkeeping separately.
  */
-export async function promoteImportReviewItemTx(
+export async function promoteImportReviewItemCoreTx(
     repo: ImportReviewPromotionPromoteRepository,
     config: PromoteImportReviewItemConfig
 ): Promise<PromoteItemResult> {
-    const items = await repo.listPromotableItems(config.batchId);
-    const item = items.find((row) => row.publish_item_id === config.publishItemId);
-
-    const result = await repo.promotePublishItemTx({
+    return repo.promotePublishItemTx({
         batchId: config.batchId,
         publishItemId: config.publishItemId,
         promotedBy: config.promotedBy,
         confirmWarnings: config.confirmWarnings,
         promotionNote: config.promotionNote,
     });
+}
+
+/**
+ * Persist publish-item / candidate promotion status after core write.
+ * Must run outside a failed/aborted database transaction.
+ */
+export async function applyImportReviewPromotionItemBookkeeping(
+    repo: ImportReviewPromotionPromoteRepository,
+    config: PromoteImportReviewItemConfig,
+    result: PromoteItemResult
+): Promise<PromoteItemResult> {
+    const items = await repo.listPromotableItems(config.batchId);
+    const item = items.find((row) => row.publish_item_id === config.publishItemId);
 
     if (result.outcome === "inserted" || result.outcome === "updated") {
         if (!item) {
@@ -80,5 +94,38 @@ export async function promoteImportReviewItemTx(
         technicalDetail: result.after_data,
         failureCause: result.failure_cause ?? null,
     });
+    if (
+        item?.review_candidate_id != null &&
+        item.entity_family &&
+        isPromotablePublishFamily(item.entity_family)
+    ) {
+        await repo.releaseCandidateAfterPromotionFailure(
+            item.entity_family as ImportReviewEntityFamilySlug,
+            item.review_candidate_id
+        );
+    }
     return result;
+}
+
+/**
+ * Promote one publish item inside an existing transaction (core + bookkeeping).
+ * Prefer {@link promoteAndCommitImportReviewItem} for batch promotion so failures
+ * are recorded outside aborted transactions.
+ */
+export async function promoteImportReviewItemTx(
+    repo: ImportReviewPromotionPromoteRepository,
+    config: PromoteImportReviewItemConfig
+): Promise<PromoteItemResult> {
+    const result = await promoteImportReviewItemCoreTx(repo, config);
+    return applyImportReviewPromotionItemBookkeeping(repo, config, result);
+}
+
+export function promotionResultFromThrownError(
+    publishItemId: bigint,
+    err: unknown
+): PromoteItemResult {
+    return promoteItemResultFromThrownPromotionError(
+        publishItemId,
+        unwrapAbortedTransactionError(err)
+    );
 }

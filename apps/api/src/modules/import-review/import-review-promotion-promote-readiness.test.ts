@@ -22,13 +22,21 @@ function validation(overrides: Partial<PromotionPreflightValidation> = {}): Prom
 }
 
 describe("import-review-promotion-promote-readiness", () => {
-    it("batch status draft + validation complete allows promote", () => {
+    it("batch status ready + validation complete + dry-run passed allows promote", () => {
         assert.equal(
             publishBatchReadyForPromotion({
                 batch: {
-                    status: "draft",
+                    status: "ready",
                     validation_percent: 100,
                     validated_at: new Date("2024-01-01T00:00:00Z"),
+                    summary: {
+                        dry_run_result: {
+                            status: "passed",
+                            checked_at: "2024-01-01T00:00:00Z",
+                            total: 1,
+                            entity_families: ["buildings"],
+                        },
+                    },
                 },
                 validation: validation(),
             }),
@@ -74,9 +82,17 @@ describe("import-review-promotion-promote-readiness", () => {
         assert.equal(
             publishBatchReadyForPromotion({
                 batch: {
-                    status: "draft",
+                    status: "partial",
                     validation_percent: 100,
                     validated_at: new Date(),
+                    summary: {
+                        dry_run_result: {
+                            status: "passed",
+                            checked_at: "2024-01-01T00:00:00Z",
+                            total: 3,
+                            entity_families: ["buildings"],
+                        },
+                    },
                 },
                 validation: validation({
                     outcome: "partial",
@@ -96,6 +112,52 @@ describe("import-review-promotion-promote-readiness", () => {
                 validation({ outcome: "blocked", promotable_count: 0, blocked_count: 3 })
             ),
             false
+        );
+    });
+
+    it("35 ready + 2 blocked allows promote when batch status is blocked", () => {
+        const preflight = validation({
+            outcome: "partial",
+            promotable_count: 35,
+            ready_count: 35,
+            blocked_count: 2,
+            can_promote: true,
+        });
+        assert.equal(validationSummaryAllowsPromotion(preflight), true);
+        assert.equal(
+            publishBatchReadyForPromotion({
+                batch: {
+                    status: "blocked",
+                    validation_percent: 100,
+                    validated_at: new Date(),
+                    summary: {
+                        dry_run_result: {
+                            status: "passed",
+                            checked_at: "2024-01-01T00:00:00Z",
+                            total: 37,
+                            entity_families: ["places"],
+                        },
+                        validation_result: {
+                            outcome: "partial",
+                            can_promote: true,
+                            promotable_count: 35,
+                            ready_count: 35,
+                            blocked_count: 2,
+                        },
+                    },
+                },
+                validation: preflight,
+            }),
+            true
+        );
+    });
+
+    it("stale validation outcome blocked still allows promote when promotable_count > 0", () => {
+        assert.equal(
+            validationSummaryAllowsPromotion(
+                validation({ outcome: "blocked", promotable_count: 35, ready_count: 35, blocked_count: 2 })
+            ),
+            true
         );
     });
 

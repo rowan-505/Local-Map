@@ -16,6 +16,10 @@
 -- Input psql variables:
 --   snapshot_version (required)
 --   staging_schema optional, defaults to staging
+--   entity_families  optional; default all (see pipeline_entity_families.sql)
+--     admin_areas        → assign statuses for admin_areas only
+--     roads              → assign statuses for roads only
+--     admin_areas,roads  → both selected families
 -- =============================================================================
 
 \pset pager off
@@ -24,8 +28,18 @@
 \else
 \set staging_schema 'staging'
 \endif
+\if :{?entity_families}
+\else
+\set entity_families 'all'
+\endif
 
 BEGIN;
+
+SET LOCAL work_mem = '512MB';
+SET LOCAL maintenance_work_mem = '1GB';
+
+-- Index system_diff_items_diff_run_local_entity_idx: apply once via
+-- infrastructure/database/migrations/local/007_system_diff_items_diff_run_local_entity_idx.sql
 
 CREATE TEMP TABLE IF NOT EXISTS stage08_params (
     snapshot_version text NOT NULL,
@@ -94,6 +108,11 @@ BEGIN
     FROM system.system_source_snapshots AS s
     INNER JOIN stage08_params AS p
         ON p.snapshot_version = s.snapshot_version;
+
+    RAISE NOTICE 'stage08: snapshot resolved — source_snapshot_id=% snapshot_version=% staging_schema=%',
+        (SELECT c.source_snapshot_id FROM stage08_context AS c LIMIT 1),
+        (SELECT c.snapshot_version FROM stage08_context AS c LIMIT 1),
+        (SELECT c.staging_schema FROM stage08_context AS c LIMIT 1);
 END
 $stage08_resolve_snapshot$;
 
@@ -123,6 +142,11 @@ VALUES
     ('place_address_links', 'staging_place_address_link_candidates'),
     ('routing_barriers', 'staging_routing_barrier_candidates');
 
+\ir pipeline_entity_families.sql
+
+DELETE FROM stage08_family_manifest AS m
+WHERE NOT pg_temp.pipeline_entity_family_enabled(m.entity_family);
+
 DO $stage08_prepare_typed_status_columns$
 DECLARE
     ctx stage08_context%ROWTYPE;
@@ -131,7 +155,8 @@ BEGIN
     INTO STRICT ctx
     FROM stage08_context;
 
-    IF to_regclass(format('%I.staging_place_candidates', ctx.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('places')
+       AND to_regclass(format('%I.staging_place_candidates', ctx.staging_schema)) IS NOT NULL THEN
         EXECUTE format(
             'ALTER TABLE %I.staging_place_candidates
                 ADD COLUMN IF NOT EXISTS promotion_status text not null default ''not_ready'',
@@ -151,7 +176,8 @@ BEGIN
         );
     END IF;
 
-    IF to_regclass(format('%I.staging_address_candidates', ctx.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('addresses')
+       AND to_regclass(format('%I.staging_address_candidates', ctx.staging_schema)) IS NOT NULL THEN
         EXECUTE format(
             'ALTER TABLE %I.staging_address_candidates
                 ADD COLUMN IF NOT EXISTS validation_status text not null default ''not_ready'',
@@ -177,7 +203,8 @@ BEGIN
         );
     END IF;
 
-    IF to_regclass(format('%I.staging_place_address_link_candidates', ctx.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_stage11_family_enabled('place_address_links')
+       AND to_regclass(format('%I.staging_place_address_link_candidates', ctx.staging_schema)) IS NOT NULL THEN
         EXECUTE format(
             'ALTER TABLE %I.staging_place_address_link_candidates
                 ADD COLUMN IF NOT EXISTS validation_status text not null default ''not_ready'',
@@ -287,6 +314,9 @@ BEGIN
             END
         WHERE m.entity_family = r.entity_family;
     END LOOP;
+
+    RAISE NOTICE 'stage08: manifest inspected — enabled_families=%',
+        (SELECT count(*)::bigint FROM stage08_family_manifest WHERE has_required_cols);
 END
 $stage08_inspect_manifest$;
 
@@ -305,9 +335,189 @@ CREATE TEMP TABLE IF NOT EXISTS stage08_status_decisions (
     decision_reason jsonb NOT NULL DEFAULT '{}'::jsonb
 ) ON COMMIT DROP;
 
-TRUNCATE stage08_status_decisions;
+DO $stage08_build_status_decisions$
+DECLARE
+    v_run_started_at timestamptz := clock_timestamp();
+    v_step_started_at timestamptz;
+    v_row_count bigint;
+    v_f1_only bigint;
+    v_f2_only bigint;
+    v_both bigint;
+    v_decision_rows bigint;
+    v_f2_all_insert_candidate boolean := false;
+BEGIN
+    TRUNCATE stage08_status_decisions;
 
-INSERT INTO stage08_status_decisions (
+    v_step_started_at := clock_timestamp();
+    DROP TABLE IF EXISTS stage08_latest_diff_runs;
+    CREATE TEMP TABLE stage08_latest_diff_runs (
+        entity_family text PRIMARY KEY,
+        f1_diff_run_id bigint NOT NULL,
+        f2_diff_run_id bigint
+    ) ON COMMIT DROP;
+
+    INSERT INTO stage08_latest_diff_runs (entity_family, f1_diff_run_id, f2_diff_run_id)
+    SELECT
+        m.entity_family,
+        f1.diff_run_id,
+        f2.diff_run_id
+    FROM stage08_family_manifest AS m
+    INNER JOIN LATERAL (
+        SELECT run.id AS diff_run_id
+        FROM system.system_diff_runs AS run
+        INNER JOIN stage08_context AS ctx
+            ON ctx.source_snapshot_id = run.current_snapshot_id
+        WHERE run.entity_family = m.entity_family
+          AND run.summary->>'comparison_type' = 'snapshot_vs_snapshot'
+          AND run.status = 'completed'
+        ORDER BY run.finished_at DESC NULLS LAST, run.id DESC
+        LIMIT 1
+    ) AS f1 ON true
+    LEFT JOIN LATERAL (
+        SELECT run.id AS diff_run_id
+        FROM system.system_diff_runs AS run
+        INNER JOIN stage08_context AS ctx
+            ON ctx.source_snapshot_id = run.current_snapshot_id
+        WHERE run.entity_family = m.entity_family
+          AND run.summary->>'comparison_type' = 'staging_vs_prod_mirror'
+          AND run.status = 'completed'
+        ORDER BY run.finished_at DESC NULLS LAST, run.id DESC
+        LIMIT 1
+    ) AS f2 ON true
+    WHERE m.has_required_cols;
+
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    RAISE NOTICE 'stage08 | step=resolve_diff_runs | families=% | step_elapsed=% | total_elapsed=%',
+        v_row_count, clock_timestamp() - v_step_started_at, clock_timestamp() - v_run_started_at;
+
+    v_step_started_at := clock_timestamp();
+    DROP TABLE IF EXISTS stage08_f2_items;
+    CREATE TEMP TABLE stage08_f2_items ON COMMIT DROP AS
+    SELECT DISTINCT ON (item.entity_family, item.local_entity_id)
+        item.entity_family,
+        item.local_entity_id,
+        item.external_id,
+        item.diff_type AS f2_diff_type,
+        item.auto_action AS f2_auto_action,
+        coalesce(item.after_data->'f2_comparison'->>'f2_result', '') AS f2_result,
+        item.id AS f2_item_id
+    FROM system.system_diff_items AS item
+    INNER JOIN stage08_latest_diff_runs AS lr
+        ON lr.entity_family = item.entity_family
+       AND lr.f2_diff_run_id = item.diff_run_id
+    WHERE item.local_entity_id IS NOT NULL
+    ORDER BY item.entity_family, item.local_entity_id, item.id DESC;
+
+    SELECT count(*)::bigint INTO v_row_count FROM stage08_f2_items;
+    SELECT coalesce(bool_and(f2.f2_auto_action = 'insert_candidate'), false)
+    INTO v_f2_all_insert_candidate
+    FROM stage08_f2_items AS f2;
+
+    RAISE NOTICE 'stage08 | step=materialize_f2_items | rows=% | all_insert_candidate=% | step_elapsed=% | total_elapsed=%',
+        v_row_count, v_f2_all_insert_candidate,
+        clock_timestamp() - v_step_started_at, clock_timestamp() - v_run_started_at;
+
+    v_step_started_at := clock_timestamp();
+
+    IF v_f2_all_insert_candidate THEN
+        RAISE NOTICE 'stage08 | step=insert_status_decisions | mode=bulk_insert_candidate_fast_path (skip f1/combine)';
+
+        INSERT INTO stage08_status_decisions (
+            entity_family,
+            staging_table,
+            local_entity_id,
+            external_id,
+            f1_diff_type,
+            f1_auto_action,
+            f2_diff_type,
+            f2_auto_action,
+            final_match_status,
+            final_auto_action,
+            final_review_status,
+            decision_reason
+        )
+        SELECT
+            f2.entity_family,
+            m.staging_table,
+            f2.local_entity_id,
+            f2.external_id,
+            NULL,
+            NULL,
+            f2.f2_diff_type,
+            f2.f2_auto_action,
+            'new_auto',
+            'insert_candidate',
+            'pending',
+            jsonb_build_object(
+                'rule', 'insert_candidate',
+                'fast_path', true,
+                'has_f1', false,
+                'has_f2', true,
+                'f2_item_id', f2.f2_item_id
+            )
+        FROM stage08_f2_items AS f2
+        INNER JOIN stage08_family_manifest AS m
+            ON m.entity_family = f2.entity_family
+           AND m.has_required_cols;
+
+        v_f1_only := 0;
+        v_f2_only := v_row_count;
+        v_both := 0;
+    ELSE
+        RAISE NOTICE 'stage08 | step=materialize_f1_items | starting (non-bulk path)';
+
+        DROP TABLE IF EXISTS stage08_f1_items;
+        CREATE TEMP TABLE stage08_f1_items ON COMMIT DROP AS
+        SELECT DISTINCT ON (item.entity_family, item.local_entity_id)
+            item.entity_family,
+            item.local_entity_id,
+            item.external_id,
+            item.diff_type AS f1_diff_type,
+            item.auto_action AS f1_auto_action,
+            item.id AS f1_item_id
+        FROM system.system_diff_items AS item
+        INNER JOIN stage08_latest_diff_runs AS lr
+            ON lr.entity_family = item.entity_family
+           AND lr.f1_diff_run_id = item.diff_run_id
+        WHERE item.local_entity_id IS NOT NULL
+        ORDER BY item.entity_family, item.local_entity_id, item.id DESC;
+
+        CREATE INDEX stage08_f1_items_join_idx ON stage08_f1_items (entity_family, local_entity_id);
+        CREATE INDEX stage08_f2_items_join_idx ON stage08_f2_items (entity_family, local_entity_id);
+
+        DROP TABLE IF EXISTS stage08_combined;
+        CREATE TEMP TABLE stage08_combined ON COMMIT DROP AS
+        SELECT
+            coalesce(f1.entity_family, f2.entity_family) AS entity_family,
+            coalesce(f1.external_id, f2.external_id) AS external_id,
+            coalesce(f1.local_entity_id, f2.local_entity_id) AS local_entity_id,
+            f1.f1_diff_type,
+            f1.f1_auto_action,
+            f2.f2_diff_type,
+            f2.f2_auto_action,
+            coalesce(f2.f2_result, '') AS f2_result,
+            f1.f1_item_id IS NOT NULL AS has_f1,
+            f2.f2_item_id IS NOT NULL AS has_f2,
+            f1.f1_item_id,
+            f2.f2_item_id
+        FROM stage08_f1_items AS f1
+        FULL OUTER JOIN stage08_f2_items AS f2
+            ON f2.entity_family = f1.entity_family
+           AND f2.local_entity_id IS NOT DISTINCT FROM f1.local_entity_id;
+
+        SELECT count(*)::bigint INTO v_row_count FROM stage08_combined;
+        SELECT count(*)::bigint INTO v_both FROM stage08_combined WHERE has_f1 AND has_f2;
+        SELECT count(*)::bigint INTO v_f1_only FROM stage08_combined WHERE has_f1 AND NOT has_f2;
+        SELECT count(*)::bigint INTO v_f2_only FROM stage08_combined WHERE has_f2 AND NOT has_f1;
+
+        RAISE NOTICE 'stage08 | step=combine_f1_f2 | rows=% | f1_only=% | f2_only=% | both=% | step_elapsed=% | total_elapsed=%',
+            v_row_count, v_f1_only, v_f2_only, v_both,
+            clock_timestamp() - v_step_started_at, clock_timestamp() - v_run_started_at;
+
+        v_step_started_at := clock_timestamp();
+        RAISE NOTICE 'stage08 | step=insert_status_decisions | mode=full_rule_merge';
+
+        INSERT INTO stage08_status_decisions (
     entity_family,
     staging_table,
     local_entity_id,
@@ -322,107 +532,10 @@ INSERT INTO stage08_status_decisions (
     decision_reason
 )
 WITH
-ctx AS (
-    SELECT *
-    FROM stage08_context
-),
 manifest AS (
     SELECT *
     FROM stage08_family_manifest
     WHERE has_required_cols
-),
-latest_f1 AS (
-    SELECT DISTINCT ON (run.entity_family)
-        run.entity_family,
-        run.id AS diff_run_id
-    FROM system.system_diff_runs AS run
-    INNER JOIN ctx
-        ON ctx.source_snapshot_id = run.current_snapshot_id
-    WHERE run.summary->>'comparison_type' = 'snapshot_vs_snapshot'
-      AND run.status = 'completed'
-      AND EXISTS (
-          SELECT 1
-          FROM manifest AS m
-          WHERE m.entity_family = run.entity_family
-      )
-    ORDER BY
-        run.entity_family,
-        run.finished_at DESC NULLS LAST,
-        run.id DESC
-),
-latest_f2 AS (
-    SELECT DISTINCT ON (run.entity_family)
-        run.entity_family,
-        run.id AS diff_run_id
-    FROM system.system_diff_runs AS run
-    INNER JOIN ctx
-        ON ctx.source_snapshot_id = run.current_snapshot_id
-    WHERE run.summary->>'comparison_type' = 'staging_vs_prod_mirror'
-      AND run.status = 'completed'
-      AND EXISTS (
-          SELECT 1
-          FROM manifest AS m
-          WHERE m.entity_family = run.entity_family
-      )
-    ORDER BY
-        run.entity_family,
-        run.finished_at DESC NULLS LAST,
-        run.id DESC
-),
-f1_items AS (
-    SELECT DISTINCT ON (item.entity_family, item.local_entity_id)
-        item.entity_family,
-        item.local_entity_id,
-        item.external_id,
-        item.diff_type AS f1_diff_type,
-        item.auto_action AS f1_auto_action,
-        item.after_data AS f1_after_data,
-        item.id AS f1_item_id
-    FROM system.system_diff_items AS item
-    INNER JOIN latest_f1 AS lf
-        ON lf.diff_run_id = item.diff_run_id
-    WHERE item.local_entity_id IS NOT NULL
-    ORDER BY
-        item.entity_family,
-        item.local_entity_id,
-        item.id DESC
-),
-f2_items AS (
-    SELECT DISTINCT ON (item.entity_family, item.local_entity_id)
-        item.entity_family,
-        item.local_entity_id,
-        item.external_id,
-        item.diff_type AS f2_diff_type,
-        item.auto_action AS f2_auto_action,
-        item.after_data AS f2_after_data,
-        item.id AS f2_item_id
-    FROM system.system_diff_items AS item
-    INNER JOIN latest_f2 AS lf
-        ON lf.diff_run_id = item.diff_run_id
-    WHERE item.local_entity_id IS NOT NULL
-    ORDER BY
-        item.entity_family,
-        item.local_entity_id,
-        item.id DESC
-),
-combined AS (
-    SELECT
-        coalesce(f1.entity_family, f2.entity_family) AS entity_family,
-        coalesce(f1.external_id, f2.external_id) AS external_id,
-        coalesce(f1.local_entity_id, f2.local_entity_id) AS local_entity_id,
-        f1.f1_diff_type,
-        f1.f1_auto_action,
-        f2.f2_diff_type,
-        f2.f2_auto_action,
-        coalesce(f2.f2_after_data->'f2_comparison'->>'f2_result', '') AS f2_result,
-        f1.f1_item_id IS NOT NULL AS has_f1,
-        f2.f2_item_id IS NOT NULL AS has_f2,
-        f1.f1_item_id,
-        f2.f2_item_id
-    FROM f1_items AS f1
-    FULL OUTER JOIN f2_items AS f2
-        ON f2.entity_family = f1.entity_family
-       AND f2.local_entity_id IS NOT DISTINCT FROM f1.local_entity_id
 ),
 merged AS (
     SELECT
@@ -503,11 +616,11 @@ merged AS (
             OR coalesce(c.f2_auto_action, c.f1_auto_action, '')
                 = 'do_not_delete_manual'
         ) AS sig_del
-    FROM combined AS c
+    FROM stage08_combined AS c
     INNER JOIN manifest AS m
         ON m.entity_family = c.entity_family
 )
-SELECT DISTINCT ON (entity_family, local_entity_id)
+SELECT
     entity_family,
     staging_table,
     local_entity_id,
@@ -581,12 +694,15 @@ CROSS JOIN LATERAL (
             'f2_auto_action', f2_auto_action,
             'f2_result', nullif(f2_result, '')
         )) AS decision_reason
-) AS x
-ORDER BY
-    entity_family,
-    local_entity_id,
-    COALESCE(f1_item_id, 0) DESC,
-    COALESCE(f2_item_id, 0) DESC;
+) AS x;
+    END IF;
+
+    GET DIAGNOSTICS v_decision_rows = ROW_COUNT;
+    RAISE NOTICE 'stage08 | step=insert_status_decisions | rows=% / % | step_elapsed=% | total_elapsed=%',
+        v_decision_rows, v_row_count,
+        clock_timestamp() - v_step_started_at, clock_timestamp() - v_run_started_at;
+END
+$stage08_build_status_decisions$;
 
 DO $stage08_apply_updates$
 DECLARE
@@ -595,16 +711,28 @@ DECLARE
     v_set text;
     v_sql text;
     v_updated bigint;
+    v_row_count bigint;
+    v_apply_started_at timestamptz := clock_timestamp();
 BEGIN
     SELECT *
     INTO STRICT ctx
     FROM stage08_context;
+
+    RAISE NOTICE 'stage08: applying decisions to staging tables (started %)', v_apply_started_at;
 
     FOR r IN
         SELECT *
         FROM stage08_family_manifest
         WHERE has_required_cols
     LOOP
+        SELECT count(*)::bigint
+        INTO v_row_count
+        FROM stage08_status_decisions AS d
+        WHERE d.entity_family = r.entity_family;
+
+        RAISE NOTICE 'stage08 | step=apply_staging_updates | family=% | table=% | decisions=% | starting',
+            r.entity_family, r.staging_table, v_row_count;
+
         v_set := 'match_status = d.final_match_status, auto_action = d.final_auto_action';
 
         IF r.has_review_status THEN
@@ -634,11 +762,12 @@ BEGIN
         EXECUTE v_sql;
         GET DIAGNOSTICS v_updated = ROW_COUNT;
 
-        RAISE NOTICE 'stage08_updated_rows entity_family=% staging_table=% rows=%',
-            r.entity_family,
-            r.staging_table,
-            v_updated;
+        RAISE NOTICE 'stage08 | step=apply_staging_updates | family=% | updated=% / % | complete',
+            r.entity_family, v_updated, v_row_count;
     END LOOP;
+
+    RAISE NOTICE 'stage08 | step=apply_staging_updates | all_families_done | total_elapsed=%',
+        clock_timestamp() - v_apply_started_at;
 END
 $stage08_apply_updates$;
 
@@ -655,7 +784,8 @@ BEGIN
     -- Places: only Stage 05 rows with place evidence should exist here. Keep them
     -- review-ready but not promotion-ready until a reviewer approves and validation
     -- is run. Address-only rows must not become place rows.
-    IF to_regclass(format('%I.staging_place_candidates', ctx.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('places')
+       AND to_regclass(format('%I.staging_place_candidates', ctx.staging_schema)) IS NOT NULL THEN
         v_sql := format(
             $sql$
             UPDATE %I.staging_place_candidates AS p
@@ -696,7 +826,8 @@ BEGIN
     -- Addresses: weak/place-only address rows are explicitly not ready for address
     -- promotion. Stronger address evidence can be reviewed as an address, but still
     -- remains promotion not_ready until approval/validation.
-    IF to_regclass(format('%I.staging_address_candidates', ctx.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('addresses')
+       AND to_regclass(format('%I.staging_address_candidates', ctx.staging_schema)) IS NOT NULL THEN
         v_sql := format(
             $sql$
             UPDATE %I.staging_address_candidates AS a
@@ -750,7 +881,8 @@ BEGIN
 
     -- Links: only place_with_address + partial/strong/full rows should be staged.
     -- Links are valid for review only when both staged sides exist.
-    IF to_regclass(format('%I.staging_place_address_link_candidates', ctx.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_stage11_family_enabled('place_address_links')
+       AND to_regclass(format('%I.staging_place_address_link_candidates', ctx.staging_schema)) IS NOT NULL THEN
         v_sql := format(
             $sql$
             UPDATE %I.staging_place_address_link_candidates AS l
@@ -857,7 +989,8 @@ BEGIN
 
     TRUNCATE stage08_typed_status_counts;
 
-    IF to_regclass(format('%I.staging_place_candidates', ctx.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('places')
+       AND to_regclass(format('%I.staging_place_candidates', ctx.staging_schema)) IS NOT NULL THEN
         v_sql := format(
             $sql$
             INSERT INTO stage08_typed_status_counts
@@ -881,7 +1014,8 @@ BEGIN
         EXECUTE v_sql;
     END IF;
 
-    IF to_regclass(format('%I.staging_address_candidates', ctx.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('addresses')
+       AND to_regclass(format('%I.staging_address_candidates', ctx.staging_schema)) IS NOT NULL THEN
         v_sql := format(
             $sql$
             INSERT INTO stage08_typed_status_counts
@@ -905,7 +1039,8 @@ BEGIN
         EXECUTE v_sql;
     END IF;
 
-    IF to_regclass(format('%I.staging_place_address_link_candidates', ctx.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_stage11_family_enabled('place_address_links')
+       AND to_regclass(format('%I.staging_place_address_link_candidates', ctx.staging_schema)) IS NOT NULL THEN
         v_sql := format(
             $sql$
             INSERT INTO stage08_typed_status_counts
@@ -952,5 +1087,99 @@ SELECT
 FROM stage08_typed_status_counts
 GROUP BY entity_family
 ORDER BY entity_family;
+
+DO $stage08_family_summary$
+DECLARE
+    ctx stage08_context%ROWTYPE;
+    r record;
+    v_staging_rows bigint;
+    v_sql text;
+BEGIN
+    SELECT *
+    INTO STRICT ctx
+    FROM stage08_context;
+
+    CREATE TEMP TABLE IF NOT EXISTS stage08_family_summary (
+        entity_family text NOT NULL,
+        staging_table text NOT NULL,
+        staging_rows bigint NOT NULL,
+        decision_rows bigint NOT NULL,
+        new_candidate bigint NOT NULL,
+        matched_existing bigint NOT NULL,
+        protected_match bigint NOT NULL,
+        needs_review bigint NOT NULL
+    ) ON COMMIT DROP;
+
+    TRUNCATE stage08_family_summary;
+
+    FOR r IN
+        SELECT *
+        FROM stage08_family_manifest
+        ORDER BY entity_family
+    LOOP
+        v_staging_rows := 0;
+
+        IF to_regclass(format('%I.%I', ctx.staging_schema, r.staging_table)) IS NOT NULL THEN
+            v_sql := format(
+                'SELECT count(*)::bigint FROM %I.%I WHERE source_snapshot_id = $1',
+                ctx.staging_schema,
+                r.staging_table
+            );
+            EXECUTE v_sql INTO v_staging_rows USING ctx.source_snapshot_id;
+        END IF;
+
+        INSERT INTO stage08_family_summary (
+            entity_family,
+            staging_table,
+            staging_rows,
+            decision_rows,
+            new_candidate,
+            matched_existing,
+            protected_match,
+            needs_review
+        )
+        SELECT
+            r.entity_family,
+            format('%I.%I', ctx.staging_schema, r.staging_table),
+            coalesce(v_staging_rows, 0),
+            coalesce(s.decision_rows, 0),
+            coalesce(s.new_candidate, 0),
+            coalesce(s.matched_existing, 0),
+            coalesce(s.protected_match, 0),
+            coalesce(s.needs_review, 0)
+        FROM (
+            SELECT
+                count(*)::bigint AS decision_rows,
+                count(*) FILTER (WHERE d.final_auto_action = 'insert_candidate')::bigint AS new_candidate,
+                count(*) FILTER (WHERE d.final_auto_action = 'ignore_unchanged')::bigint AS matched_existing,
+                count(*) FILTER (WHERE d.final_auto_action = 'protect_manual')::bigint AS protected_match,
+                count(*) FILTER (
+                    WHERE d.final_auto_action IN ('needs_review', 'update_candidate', 'possible_duplicate')
+                )::bigint AS needs_review
+            FROM stage08_status_decisions AS d
+            WHERE d.entity_family = r.entity_family
+        ) AS s;
+    END LOOP;
+END
+$stage08_family_summary$;
+
+SELECT
+    'stage08_family_summary' AS section,
+    entity_family,
+    staging_table,
+    staging_rows,
+    decision_rows,
+    new_candidate,
+    matched_existing,
+    protected_match,
+    needs_review
+FROM stage08_family_summary
+ORDER BY entity_family;
+
+DO $stage08_complete$
+BEGIN
+    RAISE NOTICE 'stage08: assign_statuses complete — see stage08_family_summary above';
+END
+$stage08_complete$;
 
 COMMIT;

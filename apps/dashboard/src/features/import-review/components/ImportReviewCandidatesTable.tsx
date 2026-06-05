@@ -22,6 +22,7 @@ import {
     importReviewAddressSourceTypeCell,
 } from "../utils/importReviewAddressListDisplay";
 import { importReviewCellValue, importReviewRowHasOverrides } from "../utils/entityPageUtils";
+import { isCandidateRetryNeeded } from "../utils/importReviewPromotionListState";
 import ImportReviewStatusBadge from "./ImportReviewStatusBadge";
 
 const STATUS_COLUMNS = new Set([
@@ -58,6 +59,17 @@ function PromotedRowBadge() {
     );
 }
 
+function PromotionFailedRowBadge() {
+    return (
+        <span
+            className="inline-flex shrink-0 rounded-full border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-900"
+            title="Latest publish item failed — fix and create a new batch"
+        >
+            Promotion failed
+        </span>
+    );
+}
+
 function isPromotedRow(row: ImportReviewBuildingListItem): boolean {
     return (row.promotion_status ?? "").trim().toLowerCase() === "promoted";
 }
@@ -65,7 +77,8 @@ function isPromotedRow(row: ImportReviewBuildingListItem): boolean {
 function renderCell(
     row: ImportReviewBuildingListItem,
     col: ImportReviewTableColumn,
-    showRowBadges: boolean
+    showPromotionBadges: boolean,
+    showOverrideBadge: boolean
 ): ReactNode {
     let content: ReactNode;
     if (col.key === "display_full_address") {
@@ -88,14 +101,17 @@ function renderCell(
         content = text;
     }
     }
-    if (!showRowBadges) {
+    if (!showPromotionBadges && !showOverrideBadge) {
         return content;
     }
     const badges: ReactNode[] = [];
-    if (isPromotedRow(row)) {
+    if (showPromotionBadges && isPromotedRow(row)) {
         badges.push(<PromotedRowBadge key="promoted" />);
     }
-    if (importReviewRowHasOverrides(row)) {
+    if (showPromotionBadges && isCandidateRetryNeeded(row)) {
+        badges.push(<PromotionFailedRowBadge key="promotion-failed" />);
+    }
+    if (showOverrideBadge && importReviewRowHasOverrides(row)) {
         badges.push(<OverrideEditedBadge key="edited" />);
     }
     if (badges.length === 0) {
@@ -118,7 +134,7 @@ export default function ImportReviewCandidatesTable({
     rowActionBusyId,
     emptyMessage,
     isLoading,
-    showPromoted = false,
+    showPromotionBadges = true,
     onToggleSelectAll,
     onToggleRow,
     onRowClick,
@@ -133,8 +149,8 @@ export default function ImportReviewCandidatesTable({
     rowActionBusyId: string | null;
     emptyMessage: string;
     isLoading: boolean;
-    /** When true, promoted rows show a row-level Promoted badge in the first data column. */
-    showPromoted?: boolean;
+    /** When true, promoted rows are requested from the API and show a Promoted badge in the first data column. */
+    showPromotionBadges?: boolean;
     onToggleSelectAll: (checked: boolean) => void;
     onToggleRow: (id: string, checked: boolean) => void;
     onRowClick: (row: ImportReviewBuildingListItem) => void;
@@ -213,7 +229,12 @@ export default function ImportReviewCandidatesTable({
                                             className={`max-w-[220px] truncate px-3 py-2 ${col.mono ? "font-mono text-xs" : ""}`}
                                             title={importReviewCellValue(row, col)}
                                         >
-                                            {renderCell(row, col, showPromoted && colIndex === 0)}
+                                            {renderCell(
+                                                row,
+                                                col,
+                                                colIndex === 0 && isPromotedRow(row),
+                                                showPromotionBadges && colIndex === 0
+                                            )}
                                         </td>
                                     ))}
                                     <td

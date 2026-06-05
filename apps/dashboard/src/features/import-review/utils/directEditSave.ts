@@ -6,6 +6,10 @@ import type {
 } from "@/src/lib/api";
 
 import type { ImportReviewOverrideFieldDef } from "../config/overrideFieldDefs";
+import {
+    enrichImportReviewRoadListRowAfterSave,
+    type ImportReviewRoadClassOptionInput,
+} from "./importReviewRoadClassDisplay";
 import { readColumnDraftValue } from "./overrideEditorUtils";
 
 export class DirectEditSaveError extends Error {
@@ -133,7 +137,11 @@ export function verifyDirectEditPersisted(
 export function mergeDirectEditSaveDetailRow(
     patchResponse: ImportReviewBuildingListItem,
     refetched: ImportReviewBuildingListItem,
-    fieldsPatch: Record<string, unknown>
+    fieldsPatch: Record<string, unknown>,
+    options?: {
+        apiFamily?: string;
+        roadClassOptions?: readonly ImportReviewRoadClassOptionInput[];
+    }
 ): ImportReviewBuildingListItem {
     const merged: ImportReviewBuildingListItem = { ...refetched, ...patchResponse };
     for (const patchKey of Object.keys(fieldsPatch)) {
@@ -144,6 +152,12 @@ export function mergeDirectEditSaveDetailRow(
         if (fromPatch !== undefined) {
             (merged as Record<string, unknown>)[patchKey] = fromPatch;
         }
+    }
+    if (options?.apiFamily === "roads") {
+        return enrichImportReviewRoadListRowAfterSave(
+            merged,
+            options.roadClassOptions ?? []
+        );
     }
     return merged;
 }

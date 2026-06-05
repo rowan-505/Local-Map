@@ -18,16 +18,33 @@ import {
     IMPORT_REVIEW_ROUTING_BARRIER_PROMOTION_MAX_ITEMS,
     isImportReviewAdminAreaBulkPromotionEnabled,
     isImportReviewRoadBulkPromotionEnabled,
-    isImportReviewRoadPromotionEnabled,
     isImportReviewRoutingBarrierBulkPromotionEnabled,
     isImportReviewRoutingBarrierPromotionEnabled,
 } from "./import-review-config.js";
+import {
+    promotePublishItemsByFamilyChunks,
+    recordPromotionItemOutcome,
+    type PromotionRunAggregateCounters,
+} from "./import-review-promotion-promote-chunk-executor.js";
 import {
     DEFAULT_PROMOTE_CHUNK_SIZE,
     ImportReviewPromotionPromoteRepository,
     MAX_PROMOTE_CHUNK_SIZE,
     promoteAndCommitImportReviewItem,
 } from "./import-review-promotion-promote.repo.js";
+import { ImportReviewPromotionProgress } from "./import-review-promotion-progress.js";
+import {
+    buildPromotionChunkStageDetails,
+    buildPromotionPipelineProgressUpdate,
+} from "./import-review-promotion-promote-runner-progress.js";
+import {
+    isPublishBatchClosedForReuse,
+    publishBatchClosedForReuseMessage,
+} from "./import-review-publish-batch-lifecycle.js";
+import {
+    parsePublishBatchDryRunResultFromSummary,
+    publishBatchDryRunPassed,
+} from "./import-review-publish-batch-dry-run.js";
 import {
     derivePublishBatchStatus,
     parseCanPromoteFromSummary,
@@ -46,6 +63,11 @@ import {
     resolvePromotionWarningNote,
 } from "./import-review-promotion-promote-api.js";
 import { publishBatchReadyForPromotion } from "./import-review-promotion-promote-readiness.js";
+import {
+    evaluateRoadPromotionGates,
+    logRoadPromoteGateDebug,
+    roadPromotionGateErrorMessage,
+} from "./import-review-road-promotion-gates.js";
 import {
     appendSampleFailureHint,
     summarizeFamilyPromotionFailures,
@@ -69,11 +91,22 @@ import {
 } from "./import-review-promotion-publish-item-validation.js";
 import { classifyPublishItemsForPromotion, computePromotionRunFinalize } from "./import-review-promotion-execution.js";
 import {
+    recoverStalePromotionBatchIfNeeded,
+} from "./import-review-promotion-promote-control.js";
+import {
+    buildPromotionStageHeartbeatDetails,
+    newPromotionAttemptId,
+} from "./import-review-promotion-promote-progress.js";
+import {
     type ImportReviewPublishBatchPromotionResult,
     type ImportReviewPublishPromotionStageKey,
 } from "./import-review-promotion-promote.types.js";
 
 const runningPromoteBatchIds = new Set<bigint>();
+
+export function isImportReviewPromotionWorkerRunning(batchId: bigint): boolean {
+    return runningPromoteBatchIds.has(batchId);
+}
 
 function progressBetween(prevEnd: number, nextEnd: number, done: number, total: number): number {
     if (total <= 0) {
@@ -83,7 +116,15 @@ function progressBetween(prevEnd: number, nextEnd: number, done: number, total: 
 }
 
 export class ImportReviewPromotionPromoteRunner {
-    constructor(private readonly repo: ImportReviewPromotionPromoteRepository) {}
+    private readonly pipelineProgress: ImportReviewPromotionProgress;
+
+    constructor(
+        private readonly repo: ImportReviewPromotionPromoteRepository,
+        pipelineProgress?: ImportReviewPromotionProgress
+    ) {
+        this.pipelineProgress =
+            pipelineProgress ?? new ImportReviewPromotionProgress(this.repo.prisma);
+    }
 
     isRunning(batchId: bigint): boolean {
         return runningPromoteBatchIds.has(batchId);
@@ -93,6 +134,8 @@ export class ImportReviewPromotionPromoteRunner {
         batchId: bigint;
         confirmationText?: string;
         confirmWarnings?: boolean;
+        allowHighRiskFamilies?: boolean;
+        confirmLargeBatch?: boolean;
         promotionNote?: string;
         warningConfirmationNote?: string;
         chunkSize?: number;
@@ -126,7 +169,7 @@ export class ImportReviewPromotionPromoteRunner {
             );
         }
 
-        await assertPublishBatchHasNoDeprecatedCoreBusItems(this.repo.getPrisma(), args.batchId);
+        await assertPublishBatchHasNoDeprecatedCoreBusItems(this.repo.prisma, args.batchId);
 
         const promotionGate = {
             confirm_warnings: args.confirmWarnings === true,
@@ -140,18 +183,20 @@ export class ImportReviewPromotionPromoteRunner {
 
         if (
             !publishBatchReadyForPromotion({
-                batch: before,
+                batch: { ...before, summary: before.summary },
                 validation,
             })
         ) {
             throw new ImportReviewPublishBatchInvalidStatusError(
                 args.batchId.toString(),
                 before.status,
-                before.validation_percent === 100
-                    ? validation.promotable_count > 0
-                        ? "Batch validation outcome does not allow promotion (no promotable items or validation incomplete)."
-                        : "Batch has no promotable items; resolve blockers or re-validate."
-                    : "Batch must complete validation (validation_percent=100) before promotion."
+                isPublishBatchClosedForReuse(before.status)
+                    ? publishBatchClosedForReuseMessage(before.status)
+                    : !publishBatchDryRunPassed(parsePublishBatchDryRunResultFromSummary(before.summary))
+                      ? "Run batch dry-run after validation before promote."
+                      : itemSelection.promotableIds.length > 0
+                        ? "Batch validation outcome does not allow promotion."
+                        : "No pending ready items to promote."
             );
         }
         try {
@@ -173,8 +218,50 @@ export class ImportReviewPromotionPromoteRunner {
         }
 
         const roadItemCount = await this.repo.countRoadPublishItems(args.batchId);
-        if (roadItemCount > 0 && !isImportReviewRoadPromotionEnabled()) {
-            throw new ImportReviewRoadPromotionDisabledError(args.batchId.toString());
+        if (roadItemCount > 0) {
+            const dryRun = await this.repo.readRoadDryRunResult(args.batchId);
+            const roadDryRunSummary = await this.repo.readRoadDryRunSummary(args.batchId);
+            const routingReadinessSummary = await this.repo.readRoutingReadinessSummary(
+                args.batchId
+            );
+            const roadsReadyAtValidation =
+                validation.ready_count > 0 ? validation.ready_count : validation.promotable_count;
+            const publishBatchDryRun = parsePublishBatchDryRunResultFromSummary(before.summary);
+            const roadGates = evaluateRoadPromotionGates({
+                road_item_count: roadItemCount,
+                validation_percent: before.validation_percent,
+                validation,
+                batch_status: before.status,
+                batch_summary: before.summary,
+                publish_batch_dry_run: publishBatchDryRun,
+                road_dry_run: roadDryRunSummary,
+                routing_readiness_validation: routingReadinessSummary,
+                dry_run: dryRun,
+                roads_ready_at_validation: roadsReadyAtValidation,
+                promote_request: {
+                    allow_high_risk_families: args.allowHighRiskFamilies === true,
+                    confirm_large_batch: args.confirmLargeBatch === true,
+                },
+            });
+            logRoadPromoteGateDebug({
+                batchId: args.batchId.toString(),
+                readyCount: roadsReadyAtValidation,
+                isRoadBatch: true,
+                dryRunPassed: publishBatchDryRunPassed(publishBatchDryRun),
+                envRoadPromotion: roadGates.env_enabled,
+                envRoadBulkPromotion: isImportReviewRoadBulkPromotionEnabled(),
+                envRoadApiBulkPromotion: roadGates.api_bulk_promotion_allowed,
+                allowHighRisk: args.allowHighRiskFamilies === true,
+                confirmLargeBatch: args.confirmLargeBatch === true,
+                allowed: roadGates.can_promote,
+                message: roadGates.primary_blocker_message,
+            });
+            if (!roadGates.can_promote) {
+                throw new ImportReviewRoadPromotionDisabledError(
+                    args.batchId.toString(),
+                    roadPromotionGateErrorMessage(roadGates)
+                );
+            }
         }
         if (
             roadItemCount > IMPORT_REVIEW_ROAD_PROMOTION_MAX_ITEMS &&
@@ -214,7 +301,10 @@ export class ImportReviewPromotionPromoteRunner {
             );
         }
 
-        const claim = await this.repo.claimBatchForPromotion(args.batchId);
+        const claim = await this.repo.claimBatchForPromotion(
+            args.batchId,
+            itemSelection.promotableIds.length
+        );
         if (!claim.claimed) {
             if (claim.status === "promoting") {
                 throw new ImportReviewPublishBatchPromotionConflictError(
@@ -242,8 +332,16 @@ export class ImportReviewPromotionPromoteRunner {
         );
         const stagePlan = buildPromotionStagePlan(stageFamilies);
 
+        const promotionAttemptId = newPromotionAttemptId();
         await this.repo.clearStageLogs(args.batchId);
         await this.repo.seedPromotionStageLogs(args.batchId, stagePlan.stages);
+        await this.repo.mergePromotionSummaryPatch(args.batchId, {
+            promotion_attempt_id: promotionAttemptId,
+            promotion_heartbeat_at: new Date().toISOString(),
+            promotion_cancel_requested_at: null,
+            promotion_progress_total: itemSelection.promotableIds.length,
+            promotion_progress_done: 0,
+        });
 
         const promotionNote =
             resolvePromotionNote({
@@ -255,6 +353,8 @@ export class ImportReviewPromotionPromoteRunner {
                 confirmation_text: "PROMOTE",
                 chunk_size: chunkSize,
                 confirm_warnings: args.confirmWarnings === true,
+                allow_high_risk_families: args.allowHighRiskFamilies === true,
+                confirm_large_batch: args.confirmLargeBatch === true,
                 promotion_note: args.promotionNote,
                 warning_confirmation_note: args.warningConfirmationNote,
                 review_note: args.warningConfirmationNote,
@@ -268,6 +368,7 @@ export class ImportReviewPromotionPromoteRunner {
             confirmWarnings: args.confirmWarnings === true,
             promotionNote,
             stagePlan,
+            promotionAttemptId,
             log: args.log,
         }).catch((err) => {
             args.log?.error({ err, batchId: args.batchId.toString() }, "publish batch promotion crashed");
@@ -280,6 +381,36 @@ export class ImportReviewPromotionPromoteRunner {
         };
     }
 
+    private async assertPromotionNotCancelled(batchId: bigint): Promise<void> {
+        if (await this.repo.isPromotionCancelRequested(batchId)) {
+            throw new Error("Promotion cancelled.");
+        }
+    }
+
+    private async touchPromotionProgressHeartbeat(
+        batchId: bigint,
+        attemptId: string,
+        progressTotal: number,
+        progressDone: number,
+        stageKey: ImportReviewPublishPromotionStageKey,
+        stageDetails: Record<string, unknown>
+    ): Promise<void> {
+        await this.repo.touchPromotionHeartbeat(batchId, {
+            attemptId,
+            progressTotal,
+            progressDone,
+            stageDetails,
+        });
+        await this.repo.updateStageLog({
+            batchId,
+            stageKey,
+            stageStatus: "running",
+            message: typeof stageDetails.phase === "string" ? `Preflight: ${stageDetails.phase}` : undefined,
+            progressPercent: progressTotal > 0 ? Math.round((progressDone / progressTotal) * 100) : 0,
+            details: stageDetails,
+        });
+    }
+
     private async runPromotion(args: {
         batchId: bigint;
         chunkSize: number;
@@ -287,9 +418,19 @@ export class ImportReviewPromotionPromoteRunner {
         confirmWarnings: boolean;
         promotionNote?: string;
         stagePlan: PromotionStagePlan;
+        promotionAttemptId: string;
         log?: FastifyBaseLogger;
     }): Promise<void> {
-        const { batchId, chunkSize, promotedBy, confirmWarnings, promotionNote, stagePlan, log } = args;
+        const {
+            batchId,
+            chunkSize,
+            promotedBy,
+            confirmWarnings,
+            promotionNote,
+            stagePlan,
+            promotionAttemptId,
+            log,
+        } = args;
         const promotionGate: PublishItemPromotionGateInput = {
             confirm_warnings: confirmWarnings,
             promotion_note: promotionNote,
@@ -323,13 +464,38 @@ export class ImportReviewPromotionPromoteRunner {
 
             activeStageKey = PROMOTION_STAGE_PREFLIGHT;
             const preflightOk = await this.runStage(batchId, stagePlan, PROMOTION_STAGE_PREFLIGHT, async () => {
+                await this.assertPromotionNotCancelled(batchId);
                 const batch = await this.repo.fetchBatchProgress(batchId);
                 if (!batch) {
                     throw new ImportReviewPublishBatchNotFoundError(batchId.toString());
                 }
+                const skipCounts = await this.repo.countPromotionPreflightSkips(batchId);
                 const reserved = await this.repo.countReservedNonPromotableItems(batchId);
-                const pendingByFamily = await this.repo.countPendingByEntityFamily(batchId);
                 const promotableTotal = pendingIds.length;
+
+                let preflightDetails = buildPromotionStageHeartbeatDetails({
+                    attemptId: promotionAttemptId,
+                    checkedCount: skipCounts.pending_total,
+                    promotableCount: promotableTotal,
+                    skippedPromotedCount: skipCounts.skipped_promoted_count,
+                    skippedFailedCount: skipCounts.skipped_failed_count,
+                    skippedBlockedCount: skipCounts.skipped_blocked_count,
+                    skippedSkippedCount: skipCounts.skipped_skipped_count,
+                    skippedWarningCount: skipCounts.skipped_warning_count,
+                    phase: "counting",
+                });
+                await this.touchPromotionProgressHeartbeat(
+                    batchId,
+                    promotionAttemptId,
+                    promotableTotal,
+                    0,
+                    PROMOTION_STAGE_PREFLIGHT,
+                    preflightDetails
+                );
+
+                await this.assertPromotionNotCancelled(batchId);
+
+                const pendingByFamily = await this.repo.countPendingByEntityFamily(batchId);
                 const familyNote = stagePlan.familyStages
                     .map((s) => `${s.entityFamily}: ${pendingByFamily[s.entityFamily] ?? 0}`)
                     .join(", ");
@@ -337,13 +503,22 @@ export class ImportReviewPromotionPromoteRunner {
                     reserved > 0
                         ? ` ${reserved} non-promotable item(s) will remain reserved.`
                         : "";
-                const skipNote =
-                    promotionSelection.skipped_blocked_count > 0 ||
-                    promotionSelection.skipped_warning_count > 0
-                        ? ` Skipping ${promotionSelection.skipped_blocked_count} blocked and ${promotionSelection.skipped_warning_count} warning item(s).`
-                        : "";
+                const skipNote = ` Skipping ${skipCounts.skipped_promoted_count} promoted, ${skipCounts.skipped_failed_count} failed, ${skipCounts.skipped_blocked_count} blocked, ${skipCounts.skipped_skipped_count} skipped, ${promotionSelection.skipped_warning_count} warning (no confirm).`;
+
                 let finalValidationNote = "";
                 if (pendingIds.length > 0) {
+                    preflightDetails = {
+                        ...preflightDetails,
+                        phase: "final_validation",
+                    };
+                    await this.touchPromotionProgressHeartbeat(
+                        batchId,
+                        promotionAttemptId,
+                        promotableTotal,
+                        0,
+                        PROMOTION_STAGE_PREFLIGHT,
+                        preflightDetails
+                    );
                     const errorCount = await this.repo.runFinalValidationBeforeWrite(
                         pendingIds,
                         promotionGate
@@ -355,18 +530,28 @@ export class ImportReviewPromotionPromoteRunner {
                     }
                     finalValidationNote = ` Final validation passed for ${pendingIds.length} item(s).`;
                 }
-                const counts = await this.repo.countByPublishAction(batchId);
+                const counts = await this.repo.countByPublishActionForIds(batchId, pendingIds);
                 await this.repo.updateBatchProgress({
                     batchId,
-                    validationTotal: pendingIds.length,
+                    validationTotal: promotableTotal,
                     validationDone: 0,
                     validationPercent: stageByKeyFromPlan(stagePlan, PROMOTION_STAGE_PREFLIGHT).progressEnd,
                 });
+                await this.repo.touchPromotionHeartbeat(batchId, {
+                    attemptId: promotionAttemptId,
+                    progressTotal: promotableTotal,
+                    progressDone: 0,
+                });
                 return {
-                    message: `Preflight passed. ${promotableTotal} item(s) to promote (${familyNote}).${skipNote}${note}${finalValidationNote} Loaded ${pendingIds.length} pending item(s): ${counts.insert} insert, ${counts.update} update.`,
+                    message: `Preflight passed. ${promotableTotal} item(s) to promote (${familyNote}).${skipNote}${note}${finalValidationNote} Loaded ${pendingIds.length} pending ready item(s): ${counts.insert} insert, ${counts.update} update.`,
                     details: {
+                        promotion_attempt_id: promotionAttemptId,
                         promotable_items: promotableTotal,
-                        skipped_blocked_count: promotionSelection.skipped_blocked_count,
+                        checked_count: skipCounts.pending_total,
+                        skipped_promoted_count: skipCounts.skipped_promoted_count,
+                        skipped_failed_count: skipCounts.skipped_failed_count,
+                        skipped_blocked_count: skipCounts.skipped_blocked_count,
+                        skipped_skipped_count: skipCounts.skipped_skipped_count,
                         skipped_warning_count: promotionSelection.skipped_warning_count,
                         pending_by_entity_family: pendingByFamily,
                         reserved_non_promotable_items: reserved,
@@ -380,6 +565,7 @@ export class ImportReviewPromotionPromoteRunner {
             }
 
             const items = await this.repo.listPromotableItems(batchId);
+            const itemsById = new Map(items.map((row) => [row.publish_item_id, row]));
 
             if (pendingIds.length === 0) {
                 const batch = await this.repo.fetchBatchProgress(batchId);
@@ -449,10 +635,27 @@ export class ImportReviewPromotionPromoteRunner {
             const total = pendingIds.length;
             let globalDone = 0;
 
+            const runCounters: PromotionRunAggregateCounters = {
+                inserted,
+                updated,
+                success,
+                failed,
+                skipped,
+                verificationMetadataApplied,
+                verificationMetadataSkippedAlreadyVerified,
+            };
+
+            await this.pipelineProgress.startStage(
+                batchId,
+                "promote_items",
+                "Promote publish items",
+                total
+            );
+
             for (const familyStage of stagePlan.familyStages) {
                 activeStageKey = familyStage.key as ImportReviewPublishPromotionStageKey;
                 const familyPendingIds = pendingIds.filter((id) => {
-                    const row = items.find((r) => r.publish_item_id === id);
+                    const row = itemsById.get(id);
                     return row?.entity_family === familyStage.entityFamily;
                 });
                 const familyCounts = countsByFamily[familyStage.entityFamily];
@@ -467,102 +670,125 @@ export class ImportReviewPromotionPromoteRunner {
                     progressPercent: prevStage?.progressEnd ?? 0,
                 });
 
-                let familyDone = 0;
-                let familySuccess = 0;
-                let familyFailed = 0;
-                for (let i = 0; i < familyPendingIds.length; i += chunkSize) {
-                    const chunk = familyPendingIds.slice(i, i + chunkSize);
-                    for (const publishItemId of chunk) {
-                        const itemRow = items.find((r) => r.publish_item_id === publishItemId);
-
-                        const result = await promoteAndCommitImportReviewItem(
-                            this.repo.getPrisma(),
-                            {
-                                batchId,
-                                publishItemId,
-                                promotedBy,
-                                confirmWarnings,
-                                promotionNote,
-                            }
-                        );
-
-                        if (result.outcome === "inserted" || result.outcome === "updated") {
-                            if (itemRow && result.target_id != null) {
-                                if (result.verification_metadata_applied) {
-                                    verificationMetadataApplied += 1;
-                                }
-                                if (result.verification_metadata_skipped_already_verified) {
-                                    verificationMetadataSkippedAlreadyVerified += 1;
-                                }
-                                markedPromoted += 1;
-                                promotedFamilies.add(itemRow.entity_family);
-                                if (result.outcome === "inserted") {
-                                    inserted += 1;
-                                    if (familyCounts) {
-                                        familyCounts.inserted += 1;
-                                    }
-                                } else {
-                                    updated += 1;
-                                    if (familyCounts) {
-                                        familyCounts.updated += 1;
-                                    }
-                                }
-                                success += 1;
-                                familySuccess += 1;
-                                if (familyCounts) {
-                                    familyCounts.success += 1;
-                                }
-                            }
-                        } else if (result.outcome === "skipped") {
-                            if (itemRow && result.target_id != null) {
-                                skipped += 1;
-                                success += 1;
-                                familySuccess += 1;
-                                if (familyCounts) {
-                                    familyCounts.skipped += 1;
-                                    familyCounts.success += 1;
-                                }
-                            }
-                        } else {
-                            failed += 1;
-                            familyFailed += 1;
-                            if (familyCounts) {
-                                familyCounts.failed += 1;
-                            }
+                const globalOffset = globalDone;
+                const { familySuccess, familyFailed } = await promotePublishItemsByFamilyChunks({
+                    family: familyStage.entityFamily,
+                    publishItemIds: familyPendingIds,
+                    globalProcessedOffset: globalOffset,
+                    globalTotal: total,
+                    assertNotCancelled: () => this.assertPromotionNotCancelled(batchId),
+                    hasItemRow: (publishItemId) => itemsById.has(publishItemId),
+                    promoteItem: (publishItemId) =>
+                        promoteAndCommitImportReviewItem(this.repo.prisma, {
+                            batchId,
+                            publishItemId,
+                            promotedBy,
+                            confirmWarnings,
+                            promotionNote,
+                        }),
+                    recordOutcome: (result, publishItemId) => {
+                        const itemRow = itemsById.get(publishItemId);
+                        recordPromotionItemOutcome({
+                            result,
+                            hasItemRow: itemRow != null,
+                            counters: runCounters,
+                            familyCounts,
+                            promotedFamilies,
+                            entityFamily: familyStage.entityFamily,
+                        });
+                        if (
+                            itemRow &&
+                            result.target_id != null &&
+                            (result.outcome === "inserted" || result.outcome === "updated")
+                        ) {
+                            markedPromoted += 1;
                         }
-                    }
+                    },
+                    onChunkComplete: async (chunkEvent) => {
+                        globalDone = chunkEvent.globalProcessed;
+                        inserted = runCounters.inserted;
+                        updated = runCounters.updated;
+                        success = runCounters.success;
+                        failed = runCounters.failed;
+                        skipped = runCounters.skipped;
+                        verificationMetadataApplied = runCounters.verificationMetadataApplied;
+                        verificationMetadataSkippedAlreadyVerified =
+                            runCounters.verificationMetadataSkippedAlreadyVerified;
 
-                    familyDone += chunk.length;
-                    globalDone += chunk.length;
-                    const percent = progressBetween(
-                        prevStage?.progressEnd ?? 0,
-                        promoteStage.progressEnd,
-                        familyDone,
-                        familyPendingIds.length
-                    );
-                    await this.repo.updateBatchProgress({
-                        batchId,
-                        validationDone: Math.min(globalDone, total),
-                        validationPercent: Math.round(percent * 100) / 100,
-                    });
-                    await this.repo.updateStageLog({
-                        batchId,
-                        stageKey: familyStage.key as ImportReviewPublishPromotionStageKey,
-                        stageStatus: "running",
-                        message: `Promoting ${familyStage.entityFamily} to core…`,
-                        progressPercent: Math.round(percent * 100) / 100,
-                        details: {
-                            entity_family: familyStage.entityFamily,
-                            done: familyDone,
-                            total: familyPendingIds.length,
-                            inserted,
-                            updated,
-                            success,
-                            failed,
-                            skipped,
-                        },
-                    });
-                }
+                        const stagePercent = progressBetween(
+                            prevStage?.progressEnd ?? 0,
+                            promoteStage.progressEnd,
+                            chunkEvent.familyProcessed,
+                            chunkEvent.familyTotal
+                        );
+                        const pipelineUpdate = buildPromotionPipelineProgressUpdate({
+                            processed: globalDone,
+                            total,
+                            currentFamily: chunkEvent.family,
+                            promotedCount: success,
+                            failedCount: failed,
+                            skippedCount: skipped,
+                        });
+
+                        await this.repo.updateBatchProgress({
+                            batchId,
+                            validationDone: Math.min(globalDone, total),
+                            validationPercent: Math.round(stagePercent * 100) / 100,
+                        });
+                        await this.repo.touchPromotionHeartbeat(batchId, {
+                            attemptId: promotionAttemptId,
+                            progressTotal: total,
+                            progressDone: Math.min(globalDone, total),
+                            stageDetails: buildPromotionChunkStageDetails({
+                                family: chunkEvent.family,
+                                processed: globalDone,
+                                total,
+                                promoted_count: success,
+                                failed_count: failed,
+                                skipped_count: skipped,
+                                percent: pipelineUpdate.percent,
+                                chunkIndex: chunkEvent.chunkIndex,
+                                chunkSize: chunkEvent.chunkSize,
+                                familyItemCount: chunkEvent.familyTotal,
+                            }),
+                        });
+                        await this.pipelineProgress.updateStageProgress(batchId, "promote_items", {
+                            processed: globalDone,
+                            total,
+                            currentFamily: chunkEvent.family,
+                            successCount: success,
+                            failedCount: failed,
+                            skippedCount: skipped,
+                            percent: pipelineUpdate.percent,
+                            message: pipelineUpdate.message,
+                        });
+                        await this.repo.updateStageLog({
+                            batchId,
+                            stageKey: familyStage.key as ImportReviewPublishPromotionStageKey,
+                            stageStatus: "running",
+                            message: pipelineUpdate.message,
+                            progressPercent: Math.round(stagePercent * 100) / 100,
+                            details: {
+                                entity_family: chunkEvent.family,
+                                done: chunkEvent.familyProcessed,
+                                total: chunkEvent.familyTotal,
+                                current_family: chunkEvent.family,
+                                processed: globalDone,
+                                promoted_count: success,
+                                failed_count: failed,
+                                skipped_count: skipped,
+                                percent: pipelineUpdate.percent,
+                                inserted,
+                                updated,
+                                success,
+                                failed,
+                                skipped,
+                                chunk_index: chunkEvent.chunkIndex,
+                                chunk_size: chunkEvent.chunkSize,
+                            },
+                        });
+                    },
+                });
 
                 const familyFailureStageDetails =
                     familyFailed > 0
@@ -603,6 +829,18 @@ export class ImportReviewPromotionPromoteRunner {
                     finished: true,
                 });
             }
+
+            await this.pipelineProgress.finishStage(
+                batchId,
+                "promote_items",
+                failed > 0 && success === 0 ? "failed" : failed > 0 ? "warning" : "success",
+                {
+                    message:
+                        failed > 0
+                            ? `Promotion finished with ${success} promoted and ${failed} failed.`
+                            : `Promotion finished. ${success} item(s) promoted.`,
+                }
+            );
 
             activeStageKey = PROMOTION_STAGE_MARK_IMPORTED;
             await this.runStage(batchId, stagePlan, PROMOTION_STAGE_MARK_IMPORTED, async () => {
@@ -772,14 +1010,16 @@ export class ImportReviewPromotionPromoteRunner {
                 stageStatus:
                     promotionStatus === "failed"
                         ? "failed"
-                        : promotionStatus === "partially_promoted"
+                        : promotionStatus === "partial"
                           ? "warning"
                           : "success",
             }));
         } catch (err) {
             failureMessage = err instanceof Error ? err.message : "Promotion failed unexpectedly.";
             log?.error({ err, batchId: batchId.toString() }, "publish batch promotion failed");
-            await this.repo.failBatch(batchId, failureMessage);
+            if (failureMessage !== "Promotion cancelled.") {
+                await this.repo.failBatch(batchId, failureMessage);
+            }
             activeStageKey = activeStageKey ?? PROMOTION_STAGE_FINAL;
             await this.repo.updateStageLog({
                 batchId,
@@ -864,7 +1104,15 @@ export class ImportReviewPromotionPromoteRunner {
                 progressPercent: stage.progressEnd,
                 finished: true,
             });
-            await this.repo.failBatch(batchId, message);
+            if (message === "Promotion cancelled.") {
+                await this.repo.finalizePromotionAborted({
+                    batchId,
+                    reason: "cancelled",
+                    message,
+                });
+            } else {
+                await this.repo.failBatch(batchId, message);
+            }
             return false;
         }
     }

@@ -18,6 +18,7 @@
 -- Input psql variables:
 --   staging_schema optional, defaults to staging
 --   system_schema optional, defaults to system
+--   entity_families optional; default all (see pipeline_entity_families.sql)
 -- =============================================================================
 
 \pset pager off
@@ -29,6 +30,10 @@
 \if :{?system_schema}
 \else
 \set system_schema 'system'
+\endif
+\if :{?entity_families}
+\else
+\set entity_families 'all'
 \endif
 
 BEGIN;
@@ -79,6 +84,11 @@ VALUES
     (90, 'addresses', 'staging_address_candidates', 'address_candidates', 'address', false, false),
     (100, 'routing_barriers', 'staging_routing_barrier_candidates', 'routing_barrier_candidates', 'routing_barrier', false, false);
 
+\ir pipeline_entity_families.sql
+
+DELETE FROM stage09_manifest AS m
+WHERE NOT pg_temp.pipeline_entity_family_enabled(m.entity_family);
+
 CREATE TEMP TABLE IF NOT EXISTS stage09_created_views (
     view_schema text NOT NULL,
     view_name text NOT NULL,
@@ -94,6 +104,19 @@ CREATE TEMP TABLE IF NOT EXISTS stage09_skipped (
 ) ON COMMIT DROP;
 
 TRUNCATE stage09_skipped;
+
+CREATE TEMP TABLE IF NOT EXISTS stage09_family_summary (
+    entity_family text NOT NULL,
+    base_table text NOT NULL,
+    nc_view text NOT NULL,
+    rv_view text,
+    mn_view text,
+    nc_view_created boolean NOT NULL,
+    rv_view_created boolean NOT NULL,
+    mn_view_created boolean NOT NULL
+) ON COMMIT DROP;
+
+TRUNCATE stage09_family_summary;
 
 DO $stage09_build$
 DECLARE
@@ -165,6 +188,7 @@ BEGIN
         FROM stage09_manifest
         ORDER BY sort_order
     LOOP
+        v_view_mn := NULL;
         v_reg := to_regclass(format('%I.%I', p.staging_schema, m.base_table));
 
         IF v_reg IS NULL THEN
@@ -320,7 +344,30 @@ BEGIN
             INSERT INTO stage09_created_views (view_schema, view_name)
             VALUES (p.staging_schema, v_view_mn)
             ON CONFLICT DO NOTHING;
+        ELSE
+            v_view_mn := NULL;
         END IF;
+
+        INSERT INTO stage09_family_summary (
+            entity_family,
+            base_table,
+            nc_view,
+            rv_view,
+            mn_view,
+            nc_view_created,
+            rv_view_created,
+            mn_view_created
+        )
+        VALUES (
+            m.entity_family,
+            m.base_table,
+            v_view_nc,
+            v_view_rv,
+            v_view_mn,
+            true,
+            true,
+            v_view_mn IS NOT NULL
+        );
     END LOOP;
 END
 $stage09_build$;
@@ -340,7 +387,7 @@ BEGIN
     v_has_addresses := to_regclass(format('%I.staging_address_candidates', p.staging_schema)) IS NOT NULL;
     v_has_links := to_regclass(format('%I.staging_place_address_link_candidates', p.staging_schema)) IS NOT NULL;
 
-    IF v_has_places THEN
+    IF pg_temp.pipeline_entity_family_enabled('places') AND v_has_places THEN
         EXECUTE format(
             $sql$
             CREATE OR REPLACE VIEW %I.review_places_v AS
@@ -399,7 +446,7 @@ BEGIN
         VALUES ('places_typed', 'staging_place_candidates', 'typed review view skipped; table missing');
     END IF;
 
-    IF v_has_addresses THEN
+    IF pg_temp.pipeline_entity_family_enabled('addresses') AND v_has_addresses THEN
         EXECUTE format(
             $sql$
             CREATE OR REPLACE VIEW %I.review_addresses_v AS
@@ -473,7 +520,7 @@ BEGIN
         VALUES ('addresses_typed', 'staging_address_candidates', 'typed review view skipped; table missing');
     END IF;
 
-    IF v_has_links THEN
+    IF pg_temp.pipeline_stage11_family_enabled('place_address_links') AND v_has_links THEN
         EXECUTE format(
             $sql$
             CREATE OR REPLACE VIEW %I.review_place_address_links_v AS
@@ -557,7 +604,8 @@ BEGIN
 
     TRUNCATE stage09_typed_view_counts;
 
-    IF to_regclass(format('%I.review_places_v', p.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('places')
+       AND to_regclass(format('%I.review_places_v', p.staging_schema)) IS NOT NULL THEN
         v_sql := format(
             'INSERT INTO stage09_typed_view_counts SELECT ''places'', count(*)::bigint FROM %I.review_places_v',
             p.staging_schema
@@ -565,7 +613,8 @@ BEGIN
         EXECUTE v_sql;
     END IF;
 
-    IF to_regclass(format('%I.review_addresses_v', p.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('addresses')
+       AND to_regclass(format('%I.review_addresses_v', p.staging_schema)) IS NOT NULL THEN
         v_sql := format(
             'INSERT INTO stage09_typed_view_counts SELECT ''addresses'', count(*)::bigint FROM %I.review_addresses_v',
             p.staging_schema
@@ -573,7 +622,8 @@ BEGIN
         EXECUTE v_sql;
     END IF;
 
-    IF to_regclass(format('%I.review_place_address_links_v', p.staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_stage11_family_enabled('place_address_links')
+       AND to_regclass(format('%I.review_place_address_links_v', p.staging_schema)) IS NOT NULL THEN
         v_sql := format(
             'INSERT INTO stage09_typed_view_counts SELECT ''place_address_links'', count(*)::bigint FROM %I.review_place_address_links_v',
             p.staging_schema
@@ -582,6 +632,19 @@ BEGIN
     END IF;
 END
 $stage09_typed_counts$;
+
+SELECT
+    'stage09_family_summary' AS section,
+    entity_family,
+    base_table,
+    nc_view,
+    rv_view,
+    mn_view,
+    nc_view_created,
+    rv_view_created,
+    mn_view_created
+FROM stage09_family_summary
+ORDER BY entity_family;
 
 SELECT
     'stage09_created_or_replaced_views' AS section,

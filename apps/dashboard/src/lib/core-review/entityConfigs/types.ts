@@ -76,6 +76,10 @@ export type CoreEntityGeometryConfig = {
     title?: string;
     enableSnapping?: boolean;
     showVertices?: boolean;
+    /** When false, polygon maps start in navigate mode and rely on show-vertices preview toggling. */
+    autoEnterVertexEdit?: boolean;
+    /** When true, map uses PMTiles basemap only (no Martin live overlay tile refreshes). */
+    basemapOnly?: boolean;
     /** POST /streets/validate-geometry for line entities. */
     validateWithApi?: boolean;
 };

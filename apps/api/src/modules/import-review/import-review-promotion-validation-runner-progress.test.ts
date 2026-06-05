@@ -19,7 +19,7 @@ describe("ImportReviewPromotionValidationRunner progress on failure", () => {
         const heartbeatCalls: { validationDone: number }[] = [];
 
         const repo = {
-            getPrismaClient: () => ({} as PrismaClient),
+            prisma: {} as PrismaClient,
             isValidationCancelRequested: async () => false,
             touchValidationHeartbeat: async () => {},
             updateStageLog: async (args: {
@@ -98,7 +98,7 @@ describe("ImportReviewPromotionValidationRunner progress heartbeat", () => {
             [];
 
         const repo = {
-            getPrismaClient: () => ({} as PrismaClient),
+            prisma: {} as PrismaClient,
             updateStageLog: async () => {},
             persistItemValidationResults: async () => {},
             updateValidationHeartbeat: async (args: {

@@ -34,7 +34,9 @@ const MARTIN_OVERLAY_LAYER_IDS = new Set([
  * These basemap layers get `visibility: none` even when base-map.json makes them visible.
  */
 const BASEMAP_LAYERS_HIDDEN_IN_DASHBOARD = new Set([
-  "basemap-road-labels",
+  "basemap-road-labels-major",
+  "basemap-road-labels-medium",
+  "basemap-road-labels-local",
 ]);
 
 function cloneJson<T>(value: T): T {
@@ -66,10 +68,13 @@ function collectSourceIds(layers: readonly LayerSpecification[]): Set<string> {
  */
 export async function fetchDashboardPlaceMapStyle(options: {
   includeBusTransitLayers: boolean;
+  /** When false, style uses PMTiles basemap only (no Martin vector overlay sources/layers). */
+  includeMartinOverlays?: boolean;
   signal?: AbortSignal;
   /** Override `current.json` URL (defaults to {@link getDashboardBasemapCurrentJsonUrl}). */
   currentJsonUrl?: string;
 }): Promise<StyleSpecification> {
+  const includeMartinOverlays = options.includeMartinOverlays !== false;
   const currentJsonUrl = options.currentJsonUrl ?? getDashboardBasemapCurrentJsonUrl();
   const httpUrl = await resolveDashboardBasemapPmtilesHttpUrl({
     currentJsonUrl,
@@ -84,9 +89,10 @@ export async function fetchDashboardPlaceMapStyle(options: {
   const basemapLayers = remapDashboardSymbolLayerFonts((basemap.layers ?? []).map((layer) => {
     const raw = layer as { id?: string; layout?: Record<string, unknown> };
     const newId = `basemap-${raw.id ?? ""}`;
-    const overrideVisibility = BASEMAP_LAYERS_HIDDEN_IN_DASHBOARD.has(newId)
-      ? { visibility: "none" as const }
-      : {};
+    const overrideVisibility =
+      includeMartinOverlays && BASEMAP_LAYERS_HIDDEN_IN_DASHBOARD.has(newId)
+        ? { visibility: "none" as const }
+        : {};
     return {
       ...layer,
       id: newId,
@@ -96,15 +102,17 @@ export async function fetchDashboardPlaceMapStyle(options: {
 
   // --- Martin overlay layers --------------------------------------------------
   const basePlace = cloneJson(PLACE_MAP_STYLE);
-  const martinLayersRaw = (basePlace.layers ?? []).filter((layer) => {
-    if (!layer || typeof layer !== "object" || !("id" in layer)) return false;
-    const id = (layer as { id: string }).id;
-    if (!MARTIN_OVERLAY_LAYER_IDS.has(id)) return false;
-    if (!options.includeBusTransitLayers && (id === "bus-routes" || id === "bus-stops")) {
-      return false;
-    }
-    return true;
-  }) as LayerSpecification[];
+  const martinLayersRaw = includeMartinOverlays
+    ? ((basePlace.layers ?? []).filter((layer) => {
+        if (!layer || typeof layer !== "object" || !("id" in layer)) return false;
+        const id = (layer as { id: string }).id;
+        if (!MARTIN_OVERLAY_LAYER_IDS.has(id)) return false;
+        if (!options.includeBusTransitLayers && (id === "bus-routes" || id === "bus-stops")) {
+          return false;
+        }
+        return true;
+      }) as LayerSpecification[])
+    : [];
 
   // Remap symbol layer fonts to self-hosted Myanmar fontstack.
   const martinLayers = remapDashboardSymbolLayerFonts(martinLayersRaw);
@@ -123,9 +131,11 @@ export async function fetchDashboardPlaceMapStyle(options: {
 
   return {
     version: 8,
-    name: options.includeBusTransitLayers
-      ? "Local Map Dashboard (PMTiles + Martin overlays)"
-      : "Local Map Dashboard (PMTiles + Martin overlays, no bus)",
+    name: includeMartinOverlays
+      ? options.includeBusTransitLayers
+        ? "Local Map Dashboard (PMTiles + Martin overlays)"
+        : "Local Map Dashboard (PMTiles + Martin overlays, no bus)"
+      : "Local Map Dashboard (PMTiles only)",
     // Self-hosted Myanmar fonts — served by Next.js from apps/dashboard/public/fonts/
     glyphs: DASHBOARD_GLYPH_URL,
     sources: {

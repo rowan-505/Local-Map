@@ -6,6 +6,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { invalidateImportReviewAfterPromotion } from "@/src/features/import-review/hooks/invalidateImportReviewAfterPromotion";
 import ImportReviewPromotionEligibilityDetailsDrawer from "@/src/features/import-review/components/ImportReviewPromotionEligibilityDetailsDrawer";
+import ImportReviewPromotionRoadBatchGuide from "@/src/features/import-review/promotion/ImportReviewPromotionRoadBatchGuide";
+import ImportReviewPromotionRoadSafetyChecklist from "@/src/features/import-review/promotion/ImportReviewPromotionRoadSafetyChecklist";
+import { resolveRoadPromotionGatesForPromoteUi } from "@/src/features/import-review/promotion/roadPromotionGates";
+import {
+    canCancelImportReviewPublishBatchPromotion,
+    canResetImportReviewPublishBatchPromotion,
+    formatPromotionHeartbeatAt,
+} from "@/src/features/import-review/promotion/promotionControl";
 import { promotionPromoteUiState } from "@/src/features/import-review/utils/promotionPromoteUiState";
 import {
     formatPublishBatchPromotionStatus,
@@ -36,7 +44,9 @@ import {
     getImportReviewPromotionBatchProgress,
     getImportReviewPromotionBatchVerify,
     isAbortError,
+    postImportReviewPromotionBatchCancelPromotion,
     postImportReviewPromotionBatchPromote,
+    postImportReviewPromotionBatchResetPromotion,
     postImportReviewPromotionBatchRetryFailedReady,
     type ImportReviewPublishBatchDetail,
     type ImportReviewPublishBatchLogsResponse,
@@ -44,7 +54,14 @@ import {
     type ImportReviewPublishBatchVerifyResponse,
 } from "@/src/lib/api";
 
-const POLL_MS = 1500;
+import {
+    nextPublishBatchPollDelayMs,
+    PUBLISH_BATCH_MAX_CONSECUTIVE_POLL_ERRORS,
+    PUBLISH_BATCH_POOLER_WARNING,
+    PUBLISH_BATCH_STALE_HEARTBEAT_EXTRA_POLLS,
+    shouldPollPublishBatchProgress,
+} from "@/src/features/import-review/promotion/publishBatchPolling";
+
 const POST_PROMOTION_STAGE_SETTLE_POLLS = 8;
 
 type Props = {
@@ -53,6 +70,8 @@ type Props = {
     sourceReviewBatchId?: string | null;
     entityFamilies?: string[];
     hasRoadItems?: boolean;
+    /** Roads total from batch detail item_counts_by_entity_family. */
+    roadsItemCount?: number;
     hasRoutingBarrierItems?: boolean;
     workflowBlocked?: boolean;
     workflowBlockedMessage?: string;
@@ -66,6 +85,7 @@ export default function ImportReviewPromotionPromotePanel({
     sourceReviewBatchId = null,
     entityFamilies = [],
     hasRoadItems = false,
+    roadsItemCount = 0,
     hasRoutingBarrierItems = false,
     workflowBlocked = false,
     workflowBlockedMessage,
@@ -75,23 +95,28 @@ export default function ImportReviewPromotionPromotePanel({
     const router = useRouter();
     const [status, setStatus] = useState(batchStatus);
     const [isCreatingRetryBatch, setIsCreatingRetryBatch] = useState(false);
+    const [isCancellingPromotion, setIsCancellingPromotion] = useState(false);
+    const [isResettingPromotion, setIsResettingPromotion] = useState(false);
     const [progress, setProgress] = useState<ImportReviewPublishBatchProgressResponse | null>(null);
     const [logs, setLogs] = useState<ImportReviewPublishBatchLogsResponse | null>(null);
     const [verify, setVerify] = useState<ImportReviewPublishBatchVerifyResponse | null>(null);
     const [isStarting, setIsStarting] = useState(false);
     const [isVerifying, setIsVerifying] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [pollWarning, setPollWarning] = useState<string | null>(null);
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [confirmText, setConfirmText] = useState("");
     const [warningNote, setWarningNote] = useState("");
     const [blockedDrawerOpen, setBlockedDrawerOpen] = useState(false);
-    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pollErrorCountRef = useRef(0);
+    const staleHeartbeatPollsRef = useRef(0);
     const postPromotionSettlePollsRef = useRef(0);
     const queryClient = useQueryClient();
 
     const stopPolling = useCallback(() => {
         if (pollRef.current) {
-            clearInterval(pollRef.current);
+            clearTimeout(pollRef.current);
             pollRef.current = null;
         }
     }, []);
@@ -103,21 +128,44 @@ export default function ImportReviewPromotionPromotePanel({
         return detail;
     }, [batchId, onBatchUpdated]);
 
-    const pollOnce = useCallback(async () => {
-        const [p, l] = await Promise.all([
-            getImportReviewPromotionBatchProgress(batchId),
-            getImportReviewPromotionBatchLogs(batchId),
-        ]);
+    const pollOnce = useCallback(async (): Promise<boolean> => {
+        const p = await getImportReviewPromotionBatchProgress(batchId);
         setProgress(p);
-        setLogs(l);
         setStatus(p.status);
-        if (p.status !== "promoting") {
+        pollErrorCountRef.current = 0;
+        setPollWarning(null);
+
+        if (p.promotion_heartbeat_stale_warning) {
+            staleHeartbeatPollsRef.current += 1;
+            if (staleHeartbeatPollsRef.current >= PUBLISH_BATCH_STALE_HEARTBEAT_EXTRA_POLLS) {
+                setPollWarning(
+                    "Promotion heartbeat looks stale. Cancel or reset promotion, or use SQL bulk promote for large road batches."
+                );
+                stopPolling();
+                return false;
+            }
+        } else {
+            staleHeartbeatPollsRef.current = 0;
+        }
+
+        let logItems: ImportReviewPublishBatchLogsResponse["items"] = [];
+        try {
+            const l = await getImportReviewPromotionBatchLogs(batchId);
+            setLogs(l);
+            logItems = l.items;
+        } catch (logErr) {
+            if (!isAbortError(logErr)) {
+                setPollWarning(formatError(logErr));
+            }
+        }
+
+        if (!shouldPollPublishBatchProgress(p.status)) {
             if (
-                hasUnsettledPromotionStageLogs(l.items) &&
+                hasUnsettledPromotionStageLogs(logItems) &&
                 postPromotionSettlePollsRef.current < POST_PROMOTION_STAGE_SETTLE_POLLS
             ) {
                 postPromotionSettlePollsRef.current += 1;
-                return;
+                return true;
             }
             postPromotionSettlePollsRef.current = 0;
             stopPolling();
@@ -133,22 +181,53 @@ export default function ImportReviewPromotionPromotePanel({
                     promotedFamilies: resolveBatchSelectedFamilies(detail),
                 });
             }
+            return false;
         }
-    }, [batchId, queryClient, refreshBatchDetail, sourceReviewBatchId, stopPolling]);
+        return true;
+    }, [batchId, queryClient, formatError, refreshBatchDetail, sourceReviewBatchId, stopPolling]);
+
+    const scheduleNextPoll = useCallback(
+        (heartbeatStale: boolean) => {
+            const delay = nextPublishBatchPollDelayMs({
+                consecutiveErrors: pollErrorCountRef.current,
+                heartbeatStaleWarning: heartbeatStale,
+            });
+            pollRef.current = setTimeout(() => {
+                void pollOnce()
+                    .then((continuePolling) => {
+                        if (continuePolling) {
+                            scheduleNextPoll(heartbeatStale);
+                        }
+                    })
+                    .catch((err) => {
+                        if (isAbortError(err)) {
+                            return;
+                        }
+                        pollErrorCountRef.current += 1;
+                        setError(formatError(err));
+                        if (pollErrorCountRef.current >= PUBLISH_BATCH_MAX_CONSECUTIVE_POLL_ERRORS) {
+                            setPollWarning(PUBLISH_BATCH_POOLER_WARNING);
+                            stopPolling();
+                            return;
+                        }
+                        scheduleNextPoll(false);
+                    });
+            }, delay);
+        },
+        [formatError, pollOnce, stopPolling]
+    );
 
     const startPolling = useCallback(() => {
         stopPolling();
         postPromotionSettlePollsRef.current = 0;
-        void pollOnce();
-        pollRef.current = setInterval(() => {
-            void pollOnce().catch((err) => {
-                if (!isAbortError(err)) {
-                    setError(formatError(err));
-                    stopPolling();
-                }
-            });
-        }, POLL_MS);
-    }, [pollOnce, stopPolling, formatError]);
+        pollErrorCountRef.current = 0;
+        staleHeartbeatPollsRef.current = 0;
+        void pollOnce().then((continuePolling) => {
+            if (continuePolling) {
+                scheduleNextPoll(false);
+            }
+        });
+    }, [pollOnce, scheduleNextPoll, stopPolling]);
 
     useEffect(() => {
         setStatus(batchStatus);
@@ -156,20 +235,26 @@ export default function ImportReviewPromotionPromotePanel({
 
     useEffect(() => {
         const controller = new AbortController();
-        void Promise.all([
-            getImportReviewPromotionBatchProgress(batchId, { signal: controller.signal }),
-            getImportReviewPromotionBatchLogs(batchId, { signal: controller.signal }),
-        ])
-            .then(([p, l]) => {
+        void (async () => {
+            try {
+                const requestOpts = { signal: controller.signal };
+                const p = await getImportReviewPromotionBatchProgress(batchId, requestOpts);
                 setProgress(p);
-                setLogs(l);
                 setStatus(p.status);
-            })
-            .catch((err) => {
+                try {
+                    const l = await getImportReviewPromotionBatchLogs(batchId, requestOpts);
+                    setLogs(l);
+                } catch (logErr) {
+                    if (!isAbortError(logErr)) {
+                        setPollWarning(formatError(logErr));
+                    }
+                }
+            } catch (err) {
                 if (!isAbortError(err)) {
                     setError(formatError(err));
                 }
-            });
+            }
+        })();
         return () => controller.abort();
     }, [batchId, formatError]);
 
@@ -178,11 +263,7 @@ export default function ImportReviewPromotionPromotePanel({
             startPolling();
             return () => stopPolling();
         }
-        if (
-            status === "promoted" ||
-            status === "partially_promoted" ||
-            status === "failed"
-        ) {
+        if (status === "failed" || status === "promoted" || status === "partially_promoted") {
             void pollOnce();
         }
         return () => stopPolling();
@@ -203,6 +284,15 @@ export default function ImportReviewPromotionPromotePanel({
               : null
     );
     const validationOutcomeLabel = formatPublishBatchValidationOutcome(validation?.outcome);
+    const roadPromotionGates = useMemo(
+        () =>
+            resolveRoadPromotionGatesForPromoteUi({
+                apiGates: progress?.road_promotion_gates,
+                hasRoadItems,
+                roadsItemCount,
+            }),
+        [progress?.road_promotion_gates, hasRoadItems, roadsItemCount]
+    );
     const ui = useMemo(
         () =>
             promotionPromoteUiState({
@@ -216,6 +306,9 @@ export default function ImportReviewPromotionPromotePanel({
                 publishItemStatus: progress?.publish_item_status_counts,
                 failedReadyRetryCount: progress?.failed_ready_retry_count,
                 promotionStatus: progress?.promotion_status,
+                roadPromotionGates: progress?.road_promotion_gates,
+                hasRoadItems,
+                roadsItemCount,
             }),
         [
             status,
@@ -228,8 +321,28 @@ export default function ImportReviewPromotionPromotePanel({
             progress?.publish_item_status_counts,
             progress?.failed_ready_retry_count,
             progress?.promotion_status,
+            progress?.road_promotion_gates,
+            hasRoadItems,
+            roadsItemCount,
         ]
     );
+
+    const refreshProgress = useCallback(async () => {
+        const p = await getImportReviewPromotionBatchProgress(batchId);
+        setProgress(p);
+        setStatus(p.status);
+    }, [batchId]);
+
+    const refreshAfterRoadDryRun = useCallback(async () => {
+        const [p, l] = await Promise.all([
+            getImportReviewPromotionBatchProgress(batchId),
+            getImportReviewPromotionBatchLogs(batchId),
+        ]);
+        setProgress(p);
+        setLogs(l);
+        setStatus(p.status);
+        await refreshBatchDetail();
+    }, [batchId, refreshBatchDetail]);
 
     useEffect(() => {
         if (progress?.status) {
@@ -271,6 +384,8 @@ export default function ImportReviewPromotionPromotePanel({
             await postImportReviewPromotionBatchPromote(batchId, {
                 confirmation_text: "PROMOTE",
                 chunk_size: 100,
+                allow_high_risk_families: true,
+                confirm_large_batch: true,
                 ...includeWarnings,
                 ...(note
                     ? {
@@ -292,6 +407,35 @@ export default function ImportReviewPromotionPromotePanel({
         }
     }
 
+    async function handleCancelPromotion() {
+        setError(null);
+        setIsCancellingPromotion(true);
+        try {
+            const result = await postImportReviewPromotionBatchCancelPromotion(batchId);
+            setStatus(result.status);
+            await refreshProgress();
+        } catch (err) {
+            setError(formatError(err));
+        } finally {
+            setIsCancellingPromotion(false);
+        }
+    }
+
+    async function handleResetPromotion() {
+        setError(null);
+        setIsResettingPromotion(true);
+        try {
+            const result = await postImportReviewPromotionBatchResetPromotion(batchId);
+            setStatus(result.status);
+            await refreshProgress();
+            await refreshBatchDetail();
+        } catch (err) {
+            setError(formatError(err));
+        } finally {
+            setIsResettingPromotion(false);
+        }
+    }
+
     async function handleVerify() {
         setError(null);
         setIsVerifying(true);
@@ -306,6 +450,19 @@ export default function ImportReviewPromotionPromotePanel({
     }
 
     const isPromoting = status === "promoting" || isStarting;
+    const promotionHeartbeatStaleWarning = Boolean(progress?.promotion_heartbeat_stale_warning);
+    const promotionWorkerInProcess = Boolean(progress?.promotion_worker_in_process);
+    const canCancelPromotion = canCancelImportReviewPublishBatchPromotion(status);
+    const canResetPromotion = canResetImportReviewPublishBatchPromotion(status, {
+        heartbeatStaleWarning: promotionHeartbeatStaleWarning,
+        workerInProcess: promotionWorkerInProcess,
+    });
+    const promotionHeartbeatLabel = formatPromotionHeartbeatAt(progress?.promotion_heartbeat_at);
+    const promotionProgressTotal =
+        isPromoting && (progress?.current_promotable_count ?? 0) > 0
+            ? (progress?.validation_total ?? progress?.current_promotable_count ?? 0)
+            : (progress?.validation_total ?? 0);
+    const promotionProgressDone = progress?.validation_done ?? 0;
     const derivedStatus = progress?.derived_status ?? status;
     const isInvalidEmptyPromoted = derivedStatus === "invalid_empty_promoted";
     const percent = progress?.validation_percent ?? 0;
@@ -342,6 +499,38 @@ export default function ImportReviewPromotionPromotePanel({
                 hasRoads={hasRoadItems}
                 hasRoutingBarriers={hasRoutingBarrierItems}
             />
+
+            {roadPromotionGates?.applies ? (
+                <ImportReviewPromotionRoadSafetyChecklist
+                    batchId={batchId}
+                    gates={roadPromotionGates}
+                    formatError={formatError}
+                    onDryRunUpdated={() => refreshAfterRoadDryRun()}
+                />
+            ) : null}
+
+            {ui.roadBulkUx ? (
+                <ImportReviewPromotionRoadBatchGuide
+                    batchId={batchId}
+                    sourceReviewBatchId={sourceReviewBatchId}
+                    policy={ui.roadBulkUx}
+                    batchState={{
+                        promoted: ui.publishItemSuccessCount,
+                        failed: ui.publishItemFailedCount,
+                        pendingReady: ui.currentPromotableCount,
+                        blocked: ui.blockedCount,
+                        warnings: ui.warningCount,
+                    }}
+                    canCreateRetryBatch={ui.canCreateRetryBatch}
+                    retryBatchButtonLabel={ui.retryBatchButtonLabel}
+                    isCreatingRetryBatch={isCreatingRetryBatch}
+                    onCreateRetryBatch={
+                        ui.canCreateRetryBatch && sourceReviewBatchId
+                            ? () => void handleCreateRetryBatch()
+                            : undefined
+                    }
+                />
+            ) : null}
 
             <div className="flex flex-wrap gap-4 rounded-md border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm">
                 <div>
@@ -393,21 +582,21 @@ export default function ImportReviewPromotionPromotePanel({
                         />
                     </div>
                     <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                        Publish items now
+                        Publish items now (batch state)
                     </p>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                        <CountCard
-                            label="Ready to promote now"
-                            value={ui.currentPromotableCount}
-                            tone={ui.currentPromotableCount > 0 ? "success" : "error"}
-                        />
-                        <CountCard label="Pending" value={progress?.publish_item_status_counts?.pending ?? 0} />
+                        <CountCard label="Promoted" value={ui.publishItemSuccessCount} tone="success" />
                         <CountCard
                             label="Failed"
                             value={ui.publishItemFailedCount}
                             tone={ui.publishItemFailedCount > 0 ? "error" : undefined}
                         />
-                        <CountCard label="Promoted" value={ui.publishItemSuccessCount} tone="success" />
+                        <CountCard
+                            label="Pending ready"
+                            value={ui.currentPromotableCount}
+                            tone={ui.currentPromotableCount > 0 ? "success" : undefined}
+                        />
+                        <CountCard label="Pending (all)" value={progress?.publish_item_status_counts?.pending ?? 0} />
                     </div>
                 </div>
             ) : null}
@@ -499,9 +688,49 @@ export default function ImportReviewPromotionPromotePanel({
                 {isVerifying ? (
                     <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.verifying} />
                 ) : null}
+                {canCancelPromotion ? (
+                    <button
+                        type="button"
+                        onClick={() => void handleCancelPromotion()}
+                        disabled={isCancellingPromotion}
+                        className="rounded-md border border-amber-400 bg-white px-3 py-1.5 text-sm font-medium text-amber-950 hover:bg-amber-50 disabled:opacity-50"
+                    >
+                        {isCancellingPromotion ? "Cancelling…" : "Cancel promotion"}
+                    </button>
+                ) : null}
+                {canResetPromotion ? (
+                    <button
+                        type="button"
+                        onClick={() => void handleResetPromotion()}
+                        disabled={isResettingPromotion}
+                        className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-900 hover:bg-red-50 disabled:opacity-50"
+                    >
+                        {isResettingPromotion ? "Resetting…" : "Reset promotion worker"}
+                    </button>
+                ) : null}
             </div>
 
+            {promotionHeartbeatStaleWarning && isPromoting ? (
+                <ImportReviewStatusBanner
+                    message={
+                        promotionWorkerInProcess
+                            ? "Promotion heartbeat is stale. The worker may be stuck in preflight or a heavy step."
+                            : "Promotion worker stopped responding. Use Reset promotion worker, then promote again for pending ready items only."
+                    }
+                    tone="warning"
+                    compact
+                />
+            ) : null}
+            {promotionHeartbeatLabel && isPromoting ? (
+                <p className="text-xs text-gray-500">
+                    Last promotion heartbeat: {promotionHeartbeatLabel}
+                </p>
+            ) : null}
+
             {error ? <ImportReviewStatusBanner message={error} tone="error" compact /> : null}
+            {pollWarning ? (
+                <ImportReviewStatusBanner message={pollWarning} tone="warning" compact />
+            ) : null}
             {promoteDisabledReason && !canPromote && !isPromoting ? (
                 <ImportReviewStatusBanner message={promoteDisabledReason} tone="warning" compact />
             ) : null}
@@ -524,10 +753,15 @@ export default function ImportReviewPromotionPromotePanel({
                             style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
                         />
                     </div>
-                    {progress && progress.validation_total > 0 ? (
+                    {progress && promotionProgressTotal > 0 ? (
                         <p className="text-xs text-gray-500">
-                            Items processed: {progress.validation_done.toLocaleString()} /{" "}
-                            {progress.validation_total.toLocaleString()}
+                            Items processed: {promotionProgressDone.toLocaleString()} /{" "}
+                            {promotionProgressTotal.toLocaleString()}
+                            {progress.current_promotable_count != null &&
+                            progress.total_item_count != null &&
+                            progress.current_promotable_count < progress.total_item_count
+                                ? ` (${progress.current_promotable_count.toLocaleString()} pending-ready in this run; ${progress.total_item_count.toLocaleString()} total in batch)`
+                                : null}
                         </p>
                     ) : null}
                 </div>

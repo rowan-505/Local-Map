@@ -28,13 +28,17 @@ type Props = {
     batchId: string;
     failedCount: number;
     sampleFailures?: readonly ImportReviewPromotionFailureSample[];
+    /** When set, panel copy reflects validation-phase failures (not promotion). */
+    failurePhase?: "validation" | "promotion";
 };
 
 export default function ImportReviewPromotionFailedItemsPanel({
     batchId,
     failedCount,
     sampleFailures = [],
+    failurePhase = "promotion",
 }: Props) {
+    const failureVerb = failurePhase === "validation" ? "validation" : "promotion";
     const [open, setOpen] = useState(false);
     const [fetchState, setFetchState] = useState<PublishBatchFailedPanelFetchState>("idle");
     const [loadError, setLoadError] = useState<string | null>(null);
@@ -102,8 +106,8 @@ export default function ImportReviewPromotionFailedItemsPanel({
         <div className="rounded-md border border-red-200 bg-red-50/80 p-3 text-sm text-red-950">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <p>
-                    {failedCount.toLocaleString()} item{failedCount === 1 ? "" : "s"} failed during
-                    promotion.
+                    {failedCount.toLocaleString()} item{failedCount === 1 ? "" : "s"} failed during{" "}
+                    {failureVerb}.
                     {!open && previewRows[0] ? (
                         <span className="mt-1 block text-xs text-red-800">
                             Example ({previewRows[0].error_code}): {previewRows[0].error_message}

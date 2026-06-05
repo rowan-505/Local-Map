@@ -25,7 +25,7 @@ export type ImportReviewPublishBatchPromotionFamilyCounts = {
 };
 
 export type ImportReviewPublishBatchPromotionResult = {
-    status: "promoted" | "partially_promoted" | "failed";
+    status: "promoted" | "partial" | "partially_promoted" | "failed";
     promoted_count: number;
     skipped_blocked_count: number;
     skipped_warning_count: number;

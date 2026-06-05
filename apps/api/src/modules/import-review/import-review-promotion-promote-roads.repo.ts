@@ -21,12 +21,23 @@ import type {
     RoadDryRunItemStatus,
 } from "./import-review-promotion-road-dry-run.types.js";
 import {
+    runRoadPromotionSqlStep,
+    type RoadPromotionSqlContext,
+} from "./import-review-promotion-road-sql-steps.js";
+import {
     PROMOTE_ROAD_SRC_COLUMNS,
-    ROAD_CANDIDATE_SQL_ALIAS,
+    ROAD_PROMOTE_SRC_ALIAS,
     roadReadyFieldExprs,
 } from "./import-review-promotion-promote-roads-sql.js";
 import {
+    parsePublishBatchDryRunResultFromSummary,
+    publishBatchDryRunPassed,
+} from "./import-review-publish-batch-dry-run.js";
+import { releaseCandidateAfterPromotionFailure } from "./import-review-promotion-candidate-failure-release.js";
+import {
     isPublishItemValidationBlocked,
+    isPublishItemValidationReady,
+    isPublishItemValidationWarning,
     parsePublishItemValidationResult,
 } from "./import-review-promotion-publish-item-validation.js";
 
@@ -56,12 +67,15 @@ function isManualProtected(matchStatus: string | null, autoAction: string | null
 
 function dryRunItemForCandidate(
     dryRun: ImportReviewPromotionRoadDryRunResult | null,
-    candidateId: bigint
+    candidateId: bigint | null | undefined
 ): RoadDryRunItemResult | null {
-    if (!dryRun) {
+    if (!dryRun?.items?.length || candidateId == null) {
         return null;
     }
-    return dryRun.items.find((item) => item.review_candidate_id === candidateId.toString()) ?? null;
+    const candidateKey = candidateId.toString();
+    return (
+        dryRun.items.find((item) => String(item.review_candidate_id) === candidateKey) ?? null
+    );
 }
 
 function dryRunSummaryForItem(item: RoadDryRunItemResult | null): Record<string, unknown> {
@@ -87,6 +101,23 @@ export class ImportReviewPromotionPromoteRoadsRepository {
         this.dryRunRepo = new ImportReviewPromotionRoadDryRunRepository(prisma as import("@prisma/client").PrismaClient);
     }
 
+    private async publishBatchDryRunPassedTx(
+        tx: PromotionDb,
+        batchId: bigint
+    ): Promise<boolean> {
+        const rows = await tx.$queryRaw<{ status: string; summary: unknown }[]>`
+            SELECT status, summary
+            FROM system.system_publish_batches
+            WHERE id = ${batchId}
+            LIMIT 1
+        `;
+        const row = rows[0];
+        if (!row) {
+            return false;
+        }
+        return publishBatchDryRunPassed(parsePublishBatchDryRunResultFromSummary(row.summary));
+    }
+
     async checkRoadCoreExists(targetId: bigint): Promise<boolean> {
         const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
             SELECT id FROM core.core_streets
@@ -96,6 +127,10 @@ export class ImportReviewPromotionPromoteRoadsRepository {
             LIMIT 1
         `;
         return rows.length > 0;
+    }
+
+    async releaseCandidateAfterFailedPromotion(reviewCandidateId: bigint): Promise<void> {
+        await releaseCandidateAfterPromotionFailure(this.prisma, "roads", reviewCandidateId);
     }
 
     async insertRoad(
@@ -114,18 +149,21 @@ export class ImportReviewPromotionPromoteRoadsRepository {
     ): Promise<PromoteItemResult> {
         const dryRunRepo = new ImportReviewPromotionRoadDryRunRepository(tx as import("@prisma/client").PrismaClient);
         const dryRun = await dryRunRepo.readRoadDryRunResult(batchId);
-        if (!dryRun) {
+        const batchDryRunPassed = await this.publishBatchDryRunPassedTx(tx, batchId);
+        if (!dryRun && !batchDryRunPassed) {
             return {
                 publish_item_id: publishItemId,
                 outcome: "failed",
                 target_id: null,
-                error_message: "Road dry-run result missing. Run road dry-run before promotion.",
+                error_message: "Run batch dry-run after validation before promotion.",
                 before_data: null,
                 after_data: null,
             };
         }
 
-        const preflight = await this.loadPreflightRowTx(tx, batchId, publishItemId, dryRun);
+        const preflight = await this.loadPreflightRowTx(tx, batchId, publishItemId, dryRun, {
+            allow_batch_dry_run_bypass: batchDryRunPassed,
+        });
         if (!preflight.ok) {
             return {
                 publish_item_id: publishItemId,
@@ -137,27 +175,17 @@ export class ImportReviewPromotionPromoteRoadsRepository {
             };
         }
 
-        const dryRunItem = dryRunItemForCandidate(dryRun, preflight.candidateId);
-        const dryRunStatus = dryRunItem?.dry_run_status ?? null;
+        const dryRunItem = dryRun ? dryRunItemForCandidate(dryRun, preflight.candidateId) : null;
+        const dryRunStatus =
+            dryRunItem?.dry_run_status ?? (batchDryRunPassed ? "safe_to_promote" : null);
         const dryRunSummaryJson = JSON.stringify(dryRunSummaryForItem(dryRunItem));
 
-        try {
-            return await this.insertRoadTx(tx, batchId, publishItemId, promotedBy, {
-                dryRun,
-                preflight,
-                dryRunStatus,
-                dryRunSummaryJson,
-            });
-        } catch (err) {
-            return {
-                publish_item_id: publishItemId,
-                outcome: "failed",
-                target_id: null,
-                error_message: err instanceof Error ? err.message : "Road insert failed.",
-                before_data: null,
-                after_data: null,
-            };
-        }
+        return this.insertRoadTx(tx, batchId, publishItemId, promotedBy, {
+            dryRun,
+            preflight,
+            dryRunStatus,
+            dryRunSummaryJson,
+        });
     }
 
     async insertRoadTx(
@@ -166,13 +194,22 @@ export class ImportReviewPromotionPromoteRoadsRepository {
         publishItemId: bigint,
         promotedBy: bigint | null,
         ctx: {
-            dryRun: ImportReviewPromotionRoadDryRunResult;
+            dryRun: ImportReviewPromotionRoadDryRunResult | null;
             preflight: { ok: true; candidateId: bigint } | { ok: false; reason: string };
             dryRunStatus: RoadDryRunItemStatus | null;
             dryRunSummaryJson: string;
         }
     ): Promise<PromoteItemResult> {
-                const rows = await tx.$queryRaw<
+        const sqlContext: RoadPromotionSqlContext = {
+            publish_item_id: publishItemId,
+            candidate_id: ctx.preflight.ok ? ctx.preflight.candidateId : null,
+        };
+
+        const rows = await runRoadPromotionSqlStep(
+            "insert_core_street",
+            sqlContext,
+            () =>
+                tx.$queryRaw<
                     {
                         id: bigint;
                         external_id: string | null;
@@ -194,7 +231,12 @@ export class ImportReviewPromotionPromoteRoadsRepository {
                     ready AS (
                         SELECT
                             s.*,
-                            ${roadReadyFieldExprs(batchId, ROAD_CANDIDATE_SQL_ALIAS, ctx.dryRunStatus, ctx.dryRunSummaryJson)}
+                            ${roadReadyFieldExprs(
+                                batchId,
+                                ROAD_PROMOTE_SRC_ALIAS,
+                                ctx.dryRunStatus,
+                                ctx.dryRunSummaryJson
+                            )}
                         FROM src AS s
                     ),
                     valid AS (
@@ -276,46 +318,53 @@ export class ImportReviewPromotionPromoteRoadsRepository {
                         now()
                     FROM guard AS g
                     RETURNING id, external_id, canonical_name, road_class_id, road_class
-                `;
+                `
+        );
 
-                if (rows.length === 0) {
-                    const reason = await this.explainInsertBlocked(tx, batchId, publishItemId);
-                    return {
-                        publish_item_id: publishItemId,
-                        outcome: "failed",
-                        target_id: null,
-                        error_message: reason,
-                        before_data: null,
-                        after_data: null,
-                    };
-                }
+        if (rows.length === 0) {
+            const reason = await runRoadPromotionSqlStep(
+                "explain_insert_blocked",
+                sqlContext,
+                () => this.explainInsertBlocked(tx, batchId, publishItemId)
+            );
+            return {
+                publish_item_id: publishItemId,
+                outcome: "failed",
+                target_id: null,
+                error_message: reason,
+                before_data: null,
+                after_data: null,
+            };
+        }
 
-                const row = rows[0]!;
-                const namesSynced = await this.syncStreetNames(tx, row.id, publishItemId);
+        const row = rows[0]!;
+        sqlContext.target_id = row.id;
+        sqlContext.external_id = row.external_id;
+        const namesSynced = await this.syncStreetNames(tx, row.id, publishItemId, sqlContext);
 
-                return {
-                    publish_item_id: publishItemId,
-                    outcome: "inserted",
-                    target_id: row.id,
-                    error_message: null,
-                    before_data: null,
-                    after_data: {
-                        id: row.id.toString(),
-                        external_id: row.external_id,
-                        canonical_name: row.canonical_name,
-                        road_class_id: row.road_class_id?.toString() ?? null,
-                        road_class: row.road_class,
-                        entity_family: "roads",
-                        names_synced: namesSynced,
-                        promoted_by: promotedBy?.toString() ?? null,
-                        road_dry_run_status: ctx.dryRunStatus,
-                    },
-                    ...buildVerificationMetadataTracking({
-                        outcome: "inserted",
-                        beforeData: null,
-                        entityKey: "roads",
-                    }),
-                };
+        return {
+            publish_item_id: publishItemId,
+            outcome: "inserted",
+            target_id: row.id,
+            error_message: null,
+            before_data: null,
+            after_data: {
+                id: row.id.toString(),
+                external_id: row.external_id,
+                canonical_name: row.canonical_name,
+                road_class_id: row.road_class_id?.toString() ?? null,
+                road_class: row.road_class,
+                entity_family: "roads",
+                names_synced: namesSynced,
+                promoted_by: promotedBy?.toString() ?? null,
+                road_dry_run_status: ctx.dryRunStatus,
+            },
+            ...buildVerificationMetadataTracking({
+                outcome: "inserted",
+                beforeData: null,
+                entityKey: "roads",
+            }),
+        };
     }
 
     async updateRoad(
@@ -334,18 +383,21 @@ export class ImportReviewPromotionPromoteRoadsRepository {
     ): Promise<PromoteItemResult> {
         const dryRunRepo = new ImportReviewPromotionRoadDryRunRepository(tx as import("@prisma/client").PrismaClient);
         const dryRun = await dryRunRepo.readRoadDryRunResult(batchId);
-        if (!dryRun) {
+        const batchDryRunPassed = await this.publishBatchDryRunPassedTx(tx, batchId);
+        if (!dryRun && !batchDryRunPassed) {
             return {
                 publish_item_id: publishItemId,
                 outcome: "failed",
                 target_id: null,
-                error_message: "Road dry-run result missing. Run road dry-run before promotion.",
+                error_message: "Run batch dry-run after validation before promotion.",
                 before_data: null,
                 after_data: null,
             };
         }
 
-        const preflight = await this.loadPreflightRowTx(tx, batchId, publishItemId, dryRun);
+        const preflight = await this.loadPreflightRowTx(tx, batchId, publishItemId, dryRun, {
+            allow_batch_dry_run_bypass: batchDryRunPassed,
+        });
         if (!preflight.ok) {
             return {
                 publish_item_id: publishItemId,
@@ -389,25 +441,15 @@ export class ImportReviewPromotionPromoteRoadsRepository {
             };
         }
 
-        const dryRunItem = dryRunItemForCandidate(dryRun, preflight.candidateId);
-        const dryRunStatus = dryRunItem?.dry_run_status ?? null;
+        const dryRunItem = dryRun ? dryRunItemForCandidate(dryRun, preflight.candidateId) : null;
+        const dryRunStatus =
+            dryRunItem?.dry_run_status ?? (batchDryRunPassed ? "safe_to_promote" : null);
         const dryRunSummaryJson = JSON.stringify(dryRunSummaryForItem(dryRunItem));
 
-        try {
-            return await this.updateRoadTx(tx, batchId, publishItemId, promotedBy, beforeData, {
-                dryRunStatus,
-                dryRunSummaryJson,
-            });
-        } catch (err) {
-            return {
-                publish_item_id: publishItemId,
-                outcome: "failed",
-                target_id: null,
-                error_message: err instanceof Error ? err.message : "Road update failed.",
-                before_data: beforeData,
-                after_data: null,
-            };
-        }
+        return this.updateRoadTx(tx, batchId, publishItemId, promotedBy, beforeData, {
+            dryRunStatus,
+            dryRunSummaryJson,
+        });
     }
 
     async updateRoadTx(
@@ -418,7 +460,15 @@ export class ImportReviewPromotionPromoteRoadsRepository {
         beforeData: unknown,
         ctx: { dryRunStatus: RoadDryRunItemStatus | null; dryRunSummaryJson: string }
     ): Promise<PromoteItemResult> {
-                const rows = await tx.$queryRaw<
+        const sqlContext: RoadPromotionSqlContext = {
+            publish_item_id: publishItemId,
+        };
+
+        const rows = await runRoadPromotionSqlStep(
+            "update_core_street",
+            sqlContext,
+            () =>
+                tx.$queryRaw<
                     {
                         id: bigint;
                         external_id: string | null;
@@ -440,7 +490,12 @@ export class ImportReviewPromotionPromoteRoadsRepository {
                     ready AS (
                         SELECT
                             s.*,
-                            ${roadReadyFieldExprs(batchId, ROAD_CANDIDATE_SQL_ALIAS, ctx.dryRunStatus, ctx.dryRunSummaryJson)}
+                            ${roadReadyFieldExprs(
+                                batchId,
+                                ROAD_PROMOTE_SRC_ALIAS,
+                                ctx.dryRunStatus,
+                                ctx.dryRunSummaryJson
+                            )}
                         FROM src AS s
                     ),
                     valid AS (
@@ -484,46 +539,49 @@ export class ImportReviewPromotionPromoteRoadsRepository {
                           OR coalesce(c.manual_override, false) = true
                       )
                     RETURNING c.id, c.external_id, c.canonical_name, c.road_class_id, c.road_class
-                `;
+                `
+        );
 
-                if (rows.length === 0) {
-                    return {
-                        publish_item_id: publishItemId,
-                        outcome: "failed",
-                        target_id: null,
-                        error_message: "Road update blocked: invalid geometry, references, or protected core row.",
-                        before_data: beforeData,
-                        after_data: null,
-                    };
-                }
+        if (rows.length === 0) {
+            return {
+                publish_item_id: publishItemId,
+                outcome: "failed",
+                target_id: null,
+                error_message: "Road update blocked: invalid geometry, references, or protected core row.",
+                before_data: beforeData,
+                after_data: null,
+            };
+        }
 
-                const row = rows[0]!;
-                const namesSynced = await this.syncStreetNames(tx, row.id, publishItemId);
-                const verificationMeta = buildVerificationMetadataTracking({
-                    outcome: "updated",
-                    beforeData,
-                    entityKey: "roads",
-                });
+        const row = rows[0]!;
+        sqlContext.target_id = row.id;
+        sqlContext.external_id = row.external_id;
+        const namesSynced = await this.syncStreetNames(tx, row.id, publishItemId, sqlContext);
+        const verificationMeta = buildVerificationMetadataTracking({
+            outcome: "updated",
+            beforeData,
+            entityKey: "roads",
+        });
 
-                return {
-                    publish_item_id: publishItemId,
-                    outcome: "updated",
-                    target_id: row.id,
-                    error_message: null,
-                    before_data: beforeData,
-                    after_data: {
-                        id: row.id.toString(),
-                        external_id: row.external_id,
-                        canonical_name: row.canonical_name,
-                        road_class_id: row.road_class_id?.toString() ?? null,
-                        road_class: row.road_class,
-                        entity_family: "roads",
-                        names_synced: namesSynced,
-                        promoted_by: promotedBy?.toString() ?? null,
-                        road_dry_run_status: ctx.dryRunStatus,
-                    },
-                    ...verificationMeta,
-                };
+        return {
+            publish_item_id: publishItemId,
+            outcome: "updated",
+            target_id: row.id,
+            error_message: null,
+            before_data: beforeData,
+            after_data: {
+                id: row.id.toString(),
+                external_id: row.external_id,
+                canonical_name: row.canonical_name,
+                road_class_id: row.road_class_id?.toString() ?? null,
+                road_class: row.road_class,
+                entity_family: "roads",
+                names_synced: namesSynced,
+                promoted_by: promotedBy?.toString() ?? null,
+                road_dry_run_status: ctx.dryRunStatus,
+            },
+            ...verificationMeta,
+        };
     }
 
     private async loadPreflightRow(
@@ -541,7 +599,8 @@ export class ImportReviewPromotionPromoteRoadsRepository {
         tx: PromotionDb,
         batchId: bigint,
         publishItemId: bigint,
-        dryRun: ImportReviewPromotionRoadDryRunResult | null
+        dryRun: ImportReviewPromotionRoadDryRunResult | null,
+        options: { allow_batch_dry_run_bypass?: boolean } = {}
     ): Promise<
         | { ok: true; candidateId: bigint }
         | { ok: false; reason: string }
@@ -583,10 +642,18 @@ export class ImportReviewPromotionPromoteRoadsRepository {
         }
 
         const dryRunItem = dryRunItemForCandidate(dryRun, row.candidate_id);
+        const publishValidation = parsePublishItemValidationResult(row.validation_result);
         if (!dryRunItem) {
-            return { ok: false, reason: "Road dry-run item missing for candidate." };
-        }
-        if (!PROMOTABLE_DRY_RUN_STATUSES.has(dryRunItem.dry_run_status)) {
+            if (
+                options.allow_batch_dry_run_bypass &&
+                (isPublishItemValidationReady(publishValidation.status) ||
+                    isPublishItemValidationWarning(publishValidation.status))
+            ) {
+                // Batch POST /dry-run is authoritative for Validate → Dry-run → Promote.
+            } else {
+                return { ok: false, reason: "Road dry-run item missing for candidate." };
+            }
+        } else if (!PROMOTABLE_DRY_RUN_STATUSES.has(dryRunItem.dry_run_status)) {
             return {
                 ok: false,
                 reason: `Road dry-run status ${dryRunItem.dry_run_status} is not promotable.`,
@@ -599,7 +666,6 @@ export class ImportReviewPromotionPromoteRoadsRepository {
         if (row.review_decision !== "approved") {
             return { ok: false, reason: "Road candidate is not approved." };
         }
-        const publishValidation = parsePublishItemValidationResult(row.validation_result);
         if (publishValidation.status === null) {
             return { ok: false, reason: "Publish item has no validation_result; run batch validation first." };
         }
@@ -608,6 +674,9 @@ export class ImportReviewPromotionPromoteRoadsRepository {
         }
         if (row.promotion_status === "promoted" || row.promoted_core_id != null) {
             return { ok: false, reason: "Road candidate is already promoted." };
+        }
+        if (row.candidate_id == null) {
+            return { ok: false, reason: "Road candidate id missing on publish item." };
         }
 
         return { ok: true, candidateId: row.candidate_id };
@@ -638,7 +707,7 @@ export class ImportReviewPromotionPromoteRoadsRepository {
             ready AS (
                 SELECT
                     s.*,
-                    ${roadReadyFieldExprs(batchId, ROAD_CANDIDATE_SQL_ALIAS, null, "{}")}
+                    ${roadReadyFieldExprs(batchId, ROAD_PROMOTE_SRC_ALIAS, null, "{}")}
                 FROM src AS s
             )
             SELECT
@@ -731,12 +800,23 @@ export class ImportReviewPromotionPromoteRoadsRepository {
     private async syncStreetNames(
         tx: PromotionDb,
         streetId: bigint,
-        publishItemId: bigint
+        publishItemId: bigint,
+        sqlContext?: RoadPromotionSqlContext
     ): Promise<number> {
-        const namesRow = await this.loadCandidateNames(tx, publishItemId);
+        const ctx: RoadPromotionSqlContext = {
+            publish_item_id: publishItemId,
+            target_id: streetId,
+            ...sqlContext,
+        };
+        const namesRow = await runRoadPromotionSqlStep(
+            "sync_street_names_lookup",
+            ctx,
+            () => this.loadCandidateNames(tx, publishItemId)
+        );
         if (!namesRow) {
             return 0;
         }
+        ctx.external_id = namesRow.external_id;
         const derived = deriveImportReviewNames(this.toNameCandidate(namesRow));
         let synced = 0;
 
@@ -751,30 +831,41 @@ export class ImportReviewPromotionPromoteRoadsRepository {
             if (!name || this.looksLikeExternalIdName(name, namesRow.external_id)) {
                 continue;
             }
-            const existing = await tx.$queryRaw<{ id: bigint }[]>`
-                SELECT id
-                FROM core.core_street_names
-                WHERE street_id = ${streetId}
-                  AND name = ${name}
-                  AND name_type = 'primary'
-                LIMIT 1
-            `;
+            const existing = await runRoadPromotionSqlStep(
+                "sync_street_names_lookup",
+                ctx,
+                () =>
+                    tx.$queryRaw<{ id: bigint }[]>`
+                        SELECT id
+                        FROM core.core_street_names
+                        WHERE street_id = ${streetId}
+                          AND name = ${name}
+                          AND name_type = 'primary'
+                        LIMIT 1
+                    `
+            );
             if (existing.length > 0) {
                 continue;
             }
-            await tx.$executeRaw`
-                INSERT INTO core.core_street_names (
-                    street_id, name, language_code, script_code, name_type, is_primary
-                )
-                VALUES (
-                    ${streetId},
-                    ${name},
-                    ${entry.language},
-                    ${entry.script},
-                    'primary',
-                    true
-                )
-            `;
+            const scriptSql =
+                entry.script != null
+                    ? Prisma.sql`${entry.script}`
+                    : Prisma.sql`NULL::text`;
+            await runRoadPromotionSqlStep("sync_street_names_insert", ctx, () =>
+                tx.$executeRaw`
+                    INSERT INTO core.core_street_names (
+                        street_id, name, language_code, script_code, name_type, is_primary
+                    )
+                    VALUES (
+                        ${streetId},
+                        ${name},
+                        ${entry.language},
+                        ${scriptSql},
+                        'primary',
+                        true
+                    )
+                `
+            );
             synced += 1;
         }
 

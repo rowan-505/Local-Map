@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 
+import { buildCreateBatchEligibleWhereSql } from "./import-review-promotion-create-batch-eligibility.js";
 import type { ImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 import {
     hasRoadPromotionBlockingErrorsSql,
@@ -446,18 +447,62 @@ export function buildMarkBatchedSql(
     `;
 }
 
+/** Lightweight roads test batches: approved + promotion_status not_ready only. */
+export function buildRoadsSmallBatchEligibleWhereSql(
+    config: ImportReviewPublishFamilyConfig,
+    reviewBatchId: bigint
+): Prisma.Sql {
+    const a = config.tableAlias;
+    return Prisma.sql`
+        ${col(a, "review_batch_id")} = ${reviewBatchId}
+        AND ${col(a, "entity_family")} = ${config.entityFamily}
+        AND ${col(a, "review_status")} = 'approved'
+        AND ${col(a, "review_decision")} = 'approved'
+        AND ${col(a, "promotion_status")} = 'not_ready'
+        AND ${col(a, "promotion_status")} IS DISTINCT FROM 'promoted'
+        AND ${col(a, "promotion_status")} IS DISTINCT FROM 'batched'
+        AND ${col(a, "promotion_status")} IS DISTINCT FROM 'failed'
+        AND ${col(a, "promotion_status")} IS DISTINCT FROM 'rejected'
+        AND ${col(a, "promotion_status")} IS DISTINCT FROM 'pending'
+        AND ${col(a, "promotion_status")} IS DISTINCT FROM 'needs_review'
+        AND NOT ${isPromotedSql(a)}
+        AND NOT ${isBlockedInActiveBatchSql(config, a)}
+        AND ${col(a, "review_status")} IS DISTINCT FROM 'promoted'
+        AND ${col(a, "review_status")} IS DISTINCT FROM 'pending'
+        AND ${col(a, "review_status")} IS DISTINCT FROM 'needs_more_review'
+        AND ${col(a, "review_decision")} IS DISTINCT FROM 'rejected'
+        AND ${col(a, "review_decision")} IS DISTINCT FROM 'ignored'
+        AND ${col(a, "review_decision")} IS DISTINCT FROM 'needs_more_review'
+    `;
+}
+
+export type SelectEligibleCandidateIdsOptions = {
+    limit?: number;
+    /** Use roads small-batch predicate (approved + not_ready) instead of full eligibility guards. */
+    smallBatchRoads?: boolean;
+};
+
 export function buildSelectEligibleCandidateIdsSql(
     config: ImportReviewPublishFamilyConfig,
     reviewBatchId: bigint,
-    options: PublishEligibilityOptions
+    options: PublishEligibilityOptions,
+    selectOptions?: SelectEligibleCandidateIdsOptions
 ): Prisma.Sql {
     const a = config.tableAlias;
-    const eligible = buildEligibleWhereSql(config, reviewBatchId, options);
+    const eligible =
+        selectOptions?.smallBatchRoads && config.entityFamily === "roads"
+            ? buildRoadsSmallBatchEligibleWhereSql(config, reviewBatchId)
+            : buildEligibleWhereSql(config, reviewBatchId, options);
+    const limitClause =
+        selectOptions?.limit !== undefined && selectOptions.limit > 0
+            ? Prisma.sql`LIMIT ${selectOptions.limit}`
+            : Prisma.empty;
     return Prisma.sql`
         SELECT ${col(a, "id")} AS id
         FROM ${Prisma.raw(config.candidateTable)} AS ${Prisma.raw(a)}
         WHERE ${eligible}
         ORDER BY ${col(a, "id")} ASC
+        ${limitClause}
     `;
 }
 
@@ -500,13 +545,16 @@ function publishItemSelectColumns(
     `;
 }
 
-/** Insert publish items for pre-selected candidate IDs (lightweight active-batch recheck only). */
+/** Insert publish items for pre-selected candidate IDs (uses create-batch eligibility guards). */
 export function buildInsertPublishItemsByIdsSql(
     config: ImportReviewPublishFamilyConfig,
     batchId: bigint,
-    candidateIds: bigint[]
+    candidateIds: bigint[],
+    reviewBatchId: bigint,
+    options: PublishEligibilityOptions
 ): Prisma.Sql {
     const a = config.tableAlias;
+    const eligible = buildCreateBatchEligibleWhereSql(config, reviewBatchId, options);
     return Prisma.sql`
         INSERT INTO system.system_publish_items (
             publish_batch_id,
@@ -526,24 +574,28 @@ export function buildInsertPublishItemsByIdsSql(
         SELECT ${publishItemSelectColumns(config, batchId, a)}
         FROM ${Prisma.raw(config.candidateTable)} AS ${Prisma.raw(a)}
         WHERE ${col(a, "id")} IN (${Prisma.join(candidateIds)})
-          AND NOT ${isBlockedInActiveBatchSql(config, a)}
+          AND ${eligible}
     `;
 }
 
-/** Mark pre-selected candidates batched (IDs must match inserted publish items). */
+/**
+ * Mark candidates batched for publish items inserted in the same transaction.
+ * Does not require promotion_status=not_ready (insert already enforced that).
+ */
 export function buildMarkBatchedByIdsSql(
     config: ImportReviewPublishFamilyConfig,
-    candidateIds: bigint[]
+    candidateIds: bigint[],
+    reviewBatchId: bigint,
+    _options: PublishEligibilityOptions
 ): Prisma.Sql {
     const a = config.tableAlias;
     return Prisma.sql`
         UPDATE ${Prisma.raw(config.candidateTable)} AS ${Prisma.raw(a)}
         SET promotion_status = 'batched', updated_at = now()
         WHERE ${col(a, "id")} IN (${Prisma.join(candidateIds)})
-          AND (
-              ${col(a, "promotion_status")} IS NULL
-              OR trim(coalesce(${col(a, "promotion_status")}::text, '')) = ''
-              OR ${col(a, "promotion_status")} IN ('not_ready', 'ready', 'batched')
-          )
+          AND ${col(a, "review_batch_id")} = ${reviewBatchId}
+          AND ${col(a, "review_status")} = 'approved'
+          AND ${col(a, "review_decision")} = 'approved'
+          AND ${col(a, "promotion_status")} IS DISTINCT FROM 'promoted'
     `;
 }

@@ -8,7 +8,10 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import {
-    buildSelectEligibleCandidateIdsSql,
+    buildSelectCreateBatchEligibleCandidateIdsSql,
+    CREATE_BATCH_NO_ELIGIBLE_MESSAGE,
+} from "./import-review-promotion-create-batch-eligibility.js";
+import {
     isBlockedInSelectedPromotionRetrySql,
     isSelectedCandidatePromotedSql,
     selectedCandidatePromotionStatusEligibleSql,
@@ -42,7 +45,27 @@ export type ResolveCreateBatchCandidateIdsInput = {
     families: readonly string[];
     candidateIdsByFamily?: Readonly<Record<string, readonly bigint[]>>;
     filters: CreatePublishBatchFilters;
+    /** Max eligible candidates per family (applies to all_ready mode). */
+    maxItems?: number;
+    limitPerFamily?: Readonly<Record<string, number>>;
 };
+
+export const PROMOTION_CREATE_BATCH_NO_LIMIT_ELIGIBLE_MESSAGE =
+    "No eligible candidates found for selected family and limit.";
+
+function resolveFamilyItemLimit(
+    family: string,
+    input: Pick<ResolveCreateBatchCandidateIdsInput, "maxItems" | "limitPerFamily">
+): number | undefined {
+    const perFamily = input.limitPerFamily?.[family];
+    if (perFamily !== undefined && perFamily > 0) {
+        return perFamily;
+    }
+    if (input.maxItems !== undefined && input.maxItems > 0) {
+        return input.maxItems;
+    }
+    return undefined;
+}
 
 export type CreateBatchCandidateResolution = {
     familyConfigs: ImportReviewPublishFamilyConfig[];
@@ -267,7 +290,7 @@ export function assertSelectedModeHasCandidates(
     if (total === 0) {
         throw new ImportReviewPromotionNoEligibleCandidatesError(
             0,
-            "No candidate ids provided for selected mode. Set candidate_ids_by_family with at least one id.",
+            CREATE_BATCH_NO_ELIGIBLE_MESSAGE,
             []
         );
     }
@@ -303,11 +326,11 @@ export class ImportReviewPromotionCreateBatchResolver {
                     continue;
                 }
                 const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
-                    ${buildSelectedCandidateIdsSql(
+                    ${buildSelectCreateBatchEligibleCandidateIdsSql(
                         config,
                         input.reviewBatchId,
-                        requestedIds,
-                        input.filters
+                        eligibilityOptions,
+                        { candidateIds: requestedIds }
                     )}
                 `;
                 const ids = rows.map((r) => r.id);
@@ -324,16 +347,35 @@ export class ImportReviewPromotionCreateBatchResolver {
                 input.filters
             );
         } else {
+            const hasItemLimit =
+                (input.maxItems !== undefined && input.maxItems > 0) ||
+                Object.values(input.limitPerFamily ?? {}).some((n) => n > 0);
+
             for (const config of familyConfigs) {
-                const sql = buildSelectEligibleCandidateIdsSql(
+                const familyLimit = resolveFamilyItemLimit(config.entityFamily, input);
+                const sql = buildSelectCreateBatchEligibleCandidateIdsSql(
                     config,
                     input.reviewBatchId,
-                    eligibilityOptions
+                    eligibilityOptions,
+                    { limit: familyLimit }
                 );
                 const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`${sql}`;
                 const ids = rows.map((r) => r.id);
                 candidateIdsByFamily[config.entityFamily] = ids;
                 countByFamily[config.entityFamily] = ids.length;
+            }
+
+            const totalItems = Object.values(countByFamily).reduce((sum, n) => sum + n, 0);
+            if (totalItems === 0 && hasItemLimit) {
+                throw new ImportReviewPromotionNoEligibleCandidatesError(
+                    0,
+                    PROMOTION_CREATE_BATCH_NO_LIMIT_ELIGIBLE_MESSAGE,
+                    familyConfigs.map((cfg) => ({
+                        entity_family: cfg.entityFamily,
+                        included: countByFamily[cfg.entityFamily] ?? 0,
+                        skipped_reasons: [],
+                    }))
+                );
             }
         }
 
@@ -342,7 +384,7 @@ export class ImportReviewPromotionCreateBatchResolver {
             const modeLabel = input.mode === "selected" ? "selected" : "all_ready";
             throw new ImportReviewPromotionNoEligibleCandidatesError(
                 0,
-                `No candidates found for publish batch creation (${modeLabel} scope). Adjust families, filters, or candidate selection.`,
+                CREATE_BATCH_NO_ELIGIBLE_MESSAGE,
                 familyConfigs.map((cfg) => ({
                     entity_family: cfg.entityFamily,
                     included: countByFamily[cfg.entityFamily] ?? 0,

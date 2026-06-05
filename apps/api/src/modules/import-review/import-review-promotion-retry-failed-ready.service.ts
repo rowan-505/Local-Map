@@ -13,7 +13,12 @@ import {
 } from "./import-review-promotion.errors.js";
 import type { ImportReviewPromotionPromoteRepository } from "./import-review-promotion-promote.repo.js";
 import type { ImportReviewPromotionRepository } from "./import-review-promotion.repo.js";
-import { resolveFailedReadyRetryCandidates } from "./import-review-promotion-retry-failed-ready.js";
+import { releaseBatchedCandidatesForRetry } from "./import-review-promotion-retry-failed-ready-release.js";
+import {
+    groupCandidateIdsByFamily,
+    listFailedReadyPublishItemCandidates,
+    resolveFailedReadyRetryCandidates,
+} from "./import-review-promotion-retry-failed-ready.js";
 import type {
     ImportReviewCreateRetryPublishBatchResult,
     ImportReviewPublishBatchDetail,
@@ -63,7 +68,13 @@ export async function createRetryBatchFromFailedReady(args: {
         );
     }
 
-    const prisma = args.repo.getPrisma();
+    const prisma = args.repo.prisma;
+    const failedReadyRows = await listFailedReadyPublishItemCandidates(prisma, args.sourceBatchId);
+    const releasedBatched = await releaseBatchedCandidatesForRetry(
+        prisma,
+        groupCandidateIdsByFamily(failedReadyRows)
+    );
+
     const { source_failed_ready_count, resolution } = await resolveFailedReadyRetryCandidates({
         prisma,
         sourceBatchId: args.sourceBatchId,
@@ -162,6 +173,7 @@ export async function createRetryBatchFromFailedReady(args: {
             new_publish_batch_id: base.id,
             review_batch_id: reviewBatchId.toString(),
             source_failed_ready_count,
+            released_batched_candidates: releasedBatched,
             items_added: itemsAdded,
             count_by_family,
         },

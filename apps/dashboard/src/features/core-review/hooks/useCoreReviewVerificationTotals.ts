@@ -23,6 +23,28 @@ export type CoreReviewVerificationTotals = {
     isLoading: boolean;
 };
 
+export type CoreReviewListVerificationCounts = {
+    total: number;
+    verified: number;
+    unverified: number;
+};
+
+export function parseListVerificationCounts(
+    meta: Record<string, unknown> | undefined,
+): CoreReviewListVerificationCounts | null {
+    if (!meta || typeof meta.verificationCounts !== "object" || meta.verificationCounts === null) {
+        return null;
+    }
+    const raw = meta.verificationCounts as Record<string, unknown>;
+    const total = Number(raw.total);
+    const verified = Number(raw.verified);
+    const unverified = Number(raw.unverified);
+    if (!Number.isFinite(total) || !Number.isFinite(verified) || !Number.isFinite(unverified)) {
+        return null;
+    }
+    return { total, verified, unverified };
+}
+
 const CORE_REVIEW_VERIFICATION_TOTALS_STALE_MS = 10 * 60 * 1000;
 const CORE_REVIEW_VERIFICATION_TOTALS_GC_MS = 60 * 60 * 1000;
 
@@ -70,10 +92,13 @@ export function useCoreReviewVerificationTotals(options: {
     appliedDraft: CoreReviewListDraft;
     filterSupport: CoreReviewFilterSupport;
     enabled: boolean;
+    /** When the list response already includes scope totals, skip extra count fetches. */
+    listVerificationCounts?: CoreReviewListVerificationCounts | null;
 }): CoreReviewVerificationTotals {
-    const { apiSlug, appliedDraft, filterSupport, enabled } = options;
+    const { apiSlug, appliedDraft, filterSupport, enabled, listVerificationCounts = null } = options;
 
-    const queryEnabled = enabled && filterSupport.isVerified;
+    const queryEnabled =
+        enabled && filterSupport.isVerified && apiSlug !== "streets" && listVerificationCounts === null;
 
     const queryKey = useMemo(() => {
         const p = {
@@ -133,6 +158,9 @@ export function useCoreReviewVerificationTotals(options: {
     });
 
     if (!queryEnabled) {
+        if (listVerificationCounts) {
+            return { ...listVerificationCounts, isLoading: false };
+        }
         return { total: 0, verified: 0, unverified: 0, isLoading: false };
     }
 

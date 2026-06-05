@@ -18,6 +18,7 @@ import {
     buildRoadLightweightListExtensionSelect,
     buildRoadLightweightListFromClause,
 } from "./import-review-list-query-road.js";
+import { promotionListExtrasSelect } from "./import-review-promotion-candidate-list-sql.js";
 
 function tableAlias(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
     return Prisma.raw(config.tableAlias);
@@ -76,7 +77,10 @@ function buildLightweightListExtensionSelect(config: ImportReviewEntityFamilyCon
     return buildGenericLightweightListExtensionSelect(config);
 }
 
-export function buildLightweightListSelect(config: ImportReviewEntityFamilyConfig): Prisma.Sql {
+export function buildLightweightListSelect(
+    config: ImportReviewEntityFamilyConfig,
+    reviewBatchId: bigint
+): Prisma.Sql {
     const extension = buildLightweightListExtensionSelect(config);
     const flags =
         config.routeFamily === "roads"
@@ -85,7 +89,7 @@ export function buildLightweightListSelect(config: ImportReviewEntityFamilyConfi
               ? Prisma.sql`, true AS is_building_list_projection, true AS is_list_projection`
               : Prisma.sql`, true AS is_list_projection`;
 
-    return Prisma.sql`${buildLightweightListCoreSelect(config)}${extension}${flags}`;
+    return Prisma.sql`${buildLightweightListCoreSelect(config)}${extension}${promotionListExtrasSelect(config, reviewBatchId)}${flags}`;
 }
 
 export function buildLightweightListFromClause(config: ImportReviewEntityFamilyConfig): Prisma.Sql {

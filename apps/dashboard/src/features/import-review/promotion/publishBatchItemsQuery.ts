@@ -20,3 +20,12 @@ export function buildPublishBatchFailedItemsQuery(): ImportReviewHistoryPublishB
         offset: 0,
     };
 }
+
+/** Query params for validation-blocked publish items on the batch detail page. */
+export function buildPublishBatchBlockedItemsQuery(): ImportReviewHistoryPublishBatchItemsParams {
+    return {
+        publish_status: "blocked",
+        limit: IMPORT_REVIEW_PUBLISH_BATCH_FAILED_ITEMS_LIMIT,
+        offset: 0,
+    };
+}

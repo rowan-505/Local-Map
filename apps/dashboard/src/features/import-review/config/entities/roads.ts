@@ -22,7 +22,7 @@ export const roadsImportReviewEntityConfig = createImportReviewEntityConfig({
     tableColumns: [
         ...IMPORT_REVIEW_DEFAULT_ID_COLUMNS,
         ...getImportReviewNameColumns(),
-        { key: "class_code", label: "Road class", source: "row" },
+        { key: "road_class_display", label: "Road class", source: "row" },
         ...IMPORT_REVIEW_COMMON_TABLE_COLUMNS,
     ],
     searchableFields: ["name_mm", "name_en", "external_id", "class_code"],
@@ -43,8 +43,9 @@ export const roadsImportReviewEntityConfig = createImportReviewEntityConfig({
     ],
     refDropdownFields: [REF_ROAD_CLASS_ID, REF_ADMIN_AREA_ID],
     defaultSort: IMPORT_REVIEW_DEFAULT_SORT,
-    /** Legacy ImportReviewEntityPage reads supportsBulkApproval via shim (was false). */
+    /** Bulk approve/reject disabled for roads; use supportsBulkSelection + promotion batch bar. */
     supportsBulkActions: false,
+    supportsBulkSelection: true,
     supportsMapPreview: true,
     supportsVertexPreview: true,
     supportsGeometryEditLater: true,

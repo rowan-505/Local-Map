@@ -169,6 +169,7 @@ export function buildCreateBatchSuccessResponse(args: {
     timing_ms: ImportReviewCreatePublishBatchTimingMs;
     buildingsMarked: number;
     message: string;
+    warnings?: string[];
 }): ImportReviewCreatePublishBatchResult {
     const id = publishBatchIdToNumber(args.batch.id);
     const batchId = id.toString();
@@ -200,5 +201,6 @@ export function buildCreateBatchSuccessResponse(args: {
         skipped: args.skipped,
         timing_ms: args.timing_ms,
         building_candidates_marked_batched: args.buildingsMarked,
+        ...(args.warnings?.length ? { warnings: args.warnings } : {}),
     };
 }

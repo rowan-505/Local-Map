@@ -25,7 +25,7 @@ export type PromotionStageReconcileUpdate = {
     finished: true;
 };
 
-const TERMINAL_BATCH_STATUSES = new Set(["promoted", "partially_promoted", "failed"]);
+const TERMINAL_BATCH_STATUSES = new Set(["promoted", "partial", "failed"]);
 
 export function isUnsettledPromotionStageStatus(status: string): boolean {
     return status === "pending" || status === "running";

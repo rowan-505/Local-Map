@@ -10,6 +10,12 @@ import { ImportReviewPromotionBatchLimitsError } from "./import-review-promotion
 /** Default maximum publish items per batch without explicit confirmation. */
 export const IMPORT_REVIEW_DEFAULT_MAX_PUBLISH_BATCH_ITEMS = 200;
 
+/** High-risk validation/create allowed without allow_high_risk_families up to this item count. */
+export const IMPORT_REVIEW_HIGH_RISK_CONFIRMATION_ITEM_THRESHOLD = 50;
+
+export const IMPORT_REVIEW_HIGH_RISK_CONFIRMATION_REQUIRED_MESSAGE =
+    "Batch has high-risk families and more than 50 items. Confirm high-risk validation to continue.";
+
 export type PublishBatchLimitsConfirmation = {
     confirm_large_batch?: boolean;
     allow_high_risk_families?: boolean;
@@ -38,6 +44,17 @@ export function batchRequiresMixedHighRiskConfirm(families: readonly string[]): 
     return (NORMAL_PROMOTION_FAMILIES as readonly string[]).some((f) => set.has(f));
 }
 
+/** True when explicit allow_high_risk_families is required for validate/create. */
+export function requiresPublishBatchHighRiskConfirmation(
+    families: readonly string[],
+    totalItems: number
+): boolean {
+    return (
+        batchIncludesHighRiskFamily(families) &&
+        totalItems > IMPORT_REVIEW_HIGH_RISK_CONFIRMATION_ITEM_THRESHOLD
+    );
+}
+
 export function assertPublishBatchLimits(input: PublishBatchLimitsCheckInput): void {
     const confirm = input.confirmation ?? {};
     const maxItems = IMPORT_REVIEW_DEFAULT_MAX_PUBLISH_BATCH_ITEMS;
@@ -62,10 +79,14 @@ export function assertPublishBatchLimits(input: PublishBatchLimitsCheckInput): v
     const highRiskPresent = input.families.filter((f): f is HighRiskPromotionFamily =>
         isHighRiskPromotionFamily(f)
     );
-    if (highRiskPresent.length > 0 && !confirm.allow_high_risk_families) {
+    const requiresHighRiskConfirmation = requiresPublishBatchHighRiskConfirmation(
+        input.families,
+        input.totalItems
+    );
+    if (requiresHighRiskConfirmation && !confirm.allow_high_risk_families) {
         violations.push({
             code: "high_risk_families",
-            message: `High-risk families require allow_high_risk_families=true: ${highRiskPresent.join(", ")}.`,
+            message: IMPORT_REVIEW_HIGH_RISK_CONFIRMATION_REQUIRED_MESSAGE,
             required_flag: "allow_high_risk_families",
         });
     }

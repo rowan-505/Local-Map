@@ -11,6 +11,7 @@
 -- Input psql variables:
 --   snapshot_version (required)
 --   staging_schema, raw_schema, system_schema, tmp_import_schema optional
+--   entity_families optional; default all (see pipeline_entity_families.sql)
 -- =============================================================================
 
 \pset pager off
@@ -30,6 +31,10 @@
 \if :{?tmp_import_schema}
 \else
 \set tmp_import_schema 'tmp_import'
+\endif
+\if :{?entity_families}
+\else
+\set entity_families 'all'
 \endif
 
 BEGIN;
@@ -150,6 +155,11 @@ VALUES
     ('bus_stops', 'staging_bus_stop_candidates', 'v_no_conflict_bus_stop_candidates', 'v_review_bus_stop_conflicts', NULL),
     ('addresses', 'staging_address_candidates', 'v_no_conflict_address_candidates', 'v_review_address_conflicts', NULL),
     ('routing_barriers', 'staging_routing_barrier_candidates', 'v_no_conflict_routing_barrier_candidates', 'v_review_routing_barrier_conflicts', NULL);
+
+\ir pipeline_entity_families.sql
+
+DELETE FROM stage10_manifest AS m
+WHERE NOT pg_temp.pipeline_entity_family_enabled(m.entity_family);
 
 CREATE TEMP TABLE IF NOT EXISTS stage10_snapshot_context (
     source_snapshot_id bigint NOT NULL,
@@ -632,6 +642,8 @@ BEGIN
         'runs_not_completed',
         count(*)::bigint
     FROM system.system_diff_runs AS dr
+    INNER JOIN stage10_manifest AS m
+        ON m.entity_family = dr.entity_family
     WHERE dr.current_snapshot_id = ctx.snapshot_id
       AND dr.status IS DISTINCT FROM 'completed'
     GROUP BY dr.entity_family;
@@ -794,6 +806,8 @@ latest_f1 AS (
     FROM system.system_diff_runs AS run
     INNER JOIN ctx
         ON ctx.snapshot_id = run.current_snapshot_id
+    INNER JOIN stage10_manifest AS m
+        ON m.entity_family = run.entity_family
     WHERE run.summary->>'comparison_type' = 'snapshot_vs_snapshot'
       AND run.status = 'completed'
     ORDER BY
@@ -824,6 +838,8 @@ latest_f2 AS (
     FROM system.system_diff_runs AS run
     INNER JOIN ctx
         ON ctx.snapshot_id = run.current_snapshot_id
+    INNER JOIN stage10_manifest AS m
+        ON m.entity_family = run.entity_family
     WHERE run.summary->>'comparison_type' = 'staging_vs_prod_mirror'
       AND run.status = 'completed'
     ORDER BY
@@ -863,6 +879,21 @@ SELECT
 FROM stage10_review_workload
 ORDER BY entity_family;
 
+SELECT
+    'stage10_family_summary' AS section,
+    m.entity_family,
+    coalesce(lc.row_count, 0)::bigint AS staging_rows,
+    coalesce(w.no_conflict_count, 0)::bigint AS no_conflict_count,
+    coalesce(w.review_or_conflict_count, 0)::bigint AS review_or_conflict_count,
+    coalesce(w.manual_protected_count, 0)::bigint AS manual_protected_count
+FROM stage10_manifest AS m
+LEFT JOIN stage10_review_workload AS w
+    ON w.entity_family = m.entity_family
+LEFT JOIN stage10_layer_counts AS lc
+    ON lc.layer_kind = 'staging_candidate'
+   AND lc.table_name = m.base_table
+ORDER BY m.entity_family;
+
 WITH
 ctx AS (
     SELECT * FROM stage10_context
@@ -879,6 +910,8 @@ typed AS (
     FROM system.system_diff_runs AS run
     INNER JOIN ctx
         ON ctx.snapshot_id = run.current_snapshot_id
+    INNER JOIN stage10_manifest AS m
+        ON m.entity_family = run.entity_family
     WHERE run.summary ? 'comparison_type'
 )
 SELECT DISTINCT ON (entity_family, comparison_type)

@@ -1,8 +1,7 @@
 -- =============================================================================
 -- 04_backfill_places_admin_area.sql
--- Idempotent backfill: smallest containing admin area; update only when values change.
--- Skips manual_override unless force_manual_override=true.
--- Skips verified rows unless force_recalculate_verified=true.
+-- Chunked backfill: smallest containing admin area for NULL or invalid rows.
+-- Skips manual_override / verified unless forced. Optional repair metadata.
 -- =============================================================================
 
 \set ON_ERROR_STOP on
@@ -15,27 +14,33 @@ BEGIN
     END IF;
 END $$;
 
-\echo '=== Places admin_area backfill ==='
+\echo '=== Places admin_area backfill (smallest containing, chunked) ==='
 
 DO $backfill$
 DECLARE
     v_has_manual_override boolean;
     v_has_verification_status boolean;
     v_dry_run boolean;
+    v_write_metadata boolean;
     v_force_verified boolean;
     v_force_manual boolean;
+    v_chunk_limit integer;
+    v_chunk_num integer := 0;
+    v_chunk_selected bigint;
+    v_after_id bigint := 0;
+    v_chunk_max_id bigint;
     v_updated bigint;
-    v_skipped_verified bigint;
-    v_skipped_manual_override bigint;
-    v_skipped_no_calc bigint;
-    v_skipped_same bigint;
-    v_unmatched bigint;
+    v_total_updated bigint := 0;
     v_repair_method constant text := 'smallest_containing';
 BEGIN
+    v_dry_run := core.pipeline_dry_run_enabled();
+    v_write_metadata := core.pipeline_write_admin_repair_metadata();
+    v_chunk_limit := core.pipeline_chunk_limit();
     v_force_verified := core.pipeline_force_recalculate_verified();
     v_force_manual := core.pipeline_force_manual_override();
-    RAISE NOTICE 'places backfill session: force_recalculate_verified=%, force_manual_override=%',
-        v_force_verified, v_force_manual;
+
+    RAISE NOTICE 'places backfill session: dry_run=%, chunk_limit=%, write_admin_repair_metadata=%, force_recalculate_verified=%, force_manual_override=%',
+        v_dry_run, v_chunk_limit, v_write_metadata, v_force_verified, v_force_manual;
 
     SELECT EXISTS (
         SELECT 1
@@ -55,35 +60,22 @@ BEGIN
     )
     INTO v_has_verification_status;
 
-    v_dry_run := core.pipeline_dry_run_enabled();
+    LOOP
+        v_chunk_num := v_chunk_num + 1;
 
-    IF v_has_manual_override THEN
-        EXECUTE $sql$
-            CREATE TEMP TABLE _places_backfill AS
-            SELECT
-                p.id,
-                p.admin_area_id AS old_admin_area_id,
-                p.normalized_data,
-                p.is_verified,
-                coalesce(p.manual_override, false) AS manual_override,
-                NULL::text AS verification_status,
-                coalesce(
+        IF v_has_manual_override THEN
+            EXECUTE $sql$
+                CREATE TEMP TABLE _places_chunk ON COMMIT DROP AS
+                SELECT
+                    p.id,
+                    p.admin_area_id AS old_admin_area_id,
+                    p.normalized_data,
+                    coalesce(p.manual_override, false) AS manual_override,
+                    p.is_verified,
                     CASE
-                        WHEN p.point_geom IS NOT NULL
-                             AND NOT st_isempty(p.point_geom)
-                             AND st_isvalid(p.point_geom)
-                            THEN p.point_geom
-                        ELSE NULL
-                    END,
-                    CASE
-                        WHEN p.entry_geom IS NOT NULL
-                             AND NOT st_isempty(p.entry_geom)
-                             AND st_isvalid(p.entry_geom)
-                            THEN p.entry_geom
-                        ELSE NULL
-                    END
-                ) AS lookup_geom,
-                core.entity_rep_point_for_admin_lookup(
+                        WHEN $1 THEN p.verification_status
+                        ELSE NULL::text
+                    END AS verification_status,
                     coalesce(
                         CASE
                             WHEN p.point_geom IS NOT NULL
@@ -98,40 +90,77 @@ BEGIN
                                  AND st_isvalid(p.entry_geom)
                                 THEN p.entry_geom
                             ELSE NULL
-                        END,
-                        st_setsrid(st_makepoint(p.lng, p.lat), 4326)
-                    )
-                ) AS rep_point
-            FROM core.core_places AS p
-            WHERE p.deleted_at IS NULL
-        $sql$;
-    ELSE
-        EXECUTE $sql$
-            CREATE TEMP TABLE _places_backfill AS
-            SELECT
-                p.id,
-                p.admin_area_id AS old_admin_area_id,
-                p.normalized_data,
-                p.is_verified,
-                false::boolean AS manual_override,
-                NULL::text AS verification_status,
-                coalesce(
+                        END
+                    ) AS lookup_geom,
+                    core.entity_rep_point_for_admin_lookup(
+                        coalesce(
+                            CASE
+                                WHEN p.point_geom IS NOT NULL
+                                     AND NOT st_isempty(p.point_geom)
+                                     AND st_isvalid(p.point_geom)
+                                    THEN p.point_geom
+                                ELSE NULL
+                            END,
+                            CASE
+                                WHEN p.entry_geom IS NOT NULL
+                                     AND NOT st_isempty(p.entry_geom)
+                                     AND st_isvalid(p.entry_geom)
+                                    THEN p.entry_geom
+                                ELSE NULL
+                            END,
+                            st_setsrid(st_makepoint(p.lng, p.lat), 4326)
+                        )
+                    ) AS rep_point
+                FROM core.core_places AS p
+                WHERE p.deleted_at IS NULL
+                  AND (
+                      p.admin_area_id IS NULL
+                      OR NOT core.is_admin_area_id_valid_for_point(
+                          p.admin_area_id,
+                          core.entity_rep_point_for_admin_lookup(
+                              coalesce(
+                                  CASE
+                                      WHEN p.point_geom IS NOT NULL
+                                           AND NOT st_isempty(p.point_geom)
+                                           AND st_isvalid(p.point_geom)
+                                          THEN p.point_geom
+                                      ELSE NULL
+                                  END,
+                                  CASE
+                                      WHEN p.entry_geom IS NOT NULL
+                                           AND NOT st_isempty(p.entry_geom)
+                                           AND st_isvalid(p.entry_geom)
+                                          THEN p.entry_geom
+                                      ELSE NULL
+                                  END,
+                                  st_setsrid(st_makepoint(p.lng, p.lat), 4326)
+                              )
+                          )
+                      )
+                  )
+                  AND NOT core.entity_admin_assignment_is_protected(
+                      coalesce(p.manual_override, false),
+                      p.is_verified,
+                      CASE WHEN $1 THEN p.verification_status ELSE NULL::text END
+                  )
+                  AND p.id > $3
+                ORDER BY p.id
+                LIMIT $2
+            $sql$
+            USING v_has_verification_status, v_chunk_limit, v_after_id;
+        ELSE
+            EXECUTE $sql$
+                CREATE TEMP TABLE _places_chunk ON COMMIT DROP AS
+                SELECT
+                    p.id,
+                    p.admin_area_id AS old_admin_area_id,
+                    p.normalized_data,
+                    false::boolean AS manual_override,
+                    p.is_verified,
                     CASE
-                        WHEN p.point_geom IS NOT NULL
-                             AND NOT st_isempty(p.point_geom)
-                             AND st_isvalid(p.point_geom)
-                            THEN p.point_geom
-                        ELSE NULL
-                    END,
-                    CASE
-                        WHEN p.entry_geom IS NOT NULL
-                             AND NOT st_isempty(p.entry_geom)
-                             AND st_isvalid(p.entry_geom)
-                            THEN p.entry_geom
-                        ELSE NULL
-                    END
-                ) AS lookup_geom,
-                core.entity_rep_point_for_admin_lookup(
+                        WHEN $1 THEN p.verification_status
+                        ELSE NULL::text
+                    END AS verification_status,
                     coalesce(
                         CASE
                             WHEN p.point_geom IS NOT NULL
@@ -146,177 +175,156 @@ BEGIN
                                  AND st_isvalid(p.entry_geom)
                                 THEN p.entry_geom
                             ELSE NULL
-                        END,
-                        st_setsrid(st_makepoint(p.lng, p.lat), 4326)
-                    )
-                ) AS rep_point
-            FROM core.core_places AS p
-            WHERE p.deleted_at IS NULL
-        $sql$;
-    END IF;
+                        END
+                    ) AS lookup_geom,
+                    core.entity_rep_point_for_admin_lookup(
+                        coalesce(
+                            CASE
+                                WHEN p.point_geom IS NOT NULL
+                                     AND NOT st_isempty(p.point_geom)
+                                     AND st_isvalid(p.point_geom)
+                                    THEN p.point_geom
+                                ELSE NULL
+                            END,
+                            CASE
+                                WHEN p.entry_geom IS NOT NULL
+                                     AND NOT st_isempty(p.entry_geom)
+                                     AND st_isvalid(p.entry_geom)
+                                    THEN p.entry_geom
+                                ELSE NULL
+                            END,
+                            st_setsrid(st_makepoint(p.lng, p.lat), 4326)
+                        )
+                    ) AS rep_point
+                FROM core.core_places AS p
+                WHERE p.deleted_at IS NULL
+                  AND (
+                      p.admin_area_id IS NULL
+                      OR NOT core.is_admin_area_id_valid_for_point(
+                          p.admin_area_id,
+                          core.entity_rep_point_for_admin_lookup(
+                              coalesce(
+                                  CASE
+                                      WHEN p.point_geom IS NOT NULL
+                                           AND NOT st_isempty(p.point_geom)
+                                           AND st_isvalid(p.point_geom)
+                                          THEN p.point_geom
+                                      ELSE NULL
+                                  END,
+                                  CASE
+                                      WHEN p.entry_geom IS NOT NULL
+                                           AND NOT st_isempty(p.entry_geom)
+                                           AND st_isvalid(p.entry_geom)
+                                          THEN p.entry_geom
+                                      ELSE NULL
+                                  END,
+                                  st_setsrid(st_makepoint(p.lng, p.lat), 4326)
+                              )
+                          )
+                      )
+                  )
+                  AND NOT core.entity_admin_assignment_is_protected(
+                      false,
+                      p.is_verified,
+                      CASE WHEN $1 THEN p.verification_status ELSE NULL::text END
+                  )
+                  AND p.id > $3
+                ORDER BY p.id
+                LIMIT $2
+            $sql$
+            USING v_has_verification_status, v_chunk_limit, v_after_id;
+        END IF;
 
-    IF v_has_verification_status THEN
-        EXECUTE $sql$
-            UPDATE _places_backfill AS s
-            SET verification_status = p.verification_status
-            FROM core.core_places AS p
-            WHERE p.id = s.id
-        $sql$;
-    END IF;
+        SELECT count(*)::bigint, max(c.id)
+        INTO v_chunk_selected, v_chunk_max_id
+        FROM _places_chunk AS c;
 
-    EXECUTE $sql$
-        ALTER TABLE _places_backfill
-            ADD COLUMN new_admin_area_id bigint,
-            ADD COLUMN needs_overwrite boolean,
-            ADD COLUMN skip_reason text
-    $sql$;
+        IF v_chunk_selected = 0 THEN
+            DROP TABLE IF EXISTS _places_chunk;
+            EXIT;
+        END IF;
 
-    EXECUTE $sql$
-        UPDATE _places_backfill AS s
-        SET new_admin_area_id = core.find_admin_area_for_point(s.lookup_geom, NULL)
-    $sql$;
+        DELETE FROM _places_chunk AS c
+        WHERE c.lookup_geom IS NULL
+           OR st_isempty(c.lookup_geom);
 
-    EXECUTE $sql$
-        UPDATE _places_backfill AS s
-        SET
-            needs_overwrite = (
-                s.new_admin_area_id IS NOT NULL
-                AND (
-                    s.old_admin_area_id IS NULL
-                    OR NOT core.is_admin_area_id_valid_for_point(s.old_admin_area_id, s.rep_point)
-                    OR s.new_admin_area_id IS DISTINCT FROM s.old_admin_area_id
-                )
-            ),
-            skip_reason = CASE
-                WHEN core.entity_admin_assignment_is_protected(
-                    s.manual_override, s.is_verified, s.verification_status
-                ) THEN
-                    CASE
-                        WHEN coalesce(s.manual_override, false)
-                             AND NOT core.pipeline_force_manual_override()
-                            THEN 'manual_override'
-                        ELSE 'verified'
-                    END
-                WHEN s.lookup_geom IS NULL OR st_isempty(s.lookup_geom) THEN 'no_calculated_admin'
-                WHEN s.new_admin_area_id IS NULL THEN 'no_calculated_admin'
-                WHEN NOT (
-                    s.new_admin_area_id IS NOT NULL
-                    AND (
-                        s.old_admin_area_id IS NULL
-                        OR NOT core.is_admin_area_id_valid_for_point(s.old_admin_area_id, s.rep_point)
-                        OR s.new_admin_area_id IS DISTINCT FROM s.old_admin_area_id
-                    )
-                ) THEN 'same_value'
-                ELSE NULL
-            END
-    $sql$;
+        ALTER TABLE _places_chunk
+            ADD COLUMN new_admin_area_id bigint;
 
-    SELECT count(*)::bigint
-    INTO v_unmatched
-    FROM _places_backfill AS s
-    WHERE s.skip_reason = 'no_calculated_admin';
+        UPDATE _places_chunk AS c
+        SET new_admin_area_id = core.find_admin_area_for_point(c.lookup_geom, NULL);
 
-    SELECT count(*)::bigint
-    INTO v_skipped_verified
-    FROM _places_backfill AS s
-    WHERE s.skip_reason = 'verified';
+        DELETE FROM _places_chunk AS c
+        WHERE c.new_admin_area_id IS NULL
+           OR c.old_admin_area_id IS NOT DISTINCT FROM c.new_admin_area_id;
 
-    SELECT count(*)::bigint
-    INTO v_skipped_manual_override
-    FROM _places_backfill AS s
-    WHERE s.skip_reason = 'manual_override';
-
-    SELECT count(*)::bigint
-    INTO v_skipped_no_calc
-    FROM _places_backfill AS s
-    WHERE s.skip_reason = 'no_calculated_admin';
-
-    SELECT count(*)::bigint
-    INTO v_skipped_same
-    FROM _places_backfill AS s
-    WHERE s.skip_reason = 'same_value';
-
-    RAISE NOTICE 'places backfill plan: skipped_verified=%, skipped_manual_override=%, skipped_no_calculated_admin=%, skipped_same_value=%',
-        v_skipped_verified, v_skipped_manual_override, v_skipped_no_calc, v_skipped_same;
-
-    IF v_dry_run THEN
         SELECT count(*)::bigint
         INTO v_updated
-        FROM _places_backfill AS s
-        WHERE s.needs_overwrite IS TRUE
-          AND s.skip_reason IS NULL
-          AND (
-              s.old_admin_area_id IS DISTINCT FROM s.new_admin_area_id
-              OR core.normalized_data_needs_admin_area_repair_update(
-                  s.normalized_data,
-                  s.old_admin_area_id,
-                  s.new_admin_area_id,
-                  v_repair_method
-              )
-          );
+        FROM _places_chunk AS c;
 
-        RAISE NOTICE 'DRY RUN: would update % place row(s)', v_updated;
-        RETURN;
-    END IF;
+        IF v_dry_run THEN
+            RAISE NOTICE 'DRY RUN chunk %: selected=%, updated_count=%',
+                v_chunk_num, v_chunk_selected, v_updated;
+            v_total_updated := v_total_updated + v_updated;
+            DROP TABLE IF EXISTS _places_chunk;
+            IF v_updated = 0 AND v_chunk_selected < v_chunk_limit THEN
+                EXIT;
+            END IF;
+            IF v_updated = 0 THEN
+                RAISE WARNING 'places backfill chunk %: skipping % unassignable candidates (id <= %)',
+                    v_chunk_num, v_chunk_selected, v_chunk_max_id;
+            END IF;
+            v_after_id := v_chunk_max_id;
+            CONTINUE;
+        END IF;
 
-    UPDATE core.core_places AS p
-    SET
-        admin_area_id = s.new_admin_area_id,
-        normalized_data = core.merge_admin_area_repair_normalized_data(
-            p.normalized_data,
-            core.build_admin_area_repair_metadata(
-                s.old_admin_area_id,
-                s.new_admin_area_id,
-                v_repair_method
-            )
-        ),
-        updated_at = now()
-    FROM _places_backfill AS s
-    WHERE p.id = s.id
-      AND s.needs_overwrite IS TRUE
-      AND s.skip_reason IS NULL
-      AND (
-          p.admin_area_id IS DISTINCT FROM s.new_admin_area_id
-          OR core.normalized_data_needs_admin_area_repair_update(
-              p.normalized_data,
-              s.old_admin_area_id,
-              s.new_admin_area_id,
-              v_repair_method
-          )
-      );
+        IF v_write_metadata THEN
+            UPDATE core.core_places AS p
+            SET
+                admin_area_id = c.new_admin_area_id,
+                normalized_data = core.merge_admin_area_repair_normalized_data(
+                    p.normalized_data,
+                    core.build_admin_area_repair_metadata(
+                        c.old_admin_area_id,
+                        c.new_admin_area_id,
+                        v_repair_method
+                    )
+                ),
+                updated_at = now()
+            FROM _places_chunk AS c
+            WHERE p.id = c.id
+              AND p.admin_area_id IS DISTINCT FROM c.new_admin_area_id;
+        ELSE
+            UPDATE core.core_places AS p
+            SET
+                admin_area_id = c.new_admin_area_id,
+                updated_at = now()
+            FROM _places_chunk AS c
+            WHERE p.id = c.id
+              AND p.admin_area_id IS DISTINCT FROM c.new_admin_area_id;
+        END IF;
 
-    GET DIAGNOSTICS v_updated = ROW_COUNT;
+        GET DIAGNOSTICS v_updated = ROW_COUNT;
 
-    RAISE NOTICE 'places backfill applied: updated=%, skipped_verified=%, skipped_manual_override=%, skipped_no_calculated_admin=%, skipped_same_value=%',
-        v_updated, v_skipped_verified, v_skipped_manual_override, v_skipped_no_calc, v_skipped_same;
+        RAISE NOTICE 'places backfill chunk %: selected=%, updated_count=%',
+            v_chunk_num, v_chunk_selected, v_updated;
+        v_total_updated := v_total_updated + v_updated;
+
+        DROP TABLE IF EXISTS _places_chunk;
+
+        IF v_updated = 0 THEN
+            IF v_chunk_selected < v_chunk_limit THEN
+                EXIT;
+            END IF;
+            v_after_id := v_chunk_max_id;
+            RAISE WARNING 'places backfill chunk %: skipping % unassignable candidates (id <= %)',
+                v_chunk_num, v_chunk_selected, v_after_id;
+            CONTINUE;
+        END IF;
+
+        v_after_id := 0;
+    END LOOP;
+
+    RAISE NOTICE 'places backfill finished: total_updated=%, chunks_processed=%',
+        v_total_updated, v_chunk_num;
 END $backfill$;
-
-\echo ''
-\echo '--- Summary metrics ---'
-
-SELECT
-    'updated_count' AS metric,
-    count(*) FILTER (
-        WHERE s.needs_overwrite IS TRUE AND s.skip_reason IS NULL
-    )::bigint AS value,
-    CASE
-        WHEN core.pipeline_dry_run_enabled() THEN 'planned (dry run)'
-        ELSE 'applied'
-    END AS note
-FROM _places_backfill AS s;
-
-SELECT 'skipped_verified' AS metric, count(*)::bigint AS value
-FROM _places_backfill AS s
-WHERE s.skip_reason = 'verified';
-
-SELECT 'skipped_manual_override' AS metric, count(*)::bigint AS value
-FROM _places_backfill AS s
-WHERE s.skip_reason = 'manual_override';
-
-SELECT 'skipped_no_calculated_admin' AS metric, count(*)::bigint AS value
-FROM _places_backfill AS s
-WHERE s.skip_reason = 'no_calculated_admin';
-
-SELECT 'skipped_same_value' AS metric, count(*)::bigint AS value
-FROM _places_backfill AS s
-WHERE s.skip_reason = 'same_value';

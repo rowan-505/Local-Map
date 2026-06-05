@@ -16,6 +16,7 @@ import ImportReviewInlineSpinner from "./ImportReviewInlineSpinner";
 import ImportReviewStatusBanner from "./ImportReviewStatusBanner";
 import CandidateJsonSection from "./detail/CandidateJsonSection";
 import CandidateMapSection from "./detail/CandidateMapSection";
+import CandidatePromotionFailureSection from "./detail/CandidatePromotionFailureSection";
 import CandidateOverrideSection from "./detail/CandidateOverrideSection";
 import CandidatePromoteAction from "./detail/CandidatePromoteAction";
 import CandidateReviewActionsSection from "./detail/CandidateReviewActionsSection";
@@ -169,6 +170,7 @@ export default function ImportReviewDetailDrawer({
                                     compact
                                 />
                             ) : null}
+                            <CandidatePromotionFailureSection row={row} />
                             {detailTechnicalError?.trim() ? (
                                 <pre className="max-h-28 overflow-auto rounded border border-amber-100 bg-amber-50/80 p-2 text-[10px] text-amber-950 whitespace-pre-wrap">
                                     {detailTechnicalError}
@@ -210,7 +212,11 @@ export default function ImportReviewDetailDrawer({
                                 />
                             ) : null}
 
-                            <CandidateValidationSection row={row} isLoadingDetail={isLoadingDetail} />
+                            <CandidateValidationSection
+                                row={row}
+                                isLoadingDetail={isLoadingDetail}
+                                showRoadRoutingWarningBanner={config.slug === "roads"}
+                            />
 
                             <CandidatePromoteAction
                                 apiFamily={config.apiFamily}

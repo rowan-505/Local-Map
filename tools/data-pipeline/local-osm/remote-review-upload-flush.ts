@@ -12,6 +12,7 @@ import type pg from 'pg';
 
 import {
   ENTITY_FAMILY_UPLOAD_CONFIG,
+  parseConfidenceScore,
   type EntityFamilySlug,
   emptyPerFamilyUploadStats,
   importReviewTableQualified,
@@ -225,12 +226,7 @@ export function pickBoolean(j: Record<string, unknown>, keys: string[]): boolean
   return null;
 }
 
-export function parseConfidence(raw: string | null): number | null {
-  if (raw === null || raw.trim() === '') return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return null;
-  return n;
-}
+export { parseConfidenceScore as parseConfidence } from './remote-review-entity-config.js';
 
 function mergeRemoteCandidateIdRows(
   rows: Array<{ id?: string | number | null; local_staging_id?: string | number | null }>,
@@ -321,7 +317,7 @@ function buildCommonRow(it: LocalPackageItemRow, pkg: LocalPackageRow): CommonRo
     external_id: it.external_id,
     canonical_name: it.canonical_name,
     class_code: it.class_code,
-    confidence_score: parseConfidence(it.confidence_score),
+    confidence_score: parseConfidenceScore(it.confidence_score),
     match_status: it.match_status,
     auto_action: it.auto_action,
     review_status: coerceReviewStatus(it.review_status),
@@ -1692,8 +1688,12 @@ export function mergeFlushOutcomes(a: FlushOutcome, b: FlushOutcome): FlushOutco
   return mergeOutcomes(a, b);
 }
 
-export function buildBatchCountUnionSql(): string {
-  const parts = Object.values(ENTITY_FAMILY_UPLOAD_CONFIG).map((c) => {
+export function buildBatchCountUnionSql(families?: EntityFamilySlug[]): string {
+  const configs =
+    families && families.length > 0
+      ? families.map((f) => ENTITY_FAMILY_UPLOAD_CONFIG[f])
+      : Object.values(ENTITY_FAMILY_UPLOAD_CONFIG);
+  const parts = configs.map((c) => {
     if (c.uploadMode === 'address_components') {
       return `select count(*)::int as c
         from import_review.address_components ac
@@ -1705,8 +1705,12 @@ export function buildBatchCountUnionSql(): string {
   return parts.join('\n      union all\n      ');
 }
 
-export function buildBatchPreservedUnionSql(): string {
-  const parts = Object.values(ENTITY_FAMILY_UPLOAD_CONFIG).map((c) => {
+export function buildBatchPreservedUnionSql(families?: EntityFamilySlug[]): string {
+  const configs =
+    families && families.length > 0
+      ? families.map((f) => ENTITY_FAMILY_UPLOAD_CONFIG[f])
+      : Object.values(ENTITY_FAMILY_UPLOAD_CONFIG);
+  const parts = configs.map((c) => {
     if (c.uploadMode === 'address_components') {
       return `select count(*)::int as p
         from import_review.address_components t

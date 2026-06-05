@@ -2,6 +2,8 @@
  * Extract structured failure metadata from promotion errors (Prisma / Postgres / guards).
  */
 
+import { unwrapAbortedTransactionError } from "./import-review-promotion-road-sql-steps.js";
+
 export type PromotionFailureCause = {
     message: string;
     prisma_code?: string | null;
@@ -39,6 +41,11 @@ function isPrismaLikeError(err: object): err is {
 
 /** Parse unknown thrown values into promotion failure cause fields. */
 export function extractPromotionFailureCause(err: unknown): PromotionFailureCause {
+    const unwrapped = unwrapAbortedTransactionError(err);
+    if (unwrapped !== err) {
+        return extractPromotionFailureCause(unwrapped);
+    }
+
     if (err instanceof Error && isPrismaLikeError(err as object)) {
         const prismaErr = err as Error & { code?: string; meta?: Record<string, unknown> };
         const meta = prismaErr.meta;

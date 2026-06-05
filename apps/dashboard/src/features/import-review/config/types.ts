@@ -87,6 +87,8 @@ export type ImportReviewEntityConfig = {
     refDropdownFields: readonly RefDropdownFieldConfig[];
     defaultSort: string;
     supportsBulkActions: boolean;
+    /** Row checkboxes without bulk approve/reject (e.g. roads → create publish batch). */
+    supportsBulkSelection?: boolean;
     supportsMapPreview: boolean;
     supportsVertexPreview: boolean;
     supportsGeometryEditLater: boolean;

@@ -51,6 +51,7 @@ describe("promotionFailureRowFromHistoryItem", () => {
             target_table: "core_places",
             target_id: null,
             error_message: "Place promotion failed: this.prisma.$transaction is not a function",
+            candidate_promotion_status: "not_ready",
             after_data: {
                 error: "Place promotion failed: this.prisma.$transaction is not a function",
             },

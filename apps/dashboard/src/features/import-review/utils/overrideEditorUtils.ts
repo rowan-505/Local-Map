@@ -610,11 +610,7 @@ function essentialRulesForApiFamily(apiFamily: string): readonly DashboardEssent
                 { kind: "geometry" },
             ];
         case "roads":
-            return [
-                { kind: "field", key: "road_class_id" },
-                { kind: "field", key: "admin_area_id" },
-                { kind: "geometry" },
-            ];
+            return [{ kind: "geometry" }];
         case "landuse":
             return [{ kind: "field", key: "landuse_class_id" }, { kind: "geometry" }];
         case "water_lines":

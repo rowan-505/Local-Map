@@ -7,8 +7,13 @@ import type { LanguageMode } from '@local-map/localized-name';
 import { getMapTextFieldExpression } from '@local-map/localized-name';
 import type { MapEngine } from '../mapEngineTypes';
 import { getOverviewLabelTextField } from './overviewLabelTextFields';
+import { getRoadLabelTextField } from './roadLabelTextFields';
 
 const ADMIN_LABEL_LAYER_IDS = new Set([
+  'admin-labels-township',
+  'admin-labels-ward-village-tract',
+  'admin-labels-village-local',
+  // legacy ids (older PMTiles / styles)
   'admin-labels',
   'village-labels',
   'admin-neighborhood-labels',
@@ -41,6 +46,10 @@ export function resolveSymbolLayerTextField(
   }
   if (ADMIN_LABEL_LAYER_IDS.has(layerId)) {
     return adminAreaLabelPointTextFieldExpression(mode);
+  }
+  const roadExpr = getRoadLabelTextField(layerId, mode);
+  if (roadExpr) {
+    return roadExpr;
   }
   return getMapTextFieldExpression(mode) as ExpressionSpecification;
 }

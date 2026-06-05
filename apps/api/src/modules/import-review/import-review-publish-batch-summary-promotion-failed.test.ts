@@ -122,6 +122,35 @@ describe("derivePublishBatchStatus promotion vs validation", () => {
         assert.equal(derived.derived_status, "partial");
     });
 
+    it("stored blocked with promotable pending derives partial for UI", () => {
+        const derived = derivePublishBatchStatus({
+            stored_status: "blocked",
+            validated_at: new Date(),
+            promoted_at: null,
+            dry_run: false,
+            validation_outcome: "blocked",
+            can_promote: true,
+            promotion_status: null,
+            item_counts: {
+                pending: 35,
+                success: 0,
+                failed: 0,
+                skipped: 2,
+                rolled_back: 0,
+                total: 37,
+            },
+            action_counts: { inserted: 0, updated: 0, merged: 0 },
+            core_verified_count: 0,
+            import_review_marked_promoted_count: 0,
+            promotion_result_total: null,
+            promotion_result_success_count: null,
+            promotion_result_core_verified_count: null,
+            promotion_result_marked_promoted_count: null,
+        });
+        assert.equal(derived.derived_status, "partial");
+        assert.equal(derived.stored_status_recommendation, "partial");
+    });
+
     it("draft stored status with partial validation derives partial not draft", () => {
         const derived = derivePublishBatchStatus({
             stored_status: "draft",

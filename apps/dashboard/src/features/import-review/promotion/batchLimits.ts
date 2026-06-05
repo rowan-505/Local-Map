@@ -3,6 +3,9 @@ import { IMPORT_REVIEW_PROMOTION_FAMILY_META } from "@/src/features/import-revie
 /** Mirrors API default (apps/api import-review-promotion-batch-limits.ts). */
 export const IMPORT_REVIEW_MAX_PUBLISH_BATCH_ITEMS = 200;
 
+/** High-risk confirmation only required above this item count (matches API). */
+export const IMPORT_REVIEW_HIGH_RISK_CONFIRMATION_ITEM_THRESHOLD = 50;
+
 const HIGH_RISK_FAMILIES = new Set(
     IMPORT_REVIEW_PROMOTION_FAMILY_META.filter((m) => m.riskLevel === "high_risk").map((m) => m.family)
 );
@@ -42,6 +45,17 @@ export function estimateAllReadyBatchItemCount(args: {
     }, 0);
 }
 
+export function needsPublishBatchHighRiskConfirm(
+    families: readonly string[],
+    totalItems: number
+): boolean {
+    const highRiskFamiliesPresent = families.filter((f) => HIGH_RISK_FAMILIES.has(f));
+    return (
+        highRiskFamiliesPresent.length > 0 &&
+        totalItems > IMPORT_REVIEW_HIGH_RISK_CONFIRMATION_ITEM_THRESHOLD
+    );
+}
+
 export function evaluatePublishBatchLimits(args: {
     families: readonly string[];
     totalItems: number;
@@ -50,7 +64,10 @@ export function evaluatePublishBatchLimits(args: {
     const maxItems = IMPORT_REVIEW_MAX_PUBLISH_BATCH_ITEMS;
     const needsLargeBatchConfirm = args.totalItems > maxItems;
     const highRiskFamiliesPresent = args.families.filter((f) => HIGH_RISK_FAMILIES.has(f));
-    const needsHighRiskConfirm = highRiskFamiliesPresent.length > 0;
+    const needsHighRiskConfirm = needsPublishBatchHighRiskConfirm(
+        args.families,
+        args.totalItems
+    );
     const needsMixedHighRiskConfirm =
         args.families.includes("roads") &&
         args.families.some((f) => SIMPLE_FAMILIES.has(f) && f !== "roads");

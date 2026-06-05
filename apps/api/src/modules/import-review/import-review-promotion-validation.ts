@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
+import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { batchPromotionBlocksValidationReset } from "./import-review-promotion-batch-status.js";
 import { isValidatablePublishFamily, PROMOTABLE_PUBLISH_FAMILIES } from "./import-review-promotion-config.js";
@@ -22,6 +23,7 @@ import {
     type ImportReviewValidationIssue,
     type ImportReviewValidationSeverity,
 } from "./import-review-promotion-validation.types.js";
+import { ImportReviewPromotionProgress } from "./import-review-promotion-progress.js";
 import {
     ImportReviewPromotionValidationRepository,
     type PublishItemEntityRow,
@@ -41,6 +43,7 @@ import {
     type ImportReviewValidationHeartbeatState,
 } from "./import-review-promotion-validation-control.js";
 import { assertPublishBatchHasNoDeprecatedCoreBusItems } from "./import-review-transport-promotion-deprecated.js";
+import { outcomeFromPersistedValidationResult } from "./import-review-promotion-validation-resume.js";
 
 const runningBatchIds = new Set<bigint>();
 
@@ -170,6 +173,45 @@ function mergeSimpleValidationOutcomeIntoItemState(
     }
 }
 
+async function seedItemStateFromPersistedValidation(
+    prisma: PrismaClient,
+    batchId: bigint,
+    itemRows: PublishItemEntityRow[],
+    itemState: Map<string, ItemIssueState>,
+    stageKey: ImportReviewPublishValidationStageKey
+): Promise<number> {
+    const rows = await prisma.$queryRaw<
+        { publish_item_id: bigint; entity_family: string; validation_result: unknown }[]
+    >`
+        SELECT id AS publish_item_id, entity_family, validation_result
+        FROM system.system_publish_items
+        WHERE publish_batch_id = ${batchId}
+    `;
+    const rowByItemId = new Map(itemRows.map((r) => [r.id.toString(), r]));
+    let seeded = 0;
+
+    for (const row of rows) {
+        const itemRow = rowByItemId.get(row.publish_item_id.toString());
+        if (!itemRow) {
+            continue;
+        }
+        const target = {
+            publish_item_id: row.publish_item_id,
+            entity_family: row.entity_family,
+            review_candidate_id: 0n,
+            review_batch_id: 0n,
+        };
+        const outcome = outcomeFromPersistedValidationResult(target, row.validation_result);
+        if (!outcome) {
+            continue;
+        }
+        mergeSimpleValidationOutcomeIntoItemState(outcome, itemState, stageKey);
+        seeded += 1;
+    }
+
+    return seeded;
+}
+
 function persistRowsFromSimpleValidationOutcomes(
     outcomes: readonly PublishItemSimpleValidationOutcome[],
     batchValidation: ImportReviewPromotionSimpleBatchValidation,
@@ -212,11 +254,17 @@ function persistRowsFromSimpleValidationOutcomes(
 
 export class ImportReviewPromotionValidationRunner {
     private readonly simpleBatchValidation: ImportReviewPromotionSimpleBatchValidation;
+    private readonly pipelineProgress: ImportReviewPromotionProgress;
 
-    constructor(private readonly repo: ImportReviewPromotionValidationRepository) {
+    constructor(
+        private readonly repo: ImportReviewPromotionValidationRepository,
+        pipelineProgress?: ImportReviewPromotionProgress
+    ) {
         this.simpleBatchValidation = new ImportReviewPromotionSimpleBatchValidation(
-            repo.getPrismaClient()
+            repo.prisma
         );
+        this.pipelineProgress =
+            pipelineProgress ?? new ImportReviewPromotionProgress(repo.prisma);
     }
 
     isRunning(batchId: bigint): boolean {
@@ -268,7 +316,7 @@ export class ImportReviewPromotionValidationRunner {
         }
 
         await assertPublishBatchHasNoDeprecatedCoreBusItems(
-            this.repo.getPrismaClient(),
+            this.repo.prisma,
             batchId
         );
 
@@ -426,6 +474,9 @@ export class ImportReviewPromotionValidationRunner {
         _progressTotal: number,
         log?: FastifyBaseLogger
     ): Promise<void> {
+        await this.pipelineProgress
+            .failStage(batchId, "validate_items", err)
+            .catch(() => undefined);
         await this.repo.finalizeValidationAborted(batchId, err.reason);
 
         log?.info(
@@ -502,6 +553,32 @@ export class ImportReviewPromotionValidationRunner {
             }
 
             const progressTotal = validatableItemTotal || validationTotal || 1;
+
+            const alreadyValidated = await seedItemStateFromPersistedValidation(
+                this.repo.prisma,
+                batchId,
+                itemRows,
+                itemState,
+                "validate_candidate_state"
+            );
+            if (alreadyValidated > 0) {
+                await this.repo.updateBatchProgress({
+                    batchId,
+                    validationTotal: progressTotal,
+                    validationDone: alreadyValidated,
+                    validationPercent: Math.min(
+                        100,
+                        Math.round((alreadyValidated / progressTotal) * 10000) / 100
+                    ),
+                });
+            }
+
+            await this.pipelineProgress.startStage(
+                batchId,
+                "validate_items",
+                "Validate publish items",
+                progressTotal
+            );
 
             const simpleValidationOk = await this.runSimplePublishItemValidation({
                 batchId,
@@ -634,6 +711,15 @@ export class ImportReviewPromotionValidationRunner {
                     validationPercent: 100,
                 });
 
+                const pipelineFinishStatus =
+                    finalized.stageStatus === "warning" ? "warning" : "success";
+                await this.pipelineProgress.finishStage(
+                    batchId,
+                    "validate_items",
+                    pipelineFinishStatus,
+                    { message: finalized.logsSummary }
+                );
+
                 return {
                     message: finalized.logsSummary,
                     details: finalized.validationResult as unknown as Record<string, unknown>,
@@ -649,8 +735,17 @@ export class ImportReviewPromotionValidationRunner {
                     log
                 );
             } else {
-                const message = err instanceof Error ? err.message : "Validation failed unexpectedly.";
+                const poolTimeout =
+                    err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2024";
+                const message = poolTimeout
+                    ? "Database connection timed out. Use a smaller batch or SQL bulk promotion."
+                    : err instanceof Error
+                      ? err.message
+                      : "Validation failed unexpectedly.";
                 log?.error({ err, batchId: batchId.toString() }, "publish batch validation failed");
+                await this.pipelineProgress
+                    .failStage(batchId, "validate_items", message)
+                    .catch(() => undefined);
                 await this.repo.failRunningValidationStages(batchId, "stale_worker", message);
                 await this.repo.skipPendingValidationStages(batchId, "Skipped (validation failed).");
                 await this.repo.failBatch(batchId, message);
@@ -679,7 +774,7 @@ export class ImportReviewPromotionValidationRunner {
             progressPercent: prevEnd,
             details: {
                 process_state: "running",
-                engine: "import-review-promotion-simple-validation",
+                engine: "import-review-promotion-simple-validation+roads-bulk-sql",
                 processed_count: 0,
                 total_item_count: args.progressTotal,
                 elapsed_ms: 0,
@@ -763,7 +858,7 @@ export class ImportReviewPromotionValidationRunner {
                 details: {
                     flagged_items: flagged,
                     process_state: "completed",
-                    engine: "import-review-promotion-simple-validation",
+                    engine: "import-review-promotion-simple-validation+roads-bulk-sql",
                     processed_count: processedCount,
                     total_item_count: args.progressTotal,
                 },
@@ -791,13 +886,16 @@ export class ImportReviewPromotionValidationRunner {
                 progressPercent: progress?.validation_percent ?? prevEnd,
                 details: {
                     process_state: "failed",
-                    engine: "import-review-promotion-simple-validation",
+                    engine: "import-review-promotion-simple-validation+roads-bulk-sql",
                     processed_count: progress?.validation_done ?? 0,
                     total_item_count: args.progressTotal,
                     error_message: message,
                 },
                 finished: true,
             });
+            await this.pipelineProgress
+                .failStage(args.batchId, "validate_items", message)
+                .catch(() => undefined);
             await this.repo.failBatch(args.batchId, message);
             return false;
         }
@@ -832,6 +930,18 @@ export class ImportReviewPromotionValidationRunner {
                 args.chunk
             ),
         });
+
+        await this.pipelineProgress
+            .updateStageProgress(args.event.batchId, "validate_items", {
+                processed: args.event.done,
+                total,
+                percent: roundedPercent,
+                currentFamily: args.event.family,
+                currentCandidateId: args.event.candidateId,
+                message: args.event.message,
+                heartbeatAt: new Date().toISOString(),
+            })
+            .catch(() => undefined);
 
         args.log?.info(
             {

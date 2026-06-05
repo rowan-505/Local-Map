@@ -32,11 +32,7 @@ const ESSENTIAL_BY_API_FAMILY: Record<string, readonly DashboardEssentialFieldRu
         { kind: "field", key: "admin_area_id" },
         { kind: "geometry" },
     ],
-    roads: [
-        { kind: "field", key: "road_class_id" },
-        { kind: "field", key: "admin_area_id" },
-        { kind: "geometry" },
-    ],
+    roads: [{ kind: "geometry" }],
     buildings: [
         { kind: "field", key: "building_type_id" },
         { kind: "field", key: "admin_area_id" },

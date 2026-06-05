@@ -6,9 +6,10 @@
 #
 # Usage:
 #   ./run_admin_hierarchy_repair.sh imports/local_repair.env
-#   ./run_admin_hierarchy_repair.sh --inspect-only imports/local_repair.env
-#   DRY_RUN=true ./run_admin_hierarchy_repair.sh imports/local_repair.env
-#   CONFIRM_WRITE=true ./run_admin_hierarchy_repair.sh imports/local_repair.env
+#   ./run_admin_hierarchy_repair.sh --hierarchy-only imports/supabase.env
+#   ./run_admin_hierarchy_repair.sh --inspect-only imports/supabase.env
+#   DRY_RUN=true ./run_admin_hierarchy_repair.sh --hierarchy-only imports/supabase.env
+#   CONFIRM_WRITE=true ./run_admin_hierarchy_repair.sh --hierarchy-only imports/supabase.env
 #   ./run_admin_hierarchy_repair.sh --from-stage 04 imports/local_repair.env
 # =============================================================================
 set -euo pipefail
@@ -17,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
 INSPECT_ONLY=false
+HIERARCHY_ONLY=false
 FROM_STAGE=""
 IMPORT_ENV_FILE=""
 POSITIONAL=()
@@ -34,11 +36,12 @@ usage: $(basename "$0") [options] <import-env-file>
 Requires exactly one env file (sourced before stages run).
 
 Options:
-  --inspect-only     Run read-only stages only (00, 02, 07)
+  --hierarchy-only   Run core hierarchy stages only (00, 01, 02, 03); skips 04–07
+  --inspect-only     Run read-only stages only (00, 02; or 00, 02, 07 without --hierarchy-only)
   --from-stage NN    Start at stage NN (00–07)
 
 Env file (required variables):
-  LOCAL_DATABASE_URL
+  LOCAL_DATABASE_URL  (or DATABASE_URL)
 
 Env file (optional, with defaults):
   DRY_RUN=false
@@ -65,6 +68,10 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --hierarchy-only)
+      HIERARCHY_ONLY=true
+      shift
+      ;;
     --inspect-only)
       INSPECT_ONLY=true
       shift
@@ -147,6 +154,9 @@ require_var() {
   fi
 }
 
+if [[ -z "${LOCAL_DATABASE_URL:-}" && -n "${DATABASE_URL:-}" ]]; then
+  LOCAL_DATABASE_URL="${DATABASE_URL}"
+fi
 require_var LOCAL_DATABASE_URL
 
 LOG_DIR="${LOG_DIR:-logs}"
@@ -186,6 +196,14 @@ LOG_FILE="${LOG_DIR}/admin-hierarchy-repair_${RUN_TS}.log"
 
 export DRY_RUN FORCE_RECALCULATE_VERIFIED FORCE_MANUAL_OVERRIDE CONFIRM_WRITE
 
+INSPECT_ENTITY_ASSIGNMENT=false
+if [[ "${HIERARCHY_ONLY}" != true && "${INSPECT_ONLY}" != true ]]; then
+  INSPECT_ENTITY_ASSIGNMENT=true
+fi
+
+LIMIT_ROWS="${LIMIT_ROWS:-1000}"
+WRITE_ADMIN_REPAIR_METADATA="${WRITE_ADMIN_REPAIR_METADATA:-false}"
+
 PSQL_BASE_ARGS=(
   -v ON_ERROR_STOP=1
   -1
@@ -193,7 +211,13 @@ PSQL_BASE_ARGS=(
   -v force_recalculate_verified="${FORCE_RECALCULATE_VERIFIED}"
   -v force_manual_override="${FORCE_MANUAL_OVERRIDE}"
   -v confirm_write="${CONFIRM_WRITE}"
+  -v limit_rows="${LIMIT_ROWS}"
+  -v write_admin_repair_metadata="${WRITE_ADMIN_REPAIR_METADATA}"
 )
+
+if [[ "${INSPECT_ENTITY_ASSIGNMENT}" == true ]]; then
+  PSQL_BASE_ARGS+=(-v inspect_entity_assignment=1)
+fi
 
 if [[ -n "${PSQL_EXTRA_ARGS:-}" ]]; then
   # shellcheck disable=SC2206
@@ -238,10 +262,24 @@ is_mutating_stage() {
 }
 
 if [[ "${INSPECT_ONLY}" == true ]]; then
+  if [[ "${HIERARCHY_ONLY}" == true ]]; then
+    STAGES=(
+      "00_inspect_admin_area_health.sql"
+      "02_verify_admin_area_hierarchy.sql"
+    )
+  else
+    STAGES=(
+      "00_inspect_admin_area_health.sql"
+      "02_verify_admin_area_hierarchy.sql"
+      "07_verify_entity_admin_assignment.sql"
+    )
+  fi
+elif [[ "${HIERARCHY_ONLY}" == true ]]; then
   STAGES=(
     "00_inspect_admin_area_health.sql"
+    "01_repair_admin_area_hierarchy.sql"
     "02_verify_admin_area_hierarchy.sql"
-    "07_verify_entity_admin_assignment.sql"
+    "03_create_admin_assignment_functions.sql"
   )
 else
   STAGES=(
@@ -264,8 +302,12 @@ log "DRY_RUN=${DRY_RUN}"
 log "FORCE_RECALCULATE_VERIFIED=${FORCE_RECALCULATE_VERIFIED}"
 log "FORCE_MANUAL_OVERRIDE=${FORCE_MANUAL_OVERRIDE}"
 log "CONFIRM_WRITE=${CONFIRM_WRITE}"
+log "LIMIT_ROWS=${LIMIT_ROWS}"
+log "WRITE_ADMIN_REPAIR_METADATA=${WRITE_ADMIN_REPAIR_METADATA}"
 log "LOG_DIR=${LOG_DIR}"
 log "INSPECT_ONLY=${INSPECT_ONLY}"
+log "HIERARCHY_ONLY=${HIERARCHY_ONLY}"
+log "inspect_entity_assignment=${INSPECT_ENTITY_ASSIGNMENT}"
 log "FROM_STAGE=${FROM_STAGE:-<start>}"
 
 if is_truthy "${DRY_RUN}"; then

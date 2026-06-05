@@ -52,23 +52,31 @@ describe("listFailedReadyPublishItemCandidates", () => {
     });
 });
 
-function mockPrismaForPlacesRetry(failedReadyIds: bigint[], resolvedIds?: bigint[]) {
+function mockPrismaForPlacesRetry(
+    failedReadyIds: bigint[],
+    resolvedIds?: bigint[],
+    reviewBatchId: bigint = 2n
+) {
     const resolved = resolvedIds ?? failedReadyIds;
-    let call = 0;
+    let nonListCall = 0;
     return {
-        $queryRaw: mock.fn(async () => {
-            call += 1;
-            if (call === 1) {
+        $queryRaw: mock.fn(async (sql: unknown) => {
+            const text = queryRawSqlText(sql);
+            if (text.includes("system_publish_items") && text.includes("publish_status = 'failed'")) {
                 return failedReadyIds.map((id) => ({
                     entity_family: "places",
                     review_candidate_id: id,
                 }));
             }
-            if (call === 2) {
+            nonListCall += 1;
+            if (nonListCall === 1) {
                 return resolved.map((id) => ({ id }));
             }
-            if (call === 3) {
-                return [];
+            if (nonListCall === 2) {
+                return resolved.map((id) => ({ id }));
+            }
+            if (text.includes("LIMIT 1")) {
+                return [{ id: resolved[0] ?? 0n, review_batch_id: reviewBatchId }];
             }
             return [{ region_code: "yangon" }];
         }),
@@ -119,7 +127,7 @@ describe("createRetryBatchFromFailedReady service", () => {
         } as unknown as ImportReviewPromotionPromoteRepository;
 
         const validationRepo = {
-            getPrismaClient: () => prisma,
+            prisma,
         } as unknown as ImportReviewPromotionValidationRepository;
 
         const service = new ImportReviewPromotionService(repo, validationRepo, promoteRepo);
@@ -198,7 +206,7 @@ describe("createRetryBatchFromFailedReady service", () => {
         } as unknown as ImportReviewPromotionPromoteRepository;
         const service = new ImportReviewPromotionService(
             repo,
-            { getPrismaClient: () => ({}) } as ImportReviewPromotionValidationRepository,
+            { prisma: {} as PrismaClient } as ImportReviewPromotionValidationRepository,
             promoteRepo
         );
 

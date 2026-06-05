@@ -8,7 +8,7 @@ export function formatCoreReviewHeaderMeta(
     supportsVerification: boolean
 ): string | undefined {
     if (totals.isLoading) {
-        return "Loading counts…";
+        return "Counting…";
     }
 
     if (!supportsVerification) {

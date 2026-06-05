@@ -1,6 +1,12 @@
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 import { validationMessagesFromReviewJson } from "@/src/lib/importReviewValidationMessages";
 
+function rowIsDuplicateForBulkApprove(row: ImportReviewBuildingListItem): boolean {
+    const match = (row.match_status ?? "").trim();
+    const auto = (row.auto_action ?? "").trim();
+    return match === "duplicate_candidate" || match === "possible_duplicate" || auto === "possible_duplicate";
+}
+
 export type BulkSelectionAnalysis = {
     selectedCount: number;
     selectedRows: ImportReviewBuildingListItem[];
@@ -32,7 +38,7 @@ export function analyzeBulkSelection(
         if ((row.promotion_status ?? "").toLowerCase() === "promoted") {
             hasPromoted = true;
         }
-        if (row.match_status === "duplicate_candidate") {
+        if (rowIsDuplicateForBulkApprove(row)) {
             hasDuplicateCandidate = true;
         }
         if (row.match_status === "manual_protected" || row.auto_action === "protect_manual") {

@@ -3,8 +3,8 @@ import { describe, it } from "node:test";
 
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
-import { deriveRoadListRoadClass } from "./importReviewRoadListDisplay";
-import { resolveImportReviewRoadClassValue } from "./importReviewRoadClassResolver";
+import { deriveRoadListRoadClass } from "./importReviewRoadListDisplay.js";
+import { resolveImportReviewRoadClassValue } from "./importReviewRoadClassResolver.js";
 
 const REF_OPTIONS = [
     { id: "6", code: "secondary" },
@@ -45,7 +45,7 @@ describe("resolveImportReviewRoadClassValue", () => {
         assert.equal(deriveRoadListRoadClass(row, REF_OPTIONS), "unclassified");
     });
 
-    it("fields.road_class_id wins over imported class_code", () => {
+    it("fields.road_class_id wins over imported class_code in drawer resolver", () => {
         const row = roadRow({
             class_code: "secondary",
             fields: { road_class_id: "12" },
@@ -53,6 +53,7 @@ describe("resolveImportReviewRoadClassValue", () => {
         const resolved = resolveImportReviewRoadClassValue(row, REF_OPTIONS);
         assert.equal(resolved.roadClassId, "12");
         assert.equal(resolved.resolutionSource, "fields.road_class_id");
+        assert.equal(deriveRoadListRoadClass(row, REF_OPTIONS), "secondary");
     });
 
     it("fields.road_class_code wins over candidate class_code", () => {

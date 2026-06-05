@@ -11,6 +11,7 @@
 -- Input psql variables:
 --   snapshot_version
 --   staging_schema optional, defaults to staging
+--   entity_families  optional; default all (see pipeline_entity_families.sql)
 -- =============================================================================
 
 \pset pager off
@@ -125,6 +126,11 @@ VALUES
     ('bus_route_variants', 'staging_bus_route_variant_candidates', false, NULL, NULL, 'geom', NULL, NULL, 5, NULL, NULL, NULL, NULL, NULL, false),
     ('bus_route_stops', 'staging_bus_route_stop_candidates', false, 'point_geom', NULL, NULL, NULL, 10, NULL, NULL, NULL, NULL, NULL, NULL, false);
 
+\ir pipeline_entity_families.sql
+
+DELETE FROM stage06_family_config AS fc
+WHERE NOT pg_temp.pipeline_entity_family_enabled(fc.entity_family);
+
 DO $stage06_context$
 DECLARE
     v_snapshot_version text;
@@ -190,12 +196,20 @@ USING system.system_diff_runs AS run
 JOIN stage06_context AS ctx
     ON ctx.current_snapshot_id = run.current_snapshot_id
 WHERE item.diff_run_id = run.id
-  AND run.summary->>'comparison_type' = 'snapshot_vs_snapshot';
+  AND run.summary->>'comparison_type' = 'snapshot_vs_snapshot'
+  AND (
+      pg_temp.pipeline_entity_families_is_all()
+      OR pg_temp.pipeline_entity_family_enabled(run.entity_family)
+  );
 
 DELETE FROM system.system_diff_runs AS run
 USING stage06_context AS ctx
 WHERE run.current_snapshot_id = ctx.current_snapshot_id
-  AND run.summary->>'comparison_type' = 'snapshot_vs_snapshot';
+  AND run.summary->>'comparison_type' = 'snapshot_vs_snapshot'
+  AND (
+      pg_temp.pipeline_entity_families_is_all()
+      OR pg_temp.pipeline_entity_family_enabled(run.entity_family)
+  );
 
 DO $stage06_validate_targets$
 DECLARE

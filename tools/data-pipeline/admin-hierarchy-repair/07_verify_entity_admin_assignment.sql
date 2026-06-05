@@ -273,6 +273,113 @@ WHERE b.admin_area_id IS NOT NULL
 
 \echo ''
 \echo '========================================================================'
+\echo ' Key assignment metrics (whole-country summary)'
+\echo '========================================================================'
+
+SELECT 'roads_null_admin_area_id' AS metric,
+    count(*)::bigint AS value
+FROM _verify_roads AS r
+WHERE r.admin_area_id IS NULL;
+
+SELECT 'roads_assigned_to_township' AS metric,
+    count(*)::bigint AS value
+FROM _verify_roads AS r
+INNER JOIN core.core_admin_areas AS aa ON aa.id = r.admin_area_id
+WHERE r.admin_area_id IS NOT NULL
+  AND aa.is_active IS TRUE
+  AND aa.deleted_at IS NULL
+  AND core.admin_area_row_matches_target(
+      aa.admin_level_id,
+      aa.level_code,
+      aa.level_name,
+      'township'
+  );
+
+SELECT 'roads_assigned_to_non_township' AS metric,
+    count(*)::bigint AS value
+FROM _verify_roads AS r
+INNER JOIN core.core_admin_areas AS aa ON aa.id = r.admin_area_id
+WHERE r.admin_area_id IS NOT NULL
+  AND aa.is_active IS TRUE
+  AND aa.deleted_at IS NULL
+  AND NOT core.admin_area_row_matches_target(
+      aa.admin_level_id,
+      aa.level_code,
+      aa.level_name,
+      'township'
+  );
+
+SELECT 'places_null_admin_area_id' AS metric,
+    count(*)::bigint AS value
+FROM _verify_places AS p
+WHERE p.admin_area_id IS NULL;
+
+SELECT 'buildings_null_admin_area_id' AS metric,
+    count(*)::bigint AS value
+FROM _verify_buildings AS b
+WHERE b.admin_area_id IS NULL;
+
+SELECT 'invalid_admin_assignment_count' AS metric,
+    (
+        (SELECT count(*)::bigint
+         FROM _verify_places AS p
+         LEFT JOIN core.core_admin_areas AS aa ON aa.id = p.admin_area_id
+         WHERE p.admin_area_id IS NOT NULL
+           AND (
+               aa.id IS NULL
+               OR aa.is_active IS NOT TRUE
+               OR aa.deleted_at IS NOT NULL
+               OR (
+                   p.rep_point IS NOT NULL
+                   AND NOT st_isempty(p.rep_point)
+                   AND aa.geom IS NOT NULL
+                   AND NOT st_isempty(aa.geom)
+                   AND st_isvalid(aa.geom)
+                   AND NOT (
+                       st_covers(aa.geom, p.rep_point)
+                       OR st_intersects(aa.geom, p.rep_point)
+                   )
+               )
+           ))
+        + (SELECT count(*)::bigint
+           FROM _verify_roads AS r
+           LEFT JOIN core.core_admin_areas AS aa ON aa.id = r.admin_area_id
+           WHERE r.admin_area_id IS NOT NULL
+             AND (
+                 aa.id IS NULL
+                 OR aa.is_active IS NOT TRUE
+                 OR aa.deleted_at IS NOT NULL
+                 OR (
+                     aa.geom IS NOT NULL
+                     AND NOT st_isempty(aa.geom)
+                     AND st_isvalid(aa.geom)
+                     AND NOT st_intersects(r.geom, aa.geom)
+                 )
+             ))
+        + (SELECT count(*)::bigint
+           FROM _verify_buildings AS b
+           LEFT JOIN core.core_admin_areas AS aa ON aa.id = b.admin_area_id
+           WHERE b.admin_area_id IS NOT NULL
+             AND (
+                 aa.id IS NULL
+                 OR aa.is_active IS NOT TRUE
+                 OR aa.deleted_at IS NOT NULL
+                 OR (
+                     b.lookup_point IS NOT NULL
+                     AND NOT st_isempty(b.lookup_point)
+                     AND aa.geom IS NOT NULL
+                     AND NOT st_isempty(aa.geom)
+                     AND st_isvalid(aa.geom)
+                     AND NOT (
+                         st_covers(aa.geom, b.lookup_point)
+                         OR st_intersects(aa.geom, b.lookup_point)
+                     )
+                 )
+             ))
+    ) AS value;
+
+\echo ''
+\echo '========================================================================'
 \echo ' Gate summary (hard fail vs warning)'
 \echo '========================================================================'
 
@@ -342,7 +449,7 @@ SELECT
     + (SELECT count(*)::bigint
        FROM _verify_roads AS r
        WHERE to_regprocedure('core.find_admin_area_for_line(geometry,text)') IS NOT NULL
-         AND core.find_admin_area_for_line(r.geom, NULL) IS NULL)
+         AND core.find_admin_area_for_line(r.geom, 'township') IS NULL)
     + (SELECT count(*)::bigint
        FROM _verify_buildings AS b
        WHERE b.lookup_point IS NOT NULL

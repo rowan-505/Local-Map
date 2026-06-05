@@ -121,15 +121,15 @@ export function getLocalizedName(entity: LocalizedEntity, mode: LanguageMode): s
  */
 export function getMapTextFieldExpression(mode: LanguageMode): readonly unknown[] {
     if (mode === "my") {
-        return ["coalesce", ["get", "name_mm"], ["get", "name_en"], ["get", "name"]];
+        return ["coalesce", ["get", "name_mm"], ["get", "name"], ["get", "name_en"]];
     }
     if (mode === "en") {
-        return ["coalesce", ["get", "name_en"], ["get", "name_mm"], ["get", "name"]];
+        return ["coalesce", ["get", "name_en"], ["get", "name"], ["get", "name_mm"]];
     }
     return [
         "case",
         ["all", ["has", "name_mm"], ["has", "name_en"]],
         ["concat", ["get", "name_mm"], "\n", ["get", "name_en"]],
-        ["coalesce", ["get", "name_mm"], ["get", "name_en"], ["get", "name"]],
+        ["coalesce", ["get", "name_mm"], ["get", "name"], ["get", "name_en"]],
     ];
 }

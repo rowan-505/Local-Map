@@ -61,20 +61,10 @@ export function usePublicSearch(q: string) {
   });
 }
 
-/** Labels + geometries for `/public/map/geo/*` — features carry `name_mm` / `name_en` for MapLibre. */
+/** Bus route/stop GeoJSON overlays from `/public/map/geo/*`. Road labels use PMTiles `road_labels` only. */
 export function usePublicMapGeoLabelQueries() {
   return useQueries({
     queries: [
-      {
-        queryKey: ['public-map-geo', 'streets'],
-        queryFn: () => fetchPublicMapGeoJson('streets'),
-        placeholderData: (previousData: FeatureCollection | undefined) => previousData,
-      },
-      {
-        queryKey: ['public-map-geo', 'admin-areas'],
-        queryFn: () => fetchPublicMapGeoJson('admin-areas'),
-        placeholderData: (previousData: FeatureCollection | undefined) => previousData,
-      },
       {
         queryKey: ['public-map-geo', 'bus-stops'],
         queryFn: () => fetchPublicMapGeoJson('bus-stops'),

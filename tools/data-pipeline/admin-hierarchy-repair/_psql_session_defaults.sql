@@ -17,3 +17,17 @@
 \else
 \set force_manual_override false
 \endif
+\if :{?limit_rows}
+\else
+\set limit_rows 1000
+\endif
+\if :{?write_admin_repair_metadata}
+\else
+\set write_admin_repair_metadata false
+\endif
+\if :{?last_id}
+\else
+\set last_id 0
+\endif
+
+\pset pager off

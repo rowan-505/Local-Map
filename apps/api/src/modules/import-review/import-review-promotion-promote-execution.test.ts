@@ -72,8 +72,8 @@ describe("classifyPublishItemsForPromotion", () => {
             },
             { validation_outcome: "partial", previous_stored_status: "partial" }
         );
-        assert.equal(finalize.stored_batch_status, "partially_promoted");
-        assert.equal(finalize.promotion_result_status, "partially_promoted");
+        assert.equal(finalize.stored_batch_status, "partial");
+        assert.equal(finalize.promotion_result_status, "partial");
     });
 
     it("blocked item never appears in promotableIds", () => {

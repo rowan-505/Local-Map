@@ -857,8 +857,8 @@ export const CORE_REVIEW_ADMIN_AREAS_CONFIG: CoreReviewEntityConfig<CoreReviewAd
         },
         { id: "active", header: "Active", cell: (r) => yesNo(r.isActive) },
         ...standardNameAndVerificationColumns<CoreReviewAdminAreaRow>({
-            myanmar: (r) => r.canonicalName,
-            english: () => null,
+            myanmar: (r) => r.nameMm ?? r.canonicalName,
+            english: (r) => r.nameEn ?? null,
         }),
         { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt) },
     ],

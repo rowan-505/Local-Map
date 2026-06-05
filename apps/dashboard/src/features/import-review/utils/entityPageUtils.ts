@@ -59,7 +59,7 @@ export function buildImportReviewListQueryKey(input: {
     sort: string;
     filters: Record<string, string>;
     qApplied: string;
-    showPromoted?: boolean;
+    promotionState?: string;
     apiFamily?: string;
 }): string {
     return JSON.stringify({
@@ -69,7 +69,7 @@ export function buildImportReviewListQueryKey(input: {
         sort: input.sort,
         filters: input.filters,
         q: input.qApplied,
-        showPromoted: input.showPromoted ?? false,
+        promotionState: input.promotionState ?? "all_active",
         apiFamily: input.apiFamily ?? "",
     });
 }
@@ -122,6 +122,7 @@ import {
     formatImportReviewBuildingTypeLabel,
     formatImportReviewBuildingTypeLabel as formatBuildingTypeLabel,
 } from "@/src/lib/building-type/display";
+import { displayImportReviewRoadClassColumn } from "./importReviewRoadClassDisplay";
 
 export { formatBuildingTypeLabel };
 
@@ -142,6 +143,9 @@ export function importReviewCellValue(row: ImportReviewBuildingListItem, col: Im
     }
     if (col.key === "imported_class_code") {
         return formatLanduseSourceClassCell(row);
+    }
+    if (col.key === "road_class_display") {
+        return displayImportReviewRoadClassColumn(row);
     }
     if (col.source === "normalized") {
         const v = normPick(row.normalized_data, col.key);

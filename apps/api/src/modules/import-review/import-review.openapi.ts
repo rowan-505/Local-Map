@@ -431,6 +431,27 @@ export const importReviewBuildingItemSchema = {
             nullable: true,
             description: "Road list/patch only — `import_review.road_candidates.road_class_id` as string.",
         },
+        road_class_id: {
+            type: "string",
+            nullable: true,
+            description: "Road list/patch — same as road_candidate_road_class_id.",
+        },
+        road_class: {
+            type: "string",
+            nullable: true,
+            description: "Road list/patch — reviewed `import_review.road_candidates.road_class` text.",
+        },
+        road_class_name: {
+            type: "string",
+            nullable: true,
+            description: "Road list/patch — `ref.ref_road_classes.name` for road_class_id.",
+        },
+        road_class_label: {
+            type: "string",
+            nullable: true,
+            description:
+                "Road list/patch — display label: COALESCE(ref name, ref code, road_class column).",
+        },
         road_candidate_class_label: {
             type: "string",
             nullable: true,
@@ -985,7 +1006,7 @@ const patchImportReviewBuildingDecisionBodyOpenApi = {
             type: "boolean",
             default: false,
             description:
-                "Roads only: approving while validation_warnings persist requires confirm_routing_warnings=true or force=true.",
+                "Roads only: deprecated — persisted routing validation_warnings do not block approval.",
         },
     },
     additionalProperties: false,
@@ -1125,7 +1146,8 @@ const patchImportReviewRoadOverridesBodyOpenApi = {
         confirm_acknowledge_routing_warnings: {
             type: "boolean",
             default: false,
-            description: "When true, persist despite non-empty routing continuity warnings returned by validation.",
+            description:
+                "Deprecated — routing continuity warnings are informational; saves proceed without this flag.",
         },
     },
     additionalProperties: false,
@@ -1307,6 +1329,7 @@ const importReviewBulkDecisionResponseSchema = {
         "source_snapshot_version",
         "review_batch_id",
         "source_snapshot_id_local",
+        "success",
         "updated_count",
         "skipped_count",
         "skipped_reasons",
@@ -1314,6 +1337,7 @@ const importReviewBulkDecisionResponseSchema = {
     ],
     properties: {
         ...importReviewEnvelopeResponseProperties,
+        success: { type: "boolean" },
         updated_count: { type: "integer", minimum: 0 },
         skipped_count: { type: "integer", minimum: 0 },
         skipped_reasons: {
@@ -1327,6 +1351,10 @@ const importReviewBulkDecisionResponseSchema = {
                 },
                 additionalProperties: false,
             },
+        },
+        updated_ids: {
+            type: "array",
+            items: { type: "integer", minimum: 0 },
         },
         dry_run: { type: "boolean" },
     },
@@ -1342,12 +1370,17 @@ const postBulkImportReviewBuildingDecisionBodyOpenApi = {
             type: "string",
             enum: ["approved", "rejected", "needs_more_review", "ignored", "merged"],
         },
+        review_status: {
+            type: "string",
+            enum: ["approved", "rejected", "needs_review", "ignored", "merged"],
+        },
         review_note: { type: "string", nullable: true },
         force: { type: "boolean", default: false },
+        force_approval: { type: "boolean", default: false },
         dry_run: { type: "boolean", default: false },
         ids: {
             type: "array",
-            items: { oneOf: [{ type: "integer", minimum: 0 }, { type: "string", pattern: "^\\d+$" }] },
+            items: { type: "integer", minimum: 0 },
             maxItems: 10_000,
         },
         filters: {
@@ -1741,6 +1774,17 @@ const importReviewPromotionFamilyEligibilitySchema = {
     additionalProperties: false,
 } as const;
 
+const importReviewPromotionEligibilityCountErrorSchema = {
+    type: "object",
+    required: ["ok", "code", "message"],
+    properties: {
+        ok: { type: "boolean", enum: [false] },
+        code: { type: "string" },
+        message: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
 const importReviewPromotionEligibilityFamilySchema = {
     type: "object",
     required: [
@@ -1748,6 +1792,18 @@ const importReviewPromotionEligibilityFamilySchema = {
         "label",
         "risk_level",
         "target",
+        "counts_ok",
+        "count_error",
+        "approved_count",
+        "ready_existing_count",
+        "blocked_existing_count",
+        "warning_existing_count",
+        "already_batched_count",
+        "already_promoted_count",
+        "ready_now",
+        "retry_needed",
+        "active_locked",
+        "stale_locked",
         "ready",
         "warnings",
         "blocked",
@@ -1759,6 +1815,20 @@ const importReviewPromotionEligibilityFamilySchema = {
         label: { type: "string" },
         risk_level: { type: "string", enum: ["normal", "high_risk"] },
         target: { type: "string" },
+        counts_ok: { type: "boolean" },
+        count_error: {
+            oneOf: [importReviewPromotionEligibilityCountErrorSchema, { type: "null" }],
+        },
+        approved_count: { oneOf: [{ type: "integer", minimum: 0 }, { type: "null" }] },
+        ready_existing_count: { oneOf: [{ type: "integer", minimum: 0 }, { type: "null" }] },
+        blocked_existing_count: { oneOf: [{ type: "integer", minimum: 0 }, { type: "null" }] },
+        warning_existing_count: { oneOf: [{ type: "integer", minimum: 0 }, { type: "null" }] },
+        already_batched_count: { oneOf: [{ type: "integer", minimum: 0 }, { type: "null" }] },
+        already_promoted_count: { oneOf: [{ type: "integer", minimum: 0 }, { type: "null" }] },
+        ready_now: { type: "integer", minimum: 0 },
+        retry_needed: { type: "integer", minimum: 0 },
+        active_locked: { type: "integer", minimum: 0 },
+        stale_locked: { type: "integer", minimum: 0 },
         ready: { type: "integer", minimum: 0 },
         warnings: { type: "integer", minimum: 0 },
         blocked: { type: "integer", minimum: 0 },
@@ -1770,13 +1840,27 @@ const importReviewPromotionEligibilityFamilySchema = {
 
 const importReviewPromotionEligibilityTotalsSchema = {
     type: "object",
-    required: ["ready", "warnings", "blocked", "batched", "promoted"],
+    required: [
+        "ready_now",
+        "retry_needed",
+        "active_locked",
+        "stale_locked",
+        "promoted",
+        "ready",
+        "warnings",
+        "blocked",
+        "batched",
+    ],
     properties: {
+        ready_now: { type: "integer", minimum: 0 },
+        retry_needed: { type: "integer", minimum: 0 },
+        active_locked: { type: "integer", minimum: 0 },
+        stale_locked: { type: "integer", minimum: 0 },
+        promoted: { type: "integer", minimum: 0 },
         ready: { type: "integer", minimum: 0 },
         warnings: { type: "integer", minimum: 0 },
         blocked: { type: "integer", minimum: 0 },
         batched: { type: "integer", minimum: 0 },
-        promoted: { type: "integer", minimum: 0 },
     },
     additionalProperties: false,
 } as const;
@@ -1906,7 +1990,7 @@ export const getImportReviewPromotionEligibilitySchema = {
     tags: [Tags.ImportReview],
     summary: "Promotion eligibility for checkbox-selected entity families",
     description:
-        "Returns per-family ready, warning, blocked, batched, and promoted counts for a review batch. Requires explicit families query (comma-separated). Rejects legacy bus families with TRANSPORT_PROMOTION_DEPRECATED.",
+        "Read-only approximate per-family counts from import_review candidate tables (no candidate updates or validation runs). Requires explicit families query (comma-separated). Rejects legacy bus families with TRANSPORT_PROMOTION_DEPRECATED.",
     security: [...bearerAuth],
     querystring: {
         type: "object",
@@ -1946,6 +2030,7 @@ export const getImportReviewPromotionEligibilitySchema = {
         403: forbiddenSchema,
         404: importReviewApiErrorResponseSchema,
         409: importReview409ResponseSchema,
+        503: importReviewApiErrorResponseSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -2028,6 +2113,16 @@ export const postImportReviewPromotionBatchSchema = {
             batch_name: { type: "string", minLength: 1, maxLength: 200 },
             note: { type: "string", maxLength: 4000 },
             include_merged: { type: "boolean", default: false },
+            max_items: {
+                type: "integer",
+                minimum: 1,
+                maximum: 10000,
+                description: "Max eligible candidates per family (all_ready mode). Roads use approved+not_ready selection.",
+            },
+            limit_per_family: {
+                type: "object",
+                additionalProperties: { type: "integer", minimum: 1, maximum: 10000 },
+            },
             entity_families: {
                 type: "array",
                 items: { type: "string" },
@@ -2191,6 +2286,7 @@ const importReviewPublishBatchEntityValidationCountsSchema = {
     properties: {
         total: { type: "integer", minimum: 0 },
         valid: { type: "integer", minimum: 0 },
+        ready: { type: "integer", minimum: 0 },
         warning: { type: "integer", minimum: 0 },
         blocked: { type: "integer", minimum: 0 },
         skipped: { type: "integer", minimum: 0 },
@@ -2266,7 +2362,10 @@ const importReviewPublishStageLogItemSchema = {
         id: { type: "string" },
         stage_key: { type: "string" },
         stage_label: { type: "string" },
-        stage_status: { type: "string" },
+        stage_status: {
+            type: "string",
+            enum: ["pending", "running", "success", "warning", "failed", "skipped"],
+        },
         message: { type: "string", nullable: true },
         progress_percent: { type: "number", minimum: 0, maximum: 100 },
         details: {},
@@ -2298,6 +2397,168 @@ export const postImportReviewPromotionBatchCancelValidationSchema = {
             },
             additionalProperties: false,
         },
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewPromotionBatchCancelPromotionSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Request cancel of in-flight publish batch promotion",
+    description:
+        "Sets promotion_cancel_requested_at in batch summary while status=promoting. Stops at the next checkpoint; if the worker is not responding, finalizes immediately.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        202: {
+            type: "object",
+            required: ["batch_id", "status", "message"],
+            properties: {
+                batch_id: { type: "string" },
+                status: { type: "string" },
+                message: { type: "string" },
+            },
+            additionalProperties: false,
+        },
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewPromotionBatchResetPromotionSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Reset stuck publish batch promotion worker state",
+    description:
+        "Fails running promotion stage logs and returns batch to ready/partially_promoted when the worker is not in-process. Does not delete publish items.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        202: {
+            type: "object",
+            required: ["batch_id", "status", "message"],
+            properties: {
+                batch_id: { type: "string" },
+                status: { type: "string" },
+                message: { type: "string" },
+            },
+            additionalProperties: false,
+        },
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+const promotionStageControlResponseSchema = {
+    type: "object",
+    required: ["batch_id", "action", "status", "message"],
+    properties: {
+        batch_id: { type: "string" },
+        action: { type: "string" },
+        status: { type: "string" },
+        message: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+export const postImportReviewPromotionBatchResumeSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Resume the current publish batch pipeline stage",
+    description:
+        "Continues validation (skipping items with validation_result), dry-run, or promotion for remaining promotable items. Returns already_complete when nothing is left to do.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        200: promotionStageControlResponseSchema,
+        202: promotionStageControlResponseSchema,
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewPromotionBatchCancelCurrentStageSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Cancel the in-flight publish batch stage",
+    description:
+        "Stops validation or promotion at the next chunk checkpoint. Does not delete publish_items or promote anything.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        202: promotionStageControlResponseSchema,
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewPromotionBatchResetDryRunSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Clear publish batch dry-run result",
+    description: "Removes summary.dry_run_result only. Keeps per-item validation_result.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        200: promotionStageControlResponseSchema,
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewPromotionBatchResetPromotionFailuresSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Reset failed unpromoted publish items for retry",
+    description:
+        "Sets failed publish items back to pending and releases candidates for retry. Never changes publish_status=success or unpromotes core rows.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    response: {
+        200: promotionStageControlResponseSchema,
         400: importReviewApiErrorResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
@@ -2342,7 +2603,7 @@ export const postImportReviewPromotionBatchValidateSchema = {
     tags: [Tags.ImportReview],
     summary: "Start publish batch validation (multi-family)",
     description:
-        "Validates publish items across supported entity families without writing to core. Returns 202 immediately; poll progress and logs endpoints. Batches over 200 items or with high-risk families require explicit confirmation flags in the body.",
+        "Validates publish items across supported entity families without writing to core. Returns 202 immediately; poll progress and logs endpoints. Batches with more than 50 items that include high-risk families (roads, addresses, admin_areas, routing_barriers) require allow_high_risk_families=true. Batches over 200 items also require confirm_large_batch=true.",
     security: [...bearerAuth],
     params: {
         type: "object",
@@ -2422,6 +2683,110 @@ const importReviewPublishBatchPromotionResultSchema = {
     additionalProperties: false,
 } as const;
 
+const importReviewRoadPromotionGateCheckSchema = {
+    type: "object",
+    required: ["id", "label", "satisfied", "detail"],
+    properties: {
+        id: {
+            type: "string",
+            enum: [
+                "env_enabled",
+                "env_bulk_enabled",
+                "road_validation_passed",
+                "road_dry_run_completed",
+                "routing_readiness_validation_completed",
+            ],
+        },
+        label: { type: "string" },
+        satisfied: { type: "boolean" },
+        detail: { type: "string" },
+        helper: { type: "string", nullable: true },
+    },
+    additionalProperties: false,
+} as const;
+
+const importReviewRoadPromotionGatesResultSchema = {
+    type: "object",
+    required: [
+        "applies",
+        "can_promote",
+        "road_item_count",
+        "roads_ready_count",
+        "recommend_sql_bulk_promotion",
+        "api_bulk_promotion_allowed",
+        "sql_bulk_promotion_ready_threshold",
+        "sql_bulk_promote_script",
+        "sql_bulk_validate_script",
+        "env_enabled",
+        "gates",
+        "primary_blocker",
+        "primary_blocker_message",
+    ],
+    properties: {
+        applies: { type: "boolean" },
+        can_promote: { type: "boolean" },
+        road_item_count: { type: "integer", minimum: 0 },
+        roads_ready_count: { type: "integer", minimum: 0 },
+        recommend_sql_bulk_promotion: { type: "boolean" },
+        api_bulk_promotion_allowed: { type: "boolean" },
+        sql_bulk_promotion_ready_threshold: { type: "integer", minimum: 0 },
+        sql_bulk_promote_script: { type: "string" },
+        sql_bulk_validate_script: { type: "string" },
+        env_enabled: { type: "boolean" },
+        gates: {
+            type: "array",
+            items: importReviewRoadPromotionGateCheckSchema,
+        },
+        primary_blocker: {
+            type: "string",
+            nullable: true,
+            enum: [
+                "env_enabled",
+                "env_bulk_enabled",
+                "road_validation_passed",
+                "road_dry_run_completed",
+                "routing_readiness_validation_completed",
+            ],
+        },
+        primary_blocker_message: { type: "string", nullable: true },
+    },
+    additionalProperties: false,
+} as const;
+
+const importReviewPublishBatchDryRunResultSchema = {
+    type: "object",
+    required: ["status"],
+    properties: {
+        status: { type: "string", enum: ["passed", "failed"] },
+        checked_at: { type: "string", format: "date-time" },
+        ran_at: { type: "string", format: "date-time" },
+        total: { type: "integer", minimum: 0 },
+        ready_count: { type: "integer", minimum: 0 },
+        blocked_count: { type: "integer", minimum: 0 },
+        failed_count: { type: "integer", minimum: 0 },
+        would_insert_count: { type: "integer", minimum: 0 },
+        would_update_count: { type: "integer", minimum: 0 },
+        entity_families: {
+            type: "array",
+            items: { type: "string" },
+        },
+        sample_errors: {
+            type: "array",
+            items: {
+                type: "object",
+                properties: {
+                    candidate_id: { type: ["integer", "null"] },
+                    external_id: { type: ["string", "null"] },
+                    code: { type: "string" },
+                    message: { type: "string" },
+                },
+                additionalProperties: true,
+            },
+        },
+    },
+    additionalProperties: true,
+} as const;
+
 export const getImportReviewPromotionBatchProgressSchema = {
     tags: [Tags.ImportReview],
     summary: "Get publish batch validation or promotion progress",
@@ -2461,11 +2826,21 @@ export const getImportReviewPromotionBatchProgressSchema = {
                 "validation_heartbeat_at",
                 "validation_cancel_requested_at",
                 "validation_heartbeat_stale_warning",
+                "promotion_heartbeat_at",
+                "promotion_heartbeat_stale_warning",
+                "promotion_worker_in_process",
                 "current_promotable_count",
                 "validation_promotable_count",
                 "publish_item_status_counts",
                 "promotion_status",
                 "failed_ready_retry_count",
+                "road_promotion_gates",
+                "current_stage",
+                "percent",
+                "processed_count",
+                "total",
+                "last_heartbeat_at",
+                "resumable_actions",
             ],
             properties: {
                 batch_id: { type: "string" },
@@ -2500,6 +2875,9 @@ export const getImportReviewPromotionBatchProgressSchema = {
                 validation_heartbeat_at: { type: "string", format: "date-time", nullable: true },
                 validation_cancel_requested_at: { type: "string", format: "date-time", nullable: true },
                 validation_heartbeat_stale_warning: { type: "boolean" },
+                promotion_heartbeat_at: { type: "string", format: "date-time", nullable: true },
+                promotion_heartbeat_stale_warning: { type: "boolean" },
+                promotion_worker_in_process: { type: "boolean" },
                 current_promotable_count: { type: "integer", minimum: 0 },
                 validation_promotable_count: { type: "integer", minimum: 0, nullable: true },
                 publish_item_status_counts: {
@@ -2526,6 +2904,102 @@ export const getImportReviewPromotionBatchProgressSchema = {
                     ],
                 },
                 failed_ready_retry_count: { type: "integer", minimum: 0 },
+                road_promotion_gates: {
+                    ...importReviewRoadPromotionGatesResultSchema,
+                    nullable: true,
+                },
+                dry_run_result: {
+                    ...importReviewPublishBatchDryRunResultSchema,
+                    nullable: true,
+                },
+                current_stage: {
+                    type: "string",
+                    nullable: true,
+                    enum: ["validate_items", "dry_run_items", "promote_items", "verify_items"],
+                },
+                percent: { type: "number", minimum: 0, maximum: 100 },
+                processed_count: { type: "integer", minimum: 0 },
+                total: { type: "integer", minimum: 0 },
+                last_heartbeat_at: { type: "string", format: "date-time", nullable: true },
+                resumable_actions: {
+                    type: "array",
+                    items: { type: "string" },
+                },
+            },
+            additionalProperties: false,
+        },
+        400: importReviewApiErrorResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        500: importReviewApiErrorResponseSchema,
+    },
+} satisfies FastifySchema;
+
+export const postImportReviewPromotionReleaseStaleBatchedSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Release stale batched import-review candidates",
+    description:
+        "Safely moves candidates stuck in promotion_status=batched back to not_ready when their latest publish item failed on a closed batch (status failed or partial only). Never releases candidates tied to draft, validating, ready, dry_run_passed, or promoting batches.",
+    security: [...bearerAuth],
+    body: {
+        type: "object",
+        required: ["review_batch_id"],
+        properties: {
+            review_batch_id: { type: "integer", minimum: 1 },
+            families: {
+                type: "array",
+                items: { type: "string", minLength: 1 },
+            },
+            dry_run: { type: "boolean", default: false },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: {
+            type: "object",
+            required: [
+                "status",
+                "dry_run",
+                "review_batch_id",
+                "released_total",
+                "by_family",
+                "samples",
+            ],
+            properties: {
+                status: { type: "string", enum: ["success"] },
+                dry_run: { type: "boolean" },
+                review_batch_id: { type: "string" },
+                released_total: { type: "integer", minimum: 0 },
+                by_family: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        required: ["entity_family", "eligible_count", "released_count"],
+                        properties: {
+                            entity_family: { type: "string" },
+                            eligible_count: { type: "integer", minimum: 0 },
+                            released_count: { type: "integer", minimum: 0 },
+                        },
+                        additionalProperties: false,
+                    },
+                },
+                samples: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        required: ["entity_family", "candidate_id"],
+                        properties: {
+                            entity_family: { type: "string" },
+                            candidate_id: { type: "string" },
+                            publish_batch_id: { type: ["string", "null"] },
+                            publish_item_id: { type: ["string", "null"] },
+                            publish_status: { type: ["string", "null"] },
+                            batch_status: { type: ["string", "null"] },
+                        },
+                        additionalProperties: false,
+                    },
+                },
             },
             additionalProperties: false,
         },
@@ -3563,6 +4037,108 @@ export const postImportReviewAddressAdminInferenceSchema = {
     },
 } satisfies FastifySchema;
 
+const publishBatchDryRunSampleErrorSchema = {
+    type: "object",
+    required: ["candidate_id", "external_id", "code", "message"],
+    properties: {
+        candidate_id: { type: ["integer", "null"] },
+        external_id: { type: ["string", "null"] },
+        code: { type: "string" },
+        message: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+const publishBatchDryRunResponseBodySchema = {
+    type: "object",
+    required: [
+        "status",
+        "batch_id",
+        "entity_family",
+        "total",
+        "ready_count",
+        "blocked_count",
+        "failed_count",
+        "would_insert_count",
+        "would_update_count",
+        "duplicate_fixed_count",
+        "duplicate_blocked_count",
+        "duplicate_samples",
+        "sample_errors",
+        "summary",
+    ],
+    properties: {
+        status: { type: "string", enum: ["passed", "failed"] },
+        batch_id: { type: "integer", minimum: 1 },
+        entity_family: { type: "string" },
+        total: { type: "integer", minimum: 0 },
+        ready_count: { type: "integer", minimum: 0 },
+        blocked_count: { type: "integer", minimum: 0 },
+        failed_count: { type: "integer", minimum: 0 },
+        would_insert_count: { type: "integer", minimum: 0 },
+        would_update_count: { type: "integer", minimum: 0 },
+        duplicate_fixed_count: { type: "integer", minimum: 0 },
+        duplicate_blocked_count: { type: "integer", minimum: 0 },
+        duplicate_samples: {
+            type: "array",
+            items: {
+                type: "object",
+                required: ["candidate_id", "action", "message"],
+                properties: {
+                    candidate_id: { type: "integer", minimum: 1 },
+                    external_id: { type: ["string", "null"] },
+                    action: {
+                        type: "string",
+                        enum: [
+                            "converted_to_update",
+                            "blocked_duplicate",
+                            "in_review_duplicate",
+                        ],
+                    },
+                    message: { type: "string" },
+                    core_street_id: { type: ["integer", "null"] },
+                },
+                additionalProperties: false,
+            },
+        },
+        sample_errors: {
+            type: "array",
+            items: publishBatchDryRunSampleErrorSchema,
+        },
+        summary: { type: "object", additionalProperties: true },
+    },
+    additionalProperties: false,
+} as const;
+
+export const postImportReviewPromotionBatchDryRunSchema = {
+    tags: [Tags.ImportReview],
+    summary: "Dry-run publish batch (no core writes)",
+    description:
+        "Checks pending ready items for insert/update targets. Persists summary.dry_run_result (passed|failed). Does not write to core or change publish_status.",
+    security: [...bearerAuth],
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string", pattern: "^\\d+$" } },
+    },
+    body: {
+        type: "object",
+        properties: {
+            confirm_large_batch: { type: "boolean" },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: publishBatchDryRunResponseBodySchema,
+        400: publishBatchDryRunResponseBodySchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: importReviewApiErrorResponseSchema,
+        409: importReview409ResponseSchema,
+        500: publishBatchDryRunResponseBodySchema,
+    },
+} satisfies FastifySchema;
+
 export const postImportReviewPromotionBatchPromoteSchema = {
     tags: [Tags.ImportReview],
     summary: "Promote validated publish batch to core (buildings and places)",
@@ -3581,6 +4157,8 @@ export const postImportReviewPromotionBatchPromoteSchema = {
             confirmation_text: { type: "string", enum: ["PROMOTE"] },
             chunk_size: { type: "integer", minimum: 1, maximum: 500, default: 100 },
             confirm_warnings: { type: "boolean", default: false },
+            allow_high_risk_families: { type: "boolean", default: false },
+            confirm_large_batch: { type: "boolean", default: false },
             warning_confirmation_note: { type: "string", minLength: 1, maxLength: 4000 },
         },
     },
@@ -3739,6 +4317,98 @@ const roadDryRunItemSchema = {
     additionalProperties: false,
 } as const;
 
+const roadDryRunSummaryBlockSchema = {
+    type: "object",
+    required: ["status", "checked_count", "passed_count", "failed_count", "sample_errors", "ran_at"],
+    properties: {
+        status: { type: "string", enum: ["passed", "failed"] },
+        checked_count: { type: "integer", minimum: 0 },
+        passed_count: { type: "integer", minimum: 0 },
+        failed_count: { type: "integer", minimum: 0 },
+        sample_errors: {
+            type: "array",
+            items: {
+                type: "object",
+                required: ["publish_item_id", "code", "message"],
+                properties: {
+                    publish_item_id: { type: "string" },
+                    review_candidate_id: { type: "string", nullable: true },
+                    external_id: { type: "string", nullable: true },
+                    code: { type: "string" },
+                    message: { type: "string" },
+                },
+                additionalProperties: false,
+            },
+        },
+        ran_at: { type: "string", format: "date-time" },
+    },
+    additionalProperties: false,
+} as const;
+
+const routingReadinessSummaryBlockSchema = {
+    type: "object",
+    required: [
+        "status",
+        "type",
+        "checked_count",
+        "failed_count",
+        "warning_count",
+        "sample_errors",
+        "sample_warnings",
+        "ran_at",
+    ],
+    properties: {
+        status: { type: "string", enum: ["passed", "failed"] },
+        type: { type: "string", enum: ["db_routing_readiness"] },
+        checked_count: { type: "integer", minimum: 0 },
+        failed_count: { type: "integer", minimum: 0 },
+        warning_count: { type: "integer", minimum: 0 },
+        sample_errors: {
+            type: "array",
+            items: {
+                type: "object",
+                required: ["publish_item_id", "code", "message"],
+                properties: {
+                    publish_item_id: { type: "string" },
+                    review_candidate_id: { type: "string", nullable: true },
+                    external_id: { type: "string", nullable: true },
+                    code: { type: "string" },
+                    message: { type: "string" },
+                },
+                additionalProperties: false,
+            },
+        },
+        sample_warnings: {
+            type: "array",
+            items: {
+                type: "object",
+                required: ["publish_item_id", "code", "message"],
+                properties: {
+                    publish_item_id: { type: "string" },
+                    review_candidate_id: { type: "string", nullable: true },
+                    external_id: { type: "string", nullable: true },
+                    code: { type: "string" },
+                    message: { type: "string" },
+                },
+                additionalProperties: false,
+            },
+        },
+        ran_at: { type: "string", format: "date-time" },
+    },
+    additionalProperties: false,
+} as const;
+
+const roadDryRunSummaryResponseSchema = {
+    type: "object",
+    required: ["batch_id", "road_dry_run", "routing_readiness_validation"],
+    properties: {
+        batch_id: { type: "string" },
+        road_dry_run: roadDryRunSummaryBlockSchema,
+        routing_readiness_validation: routingReadinessSummaryBlockSchema,
+    },
+    additionalProperties: false,
+} as const;
+
 const roadDryRunResultSchema = {
     type: "object",
     required: [
@@ -3798,7 +4468,7 @@ export const postImportReviewPromotionRoadDryRunSchema = {
     tags: [Tags.ImportReview],
     summary: "Run road promotion dry-run for a publish batch",
     description:
-        "Evaluates road publish items with blocking checks and routing validation. Does not write to core.core_streets.",
+        "Evaluates pending ready road publish items with road dry-run and DB routing-readiness validation (no Valhalla). Persists summary.road_dry_run and summary.routing_readiness_validation. Does not write to core.core_streets.",
     security: [...bearerAuth],
     params: {
         type: "object",
@@ -3816,11 +4486,12 @@ export const postImportReviewPromotionRoadDryRunSchema = {
         additionalProperties: false,
     },
     response: {
-        200: roadDryRunResultSchema,
+        200: roadDryRunSummaryResponseSchema,
         400: messageSchema,
         401: messageSchema,
         403: messageSchema,
         404: messageSchema,
+        409: messageSchema,
         500: importReviewApiErrorResponseSchema,
     },
 } satisfies FastifySchema;
@@ -3835,7 +4506,7 @@ export const getImportReviewPromotionRoadDryRunSchema = {
         properties: { id: { type: "string", pattern: "^\\d+$" } },
     },
     response: {
-        200: roadDryRunResultSchema,
+        200: roadDryRunSummaryResponseSchema,
         400: messageSchema,
         401: messageSchema,
         403: messageSchema,

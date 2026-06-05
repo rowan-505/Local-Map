@@ -85,8 +85,16 @@ export function derivePromotionErrorCode(message: string): string {
         return innerCode === "PROMOTION_FAILED" ? "PLACE_PROMOTION_FAILED" : innerCode;
     }
 
+    if (/25P02|current transaction is aborted/i.test(trimmed)) {
+        return "PROMOTION_TRANSACTION_ABORTED";
+    }
+
     if (PRISMA_NOISE_RE.test(trimmed) || /is not a function/i.test(trimmed)) {
         return "PROMOTION_SYSTEM_ERROR";
+    }
+
+    if (/missing FROM-clause entry/i.test(trimmed)) {
+        return "ROAD_PROMOTION_SQL_ERROR";
     }
 
     if (/duplicate/i.test(trimmed)) {
@@ -116,6 +124,10 @@ export function sanitizePromotionErrorMessage(message: string, maxLength = 500):
         text = text.replace(/^Place promotion failed:\s*/i, "").trim();
     }
 
+    if (/25P02|current transaction is aborted/i.test(text)) {
+        return "Promotion failed during database write. See publish item error for the original SQL failure.";
+    }
+
     if (PRISMA_NOISE_RE.test(text) || /this\.prisma\.\$transaction is not a function/i.test(text)) {
         return "Promotion system error while writing to the database. Check API logs for details.";
     }
@@ -132,6 +144,11 @@ export function sanitizePromotionErrorMessage(message: string, maxLength = 500):
         return `${text.slice(0, maxLength - 1)}…`;
     }
     return text;
+}
+
+/** JSON.stringify helper that converts bigint values to strings. */
+export function stringifyPromotionPayload(value: unknown): string {
+    return JSON.stringify(value, (_key, val) => (typeof val === "bigint" ? val.toString() : val));
 }
 
 export function buildPromotionItemFailureRecord(

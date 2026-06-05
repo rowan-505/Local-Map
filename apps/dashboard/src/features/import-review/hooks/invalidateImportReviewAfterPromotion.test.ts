@@ -42,7 +42,7 @@ describe("invalidateImportReviewAfterPromotion", () => {
 });
 
 describe("importReviewQueryKeys candidates list", () => {
-    it("default list key uses showPromoted false so refetch excludes promoted via API", () => {
+    it("default list key uses promotionState all_active so refetch excludes promoted via API", () => {
         const key = importReviewQueryKeys.candidatesList({
             apiFamily: "places",
             apiScopeQuery: { review_batch_id: "1" },
@@ -58,12 +58,12 @@ describe("importReviewQueryKeys candidates list", () => {
                 class_code: "",
             },
             qApplied: "",
-            showPromoted: false,
+            promotionState: "all_active",
         });
-        assert.equal(key[key.length - 1], false);
+        assert.equal(key[key.length - 1], "all_active");
     });
 
-    it("show promoted list key differs so promoted rows can load with badge", () => {
+    it("promoted list key differs so promoted rows can load with badge", () => {
         const hidden = importReviewQueryKeys.candidatesList({
             apiFamily: "places",
             apiScopeQuery: { review_batch_id: "1" },
@@ -79,7 +79,7 @@ describe("importReviewQueryKeys candidates list", () => {
                 class_code: "",
             },
             qApplied: "",
-            showPromoted: false,
+            promotionState: "all_active",
         });
         const shown = importReviewQueryKeys.candidatesList({
             apiFamily: "places",
@@ -96,9 +96,25 @@ describe("importReviewQueryKeys candidates list", () => {
                 class_code: "",
             },
             qApplied: "",
-            showPromoted: true,
+            promotionState: "promoted",
         });
         assert.notDeepEqual(hidden, shown);
-        assert.equal(shown[shown.length - 1], true);
+        assert.equal(shown[shown.length - 1], "promoted");
+    });
+
+    it("invalidates all nine entity families when promotedFamilies is empty (conservative refetch)", async () => {
+        const { queryClient, calls } = createMockQueryClient();
+        await invalidateImportReviewAfterPromotion(queryClient, {
+            reviewBatchId: "18",
+            promotedFamilies: [],
+        });
+        const broad = calls.find(
+            (c) =>
+                c.method === "invalidateQueries" &&
+                (c.args[0] as { queryKey?: unknown[] })?.queryKey?.[0] === "import-review" &&
+                (c.args[0] as { queryKey?: unknown[] })?.queryKey?.[1] === "candidates" &&
+                (c.args[0] as { queryKey?: unknown[] })?.queryKey?.length === 2
+        );
+        assert.ok(broad);
     });
 });

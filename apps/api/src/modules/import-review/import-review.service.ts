@@ -1,4 +1,5 @@
-import { getImportReviewPrisma } from "../../lib/import-review-prisma.js";
+import type { PrismaClient } from "@prisma/client";
+
 import type { JwtUser } from "../../plugins/auth.js";
 import { StreetsRepository } from "../streets/streets.repo.js";
 import { ImportReviewBatchesRepository } from "./import-review-batches.repo.js";
@@ -13,6 +14,7 @@ import type {
     ReviewActor,
 } from "./import-review-data-repository.js";
 import type { CandidateListFilters } from "./import-review-candidate-sql.js";
+import { resolveListPromotionFilters } from "./import-review-list-promotion-filters.js";
 import {
     ImportReviewBatchAmbiguousError,
     ImportReviewBatchNotFoundError,
@@ -301,6 +303,10 @@ function mapBuildingRow(
         validation_warnings: isListProjection ? [] : row.validation_warnings,
         validation_errors: isListProjection ? [] : row.validation_errors,
         promotion_status: row.promotion_status,
+        latest_promotion_failure_message: row.latest_promotion_failure_message ?? null,
+        latest_promotion_publish_batch_id: row.latest_promotion_publish_batch_id ?? null,
+        latest_promotion_error_code: row.latest_promotion_error_code ?? null,
+        promotion_retry_needed: row.promotion_retry_needed === true,
         promoted_core_id: bigStr(row.promoted_core_id),
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
@@ -312,6 +318,13 @@ function mapBuildingRow(
             row.road_candidate_road_class_id !== undefined && row.road_candidate_road_class_id !== null
                 ? row.road_candidate_road_class_id.toString()
                 : null,
+        road_class_id:
+            row.road_candidate_road_class_id !== undefined && row.road_candidate_road_class_id !== null
+                ? row.road_candidate_road_class_id.toString()
+                : null,
+        road_class: row.road_class ?? null,
+        road_class_name: row.road_class_name ?? null,
+        road_class_label: row.road_class_label ?? null,
         road_candidate_class_label: row.road_candidate_class_label ?? null,
         road_candidate_surface: row.road_candidate_surface ?? null,
         road_candidate_is_oneway: row.road_candidate_is_oneway ?? null,
@@ -585,12 +598,6 @@ function assertGenericCandidateDecisionAllowed(args: {
             );
         }
 
-        const valWarn = stringsFromStoredJsonArray(args.roadContext.validation_warnings);
-        if (valWarn.length > 0 && !args.body.force && !args.body.confirm_routing_warnings) {
-            throw new ImportReviewDecisionRuleError(
-                "Unresolved routing_validation warnings on this candidate; send confirm_routing_warnings=true (or force=true) after review."
-            );
-        }
     }
 
     if (args.body.review_decision === "approved" && !args.body.force && args.roadContext === undefined) {
@@ -621,13 +628,32 @@ function assertGenericCandidateDecisionAllowed(args: {
 }
 
 export class ImportReviewService {
-    private readonly routingStreets = new StreetsRepository(getImportReviewPrisma());
-    private readonly roadDryRunSummaryRepo = new ImportReviewRoadDryRunSummaryRepository(
-        getImportReviewPrisma()
-    );
-    private readonly batchesRepo = new ImportReviewBatchesRepository(getImportReviewPrisma());
+    private readonly routingStreets: StreetsRepository;
+    private readonly roadDryRunSummaryRepo: ImportReviewRoadDryRunSummaryRepository;
+    private readonly batchesRepo: ImportReviewBatchesRepository;
+    private readonly addressComponentsRepo: ImportReviewAddressComponentsRepository;
+    private readonly addressMapPreviewRepo: ImportReviewAddressMapPreviewRepository;
+    private readonly addressPlaceWorkflowRepo: ImportReviewAddressPlaceWorkflowRepository;
+    private readonly essentialDefaultsRepo: ImportReviewEssentialDefaultsRepository;
+    private readonly referenceOptionsRepo: ImportReviewReferenceOptionsRepository;
+    private readonly optionsRepo: ImportReviewOptionsRepository;
+    private readonly adminAreasRepo: AdminAreasRepository;
 
-    constructor(private readonly repo: ImportReviewDataRepository) {}
+    constructor(
+        private readonly repo: ImportReviewDataRepository,
+        private readonly prisma: PrismaClient,
+    ) {
+        this.routingStreets = new StreetsRepository(prisma);
+        this.roadDryRunSummaryRepo = new ImportReviewRoadDryRunSummaryRepository(prisma);
+        this.batchesRepo = new ImportReviewBatchesRepository(prisma);
+        this.addressComponentsRepo = new ImportReviewAddressComponentsRepository(prisma);
+        this.addressMapPreviewRepo = new ImportReviewAddressMapPreviewRepository(prisma);
+        this.addressPlaceWorkflowRepo = new ImportReviewAddressPlaceWorkflowRepository(prisma);
+        this.essentialDefaultsRepo = new ImportReviewEssentialDefaultsRepository(prisma);
+        this.referenceOptionsRepo = new ImportReviewReferenceOptionsRepository(prisma);
+        this.optionsRepo = new ImportReviewOptionsRepository(prisma);
+        this.adminAreasRepo = new AdminAreasRepository(prisma);
+    }
 
     private async resolveScopeChecked(q: ImportReviewScopeQuery): Promise<ImportReviewScopeResolved> {
         try {
@@ -766,7 +792,7 @@ export class ImportReviewService {
             review_decision: query.review_decision,
             class_code: query.class_code,
             promotion_status: query.promotion_status,
-            include_promoted: query.include_promoted,
+            ...resolveListPromotionFilters(query),
             q: query.q,
         };
 
@@ -866,7 +892,6 @@ export class ImportReviewService {
         body: PatchImportReviewRoadOverridesBody,
         user: JwtUser
     ): Promise<ImportReviewBuildingListItem> {
-        const prisma = getImportReviewPrisma();
         const scope = await this.resolveScopeChecked(scopeQueryFromPatchScopeBody(body));
 
         const baseline = await this.repo.fetchRoadCandidatePatchBaseline(scope, roadId);
@@ -999,7 +1024,7 @@ export class ImportReviewService {
                 : null;
 
         const outcome = await buildImportReviewRoadOverrideOutcome({
-            prisma,
+            prisma: this.prisma,
             streetsRepo: this.routingStreets,
             reviewBatchId: scope.reviewBatchId,
             roadId,
@@ -1036,10 +1061,6 @@ export class ImportReviewService {
 
         if (outcome.errors.length > 0) {
             throw new ImportReviewRoadOverridesValidationFailedError(outcome.errors, outcome.warnings);
-        }
-
-        if (outcome.warnings.length > 0 && !body.confirm_acknowledge_routing_warnings) {
-            throw new ImportReviewRoadOverridesWarningsPendingError(outcome.warnings);
         }
 
         const normalizedGeomString =
@@ -1089,7 +1110,6 @@ export class ImportReviewService {
         body: PostImportReviewRoadValidateRoutingBody,
         _user: JwtUser
     ): Promise<ImportReviewRoadRoutingValidationResult> {
-        const prisma = getImportReviewPrisma();
         const scope = await this.resolveScopeChecked(scopeQueryFromValidateRoutingBody(body));
 
         const row = await this.repo.fetchRoadCandidateRoutingValidationRow(scope, roadId);
@@ -1098,7 +1118,7 @@ export class ImportReviewService {
         }
 
         const result = await runImportReviewRoadRoutingValidation({
-            prisma,
+            prisma: this.prisma,
             streetsRepo: this.routingStreets,
             row,
             connectivityThresholdM: body.connectivity_threshold_m,
@@ -1237,7 +1257,7 @@ export class ImportReviewService {
             review_status: query.review_status,
             review_decision: query.review_decision,
             promotion_status: query.promotion_status,
-            include_promoted: query.include_promoted,
+            ...resolveListPromotionFilters(query),
             q: query.q,
         };
 
@@ -1276,7 +1296,7 @@ export class ImportReviewService {
             review_decision: query.review_decision,
             promotion_status: query.promotion_status,
             class_code: query.class_code,
-            include_promoted: query.include_promoted,
+            ...resolveListPromotionFilters(query),
             q: query.q,
         };
 
@@ -1444,13 +1464,6 @@ export class ImportReviewService {
                 );
             }
 
-            const valWarn = stringsFromStoredJsonArray(existing.validation_warnings);
-            if (valWarn.length > 0 && !body.force && !body.confirm_routing_warnings) {
-                throw new ImportReviewDecisionRuleError(
-                    "Unresolved routing_validation warnings on this candidate; send confirm_routing_warnings=true (or force=true) after review."
-                );
-            }
-
             await this.persistEssentialDefaultsOnApprove("roads", scope, roadId);
         }
 
@@ -1529,7 +1542,7 @@ export class ImportReviewService {
             review_decision: query.review_decision,
             class_code: query.class_code,
             promotion_status: query.promotion_status,
-            include_promoted: query.include_promoted,
+            ...resolveListPromotionFilters(query),
             q: query.q,
         };
 
@@ -1576,8 +1589,7 @@ export class ImportReviewService {
             );
         }
 
-        const componentRepo = new ImportReviewAddressComponentsRepository(getImportReviewPrisma());
-        const componentRows = await componentRepo.listByCandidateIds(rows.map((r) => r.id));
+        const componentRows = await this.addressComponentsRepo.listByCandidateIds(rows.map((r) => r.id));
         const byCandidate = indexComponentsByCandidateId(componentRows);
 
         return rows.map((row) => {
@@ -1592,8 +1604,7 @@ export class ImportReviewService {
         includeGeometry = false
     ): Promise<ImportReviewBuildingListItem> {
         const base = mapCandidateRow(row, "addresses");
-        const componentRepo = new ImportReviewAddressComponentsRepository(getImportReviewPrisma());
-        const componentRows = await componentRepo.listByCandidateIds([row.id]);
+        const componentRows = await this.addressComponentsRepo.listByCandidateIds([row.id]);
         const enriched = enrichAddressListItem(base, row, componentRows);
         const detail = mapAddressDetailItem(row, componentRows);
         const composed = composeFromComponentRows(componentRows, "en");
@@ -1601,8 +1612,7 @@ export class ImportReviewService {
 
         let map_preview_layers = detail.map_preview_layers ?? null;
         if (includeGeometry) {
-            const previewRepo = new ImportReviewAddressMapPreviewRepository(getImportReviewPrisma());
-            const matchedLayers = await previewRepo.fetchMapPreviewLayers({
+            const matchedLayers = await this.addressMapPreviewRepo.fetchMapPreviewLayers({
                 matchedBuildingId: row.matched_building_id ?? null,
                 matchedStreetId: row.matched_street_id ?? null,
                 matchedAdminAreaId: row.matched_admin_area_id ?? null,
@@ -1613,8 +1623,7 @@ export class ImportReviewService {
                 ...matchedLayers,
             };
         }
-        const placeWorkflowRepo = new ImportReviewAddressPlaceWorkflowRepository(getImportReviewPrisma());
-        const placeWorkflowSummary = await placeWorkflowRepo.getSummary(row.id);
+        const placeWorkflowSummary = await this.addressPlaceWorkflowRepo.getSummary(row.id);
 
         return {
             ...enriched,
@@ -1753,15 +1762,13 @@ export class ImportReviewService {
         candidateId: bigint,
         userPatch: Record<string, unknown>
     ): Promise<Record<string, unknown>> {
-        const prisma = getImportReviewPrisma();
-        const essentialRepo = new ImportReviewEssentialDefaultsRepository(prisma);
-        const ctx = await essentialRepo.fetchEssentialContext(family, scope.reviewBatchId, candidateId);
+        const ctx = await this.essentialDefaultsRepo.fetchEssentialContext(family, scope.reviewBatchId, candidateId);
         if (ctx === null) {
             throwCandidateNotFound(family, candidateId, scope);
         }
 
         const { overridesPatch } = await buildEssentialDefaultOverridesPatch(
-            prisma,
+            this.prisma,
             family,
             ctx,
             userPatch
@@ -1774,7 +1781,7 @@ export class ImportReviewService {
                 incomingPatch: mergedPatch,
             });
         }
-        await assertImportReviewEssentialFieldsMet(prisma, family, ctx, mergedPatch);
+        await assertImportReviewEssentialFieldsMet(this.prisma, family, ctx, mergedPatch);
         return mergedPatch;
     }
 
@@ -1783,14 +1790,12 @@ export class ImportReviewService {
         scope: ImportReviewScopeResolved,
         candidateId: bigint
     ): Promise<void> {
-        const prisma = getImportReviewPrisma();
-        const essentialRepo = new ImportReviewEssentialDefaultsRepository(prisma);
-        const ctx = await essentialRepo.fetchEssentialContext(family, scope.reviewBatchId, candidateId);
+        const ctx = await this.essentialDefaultsRepo.fetchEssentialContext(family, scope.reviewBatchId, candidateId);
         if (ctx === null) {
             throwCandidateNotFound(family, candidateId, scope);
         }
 
-        const outcome = await applyImportReviewEssentialDefaults(prisma, family, ctx, {});
+        const outcome = await applyImportReviewEssentialDefaults(this.prisma, family, ctx, {});
         if (Object.keys(outcome.overridesPatch).length > 0) {
             await this.persistValidatedFieldPatch(
                 family,
@@ -1802,21 +1807,22 @@ export class ImportReviewService {
             );
         }
 
-        const refreshed = await essentialRepo.fetchEssentialContext(family, scope.reviewBatchId, candidateId);
+        const refreshed = await this.essentialDefaultsRepo.fetchEssentialContext(
+            family,
+            scope.reviewBatchId,
+            candidateId
+        );
         if (refreshed === null) {
             throwCandidateNotFound(family, candidateId, scope);
         }
 
-        await assertImportReviewEssentialFieldsMet(prisma, family, refreshed, {});
+        await assertImportReviewEssentialFieldsMet(this.prisma, family, refreshed, {});
     }
 
     private async prepareValidatedOverridesPatch(
         family: ImportReviewEntityFamilySlug,
         rawPatch: ImportReviewReviewOverridesPatch
     ): Promise<Record<string, unknown>> {
-        const prisma = getImportReviewPrisma();
-        const refRepo = new ImportReviewReferenceOptionsRepository(prisma);
-        const adminRepo = new AdminAreasRepository(prisma);
         const patch = sanitizeReviewOverridesPatch(family, rawPatch);
 
         const parseId = (value: unknown): bigint | null => {
@@ -1836,7 +1842,7 @@ export class ImportReviewService {
         if (Object.prototype.hasOwnProperty.call(patch, "building_type_id")) {
             const id = parseId(patch.building_type_id);
             if (id !== null) {
-                const refRow = await refRepo.getActiveBuildingTypeById(id);
+                const refRow = await this.referenceOptionsRepo.getActiveBuildingTypeById(id);
                 if (refRow === null) {
                     throw new ImportReviewDecisionRuleError(
                         `Unknown or inactive building_type_id=${id.toString()} (must match ref.ref_building_types where is_active = true and parent_id IS NULL).`
@@ -1848,7 +1854,7 @@ export class ImportReviewService {
         if (Object.prototype.hasOwnProperty.call(patch, "landuse_class_id")) {
             const id = parseId(patch.landuse_class_id);
             if (id !== null) {
-                const refRow = await refRepo.getActiveLanduseClassById(id);
+                const refRow = await this.referenceOptionsRepo.getActiveLanduseClassById(id);
                 if (refRow === null) {
                     throw new ImportReviewDecisionRuleError(
                         `Unknown or inactive landuse_class_id=${id.toString()} (must match ref.ref_landuse_classes where is_active = true).`
@@ -1860,7 +1866,7 @@ export class ImportReviewService {
         if (Object.prototype.hasOwnProperty.call(patch, "category_id")) {
             const id = parseId(patch.category_id);
             if (id !== null) {
-                const exists = await refRepo.poiCategoryExistsById(id);
+                const exists = await this.referenceOptionsRepo.poiCategoryExistsById(id);
                 if (!exists) {
                     throw new ImportReviewDecisionRuleError(
                         `Unknown category_id=${id.toString()} (must match ref.ref_poi_categories).`
@@ -1872,7 +1878,7 @@ export class ImportReviewService {
         if (Object.prototype.hasOwnProperty.call(patch, "admin_area_id")) {
             const id = parseId(patch.admin_area_id);
             if (id !== null) {
-                const has = await adminRepo.hasActiveAdminArea(id);
+                const has = await this.adminAreasRepo.hasActiveAdminArea(id);
                 if (!has) {
                     throw new ImportReviewDecisionRuleError(
                         `Unknown or inactive admin_area_id=${id.toString()} (must match core.core_admin_areas where is_active = true).`
@@ -2040,18 +2046,15 @@ export class ImportReviewService {
         if (hit) {
             return hit;
         }
-        const repo = new ImportReviewOptionsRepository(getImportReviewPrisma());
-        const data = await repo.fetchStaticFormOptions();
+        const data = await this.optionsRepo.fetchStaticFormOptions();
         writeCachedFormOptions(data);
         return data;
     }
 
     async getReferenceOptions() {
-        const prisma = getImportReviewPrisma();
         const options = await this.getFormOptions();
         const legacy = toLegacyReferenceOptionsBundle(options);
-        const refRepo = new ImportReviewReferenceOptionsRepository(prisma);
-        const extra = await refRepo.fetchAll();
+        const extra = await this.referenceOptionsRepo.fetchAll();
         return {
             ...legacy,
             ref_address_component_types: extra.ref_address_component_types,

@@ -68,6 +68,16 @@ export type PublishBatchHistoryRowDb = {
     promoted_at: Date | null;
 };
 
+/** Publish batch list row with aggregated publish-item counts (no per-item load). */
+export type PublishBatchHistoryListRowDb = PublishBatchHistoryRowDb & {
+    validation_heartbeat_at: Date | null;
+    item_ready_count: bigint;
+    item_warning_count: bigint;
+    item_blocked_count: bigint;
+    item_promotable_pending_count: bigint;
+    item_pending_count: bigint;
+};
+
 export type PublishBatchItemRowDb = {
     id: bigint;
     entity_family: string;
@@ -161,11 +171,7 @@ const PUBLISH_BATCH_PUBLISH_ROLLUP = Prisma.sql`
 `;
 
 export class ImportReviewHistoryRepository {
-    constructor(private readonly prisma: PrismaClient) {}
-
-    getPrismaClient(): PrismaClient {
-        return this.prisma;
-    }
+    constructor(readonly prisma: PrismaClient) {}
 
     private async pgRegclassExists(qualifiedName: string): Promise<boolean> {
         const rows = await this.prisma.$queryRaw<{ exists: boolean }[]>`
@@ -341,7 +347,7 @@ export class ImportReviewHistoryRepository {
 
     async listPublishBatches(
         query: ImportReviewHistoryPublishBatchesListQuery
-    ): Promise<{ rows: PublishBatchHistoryRowDb[]; total: bigint }> {
+    ): Promise<{ rows: PublishBatchHistoryListRowDb[]; total: bigint }> {
         const where = publishBatchListWhere(query);
 
         const totalRows = await this.prisma.$queryRaw<{ count: bigint }[]>`
@@ -351,7 +357,7 @@ export class ImportReviewHistoryRepository {
         `;
         const total = totalRows[0]?.count ?? 0n;
 
-        const rows = await this.prisma.$queryRaw<PublishBatchHistoryRowDb[]>`
+        const rows = await this.prisma.$queryRaw<PublishBatchHistoryListRowDb[]>`
             SELECT
                 pb.id,
                 pb.public_id::text AS public_id,
@@ -368,12 +374,37 @@ export class ImportReviewHistoryRepository {
                 pb.validation_done,
                 pb.validation_percent::float8 AS validation_percent,
                 pb.validated_at,
+                pb.validation_heartbeat_at,
                 pb.note,
                 pb.summary,
                 pb.created_at,
                 pb.published_at,
-                pb.promoted_at
+                pb.promoted_at,
+                coalesce(items.item_ready_count, 0)::bigint AS item_ready_count,
+                coalesce(items.item_warning_count, 0)::bigint AS item_warning_count,
+                coalesce(items.item_blocked_count, 0)::bigint AS item_blocked_count,
+                coalesce(items.item_promotable_pending_count, 0)::bigint AS item_promotable_pending_count,
+                coalesce(items.item_pending_count, 0)::bigint AS item_pending_count
             FROM system.system_publish_batches AS pb
+            LEFT JOIN LATERAL (
+                SELECT
+                    count(*) FILTER (
+                        WHERE coalesce(spi.validation_result->>'status', '') IN ('ready', 'valid')
+                    )::bigint AS item_ready_count,
+                    count(*) FILTER (
+                        WHERE coalesce(spi.validation_result->>'status', '') = 'warning'
+                    )::bigint AS item_warning_count,
+                    count(*) FILTER (
+                        WHERE coalesce(spi.validation_result->>'status', '') = 'blocked'
+                    )::bigint AS item_blocked_count,
+                    count(*) FILTER (
+                        WHERE spi.publish_status = 'pending'
+                          AND coalesce(spi.validation_result->>'status', '') IN ('ready', 'valid', 'warning')
+                    )::bigint AS item_promotable_pending_count,
+                    count(*) FILTER (WHERE spi.publish_status = 'pending')::bigint AS item_pending_count
+                FROM system.system_publish_items AS spi
+                WHERE spi.publish_batch_id = pb.id
+            ) AS items ON true
             WHERE ${where}
             ORDER BY pb.created_at DESC, pb.id DESC
             LIMIT ${query.limit ?? 50} OFFSET ${query.offset ?? 0}

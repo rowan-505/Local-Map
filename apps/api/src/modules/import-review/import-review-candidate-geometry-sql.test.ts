@@ -47,7 +47,7 @@ test("detail SELECT without geometry does not produce id CASE syntax error", () 
 
     for (const family of families) {
         const config = getImportReviewEntityConfig(family);
-        const select = sqlText(buildCandidateDetailSelect(config));
+        const select = sqlText(buildCandidateDetailSelect(config, 1n));
         assert.doesNotMatch(
             select,
             /\bupdated_at\s+CASE/i,

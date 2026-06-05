@@ -1,6 +1,8 @@
 -- =============================================================================
 -- Stage 04: tmp_to_raw
--- Copy boundary-filtered tmp_import rows into raw.raw_osm_* for current snapshot.
+-- Copy tmp_import rows into raw.raw_osm_* for current snapshot.
+-- When snapshot.boundary_id is set, rows are clipped to the boundary polygon.
+-- When boundary_id is NULL (whole-region import), all tmp rows with geometry are copied.
 --
 -- Input psql variables:
 --   snapshot_version
@@ -25,6 +27,9 @@
 \endif
 
 BEGIN;
+
+\ir pipeline_entity_families.sql
+\ir pipeline_tmp_import_mode.sql
 
 CREATE TEMP TABLE IF NOT EXISTS stage04_params (
     snapshot_version text NOT NULL,
@@ -52,6 +57,7 @@ CREATE TEMP TABLE IF NOT EXISTS stage04_context (
     region_code text,
     boundary_id bigint,
     boundary_code text,
+    boundary_mode text NOT NULL,
     boundary_geom geometry(MultiPolygon, 4326),
     tmp_import_schema text NOT NULL,
     raw_schema text NOT NULL
@@ -75,23 +81,38 @@ DECLARE
     v_snapshot_version text;
     v_tmp_schema text;
     v_raw_schema text;
+    v_import_mode text;
 BEGIN
     SELECT p.snapshot_version, p.tmp_import_schema, p.raw_schema
     INTO v_snapshot_version, v_tmp_schema, v_raw_schema
     FROM stage04_params AS p;
 
+    SELECT mode.import_mode
+    INTO v_import_mode
+    FROM _pipeline_tmp_import_mode AS mode;
+
     IF v_snapshot_version IS NULL THEN
         RAISE EXCEPTION 'missing psql variable: snapshot_version';
     END IF;
 
-    IF to_regclass(format('%I.osm_points', v_tmp_schema)) IS NULL THEN
-        RAISE EXCEPTION 'required tmp table %.osm_points does not exist', v_tmp_schema;
-    END IF;
-    IF to_regclass(format('%I.osm_lines', v_tmp_schema)) IS NULL THEN
-        RAISE EXCEPTION 'required tmp table %.osm_lines does not exist', v_tmp_schema;
-    END IF;
-    IF to_regclass(format('%I.osm_polygons', v_tmp_schema)) IS NULL THEN
-        RAISE EXCEPTION 'required tmp table %.osm_polygons does not exist', v_tmp_schema;
+    IF v_import_mode = 'admin_areas_only' THEN
+        IF to_regclass(format('%I.osm_admin_polygons', v_tmp_schema)) IS NULL THEN
+            RAISE EXCEPTION 'required tmp table %.osm_admin_polygons does not exist', v_tmp_schema;
+        END IF;
+    ELSIF v_import_mode = 'roads_only' THEN
+        IF to_regclass(format('%I.osm_road_lines', v_tmp_schema)) IS NULL THEN
+            RAISE EXCEPTION 'required tmp table %.osm_road_lines does not exist', v_tmp_schema;
+        END IF;
+    ELSE
+        IF to_regclass(format('%I.osm_points', v_tmp_schema)) IS NULL THEN
+            RAISE EXCEPTION 'required tmp table %.osm_points does not exist', v_tmp_schema;
+        END IF;
+        IF to_regclass(format('%I.osm_lines', v_tmp_schema)) IS NULL THEN
+            RAISE EXCEPTION 'required tmp table %.osm_lines does not exist', v_tmp_schema;
+        END IF;
+        IF to_regclass(format('%I.osm_polygons', v_tmp_schema)) IS NULL THEN
+            RAISE EXCEPTION 'required tmp table %.osm_polygons does not exist', v_tmp_schema;
+        END IF;
     END IF;
 
     IF to_regclass(format('%I.raw_osm_points', v_raw_schema)) IS NULL THEN
@@ -111,6 +132,7 @@ BEGIN
         region_code,
         boundary_id,
         boundary_code,
+        boundary_mode,
         boundary_geom,
         tmp_import_schema,
         raw_schema
@@ -122,6 +144,10 @@ BEGIN
         snapshot.region_code,
         snapshot.boundary_id,
         boundary.boundary_code,
+        CASE
+            WHEN snapshot.boundary_id IS NULL THEN 'WHOLE_REGION'
+            ELSE 'CLIPPED'
+        END AS boundary_mode,
         boundary.geom,
         v_tmp_schema,
         v_raw_schema
@@ -134,31 +160,24 @@ BEGIN
         RAISE EXCEPTION 'snapshot_version "%" not found in system.system_source_snapshots', v_snapshot_version;
     END IF;
 
-    IF EXISTS (
-        SELECT 1
-        FROM system.system_source_snapshots AS snapshot
-        WHERE snapshot.snapshot_version = v_snapshot_version
-          AND snapshot.boundary_id IS NULL
-    ) THEN
-        RAISE EXCEPTION 'Current snapshot has no boundary_id. Register boundary before tmp_to_raw.';
-    END IF;
-
     IF NOT EXISTS (SELECT 1 FROM stage04_context) THEN
-        RAISE EXCEPTION 'boundary row for snapshot_version "%" was not found', v_snapshot_version;
+        RAISE EXCEPTION 'snapshot context for snapshot_version "%" was not loaded', v_snapshot_version;
     END IF;
 
     IF EXISTS (
         SELECT 1
         FROM stage04_context AS ctx
-        WHERE ctx.boundary_geom IS NULL
+        WHERE ctx.boundary_mode = 'CLIPPED'
+          AND ctx.boundary_geom IS NULL
     ) THEN
-        RAISE EXCEPTION 'boundary geometry for snapshot_version "%" is NULL', v_snapshot_version;
+        RAISE EXCEPTION 'boundary geometry for snapshot_version "%" is NULL (expected polygon for CLIPPED import)', v_snapshot_version;
     END IF;
 
     IF EXISTS (
         SELECT 1
         FROM stage04_context AS ctx
-        WHERE ST_SRID(ctx.boundary_geom) <> 4326
+        WHERE ctx.boundary_mode = 'CLIPPED'
+          AND ST_SRID(ctx.boundary_geom) <> 4326
     ) THEN
         RAISE EXCEPTION 'boundary geometry for snapshot_version "%" must use SRID 4326', v_snapshot_version;
     END IF;
@@ -167,8 +186,13 @@ $stage04_validate$;
 
 SELECT
     'stage04_header' AS section,
-    'tmp_to_raw boundary-filtered archive' AS message,
-    now() AS started_at;
+    CASE
+        WHEN ctx.boundary_mode = 'WHOLE_REGION' THEN 'tmp_to_raw whole-region archive (no boundary clip)'
+        ELSE 'tmp_to_raw boundary-filtered archive'
+    END AS message,
+    now() AS started_at
+FROM stage04_context AS ctx
+LIMIT 1;
 
 SELECT
     'stage04_snapshot' AS section,
@@ -177,6 +201,7 @@ SELECT
     region_code,
     boundary_id,
     boundary_code,
+    boundary_mode,
     import_batch_id
 FROM stage04_context;
 
@@ -192,7 +217,10 @@ JOIN stage04_context AS ctx
     ON cols.table_schema IN (ctx.tmp_import_schema, ctx.raw_schema)
 WHERE (
         cols.table_schema = ctx.tmp_import_schema
-        AND cols.table_name IN ('osm_points', 'osm_lines', 'osm_polygons')
+        AND cols.table_name IN (
+            'osm_points', 'osm_lines', 'osm_polygons',
+            'osm_admin_polygons', 'osm_road_lines'
+        )
         AND cols.column_name IN ('osm_id', 'osm_feature_type')
     )
     OR (
@@ -205,86 +233,74 @@ ORDER BY cols.table_schema, cols.table_name, cols.column_name;
 DO $stage04_counts_before$
 DECLARE
     ctx stage04_context%ROWTYPE;
+    v_import_mode text;
+    v_tbl text;
     q text;
-    v_points_total bigint;
-    v_lines_total bigint;
-    v_polygons_total bigint;
-    v_points_null bigint;
-    v_lines_null bigint;
-    v_polygons_null bigint;
-    v_points_inside bigint;
-    v_lines_inside bigint;
-    v_polygons_inside bigint;
+    v_total bigint;
+    v_null bigint;
+    v_inside bigint;
+    v_inside_sum bigint := 0;
 BEGIN
     SELECT *
     INTO STRICT ctx
     FROM stage04_context;
 
-    q := format('select count(*)::bigint from %I.osm_points', ctx.tmp_import_schema);
-    EXECUTE q INTO v_points_total;
+    SELECT mode.import_mode
+    INTO v_import_mode
+    FROM _pipeline_tmp_import_mode AS mode;
 
-    q := format('select count(*)::bigint from %I.osm_lines', ctx.tmp_import_schema);
-    EXECUTE q INTO v_lines_total;
+    FOR v_tbl IN
+        SELECT unnest(
+            CASE v_import_mode
+                WHEN 'admin_areas_only' THEN ARRAY['osm_admin_polygons']::text[]
+                WHEN 'roads_only' THEN ARRAY['osm_road_lines']::text[]
+                ELSE ARRAY['osm_points', 'osm_lines', 'osm_polygons']::text[]
+            END
+        )
+    LOOP
+        q := format('select count(*)::bigint from %I.%I', ctx.tmp_import_schema, v_tbl);
+        EXECUTE q INTO v_total;
 
-    q := format('select count(*)::bigint from %I.osm_polygons', ctx.tmp_import_schema);
-    EXECUTE q INTO v_polygons_total;
+        q := format('select count(*)::bigint from %I.%I where geom is null', ctx.tmp_import_schema, v_tbl);
+        EXECUTE q INTO v_null;
 
-    q := format('select count(*)::bigint from %I.osm_points where geom is null', ctx.tmp_import_schema);
-    EXECUTE q INTO v_points_null;
+        q := format(
+            'select count(*)::bigint
+             from %I.%I AS tmp
+             join stage04_context AS ctx ON true
+             where tmp.geom is not null
+               and (
+                   ctx.boundary_geom is null
+                   or (tmp.geom && ctx.boundary_geom and ST_Intersects(tmp.geom, ctx.boundary_geom))
+               )',
+            ctx.tmp_import_schema,
+            v_tbl
+        );
+        EXECUTE q INTO v_inside;
+        v_inside_sum := v_inside_sum + coalesce(v_inside, 0);
 
-    q := format('select count(*)::bigint from %I.osm_lines where geom is null', ctx.tmp_import_schema);
-    EXECUTE q INTO v_lines_null;
+        INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
+        VALUES
+            ('tmp_total', format('tmp_import.%s total', v_tbl), v_tbl, v_total, 'PASS', NULL),
+            ('tmp_null_geom', format('tmp %s null geom', v_tbl), v_tbl, v_null,
+                CASE WHEN v_null = 0 THEN 'PASS' ELSE 'WARN' END, 'NULL geometry rows are skipped by Stage D'),
+            ('boundary_filtered',
+                CASE
+                    WHEN ctx.boundary_mode = 'WHOLE_REGION' THEN format('%s with geom (whole region)', v_tbl)
+                    ELSE format('%s inside boundary', v_tbl)
+                END,
+                v_tbl,
+                v_inside,
+                CASE WHEN v_inside = 0 THEN 'WARN' ELSE 'PASS' END,
+                ctx.boundary_mode);
+    END LOOP;
 
-    q := format('select count(*)::bigint from %I.osm_polygons where geom is null', ctx.tmp_import_schema);
-    EXECUTE q INTO v_polygons_null;
-
-    q := format(
-        'select count(*)::bigint
-         from %I.osm_points AS tmp
-         join stage04_context AS ctx ON true
-         where tmp.geom is not null
-           and tmp.geom && ctx.boundary_geom
-           and ST_Intersects(tmp.geom, ctx.boundary_geom)',
-        ctx.tmp_import_schema
-    );
-    EXECUTE q INTO v_points_inside;
-
-    q := format(
-        'select count(*)::bigint
-         from %I.osm_lines AS tmp
-         join stage04_context AS ctx ON true
-         where tmp.geom is not null
-           and tmp.geom && ctx.boundary_geom
-           and ST_Intersects(tmp.geom, ctx.boundary_geom)',
-        ctx.tmp_import_schema
-    );
-    EXECUTE q INTO v_lines_inside;
-
-    q := format(
-        'select count(*)::bigint
-         from %I.osm_polygons AS tmp
-         join stage04_context AS ctx ON true
-         where tmp.geom is not null
-           and tmp.geom && ctx.boundary_geom
-           and ST_Intersects(tmp.geom, ctx.boundary_geom)',
-        ctx.tmp_import_schema
-    );
-    EXECUTE q INTO v_polygons_inside;
-
-    INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
-    VALUES
-        ('tmp_total', 'tmp_import.osm_points total', 'osm_points', v_points_total, 'PASS', NULL),
-        ('tmp_total', 'tmp_import.osm_lines total', 'osm_lines', v_lines_total, 'PASS', NULL),
-        ('tmp_total', 'tmp_import.osm_polygons total', 'osm_polygons', v_polygons_total, 'PASS', NULL),
-        ('tmp_null_geom', 'tmp points null geom', 'osm_points', v_points_null, CASE WHEN v_points_null = 0 THEN 'PASS' ELSE 'WARN' END, 'NULL geometry rows are skipped by Stage D'),
-        ('tmp_null_geom', 'tmp lines null geom', 'osm_lines', v_lines_null, CASE WHEN v_lines_null = 0 THEN 'PASS' ELSE 'WARN' END, 'NULL geometry rows are skipped by Stage D'),
-        ('tmp_null_geom', 'tmp polygons null geom', 'osm_polygons', v_polygons_null, CASE WHEN v_polygons_null = 0 THEN 'PASS' ELSE 'WARN' END, 'NULL geometry rows are skipped by Stage D'),
-        ('boundary_filtered', 'points inside boundary', 'osm_points', v_points_inside, CASE WHEN v_points_inside = 0 THEN 'WARN' ELSE 'PASS' END, NULL),
-        ('boundary_filtered', 'lines inside boundary', 'osm_lines', v_lines_inside, CASE WHEN v_lines_inside = 0 THEN 'WARN' ELSE 'PASS' END, NULL),
-        ('boundary_filtered', 'polygons inside boundary', 'osm_polygons', v_polygons_inside, CASE WHEN v_polygons_inside = 0 THEN 'WARN' ELSE 'PASS' END, NULL);
-
-    IF (v_points_inside + v_lines_inside + v_polygons_inside) = 0 THEN
-        RAISE WARNING 'Stage D: boundary-filtered counts are all zero. Check BOUNDARY_GEOJSON_PATH, boundary_id, and PBF region.';
+    IF v_inside_sum = 0 THEN
+        IF ctx.boundary_mode = 'CLIPPED' THEN
+            RAISE WARNING 'Stage D: boundary-filtered counts are all zero. Check BOUNDARY_GEOJSON_PATH, boundary_id, and PBF region.';
+        ELSE
+            RAISE WARNING 'Stage D: whole-region copy found zero rows with geometry in tmp_import.';
+        END IF;
     END IF;
 END
 $stage04_counts_before$;
@@ -310,6 +326,11 @@ ORDER BY
 DO $stage04_insert$
 DECLARE
     ctx stage04_context%ROWTYPE;
+    v_import_mode text;
+    v_tmp_lines text;
+    v_tmp_polygons text;
+    v_src_lines text;
+    v_src_polygons text;
     q text;
     v_inserted bigint;
     v_raw_total bigint;
@@ -319,246 +340,288 @@ BEGIN
     INTO STRICT ctx
     FROM stage04_context;
 
-    -- osm_id can be bigint in osm2pgsql output; do not btrim bigint values.
-    q := format(
-        $q$
-        WITH inserted AS (
-            INSERT INTO %I.raw_osm_points (
-                source_snapshot_id,
-                osm_feature_type,
-                osm_id,
-                geom,
-                tags,
-                raw_payload
-            )
-            SELECT
-                ctx.source_snapshot_id,
-                tmp.osm_feature_type::text,
-                tmp.osm_id::text,
-                tmp.geom,
-                coalesce(tmp.tags, '{}'::jsonb),
-                jsonb_build_object(
-                    'source_table', 'tmp_import.osm_points',
-                    'osm_id', tmp.osm_id,
-                    'osm_feature_type', tmp.osm_feature_type,
-                    'tags', coalesce(tmp.tags, '{}'::jsonb),
-                    'snapshot_version', ctx.snapshot_version,
-                    'source_snapshot_id', ctx.source_snapshot_id,
-                    'region_code', ctx.region_code,
-                    'boundary_id', ctx.boundary_id
+    SELECT mode.import_mode
+    INTO v_import_mode
+    FROM _pipeline_tmp_import_mode AS mode;
+
+    v_tmp_lines := CASE v_import_mode
+        WHEN 'roads_only' THEN 'osm_road_lines'
+        ELSE 'osm_lines'
+    END;
+    v_tmp_polygons := CASE v_import_mode
+        WHEN 'admin_areas_only' THEN 'osm_admin_polygons'
+        ELSE 'osm_polygons'
+    END;
+    v_src_lines := format('tmp_import.%s', v_tmp_lines);
+    v_src_polygons := format('tmp_import.%s', v_tmp_polygons);
+
+    IF v_import_mode = 'full' THEN
+        q := format(
+            $q$
+            WITH inserted AS (
+                INSERT INTO %I.raw_osm_points (
+                    source_snapshot_id,
+                    osm_feature_type,
+                    osm_id,
+                    geom,
+                    tags,
+                    raw_payload
                 )
-            FROM %I.osm_points AS tmp
-            JOIN stage04_context AS ctx ON true
-            WHERE tmp.geom IS NOT NULL
-              AND tmp.osm_id IS NOT NULL
-              AND CASE
-                    WHEN pg_typeof(tmp.osm_id)::text IN ('text', 'character varying', 'character', 'citext')
-                        THEN btrim(tmp.osm_id::text) <> ''
-                    ELSE true
-                  END
-              AND tmp.osm_feature_type IS NOT NULL
-              AND CASE
-                    WHEN pg_typeof(tmp.osm_feature_type)::text IN ('text', 'character varying', 'character', 'citext')
-                        THEN btrim(tmp.osm_feature_type::text) <> ''
-                    ELSE true
-                  END
-              AND tmp.geom && ctx.boundary_geom
-              AND ST_Intersects(tmp.geom, ctx.boundary_geom)
-            ON CONFLICT ON CONSTRAINT raw_osm_points_source_snapshot_id_osm_feature_type_osm_id_key
-            DO NOTHING
-            RETURNING 1
-        )
-        SELECT count(*)::bigint FROM inserted
-        $q$,
-        ctx.raw_schema,
-        ctx.tmp_import_schema
-    );
-    EXECUTE q INTO v_inserted;
-
-    INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
-    VALUES ('inserted', 'inserted rows', 'raw_osm_points', v_inserted, 'PASS', NULL);
-
-    q := format(
-        $q$
-        WITH inserted AS (
-            INSERT INTO %I.raw_osm_lines (
-                source_snapshot_id,
-                osm_feature_type,
-                osm_id,
-                geom,
-                tags,
-                raw_payload
+                SELECT
+                    ctx.source_snapshot_id,
+                    tmp.osm_feature_type::text,
+                    tmp.osm_id::text,
+                    tmp.geom,
+                    coalesce(tmp.tags, '{}'::jsonb),
+                    jsonb_build_object(
+                        'source_table', 'tmp_import.osm_points',
+                        'osm_id', tmp.osm_id,
+                        'osm_feature_type', tmp.osm_feature_type,
+                        'tags', coalesce(tmp.tags, '{}'::jsonb),
+                        'snapshot_version', ctx.snapshot_version,
+                        'source_snapshot_id', ctx.source_snapshot_id,
+                        'region_code', ctx.region_code,
+                        'boundary_id', ctx.boundary_id
+                    )
+                FROM %I.osm_points AS tmp
+                JOIN stage04_context AS ctx ON true
+                WHERE tmp.geom IS NOT NULL
+                  AND tmp.osm_id IS NOT NULL
+                  AND CASE
+                        WHEN pg_typeof(tmp.osm_id)::text IN ('text', 'character varying', 'character', 'citext')
+                            THEN btrim(tmp.osm_id::text) <> ''
+                        ELSE true
+                      END
+                  AND tmp.osm_feature_type IS NOT NULL
+                  AND CASE
+                        WHEN pg_typeof(tmp.osm_feature_type)::text IN ('text', 'character varying', 'character', 'citext')
+                            THEN btrim(tmp.osm_feature_type::text) <> ''
+                        ELSE true
+                      END
+                  AND (
+                      ctx.boundary_geom IS NULL
+                      OR (tmp.geom && ctx.boundary_geom AND ST_Intersects(tmp.geom, ctx.boundary_geom))
+                  )
+                ON CONFLICT ON CONSTRAINT raw_osm_points_source_snapshot_id_osm_feature_type_osm_id_key
+                DO NOTHING
+                RETURNING 1
             )
-            SELECT
-                ctx.source_snapshot_id,
-                tmp.osm_feature_type::text,
-                tmp.osm_id::text,
-                tmp.geom,
-                coalesce(tmp.tags, '{}'::jsonb),
-                jsonb_build_object(
-                    'source_table', 'tmp_import.osm_lines',
-                    'osm_id', tmp.osm_id,
-                    'osm_feature_type', tmp.osm_feature_type,
-                    'tags', coalesce(tmp.tags, '{}'::jsonb),
-                    'snapshot_version', ctx.snapshot_version,
-                    'source_snapshot_id', ctx.source_snapshot_id,
-                    'region_code', ctx.region_code,
-                    'boundary_id', ctx.boundary_id
-                )
-            FROM %I.osm_lines AS tmp
-            JOIN stage04_context AS ctx ON true
-            WHERE tmp.geom IS NOT NULL
-              AND tmp.osm_id IS NOT NULL
-              AND CASE
-                    WHEN pg_typeof(tmp.osm_id)::text IN ('text', 'character varying', 'character', 'citext')
-                        THEN btrim(tmp.osm_id::text) <> ''
-                    ELSE true
-                  END
-              AND tmp.osm_feature_type IS NOT NULL
-              AND CASE
-                    WHEN pg_typeof(tmp.osm_feature_type)::text IN ('text', 'character varying', 'character', 'citext')
-                        THEN btrim(tmp.osm_feature_type::text) <> ''
-                    ELSE true
-                  END
-              AND tmp.geom && ctx.boundary_geom
-              AND ST_Intersects(tmp.geom, ctx.boundary_geom)
-            ON CONFLICT ON CONSTRAINT raw_osm_lines_source_snapshot_id_osm_feature_type_osm_id_key
-            DO NOTHING
-            RETURNING 1
-        )
-        SELECT count(*)::bigint FROM inserted
-        $q$,
-        ctx.raw_schema,
-        ctx.tmp_import_schema
-    );
-    EXECUTE q INTO v_inserted;
+            SELECT count(*)::bigint FROM inserted
+            $q$,
+            ctx.raw_schema,
+            ctx.tmp_import_schema
+        );
+        EXECUTE q INTO v_inserted;
+    ELSE
+        v_inserted := 0;
+    END IF;
 
     INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
-    VALUES ('inserted', 'inserted rows', 'raw_osm_lines', v_inserted, 'PASS', NULL);
+    VALUES ('inserted', 'inserted rows', 'raw_osm_points', coalesce(v_inserted, 0), 'PASS', NULL);
 
-    q := format(
-        $q$
-        WITH inserted AS (
-            INSERT INTO %I.raw_osm_polygons (
-                source_snapshot_id,
-                osm_feature_type,
-                osm_id,
-                geom,
-                tags,
-                raw_payload
+    IF v_import_mode IN ('full', 'roads_only') THEN
+        q := format(
+            $q$
+            WITH inserted AS (
+                INSERT INTO %I.raw_osm_lines (
+                    source_snapshot_id,
+                    osm_feature_type,
+                    osm_id,
+                    geom,
+                    tags,
+                    raw_payload
+                )
+                SELECT
+                    ctx.source_snapshot_id,
+                    tmp.osm_feature_type::text,
+                    tmp.osm_id::text,
+                    tmp.geom,
+                    coalesce(tmp.tags, '{}'::jsonb),
+                    jsonb_build_object(
+                        'source_table', %L,
+                        'osm_id', tmp.osm_id,
+                        'osm_feature_type', tmp.osm_feature_type,
+                        'tags', coalesce(tmp.tags, '{}'::jsonb),
+                        'snapshot_version', ctx.snapshot_version,
+                        'source_snapshot_id', ctx.source_snapshot_id,
+                        'region_code', ctx.region_code,
+                        'boundary_id', ctx.boundary_id
+                    )
+                FROM %I.%I AS tmp
+                JOIN stage04_context AS ctx ON true
+                WHERE tmp.geom IS NOT NULL
+                  AND tmp.osm_id IS NOT NULL
+                  AND CASE
+                        WHEN pg_typeof(tmp.osm_id)::text IN ('text', 'character varying', 'character', 'citext')
+                            THEN btrim(tmp.osm_id::text) <> ''
+                        ELSE true
+                      END
+                  AND tmp.osm_feature_type IS NOT NULL
+                  AND CASE
+                        WHEN pg_typeof(tmp.osm_feature_type)::text IN ('text', 'character varying', 'character', 'citext')
+                            THEN btrim(tmp.osm_feature_type::text) <> ''
+                        ELSE true
+                      END
+                  AND (
+                      ctx.boundary_geom IS NULL
+                      OR (tmp.geom && ctx.boundary_geom AND ST_Intersects(tmp.geom, ctx.boundary_geom))
+                  )
+                ON CONFLICT ON CONSTRAINT raw_osm_lines_source_snapshot_id_osm_feature_type_osm_id_key
+                DO NOTHING
+                RETURNING 1
             )
-            SELECT
-                ctx.source_snapshot_id,
-                tmp.osm_feature_type::text,
-                tmp.osm_id::text,
-                tmp.geom,
-                coalesce(tmp.tags, '{}'::jsonb),
-                jsonb_build_object(
-                    'source_table', 'tmp_import.osm_polygons',
-                    'osm_id', tmp.osm_id,
-                    'osm_feature_type', tmp.osm_feature_type,
-                    'tags', coalesce(tmp.tags, '{}'::jsonb),
-                    'snapshot_version', ctx.snapshot_version,
-                    'source_snapshot_id', ctx.source_snapshot_id,
-                    'region_code', ctx.region_code,
-                    'boundary_id', ctx.boundary_id
+            SELECT count(*)::bigint FROM inserted
+            $q$,
+            ctx.raw_schema,
+            v_src_lines,
+            ctx.tmp_import_schema,
+            v_tmp_lines
+        );
+        EXECUTE q INTO v_inserted;
+    ELSE
+        v_inserted := 0;
+    END IF;
+
+    INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
+    VALUES ('inserted', 'inserted rows', 'raw_osm_lines', coalesce(v_inserted, 0), 'PASS', NULL);
+
+    IF v_import_mode IN ('full', 'admin_areas_only') THEN
+        q := format(
+            $q$
+            WITH inserted AS (
+                INSERT INTO %I.raw_osm_polygons (
+                    source_snapshot_id,
+                    osm_feature_type,
+                    osm_id,
+                    geom,
+                    tags,
+                    raw_payload
                 )
-            FROM %I.osm_polygons AS tmp
-            JOIN stage04_context AS ctx ON true
-            WHERE tmp.geom IS NOT NULL
-              AND tmp.osm_id IS NOT NULL
-              AND CASE
-                    WHEN pg_typeof(tmp.osm_id)::text IN ('text', 'character varying', 'character', 'citext')
-                        THEN btrim(tmp.osm_id::text) <> ''
-                    ELSE true
-                  END
-              AND tmp.osm_feature_type IS NOT NULL
-              AND CASE
-                    WHEN pg_typeof(tmp.osm_feature_type)::text IN ('text', 'character varying', 'character', 'citext')
-                        THEN btrim(tmp.osm_feature_type::text) <> ''
-                    ELSE true
-                  END
-              AND tmp.geom && ctx.boundary_geom
-              AND ST_Intersects(tmp.geom, ctx.boundary_geom)
-            ON CONFLICT ON CONSTRAINT raw_osm_polygons_source_snapshot_id_osm_feature_type_osm_id_key
-            DO NOTHING
-            RETURNING 1
-        )
-        SELECT count(*)::bigint FROM inserted
-        $q$,
-        ctx.raw_schema,
-        ctx.tmp_import_schema
-    );
-    EXECUTE q INTO v_inserted;
+                SELECT
+                    ctx.source_snapshot_id,
+                    tmp.osm_feature_type::text,
+                    tmp.osm_id::text,
+                    tmp.geom,
+                    coalesce(tmp.tags, '{}'::jsonb),
+                    jsonb_build_object(
+                        'source_table', %L,
+                        'osm_id', tmp.osm_id,
+                        'osm_feature_type', tmp.osm_feature_type,
+                        'tags', coalesce(tmp.tags, '{}'::jsonb),
+                        'snapshot_version', ctx.snapshot_version,
+                        'source_snapshot_id', ctx.source_snapshot_id,
+                        'region_code', ctx.region_code,
+                        'boundary_id', ctx.boundary_id
+                    )
+                FROM %I.%I AS tmp
+                JOIN stage04_context AS ctx ON true
+                WHERE tmp.geom IS NOT NULL
+                  AND tmp.osm_id IS NOT NULL
+                  AND CASE
+                        WHEN pg_typeof(tmp.osm_id)::text IN ('text', 'character varying', 'character', 'citext')
+                            THEN btrim(tmp.osm_id::text) <> ''
+                        ELSE true
+                      END
+                  AND tmp.osm_feature_type IS NOT NULL
+                  AND CASE
+                        WHEN pg_typeof(tmp.osm_feature_type)::text IN ('text', 'character varying', 'character', 'citext')
+                            THEN btrim(tmp.osm_feature_type::text) <> ''
+                        ELSE true
+                      END
+                  AND (
+                      ctx.boundary_geom IS NULL
+                      OR (tmp.geom && ctx.boundary_geom AND ST_Intersects(tmp.geom, ctx.boundary_geom))
+                  )
+                ON CONFLICT ON CONSTRAINT raw_osm_polygons_source_snapshot_id_osm_feature_type_osm_id_key
+                DO NOTHING
+                RETURNING 1
+            )
+            SELECT count(*)::bigint FROM inserted
+            $q$,
+            ctx.raw_schema,
+            v_src_polygons,
+            ctx.tmp_import_schema,
+            v_tmp_polygons
+        );
+        EXECUTE q INTO v_inserted;
+    ELSE
+        v_inserted := 0;
+    END IF;
 
     INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
-    VALUES ('inserted', 'inserted rows', 'raw_osm_polygons', v_inserted, 'PASS', NULL);
+    VALUES ('inserted', 'inserted rows', 'raw_osm_polygons', coalesce(v_inserted, 0), 'PASS', NULL);
 
-    q := format(
-        'select count(*)::bigint from %I.raw_osm_points where source_snapshot_id = $1',
-        ctx.raw_schema
-    );
-    EXECUTE q INTO v_raw_total USING ctx.source_snapshot_id;
+    IF v_import_mode = 'full' THEN
+        q := format(
+            'select count(*)::bigint from %I.raw_osm_points where source_snapshot_id = $1',
+            ctx.raw_schema
+        );
+        EXECUTE q INTO v_raw_total USING ctx.source_snapshot_id;
 
-    SELECT value_n
-    INTO v_filtered
-    FROM stage04_counts
-    WHERE section = 'boundary_filtered'
-      AND table_name = 'osm_points';
+        SELECT value_n
+        INTO v_filtered
+        FROM stage04_counts
+        WHERE section = 'boundary_filtered'
+          AND table_name = 'osm_points';
 
-    INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
-    VALUES (
-        'raw_total_after',
-        'raw rows for current snapshot after insert',
-        'raw_osm_points',
-        v_raw_total,
-        CASE WHEN v_raw_total > v_filtered THEN 'WARN' ELSE 'PASS' END,
-        CASE WHEN v_raw_total > v_filtered THEN format('raw_total (%s) exceeds boundary_filtered (%s)', v_raw_total, v_filtered) ELSE NULL END
-    );
+        INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
+        VALUES (
+            'raw_total_after',
+            'raw rows for current snapshot after insert',
+            'raw_osm_points',
+            v_raw_total,
+            CASE WHEN v_raw_total > v_filtered THEN 'WARN' ELSE 'PASS' END,
+            CASE WHEN v_raw_total > v_filtered THEN format('raw_total (%s) exceeds boundary_filtered (%s)', v_raw_total, v_filtered) ELSE NULL END
+        );
+    END IF;
 
-    q := format(
-        'select count(*)::bigint from %I.raw_osm_lines where source_snapshot_id = $1',
-        ctx.raw_schema
-    );
-    EXECUTE q INTO v_raw_total USING ctx.source_snapshot_id;
+    IF v_import_mode IN ('full', 'roads_only') THEN
+        q := format(
+            'select count(*)::bigint from %I.raw_osm_lines where source_snapshot_id = $1',
+            ctx.raw_schema
+        );
+        EXECUTE q INTO v_raw_total USING ctx.source_snapshot_id;
 
-    SELECT value_n
-    INTO v_filtered
-    FROM stage04_counts
-    WHERE section = 'boundary_filtered'
-      AND table_name = 'osm_lines';
+        SELECT value_n
+        INTO v_filtered
+        FROM stage04_counts
+        WHERE section = 'boundary_filtered'
+          AND table_name = v_tmp_lines;
 
-    INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
-    VALUES (
-        'raw_total_after',
-        'raw rows for current snapshot after insert',
-        'raw_osm_lines',
-        v_raw_total,
-        CASE WHEN v_raw_total > v_filtered THEN 'WARN' ELSE 'PASS' END,
-        CASE WHEN v_raw_total > v_filtered THEN format('raw_total (%s) exceeds boundary_filtered (%s)', v_raw_total, v_filtered) ELSE NULL END
-    );
+        INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
+        VALUES (
+            'raw_total_after',
+            'raw rows for current snapshot after insert',
+            'raw_osm_lines',
+            v_raw_total,
+            CASE WHEN v_raw_total > coalesce(v_filtered, 0) THEN 'WARN' ELSE 'PASS' END,
+            CASE WHEN v_raw_total > coalesce(v_filtered, 0) THEN format('raw_total (%s) exceeds boundary_filtered (%s)', v_raw_total, v_filtered) ELSE NULL END
+        );
+    END IF;
 
-    q := format(
-        'select count(*)::bigint from %I.raw_osm_polygons where source_snapshot_id = $1',
-        ctx.raw_schema
-    );
-    EXECUTE q INTO v_raw_total USING ctx.source_snapshot_id;
+    IF v_import_mode IN ('full', 'admin_areas_only') THEN
+        q := format(
+            'select count(*)::bigint from %I.raw_osm_polygons where source_snapshot_id = $1',
+            ctx.raw_schema
+        );
+        EXECUTE q INTO v_raw_total USING ctx.source_snapshot_id;
 
-    SELECT value_n
-    INTO v_filtered
-    FROM stage04_counts
-    WHERE section = 'boundary_filtered'
-      AND table_name = 'osm_polygons';
+        SELECT value_n
+        INTO v_filtered
+        FROM stage04_counts
+        WHERE section = 'boundary_filtered'
+          AND table_name = v_tmp_polygons;
 
-    INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
-    VALUES (
-        'raw_total_after',
-        'raw rows for current snapshot after insert',
-        'raw_osm_polygons',
-        v_raw_total,
-        CASE WHEN v_raw_total > v_filtered THEN 'WARN' ELSE 'PASS' END,
-        CASE WHEN v_raw_total > v_filtered THEN format('raw_total (%s) exceeds boundary_filtered (%s)', v_raw_total, v_filtered) ELSE NULL END
-    );
+        INSERT INTO stage04_counts (section, metric, table_name, value_n, status, note)
+        VALUES (
+            'raw_total_after',
+            'raw rows for current snapshot after insert',
+            'raw_osm_polygons',
+            v_raw_total,
+            CASE WHEN v_raw_total > coalesce(v_filtered, 0) THEN 'WARN' ELSE 'PASS' END,
+            CASE WHEN v_raw_total > coalesce(v_filtered, 0) THEN format('raw_total (%s) exceeds boundary_filtered (%s)', v_raw_total, v_filtered) ELSE NULL END
+        );
+    END IF;
 END
 $stage04_insert$;
 

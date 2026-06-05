@@ -21,7 +21,7 @@ const repoRoot = resolve(apiRoot, "../..");
 config({ path: resolve(repoRoot, ".env") });
 config({ path: resolve(apiRoot, ".env"), override: true });
 
-import { prisma } from "../lib/prisma.js";
+import { prisma } from "../db/prisma.js";
 import {
     isRoutingGraphProfileCode,
     ROUTING_GRAPH_BUILD_DEFAULT_MAX_ROADS,

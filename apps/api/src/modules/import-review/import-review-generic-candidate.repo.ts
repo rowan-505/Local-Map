@@ -46,7 +46,10 @@ import {
     stringifyColumnAuditSnapshot,
     type CandidateColumnPatch,
 } from "./import-review-candidate-column-patch.js";
-import { ImportReviewDecisionRuleError } from "./import-review-errors.js";
+import {
+    ImportReviewBulkDuplicateApprovalError,
+    ImportReviewDecisionRuleError,
+} from "./import-review-errors.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -143,7 +146,7 @@ export class GenericImportReviewCandidateRepository {
 
         const where = buildCandidateScopeWhere(config, reviewBatchId, id);
         const detailFrom = buildCandidateDetailFromClause(config);
-        const detailSelect = buildCandidateDetailSelect(config);
+        const detailSelect = buildCandidateDetailSelect(config, reviewBatchId);
 
         const detailRows = await timeImportReviewListStep("detail_select", timing, () =>
             this.prisma.$queryRaw<BuildingListRowDb[]>`
@@ -494,6 +497,25 @@ export class GenericImportReviewCandidateRepository {
         const config = getImportReviewEntityConfig(args.family);
 
         return this.prisma.$transaction(async (tx) => {
+            if (
+                args.reviewDecision === "approved" &&
+                !args.force &&
+                !args.dryRun &&
+                args.mode === "ids" &&
+                args.ids !== undefined &&
+                args.ids.length > 0
+            ) {
+                const duplicateIds = await this.findBulkDuplicateCandidateIds(
+                    tx,
+                    config,
+                    args.reviewBatchId,
+                    args.ids
+                );
+                if (duplicateIds.length > 0) {
+                    throw new ImportReviewBulkDuplicateApprovalError(duplicateIds);
+                }
+            }
+
             const buckets =
                 args.mode === "ids"
                     ? await this.bulkClassifyByIds(
@@ -516,17 +538,19 @@ export class GenericImportReviewCandidateRepository {
             const eligible = buckets.get("eligible") ?? 0n;
             const skippedReasons = bucketsToSkippedReasons(buckets);
             const skippedCount = skippedReasons.reduce((sum, r) => sum + r.count, 0);
+            const eligibleCount = Number(eligible);
 
             if (args.dryRun) {
                 return {
-                    updated_count: Number(eligible),
+                    success: eligibleCount > 0,
+                    updated_count: eligibleCount,
                     skipped_count: skippedCount,
                     skipped_reasons: skippedReasons,
                     dry_run: true,
                 };
             }
 
-            const updated =
+            const applyResult =
                 args.mode === "ids"
                     ? await this.bulkApplyByIds(
                           tx,
@@ -552,12 +576,41 @@ export class GenericImportReviewCandidateRepository {
                       );
 
             return {
-                updated_count: updated,
+                success: applyResult.updatedCount > 0,
+                updated_count: applyResult.updatedCount,
                 skipped_count: skippedCount,
                 skipped_reasons: skippedReasons,
+                updated_ids: applyResult.updatedIds,
                 dry_run: false,
             };
         });
+    }
+
+    private async findBulkDuplicateCandidateIds(
+        tx: DbClient,
+        config: ReturnType<typeof getImportReviewEntityConfig>,
+        reviewBatchId: bigint,
+        ids: bigint[]
+    ): Promise<number[]> {
+        const idArray = sqlBigintArray(ids);
+        const alias = config.tableAlias;
+
+        const rows = await tx.$queryRaw<{ id: bigint }[]>`
+            WITH requested AS (
+                SELECT DISTINCT x.id
+                FROM unnest(${idArray}) AS x(id)
+            )
+            SELECT ${Prisma.raw(`${alias}.id`)} AS id
+            FROM requested AS req
+            INNER JOIN ${Prisma.raw(`import_review.${config.importReviewTable}`)} AS ${Prisma.raw(alias)}
+                ON ${Prisma.raw(alias)}.id = req.id
+                AND (${Prisma.raw(`${alias}.review_batch_id`)} = ${reviewBatchId}
+                     AND ${Prisma.raw(`${alias}.entity_family`)} = ${config.entityFamily})
+            WHERE ${Prisma.raw(`${alias}.match_status`)} = 'duplicate_candidate'
+            ORDER BY ${Prisma.raw(`${alias}.id`)}
+        `;
+
+        return rows.map((row) => Number(row.id));
     }
 
     private async bulkClassifyByIds(
@@ -640,7 +693,7 @@ export class GenericImportReviewCandidateRepository {
         reviewedByUserId: bigint | null,
         reviewNote: string | null | undefined,
         force: boolean
-    ): Promise<number> {
+    ): Promise<{ updatedCount: number; updatedIds: number[] }> {
         const setClause = buildBulkUpdateSetClause({
             reviewDecision,
             reviewStatus,
@@ -676,7 +729,8 @@ export class GenericImportReviewCandidateRepository {
             RETURNING ${Prisma.raw(`${alias}.id`)}
         `;
 
-        return rows.length;
+        const updatedIds = rows.map((row) => Number(row.id));
+        return { updatedCount: updatedIds.length, updatedIds };
     }
 
     private async bulkApplyByFilters(
@@ -689,7 +743,7 @@ export class GenericImportReviewCandidateRepository {
         reviewedByUserId: bigint | null,
         reviewNote: string | null | undefined,
         force: boolean
-    ): Promise<number> {
+    ): Promise<{ updatedCount: number; updatedIds: number[] }> {
         const setClause = buildBulkUpdateSetClause({
             reviewDecision,
             reviewStatus,
@@ -725,7 +779,8 @@ export class GenericImportReviewCandidateRepository {
             RETURNING ${Prisma.raw(`${alias}.id`)}
         `;
 
-        return rows.length;
+        const updatedIds = rows.map((row) => Number(row.id));
+        return { updatedCount: updatedIds.length, updatedIds };
     }
 }
 

@@ -19,6 +19,15 @@ import {
     shouldUseLightweightListQuery,
 } from "./import-review-list-query.js";
 import { effectiveRoadLengthMExpr } from "./import-review-promotion-promote-sql.js";
+import {
+    buildDefaultActivePromotionWhereClause,
+    buildPromotionStateWhereClause,
+    buildRetryNeededWhereClause,
+    promotionListExtrasSelect,
+    type ImportReviewPromotionStateFilter,
+} from "./import-review-promotion-candidate-list-sql.js";
+
+export type { ImportReviewPromotionStateFilter };
 import type { ImportReviewBuildingSort, ImportReviewBulkFilters } from "./import-review.schema.js";
 
 const UNREVIEWED = "__unreviewed__";
@@ -31,6 +40,8 @@ export type CandidateListFilters = {
     class_code?: string | undefined;
     promotion_status?: string | undefined;
     include_promoted?: boolean | undefined;
+    retry_needed?: boolean | undefined;
+    promotion_state?: ImportReviewPromotionStateFilter | undefined;
     q?: string | undefined;
     limit?: number | undefined;
     offset?: number | undefined;
@@ -298,15 +309,16 @@ export function buildCandidateWhereClause(
     const supportsPromotionFilter = config.filterFields.includes("promotion_status");
     const supportsClassCode = config.filterFields.includes("class_code");
 
-    if (
-        supportsPromotionFilter &&
-        !filters.include_promoted &&
-        filters.promotion_status === undefined
-    ) {
-        parts.push(
-            Prisma.sql`${colRef(config, "promotion_status")} IS DISTINCT FROM 'promoted'`,
-            Prisma.sql`${colRef(config, "review_status")} IS DISTINCT FROM 'promoted'`
-        );
+    if (supportsPromotionFilter && filters.promotion_status === undefined) {
+        if (filters.promotion_state !== undefined) {
+            parts.push(buildPromotionStateWhereClause(config, reviewBatchId, filters.promotion_state));
+        } else if (filters.retry_needed === true) {
+            parts.push(buildRetryNeededWhereClause(config, reviewBatchId));
+        } else if (filters.include_promoted === true) {
+            // Legacy: show all statuses (no default active/promoted exclusion).
+        } else {
+            parts.push(buildDefaultActivePromotionWhereClause(config, reviewBatchId));
+        }
     }
 
     if (filters.match_status !== undefined) {
@@ -418,7 +430,8 @@ export function buildGeometrySelect(
 
 export function buildCandidateCommonSelect(
     config: ImportReviewEntityFamilyConfig,
-    includeGeometry: boolean
+    includeGeometry: boolean,
+    reviewBatchId?: bigint
 ): Prisma.Sql {
     const selectParts: Prisma.Sql[] = [
         Prisma.sql`${qual(config, "id")},`,
@@ -495,6 +508,9 @@ export function buildCandidateCommonSelect(
         selectParts.push(
             Prisma.sql`,`,
             Prisma.sql`${colRef(config, "road_class_id")} AS road_candidate_road_class_id,`,
+            Prisma.sql`${colRef(config, "road_class")} AS road_class,`,
+            Prisma.sql`rc.name AS road_class_name,`,
+            Prisma.sql`COALESCE(rc.name, rc.code, ${colRef(config, "road_class")}) AS road_class_label,`,
             Prisma.sql`${colRef(config, "surface")} AS road_candidate_surface,`,
             Prisma.sql`${colRef(config, "is_oneway")} AS road_candidate_is_oneway,`,
             Prisma.sql`COALESCE(rc.code, ${colRef(config, "road_class")}) AS road_candidate_class_label,`,
@@ -534,6 +550,10 @@ export function buildCandidateCommonSelect(
             Prisma.sql`${busStopNameEnExpr(config.tableAlias)} AS name_en,`,
             Prisma.sql`${colRef(config, "stop_code")} AS stop_code`
         );
+    }
+
+    if (reviewBatchId != null) {
+        selectParts.push(promotionListExtrasSelect(config, reviewBatchId));
     }
 
     if (config.routeFamily === "addresses") {
@@ -650,8 +670,8 @@ export function buildCandidateListQueryParts(
 
     return {
         select: lightweightList
-            ? buildLightweightListSelect(config)
-            : buildCandidateCommonSelect(config, includeGeometry),
+            ? buildLightweightListSelect(config, reviewBatchId)
+            : buildCandidateCommonSelect(config, includeGeometry, reviewBatchId),
         from: lightweightList ? buildLightweightListFromClause(config) : buildCandidateFromClause(config),
         where: buildCandidateWhereClause(config, reviewBatchId, filters),
         orderBy: buildCandidateOrderBy(config, filters.sort ?? config.defaultSort),

@@ -1,7 +1,14 @@
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
-import type { RoadClassOption } from "@/src/lib/api";
 
-export type ImportReviewRoadClassOptionInput = Pick<RoadClassOption, "id" | "code">;
+import {
+    buildImportReviewRoadClassLookup,
+    normalizeRoadClassCodeToken,
+    type ImportReviewRoadClassLookup,
+    type ImportReviewRoadClassOptionInput,
+} from "./importReviewRoadClassDisplay";
+
+export type { ImportReviewRoadClassLookup, ImportReviewRoadClassOptionInput };
+export { buildImportReviewRoadClassLookup, normalizeRoadClassCodeToken };
 
 export type ResolvedImportReviewRoadClass = {
     /** Dropdown value (ref.ref_road_classes id string) when mappable. */
@@ -12,12 +19,6 @@ export type ResolvedImportReviewRoadClass = {
     displayLabel: string | null;
     /** Which priority step produced the resolution (tests / debug). */
     resolutionSource: string | null;
-};
-
-export type ImportReviewRoadClassLookup = {
-    idByCode: Map<string, string>;
-    codeById: Map<string, string>;
-    labelById: Map<string, string>;
 };
 
 function typedColumnFields(fields: unknown): Record<string, unknown> {
@@ -88,41 +89,6 @@ function highwayFromSourceRefs(source_refs: unknown): string | null {
     return null;
 }
 
-/** Normalize list labels like `secondary — Secondary` to bare code when needed. */
-export function normalizeRoadClassCodeToken(raw: string | null | undefined): string | null {
-    const trimmed = trimString(raw);
-    if (!trimmed) {
-        return null;
-    }
-    const beforeDash = trimmed.split("—")[0]?.split(" - ")[0]?.trim();
-    return beforeDash && beforeDash.length > 0 ? beforeDash : trimmed;
-}
-
-export function buildImportReviewRoadClassLookup(
-    options: readonly ImportReviewRoadClassOptionInput[]
-): ImportReviewRoadClassLookup {
-    const idByCode = new Map<string, string>();
-    const codeById = new Map<string, string>();
-    const labelById = new Map<string, string>();
-
-    for (const option of options) {
-        const id = trimString(option.id);
-        const code = normalizeRoadClassCodeToken(option.code);
-        if (!id) {
-            continue;
-        }
-        if (code) {
-            idByCode.set(code.toLowerCase(), id);
-            codeById.set(id, code);
-            labelById.set(id, code);
-        } else {
-            labelById.set(id, id);
-        }
-    }
-
-    return { idByCode, codeById, labelById };
-}
-
 function resolveFromId(
     id: string,
     lookup: ImportReviewRoadClassLookup,
@@ -174,7 +140,7 @@ export function resolveImportReviewRoadClassValue(
     roadClassOptions: readonly ImportReviewRoadClassOptionInput[]
 ): ResolvedImportReviewRoadClass {
     const lookup = buildImportReviewRoadClassLookup(roadClassOptions);
-    const ov = typedColumnFields(row);
+    const ov = typedColumnFields(row.fields);
     const empty: ResolvedImportReviewRoadClass = {
         roadClassId: null,
         roadClassCode: null,
@@ -230,13 +196,4 @@ export function resolveImportReviewRoadClassValue(
     }
 
     return empty;
-}
-
-/** List column display — uses the same resolver as the edit drawer. */
-export function deriveRoadListRoadClassLabel(
-    row: ImportReviewBuildingListItem,
-    roadClassOptions: readonly ImportReviewRoadClassOptionInput[]
-): string | null {
-    const resolved = resolveImportReviewRoadClassValue(row, roadClassOptions);
-    return resolved.displayLabel;
 }

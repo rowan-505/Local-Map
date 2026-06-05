@@ -10,7 +10,8 @@
 --   fail_on_coverage_gap   optional default true — RAISE on FAIL rows in coverage report
 --   staging_schema         optional default staging
 --   import_review_schema   optional default import_review
---   entity_family          optional all|family[,family...] filter matching Stage J/K
+--   entity_families        optional; default all (see pipeline_entity_families.sql)
+--   entity_family          optional legacy comma filter / REMOTE_REVIEW_ENTITY_FAMILY
 --
 \if :{?fail_on_coverage_gap}
 \else
@@ -25,10 +26,24 @@
 \else
 \set entity_family ''
 \endif
+\if :{?entity_families}
+\else
+\set entity_families 'all'
+\endif
+
+SELECT CASE
+    WHEN lower(btrim(coalesce(:'entity_families', 'all'))) IN ('', 'all', '*')
+         AND nullif(btrim(coalesce(:'entity_family', '')), '') IS NOT NULL
+        THEN lower(btrim(:'entity_family'))
+    ELSE lower(btrim(coalesce(nullif(btrim(:'entity_families'), ''), 'all')))
+END AS effective_entity_families \gset stage13_ef_
+
+\set entity_families :stage13_ef_effective_entity_families
 
 -- Local example:
 --   PAGER=cat psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
 --        -v package_name="$REMOTE_REVIEW_PACKAGE_NAME" \
+--        -v entity_families='admin_areas' \
 --        -f ./13_verify_remote_review_upload.sql
 --
 -- Supabase example (Part B only; Part A warns if package table missing):
@@ -51,6 +66,10 @@ SELECT CAST(
         ELSE '0' END AS integer)
     AS _package_name_guard;
 
+BEGIN;
+
+\ir pipeline_entity_families.sql
+
 DROP TABLE IF EXISTS stage13_ctx;
 CREATE TEMP TABLE stage13_ctx (
     package_name text NOT NULL,
@@ -59,7 +78,6 @@ CREATE TEMP TABLE stage13_ctx (
     has_import_review boolean NOT NULL DEFAULT false,
     remote_batch_id bigint,
     staging_schema text NOT NULL DEFAULT 'staging',
-    entity_family_filter text NOT NULL DEFAULT '',
     fail_on_coverage_gap boolean NOT NULL DEFAULT true
 );
 
@@ -69,7 +87,6 @@ INSERT INTO stage13_ctx (
     has_local_package,
     has_import_review,
     staging_schema,
-    entity_family_filter,
     fail_on_coverage_gap
 )
 SELECT
@@ -81,7 +98,6 @@ SELECT
         WHERE schema_name = coalesce(NULLIF(trim(:'import_review_schema'), ''), 'import_review')
     ),
     lower(trim(coalesce(NULLIF(trim(:'staging_schema'), ''), 'staging'))),
-    lower(trim(coalesce(NULLIF(trim(:'entity_family'), ''), ''))),
     coalesce(NULLIF(trim(:'fail_on_coverage_gap'), ''), 'true')::boolean;
 
 -- remote_batch_id populated in Part B when import_review exists
@@ -171,6 +187,7 @@ BEGIN
         FROM system.system_remote_review_packages p
         JOIN system.system_remote_review_package_items i ON i.package_id = p.id
         WHERE p.package_name = $1
+          AND pg_temp.pipeline_entity_family_enabled(i.entity_family)
         GROUP BY i.entity_family
     $q$
     USING ctx.package_name;
@@ -190,6 +207,7 @@ BEGIN
         FROM system.system_remote_review_packages p
         JOIN system.system_remote_review_package_items i ON i.package_id = p.id
         WHERE p.package_name = $1
+          AND pg_temp.pipeline_entity_family_enabled(i.entity_family)
         GROUP BY i.entity_family
     $q$
     USING ctx.package_name;
@@ -200,6 +218,7 @@ BEGIN
         FROM system.system_remote_review_packages p
         JOIN system.system_remote_review_package_items i ON i.package_id = p.id
         WHERE p.package_name = $1
+          AND pg_temp.pipeline_entity_family_enabled(i.entity_family)
         GROUP BY i.entity_family, coalesce(i.review_status, '(null)')
     $q$
     USING ctx.package_name;
@@ -210,6 +229,7 @@ BEGIN
         FROM system.system_remote_review_packages p
         JOIN system.system_remote_review_package_items i ON i.package_id = p.id
         WHERE p.package_name = $1
+          AND pg_temp.pipeline_entity_family_enabled(i.entity_family)
         GROUP BY i.entity_family, coalesce(i.match_status, '(null)')
     $q$
     USING ctx.package_name;
@@ -220,6 +240,7 @@ BEGIN
         FROM system.system_remote_review_packages p
         JOIN system.system_remote_review_package_items i ON i.package_id = p.id
         WHERE p.package_name = $1
+          AND pg_temp.pipeline_entity_family_enabled(i.entity_family)
         GROUP BY i.entity_family, coalesce(i.auto_action, '(null)')
     $q$
     USING ctx.package_name;
@@ -283,22 +304,10 @@ SELECT entity_family, import_review_table, geom_column, geom_extra_column, missi
 FROM stage13_family_manifest;
 
 DELETE FROM stage13_family_manifest AS mf
-USING stage13_ctx AS ctx
-WHERE ctx.entity_family_filter NOT IN ('', 'all', '*')
-  AND NOT (
-      mf.entity_family = ANY (
-          string_to_array(regexp_replace(ctx.entity_family_filter, '\s+', '', 'g'), ',')
-      )
-  );
+WHERE NOT pg_temp.pipeline_entity_family_enabled(mf.entity_family);
 
 DELETE FROM stage13_ir_manifest AS mf
-USING stage13_ctx AS ctx
-WHERE ctx.entity_family_filter NOT IN ('', 'all', '*')
-  AND NOT (
-      mf.entity_family = ANY (
-          string_to_array(regexp_replace(ctx.entity_family_filter, '\s+', '', 'g'), ',')
-      )
-  );
+WHERE NOT pg_temp.pipeline_entity_family_enabled(mf.entity_family);
 
 DROP TABLE IF EXISTS stage13_ir_counts;
 CREATE TEMP TABLE stage13_ir_counts (
@@ -312,6 +321,7 @@ CREATE TEMP TABLE stage13_ir_counts (
     missing_external_id bigint,
     duplicate_local_staging_id bigint,
     invalid_promotion_status bigint,
+    invalid_confidence_score bigint,
     warning text
 );
 
@@ -421,7 +431,7 @@ BEGIN
                 entity_family, import_review_table, uploaded_count,
                 missing_source_refs, missing_normalized_data, missing_geometry,
                 missing_geometry_extra, missing_external_id, duplicate_local_staging_id,
-                invalid_promotion_status
+                invalid_promotion_status, invalid_confidence_score
             )
             SELECT
                 %L,
@@ -444,6 +454,10 @@ BEGIN
                 count(*) FILTER (
                     WHERE t.promotion_status IS NOT NULL
                       AND t.promotion_status NOT IN ('not_ready', 'ready', 'batched', 'promoting', 'promoted', 'failed', 'skipped')
+                )::bigint,
+                count(*) FILTER (
+                    WHERE t.confidence_score IS NOT NULL
+                      AND (t.confidence_score < 0 OR t.confidence_score > 100)
                 )::bigint
             FROM %I.%I AS t
             WHERE t.review_batch_id = %s
@@ -508,7 +522,8 @@ BEGIN
         RETURN;
     END IF;
 
-    IF to_regclass(format('%I.address_components', ctx.import_review_schema)) IS NOT NULL
+    IF pg_temp.pipeline_stage11_family_enabled('address_components')
+       AND to_regclass(format('%I.address_components', ctx.import_review_schema)) IS NOT NULL
        AND to_regclass(format('%I.address_candidates', ctx.import_review_schema)) IS NOT NULL THEN
         EXECUTE format(
             $q$
@@ -540,7 +555,8 @@ BEGIN
         USING v_batch_id;
     END IF;
 
-    IF to_regclass(format('%I.place_address_links', ctx.import_review_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_stage11_family_enabled('place_address_links')
+       AND to_regclass(format('%I.place_address_links', ctx.import_review_schema)) IS NOT NULL THEN
         EXECUTE format(
             $q$
             INSERT INTO stage13_ir_counts (
@@ -601,7 +617,8 @@ BEGIN
         USING v_batch_id;
     END IF;
 
-    IF to_regclass(format('%I.address_candidates', ctx.import_review_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('addresses')
+       AND to_regclass(format('%I.address_candidates', ctx.import_review_schema)) IS NOT NULL THEN
         EXECUTE format(
             $q$
             INSERT INTO stage13_ir_classification_counts (
@@ -621,7 +638,8 @@ BEGIN
         USING v_batch_id;
     END IF;
 
-    IF to_regclass(format('%I.place_candidates', ctx.import_review_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('places')
+       AND to_regclass(format('%I.place_candidates', ctx.import_review_schema)) IS NOT NULL THEN
         EXECUTE format(
             $q$
             INSERT INTO stage13_ir_classification_counts (
@@ -642,7 +660,8 @@ BEGIN
         USING v_batch_id;
     END IF;
 
-    IF to_regclass(format('%I.place_address_links', ctx.import_review_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_stage11_family_enabled('place_address_links')
+       AND to_regclass(format('%I.place_address_links', ctx.import_review_schema)) IS NOT NULL THEN
         EXECUTE format(
             $q$
             INSERT INTO stage13_ir_classification_counts (
@@ -794,12 +813,7 @@ BEGIN
     END LOOP;
 
     FOREACH v_family IN ARRAY ARRAY['address_components', 'place_address_links'] LOOP
-        IF ctx.entity_family_filter NOT IN ('', 'all', '*')
-           AND NOT (
-               v_family = ANY (
-                   string_to_array(regexp_replace(ctx.entity_family_filter, '\s+', '', 'g'), ',')
-               )
-           ) THEN
+        IF NOT pg_temp.pipeline_stage11_family_enabled(v_family) THEN
             CONTINUE;
         END IF;
 
@@ -870,6 +884,70 @@ SELECT 'coverage_report'::text AS section, *
 FROM stage13_coverage_report
 ORDER BY entity_family;
 
+DROP TABLE IF EXISTS stage13_family_upload_summary;
+CREATE TEMP TABLE stage13_family_upload_summary (
+    entity_family text PRIMARY KEY,
+    import_review_table text NOT NULL,
+    local_package_count bigint NOT NULL,
+    remote_uploaded_count bigint NOT NULL,
+    count_delta bigint NOT NULL,
+    upload_status text NOT NULL
+);
+
+INSERT INTO stage13_family_upload_summary (
+    entity_family,
+    import_review_table,
+    local_package_count,
+    remote_uploaded_count,
+    count_delta,
+    upload_status
+)
+SELECT
+    mf.entity_family,
+    mf.import_review_table,
+    coalesce(loc.rows_n, 0)::bigint AS local_package_count,
+    coalesce(rem.uploaded_count, 0)::bigint AS remote_uploaded_count,
+    coalesce(loc.rows_n, 0)::bigint - coalesce(rem.uploaded_count, 0)::bigint AS count_delta,
+    CASE
+        WHEN coalesce(loc.rows_n, 0) = 0 AND coalesce(rem.uploaded_count, 0) = 0 THEN 'SKIP'
+        WHEN NOT (SELECT has_import_review FROM stage13_ctx LIMIT 1) THEN 'LOCAL_ONLY'
+        WHEN coalesce(loc.rows_n, 0) > 0 AND coalesce(rem.uploaded_count, 0) = 0 THEN 'FAIL'
+        WHEN coalesce(rem.uploaded_count, 0) <> coalesce(loc.rows_n, 0) THEN 'WARN'
+        ELSE 'PASS'
+    END AS upload_status
+FROM stage13_family_manifest AS mf
+LEFT JOIN stage13_local_items_by_family AS loc
+    ON loc.entity_family = mf.entity_family
+LEFT JOIN stage13_ir_counts AS rem
+    ON rem.entity_family = mf.entity_family
+    AND rem.warning IS NULL
+ORDER BY mf.entity_family;
+
+SELECT 'family_upload_summary'::text AS section, *
+FROM stage13_family_upload_summary
+ORDER BY entity_family;
+
+DO $upload_fail$
+DECLARE
+    v_fail_n integer;
+    v_fail_on boolean;
+BEGIN
+    SELECT fail_on_coverage_gap INTO v_fail_on FROM stage13_ctx LIMIT 1;
+    IF NOT v_fail_on THEN
+        RETURN;
+    END IF;
+
+    SELECT count(*)::integer INTO v_fail_n
+    FROM stage13_family_upload_summary
+    WHERE upload_status = 'FAIL';
+
+    IF v_fail_n > 0 THEN
+        RAISE EXCEPTION
+            'stage13 upload FAIL: % selected families with local package rows but zero remote upload (see family_upload_summary)',
+            v_fail_n;
+    END IF;
+END $upload_fail$;
+
 DO $batch_fail$
 DECLARE
     ctx stage13_ctx%ROWTYPE;
@@ -904,3 +982,5 @@ BEGIN
 END $fail$;
 
 \echo Stage 13 verification complete.
+
+COMMIT;

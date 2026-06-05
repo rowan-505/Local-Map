@@ -46,7 +46,6 @@ const MAP_TYPE_OPTIONS: readonly {
     displayLabel: 'Sat',
     popoverLabel: 'Satellite',
     icon: <ImageIcon />,
-    title: 'Satellite imagery is not configured yet.',
   },
   {
     id: 'hybrid',
@@ -54,7 +53,6 @@ const MAP_TYPE_OPTIONS: readonly {
     displayLabel: 'Hybrid',
     popoverLabel: 'Hybrid',
     icon: <LayersIcon />,
-    title: 'Hybrid map mode is coming soon.',
   },
 ];
 
@@ -69,7 +67,6 @@ export function MapFloatingControls({
   const dispatchUtilityAction = useMapUiStore((s) => s.dispatchUtilityAction);
   const mapMode = useMapUiStore((s) => s.mapMode);
   const setMapMode = useMapUiStore((s) => s.setMapMode);
-
   useEffect(() => {
     if (openPanel === null) return;
 
@@ -241,6 +238,12 @@ function CompactControlSelect({
   readonly isOpen: boolean;
   readonly onOpenChange: (open: boolean) => void;
 }) {
+  const openOnHover = () => {
+    if (typeof window === 'undefined') return;
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    onOpenChange(true);
+  };
+
   return (
     <div className="relative">
       <button
@@ -252,7 +255,7 @@ function CompactControlSelect({
         }`}
         aria-expanded={isOpen}
         title={title}
-        onMouseEnter={() => onOpenChange(true)}
+        onMouseEnter={openOnHover}
         onClick={() => onOpenChange(!isOpen)}
       >
         <span className="grid h-4.5 w-4.5 shrink-0 place-items-center lg:h-4 lg:w-4">

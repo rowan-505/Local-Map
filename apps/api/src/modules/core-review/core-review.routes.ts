@@ -10,6 +10,7 @@ import { getCoreReviewEntityByPath } from "./core-review.entity-registry.js";
 import {
     getCoreReviewDetailSchema,
     getCoreReviewListSchema,
+    getCoreReviewStreetsCountSchema,
     postCoreReviewEntitySchema,
     patchCoreReviewEntitySchema,
     patchCoreReviewSoftDeleteSchema,
@@ -30,18 +31,7 @@ import {
 import { mapDatabaseWriteError, sanitizeDevWriteErrorMessage } from "./core-review-write.helpers.js";
 import { CORE_REVIEW_VERIFICATION_SUMMARY_CONFIGS } from "./core-review-verification-summary.config.js";
 import { buildVerificationSummary } from "../../lib/verification-summary/verification-summary.repo.js";
-
-function replyCoreReviewReadError(
-    request: FastifyRequest,
-    reply: FastifyReply,
-    error: unknown,
-    context: string
-) {
-    request.log.error({ err: error }, context);
-    return reply.code(500).send({
-        message: "Unable to load core review data.",
-    });
-}
+import { replyCoreReviewReadError } from "./core-review-read.errors.js";
 
 function replyCoreReviewWriteError(
     request: FastifyRequest,
@@ -215,9 +205,65 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
 
                 return reply.send(result);
             } catch (error) {
-                return replyCoreReviewReadError(request, reply, error, "core-review list failed");
+                return replyCoreReviewReadError(request, reply, error, "core-review list failed", {
+                    entity: def.slug,
+                    page: queryParsed.data.page,
+                    pageSize: queryParsed.data.pageSize,
+                });
             }
         }
+    );
+
+    app.get(
+        "/:entity/count",
+        {
+            preHandler: app.authenticate,
+            schema: getCoreReviewStreetsCountSchema,
+        },
+        async (request, reply) => {
+            const paramsParsed = coreReviewEntityParamSchema.safeParse(request.params);
+            if (!paramsParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid entity path",
+                    issues: paramsParsed.error.flatten(),
+                });
+            }
+
+            const def = getCoreReviewEntityByPath(paramsParsed.data.entity);
+            if (!def || def.slug !== "streets") {
+                return reply.code(404).send({ message: "Count endpoint not available for this entity" });
+            }
+
+            const queryParsed = coreReviewListQuerySchema.safeParse(request.query);
+            if (!queryParsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid count query",
+                    issues: queryParsed.error.flatten(),
+                });
+            }
+
+            try {
+                const result = await service.count(def.path, queryParsed.data);
+                if (!result) {
+                    return reply.code(404).send({ message: "Count endpoint not available for this entity" });
+                }
+
+                request.log.info(
+                    {
+                        entity: def.slug,
+                        total: result.total,
+                        filters: result.filters,
+                    },
+                    "core-review streets count",
+                );
+
+                return reply.send(result);
+            } catch (error) {
+                return replyCoreReviewReadError(request, reply, error, "core-review streets count failed", {
+                    entity: def.slug,
+                });
+            }
+        },
     );
 
     app.get(
@@ -253,7 +299,10 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
 
                 return reply.send(result);
             } catch (error) {
-                return replyCoreReviewReadError(request, reply, error, "core-review detail failed");
+                return replyCoreReviewReadError(request, reply, error, "core-review detail failed", {
+                    entity: def.slug,
+                    id: paramsParsed.data.id,
+                });
             }
         }
     );

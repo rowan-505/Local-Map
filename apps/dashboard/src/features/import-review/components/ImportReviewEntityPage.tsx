@@ -20,6 +20,7 @@ import ImportReviewFiltersPanel from "./ImportReviewFiltersPanel";
 import { ImportReviewLoadingBannerWithSpinner } from "./ImportReviewLoadingState";
 import ImportReviewPageHeader from "./ImportReviewPageHeader";
 import ImportReviewSelectedActionBar from "./ImportReviewSelectedActionBar";
+import ImportReviewSelectedPromotionBatchBar from "./ImportReviewSelectedPromotionBatchBar";
 import ImportReviewSkeletonTable from "./ImportReviewSkeletonTable";
 import ImportReviewStatusBanner from "./ImportReviewStatusBanner";
 import ImportReviewInlineSpinner from "./ImportReviewInlineSpinner";
@@ -118,6 +119,16 @@ function ImportReviewEntityPageInner({
                     overviewHref={page.overviewHref}
                 />
 
+                {page.actionFeedbackMessage ? (
+                    <ImportReviewStatusBanner
+                        message={page.actionFeedbackMessage}
+                        tone={
+                            page.actionFeedbackMessage === "Saved changes" ? "success" : "error"
+                        }
+                        compact
+                    />
+                ) : null}
+
                 {isDeprecatedCoreBusImportReviewFamily(config.apiFamily) ? (
                     <ImportReviewStatusBanner
                         message={DEPRECATED_CORE_BUS_PROMOTION_BANNER}
@@ -170,7 +181,8 @@ function ImportReviewEntityPageInner({
                             qDraft={page.qDraft}
                             sort={page.sort}
                             limit={page.limit}
-                            showPromoted={page.showPromoted}
+                            promotionState={page.promotionState}
+                            showPromotionStateFilter={page.showPromotionStateFilter}
                             isLoadingFilters={page.isLoadingFilters}
                             isApplyingFilters={page.isApplyingFilters}
                             totalLabel={totalLabel}
@@ -178,7 +190,7 @@ function ImportReviewEntityPageInner({
                             onQDraftChange={page.setQDraft}
                             onSortChange={page.setSort}
                             onLimitChange={page.setLimit}
-                            onShowPromotedChange={page.setShowPromoted}
+                            onPromotionStateChange={page.setPromotionState}
                             onApply={page.applyFiltersToUrl}
                             onClear={page.clearFilters}
                         />
@@ -188,6 +200,17 @@ function ImportReviewEntityPageInner({
                                 message={IMPORT_REVIEW_LOADING.applyingFilters}
                                 tone="info"
                                 compact
+                            />
+                        ) : null}
+
+                        {config.supportsPromotion && page.supportsRowSelection ? (
+                            <ImportReviewSelectedPromotionBatchBar
+                                apiFamily={config.apiFamily}
+                                items={items}
+                                selectedIds={page.selectedIds}
+                                reviewBatchId={page.batchContext.reviewBatchId}
+                                canEdit={page.canEditImportReview}
+                                onClearSelection={() => page.setSelectedIds(new Set())}
                             />
                         ) : null}
 
@@ -238,7 +261,9 @@ function ImportReviewEntityPageInner({
                                     message={IMPORT_REVIEW_LOADING.loadingCandidates}
                                 />
                                 <ImportReviewSkeletonTable
-                                    columnCount={displayColumns.length + (config.supportsBulkActions ? 2 : 1)}
+                                    columnCount={
+                                        displayColumns.length + (page.supportsRowSelection ? 2 : 1)
+                                    }
                                     message={IMPORT_REVIEW_LOADING.loadingCandidates}
                                 />
                             </>
@@ -246,13 +271,13 @@ function ImportReviewEntityPageInner({
                             <ImportReviewCandidatesTable
                                 displayColumns={displayColumns}
                                 items={items}
-                                supportsSelection={config.supportsBulkActions}
+                                supportsSelection={page.supportsRowSelection}
                                 selectedIds={page.selectedIds}
                                 canEdit={page.canEditImportReview}
                                 rowActionBusyId={page.rowActionBusyId}
                                 emptyMessage={IMPORT_REVIEW_LOADING.noCandidatesFound}
                                 isLoading={false}
-                                showPromoted={page.showPromoted}
+                                showPromotionBadges
                                 onToggleSelectAll={(checked) => {
                                     if (checked) {
                                         page.setSelectedIds(new Set(items.map((r) => r.id)));
@@ -398,6 +423,7 @@ function ImportReviewEntityPageInner({
                     />
                 )
             ) : null}
+
         </main>
     );
 }

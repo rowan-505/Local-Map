@@ -4,6 +4,16 @@ import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } fr
 
 import { bulkDecision, formatImportReviewApiError } from "@/src/features/import-review/api";
 import {
+    applyBulkDecisionResult,
+    formatBulkDuplicateApprovalError,
+    isBulkDuplicateApprovalError,
+    reviewStatusForBulkDecision,
+} from "@/src/features/import-review/utils/applyBulkDecisionResult";
+import {
+    logBulkReviewActionDev,
+    normalizeBulkCandidateIds,
+} from "@/src/features/import-review/utils/bulkCandidateIds";
+import {
     analyzeBulkSelection,
     bulkApproveBlockedReason,
     type BulkSelectionAnalysis,
@@ -62,6 +72,11 @@ export function useImportReviewBulkActions(args: {
         [args.items, args.selectedIds]
     );
 
+    const normalizedSelectedIds = useMemo(
+        () => normalizeBulkCandidateIds(args.selectedIds),
+        [args.selectedIds]
+    );
+
     const dangerForceEnabled = dangerForce || overrideManualProtected || overrideDuplicate;
 
     const approveBlockedReason = useMemo(
@@ -82,7 +97,8 @@ export function useImportReviewBulkActions(args: {
             if (!scopeBody.review_batch_id && !scopeBody.source_snapshot_version) {
                 return;
             }
-            if (!dryRun && args.selectedIds.size === 0 && !opts?.filters) {
+            if (!opts?.filters && normalizedSelectedIds.length === 0) {
+                setBulkMessage("No valid selected candidate IDs.");
                 return;
             }
 
@@ -96,37 +112,55 @@ export function useImportReviewBulkActions(args: {
             }
 
             try {
+                const forceApproval = opts?.force ?? false;
                 const body: PostImportReviewBuildingsBulkBody = {
                     ...scopeBody,
                     review_decision: decision,
+                    review_status: reviewStatusForBulkDecision(decision),
                     review_note: bulkNote.trim() || null,
                     dry_run: dryRun,
-                    force: opts?.force ?? false,
+                    force: forceApproval,
+                    force_approval: forceApproval,
                 };
+                const usedSelectionIds = !opts?.filters;
                 if (opts?.filters) {
                     body.filters = opts.filters;
                 } else {
-                    body.ids = [...args.selectedIds];
+                    body.ids = normalizedSelectedIds;
                 }
 
                 const res = await bulkDecision(args.apiFamily, body);
+
+                logBulkReviewActionDev({
+                    family: args.apiFamily,
+                    rawSelectedIds: usedSelectionIds ? [...args.selectedIds] : undefined,
+                    normalizedIds: usedSelectionIds ? normalizedSelectedIds : [],
+                    action: decision,
+                    forceApproval,
+                    response: res,
+                });
+
                 if (dryRun) {
                     setBulkPreview(res);
-                    const processed = res.updated_count + res.skipped_count;
-                    setBulkMessage(
-                        `Preview: would update ${res.updated_count.toLocaleString()} of ${processed.toLocaleString()} (${res.skipped_count.toLocaleString()} skipped).`
-                    );
                 } else {
                     setBulkPreview(null);
-                    args.setSelectedIds(new Set());
-                    args.onListRefresh();
-                    const processed = res.updated_count + res.skipped_count;
-                    setBulkMessage(
-                        `${IMPORT_REVIEW_LOADING.bulkActionCompleted}: ${res.updated_count.toLocaleString()} updated of ${processed.toLocaleString()} processed (${res.skipped_count.toLocaleString()} skipped).`
-                    );
                 }
+
+                const { message } = applyBulkDecisionResult({
+                    dryRun,
+                    usedSelectionIds,
+                    response: res,
+                    selectedIds: args.selectedIds,
+                    setSelectedIds: args.setSelectedIds,
+                    onListRefresh: args.onListRefresh,
+                });
+                setBulkMessage(message);
             } catch (err) {
-                setBulkMessage(formatImportReviewApiError(err, IMPORT_REVIEW_LOADING.bulkActionFailed));
+                if (isBulkDuplicateApprovalError(err)) {
+                    setBulkMessage(formatBulkDuplicateApprovalError(err, IMPORT_REVIEW_LOADING.bulkActionFailed));
+                } else {
+                    setBulkMessage(formatImportReviewApiError(err, IMPORT_REVIEW_LOADING.bulkActionFailed));
+                }
                 if (dryRun) {
                     setBulkPreview(null);
                 }
@@ -141,6 +175,7 @@ export function useImportReviewBulkActions(args: {
             args.list,
             args.apiScopeQuery,
             args.selectedIds,
+            normalizedSelectedIds,
             args.setSelectedIds,
             args.onListRefresh,
             bulkNote,
@@ -198,7 +233,8 @@ export function useImportReviewBulkActions(args: {
 
     const bulkDecisionSelected = useCallback(
         async (decision: ImportReviewDecision, label: string) => {
-            if (analysis.selectedCount === 0) {
+            if (normalizedSelectedIds.length === 0) {
+                setBulkMessage("No valid selected candidate IDs.");
                 return;
             }
             if (analysis.hasPromoted) {
@@ -220,11 +256,12 @@ export function useImportReviewBulkActions(args: {
                 force: decision === "approved" ? dangerForceEnabled : false,
             });
         },
-        [analysis, dangerForceEnabled, runBulk]
+        [analysis, dangerForceEnabled, normalizedSelectedIds, runBulk]
     );
 
     const bulkPreviewApprove = useCallback(async () => {
-        if (analysis.selectedCount === 0) {
+        if (normalizedSelectedIds.length === 0) {
+            setBulkMessage("No valid selected candidate IDs.");
             return;
         }
         if (analysis.hasPromoted) {
@@ -232,7 +269,7 @@ export function useImportReviewBulkActions(args: {
             return;
         }
         await runBulk("approved", true, { force: dangerForceEnabled });
-    }, [analysis, dangerForceEnabled, runBulk]);
+    }, [analysis, dangerForceEnabled, normalizedSelectedIds, runBulk]);
 
     const bulkSafeFilterDryRun = useCallback(async () => {
         await runBulk("approved", true, {

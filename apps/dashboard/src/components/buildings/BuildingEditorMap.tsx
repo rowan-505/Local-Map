@@ -63,6 +63,10 @@ export type BuildingEditorMapProps = {
     editorMapSurfaceRef?: MutableRefObject<maplibregl.Map | null>;
     basemapMode: DataReviewBasemapMode;
     showVertexPreview?: boolean;
+    /** When false, do not auto-activate draggable vertex edit mode when geometry loads. */
+    autoEnterVertexEdit?: boolean;
+    /** When false, skip Martin/Fly live overlay tile source refreshes (basemap only). */
+    showContextOverlays?: boolean;
 };
 
 export function parsePolygonOrMultiPolygon(text: string): PolygonGeom | MultiPolygonGeom | null {
@@ -729,6 +733,8 @@ export default function BuildingEditorMap({
     editorMapSurfaceRef,
     basemapMode,
     showVertexPreview = false,
+    autoEnterVertexEdit = true,
+    showContextOverlays = true,
 }: BuildingEditorMapProps) {
     const { buildingTileVersion, streetTileVersion, placeTileVersion, roadLabelTileVersion } =
         useDashboardTileVersions();
@@ -767,10 +773,15 @@ export default function BuildingEditorMap({
     });
 
     const geometryJsonRef = useRef(geometryJson);
+    const showVertexPreviewRef = useRef(showVertexPreview);
 
     useEffect(() => {
         geometryJsonRef.current = geometryJson;
     }, [geometryJson]);
+
+    useEffect(() => {
+        showVertexPreviewRef.current = showVertexPreview;
+    }, [showVertexPreview]);
 
     const emitGeometryToParent = useCallback((g: PolygonGeom | MultiPolygonGeom | null) => {
         const outStats = polygonStats(g);
@@ -929,7 +940,10 @@ export default function BuildingEditorMap({
             logDashboardGlyphServingHealthInDev();
             let style: maplibregl.StyleSpecification;
             try {
-                style = await fetchDashboardPlaceMapStyle({ includeBusTransitLayers: false });
+                style = await fetchDashboardPlaceMapStyle({
+                    includeBusTransitLayers: false,
+                    includeMartinOverlays: showContextOverlays,
+                });
             } catch (err) {
                 console.error("BuildingEditorMap basemap style failed:", err);
                 return;
@@ -1036,6 +1050,13 @@ export default function BuildingEditorMap({
     }, [basemapMode, mapReady]);
 
     useEffect(() => {
+        if (!showVertexPreview) {
+            clearEditMarkers();
+            setDrawUiMode(DRAW_UI_LABEL_NAV);
+        }
+    }, [clearEditMarkers, showVertexPreview]);
+
+    useEffect(() => {
         const map = mapRef.current;
 
         if (!mapReady || !map) {
@@ -1051,42 +1072,42 @@ export default function BuildingEditorMap({
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!mapReady || !map) {
+        if (!mapReady || !map || !showContextOverlays) {
             return;
         }
 
         refreshBuildingTiles(map, buildingTileVersion);
-    }, [buildingTileVersion, mapReady]);
+    }, [buildingTileVersion, mapReady, showContextOverlays]);
 
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!mapReady || !map) {
+        if (!mapReady || !map || !showContextOverlays) {
             return;
         }
 
         refreshStreetTiles(map, streetTileVersion);
-    }, [streetTileVersion, mapReady]);
+    }, [streetTileVersion, mapReady, showContextOverlays]);
 
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!mapReady || !map) {
+        if (!mapReady || !map || !showContextOverlays) {
             return;
         }
 
         refreshPlaceTiles(map, placeTileVersion);
-    }, [placeTileVersion, mapReady]);
+    }, [placeTileVersion, mapReady, showContextOverlays]);
 
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!mapReady || !map) {
+        if (!mapReady || !map || !showContextOverlays) {
             return;
         }
 
         refreshRoadLabelTiles(map, roadLabelTileVersion);
-    }, [roadLabelTileVersion, mapReady]);
+    }, [roadLabelTileVersion, mapReady, showContextOverlays]);
 
     useEffect(() => {
         const cancelInitialCamera = () => {
@@ -1159,7 +1180,11 @@ export default function BuildingEditorMap({
         }
 
         removeEditMarkerElements();
-        if (editableGeometry && exteriorVertexCount(editableGeometry) >= 3) {
+        const canAutoEdit =
+            autoEnterVertexEdit &&
+            editableGeometry &&
+            exteriorVertexCount(editableGeometry) >= 3;
+        if (canAutoEdit) {
             setupPolygonVertexMarkers(map, editableGeometry, (next) => {
                 emitGeometryToParent(next);
             });
@@ -1169,9 +1194,9 @@ export default function BuildingEditorMap({
             setDrawUiMode(DRAW_UI_LABEL_NAV);
         }
         queueMicrotask(() => {
-            setVertexEditActive(Boolean(editableGeometry && exteriorVertexCount(editableGeometry) >= 3));
+            setVertexEditActive(Boolean(canAutoEdit));
             setVertexEditMessage(
-                editableGeometry && exteriorVertexCount(editableGeometry) >= 3
+                canAutoEdit
                     ? ""
                     : normalized?.vertexEditingMessage ?? ""
             );
@@ -1188,7 +1213,14 @@ export default function BuildingEditorMap({
         return () => {
             cancelInitialCamera();
         };
-    }, [emitGeometryToParent, geometryJson, mapReady, removeEditMarkerElements, setupPolygonVertexMarkers]);
+    }, [
+        autoEnterVertexEdit,
+        emitGeometryToParent,
+        geometryJson,
+        mapReady,
+        removeEditMarkerElements,
+        setupPolygonVertexMarkers,
+    ]);
 
     useEffect(() => {
         if (!mapReady || !containerRef.current || !mapRef.current) {
@@ -1237,6 +1269,10 @@ export default function BuildingEditorMap({
     }, [clearEditMarkers]);
 
     const activateEditMode = useCallback(() => {
+        if (!showVertexPreviewRef.current) {
+            return;
+        }
+
         setManualDrawing(false);
         drawModeRef.current = false;
         draftPointsRef.current = [];

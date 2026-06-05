@@ -34,7 +34,6 @@ import {
     typedColumnFields,
     resolveRoadClassForSave,
     roadEditorSeedFromRow,
-    ROAD_CLASS_REQUIRED_MESSAGE,
 } from "@/src/lib/importReviewRoadEditorState";
 import {
     deriveRoadDisplayStreetName,
@@ -151,8 +150,6 @@ export default function ImportReviewRoadOverridesPanel({
     const [saveSuccessMessage, setSaveSuccessMessage] = useState("");
     const [roadClassError, setRoadClassError] = useState("");
     const [pendingRoutingWarnings, setPendingRoutingWarnings] = useState<string[]>([]);
-    const [routingWarningsAcknowledgedInSession, setRoutingWarningsAcknowledgedInSession] =
-        useState(false);
     const [geometryError, setGeometryError] = useState("");
     const [validating, setValidating] = useState(false);
     const [validateError, setValidateError] = useState("");
@@ -240,7 +237,6 @@ export default function ImportReviewRoadOverridesPanel({
     useEffect(() => {
         setLastValidation(null);
         setPendingRoutingWarnings([]);
-        setRoutingWarningsAcknowledgedInSession(false);
         setRoadClassError("");
     }, [row.id]);
 
@@ -388,7 +384,7 @@ export default function ImportReviewRoadOverridesPanel({
         }
     }
 
-    async function submitOverrides(confirmRoutingWarnings: boolean) {
+    async function submitOverrides() {
         if (!hasMutationScope(mutationScope)) {
             setSaveError("Apply filters with review_batch_id or source snapshot version first.");
             return;
@@ -468,9 +464,6 @@ export default function ImportReviewRoadOverridesPanel({
                   ? "Reviewed one-way change during import-review direct edit."
                   : null;
 
-        const acknowledgeRoutingWarnings =
-            confirmRoutingWarnings || routingWarningsAcknowledgedInSession;
-
         setSaving(true);
         setSaveError("");
         setSaveSuccessMessage("");
@@ -481,13 +474,12 @@ export default function ImportReviewRoadOverridesPanel({
                 ...mutationScope,
                 fields: fieldsPatch,
                 review_note,
-                confirm_acknowledge_routing_warnings: acknowledgeRoutingWarnings,
             });
             onSaved(updated);
             hydrateFromRow(updated);
             setStreetMapRefreshKey((k) => k + 1);
             setPendingRoutingWarnings([]);
-            setSaveSuccessMessage("Saved");
+            setSaveSuccessMessage("Saved changes.");
         } catch (err) {
             if (err instanceof ImportReviewRoadOverridesSaveError) {
                 if (err.issues.errors.length > 0) {
@@ -499,7 +491,7 @@ export default function ImportReviewRoadOverridesPanel({
                     );
                     return;
                 }
-                if (err.issues.requiresAcknowledgement && err.issues.warnings.length > 0) {
+                if (err.issues.warnings.length > 0) {
                     setPendingRoutingWarnings(err.issues.warnings);
                     setSaveError("");
                     return;
@@ -514,7 +506,7 @@ export default function ImportReviewRoadOverridesPanel({
     }
 
     function handleSaveOverrides() {
-        void submitOverrides(false);
+        void submitOverrides();
     }
 
     return (
@@ -539,9 +531,6 @@ export default function ImportReviewRoadOverridesPanel({
                     <p className="mt-2 text-[11px] text-amber-900/90">
                         Current validation has {rowValidationBundle.warnings.length} warning
                         {rowValidationBundle.warnings.length === 1 ? "" : "s"}. See Routing Validation section.
-                        <span className="mt-0.5 block text-gray-600">
-                            Saving changes may require acknowledging routing warnings.
-                        </span>
                     </p>
                 ) : null}
             </div>
@@ -553,25 +542,14 @@ export default function ImportReviewRoadOverridesPanel({
             {pendingRoutingWarnings.length > 0 ? (
                 <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
                     <p className="text-xs font-semibold text-amber-950">Routing continuity warnings</p>
+                    <p className="text-xs text-amber-950/90">
+                        Routing warning only — does not block save, approval, or promotion.
+                    </p>
                     <ul className="list-inside list-disc space-y-1 text-xs text-amber-950/90">
                         {pendingRoutingWarnings.map((warning) => (
                             <li key={warning}>{warning}</li>
                         ))}
                     </ul>
-                    <label className="flex items-start gap-2 text-xs text-amber-950">
-                        <input
-                            type="checkbox"
-                            className="mt-0.5 rounded border-amber-400"
-                            checked={routingWarningsAcknowledgedInSession}
-                            disabled={disabled || optionsLoading}
-                            onChange={(e) => {
-                                setRoutingWarningsAcknowledgedInSession(e.target.checked);
-                            }}
-                        />
-                        <span>
-                            I reviewed these routing warnings and want to save anyway.
-                        </span>
-                    </label>
                 </div>
             ) : null}
 
@@ -600,13 +578,7 @@ export default function ImportReviewRoadOverridesPanel({
                     <div className="flex flex-wrap gap-2">
                         <button
                             type="button"
-                            disabled={
-                                saving ||
-                                disabled ||
-                                optionsLoading ||
-                                (pendingRoutingWarnings.length > 0 &&
-                                    !routingWarningsAcknowledgedInSession)
-                            }
+                            disabled={saving || disabled || optionsLoading}
                             onClick={handleSaveOverrides}
                             className="rounded-lg border border-violet-700 bg-violet-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-900 disabled:opacity-50"
                         >

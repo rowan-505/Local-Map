@@ -24,7 +24,7 @@ export type ImportReviewEntityListParams = {
     sort: string;
     filters: ImportReviewListFilters;
     qApplied: string;
-    showPromoted: boolean;
+    promotionState: string;
 };
 
 export function useImportReviewEntityList(
@@ -43,7 +43,7 @@ export function useImportReviewEntityList(
                   sort: params.sort,
                   filters: params.filters,
                   qApplied: params.qApplied,
-                  showPromoted: params.showPromoted,
+                  promotionState: params.promotionState,
               }
             : null
     );
@@ -61,7 +61,7 @@ export function useImportReviewEntityList(
                 sort: params.sort,
                 include_geometry: false,
                 include_total: false,
-                include_promoted: params.showPromoted,
+                promotion_state: params.promotionState,
             };
             if (params.filters.match_status) rest.match_status = params.filters.match_status;
             if (params.filters.auto_action) rest.auto_action = params.filters.auto_action;
@@ -115,7 +115,7 @@ export function useImportReviewEntityList(
                   apiScopeQuery: params.apiScopeQuery,
                   filters: params.filters,
                   qApplied: params.qApplied,
-                  showPromoted: params.showPromoted,
+                  promotionState: params.promotionState,
               }
             : null
     );
@@ -134,7 +134,7 @@ export function useImportReviewEntityList(
                 offset: 0,
                 include_geometry: false,
                 include_total: true,
-                include_promoted: params.showPromoted,
+                promotion_state: params.promotionState,
             };
             if (params.filters.match_status) rest.match_status = params.filters.match_status;
             if (params.filters.auto_action) rest.auto_action = params.filters.auto_action;
@@ -207,7 +207,7 @@ export function useImportReviewEntityList(
                 sort: params.sort,
                 filters: params.filters,
                 qApplied: params.qApplied,
-                showPromoted: params.showPromoted,
+                promotionState: params.promotionState,
             });
             queryClient.setQueryData<ImportReviewBuildingsListResponse>(key, (prev) => {
                 if (!prev) {

@@ -5,10 +5,7 @@
 import type { PrismaClient } from "@prisma/client";
 
 import { isValidatablePublishFamily } from "./import-review-promotion-config.js";
-import {
-    buildPublishItemValidationResultJson,
-    type PublishItemValidationStatus,
-} from "./import-review-promotion-publish-item-validation.js";
+import type { PublishItemValidationStatus } from "./import-review-promotion-publish-item-validation.js";
 import {
     ImportReviewSimplePromotionValidationRepository,
     validateSimplePromotionCandidateRow,
@@ -20,16 +17,14 @@ import {
     isImportReviewSimplePromotionFamily,
     type ImportReviewSimplePromotionFamilyConfig,
 } from "./import-review-promotion-simple-config.js";
+import { ImportReviewPromotionRoadsBulkValidation } from "./import-review-promotion-roads-bulk-validation.js";
 import { planFamilyValidationChunks } from "./import-review-promotion-validation-chunks.js";
-import {
-    IMPORT_REVIEW_VALIDATION_HEARTBEAT_INTERVAL_MS,
-    ImportReviewPublishBatchValidationAbortedError,
-} from "./import-review-promotion-validation-control.js";
+import { ImportReviewPublishBatchValidationAbortedError } from "./import-review-promotion-validation-control.js";
 import {
     buildValidatePublishBatchProgressMessage,
-    shouldReportValidatePublishBatchProgress,
     type ValidatePublishBatchProgressCallback,
 } from "./import-review-promotion-validation-progress.js";
+import { partitionPublishItemTargetsForResume } from "./import-review-promotion-validation-resume.js";
 
 export type { ValidatePublishBatchProgressCallback, ValidatePublishBatchProgressEvent } from "./import-review-promotion-validation-progress.js";
 
@@ -72,6 +67,7 @@ export type PublishItemValidationTarget = {
     entity_family: string;
     review_candidate_id: bigint;
     review_batch_id: bigint;
+    publish_action?: string | null;
 };
 
 export type PublishItemSimpleValidationOutcome = {
@@ -116,9 +112,11 @@ export function buildChunkValidationErrorOutcome(
 
 export class ImportReviewPromotionSimpleBatchValidation {
     readonly simpleRepo: ImportReviewSimplePromotionValidationRepository;
+    readonly roadsBulkValidation: ImportReviewPromotionRoadsBulkValidation;
 
     constructor(private readonly prisma: PrismaClient) {
         this.simpleRepo = new ImportReviewSimplePromotionValidationRepository(prisma);
+        this.roadsBulkValidation = new ImportReviewPromotionRoadsBulkValidation(prisma);
     }
 
     async fetchReviewBatchIdForPublishBatch(publishBatchId: bigint): Promise<bigint | null> {
@@ -137,12 +135,14 @@ export class ImportReviewPromotionSimpleBatchValidation {
                 publish_item_id: bigint;
                 entity_family: string;
                 review_candidate_id: bigint | null;
+                publish_action: string | null;
             }[]
         >`
             SELECT
                 id AS publish_item_id,
                 entity_family,
-                review_candidate_id
+                review_candidate_id,
+                publish_action
             FROM system.system_publish_items
             WHERE publish_batch_id = ${publishBatchId}
             ORDER BY entity_family ASC, id ASC
@@ -158,6 +158,7 @@ export class ImportReviewPromotionSimpleBatchValidation {
                 entity_family: r.entity_family,
                 review_candidate_id: r.review_candidate_id!,
                 review_batch_id: reviewBatchId,
+                publish_action: r.publish_action ?? null,
             }));
     }
 
@@ -218,11 +219,13 @@ export class ImportReviewPromotionSimpleBatchValidation {
         config: ImportReviewSimplePromotionFamilyConfig,
         row: SimplePromotionCandidateValidationRow,
         fkExistsByColumn: Record<string, boolean>,
-        nearbyCoreRoads: number | null
+        nearbyCoreRoads: number | null,
+        insertTargetConflict = false
     ): PublishItemSimpleValidationOutcome {
         const result = validateSimplePromotionCandidateRow(config, row, {
             fkExistsByColumn,
             nearbyCoreRoads,
+            insertTargetConflict,
         });
         const status = outcomeStatusFromResult(result, false);
         return {
@@ -282,6 +285,16 @@ export class ImportReviewPromotionSimpleBatchValidation {
             return outcomes;
         }
 
+        if (family === "roads") {
+            return [
+                ...outcomes,
+                ...(await this.roadsBulkValidation.validateRoadTargets(simpleTargets, {
+                    publishBatchId: ctx?.publishBatchId,
+                    shouldAbort: ctx?.shouldAbort,
+                })),
+            ];
+        }
+
         const candidateIds = simpleTargets.map((t) => t.review_candidate_id);
         const rowByCandidateId = await this.simpleRepo.loadCandidateRowsBatch(
             config,
@@ -290,50 +303,26 @@ export class ImportReviewPromotionSimpleBatchValidation {
         );
         const loadedRows = [...rowByCandidateId.values()];
         const fkByRowId = await this.simpleRepo.resolveFkExistenceBatch(config, loadedRows);
+        const insertConflictByCandidate = await this.simpleRepo.resolveInsertTargetConflictsBatch(
+            config,
+            loadedRows,
+            simpleTargets
+        );
 
-        let lastHeartbeatMs = Date.now();
-        let processedInChunk = 0;
+        const nearbyByCandidate =
+            config.family === "routing_barriers"
+                ? await this.simpleRepo.countNearbyCoreRoadsForBarriersBatch(candidateIds)
+                : null;
+
+        if (ctx?.shouldAbort && (await ctx.shouldAbort())) {
+            throw new ImportReviewPublishBatchValidationAbortedError(
+                (ctx.publishBatchId ?? 0n).toString(),
+                "cancelled",
+                "Validation cancelled."
+            );
+        }
 
         for (const target of simpleTargets) {
-            processedInChunk += 1;
-            const doneNow = (ctx?.doneBefore ?? 0) + processedInChunk;
-            const total = ctx?.total ?? simpleTargets.length;
-            const nowMs = Date.now();
-            const intervalElapsed = nowMs - lastHeartbeatMs >= IMPORT_REVIEW_VALIDATION_HEARTBEAT_INTERVAL_MS;
-            const itemCheckpoint =
-                shouldReportValidatePublishBatchProgress(processedInChunk, simpleTargets.length) ||
-                processedInChunk === simpleTargets.length;
-
-            if (ctx?.shouldAbort && (itemCheckpoint || intervalElapsed) && (await ctx.shouldAbort())) {
-                throw new ImportReviewPublishBatchValidationAbortedError(
-                    (ctx.publishBatchId ?? 0n).toString(),
-                    "cancelled",
-                    "Validation cancelled."
-                );
-            }
-
-            if (
-                ctx?.onProgress &&
-                ctx.publishBatchId &&
-                (intervalElapsed || itemCheckpoint)
-            ) {
-                lastHeartbeatMs = nowMs;
-                await ctx.onProgress({
-                    batchId: ctx.publishBatchId,
-                    done: doneNow,
-                    total,
-                    family,
-                    candidateId: target.review_candidate_id,
-                    stageKey: "validate_candidate_state",
-                    message: buildValidatePublishBatchProgressMessage({
-                        done: doneNow,
-                        total,
-                        family,
-                    }),
-                    elapsedMs: nowMs - (ctx.startedAt ?? nowMs),
-                });
-            }
-
             const row = rowByCandidateId.get(target.review_candidate_id.toString());
             if (!row) {
                 outcomes.push({
@@ -356,14 +345,21 @@ export class ImportReviewPromotionSimpleBatchValidation {
                 continue;
             }
 
-            let nearbyCoreRoads: number | null = null;
-            if (config.family === "routing_barriers" && row.geomDiagnostics?.present) {
-                nearbyCoreRoads = await this.simpleRepo.countNearbyCoreRoadsForBarrier(row);
-            }
-
             const fkExistsByColumn = fkByRowId.get(row.id.toString()) ?? {};
+            const nearbyCoreRoads =
+                nearbyByCandidate?.get(target.review_candidate_id.toString()) ?? null;
+            const insertTargetConflict =
+                insertConflictByCandidate.get(target.review_candidate_id.toString()) === true;
+
             outcomes.push(
-                this.outcomeForLoadedRow(target, config, row, fkExistsByColumn, nearbyCoreRoads)
+                this.outcomeForLoadedRow(
+                    target,
+                    config,
+                    row,
+                    fkExistsByColumn,
+                    nearbyCoreRoads,
+                    insertTargetConflict
+                )
             );
         }
 
@@ -377,10 +373,30 @@ export class ImportReviewPromotionSimpleBatchValidation {
         const targets = await this.listPublishItemTargets(publishBatchId);
         const total = targets.length;
         const startedAt = Date.now();
-        const allOutcomes: PublishItemSimpleValidationOutcome[] = [];
-        let done = 0;
+        const { pendingTargets, priorOutcomes } = await partitionPublishItemTargetsForResume(
+            this.prisma,
+            publishBatchId,
+            targets
+        );
 
-        const chunkPlans = planFamilyValidationChunks(targets);
+        const allOutcomes: PublishItemSimpleValidationOutcome[] = [...priorOutcomes];
+        let done = priorOutcomes.length;
+
+        if (priorOutcomes.length > 0 && options?.onProgress) {
+            const last = priorOutcomes[priorOutcomes.length - 1]!;
+            await options.onProgress({
+                batchId: publishBatchId,
+                done,
+                total,
+                family: last.entity_family,
+                candidateId: last.publish_item_id,
+                stageKey: "validate_candidate_state",
+                message: `Resuming validation (${done}/${total} already validated).`,
+                elapsedMs: Date.now() - startedAt,
+            });
+        }
+
+        const chunkPlans = planFamilyValidationChunks(pendingTargets);
 
         for (const plan of chunkPlans) {
             if (options?.shouldAbort && (await options.shouldAbort())) {
@@ -393,16 +409,21 @@ export class ImportReviewPromotionSimpleBatchValidation {
 
             let chunkOutcomes: PublishItemSimpleValidationOutcome[];
             try {
-                chunkOutcomes = await this.validateTargetsChunk(plan.targets, plan.family, {
-                    publishBatchId,
-                    doneBefore: done,
-                    total,
-                    startedAt,
-                    chunkIndex: plan.chunkIndex,
-                    chunkSize: plan.chunkSize,
-                    onProgress: options?.onProgress,
-                    shouldAbort: options?.shouldAbort,
-                });
+                chunkOutcomes =
+                    plan.family === "roads"
+                        ? await this.roadsBulkValidation.validateRoadTargets(plan.targets, {
+                              publishBatchId,
+                              shouldAbort: options?.shouldAbort,
+                          })
+                        : await this.validateTargetsChunk(plan.targets, plan.family, {
+                              publishBatchId,
+                              doneBefore: done,
+                              total,
+                              startedAt,
+                              chunkIndex: plan.chunkIndex,
+                              chunkSize: plan.chunkSize,
+                              shouldAbort: options?.shouldAbort,
+                          });
             } catch (err) {
                 if (err instanceof ImportReviewPublishBatchValidationAbortedError) {
                     throw err;
@@ -461,7 +482,7 @@ export class ImportReviewPromotionSimpleBatchValidation {
                 );
             }
 
-            if (!options?.onChunkComplete && options?.onProgress) {
+            if (options?.onProgress) {
                 await options.onProgress({
                     batchId: publishBatchId,
                     done,
@@ -483,17 +504,11 @@ export class ImportReviewPromotionSimpleBatchValidation {
     }
 
     toPersistedValidationJson(outcome: PublishItemSimpleValidationOutcome): Record<string, unknown> {
-        if (outcome.skipped) {
-            return buildPublishItemValidationResultJson({
-                status: "warning",
-                errors: [],
-                warnings: outcome.result.warnings,
-            }) as unknown as Record<string, unknown>;
-        }
-        return buildPublishItemValidationResultJson({
-            status: outcome.result.status,
+        const status = outcome.skipped ? "warning" : outcome.result.status;
+        return {
+            status,
             errors: outcome.result.errors,
             warnings: outcome.result.warnings,
-        }) as unknown as Record<string, unknown>;
+        };
     }
 }

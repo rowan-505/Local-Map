@@ -8,6 +8,7 @@ declare global {
     __MAP_STYLE__?: Map['getStyle'];
     __MAP_SOURCES__?: () => StyleSpecification['sources'];
     __MAP_LAYERS__?: () => StyleSpecification['layers'];
+    __MAP_DEBUG_BASEMAP__?: () => void;
   }
 }
 
@@ -31,7 +32,7 @@ interface ImportMetaEnv {
    * Example: https://YOUR_TILE_DOMAIN/basemaps/overview/v1/basemap.pmtiles
    */
   readonly VITE_OVERVIEW_PMTILES_URL?: string;
-  /** Optional public satellite raster tile template for future map modes. Do not include private keys in source. */
+  /** Optional satellite raster tile template override (defaults to Esri World Imagery). Do not include private keys. */
   readonly VITE_SATELLITE_RASTER_TILES_URL?: string;
   /** Optional satellite raster tile size. Defaults to 256. */
   readonly VITE_SATELLITE_RASTER_TILE_SIZE?: string;

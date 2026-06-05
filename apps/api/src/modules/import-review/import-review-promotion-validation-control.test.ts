@@ -48,7 +48,7 @@ describe("ImportReviewPromotionValidationRunner cancel and reset", () => {
         const chunkCompletions: number[] = [];
 
         const repo = {
-            getPrismaClient: () => ({} as PrismaClient),
+            prisma: {} as PrismaClient,
             updateStageLog: async () => {},
             updateValidationHeartbeat: async () => {},
             updateBatchProgress: async () => {},
@@ -132,7 +132,7 @@ describe("ImportReviewPromotionValidationRunner cancel and reset", () => {
         const cleared: { batchId: bigint }[] = [];
 
         const repo = {
-            getPrismaClient: () => ({} as PrismaClient),
+            prisma: {} as PrismaClient,
             fetchBatchProgress: async () => ({
                 id: batchId,
                 status: "failed",
@@ -162,7 +162,7 @@ describe("ImportReviewPromotionValidationRunner cancel and reset", () => {
         const staleHeartbeat = new Date(Date.now() - 20 * 60_000);
         let status = "validating";
         const repo = {
-            getPrismaClient: () => ({} as PrismaClient),
+            prisma: {} as PrismaClient,
             fetchBatchProgress: async () => ({
                 id: batchId,
                 status,
@@ -193,7 +193,7 @@ describe("ImportReviewPromotionValidationRunner cancel and reset", () => {
         const batchId = 18n;
         let resetCalled = false;
         const repo = {
-            getPrismaClient: () => ({} as PrismaClient),
+            prisma: {} as PrismaClient,
             fetchBatchProgress: async () => ({
                 id: batchId,
                 status: "failed",
@@ -228,7 +228,7 @@ describe("ImportReviewPromotionValidationRunner cancel and reset", () => {
     it("cannot cancel or reset promoted batch", async () => {
         const batchId = 1n;
         const repo = {
-            getPrismaClient: () => ({} as PrismaClient),
+            prisma: {} as PrismaClient,
             fetchBatchProgress: async () => ({
                 id: batchId,
                 status: "promoted",
@@ -265,7 +265,7 @@ describe("ImportReviewPromotionValidationRunner cancel and reset", () => {
         let cancelRequested = false;
 
         const repo = {
-            getPrismaClient: () => ({} as PrismaClient),
+            prisma: {} as PrismaClient,
             fetchBatchProgress: async () => ({
                 id: batchId,
                 status: "validating",
@@ -304,10 +304,9 @@ describe("ImportReviewPromotionValidationRunner cancel and reset", () => {
         let claimed = false;
 
         const repo = {
-            getPrismaClient: () =>
-                ({
-                    $queryRaw: async () => [{ count: 0n }],
-                }) as unknown as PrismaClient,
+            prisma: {
+                $queryRaw: async () => [{ count: 0n }],
+            } as unknown as PrismaClient,
             fetchBatchProgress: async () => ({
                 id: batchId,
                 status,
@@ -346,9 +345,15 @@ describe("ImportReviewPromotionValidationRunner cancel and reset", () => {
     });
 });
 
+function prismaForBatchValidation(): PrismaClient {
+    return {
+        $queryRaw: async () => [],
+    } as unknown as PrismaClient;
+}
+
 describe("validatePublishBatch shouldAbort", () => {
     it("throws aborted error before next chunk when shouldAbort is true", async () => {
-        const svc = new ImportReviewPromotionSimpleBatchValidation({} as PrismaClient);
+        const svc = new ImportReviewPromotionSimpleBatchValidation(prismaForBatchValidation());
         let chunkCalls = 0;
         svc.listPublishItemTargets = async () =>
             Array.from({ length: 150 }, (_, i) => ({

@@ -6,6 +6,7 @@ import {
 } from "../core-review/core-review-list-status.js";
 import {
     coreReviewVerificationFilterCondition,
+    effectiveVerificationStatusExpr,
     type CoreReviewVerificationStatus,
 } from "../core-review/core-review-verification-filter.js";
 
@@ -21,6 +22,11 @@ export class StreetCrudValidationError extends Error {
 export type ListStreetsParams = {
     limit: number;
     offset?: number;
+    /** Keyset cursor for updated_at sort (use with sortBy updated/updated_at). */
+    cursor_updated_at?: Date;
+    cursor_id?: bigint;
+    /** When true, index-friendly core SELECT + batch name/admin/road-class enrichment. */
+    fast_list?: boolean;
     q?: string;
     sortBy: "name" | "admin_area" | "created" | "updated" | "updated_at";
     sortOrder: "asc" | "desc";
@@ -61,6 +67,60 @@ export type StreetGeometryJson =
           coordinates: number[][][];
       }
     | null;
+
+/** Core-review list row — no geometry or full names payload. */
+export type StreetCoreReviewListRow = {
+    id: string;
+    public_id: string;
+    canonical_name: string;
+    admin_area_id: string | null;
+    admin_area_name: string | null;
+    road_class_id: string | null;
+    road_class: string | null;
+    road_class_name: string | null;
+    surface: string | null;
+    is_oneway: boolean;
+    bridge: boolean;
+    tunnel: boolean;
+    routing_status: string;
+    deleted_at: Date | null;
+    is_active: boolean;
+    verification_status: string | null;
+    is_verified: boolean;
+    created_at: Date;
+    updated_at: Date;
+    myanmar_name: string | null;
+    english_name: string | null;
+};
+
+/** Phase-1 core-review list row — no joins or name lookups. */
+type StreetCoreReviewListCoreRow = {
+    id: string;
+    public_id: string;
+    canonical_name: string;
+    admin_area_id: string | null;
+    road_class_id: string | null;
+    road_class: string | null;
+    surface: string | null;
+    is_oneway: boolean;
+    bridge: boolean;
+    tunnel: boolean;
+    routing_status: string;
+    deleted_at: Date | null;
+    is_active: boolean;
+    verification_status: string | null;
+    is_verified: boolean;
+    created_at: Date;
+    updated_at: Date;
+};
+
+export const CORE_REVIEW_STREETS_MAX_PAGE_SIZE = 50;
+
+export type StreetsCoreReviewScopeCounts = {
+    total: number;
+    verified: number;
+    unverified: number;
+};
 
 export type StreetRow = {
     public_id: string;
@@ -202,42 +262,42 @@ function streetsListOrderBy(sortBy: ListStreetsParams["sortBy"], sortOrder: List
             return Prisma.sql`s.created_at ${dir} NULLS LAST, s.public_id ASC`;
         case "updated":
         case "updated_at":
-            return Prisma.sql`s.updated_at ${dir} NULLS LAST, s.public_id ASC`;
+            return Prisma.sql`s.updated_at ${dir} NULLS LAST, s.id ${dir}`;
         default:
-            return Prisma.sql`s.updated_at DESC NULLS LAST, s.public_id ASC`;
+            return Prisma.sql`s.updated_at DESC NULLS LAST, s.id DESC`;
     }
 }
 
-function streetsListFilterClauses(
-    params: Pick<ListStreetsParams, "q" | "include_deleted" | "status" | "is_verified" | "verification_status" | "admin_area_id" | "road_class_id">
-): Prisma.Sql[] {
-    const clauses: Prisma.Sql[] = [
+/** Index-friendly ORDER BY for updated_at keyset lists (matches partial index, no NULLS LAST). */
+function streetsUpdatedAtKeysetOrderBy(sortOrder: ListStreetsParams["sortOrder"]): Prisma.Sql {
+    const dir = sortOrder === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+    return Prisma.sql`s.updated_at ${dir}, s.id ${dir}`;
+}
+
+function streetsKeysetClause(params: ListStreetsParams, sortBy: ListStreetsParams["sortBy"], sortOrder: ListStreetsParams["sortOrder"]): Prisma.Sql {
+    if (params.cursor_updated_at === undefined || params.cursor_id === undefined) {
+        return Prisma.empty;
+    }
+
+    if (sortBy !== "updated" && sortBy !== "updated_at") {
+        return Prisma.empty;
+    }
+
+    const cmp = sortOrder === "asc" ? Prisma.sql`>` : Prisma.sql`<`;
+    return Prisma.sql`AND (s.updated_at, s.id) ${cmp} (${params.cursor_updated_at}, ${params.cursor_id})`;
+}
+
+function streetsLifecycleFilterClauses(params: StreetsListFilterParams): Prisma.Sql[] {
+    return [
         coreReviewListStatusClause("s", resolveStreetsListStatus(params), {
             hasDeletedAt: true,
             hasIsActive: true,
         }),
     ];
+}
 
-    if (params.q !== undefined) {
-        clauses.push(Prisma.sql`(
-                    COALESCE(s.canonical_name, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(street_names.myanmar_name, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(street_names.english_name, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(aa.canonical_name, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(rc.code, '') ILIKE ${`%${params.q}%`}
-                    OR COALESCE(rc.name, '') ILIKE ${`%${params.q}%`}
-                    OR (CASE WHEN s.is_active THEN 'Yes' ELSE 'No' END) ILIKE ${`%${params.q}%`}
-                    OR (CASE WHEN s.is_verified THEN 'Yes' ELSE 'No' END) ILIKE ${`%${params.q}%`}
-                    OR s.updated_at::text ILIKE ${`%${params.q}%`}
-                )`);
-    }
-
-    const verificationCondition = coreReviewVerificationFilterCondition("s", {
-        verificationStatus: params.verification_status,
-    });
-    if (verificationCondition) {
-        clauses.push(verificationCondition);
-    }
+function streetsScopeFilterClauses(params: StreetsListFilterParams): Prisma.Sql[] {
+    const clauses = streetsLifecycleFilterClauses(params);
 
     if (params.admin_area_id !== undefined) {
         clauses.push(Prisma.sql`s.admin_area_id = ${params.admin_area_id}`);
@@ -247,7 +307,97 @@ function streetsListFilterClauses(
         clauses.push(Prisma.sql`s.road_class_id = ${params.road_class_id}`);
     }
 
+    if (params.q !== undefined) {
+        clauses.push(streetsTextSearchClause(params.q));
+    }
+
     return clauses;
+}
+
+function streetsBaseFilterClauses(params: StreetsListFilterParams): Prisma.Sql[] {
+    const clauses = streetsScopeFilterClauses(params);
+
+    const verificationCondition = coreReviewVerificationFilterCondition("s", {
+        verificationStatus: params.verification_status,
+    });
+    if (verificationCondition) {
+        clauses.push(verificationCondition);
+    }
+
+    return clauses;
+}
+
+/** Text search via EXISTS only — no admin/road-class/name joins required in FROM. */
+function streetsTextSearchClause(q: string): Prisma.Sql {
+    const pattern = `%${q}%`;
+    return Prisma.sql`(
+        COALESCE(s.canonical_name, '') ILIKE ${pattern}
+        OR EXISTS (
+            SELECT 1
+            FROM core.core_street_names AS sn
+            WHERE sn.street_id = s.id
+              AND sn.name ILIKE ${pattern}
+        )
+        OR EXISTS (
+            SELECT 1
+            FROM core.core_admin_areas AS aa
+            WHERE aa.id = s.admin_area_id
+              AND COALESCE(aa.canonical_name, '') ILIKE ${pattern}
+        )
+        OR EXISTS (
+            SELECT 1
+            FROM ref.ref_road_classes AS rc
+            WHERE rc.id = s.road_class_id
+              AND (
+                  COALESCE(rc.code, '') ILIKE ${pattern}
+                  OR COALESCE(rc.name, '') ILIKE ${pattern}
+              )
+        )
+        OR (CASE WHEN s.is_active THEN 'Yes' ELSE 'No' END) ILIKE ${pattern}
+        OR (CASE WHEN s.is_verified THEN 'Yes' ELSE 'No' END) ILIKE ${pattern}
+        OR s.updated_at::text ILIKE ${pattern}
+    )`;
+}
+
+function streetsCountFilterClauses(params: StreetsListFilterParams): Prisma.Sql[] {
+    return streetsListFilterClauses(params);
+}
+
+function streetsListFilterClauses(params: StreetsListFilterParams): Prisma.Sql[] {
+    return streetsBaseFilterClauses(params);
+}
+
+type StreetsListFilterParams = Pick<
+    ListStreetsParams,
+    "q" | "include_deleted" | "status" | "is_verified" | "verification_status" | "admin_area_id" | "road_class_id"
+>;
+
+function isStreetsCoreReviewQueryTimingEnabled(): boolean {
+    return process.env.NODE_ENV !== "production" || process.env.CORE_REVIEW_STREETS_QUERY_TIMING === "1";
+}
+
+async function timeStreetsCoreReviewQuery<T>(
+    operation: "list" | "count",
+    meta: Record<string, unknown>,
+    fn: () => Promise<T>,
+): Promise<T> {
+    if (!isStreetsCoreReviewQueryTimingEnabled()) {
+        return fn();
+    }
+
+    const started = performance.now();
+    try {
+        return await fn();
+    } finally {
+        console.info(
+            JSON.stringify({
+                scope: "streets_core_review_repo",
+                operation,
+                duration_ms: Math.round((performance.now() - started) * 10) / 10,
+                ...meta,
+            }),
+        );
+    }
 }
 
 async function applyStreetVersioningSession(
@@ -527,24 +677,334 @@ export class StreetsRepository {
         `);
     }
 
-    async countStreets(
-        params: Pick<
-            ListStreetsParams,
-            "q" | "include_deleted" | "status" | "is_verified" | "verification_status" | "admin_area_id" | "road_class_id"
-        >
-    ): Promise<number> {
+    /**
+     * Core-review table list — phase-1 index scan on core_streets, then batch enrichment
+     * for names/admin/road-class on the returned ids only (no COUNT, no geometry).
+     */
+    async listStreetsCoreReview(params: ListStreetsParams): Promise<StreetCoreReviewListRow[]> {
+        return this.listStreetsCoreReviewFast(params);
+    }
+
+    /**
+     * Fast path: single-table (or admin join when sorting by admin_area) LIMIT/O keyset,
+     * then batch lookups for display labels on ≤51 rows.
+     */
+    async listStreetsCoreReviewFast(params: ListStreetsParams): Promise<StreetCoreReviewListRow[]> {
+        const limit = Math.min(params.limit, CORE_REVIEW_STREETS_MAX_PAGE_SIZE + 1);
+        const coreRows = await this.listStreetsCoreReviewCore(params, limit);
+        if (coreRows.length === 0) {
+            return [];
+        }
+
+        const streetIds = coreRows.map((row) => BigInt(row.id));
+        const adminAreaIds = [
+            ...new Set(
+                coreRows
+                    .map((row) => row.admin_area_id)
+                    .filter((id): id is string => id !== null && id !== "")
+                    .map((id) => BigInt(id)),
+            ),
+        ];
+        const roadClassIds = [
+            ...new Set(
+                coreRows
+                    .map((row) => row.road_class_id)
+                    .filter((id): id is string => id !== null && id !== "")
+                    .map((id) => BigInt(id)),
+            ),
+        ];
+
+        const [namesByStreetId, adminNameById, roadClassById] = await Promise.all([
+            this.batchPrimaryStreetNames(streetIds),
+            this.batchAdminAreaCanonicalNames(adminAreaIds),
+            this.batchRoadClassLabels(roadClassIds),
+        ]);
+
+        return coreRows.map((row) => {
+            const names = namesByStreetId.get(row.id);
+            const roadClass = row.road_class_id ? roadClassById.get(row.road_class_id) : undefined;
+            return {
+                ...row,
+                admin_area_name: row.admin_area_id ? (adminNameById.get(row.admin_area_id) ?? null) : null,
+                road_class: roadClass?.code ?? row.road_class,
+                road_class_name: roadClass?.name ?? null,
+                myanmar_name: names?.myanmar_name ?? null,
+                english_name: names?.english_name ?? null,
+            };
+        });
+    }
+
+    /** Phase-1 core list — single-table scan, no geometry, no name/admin/road-class joins. */
+    private async listStreetsCoreReviewCore(
+        params: ListStreetsParams,
+        limit: number,
+    ): Promise<StreetCoreReviewListCoreRow[]> {
+        const updatedAtSort = params.sortBy === "updated" || params.sortBy === "updated_at";
+        if (updatedAtSort) {
+            return this.listStreetsCoreReviewCoreUpdatedAtTwoPhase(params, limit);
+        }
+
+        return this.listStreetsCoreReviewCoreSingleQuery(params, limit);
+    }
+
+    /**
+     * Default dashboard path: index probe (id, updated_at) then fetch ≤51 rows by id.
+     * Avoids planner choosing parallel seq scan when wide columns appear in ORDER BY … LIMIT.
+     */
+    private async listStreetsCoreReviewCoreUpdatedAtTwoPhase(
+        params: ListStreetsParams,
+        limit: number,
+    ): Promise<StreetCoreReviewListCoreRow[]> {
         const whereClause = Prisma.join(streetsListFilterClauses(params), " AND ");
-        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
-            SELECT COUNT(*)::bigint AS count
-            FROM core.core_streets AS s
-            LEFT JOIN core.core_admin_areas AS aa
-                ON aa.id = s.admin_area_id
-            LEFT JOIN ref.ref_road_classes AS rc
-                ON rc.id = s.road_class_id
-            LEFT JOIN LATERAL (${streetNamesJsonSql()}) AS street_names ON true
-            WHERE ${whereClause}
+        const orderByClause = streetsUpdatedAtKeysetOrderBy(params.sortOrder);
+        const keysetClause = streetsKeysetClause(params, params.sortBy, params.sortOrder);
+        const timingMeta = {
+            has_search: params.q !== undefined,
+            sort_by: params.sortBy,
+            limit,
+            offset: 0,
+            keyset: params.cursor_updated_at !== undefined && params.cursor_id !== undefined,
+            fast_list: true,
+            two_phase: true,
+            status: resolveStreetsListStatus(params),
+        };
+
+        return timeStreetsCoreReviewQuery("list", timingMeta, async () => {
+            const idRows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+                SELECT s.id::text AS id
+                FROM core.core_streets AS s
+                WHERE ${whereClause}
+                ${keysetClause}
+                ORDER BY ${orderByClause}
+                LIMIT ${limit}
+            `);
+
+            if (idRows.length === 0) {
+                return [];
+            }
+
+            const ids = idRows.map((row) => BigInt(row.id));
+
+            return this.prisma.$queryRaw<StreetCoreReviewListCoreRow[]>(Prisma.sql`
+                SELECT
+                    s.id::text AS id,
+                    s.public_id,
+                    s.canonical_name,
+                    s.admin_area_id::text AS admin_area_id,
+                    s.road_class_id::text AS road_class_id,
+                    s.road_class,
+                    s.surface,
+                    s.is_oneway,
+                    s.bridge,
+                    s.tunnel,
+                    s.routing_status,
+                    s.deleted_at,
+                    s.is_active,
+                    s.verification_status,
+                    s.is_verified,
+                    s.created_at,
+                    s.updated_at
+                FROM core.core_streets AS s
+                WHERE s.id IN (${Prisma.join(ids)})
+                ORDER BY ${orderByClause}
+            `);
+        });
+    }
+
+    /** Non-updated_at sorts — single query (may use offset for page > 1). */
+    private async listStreetsCoreReviewCoreSingleQuery(
+        params: ListStreetsParams,
+        limit: number,
+    ): Promise<StreetCoreReviewListCoreRow[]> {
+        const whereClause = Prisma.join(streetsListFilterClauses(params), " AND ");
+        const orderByClause = streetsListOrderBy(params.sortBy, params.sortOrder);
+        const keysetClause = streetsKeysetClause(params, params.sortBy, params.sortOrder);
+        const useKeyset = params.cursor_updated_at !== undefined && params.cursor_id !== undefined;
+        const updatedAtSort = params.sortBy === "updated" || params.sortBy === "updated_at";
+        const useAdminJoin = params.sortBy === "admin_area";
+        const useOffset =
+            !useKeyset &&
+            !updatedAtSort &&
+            (params.offset ?? 0) > 0;
+        const offset = useKeyset || !useOffset ? 0 : (params.offset ?? 0);
+        const timingMeta = {
+            has_search: params.q !== undefined,
+            sort_by: params.sortBy,
+            limit,
+            offset,
+            keyset: useKeyset,
+            fast_list: true,
+            status: resolveStreetsListStatus(params),
+        };
+
+        const adminAreaJoinSql = useAdminJoin
+            ? Prisma.sql`LEFT JOIN core.core_admin_areas AS aa ON aa.id = s.admin_area_id`
+            : Prisma.empty;
+
+        const offsetSql = offset > 0 ? Prisma.sql`OFFSET ${offset}` : Prisma.empty;
+
+        return timeStreetsCoreReviewQuery("list", timingMeta, () =>
+            this.prisma.$queryRaw<StreetCoreReviewListCoreRow[]>(Prisma.sql`
+                SELECT
+                    s.id::text AS id,
+                    s.public_id,
+                    s.canonical_name,
+                    s.admin_area_id::text AS admin_area_id,
+                    s.road_class_id::text AS road_class_id,
+                    s.road_class,
+                    s.surface,
+                    s.is_oneway,
+                    s.bridge,
+                    s.tunnel,
+                    s.routing_status,
+                    s.deleted_at,
+                    s.is_active,
+                    s.verification_status,
+                    s.is_verified,
+                    s.created_at,
+                    s.updated_at
+                FROM core.core_streets AS s
+                ${adminAreaJoinSql}
+                WHERE ${whereClause}
+                ${keysetClause}
+                ORDER BY ${orderByClause}
+                LIMIT ${limit}
+                ${offsetSql}
+            `),
+        );
+    }
+
+    private async batchPrimaryStreetNames(
+        streetIds: bigint[],
+    ): Promise<Map<string, { myanmar_name: string | null; english_name: string | null }>> {
+        if (streetIds.length === 0) {
+            return new Map();
+        }
+
+        const rows = await this.prisma.$queryRaw<
+            { street_id: string; myanmar_name: string | null; english_name: string | null }[]
+        >(Prisma.sql`
+            SELECT
+                sn.street_id::text AS street_id,
+                max(sn.name) FILTER (
+                    WHERE sn.language_code IN ('my', 'mm')
+                      AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
+                      AND sn.name_type = 'official'
+                      AND sn.is_primary IS TRUE
+                ) AS myanmar_name,
+                max(sn.name) FILTER (
+                    WHERE sn.language_code = 'en'
+                      AND upper(trim(coalesce(sn.script_code, ''))) = 'LATN'
+                      AND sn.name_type = 'official'
+                      AND sn.is_primary IS TRUE
+                ) AS english_name
+            FROM core.core_street_names AS sn
+            WHERE sn.street_id IN (${Prisma.join(streetIds)})
+            GROUP BY sn.street_id
         `);
-        return Number(rows[0]?.count ?? 0n);
+
+        return new Map(rows.map((row) => [row.street_id, row]));
+    }
+
+    private async batchAdminAreaCanonicalNames(adminAreaIds: bigint[]): Promise<Map<string, string>> {
+        if (adminAreaIds.length === 0) {
+            return new Map();
+        }
+
+        const rows = await this.prisma.$queryRaw<{ id: string; canonical_name: string }[]>(Prisma.sql`
+            SELECT id::text AS id, canonical_name
+            FROM core.core_admin_areas
+            WHERE id IN (${Prisma.join(adminAreaIds)})
+        `);
+
+        return new Map(rows.map((row) => [row.id, row.canonical_name]));
+    }
+
+    private async batchRoadClassLabels(
+        roadClassIds: bigint[],
+    ): Promise<Map<string, { code: string; name: string }>> {
+        if (roadClassIds.length === 0) {
+            return new Map();
+        }
+
+        const rows = await this.prisma.$queryRaw<{ id: string; code: string; name: string }[]>(Prisma.sql`
+            SELECT id::text AS id, code, name
+            FROM ref.ref_road_classes
+            WHERE id IN (${Prisma.join(roadClassIds)})
+        `);
+
+        return new Map(rows.map((row) => [row.id, { code: row.code, name: row.name }]));
+    }
+
+    /**
+     * Scope totals for header chips — one pass, no verification filter, no joins.
+     */
+    async countStreetsCoreReviewScopeBreakdown(
+        params: StreetsListFilterParams,
+    ): Promise<StreetsCoreReviewScopeCounts> {
+        const whereClause = Prisma.join(streetsScopeFilterClauses(params), " AND ");
+        const timingMeta = {
+            has_search: params.q !== undefined,
+            has_admin_area_filter: params.admin_area_id !== undefined,
+            has_road_class_filter: params.road_class_id !== undefined,
+            status: resolveStreetsListStatus(params),
+            join_mode: "none",
+            mode: "scope_breakdown",
+        };
+
+        return timeStreetsCoreReviewQuery("count", timingMeta, async () => {
+            const rows = await this.prisma.$queryRaw<
+                { total: bigint; verified: bigint; unverified: bigint }[]
+            >(Prisma.sql`
+                SELECT
+                    COUNT(*)::bigint AS total,
+                    COUNT(*) FILTER (
+                        WHERE ${effectiveVerificationStatusExpr("s")} = 'verified'
+                    )::bigint AS verified,
+                    COUNT(*) FILTER (
+                        WHERE ${effectiveVerificationStatusExpr("s")} = 'unverified'
+                    )::bigint AS unverified
+                FROM core.core_streets AS s
+                WHERE ${whereClause}
+            `);
+
+            const row = rows[0];
+            return {
+                total: Number(row?.total ?? 0n),
+                verified: Number(row?.verified ?? 0n),
+                unverified: Number(row?.unverified ?? 0n),
+            };
+        });
+    }
+
+    /**
+     * Core-review list total — single-table COUNT(*) with filter-specific EXISTS only.
+     * Never selects geometry or joins names/admin/road classes in FROM.
+     */
+    async countStreetsCoreReview(params: StreetsListFilterParams): Promise<number> {
+        const whereClause = Prisma.join(streetsCountFilterClauses(params), " AND ");
+        const timingMeta = {
+            has_search: params.q !== undefined,
+            has_admin_area_filter: params.admin_area_id !== undefined,
+            has_road_class_filter: params.road_class_id !== undefined,
+            has_verification_filter: params.verification_status !== undefined,
+            status: resolveStreetsListStatus(params),
+            join_mode: "none",
+        };
+
+        return timeStreetsCoreReviewQuery("count", timingMeta, async () => {
+            const rows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+                SELECT COUNT(*)::bigint AS count
+                FROM core.core_streets AS s
+                WHERE ${whereClause}
+            `);
+            return Number(rows[0]?.count ?? 0n);
+        });
+    }
+
+    /** @deprecated Prefer countStreetsCoreReview for dashboard core-review lists. */
+    async countStreets(params: StreetsListFilterParams): Promise<number> {
+        return this.countStreetsCoreReview(params);
     }
 
     /**
@@ -1223,29 +1683,6 @@ export class StreetsRepository {
         }
 
         if (value.trim() === "") {
-            if (languageCode === "mm") {
-                await tx.$executeRaw(Prisma.sql`
-                    DELETE FROM core.core_street_names AS sn
-                    USING core.core_streets AS s
-                    WHERE s.id = sn.street_id
-                      AND s.public_id = CAST(${publicId} AS uuid)
-                      AND sn.language_code IN ('mm', 'my')
-                      AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
-                      AND sn.name_type = 'official'
-                      AND sn.is_primary = true
-                `);
-            } else {
-                await tx.$executeRaw(Prisma.sql`
-                    DELETE FROM core.core_street_names AS sn
-                    USING core.core_streets AS s
-                    WHERE s.id = sn.street_id
-                      AND s.public_id = CAST(${publicId} AS uuid)
-                      AND sn.language_code = 'en'
-                      AND upper(trim(coalesce(sn.script_code, ''))) = 'LATN'
-                      AND sn.name_type = 'official'
-                      AND sn.is_primary = true
-                `);
-            }
             return;
         }
 
@@ -1391,6 +1828,54 @@ function lineStringGeoJsonFromJsonValue(value: Prisma.JsonValue): { type: "LineS
     }
 
     return { type: "LineString", coordinates: o.coordinates as number[][] };
+}
+
+function streetMyanmarNameScalarSql() {
+    return Prisma.sql`(
+        SELECT sn.name
+        FROM core.core_street_names AS sn
+        WHERE sn.street_id = s.id
+          AND sn.language_code IN ('my', 'mm')
+          AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
+          AND sn.name_type = 'official'
+          AND sn.is_primary IS TRUE
+        ORDER BY sn.id
+        LIMIT 1
+    )`;
+}
+
+function streetEnglishNameScalarSql() {
+    return Prisma.sql`(
+        SELECT sn.name
+        FROM core.core_street_names AS sn
+        WHERE sn.street_id = s.id
+          AND sn.language_code = 'en'
+          AND upper(trim(coalesce(sn.script_code, ''))) = 'LATN'
+          AND sn.name_type = 'official'
+          AND sn.is_primary IS TRUE
+        ORDER BY sn.id
+        LIMIT 1
+    )`;
+}
+
+function streetOfficialNamesLateralSql() {
+    return Prisma.sql`
+        SELECT
+            max(sn.name) FILTER (
+                WHERE sn.language_code IN ('my', 'mm')
+                  AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
+                  AND sn.name_type = 'official'
+                  AND sn.is_primary = true
+            ) AS myanmar_name,
+            max(sn.name) FILTER (
+                WHERE sn.language_code = 'en'
+                  AND upper(trim(coalesce(sn.script_code, ''))) = 'LATN'
+                  AND sn.name_type = 'official'
+                  AND sn.is_primary = true
+            ) AS english_name
+        FROM core.core_street_names AS sn
+        WHERE sn.street_id = s.id
+    `;
 }
 
 function streetNamesJsonSql() {

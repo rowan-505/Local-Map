@@ -6,7 +6,7 @@
  *
  * CLI:
  *   --package-name=remote_review_pkg_...
- *   --entity-family=all|buildings,places,roads,bus_stops,landuse,water_lines,water_polygons,addresses,address_components,place_address_links,admin_areas,routing_barriers
+ *   --entity-family=all|admin_areas|roads|admin_areas,roads|...
  *   --max-rows-per-family=N
  *
  * ENV: LOCAL_DATABASE_URL, SUPABASE_DATABASE_URL, REMOTE_REVIEW_UPLOAD_ENABLED,
@@ -24,7 +24,9 @@ import {
   emptyPerFamilyCounts,
   emptyPerFamilyUploadStats,
   familiesFromPackageItemCounts,
+  filterFamiliesWithoutPackageItems,
   isEntityFamilySlug,
+  parseConfidenceScore,
   parseEntityFamilyFilter,
   REMOTE_REVIEW_ENTITY_FAMILIES,
   resolveEntityFamiliesForUpload,
@@ -222,7 +224,10 @@ function filterAndCapItems(params: {
     const arr = buckets.get(f)!;
     const slice = cap == null ? arr : arr.slice(0, cap);
     perFamilyCounts[f] = slice.length;
-    result.push(...slice);
+    // Avoid spread (push(...slice)) — 800k+ args overflows the JS call stack.
+    for (let i = 0; i < slice.length; i++) {
+      result.push(slice[i]!);
+    }
   }
 
   result.sort((a, b) => {
@@ -242,6 +247,12 @@ function assertKnownPackageItemFamilies(items: LocalPackageItemRow[]): void {
     if (!isEntityFamilySlug(it.entity_family)) {
       throw new Error(`Missing Stage 12 upload config for entity_family=${it.entity_family}`);
     }
+  }
+}
+
+function assertPackageItemConfidenceScores(items: LocalPackageItemRow[]): void {
+  for (const it of items) {
+    parseConfidenceScore(it.confidence_score);
   }
 }
 
@@ -444,8 +455,8 @@ async function syncBatchTotals(
   filteredPackageItems: number,
   entityFamilies: EntityFamilySlug[]
 ): Promise<void> {
-  const countUnion = buildBatchCountUnionSql();
-  const preservedUnion = buildBatchPreservedUnionSql();
+  const countUnion = buildBatchCountUnionSql(entityFamilies);
+  const preservedUnion = buildBatchPreservedUnionSql(entityFamilies);
   await remote.query(
     `
     with cand as (${countUnion}),
@@ -609,7 +620,9 @@ async function main(): Promise<number> {
   }
 
   const entityFamilyRaw =
-    cli.entityFamilyRaw ?? process.env.REMOTE_REVIEW_ENTITY_FAMILY?.trim();
+    cli.entityFamilyRaw ??
+    process.env.REMOTE_REVIEW_ENTITY_FAMILY?.trim() ??
+    process.env.ENTITY_FAMILIES?.trim();
   let familyFilter: EntityFamilySlug[] | null;
   try {
     familyFilter = parseEntityFamilyFilter(entityFamilyRaw);
@@ -701,17 +714,30 @@ async function main(): Promise<number> {
       filter: familyFilter,
     });
 
+    const skippedFilterFamilies = filterFamiliesWithoutPackageItems({
+      filter: familyFilter,
+      packageItemCounts,
+    });
+    for (const f of skippedFilterFamilies) {
+      console.warn(
+        `[stage_k] WARN filter includes ${f} but package has zero package_items — skipping that family`
+      );
+    }
+
     console.log(`[stage_k] final upload families=${uploadFamilies.join(',')}`);
 
     if (uploadFamilies.length === 0) {
-      console.error('No entity families matched filter — nothing uploaded.');
+      if (familyFilter !== null && familyFilter.length > 0) {
+        console.error(
+          `No entity families matched filter (${formatFamilyFilterLog(familyFilter)}) — nothing uploaded.`
+        );
+      } else {
+        console.error('No entity families matched filter — nothing uploaded.');
+      }
       return 1;
     }
 
     for (const f of uploadFamilies) {
-      if ((packageItemCounts[f] ?? 0) === 0) {
-        throw new Error(`Missing Stage 12 upload config for entity_family=${f} (zero package_items)`);
-      }
       assertUploadConfigForFamily(f);
     }
 
@@ -727,6 +753,8 @@ async function main(): Promise<number> {
       console.error('No candidate rows matched filters — nothing uploaded.');
       return 1;
     }
+
+    assertPackageItemConfidenceScores(filtered);
 
     logPackageItemCounts('selected for upload by entity_family', perFamilyCounts);
 

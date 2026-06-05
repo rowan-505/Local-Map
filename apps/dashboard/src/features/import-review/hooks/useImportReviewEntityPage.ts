@@ -32,6 +32,10 @@ import {
     type ImportReviewDecision,
 } from "@/src/lib/api";
 import { deriveImportReviewEditorUxCanMutate } from "@/src/lib/importReviewEditorUx";
+import {
+    buildRoadDecisionPatchBody,
+    roadApprovalBlockingErrors,
+} from "@/src/features/import-review/utils/importReviewRoadRoutingApproval";
 import { importReviewOverviewHref } from "@/src/lib/importReviewEntityConfig";
 import {
     applyImportReviewScopeSearchParams,
@@ -75,6 +79,7 @@ import {
     readImportReviewListFilters,
     type ImportReviewListFilters,
 } from "../utils/entityPageUtils";
+import { readPromotionStateFromSearchParams } from "../utils/importReviewPromotionListState";
 import { overrideFieldDefsForEntity } from "../config/overrideFieldDefs";
 
 const ENV_SNAPSHOT_DEFAULT = process.env.NEXT_PUBLIC_IMPORT_REVIEW_SNAPSHOT_VERSION?.trim() ?? "";
@@ -157,10 +162,8 @@ export function useImportReviewEntityPage(
         const raw = Number(searchParams.get("offset"));
         return Number.isFinite(raw) && raw >= 0 ? raw : 0;
     });
-    const [showPromoted, setShowPromoted] = useState(
-        () =>
-            searchParams.get("include_promoted") === "true" ||
-            searchParams.get("include_promoted") === "1"
+    const [promotionState, setPromotionState] = useState(() =>
+        readPromotionStateFromSearchParams(searchParams)
     );
 
     const [isApplyingFilters, setIsApplyingFilters] = useState(false);
@@ -186,6 +189,7 @@ export function useImportReviewEntityPage(
     const [overrideSaveMessage, setOverrideSaveMessage] = useState<string | null>(null);
     const [overrideSaveTechnicalError, setOverrideSaveTechnicalError] = useState<string | null>(null);
     const [decisionSaveMessage, setDecisionSaveMessage] = useState<string | null>(null);
+    const [actionFeedbackMessage, setActionFeedbackMessage] = useState<string | null>(null);
 
     const apiScopeQuery = batchContext.apiScopeQuery;
     const resolvedReviewBatchId = reviewBatchIdFromApiScopeQuery(apiScopeQuery);
@@ -211,10 +215,19 @@ export function useImportReviewEntityPage(
                 sort,
                 filters,
                 qApplied,
-                showPromoted,
+                promotionState,
                 apiFamily: config?.apiFamily,
             }),
-        [resolvedReviewBatchId, limit, offset, sort, filters, qApplied, showPromoted, config?.apiFamily]
+        [
+            resolvedReviewBatchId,
+            limit,
+            offset,
+            sort,
+            filters,
+            qApplied,
+            promotionState,
+            config?.apiFamily,
+        ]
     );
 
     useClearSelectionOnListQueryChange(listQueryKey, setSelectedIds);
@@ -242,9 +255,20 @@ export function useImportReviewEntityPage(
             sort,
             filters,
             qApplied,
-            showPromoted,
+            promotionState,
         };
-    }, [hasValidScope, apiScopeQuery, resolvedReviewBatchId, config, limit, offset, sort, filters, qApplied, showPromoted]);
+    }, [
+        hasValidScope,
+        apiScopeQuery,
+        resolvedReviewBatchId,
+        config,
+        limit,
+        offset,
+        sort,
+        filters,
+        qApplied,
+        promotionState,
+    ]);
 
     const candidatesQueryKey = useMemo(
         () =>
@@ -258,7 +282,7 @@ export function useImportReviewEntityPage(
                           sort: listParams.sort,
                           filters: listParams.filters,
                           qApplied: listParams.qApplied,
-                          showPromoted: listParams.showPromoted,
+                          promotionState: listParams.promotionState,
                       }
                     : null
             ),
@@ -420,10 +444,7 @@ export function useImportReviewEntityPage(
         );
         const off = Number(searchParams.get("offset"));
         setOffset(Number.isFinite(off) && off >= 0 ? off : 0);
-        setShowPromoted(
-            searchParams.get("include_promoted") === "true" ||
-                searchParams.get("include_promoted") === "1"
-        );
+        setPromotionState(readPromotionStateFromSearchParams(searchParams));
     }, [searchParams, config?.defaultSort]);
 
     useEffect(() => {
@@ -645,10 +666,17 @@ export function useImportReviewEntityPage(
         void fetchDrawerGeometry(drawerRow.id);
     }, [drawerRow, config, fetchDrawerGeometry]);
 
+    const isRoadFamily = config?.apiFamily === "roads";
+
     const patchDecision = async (
         row: ImportReviewBuildingListItem,
         decision: ImportReviewDecision,
-        opts?: { force?: boolean; confirmDuplicate?: boolean; note?: string | null }
+        opts?: {
+            force?: boolean;
+            confirmDuplicate?: boolean;
+            confirmMatchedAutoUpdate?: boolean;
+            note?: string | null;
+        }
     ) => {
         if (!config) {
             return;
@@ -657,14 +685,16 @@ export function useImportReviewEntityPage(
         if (!scopeBody.review_batch_id && !scopeBody.source_snapshot_version) {
             return;
         }
-        const updated = await patchEntityDecision(config.apiFamily, row.id, {
-            ...scopeBody,
-            review_decision: decision,
-            review_note: opts?.note !== undefined ? opts.note : row.review_note,
-            force: opts?.force ?? false,
-            confirm_duplicate_reviewed: opts?.confirmDuplicate ?? false,
+        const body = buildRoadDecisionPatchBody({
+            scopeBody,
+            row,
+            decision,
+            isRoadFamily: config.apiFamily === "roads",
+            opts,
         });
+        const updated = await patchEntityDecision(config.apiFamily, row.id, body);
         mergeRow(updated);
+        return updated;
     };
 
     const applyScopeToUrl = () => {
@@ -719,10 +749,12 @@ export function useImportReviewEntityPage(
             p.set("sort", sort);
             p.set("limit", String(limit));
             p.set("offset", "0");
-            if (showPromoted) {
-                p.set("include_promoted", "true");
+            p.delete("include_promoted");
+            p.delete("retry_needed");
+            if (promotionState !== "all_active") {
+                p.set("promotion_state", promotionState);
             } else {
-                p.delete("include_promoted");
+                p.delete("promotion_state");
             }
             },
             { source: "entity_page:apply_filters" }
@@ -745,6 +777,7 @@ export function useImportReviewEntityPage(
             class_code: "",
         });
         setQDraft("");
+        setPromotionState("all_active");
         replaceQuery(
             (p) => {
                 applyImportReviewScopeSearchParams(p, snapshotInput.trim(), batchInput.trim());
@@ -756,6 +789,9 @@ export function useImportReviewEntityPage(
                     "promotion_status",
                     "class_code",
                     "q",
+                    "include_promoted",
+                    "retry_needed",
+                    "promotion_state",
                 ].forEach((k) => p.delete(k));
                 p.set("offset", "0");
             },
@@ -833,6 +869,7 @@ export function useImportReviewEntityPage(
         if (!canEditImportReview || !config) {
             return;
         }
+        setActionFeedbackMessage(null);
         setRowActionBusyId(row.id);
         try {
             if (decision === "approved" && row.match_status === "manual_protected") {
@@ -841,6 +878,7 @@ export function useImportReviewEntityPage(
                     return;
                 }
                 await patchDecision(row, decision, { force: true });
+                setActionFeedbackMessage("Saved changes");
                 return;
             }
             if (decision === "approved" && row.match_status === "duplicate_candidate") {
@@ -849,11 +887,46 @@ export function useImportReviewEntityPage(
                     return;
                 }
                 await patchDecision(row, decision, { confirmDuplicate: true });
+                setActionFeedbackMessage("Saved changes");
                 return;
             }
+            if (
+                isRoadFamily &&
+                decision === "approved" &&
+                row.match_status === "matched_auto_update"
+            ) {
+                const ok = window.confirm(
+                    "This road is matched_auto_update. Approve with confirm_matched_auto_update=true?"
+                );
+                if (!ok) {
+                    return;
+                }
+                await patchDecision(row, decision, { confirmMatchedAutoUpdate: true });
+                setActionFeedbackMessage("Saved changes");
+                return;
+            }
+            if (isRoadFamily && decision === "approved") {
+                const blocking = roadApprovalBlockingErrors(row);
+                if (blocking.length > 0) {
+                    setActionFeedbackMessage(
+                        `Cannot approve while validation errors persist. Fix direct-edit fields first.`
+                    );
+                    return;
+                }
+            }
             await patchDecision(row, decision);
+            setActionFeedbackMessage("Saved changes");
         } catch (err) {
-            window.alert(formatImportReviewApiError(err, "Update failed"));
+            const msg = formatImportReviewApiError(err, "Update failed");
+            if (msg.includes("matched_auto_update") && decision === "approved" && isRoadFamily) {
+                const ok = window.confirm(`${msg}\n\nRetry with confirm_matched_auto_update=true?`);
+                if (ok) {
+                    await patchDecision(row, decision, { confirmMatchedAutoUpdate: true });
+                    setActionFeedbackMessage("Saved changes");
+                }
+                return;
+            }
+            setActionFeedbackMessage(msg);
         } finally {
             setRowActionBusyId(null);
         }
@@ -955,7 +1028,13 @@ export function useImportReviewEntityPage(
                 referenceFields: referenceFieldsDevLog,
             });
 
-            const detailRow = mergeDirectEditSaveDetailRow(patchResponse, refreshed, fieldsPatch);
+            const detailRow = mergeDirectEditSaveDetailRow(patchResponse, refreshed, fieldsPatch, {
+                apiFamily: config.apiFamily,
+                roadClassOptions:
+                    config.apiFamily === "roads"
+                        ? (formOptions.road_classes as { id: string; code: string }[])
+                        : undefined,
+            });
             mergeRow(detailRow);
             await syncImportReviewListCacheAfterDirectEditSave({
                 queryClient,
@@ -1011,18 +1090,25 @@ export function useImportReviewEntityPage(
         if (!scopeBody.review_batch_id && !scopeBody.source_snapshot_version) {
             return;
         }
-        setIsSaving(true);
         setDecisionSaveMessage(null);
+        if (isRoadFamily && drawerDecision === "approved") {
+            const blocking = roadApprovalBlockingErrors(drawerRow);
+            if (blocking.length > 0) {
+                setDecisionSaveMessage(
+                    "Cannot approve while validation errors persist. Fix direct-edit fields first."
+                );
+                return;
+            }
+        }
+        setIsSaving(true);
         try {
-            const updated = await patchEntityDecision(config.apiFamily, drawerRow.id, {
-                ...scopeBody,
-                review_decision: drawerDecision,
-                review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
+            await patchDecision(drawerRow, drawerDecision, {
+                note: drawerNote.trim() === "" ? null : drawerNote.trim(),
             });
-            mergeRow(updated);
-            setDecisionSaveMessage("Decision saved.");
+            setDecisionSaveMessage("Saved changes.");
         } catch (err) {
-            setDecisionSaveMessage(formatImportReviewApiError(err, "Failed to apply decision."));
+            const msg = formatImportReviewApiError(err, "Failed to apply decision.");
+            setDecisionSaveMessage(msg);
         } finally {
             setIsSaving(false);
         }
@@ -1036,6 +1122,9 @@ export function useImportReviewEntityPage(
         !(ambiguousBatches?.length) &&
         isLoadingCandidates;
     const isInitialCandidatesLoad = showCandidatesSkeleton;
+
+    const supportsRowSelection =
+        (config?.supportsBulkActions ?? false) || (config?.supportsBulkSelection ?? false);
 
     const bulk = useImportReviewBulkActions({
         items: list?.items ?? [],
@@ -1053,6 +1142,7 @@ export function useImportReviewEntityPage(
 
     return {
         config: config as ImportReviewEntityConfig | null,
+        supportsRowSelection,
         overviewHref,
         batchContext,
         apiScopeQuery,
@@ -1069,8 +1159,9 @@ export function useImportReviewEntityPage(
         setSort,
         limit,
         setLimit,
-        showPromoted,
-        setShowPromoted,
+        promotionState,
+        setPromotionState,
+        showPromotionStateFilter: config?.filterFields.includes("promotion_status") ?? false,
         filterOptions,
         isLoadingFilters,
         isApplyingFilters,
@@ -1108,6 +1199,7 @@ export function useImportReviewEntityPage(
         overrideSaveMessage,
         overrideSaveTechnicalError: isImportReviewDevMode ? overrideSaveTechnicalError : "",
         decisionSaveMessage,
+        actionFeedbackMessage,
         handleDrawerOverridesSave: handleDrawerCandidateFieldsSave,
         candidateMutationScope: mutationScope(list, apiScopeQuery),
         offset,

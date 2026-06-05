@@ -4,7 +4,6 @@ import type {
     RoadDryRunItemStatus,
     RoadDryRunSampleItem,
 } from "./import-review-promotion-road-dry-run.types.js";
-import { SERIOUS_ROUTING_WARNING_CODES } from "./import-review-road-routing-validation.types.js";
 import { isImportReviewRoadPromotionEnabled } from "./import-review-config.js";
 
 export const MAX_ROAD_LENGTH_M = 50_000;
@@ -37,17 +36,13 @@ export const INFO_CODES = new Set([
 export function resolveItemStatus(
     blockingReasons: string[],
     warningCodes: string[],
-    includeWarnings: boolean
+    _includeWarnings: boolean
 ): RoadDryRunItemStatus {
     if (blockingReasons.length > 0) {
         return "blocked";
     }
     if (warningCodes.length === 0) {
         return "safe_to_promote";
-    }
-    const serious = warningCodes.filter((c) => SERIOUS_ROUTING_WARNING_CODES.has(c));
-    if (serious.length > 0 && !includeWarnings) {
-        return "needs_manual_review";
     }
     return "promote_with_warning";
 }

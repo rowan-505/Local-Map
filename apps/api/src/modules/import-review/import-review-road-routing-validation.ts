@@ -7,8 +7,6 @@ import type {
     ImportReviewRoadValidationIssue,
     ImportReviewRoadValidationSeverity,
 } from "./import-review-road-routing-validation.types.js";
-import { SERIOUS_ROUTING_WARNING_CODES } from "./import-review-road-routing-validation.types.js";
-
 const CORE_NEARBY_BUFFER_M = 50;
 const IMPORTANT_ROAD_CODES = new Set([
     "motorway",
@@ -241,19 +239,13 @@ export function issuesToStoredJson(issues: ImportReviewRoadValidationIssue[]): u
     }));
 }
 
+/** Routing validation warnings are informational only — only errors block approval. */
 export function computeCanApprove(
     errors: ImportReviewRoadValidationIssue[],
-    warnings: ImportReviewRoadValidationIssue[],
-    confirmWarnings: boolean
+    _warnings: ImportReviewRoadValidationIssue[],
+    _confirmWarnings?: boolean
 ): boolean {
-    if (errors.length > 0) {
-        return false;
-    }
-    const serious = warnings.filter((w) => SERIOUS_ROUTING_WARNING_CODES.has(w.code));
-    if (serious.length === 0) {
-        return true;
-    }
-    return confirmWarnings;
+    return errors.length === 0;
 }
 
 export async function runImportReviewRoadRoutingValidation(args: {

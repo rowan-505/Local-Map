@@ -98,7 +98,7 @@ At **z4–5** (default opening view):
 | Beige land | `overview-land` |
 | Subtle country fills | `overview-countries-fill` |
 | Gray country borders | `overview-country-boundaries` |
-| Purple Myanmar outline | `overview-mmr-admin0-outline` |
+| Dark Myanmar country highlight (NE-aligned) | `overview-mmr-country-highlight` |
 | Country names (not crowded) | `overview-country-labels` |
 | State/region tint + labels | `overview-mmr-admin1-*` (from z4) |
 | **No** city clutter | `overview-populated-places` hidden until z5+ |

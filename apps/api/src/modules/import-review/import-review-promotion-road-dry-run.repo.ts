@@ -1,5 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import type { ImportReviewRoadDryRunSummary } from "./import-review-road-dry-run-summary.types.js";
+import type { ImportReviewRoadRoutingReadinessSummary } from "./import-review-road-routing-readiness.types.js";
 import type { ImportReviewPromotionRoadDryRunResult } from "./import-review-promotion-road-dry-run.types.js";
 import {
     IMPORT_REVIEW_ROAD_DRY_RUN_STAGES,
@@ -33,7 +35,12 @@ export type RoadCandidatePromotionRow = {
     validation_warnings: unknown;
     matched_core_id: bigint | null;
     road_class_id: bigint | null;
-    geom: unknown;
+    access: string | null;
+    is_oneway: boolean | null;
+    speed_kph: number | null;
+    bridge: boolean | null;
+    tunnel: boolean | null;
+    has_geom: boolean | null;
     srid: number | null;
     geom_type: string | null;
     is_valid: boolean | null;
@@ -57,13 +64,62 @@ export class ImportReviewPromotionRoadDryRunRepository {
     }
 
     async fetchBatchMeta(batchId: bigint): Promise<{ source_review_batch_id: bigint | null } | null> {
-        const rows = await this.prisma.$queryRaw<{ source_review_batch_id: bigint | null }[]>`
-            SELECT source_review_batch_id
+        const row = await this.fetchBatchForDryRun(batchId);
+        if (!row) {
+            return null;
+        }
+        return { source_review_batch_id: row.source_review_batch_id };
+    }
+
+    async fetchBatchForDryRun(
+        batchId: bigint
+    ): Promise<{ source_review_batch_id: bigint | null; validation_percent: number } | null> {
+        const rows = await this.prisma.$queryRaw<
+            { source_review_batch_id: bigint | null; validation_percent: number | null }[]
+        >`
+            SELECT source_review_batch_id, validation_percent
             FROM system.system_publish_batches
             WHERE id = ${batchId}
             LIMIT 1
         `;
-        return rows[0] ?? null;
+        const row = rows[0];
+        if (!row) {
+            return null;
+        }
+        return {
+            source_review_batch_id: row.source_review_batch_id,
+            validation_percent: Number(row.validation_percent ?? 0),
+        };
+    }
+
+    async listPendingReadyRoadPublishItems(batchId: bigint): Promise<RoadPublishItemRow[]> {
+        return this.prisma.$queryRaw<RoadPublishItemRow[]>`
+            SELECT
+                spi.id AS publish_item_id,
+                spi.publish_action,
+                spi.review_candidate_id,
+                pb.source_review_batch_id AS review_batch_id
+            FROM system.system_publish_items AS spi
+            INNER JOIN system.system_publish_batches AS pb ON pb.id = spi.publish_batch_id
+            WHERE spi.publish_batch_id = ${batchId}
+              AND spi.entity_family = 'roads'
+              AND spi.publish_status = 'pending'
+              AND spi.validation_result->>'status' = 'ready'
+            ORDER BY spi.id ASC
+        `;
+    }
+
+    async coreStreetExists(streetId: bigint): Promise<boolean> {
+        const rows = await this.prisma.$queryRaw<{ exists: boolean }[]>`
+            SELECT EXISTS (
+                SELECT 1
+                FROM core.core_streets AS s
+                WHERE s.id = ${streetId}
+                  AND s.deleted_at IS NULL
+                  AND coalesce(s.is_active, true)
+            ) AS exists
+        `;
+        return rows[0]?.exists === true;
     }
 
     async listRoadPublishItems(batchId: bigint): Promise<RoadPublishItemRow[]> {
@@ -103,7 +159,12 @@ export class ImportReviewPromotionRoadDryRunRepository {
                 r.validation_warnings,
                 r.matched_core_id,
                 r.road_class_id,
-                r.geom,
+                r.access,
+                r.is_oneway,
+                r.speed_kph::float8 AS speed_kph,
+                r.bridge,
+                r.tunnel,
+                (${geomSourceExpr("r")} IS NOT NULL) AS has_geom,
                 CASE WHEN ${geomSourceExpr("r")} IS NOT NULL THEN ST_SRID(${geomSourceExpr("r")}) ELSE NULL END AS srid,
                 CASE WHEN ${geomSourceExpr("r")} IS NOT NULL THEN GeometryType(${geomSourceExpr("r")}) ELSE NULL END AS geom_type,
                 CASE WHEN ${geomSourceExpr("r")} IS NOT NULL THEN ST_IsValid(${geomSourceExpr("r")}) ELSE NULL END AS is_valid,
@@ -298,6 +359,185 @@ export class ImportReviewPromotionRoadDryRunRepository {
         }
     }
 
+    async upsertRoadDryRunStageLog(args: {
+        batchId: bigint;
+        stageStatus: string;
+        message?: string | null;
+        progressPercent: number;
+        details?: Record<string, unknown>;
+        finished?: boolean;
+    }): Promise<void> {
+        const stageStatus = requireValidPublishStageStatus(args.stageStatus);
+        const detailsJson = JSON.stringify(args.details ?? {});
+        const existing = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id
+            FROM system.system_publish_stage_logs
+            WHERE publish_batch_id = ${args.batchId}
+              AND stage_key = 'road_dry_run'
+            LIMIT 1
+        `;
+        if (existing.length === 0) {
+            await this.prisma.$executeRaw`
+                INSERT INTO system.system_publish_stage_logs (
+                    publish_batch_id,
+                    stage_key,
+                    stage_label,
+                    stage_status,
+                    message,
+                    progress_percent,
+                    details,
+                    started_at
+                )
+                VALUES (
+                    ${args.batchId},
+                    'road_dry_run',
+                    'Road dry-run',
+                    ${stageStatus},
+                    ${args.message ?? null},
+                    ${args.progressPercent},
+                    ${detailsJson}::jsonb,
+                    now()
+                )
+            `;
+            if (args.finished) {
+                await this.prisma.$executeRaw`
+                    UPDATE system.system_publish_stage_logs
+                    SET finished_at = now()
+                    WHERE publish_batch_id = ${args.batchId}
+                      AND stage_key = 'road_dry_run'
+                `;
+            }
+            return;
+        }
+        if (args.finished) {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_stage_logs
+                SET
+                    stage_status = ${stageStatus},
+                    message = ${args.message ?? null},
+                    progress_percent = ${args.progressPercent},
+                    details = ${detailsJson}::jsonb,
+                    finished_at = now()
+                WHERE publish_batch_id = ${args.batchId}
+                  AND stage_key = 'road_dry_run'
+            `;
+        } else {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_stage_logs
+                SET
+                    stage_status = ${stageStatus},
+                    message = ${args.message ?? null},
+                    progress_percent = ${args.progressPercent},
+                    details = ${detailsJson}::jsonb,
+                    started_at = CASE WHEN stage_status = 'pending' THEN now() ELSE started_at END
+                WHERE publish_batch_id = ${args.batchId}
+                  AND stage_key = 'road_dry_run'
+            `;
+        }
+    }
+
+    async upsertRoutingReadinessStageLog(args: {
+        batchId: bigint;
+        stageStatus: string;
+        message?: string | null;
+        progressPercent: number;
+        details?: Record<string, unknown>;
+        finished?: boolean;
+    }): Promise<void> {
+        const stageStatus = requireValidPublishStageStatus(args.stageStatus);
+        const detailsJson = JSON.stringify(args.details ?? {});
+        const existing = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id
+            FROM system.system_publish_stage_logs
+            WHERE publish_batch_id = ${args.batchId}
+              AND stage_key = 'routing_readiness_validation'
+            LIMIT 1
+        `;
+        if (existing.length === 0) {
+            await this.prisma.$executeRaw`
+                INSERT INTO system.system_publish_stage_logs (
+                    publish_batch_id,
+                    stage_key,
+                    stage_label,
+                    stage_status,
+                    message,
+                    progress_percent,
+                    details,
+                    started_at
+                )
+                VALUES (
+                    ${args.batchId},
+                    'routing_readiness_validation',
+                    'Routing readiness validation',
+                    ${stageStatus},
+                    ${args.message ?? null},
+                    ${args.progressPercent},
+                    ${detailsJson}::jsonb,
+                    now()
+                )
+            `;
+            if (args.finished) {
+                await this.prisma.$executeRaw`
+                    UPDATE system.system_publish_stage_logs
+                    SET finished_at = now()
+                    WHERE publish_batch_id = ${args.batchId}
+                      AND stage_key = 'routing_readiness_validation'
+                `;
+            }
+            return;
+        }
+        if (args.finished) {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_stage_logs
+                SET
+                    stage_status = ${stageStatus},
+                    message = ${args.message ?? null},
+                    progress_percent = ${args.progressPercent},
+                    details = ${detailsJson}::jsonb,
+                    finished_at = now()
+                WHERE publish_batch_id = ${args.batchId}
+                  AND stage_key = 'routing_readiness_validation'
+            `;
+        } else {
+            await this.prisma.$executeRaw`
+                UPDATE system.system_publish_stage_logs
+                SET
+                    stage_status = ${stageStatus},
+                    message = ${args.message ?? null},
+                    progress_percent = ${args.progressPercent},
+                    details = ${detailsJson}::jsonb,
+                    started_at = CASE WHEN stage_status = 'pending' THEN now() ELSE started_at END
+                WHERE publish_batch_id = ${args.batchId}
+                  AND stage_key = 'routing_readiness_validation'
+            `;
+        }
+    }
+
+    async persistRoadDryRun(
+        batchId: bigint,
+        summary: ImportReviewRoadDryRunSummary,
+        routingReadiness: ImportReviewRoadRoutingReadinessSummary,
+        result: ImportReviewPromotionRoadDryRunResult
+    ): Promise<void> {
+        const patch = JSON.stringify({
+            road_dry_run: summary,
+            routing_readiness_validation: routingReadiness,
+            routing_validation: routingReadiness,
+            road_dry_run_result: result,
+        });
+        await this.prisma.$executeRaw`
+            UPDATE system.system_publish_batches
+            SET summary = coalesce(summary, '{}'::jsonb) || ${patch}::jsonb
+            WHERE id = ${batchId}
+        `;
+        await this.syncValidationReadinessForRoadDryRun(
+            batchId,
+            result,
+            summary,
+            routingReadiness
+        );
+    }
+
     async persistRoadDryRunResult(
         batchId: bigint,
         result: ImportReviewPromotionRoadDryRunResult
@@ -308,15 +548,57 @@ export class ImportReviewPromotionRoadDryRunRepository {
             SET summary = coalesce(summary, '{}'::jsonb) || ${patch}::jsonb
             WHERE id = ${batchId}
         `;
-        await this.syncValidationReadinessForRoadDryRun(batchId, result);
+        await this.syncValidationReadinessForRoadDryRun(batchId, result, null);
+    }
+
+    async readRoutingReadinessSummary(
+        batchId: bigint
+    ): Promise<ImportReviewRoadRoutingReadinessSummary | null> {
+        const rows = await this.prisma.$queryRaw<{ summary: unknown }[]>`
+            SELECT coalesce(
+                summary->'routing_readiness_validation',
+                summary->'routing_validation'
+            ) AS summary
+            FROM system.system_publish_batches
+            WHERE id = ${batchId}
+            LIMIT 1
+        `;
+        const raw = rows[0]?.summary;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+            return null;
+        }
+        return raw as ImportReviewRoadRoutingReadinessSummary;
+    }
+
+    async readRoadDryRunSummary(batchId: bigint): Promise<ImportReviewRoadDryRunSummary | null> {
+        const rows = await this.prisma.$queryRaw<{ summary: unknown }[]>`
+            SELECT summary->'road_dry_run' AS summary
+            FROM system.system_publish_batches
+            WHERE id = ${batchId}
+            LIMIT 1
+        `;
+        const raw = rows[0]?.summary;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+            return null;
+        }
+        return raw as ImportReviewRoadDryRunSummary;
     }
 
     private async syncValidationReadinessForRoadDryRun(
         batchId: bigint,
-        result: ImportReviewPromotionRoadDryRunResult
+        result: ImportReviewPromotionRoadDryRunResult,
+        summary: ImportReviewRoadDryRunSummary | null,
+        routingReadiness: ImportReviewRoadRoutingReadinessSummary | null = null
     ): Promise<void> {
         const promotableCount = result.safe_to_promote_count + result.promote_with_warning_count;
+        const summaryPassed = summary?.status === "passed" && summary.failed_count === 0;
+        const routingPassed =
+            routingReadiness?.status === "passed" &&
+            routingReadiness.failed_count === 0 &&
+            routingReadiness.type === "db_routing_readiness";
         const canPromoteRoads =
+            summaryPassed &&
+            routingPassed &&
             result.blocked_count === 0 &&
             result.needs_manual_review_count === 0 &&
             promotableCount > 0;
@@ -324,7 +606,8 @@ export class ImportReviewPromotionRoadDryRunRepository {
             can_promote: canPromoteRoads,
             requires_warning_confirmation: result.promote_with_warning_count > 0,
             promotable_entity_families: canPromoteRoads ? ["roads"] : [],
-            road_dry_run_ready: canPromoteRoads,
+            road_dry_run_ready: summaryPassed && routingPassed,
+            routing_readiness_ready: routingPassed,
         });
         await this.prisma.$executeRaw`
             UPDATE system.system_publish_batches

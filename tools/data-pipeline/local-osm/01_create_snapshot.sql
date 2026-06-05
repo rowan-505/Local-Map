@@ -5,7 +5,7 @@
 --
 -- psql variables (set by run_local_osm_pipeline.sh):
 --   source_code, batch_name, snapshot_ref, snapshot_version, region_code,
---   checksum, boundary_id, allow_boundary_update
+--   checksum, boundary_id (optional — empty/NULL for whole-region imports), allow_boundary_update
 --
 -- psql :'var' substitution works only outside dollar-quoted DO blocks; params
 -- are loaded into pipeline_params first, then read inside the DO block.
@@ -22,6 +22,8 @@
 \endif
 
 BEGIN;
+
+\ir pipeline_entity_families.sql
 
 CREATE TEMP TABLE pipeline_params (
     source_code text NOT NULL,
@@ -90,7 +92,10 @@ DECLARE
     v_snapshot_id bigint;
     v_previous_snapshot_id bigint;
     v_action text;
+    v_effective_snapshot_ref text;
+    v_ref_collision boolean := false;
     v_existing system.system_source_snapshots%ROWTYPE;
+    v_ref_conflict system.system_source_snapshots%ROWTYPE;
 BEGIN
     SELECT
         p.source_code,
@@ -258,6 +263,27 @@ BEGIN
         )
         RETURNING id INTO v_batch_id;
 
+        v_action := 'created_snapshot';
+        v_effective_snapshot_ref := v_snapshot_ref;
+
+        SELECT s.*
+        INTO v_ref_conflict
+        FROM system.system_source_snapshots AS s
+        WHERE s.source_registry_id = v_registry_id
+          AND s.snapshot_ref = v_snapshot_ref;
+
+        v_ref_collision := FOUND;
+
+        IF v_ref_collision AND v_ref_conflict.snapshot_version IS DISTINCT FROM v_snapshot_version THEN
+            v_effective_snapshot_ref := v_snapshot_version;
+            v_action := v_action || '_snapshot_ref_from_version';
+            RAISE NOTICE
+                'stage01_snapshot_ref_collision source_registry_id=% requested_ref=% existing_snapshot_version=% — using snapshot_version as snapshot_ref',
+                v_registry_id,
+                v_snapshot_ref,
+                v_ref_conflict.snapshot_version;
+        END IF;
+
         INSERT INTO system.system_source_snapshots (
             source_registry_id,
             import_batch_id,
@@ -272,7 +298,7 @@ BEGIN
         VALUES (
             v_registry_id,
             v_batch_id,
-            v_snapshot_ref,
+            v_effective_snapshot_ref,
             v_snapshot_version,
             v_region_code,
             v_checksum,
@@ -281,8 +307,6 @@ BEGIN
             now()
         )
         RETURNING id INTO v_snapshot_id;
-
-        v_action := 'created_snapshot';
 
         INSERT INTO stage01_output (
             report_line,
@@ -300,7 +324,16 @@ BEGIN
             boundary_warning
         )
         VALUES (
-            format('created import batch %s and source snapshot %s', v_batch_id, v_snapshot_id),
+            format(
+                'created import batch %s and source snapshot %s%s',
+                v_batch_id,
+                v_snapshot_id,
+                CASE
+                    WHEN v_effective_snapshot_ref IS DISTINCT FROM v_snapshot_ref
+                        THEN format(' (snapshot_ref=%s)', v_effective_snapshot_ref)
+                    ELSE ''
+                END
+            ),
             v_action,
             v_registry_id,
             v_batch_id,
@@ -309,7 +342,7 @@ BEGIN
             NULL,
             v_registry_code,
             v_region_code,
-            v_snapshot_ref,
+            v_effective_snapshot_ref,
             v_checksum,
             v_boundary_id,
             NULL

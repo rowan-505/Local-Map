@@ -261,6 +261,25 @@ export const importReviewEntityFamilyParamSchema = z.enum(IMPORT_REVIEW_ENTITY_F
 
 export type ImportReviewEntityFamilyParam = z.infer<typeof importReviewEntityFamilyParamSchema>;
 
+export const importReviewPromotionStateSchema = z
+    .enum(["all_active", "ready_not_ready", "retry_needed", "active_locked", "promoted"])
+    .optional()
+    .default("all_active");
+
+export type ImportReviewPromotionStateFilter = z.infer<typeof importReviewPromotionStateSchema>;
+
+const importReviewListPromotionFiltersSchema = {
+    include_promoted: z
+        .preprocess((v) => v === true || v === "true" || v === "1" || v === 1, z.boolean())
+        .optional()
+        .default(false),
+    retry_needed: z
+        .preprocess((v) => v === true || v === "true" || v === "1" || v === 1, z.boolean())
+        .optional()
+        .default(false),
+    promotion_state: importReviewPromotionStateSchema,
+} as const;
+
 const importReviewCandidatesListQueryBaseInner = importReviewScopeObjectSchema
     .extend({
         match_status: optionalTrimmedStringSchema,
@@ -269,10 +288,7 @@ const importReviewCandidatesListQueryBaseInner = importReviewScopeObjectSchema
         review_decision: optionalTrimmedStringSchema,
         class_code: optionalTrimmedStringSchema,
         promotion_status: optionalTrimmedStringSchema,
-        include_promoted: z
-            .preprocess((v) => v === true || v === "true" || v === "1" || v === 1, z.boolean())
-            .optional()
-            .default(false),
+        ...importReviewListPromotionFiltersSchema,
         q: optionalTrimmedStringSchema,
         limit: z.coerce.number().int().min(1).max(200).default(50),
         offset: z.coerce.number().int().min(0).default(0),
@@ -299,10 +315,7 @@ const importReviewBuildingsQueryBaseInner = importReviewScopeObjectSchema.extend
     class_code: optionalTrimmedStringSchema,
     /** Distinct via filter-options; literal `__unreviewed__` for NULL/empty promotion_status rows. */
     promotion_status: optionalTrimmedStringSchema,
-    include_promoted: z
-        .preprocess((v) => v === true || v === "true" || v === "1" || v === 1, z.boolean())
-        .optional()
-        .default(false),
+    ...importReviewListPromotionFiltersSchema,
     q: optionalTrimmedStringSchema,
     limit: z.coerce.number().int().min(1).max(200).default(50),
     offset: z.coerce.number().int().min(0).default(0),
@@ -324,10 +337,7 @@ const importReviewPlacesQueryBaseInner = importReviewScopeObjectSchema
         review_status: optionalTrimmedStringSchema,
         review_decision: optionalTrimmedStringSchema,
         promotion_status: optionalTrimmedStringSchema,
-        include_promoted: z
-            .preprocess((v) => v === true || v === "true" || v === "1" || v === 1, z.boolean())
-            .optional()
-            .default(false),
+        ...importReviewListPromotionFiltersSchema,
         q: optionalTrimmedStringSchema,
         limit: z.coerce.number().int().min(1).max(200).default(50),
         offset: z.coerce.number().int().min(0).default(0),
@@ -413,7 +423,7 @@ const patchDecisionBodyInner = importReviewScopeObjectSchema
         /** Roads only: `match_status=matched_auto_update` approve requires this or `force`. */
         confirm_matched_auto_update: z.boolean().optional().default(false),
         /**
-         * Roads only: when approving, require this or `force` if persisted `validation_warnings` is non-empty from the last routing check.
+         * Roads only: deprecated — routing validation_warnings no longer block approval.
          */
         confirm_routing_warnings: z.boolean().optional().default(false),
     })
@@ -555,9 +565,42 @@ export const importReviewBulkFiltersSchema = z
 
 export type ImportReviewBulkFilters = z.infer<typeof importReviewBulkFiltersSchema>;
 
+const importReviewReviewStatusValues = [
+    "approved",
+    "rejected",
+    "needs_review",
+    "ignored",
+    "merged",
+] as const;
+
+function preprocessBulkDecisionBodyAliases(input: unknown): unknown {
+    if (!input || typeof input !== "object") {
+        return input;
+    }
+    const raw = input as Record<string, unknown>;
+    const out = { ...raw };
+    if (out.force_approval !== undefined && out.force === undefined) {
+        out.force = out.force_approval;
+    }
+    delete out.force_approval;
+    return out;
+}
+
+function reviewStatusForBulkDecision(decision: ImportReviewDecisionValue): string {
+    const map: Record<ImportReviewDecisionValue, string> = {
+        approved: "approved",
+        rejected: "rejected",
+        needs_more_review: "needs_review",
+        ignored: "ignored",
+        merged: "merged",
+    };
+    return map[decision];
+}
+
 const bulkDecisionBodyCoreInner = importReviewScopeObjectSchema
     .extend({
         review_decision: z.enum(importReviewDecisionValues),
+        review_status: z.enum(importReviewReviewStatusValues).optional(),
         review_note: z.preprocess((value) => {
             if (value === undefined) {
                 return undefined;
@@ -573,11 +616,30 @@ const bulkDecisionBodyCoreInner = importReviewScopeObjectSchema
         }, z.union([z.string().max(20_000), z.null()]).optional()),
         force: z.boolean().optional().default(false),
         dry_run: z.boolean().optional().default(false),
-        ids: z.array(z.union([z.number().int().nonnegative(), z.string().regex(/^\d+$/)])).max(10_000).optional(),
+        ids: z
+            .array(
+                z.union([
+                    z.number().int().nonnegative(),
+                    z.string().trim().regex(/^\d+$/),
+                ])
+            )
+            .max(10_000)
+            .optional(),
         filters: importReviewBulkFiltersSchema.optional(),
     })
     .superRefine(refineImportReviewSnapshotBatchScope)
     .superRefine((data, ctx) => {
+        if (data.review_status !== undefined) {
+            const expected = reviewStatusForBulkDecision(data.review_decision);
+            if (data.review_status !== expected) {
+                ctx.addIssue({
+                    code: "custom",
+                    message: `review_status must match review_decision (${expected})`,
+                    path: ["review_status"],
+                });
+            }
+        }
+
         if (data.ids !== undefined && data.ids.length === 0) {
             ctx.addIssue({
                 code: "custom",
@@ -612,7 +674,7 @@ const bulkDecisionBodyCoreInner = importReviewScopeObjectSchema
     });
 
 export const bulkImportReviewBuildingDecisionBodySchema = z.preprocess(
-    preprocessImportReviewScopeQuery,
+    (input) => preprocessBulkDecisionBodyAliases(preprocessImportReviewScopeQuery(input)),
     bulkDecisionBodyCoreInner
 );
 

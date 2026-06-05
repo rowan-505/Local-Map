@@ -117,6 +117,12 @@ export type ImportReviewBuildingListItem = {
     validation_warnings: unknown;
     validation_errors: unknown;
     promotion_status: string | null;
+    /** Latest failed publish-item error for this candidate in the current review batch. */
+    latest_promotion_failure_message?: string | null;
+    latest_promotion_publish_batch_id?: string | null;
+    latest_promotion_error_code?: string | null;
+    /** True when latest publish item failed and candidate is not promoted. */
+    promotion_retry_needed?: boolean;
     promoted_core_id: string | null;
     created_at: string;
     updated_at: string;
@@ -126,6 +132,10 @@ export type ImportReviewBuildingListItem = {
     centroid: ImportReviewGeoJson | null;
     /** Road list/PATCH only (`import_review.road_candidates`). */
     road_candidate_road_class_id: string | null;
+    road_class_id?: string | null;
+    road_class?: string | null;
+    road_class_name?: string | null;
+    road_class_label?: string | null;
     road_candidate_class_label: string | null;
     road_candidate_surface: string | null;
     road_candidate_is_oneway: boolean | null;
@@ -253,9 +263,11 @@ export type ImportReviewBulkSkippedReason = {
 
 /** Repository-layer bulk result before service adds envelope. */
 export type ImportReviewBulkDecisionRepoResult = {
+    success: boolean;
     updated_count: number;
     skipped_count: number;
     skipped_reasons: ImportReviewBulkSkippedReason[];
+    updated_ids?: number[];
     dry_run: boolean;
 };
 

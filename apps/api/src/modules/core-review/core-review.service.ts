@@ -19,7 +19,7 @@ import {
     listCoreReviewLanduse,
 } from "./entities/landuse.handler.js";
 import { CoreReviewLanduseRepository } from "./entities/landuse.repo.js";
-import { getCoreReviewStreetDetail, listCoreReviewStreets } from "./entities/streets.handler.js";
+import { getCoreReviewStreetDetail, countCoreReviewStreets, listCoreReviewStreets } from "./entities/streets.handler.js";
 import {
     getCoreReviewAddressDetail,
     listCoreReviewAddresses,
@@ -41,6 +41,7 @@ import { createCoreReviewStreet, updateCoreReviewStreet } from "./entities/stree
 import { CoreReviewLifecycleService } from "./core-review-lifecycle.service.js";
 import { resolveCoreReviewListStatus } from "./core-review-list-status.js";
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
+import { propagateCoreReviewReadError } from "./core-review-read.errors.js";
 
 function toListParams(
     def: ReturnType<typeof getCoreReviewEntityByPath>,
@@ -150,9 +151,34 @@ export class CoreReviewService {
     }
 
     list(entityPath: string, query: CoreReviewListQueryParsed) {
+        return this.listUnchecked(entityPath, query).catch((error: unknown) => {
+            propagateCoreReviewReadError(error);
+        });
+    }
+
+    count(entityPath: string, query: CoreReviewListQueryParsed) {
+        return this.countUnchecked(entityPath, query).catch((error: unknown) => {
+            propagateCoreReviewReadError(error);
+        });
+    }
+
+    private countUnchecked(entityPath: string, query: CoreReviewListQueryParsed) {
         const def = getCoreReviewEntityByPath(entityPath);
         if (!def) {
-            return null;
+            return Promise.resolve(null);
+        }
+
+        if (def.slug === "streets") {
+            return countCoreReviewStreets(this.streetsRepo, query);
+        }
+
+        return Promise.resolve(null);
+    }
+
+    private listUnchecked(entityPath: string, query: CoreReviewListQueryParsed) {
+        const def = getCoreReviewEntityByPath(entityPath);
+        if (!def) {
+            return Promise.resolve(null);
         }
 
         switch (def.slug) {
@@ -233,11 +259,17 @@ export class CoreReviewService {
                 );
             }
             default:
-                return null;
+                return Promise.resolve(null);
         }
     }
 
-    async getDetail(entityPath: string, id: string) {
+    getDetail(entityPath: string, id: string) {
+        return this.getDetailUnchecked(entityPath, id).catch((error: unknown) => {
+            propagateCoreReviewReadError(error);
+        });
+    }
+
+    private async getDetailUnchecked(entityPath: string, id: string) {
         const def = getCoreReviewEntityByPath(entityPath);
         if (!def) {
             return null;

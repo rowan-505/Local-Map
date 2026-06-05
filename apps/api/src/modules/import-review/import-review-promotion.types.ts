@@ -200,6 +200,7 @@ export type ImportReviewCreatePublishBatchResult = {
     timing_ms: ImportReviewCreatePublishBatchTimingMs;
     /** @deprecated Use candidates_marked_batched / by_family for buildings slice */
     building_candidates_marked_batched: number;
+    warnings?: string[];
 };
 
 export type ImportReviewCreateRetryPublishBatchResult = ImportReviewCreatePublishBatchResult & {
@@ -290,11 +291,12 @@ export type PublishBatchPromotionOutcomeStatus =
     | "not_started"
     | "promoting"
     | "promoted"
+    | "partial"
     | "partially_promoted"
     | "promotion_failed";
 
 export type ImportReviewPublishBatchPromotionResultSummary = {
-    status: "promoted" | "partially_promoted" | "failed";
+    status: "promoted" | "partial" | "partially_promoted" | "failed";
     promoted_count?: number;
     inserted_count: number;
     updated_count: number;
@@ -321,6 +323,12 @@ export type ImportReviewPublishItemStatusCounts = {
     skipped: number;
     total: number;
 };
+
+export type {
+    RoadPromotionGateCheck,
+    RoadPromotionGateId,
+    RoadPromotionGatesResult,
+} from "./import-review-road-promotion-gates.js";
 
 export type ImportReviewPublishBatchProgressResponse = {
     batch_id: string;
@@ -352,6 +360,9 @@ export type ImportReviewPublishBatchProgressResponse = {
     validation_heartbeat_at: string | null;
     validation_cancel_requested_at: string | null;
     validation_heartbeat_stale_warning: boolean;
+    promotion_heartbeat_at?: string | null;
+    promotion_heartbeat_stale_warning?: boolean;
+    promotion_worker_in_process?: boolean;
     /** Pending publish items that can promote now (publish_status pending + validation_result ready/warning). */
     current_promotable_count: number;
     /** Snapshot from last validation run (ready + warning); unchanged after a failed promotion attempt. */
@@ -361,12 +372,47 @@ export type ImportReviewPublishBatchProgressResponse = {
     promotion_status: PublishBatchPromotionOutcomeStatus | null;
     /** Eligible failed+ready items that can be copied into a new retry publish batch. */
     failed_ready_retry_count: number;
+    /** Present when the batch has road publish items; null for places-only batches. */
+    road_promotion_gates: import("./import-review-road-promotion-gates.js").RoadPromotionGatesResult | null;
+    dry_run_result: import("./import-review-publish-batch-dry-run.js").PublishBatchDryRunResult | null;
+    /** Unified pipeline stage (validate_items | dry_run_items | promote_items | verify_items). */
+    current_stage: string | null;
+    /** Progress percent for the active pipeline stage (0–100). */
+    percent: number;
+    processed_count: number;
+    total: number;
+    last_heartbeat_at: string | null;
+    resumable_actions: string[];
 };
 
 export type ImportReviewStartPublishBatchPromotionResponse = {
     batch_id: string;
     status: string;
     message: string;
+};
+
+export type ImportReviewReleaseStaleBatchedSample = {
+    entity_family: string;
+    candidate_id: string;
+    publish_batch_id: string | null;
+    publish_item_id: string | null;
+    publish_status: string | null;
+    batch_status: string | null;
+};
+
+export type ImportReviewReleaseStaleBatchedFamilyResult = {
+    entity_family: string;
+    eligible_count: number;
+    released_count: number;
+};
+
+export type ImportReviewReleaseStaleBatchedResponse = {
+    status: "success";
+    dry_run: boolean;
+    review_batch_id: string;
+    released_total: number;
+    by_family: ImportReviewReleaseStaleBatchedFamilyResult[];
+    samples: ImportReviewReleaseStaleBatchedSample[];
 };
 
 export type ImportReviewRepairInvalidPromotedBatchesResponse = {

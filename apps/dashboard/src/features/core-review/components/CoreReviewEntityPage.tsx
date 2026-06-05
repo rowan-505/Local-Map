@@ -184,19 +184,40 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
         apiSlug: config.apiSlug,
         appliedDraft: list.appliedDraft,
         filterSupport: config.filterSupport,
-        enabled: !list.isLoading && !list.error,
+        enabled:
+            config.apiSlug !== "streets" &&
+            (Boolean(list.rows.length) || !list.isLoading),
+        listVerificationCounts: list.verificationCounts,
     });
 
+    const headerVerificationTotals = useMemo(() => {
+        if (config.apiSlug === "streets" && config.filterSupport.isVerified) {
+            return {
+                total: list.verificationCounts?.total ?? 0,
+                verified: list.verificationCounts?.verified ?? 0,
+                unverified: list.verificationCounts?.unverified ?? 0,
+                isLoading: list.totalLoading,
+            };
+        }
+        return verificationTotals;
+    }, [
+        config.apiSlug,
+        config.filterSupport.isVerified,
+        list.totalLoading,
+        list.verificationCounts,
+        verificationTotals,
+    ]);
+
     const metaLabel =
-        !list.error && !list.isLoading
+        !list.error && (list.rows.length > 0 || !list.isLoading)
             ? formatCoreReviewHeaderMeta(
                   config.filterSupport.isVerified
-                      ? verificationTotals
+                      ? headerVerificationTotals
                       : {
                             total: list.pagination.total,
                             verified: 0,
                             unverified: 0,
-                            isLoading: false,
+                            isLoading: list.totalLoading,
                         },
                   list.appliedDraft,
                   config.filterSupport.isVerified
@@ -235,7 +256,7 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                 actions={headerActions}
             />
 
-            {list.isLoading ? (
+            {list.isLoading && list.rows.length === 0 ? (
                 <CoreReviewLoadingCard message={`Loading ${config.title.toLowerCase()}…`} />
             ) : null}
 
@@ -248,7 +269,7 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                 </div>
             ) : null}
 
-            {!list.isLoading && !list.error ? (
+            {!list.error && (list.rows.length > 0 || !list.isLoading) ? (
                 <>
                     <CoreReviewEntityFilters
                         draft={list.draft}
@@ -347,6 +368,10 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                         totalPages={list.pagination.totalPages}
                         onPageChange={list.setPage}
                         disabled={list.isLoading}
+                        hasNextPage={list.hasNextPage}
+                        totalKnown={list.totalKnown}
+                        totalLoading={list.totalLoading}
+                        countUnavailable={list.countUnavailable}
                     />
                 </>
             ) : null}

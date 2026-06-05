@@ -107,6 +107,8 @@ describe("import-review-promotion-promote-api", () => {
                 confirmation_text: "PROMOTE",
                 chunk_size: 100,
                 confirm_warnings: true,
+                allow_high_risk_families: false,
+                confirm_large_batch: false,
                 promotion_note: "note from batch create",
                 warning_confirmation_note: undefined,
                 review_note: undefined,

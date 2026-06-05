@@ -42,6 +42,9 @@ export function buildGenericLightweightListExtensionSelect(
     if (config.roadClassJoin) {
         parts.push(Prisma.sql`
             , ${colRef(config, "road_class_id")} AS road_candidate_road_class_id
+            , ${colRef(config, "road_class")} AS road_class
+            , rc.name AS road_class_name
+            , COALESCE(rc.name, rc.code, ${colRef(config, "road_class")}) AS road_class_label
             , ${colRef(config, "surface")} AS road_candidate_surface
             , ${colRef(config, "is_oneway")} AS road_candidate_is_oneway
             , COALESCE(rc.code, ${colRef(config, "road_class")}) AS road_candidate_class_label

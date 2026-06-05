@@ -46,8 +46,8 @@ describe("resolveItemStatus", () => {
         assert.equal(resolveItemStatus([], [], false), "safe_to_promote");
     });
 
-    it("returns needs_manual_review for serious warnings without include_warnings", () => {
-        assert.equal(resolveItemStatus([], ["ROAD_ISLAND"], false), "needs_manual_review");
+    it("returns promote_with_warning for routing connectivity warnings without include_warnings", () => {
+        assert.equal(resolveItemStatus([], ["ROAD_ISLAND"], false), "promote_with_warning");
     });
 
     it("returns promote_with_warning for serious warnings with include_warnings", () => {
@@ -74,7 +74,7 @@ describe("aggregateRoadDryRunResult", () => {
                 }),
                 makeItem({
                     publish_item_id: "3",
-                    dry_run_status: "needs_manual_review",
+                    dry_run_status: "promote_with_warning",
                     warning_codes: ["ROAD_ISLAND", "SURFACE_MISSING"],
                 }),
             ],
@@ -83,7 +83,8 @@ describe("aggregateRoadDryRunResult", () => {
         assert.equal(result.total_count, 3);
         assert.equal(result.safe_to_promote_count, 1);
         assert.equal(result.blocked_count, 1);
-        assert.equal(result.needs_manual_review_count, 1);
+        assert.equal(result.promote_with_warning_count, 1);
+        assert.equal(result.needs_manual_review_count, 0);
         assert.equal(result.by_error_code.geom_missing, 1);
         assert.equal(result.by_warning_code.ROAD_ISLAND, 1);
         assert.equal(result.by_warning_code.SURFACE_MISSING, 1);

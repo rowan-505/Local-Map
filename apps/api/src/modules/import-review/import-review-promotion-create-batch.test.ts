@@ -6,6 +6,7 @@ import type { JwtUser } from "../../plugins/auth.js";
 import {
     ImportReviewPromotionCreateBatchResolver,
     normalizeCandidateIdsByFamilyInput,
+    PROMOTION_CREATE_BATCH_NO_LIMIT_ELIGIBLE_MESSAGE,
     resolveCreateBatchFamiliesFromSimpleRegistry,
 } from "./import-review-promotion-create-batch.js";
 import {
@@ -28,10 +29,18 @@ import { assertPublishBatchLimits } from "./import-review-promotion-batch-limits
 import { ImportReviewPromotionBatchLimitsError } from "./import-review-promotion.errors.js";
 import { postImportReviewPromotionBatchBodySchema } from "./import-review-promotion.schema.js";
 import { listPromotableFamilies } from "./import-review-promotion-simple-config.js";
+import { getImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
+import { buildSelectCreateBatchEligibleCandidateIdsSql } from "./import-review-promotion-create-batch-eligibility.js";
 
 function queryRawSqlText(sql: unknown): string {
     if (sql && typeof sql === "object" && "strings" in sql && Array.isArray((sql as { strings: unknown }).strings)) {
-        return ((sql as { strings: string[] }).strings).join("?");
+        const tagged = sql as { strings: string[]; values?: unknown[] };
+        const text = tagged.strings.join("?");
+        const values =
+            tagged.values && tagged.values.length > 0
+                ? ` /*values:${tagged.values.map((v) => String(v)).join(",")}*/`
+                : "";
+        return text + values;
     }
     return String(sql);
 }
@@ -79,7 +88,7 @@ const testUser = { sub: "1", email: "test@example.com", roles: ["admin"] } as Jw
 
 function createService(repo: ImportReviewPromotionRepository): ImportReviewPromotionService {
     const validationRepo = {
-        getPrismaClient: () => ({}),
+        prisma: {} as PrismaClient,
     } as unknown as ImportReviewPromotionValidationRepository;
     return new ImportReviewPromotionService(
         repo,
@@ -278,6 +287,77 @@ describe("ImportReviewPromotionCreateBatchResolver", () => {
                 }),
             (err: unknown) => err instanceof ImportReviewPromotionNoEligibleCandidatesError
         );
+    });
+
+    it("selects at most max_items roads using lightweight not_ready eligibility", async () => {
+        const roadIds = Array.from({ length: 20 }, (_, i) => ({ id: BigInt(i + 1) }));
+        const prisma = createMockPrismaForResolver({
+            queryRaw: async () => roadIds,
+        });
+        const resolver = new ImportReviewPromotionCreateBatchResolver(prisma);
+        const resolution = await resolver.resolveCandidateIds({
+            reviewBatchId: 2n,
+            mode: "all_ready",
+            families: ["roads"],
+            filters: { review_decision: "approved", include_warnings: false },
+            maxItems: 20,
+        });
+
+        assert.equal(resolution.totalItems, 20);
+        assert.equal(resolution.candidateIdsByFamily.roads?.length, 20);
+
+        const cfg = getImportReviewPublishFamilyConfig("roads");
+        assert.ok(cfg);
+        const sqlText = queryRawSqlText(
+            buildSelectCreateBatchEligibleCandidateIdsSql(
+                cfg,
+                2n,
+                { includeWarnings: false, includeMerged: false },
+                { limit: 20 }
+            )
+        );
+        assert.match(sqlText, /LIMIT/i);
+        assert.match(sqlText, /promotion_status\s*=\s*'not_ready'/i);
+        assert.match(sqlText, /review_status\s*=\s*'approved'/i);
+        assert.match(sqlText, /road_class_id IS NOT NULL/i);
+    });
+
+    it("returns limit-specific message when max_items yields zero roads", async () => {
+        const prisma = createMockPrismaForResolver({
+            queryRaw: async () => [],
+        });
+        const resolver = new ImportReviewPromotionCreateBatchResolver(prisma);
+        await assert.rejects(
+            () =>
+                resolver.resolveCandidateIds({
+                    reviewBatchId: 2n,
+                    mode: "all_ready",
+                    families: ["roads"],
+                    filters: { review_decision: "approved", include_warnings: false },
+                    maxItems: 20,
+                }),
+            (err: unknown) => {
+                assert.ok(err instanceof ImportReviewPromotionNoEligibleCandidatesError);
+                assert.equal(err.message, PROMOTION_CREATE_BATCH_NO_LIMIT_ELIGIBLE_MESSAGE);
+                return true;
+            }
+        );
+    });
+});
+
+describe("import-review-promotion-create-batch schema max_items", () => {
+    it("parses max_items for roads test batch", () => {
+        const parsed = postImportReviewPromotionBatchBodySchema.safeParse({
+            review_batch_id: "2",
+            families: ["roads"],
+            max_items: 20,
+            batch_name: "roads-test-20",
+            allow_high_risk_families: true,
+        });
+        assert.equal(parsed.success, true);
+        if (parsed.success) {
+            assert.equal(parsed.data.max_items, 20);
+        }
     });
 });
 

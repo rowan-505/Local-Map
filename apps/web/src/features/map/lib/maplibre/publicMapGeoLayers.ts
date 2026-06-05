@@ -1,6 +1,6 @@
 /**
- * GeoJSON label overlays from `/public/map/geo/*` — every symbol uses `properties.name`
- * resolved server-side from `lang`.
+ * GeoJSON label overlays from `/public/map/geo/*` (bus routes and stops).
+ * Road labels come from PMTiles `road_labels` only — not from `/public/map/geo/streets`.
  */
 import type {
   ExpressionSpecification,
@@ -15,37 +15,15 @@ export const PUBLIC_MAP_EMPTY_FC = Object.freeze({
   features: [] as GeoJSON.Feature[],
 });
 
-export const STREET_LABEL_SOURCE_ID = 'public-map-street-labels-src';
 export const BUS_ROUTE_LABEL_SOURCE_ID = 'public-map-bus-route-labels-src';
 export const BUS_STOP_LABEL_SOURCE_ID = 'public-map-bus-stop-labels-src';
 
-const STREET_LAYER_ID = 'public-map-street-labels';
 const BUS_ROUTE_LAYER_ID = 'public-map-bus-route-labels';
 const BUS_STOP_LAYER_ID = 'public-map-bus-stop-labels';
 
 const TEXT_GET_NAME = ['get', 'name'] as ExpressionSpecification;
-const CLEAN_ROAD_LABEL_FILTER: ExpressionSpecification = [
-  '!',
-  [
-    'match',
-    ['downcase', ['coalesce', ['get', 'name_en'], ['get', 'name'], '']],
-    [
-      'unnamed street',
-      'unnamed road',
-      'unnamed tertiary',
-      'unnamed tertiary road',
-      'unnamed residential',
-      'unnamed residential road',
-      'unnamed unclassified',
-      'unnamed service',
-    ],
-    true,
-    false,
-  ],
-] as ExpressionSpecification;
 
 export const PUBLIC_MAP_GEO_LABEL_LAYER_IDS = [
-  STREET_LAYER_ID,
   BUS_ROUTE_LAYER_ID,
   BUS_STOP_LAYER_ID,
 ] as const;
@@ -87,26 +65,6 @@ function addSymbolLayerRelative(
   } else {
     map.addLayer(spec as never);
   }
-}
-
-function streetLineSymbolLayer(): SymbolLayerSpecification {
-  return {
-    id: STREET_LAYER_ID,
-    type: 'symbol',
-    source: STREET_LABEL_SOURCE_ID,
-    minzoom: 12,
-    filter: CLEAN_ROAD_LABEL_FILTER,
-    layout: {
-      ...LINE_LAYOUT_SHARED,
-      'symbol-spacing': 400,
-    },
-    paint: {
-      'text-color': '#4f575c',
-      'text-halo-color': '#ffffff',
-      'text-halo-width': 1.45,
-      'text-halo-blur': 0.25,
-    },
-  };
 }
 
 function busRouteLineSymbolLayer(): SymbolLayerSpecification {
@@ -172,18 +130,10 @@ function pointSymbolLayer(
 }
 
 /**
- * Insert GeoJSON overlays once after style load. Line labels anchor before `buildings`
- * / `bus-stops` so they paint above respective line layers yet stay under POI overlays.
+ * Insert GeoJSON overlays once after style load. Line labels anchor before `bus-stops`
+ * so they paint above respective line layers yet stay under POI overlays.
  */
 export function ensurePublicMapGeoJsonLabelLayers(map: MapEngine): void {
-  if (!map.getSource(STREET_LABEL_SOURCE_ID)) {
-    map.addSource(STREET_LABEL_SOURCE_ID, {
-      type: 'geojson',
-      data: { ...PUBLIC_MAP_EMPTY_FC },
-    });
-    addSymbolLayerRelative(map, streetLineSymbolLayer(), 'buildings');
-  }
-
   if (!map.getSource(BUS_ROUTE_LABEL_SOURCE_ID)) {
     map.addSource(BUS_ROUTE_LABEL_SOURCE_ID, {
       type: 'geojson',
@@ -215,11 +165,7 @@ export function ensurePublicMapGeoJsonLabelLayers(map: MapEngine): void {
 /** After POI layers are (re-)added, tuck public map overlays directly under them for hit-target priority. */
 export function restorePublicMapLayersUnderPlaces(map: MapEngine): void {
   if (!map.getLayer(PLACES_LAYER_ID)) return;
-  const labelStack = [
-    STREET_LAYER_ID,
-    BUS_ROUTE_LAYER_ID,
-    BUS_STOP_LAYER_ID,
-  ] as const;
+  const labelStack = [BUS_ROUTE_LAYER_ID, BUS_STOP_LAYER_ID] as const;
   /** Move bottom-most first so the stack order bottom→top matches `labelStack`. */
   for (const lid of labelStack) {
     if (map.getLayer(lid)) {

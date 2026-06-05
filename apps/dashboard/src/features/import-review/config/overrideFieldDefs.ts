@@ -304,12 +304,23 @@ function classCodeLabel(config: ImportReviewEntityConfig): string {
     }
 }
 
+const ROAD_ADMIN_AREA_HELPER = "Auto-assigned on promotion if empty";
+const ROAD_CLASS_HELPER = "Optional; falls back to source class if empty";
+
 function withEntityLabel(
     def: ImportReviewOverrideFieldDef,
     config: ImportReviewEntityConfig
 ): ImportReviewOverrideFieldDef {
     if (def.configKey === "class_code") {
         return { ...def, label: classCodeLabel(config) };
+    }
+    if (config.apiFamily === "roads") {
+        if (def.configKey === "admin_area_id") {
+            return { ...def, helperText: ROAD_ADMIN_AREA_HELPER };
+        }
+        if (def.configKey === "road_class_id") {
+            return { ...def, helperText: ROAD_CLASS_HELPER };
+        }
     }
     return def;
 }

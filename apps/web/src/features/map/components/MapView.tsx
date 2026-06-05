@@ -43,12 +43,18 @@ import {
 } from '../lib/maplibre/adminLabelLayerDebug';
 import { applyAllLocalizedMapLabels } from '../lib/maplibre/localizedBasemapLabels';
 import {
+  applyWebBasemapModePreservingCamera,
+  bindWebSatelliteTileErrorHandler,
+  ensureWebSatelliteLayer,
+  getWebImageryAttributionHtml,
+  snapshotMapCamera,
+} from '../lib/maplibre/webBasemapMode';
+import {
   BUS_ROUTE_LABEL_SOURCE_ID,
   BUS_STOP_LABEL_SOURCE_ID,
   ensurePublicMapGeoJsonLabelLayers,
   PUBLIC_MAP_EMPTY_FC,
   setPublicMapGeoJsonSourceData,
-  STREET_LABEL_SOURCE_ID,
 } from '../lib/maplibre/publicMapGeoLayers';
 
 const KYAUKTAN_CENTER: [number, number] = [96.3168, 16.6590];
@@ -78,8 +84,13 @@ function MapViewInner({
   const [mapReady, setMapReady] = useState(false);
 
   const languageMode = useMapUiStore((s) => s.languageMode);
+  const mapMode = useMapUiStore((s) => s.mapMode);
+  const setMapMode = useMapUiStore((s) => s.setMapMode);
+  const basemapModeError = useMapUiStore((s) => s.basemapModeError);
+  const setBasemapModeError = useMapUiStore((s) => s.setBasemapModeError);
   const utilityCommand = useMapUiStore((s) => s.utilityCommand);
   const languageModeRef = useRef(languageMode);
+  const mapModeRef = useRef(mapMode);
   const cameraLayoutRef = useRef(cameraLayout ?? DEFAULT_MAP_CAMERA_LAYOUT);
   /** After manual pan/zoom, startup/sidebar auto-fit must not recenter the camera. */
   const hasUserInteractedRef = useRef(false);
@@ -88,11 +99,14 @@ function MapViewInner({
     languageModeRef.current = languageMode;
   }, [languageMode]);
   useEffect(() => {
+    mapModeRef.current = mapMode;
+  }, [mapMode]);
+  useEffect(() => {
     cameraLayoutRef.current = cameraLayout;
   }, [cameraLayout]);
 
   const geoLayerResults = usePublicMapGeoLabelQueries();
-  const [streetsGeo, , busStopsGeo, busRoutesGeo] = geoLayerResults;
+  const [busStopsGeo, busRoutesGeo] = geoLayerResults;
 
   const geojson = useMemo(() => poisToFeatureCollection(pois), [pois]);
 
@@ -161,6 +175,9 @@ function MapViewInner({
         mapRef.current = map;
 
         const onLoad = () => {
+          ensureWebSatelliteLayer(map);
+          const camera = snapshotMapCamera(map);
+          applyWebBasemapModePreservingCamera(map, mapModeRef.current, camera);
           ensurePublicMapGeoJsonLabelLayers(map);
           ensurePlacesLayer(map, geojsonRef.current, selectedRef.current, languageModeRef.current);
           ensureDirectionsRouteLayers(map);
@@ -200,19 +217,62 @@ function MapViewInner({
     applyAllLocalizedMapLabels(map, languageMode);
   }, [mapReady, languageMode]);
 
+  /** Satellite / hybrid basemap — visibility only; camera preserved across switches. */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    let cancelled = false;
+
+    const switchMode = () => {
+      const run = () => {
+        const camera = snapshotMapCamera(map);
+        applyWebBasemapModePreservingCamera(map, mapMode, camera);
+      };
+
+      if (map.isStyleLoaded()) {
+        run();
+        return;
+      }
+
+      map.once('load', () => {
+        if (!cancelled) run();
+      });
+    };
+
+    switchMode();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mapReady, mapMode]);
+
+  useEffect(() => {
+    if (!basemapModeError) return;
+    const timer = window.setTimeout(() => setBasemapModeError(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [basemapModeError, setBasemapModeError]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    return bindWebSatelliteTileErrorHandler(map, (message) => {
+      setBasemapModeError(message);
+      if (mapModeRef.current !== 'normal') {
+        setMapMode('normal');
+      }
+    });
+  }, [mapReady, setBasemapModeError, setMapMode]);
+
   /** API-driven overlays — updating source data does not change camera. */
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current;
     if (!map) return;
 
-    setPublicMapGeoJsonSourceData(
-      map,
-      STREET_LABEL_SOURCE_ID,
-      streetsGeo.status === 'success'
-        ? featureCollectionOrEmpty(streetsGeo.data)
-        : { ...PUBLIC_MAP_EMPTY_FC },
-    );
     setPublicMapGeoJsonSourceData(
       map,
       BUS_STOP_LABEL_SOURCE_ID,
@@ -229,8 +289,6 @@ function MapViewInner({
     );
   }, [
     mapReady,
-    streetsGeo.status,
-    streetsGeo.data,
     busStopsGeo.status,
     busStopsGeo.data,
     busRoutesGeo.status,
@@ -476,7 +534,28 @@ function MapViewInner({
     return () => ro.disconnect();
   }, [mapReady]);
 
-  return <div ref={containerRef} className={className ?? 'h-full w-full'} />;
+  const imageryAttribution =
+    mapMode !== 'normal' ? getWebImageryAttributionHtml() : null;
+
+  return (
+    <div className={`relative h-full w-full ${className ?? ''}`}>
+      <div ref={containerRef} className="h-full w-full" />
+      {basemapModeError ? (
+        <p
+          className="pointer-events-none absolute left-1/2 top-16 z-20 w-[min(20rem,calc(100%-1.5rem))] -translate-x-1/2 rounded-2xl bg-amber-50 px-3 py-2 text-center text-xs leading-5 text-amber-950 ring-1 ring-amber-200 shadow-lg shadow-neutral-900/10"
+          role="alert"
+        >
+          {basemapModeError}
+        </p>
+      ) : null}
+      {imageryAttribution ? (
+        <div
+          className="pointer-events-none absolute bottom-1 left-1 z-10 max-w-[min(18rem,calc(100%-5rem))] rounded bg-white/80 px-1.5 py-0.5 text-[10px] leading-snug text-neutral-600 shadow-sm backdrop-blur-sm [&_a]:text-sky-700 [&_a]:underline"
+          dangerouslySetInnerHTML={{ __html: imageryAttribution }}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 export const MapView = memo(MapViewInner);

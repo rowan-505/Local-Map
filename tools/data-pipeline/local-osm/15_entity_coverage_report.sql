@@ -22,7 +22,7 @@
 --   import_review_schema optional (default import_review; skipped with warning if absent)
 --   package_name optional (uses latest package for snapshot when blank)
 --   review_batch_id optional (adds import_review batch-scoped counts when present)
---   entity_family optional (reported; does not filter staging health sections)
+--   entity_families optional (filters manifest sections; default all)
 --
 -- Example:
 --   cd tools/data-pipeline/local-osm
@@ -56,6 +56,10 @@
 \if :{?entity_family}
 \else
 \set entity_family ''
+\endif
+\if :{?entity_families}
+\else
+\set entity_families 'all'
 \endif
 
 BEGIN;
@@ -91,7 +95,11 @@ VALUES (
         WHEN btrim(:'review_batch_id') ~ '^[0-9]+$' THEN btrim(:'review_batch_id')::bigint
         ELSE NULL
     END,
-    NULLIF(btrim(:'entity_family'), '')
+    CASE
+        WHEN lower(btrim(coalesce(:'entity_families', 'all'))) IN ('', 'all', '*') THEN
+            NULLIF(btrim(:'entity_family'), '')
+        ELSE btrim(:'entity_families')
+    END
 );
 
 DO $stage15_params$
@@ -365,6 +373,11 @@ VALUES
       'Point + optional Geometry', 'point_geom, geom',
       NULL,
       'placeholder', 'P7', 'high');
+
+\ir pipeline_entity_families.sql
+
+DELETE FROM stage15_manifest AS m
+WHERE NOT pg_temp.pipeline_stage15_manifest_enabled(m.entity_family);
 
 CREATE TEMP TABLE IF NOT EXISTS stage15_staging_row_counts (
     staging_table text NOT NULL,

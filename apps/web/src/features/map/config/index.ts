@@ -77,3 +77,26 @@ export {
   type MapMode,
   type SatelliteRasterConfig,
 } from './mapModes';
+export {
+  MAP_MODE_STORAGE_KEY,
+  normalizeMapMode,
+  persistMapMode,
+  readPersistedMapMode,
+} from './mapModeStorage';
+export {
+  WEB_HYBRID_ON_LAYERS,
+  WEB_IMAGERY_OFF_FILL_LAYERS,
+  WEB_SATELLITE_LAYER_ID,
+  WEB_SATELLITE_SOURCE_ID,
+  WEB_TOGGLE_VECTOR_LAYERS,
+  applyWebBasemapMode,
+  applyWebBasemapModePreservingCamera,
+  bindWebSatelliteTileErrorHandler,
+  ensureWebSatelliteLayer,
+  getWebImageryAttributionHtml,
+  restoreMapCamera,
+  snapshotMapCamera,
+  validateWebBasemapLayerCoverage,
+  waitForBasemapModeSettled,
+  type MapCameraSnapshot,
+} from '../lib/maplibre/webBasemapMode';

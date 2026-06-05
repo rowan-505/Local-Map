@@ -5,6 +5,10 @@ import {
   createBasemapStyle,
   fetchActiveBasemapPmtilesHttpUrl,
 } from '@local-map/map-style/basemapSource';
+import {
+  REGIONAL_VECTOR_SOURCE_MAX_ZOOM,
+  patchRegionalLayersForProgressiveDetail,
+} from '../lib/maplibre/basemapZoomVisibility';
 import { composeWebMapStyle } from '../lib/maplibre/composeWebMapStyle';
 import {
   getActiveOverviewBasemapStyle,
@@ -52,9 +56,31 @@ export async function resolveBasemapPmtilesHttpUrl(): Promise<string> {
  * PMTiles URL from `VITE_BASEMAP_PMTILES_URL` or `current.json` (see {@link getWebBasemapCurrentJsonUrl}).
  * POIs/search/live editing stay on API-driven GeoJSON overlays.
  */
+function patchRegionalBasemapStyle(style: StyleSpecification): StyleSpecification {
+  const layers = [...(style.layers ?? [])] as StyleSpecification['layers'];
+  const background = layers.filter((l) => l.id === 'background');
+  const regionalRest = patchRegionalLayersForProgressiveDetail(
+    layers.filter((l) => l.id !== 'background') as never,
+  );
+  const sources = { ...style.sources };
+  const basemapSource = sources[BASEMAP_VECTOR_SOURCE_ID];
+  if (basemapSource && basemapSource.type === 'vector') {
+    sources[BASEMAP_VECTOR_SOURCE_ID] = {
+      ...basemapSource,
+      minzoom: 0,
+      maxzoom: REGIONAL_VECTOR_SOURCE_MAX_ZOOM,
+    };
+  }
+  return {
+    ...style,
+    sources,
+    layers: [...background, ...regionalRest],
+  };
+}
+
 export async function getActiveBasemapStyle(): Promise<StyleSpecification> {
   const pmtilesUrl = await resolveBasemapPmtilesHttpUrl();
-  const style = createBasemapStyle(pmtilesUrl) as StyleSpecification;
+  const style = patchRegionalBasemapStyle(createBasemapStyle(pmtilesUrl) as StyleSpecification);
 
   if (import.meta.env.DEV) {
     console.info('[map] active regional PMTiles URL:', pmtilesUrl);

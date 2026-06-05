@@ -128,6 +128,8 @@ export default function CoreEntityGeometrySection({
                         splitPickActive={streetSplitMapProps?.splitPickActive}
                         onSplitPointClicked={streetSplitMapProps?.onSplitPointClicked}
                         splitPreviewLngLat={streetSplitMapProps?.splitPreviewLngLat}
+                        basemapOnly={config.basemapOnly}
+                        autoEnterVertexEdit={config.autoEnterVertexEdit}
                         mapSurfaceRef={mapSurfaceRef}
                     />
                     {config.validateWithApi ? (

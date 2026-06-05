@@ -441,6 +441,8 @@ export type StreetEditorMapProps = {
     defaultSnapToRoad?: boolean;
     /** Hide the snap-to-roads control (e.g. when parent manages snapping via {@link defaultSnapToRoad}). */
     hideSnapControl?: boolean;
+    /** When false, load PMTiles basemap only and skip Martin vector overlay refreshes (core-review drawer). */
+    showContextOverlays?: boolean;
 };
 
 type SnapCtl = {
@@ -470,6 +472,7 @@ export default function StreetEditorMap({
     mapViewportClassName,
     defaultSnapToRoad = true,
     hideSnapControl = false,
+    showContextOverlays = true,
 }: StreetEditorMapProps) {
     const { streetTileVersion, placeTileVersion, roadLabelTileVersion } = useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -906,8 +909,11 @@ export default function StreetEditorMap({
 
                 setGeoJsonSourceData(mapInstance, EDITABLE_STREETS_SOURCE_ID, streetsToFeatureCollection(streets));
 
-                const tileV = streetVectorTileVersion ?? streetSourceRefreshKey ?? streetTileVersion ?? Date.now();
-                scheduleStreetTileRefresh(mapInstance, tileV);
+                if (showContextOverlays) {
+                    const tileV =
+                        streetVectorTileVersion ?? streetSourceRefreshKey ?? streetTileVersion ?? Date.now();
+                    scheduleStreetTileRefresh(mapInstance, tileV);
+                }
             } catch (error) {
                 if (isAbortError(error) || abort.signal.aborted) {
                     return;
@@ -920,27 +926,27 @@ export default function StreetEditorMap({
         void refreshEditableStreets();
 
         return () => abort.abort();
-    }, [mapReady, streetSourceRefreshKey, streetVectorTileVersion, streetTileVersion]);
+    }, [mapReady, showContextOverlays, streetSourceRefreshKey, streetVectorTileVersion, streetTileVersion]);
 
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!mapReady || !map) {
+        if (!mapReady || !map || !showContextOverlays) {
             return;
         }
 
         refreshPlaceTiles(map, placeTileVersion);
-    }, [mapReady, placeTileVersion]);
+    }, [mapReady, placeTileVersion, showContextOverlays]);
 
     useEffect(() => {
         const map = mapRef.current;
 
-        if (!mapReady || !map) {
+        if (!mapReady || !map || !showContextOverlays) {
             return;
         }
 
         refreshRoadLabelTiles(map, roadLabelTileVersion);
-    }, [mapReady, roadLabelTileVersion]);
+    }, [mapReady, roadLabelTileVersion, showContextOverlays]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -1040,7 +1046,10 @@ export default function StreetEditorMap({
             logDashboardGlyphServingHealthInDev();
             let style: maplibregl.StyleSpecification;
             try {
-                style = await fetchDashboardPlaceMapStyle({ includeBusTransitLayers: true });
+                style = await fetchDashboardPlaceMapStyle({
+                    includeBusTransitLayers: showContextOverlays,
+                    includeMartinOverlays: showContextOverlays,
+                });
             } catch (err) {
                 console.error("StreetEditorMap basemap style failed:", err);
                 return;

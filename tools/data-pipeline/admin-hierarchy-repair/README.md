@@ -5,10 +5,26 @@ Repeatable **core-only** SQL pipeline to:
 1. Inspect `core.core_admin_areas` hierarchy health
 2. Repair `parent_id` from geometry (no deletes)
 3. Install reusable lookup functions in `core`
-4. Backfill `admin_area_id` on places, streets (roads), and buildings from geometry
-5. Verify results
+4. *(Optional)* Backfill `admin_area_id` on places, streets (roads), and buildings
+5. *(Optional)* Verify entity assignment
 
-**Out of scope:** `import_review` (never read or written).
+**Out of scope:** `import_review` (never read or written). **No** `tmp_import`, `raw`, or `staging` schemas required.
+
+### Supabase after import-review bulk admin promotion
+
+Run hierarchy + functions only (stages **00–03**):
+
+```bash
+cd tools/data-pipeline/admin-hierarchy-repair
+cp imports/template.env imports/supabase.env
+# set LOCAL_DATABASE_URL or DATABASE_URL to Supabase
+
+DRY_RUN=true ./run_admin_hierarchy_repair.sh --hierarchy-only imports/supabase.env
+CONFIRM_WRITE=true ./run_admin_hierarchy_repair.sh --hierarchy-only imports/supabase.env
+./run_admin_hierarchy_repair.sh --inspect-only --hierarchy-only imports/supabase.env
+```
+
+Stages **04–06** (entity backfill) are optional and skipped by `--hierarchy-only`.
 
 ## Idempotency and safe re-runs
 
@@ -87,22 +103,28 @@ The runner **requires exactly one env file** argument (see `imports/template.env
 
 `run_admin_hierarchy_repair.sh` runs stages in numeric order and stops on the first hard error (`ON_ERROR_STOP`).
 
-| Stage | File | Mutates? | `CONFIRM_WRITE` |
-|-------|------|----------|-----------------|
-| 00 | `00_inspect_admin_area_health.sql` | No | — |
-| 01 | `01_repair_admin_area_hierarchy.sql` | Yes (`parent_id`) | Required |
-| 02 | `02_verify_admin_area_hierarchy.sql` | No (hard-fail gate) | — |
-| 03 | `03_create_admin_assignment_functions.sql` | Yes (functions) | Required |
-| 04 | `04_backfill_places_admin_area.sql` | Yes | Required |
-| 05 | `05_backfill_roads_admin_area.sql` | Yes (`core.core_streets`) | Required |
-| 06 | `06_backfill_buildings_admin_area.sql` | Yes (`core.core_map_buildings`) | Required |
-| 07 | `07_verify_entity_admin_assignment.sql` | No (hard-fail gate) | — |
+| Stage | File | Mutates? | `CONFIRM_WRITE` | `--hierarchy-only` |
+|-------|------|----------|-----------------|-------------------|
+| 00 | `00_inspect_admin_area_health.sql` | No | — | Yes (core + ref only) |
+| 01 | `01_repair_admin_area_hierarchy.sql` | Yes (`parent_id`) | Required | Yes |
+| 02 | `02_verify_admin_area_hierarchy.sql` | No (hard-fail gate) | — | Yes |
+| 03 | `03_create_admin_assignment_functions.sql` | Yes (functions + indexes) | Required | Yes |
+| 04 | `04_backfill_places_admin_area.sql` | Yes | Required | Skipped |
+| 05 | `05_backfill_roads_admin_area.sql` | Yes (`core.core_streets`) | Required | Skipped |
+| 06 | `06_backfill_buildings_admin_area.sql` | Yes (`core.core_map_buildings`) | Required | Skipped |
+| 07 | `07_verify_entity_admin_assignment.sql` | No (hard-fail gate) | — | Skipped |
+
+**Stage 00** skips places/streets/buildings checks unless `inspect_entity_assignment=true` (default on full runs only).
+
+**Stage 02 hard fail:** self-parent, orphan parent, parent not broader, invalid geometry, duplicate `external_id`.
+
+**Stage 03 functions:** `core.find_admin_area_for_point/line/polygon(geometry, text default null)` plus indexes `core_admin_areas_geom_gix`, `core_admin_areas_parent_idx`, `core_admin_areas_level_idx`.
 
 ## Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LOCAL_DATABASE_URL` | (required) | Postgres connection string |
+| `LOCAL_DATABASE_URL` | (required) | Postgres connection string (`DATABASE_URL` accepted as alias) |
 | `DRY_RUN` | `false` | When `true`, mutating stages log counts only |
 | `CONFIRM_WRITE` | `false` | When `true`, allows mutating stages (unless `DRY_RUN=true`) |
 | `FORCE_RECALCULATE_VERIFIED` | `false` | When `true`, may change `admin_area_id` on verified rows |
@@ -114,7 +136,7 @@ The runner **requires exactly one env file** argument (see `imports/template.env
 Representative point per entity:
 
 - **Places:** `point_geom` / `entry_geom` (fallback: `lng`/`lat`)
-- **Streets:** line overlap → full containment → point on line (`core.find_admin_area_for_line`)
+- **Streets:** largest line–polygon overlap (smallest area tie-break); multi-ward roads fall back to township → district → state_region (`core.find_admin_area_for_line`)
 - **Buildings:** centroid or `ST_PointOnSurface(geom)`
 
 Among **active** admin polygons, pick the **smallest containing** area (any level; township not required). Nullable `admin_area_id` only when no polygon matches.
@@ -123,14 +145,15 @@ Among **active** admin polygons, pick the **smallest containing** area (any leve
 
 For each active admin area, compute immediate broader parent from geometry:
 
-- Parent must be broader (`hierarchy_order` smaller than child)
-- Tie-break: `hierarchy_order DESC`, `ST_Area(parent.geom) ASC`, `parent.id ASC`
+- Child point = `centroid` or `ST_PointOnSurface(geom)`; parent must **contain** that point (`ST_Contains`)
+- Parent must be broader (`ref.ref_admin_levels.rank` / `hierarchy_order` smaller than child)
+- Tie-break: broadest immediate parent (`hierarchy_order DESC`), then smallest area, then lowest `id`
+- Country-level areas keep `parent_id` null; other levels get a parent when a valid container exists
 - Never self-parent; cycle check via ancestor walk
-- Country-level areas keep `parent_id` null
 
 ## Verification gates
 
-**Admin hierarchy (stage 02) — hard fail:** self-parent, parent not broader, orphan `parent_id`, invalid geometry.
+**Admin hierarchy (stage 02) — hard fail:** self-parent, parent not broader, orphan `parent_id`, invalid geometry, duplicate `external_id`.
 
 **Entity assignment (stage 07) — hard fail:** `admin_area_id` pointing to missing/inactive admin area only.
 

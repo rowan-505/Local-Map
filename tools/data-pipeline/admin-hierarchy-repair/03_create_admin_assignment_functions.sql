@@ -48,6 +48,36 @@ AS $$
     );
 $$;
 
+CREATE OR REPLACE FUNCTION core.pipeline_write_admin_repair_metadata()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT core.pipeline_truthy_setting(
+        current_setting('coremap.write_admin_repair_metadata', true)
+    );
+$$;
+
+COMMENT ON FUNCTION core.pipeline_write_admin_repair_metadata() IS
+    'When false (default), entity backfill skips normalized_data.admin_area_repair writes.';
+
+CREATE OR REPLACE FUNCTION core.pipeline_chunk_limit()
+RETURNS integer
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT greatest(
+        coalesce(
+            nullif(trim(current_setting('coremap.limit_rows', true)), '')::integer,
+            1000
+        ),
+        1
+    );
+$$;
+
+COMMENT ON FUNCTION core.pipeline_chunk_limit() IS
+    'Chunk size for entity admin backfill loops (coremap.limit_rows psql var; default 1000).';
+
 CREATE OR REPLACE FUNCTION core.entity_row_is_verified_protected(
     p_is_verified boolean,
     p_verification_status text DEFAULT NULL
@@ -297,6 +327,19 @@ $$;
 COMMENT ON FUNCTION core.admin_area_matches_assignment_target(bigint, text, text, text) IS
     'When target level is NULL, any active admin level matches; otherwise filter to target level.';
 
+CREATE OR REPLACE FUNCTION core.admin_area_level_code_is_ward_like(p_code text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT lower(trim(coalesce(p_code, ''))) IN (
+        'ward', 'suburb', 'quarter', 'neighbourhood', 'village_tract'
+    );
+$$;
+
+COMMENT ON FUNCTION core.admin_area_level_code_is_ward_like(text) IS
+    'True for fine-grained admin levels where line overlap can be ambiguous.';
+
 CREATE OR REPLACE FUNCTION core.admin_area_rep_point(
     p_geom geometry,
     p_centroid geometry
@@ -389,8 +432,68 @@ $$;
 COMMENT ON FUNCTION core.find_admin_area_for_point(geometry, text) IS
     'Smallest active admin polygon containing the representative point. NULL target = any level (township not required).';
 
+CREATE OR REPLACE FUNCTION core.pick_admin_area_for_line_overlap(
+    p_line_geom geometry,
+    p_target_admin_level_code text DEFAULT NULL
+)
+RETURNS bigint
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+    v_line geometry;
+    v_line_len double precision;
+    v_result bigint;
+BEGIN
+    v_line := core.normalize_admin_lookup_geom(p_line_geom);
+    IF v_line IS NULL OR st_isempty(v_line) OR NOT st_isvalid(v_line) THEN
+        RETURN NULL;
+    END IF;
+
+    v_line_len := st_length(v_line::geography);
+    IF v_line_len IS NULL OR v_line_len <= 0 THEN
+        RETURN core.find_admin_area_for_point(
+            core.entity_rep_point_for_admin_lookup(v_line),
+            p_target_admin_level_code
+        );
+    END IF;
+
+    SELECT c.id
+    INTO v_result
+    FROM core.core_admin_areas AS c
+    INNER JOIN ref.ref_admin_levels AS al ON al.id = c.admin_level_id
+    CROSS JOIN LATERAL (
+        SELECT st_length(st_intersection(c.geom, v_line)::geography) AS overlap_m
+    ) AS x
+    WHERE c.is_active IS TRUE
+      AND c.deleted_at IS NULL
+      AND c.geom IS NOT NULL
+      AND NOT st_isempty(c.geom)
+      AND st_isvalid(c.geom)
+      AND core.admin_area_matches_assignment_target(
+          c.admin_level_id, al.code, al.name, p_target_admin_level_code
+      )
+      AND st_intersects(c.geom, v_line)
+      AND x.overlap_m > 0
+    ORDER BY
+        x.overlap_m DESC NULLS LAST,
+        (x.overlap_m / v_line_len) DESC NULLS LAST,
+        st_area(c.geom::geography) ASC NULLS LAST,
+        c.id ASC
+    LIMIT 1;
+
+    RETURN v_result;
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION core.pick_admin_area_for_line_overlap(geometry, text) IS
+    'Best admin area for a line: largest intersection length/ratio, then smallest polygon.';
+
 -- ---------------------------------------------------------------------------
--- 2. Line → best admin area: longest overlap, then full containment, then point
+-- 2. Line → overlap-based assignment with ward instability fallback
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION core.find_admin_area_for_line(
     p_geom geometry,
@@ -402,7 +505,11 @@ STABLE
 AS $$
 DECLARE
     v_geom geometry;
+    v_line_len double precision;
     v_result bigint;
+    v_ward_hit_count integer := 0;
+    v_level text;
+    v_levels text[] := ARRAY['township', 'district', 'state_region'];
 BEGIN
     v_geom := core.normalize_admin_lookup_geom(p_geom);
     IF v_geom IS NULL OR st_isempty(v_geom) OR NOT st_isvalid(v_geom) THEN
@@ -414,55 +521,75 @@ BEGIN
         RETURN core.find_admin_area_for_point(v_geom, target_admin_level_code);
     END IF;
 
-    BEGIN
-        SELECT aa.id
-        INTO v_result
-        FROM core.core_admin_areas AS aa
-        INNER JOIN ref.ref_admin_levels AS al ON al.id = aa.admin_level_id
-        WHERE aa.is_active IS TRUE
-          AND aa.deleted_at IS NULL
-          AND aa.geom IS NOT NULL
-          AND NOT st_isempty(aa.geom)
-          AND st_isvalid(aa.geom)
-          AND core.admin_area_matches_assignment_target(
-              aa.admin_level_id, al.code, al.name, target_admin_level_code
-          )
-          AND st_intersects(aa.geom, v_geom)
-        ORDER BY
-            st_length(st_intersection(aa.geom, v_geom)::geography) DESC NULLS LAST,
-            st_area(aa.geom::geography) ASC NULLS LAST,
-            aa.id ASC
-        LIMIT 1;
-    EXCEPTION
-        WHEN OTHERS THEN
-            v_result := NULL;
-    END;
-
-    IF v_result IS NULL THEN
-        SELECT aa.id
-        INTO v_result
-        FROM core.core_admin_areas AS aa
-        INNER JOIN ref.ref_admin_levels AS al ON al.id = aa.admin_level_id
-        WHERE aa.is_active IS TRUE
-          AND aa.deleted_at IS NULL
-          AND aa.geom IS NOT NULL
-          AND NOT st_isempty(aa.geom)
-          AND st_isvalid(aa.geom)
-          AND core.admin_area_matches_assignment_target(
-              aa.admin_level_id, al.code, al.name, target_admin_level_code
-          )
-          AND (
-              st_covers(aa.geom, v_geom)
-              OR st_contains(aa.geom, v_geom)
-          )
-        ORDER BY st_area(aa.geom::geography) ASC NULLS LAST, aa.id ASC
-        LIMIT 1;
+    IF nullif(btrim(coalesce(target_admin_level_code, '')), '') IS NOT NULL THEN
+        v_result := core.pick_admin_area_for_line_overlap(v_geom, target_admin_level_code);
+        IF v_result IS NOT NULL THEN
+            RETURN v_result;
+        END IF;
+        RETURN core.find_admin_area_for_point(
+            core.entity_rep_point_for_admin_lookup(v_geom),
+            target_admin_level_code
+        );
     END IF;
+
+    v_line_len := st_length(v_geom::geography);
+
+    IF v_line_len IS NOT NULL AND v_line_len > 0 THEN
+        SELECT count(*)::integer
+        INTO v_ward_hit_count
+        FROM core.core_admin_areas AS c
+        INNER JOIN ref.ref_admin_levels AS al ON al.id = c.admin_level_id
+        CROSS JOIN LATERAL (
+            SELECT st_length(st_intersection(c.geom, v_geom)::geography) AS overlap_m
+        ) AS x
+        WHERE c.is_active IS TRUE
+          AND c.deleted_at IS NULL
+          AND c.geom IS NOT NULL
+          AND NOT st_isempty(c.geom)
+          AND st_isvalid(c.geom)
+          AND st_intersects(c.geom, v_geom)
+          AND x.overlap_m > 0
+          AND core.admin_area_level_code_is_ward_like(al.code)
+          AND (
+              x.overlap_m >= (v_line_len * 0.08)
+              OR (x.overlap_m / v_line_len) >= 0.08
+          );
+    END IF;
+
+    IF coalesce(v_ward_hit_count, 0) >= 2 THEN
+        FOREACH v_level IN ARRAY v_levels LOOP
+            v_result := core.pick_admin_area_for_line_overlap(v_geom, v_level);
+            IF v_result IS NOT NULL THEN
+                RETURN v_result;
+            END IF;
+        END LOOP;
+    END IF;
+
+    v_result := core.pick_admin_area_for_line_overlap(v_geom, NULL);
+    IF v_result IS NOT NULL THEN
+        RETURN v_result;
+    END IF;
+
+    SELECT c.id
+    INTO v_result
+    FROM core.core_admin_areas AS c
+    INNER JOIN ref.ref_admin_levels AS al ON al.id = c.admin_level_id
+    WHERE c.is_active IS TRUE
+      AND c.deleted_at IS NULL
+      AND c.geom IS NOT NULL
+      AND NOT st_isempty(c.geom)
+      AND st_isvalid(c.geom)
+      AND (
+          st_covers(c.geom, v_geom)
+          OR st_contains(c.geom, v_geom)
+      )
+    ORDER BY st_area(c.geom::geography) ASC NULLS LAST, c.id ASC
+    LIMIT 1;
 
     IF v_result IS NULL THEN
         v_result := core.find_admin_area_for_point(
             core.entity_rep_point_for_admin_lookup(v_geom),
-            target_admin_level_code
+            NULL
         );
     END IF;
 
@@ -474,7 +601,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION core.find_admin_area_for_line(geometry, text) IS
-    'Line: max intersection length (detailed overlap), then smallest full containment, then point-on-line. NULL target = any level.';
+    'Line: prefer largest overlap with smallest admin polygon; if multiple ward-like hits, fallback township→district→state_region.';
 
 -- ---------------------------------------------------------------------------
 -- 3. Polygon → point-on-surface, then smallest containing intersection
@@ -625,7 +752,6 @@ AS $$
     WITH child AS (
         SELECT
             a.id,
-            a.geom,
             core.admin_area_rep_point(a.geom, a.centroid) AS child_centroid,
             coalesce(
                 al.rank::integer,
@@ -649,17 +775,24 @@ AS $$
                     ELSE NULL
                 END,
                 99
-            ) AS hierarchy_order
+            ) AS hierarchy_order,
+            (
+                lower(trim(coalesce(al.code, ''))) = 'country'
+                OR coalesce(al.rank::integer, 99) <= 2
+            ) AS is_country_level
         FROM core.core_admin_areas AS a
         LEFT JOIN ref.ref_admin_levels AS al ON al.id = a.admin_level_id
         WHERE a.id = p_child_admin_area_id
-          AND a.is_active IS TRUE
+          AND coalesce(a.is_active, true) IS TRUE
           AND a.deleted_at IS NULL
     )
-    SELECT coalesce(by_centroid.id, by_geom.id)
+    SELECT CASE
+        WHEN c.is_country_level THEN NULL::bigint
+        ELSE pick.parent_id
+    END
     FROM child AS c
     LEFT JOIN LATERAL (
-        SELECT parent.id
+        SELECT parent.id AS parent_id
         FROM core.core_admin_areas AS parent
         LEFT JOIN ref.ref_admin_levels AS pal ON pal.id = parent.admin_level_id
         WHERE parent.is_active IS TRUE
@@ -693,10 +826,8 @@ AS $$
           ) < c.hierarchy_order
           AND c.child_centroid IS NOT NULL
           AND NOT st_isempty(c.child_centroid)
-          AND (
-              st_contains(parent.geom, c.child_centroid)
-              OR st_intersects(parent.geom, c.child_centroid)
-          )
+          AND st_isvalid(c.child_centroid)
+          AND st_contains(parent.geom, c.child_centroid)
         ORDER BY coalesce(
             pal.rank::integer,
             CASE lower(trim(coalesce(pal.code, '')))
@@ -723,80 +854,28 @@ AS $$
         st_area(parent.geom::geography) ASC NULLS LAST,
         parent.id ASC
         LIMIT 1
-    ) AS by_centroid ON true
-    LEFT JOIN LATERAL (
-        SELECT parent.id
-        FROM core.core_admin_areas AS parent
-        LEFT JOIN ref.ref_admin_levels AS pal ON pal.id = parent.admin_level_id
-        WHERE by_centroid.id IS NULL
-          AND parent.is_active IS TRUE
-          AND parent.deleted_at IS NULL
-          AND parent.id <> c.id
-          AND parent.geom IS NOT NULL
-          AND NOT st_isempty(parent.geom)
-          AND st_isvalid(parent.geom)
-          AND coalesce(
-              pal.rank::integer,
-              CASE lower(trim(coalesce(pal.code, '')))
-                  WHEN 'country' THEN 2
-                  WHEN 'state_region' THEN 4
-                  WHEN 'state' THEN 4
-                  WHEN 'division' THEN 4
-                  WHEN 'region' THEN 4
-                  WHEN 'district' THEN 5
-                  WHEN 'township' THEN 6
-                  WHEN 'town' THEN 6
-                  WHEN 'city' THEN 6
-                  WHEN 'suburb' THEN 7
-                  WHEN 'ward' THEN 7
-                  WHEN 'quarter' THEN 7
-                  WHEN 'village_tract' THEN 7
-                  WHEN 'village' THEN 8
-                  WHEN 'hamlet' THEN 8
-                  WHEN 'neighbourhood' THEN 9
-                  ELSE NULL
-              END,
-              99
-          ) < c.hierarchy_order
-          AND c.geom IS NOT NULL
-          AND NOT st_isempty(c.geom)
-          AND st_isvalid(c.geom)
-          AND st_intersects(parent.geom, c.geom)
-        ORDER BY coalesce(
-            pal.rank::integer,
-            CASE lower(trim(coalesce(pal.code, '')))
-                WHEN 'country' THEN 2
-                WHEN 'state_region' THEN 4
-                WHEN 'state' THEN 4
-                WHEN 'division' THEN 4
-                WHEN 'region' THEN 4
-                WHEN 'district' THEN 5
-                WHEN 'township' THEN 6
-                WHEN 'town' THEN 6
-                WHEN 'city' THEN 6
-                WHEN 'suburb' THEN 7
-                WHEN 'ward' THEN 7
-                WHEN 'quarter' THEN 7
-                WHEN 'village_tract' THEN 7
-                WHEN 'village' THEN 8
-                WHEN 'hamlet' THEN 8
-                WHEN 'neighbourhood' THEN 9
-                ELSE NULL
-            END,
-            99
-        ) DESC,
-        st_area(parent.geom::geography) ASC NULLS LAST,
-        parent.id ASC
-        LIMIT 1
-    ) AS by_geom ON true;
+    ) AS pick ON true;
 $$;
 
+\echo '=== Ensure core.core_admin_areas indexes (idempotent) ==='
+
+CREATE INDEX IF NOT EXISTS core_admin_areas_geom_gix
+    ON core.core_admin_areas USING gist (geom);
+
+CREATE INDEX IF NOT EXISTS core_admin_areas_parent_idx
+    ON core.core_admin_areas (parent_id);
+
+CREATE INDEX IF NOT EXISTS core_admin_areas_level_idx
+    ON core.core_admin_areas (admin_level_id);
+
 \echo 'Installed/updated core admin assignment functions:'
-\echo '  - core.find_admin_area_for_point (smallest containing; optional level filter)'
-\echo '  - core.find_admin_area_for_line (overlap / containment / point fallbacks)'
-\echo '  - core.find_admin_area_for_polygon'
+\echo '  - core.find_admin_area_for_point(geometry, text default null)'
+\echo '  - core.find_admin_area_for_line(geometry, text default null)'
+\echo '  - core.find_admin_area_for_polygon(geometry, text default null)'
+\echo '  - core.pick_admin_area_for_line_overlap / ward instability fallback'
 \echo '  - core.admin_area_matches_assignment_target (NULL target = any level)'
 \echo '  - core.is_admin_area_id_valid_for_point / _for_line'
 \echo '  - core.lookup_admin_area_id_for_point (wrapper)'
 \echo '  - core.entity_admin_assignment_is_protected / repair metadata helpers'
 \echo '  - pipeline / hierarchy helpers'
+\echo 'Indexes: core_admin_areas_geom_gix, core_admin_areas_parent_idx, core_admin_areas_level_idx'

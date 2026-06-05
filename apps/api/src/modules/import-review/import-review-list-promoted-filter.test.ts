@@ -45,16 +45,16 @@ test("list query schemas default include_promoted to false", () => {
 });
 
 describe("default candidate list excludes promoted", () => {
-    it("places list excludes promotion_status=promoted and legacy review_status=promoted", () => {
-        const sql = whereSql("places", { include_promoted: false });
-        assert.match(sql, /promotion_status.*IS DISTINCT FROM 'promoted'/i);
-        assert.match(sql, /review_status.*IS DISTINCT FROM 'promoted'/i);
+    it("places default active list hides promoted and stale batched", () => {
+        const sql = whereSql("places", { promotion_state: "all_active" });
+        assert.match(sql, /promotion_status = 'promoted'/i);
+        assert.match(sql, /promotion_status IS DISTINCT FROM 'batched'/i);
     });
 
     for (const family of PROMOTED_ENTITY_FAMILIES) {
-        it(`${family} default list excludes promoted`, () => {
-            const sql = whereSql(family, { include_promoted: false });
-            assert.match(sql, /promotion_status.*IS DISTINCT FROM 'promoted'/i);
+        it(`${family} default active list hides promoted`, () => {
+            const sql = whereSql(family, { promotion_state: "all_active" });
+            assert.match(sql, /promotion_status = 'promoted'/i);
         });
     }
 });

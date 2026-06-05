@@ -50,6 +50,17 @@ export const coreReviewListQuerySchemaOpenApi = {
         status: { type: "string", enum: ["active", "deleted", "all"], default: "active" },
         includeDeleted: { type: "boolean" },
         routeId: { type: "string" },
+        includeTotal: {
+            type: "boolean",
+            description:
+                "When false, list skips COUNT(*) (streets default). Use meta.hasNextPage and GET /core-review/streets/count.",
+        },
+        include_total: {
+            type: "boolean",
+            description: "Snake_case alias for includeTotal.",
+        },
+        cursorUpdatedAt: { type: "string" },
+        cursorId: { type: "string" },
     },
 };
 
@@ -84,6 +95,39 @@ export const getCoreReviewListSchema = {
                 pagination: paginationSchema,
                 filters: { type: "object", additionalProperties: true },
                 meta: { type: "object", additionalProperties: true },
+            },
+        },
+        ...coreReviewErrorResponses,
+    },
+};
+
+export const getCoreReviewStreetsCountSchema = {
+    tags: ["core-review"],
+    summary: "Count core-review streets for current filters (may be slow)",
+    params: {
+        type: "object",
+        required: ["entity"],
+        properties: {
+            entity: { type: "string", enum: ["streets"] },
+        },
+    },
+    querystring: coreReviewListQuerySchemaOpenApi,
+    response: {
+        200: {
+            type: "object",
+            required: ["total", "verificationCounts"],
+            properties: {
+                total: { type: "integer" },
+                verificationCounts: {
+                    type: "object",
+                    required: ["total", "verified", "unverified"],
+                    properties: {
+                        total: { type: "integer" },
+                        verified: { type: "integer" },
+                        unverified: { type: "integer" },
+                    },
+                },
+                filters: { type: "object", additionalProperties: true },
             },
         },
         ...coreReviewErrorResponses,

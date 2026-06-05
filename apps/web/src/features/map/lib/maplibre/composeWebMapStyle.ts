@@ -8,6 +8,7 @@ import type { LayerSpecification, StyleSpecification } from 'maplibre-gl';
 import {
   BASEMAP_ZOOM_VISIBILITY_RULES,
   REGIONAL_BASE_APPEAR_ZOOM,
+  REGIONAL_VECTOR_SOURCE_MAX_ZOOM,
   patchOverviewLayersForProgressiveDetail,
   patchRegionalLayersForProgressiveDetail,
 } from './basemapZoomVisibility';
@@ -36,6 +37,16 @@ export function composeWebMapStyle(
   const patchedRegional = patchRegionalLayersForProgressiveDetail(regionalWithoutBackground);
   const overviewLayers = patchOverviewLayersForProgressiveDetail(createOverviewLayers());
 
+  const regionalSources = { ...regionalStyle.sources };
+  const basemapSource = regionalSources['local-basemap'];
+  if (basemapSource && basemapSource.type === 'vector') {
+    regionalSources['local-basemap'] = {
+      ...basemapSource,
+      minzoom: 0,
+      maxzoom: REGIONAL_VECTOR_SOURCE_MAX_ZOOM,
+    };
+  }
+
   return {
     ...regionalStyle,
     name: 'CoreMap Web — overview + regional',
@@ -48,7 +59,7 @@ export function composeWebMapStyle(
       'local-map:zoom-rules': JSON.stringify(BASEMAP_ZOOM_VISIBILITY_RULES),
     },
     sources: {
-      ...regionalStyle.sources,
+      ...regionalSources,
       [OVERVIEW_SOURCE_ID]: createOverviewSource(overviewPmtilesHttpUrl),
     },
     layers: [

@@ -1,4 +1,30 @@
-import type { ImportReviewPublishBatchValidationResultSummary } from "@/src/lib/api";
+import type {
+    ImportReviewPublishBatchValidationResultSummary,
+    ImportReviewRoadPromotionGatesResult,
+} from "@/src/lib/api";
+import {
+    resolveRoadBulkPromotionUxPolicy,
+    type RoadBulkPromotionUxPolicy,
+} from "@/src/features/import-review/promotion/roadBulkPromotionUx";
+import {
+    batchRequiresDryRunBeforePromote,
+} from "@/src/features/import-review/promotion/publishBatchWorkflowUi";
+import {
+    isPublishBatchClosedForReuse,
+    normalizePublishBatchLifecycleStatus,
+    publishBatchDryRunPassed,
+} from "@/src/features/import-review/promotion/publishBatchLifecycle";
+import {
+    isPublishBatchValidationSystemFailure,
+    publishBatchClosedFailureMessage,
+    publishBatchValidationFailureHeadline,
+    publishBatchValidationSystemFailureMessage,
+} from "@/src/features/import-review/promotion/publishBatchValidationFailure";
+import {
+    resolveRoadPromotionGatesForPromoteUi,
+    roadPromotionBlocksPromote,
+    roadPromotionPrimaryBlockerMessage,
+} from "@/src/features/import-review/promotion/roadPromotionGates";
 
 export type ImportReviewPublishItemStatusCounts = {
     pending: number;
@@ -14,6 +40,8 @@ export type PromotionPromoteUiInput = {
     validatedAt: string | null | undefined;
     validationPercent?: number;
     validation: ImportReviewPublishBatchValidationResultSummary | null | undefined;
+    /** Batch summary JSON (validation_error marks validation-phase SQL failures). */
+    batchSummary?: Record<string, unknown> | null;
     /** Live count: pending items with validation_result ready (or warning when confirmed). */
     currentPromotableCount?: number;
     validationPromotableCount?: number | null;
@@ -21,9 +49,18 @@ export type PromotionPromoteUiInput = {
     /** Eligible failed+ready items for a new retry batch (from progress API). */
     failedReadyRetryCount?: number;
     promotionStatus?: string | null;
+    /** Raw gates from GET progress (may be omitted by API serialization). */
+    roadPromotionGates?: ImportReviewRoadPromotionGatesResult | null;
+    dryRunResult?: { status: string } | null;
+    hasRoadItems?: boolean;
+    roadsItemCount?: number;
+    /** Publish batch entity families (roads/routing_barriers require dry-run before promote). */
+    entityFamilies?: readonly string[];
 };
 
 export type PromotionPromoteUiState = {
+    validationSystemFailure: boolean;
+    validationFailureHeadline: string;
     readyCount: number;
     warningCount: number;
     blockedCount: number;
@@ -46,6 +83,7 @@ export type PromotionPromoteUiState = {
     blockedWarningMessage: string | null;
     showWarningNoteField: boolean;
     blockedDetailsFamily: string | null;
+    roadBulkUx: RoadBulkPromotionUxPolicy | null;
 };
 
 function readyCountFromValidation(
@@ -94,11 +132,23 @@ export function promotionPromoteUiState(input: PromotionPromoteUiInput): Promoti
     const failedReadyRetryCount = Math.max(0, input.failedReadyRetryCount ?? 0);
 
     const promotionStatus = (input.promotionStatus ?? "").trim();
+    const validationSystemFailure = isPublishBatchValidationSystemFailure({
+        batchStatus: input.batchStatus,
+        promotionStatus: input.promotionStatus,
+        publishItemSuccessCount,
+        publishItemFailedCount,
+        summary: input.batchSummary ?? null,
+    });
+    const validationFailureHeadline = publishBatchValidationFailureHeadline(validationSystemFailure);
     const promotionFailed =
-        promotionStatus === "promotion_failed" ||
-        (input.batchStatus.trim().toLowerCase() === "failed" && publishItemFailedCount > 0);
+        !validationSystemFailure &&
+        (promotionStatus === "promotion_failed" ||
+            (input.batchStatus.trim().toLowerCase() === "failed" &&
+                publishItemFailedCount > 0 &&
+                publishItemSuccessCount > 0));
 
     const promotionAttemptExhausted =
+        validationSystemFailure ||
         promotionFailed ||
         (validationPromotableCount > 0 &&
             currentPromotableCount === 0 &&
@@ -111,19 +161,50 @@ export function promotionPromoteUiState(input: PromotionPromoteUiInput): Promoti
     });
 
     const batchStatus = input.batchStatus.trim().toLowerCase();
+    const batchClosed = isPublishBatchClosedForReuse(batchStatus);
     const inFlight = batchStatus === "validating" || batchStatus === "promoting";
 
     const validationAllowsRun = validationOutcomeAllowsPromotion(validation);
-    const canPromote =
+    const resolvedRoadPromotionGates = resolveRoadPromotionGatesForPromoteUi({
+        apiGates: input.roadPromotionGates,
+        hasRoadItems: input.hasRoadItems,
+        roadsItemCount: input.roadsItemCount,
+    });
+    const requiresDryRunBeforePromote = batchRequiresDryRunBeforePromote(
+        input.entityFamilies?.length
+            ? input.entityFamilies
+            : input.hasRoadItems
+              ? ["roads"]
+              : []
+    );
+    const batchDryRunPassedForPromote = publishBatchDryRunPassed(input.dryRunResult ?? null);
+    const dryRunGateOk = !requiresDryRunBeforePromote || batchDryRunPassedForPromote;
+    const roadBlocksPromote =
+        requiresDryRunBeforePromote &&
+        dryRunGateOk &&
+        roadPromotionBlocksPromote(resolvedRoadPromotionGates);
+    const roadBlockerMessage = roadPromotionPrimaryBlockerMessage(resolvedRoadPromotionGates);
+
+    let canPromote =
         !input.workflowBlocked &&
+        !batchClosed &&
         !inFlight &&
         validationComplete &&
         validationAllowsRun &&
-        currentPromotableCount > 0;
+        dryRunGateOk &&
+        currentPromotableCount > 0 &&
+        !roadBlocksPromote;
 
     let promoteDisabledReason: string | null = null;
     if (input.workflowBlocked) {
         promoteDisabledReason = null;
+    } else if (batchClosed) {
+        promoteDisabledReason = publishBatchClosedFailureMessage({
+            batchStatus,
+            validationSystemFailure,
+        });
+    } else if (roadBlocksPromote) {
+        promoteDisabledReason = roadBlockerMessage;
     } else if (inFlight) {
         promoteDisabledReason =
             batchStatus === "validating"
@@ -131,6 +212,8 @@ export function promotionPromoteUiState(input: PromotionPromoteUiInput): Promoti
                 : "Promotion is already running.";
     } else if (!validationComplete || validation === null) {
         promoteDisabledReason = "Run batch validation first.";
+    } else if (requiresDryRunBeforePromote && !batchDryRunPassedForPromote) {
+        promoteDisabledReason = "Run dry-run before promotion.";
     } else if (!validationAllowsRun) {
         promoteDisabledReason = "No promotable items at validation. Resolve blocked items or re-validate.";
     } else if (currentPromotableCount <= 0) {
@@ -159,20 +242,37 @@ export function promotionPromoteUiState(input: PromotionPromoteUiInput): Promoti
 
     const canCreateRetryBatch = promotionAttemptExhausted && failedReadyRetryCount > 0;
     const retryBatchButtonLabel = canCreateRetryBatch
-        ? `Create retry batch from ${failedReadyRetryCount.toLocaleString()} failed ready item${failedReadyRetryCount === 1 ? "" : "s"}`
+        ? `Create retry batch from ${failedReadyRetryCount.toLocaleString()} failed+ready item${failedReadyRetryCount === 1 ? "" : "s"}`
         : null;
+
+    const roadBulkUx = resolveRoadBulkPromotionUxPolicy({
+        hasRoadItems: input.hasRoadItems,
+        roadsItemCount: input.roadsItemCount,
+        gates: resolvedRoadPromotionGates ?? input.roadPromotionGates,
+        validationReadyCount: readyCount,
+        currentPromotableCount,
+        publishItemFailedCount,
+        publishItemSuccessCount,
+        blockedCount,
+        canCreateRetryBatch,
+        failedReadyRetryCount,
+    });
 
     let exhaustedBatchMessage: string | null = null;
     let retryBatchMessage: string | null = null;
     if (promotionAttemptExhausted) {
-        exhaustedBatchMessage = promotionFailed
-            ? "Promotion failed. Create a new retry batch after fixing the error."
-            : `Validation recorded ${validationPromotableCount.toLocaleString()} promotable item${validationPromotableCount === 1 ? "" : "s"}, but ${publishItemFailedCount.toLocaleString()} already failed during promotion. None are pending now — create a new publish batch after fixing the errors.`;
-        retryBatchMessage = canCreateRetryBatch
-            ? "Create a new draft publish batch from the failed ready items, then run validation on that batch before promoting again."
+        exhaustedBatchMessage = validationSystemFailure
+            ? publishBatchValidationSystemFailureMessage()
             : promotionFailed
-              ? "Fix the underlying error, then use retry batch when eligible items are available."
-              : "No failed ready items are eligible for a retry batch (already promoted or blocked in another batch).";
+              ? "Promotion failed. Create a new retry batch after fixing the error."
+              : `Validation recorded ${validationPromotableCount.toLocaleString()} promotable item${validationPromotableCount === 1 ? "" : "s"}, but ${publishItemFailedCount.toLocaleString()} already failed during promotion. None are pending now — create a new publish batch after fixing the errors.`;
+        retryBatchMessage = validationSystemFailure
+            ? "Fix validation blockers or data issues, then create a new publish batch and run validation again."
+            : canCreateRetryBatch
+              ? "Create a new draft publish batch from the failed ready items, then run validation on that batch before promoting again."
+              : promotionFailed
+                ? "Fix the underlying error, then use retry batch when eligible items are available."
+                : "No failed ready items are eligible for a retry batch (already promoted or blocked in another batch).";
     } else if (
         validationPromotableCount > 0 &&
         currentPromotableCount === 0 &&
@@ -203,6 +303,8 @@ export function promotionPromoteUiState(input: PromotionPromoteUiInput): Promoti
     }
 
     return {
+        validationSystemFailure,
+        validationFailureHeadline,
         readyCount,
         warningCount,
         blockedCount,
@@ -223,5 +325,6 @@ export function promotionPromoteUiState(input: PromotionPromoteUiInput): Promoti
         blockedWarningMessage,
         showWarningNoteField: warningCount > 0 && canPromote,
         blockedDetailsFamily,
+        roadBulkUx: roadBulkUx.isRoadBatch ? roadBulkUx : null,
     };
 }

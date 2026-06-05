@@ -1,10 +1,10 @@
 import type { PrismaClient } from "@prisma/client";
 
+import type { ImportReviewRoadDryRunSummaryResponse } from "./import-review-road-dry-run-summary.types.js";
 import type {
-    ImportReviewRoadDryRunSummaryResponse,
+    ImportReviewPromotionRoadDryRunResult,
     RoadDryRunItemResult,
-} from "./import-review-road-dry-run-summary.types.js";
-import type { ImportReviewPromotionRoadDryRunResult } from "./import-review-promotion-road-dry-run.types.js";
+} from "./import-review-promotion-road-dry-run.types.js";
 
 export class ImportReviewRoadDryRunSummaryRepository {
     constructor(private readonly prisma: PrismaClient) {}

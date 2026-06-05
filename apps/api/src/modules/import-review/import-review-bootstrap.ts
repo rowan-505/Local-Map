@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 
-import { getImportReviewPrisma } from "../../lib/import-review-prisma.js";
+import { getImportReviewPrisma } from "../../db/import-review-prisma.js";
 import {
     throwIfImportReviewProductionLocalhostMismatch,
     verifyImportReviewSchemaOrThrow,

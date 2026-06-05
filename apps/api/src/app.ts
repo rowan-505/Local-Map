@@ -2,9 +2,9 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { Prisma } from "@prisma/client";
 
-import { disconnectImportReviewPrisma } from "./lib/import-review-prisma.js";
+import { disconnectImportReviewPrisma } from "./db/import-review-prisma.js";
+import { prisma } from "./db/prisma.js";
 import { bootstrapImportReviewDatabase } from "./modules/import-review/import-review-bootstrap.js";
-import { prisma } from "./lib/prisma.js";
 import authPlugin from "./plugins/auth.js";
 import prismaPlugin from "./plugins/prisma.js";
 import { swaggerCorePlugin, swaggerUiPlugin } from "./plugins/swagger.js";

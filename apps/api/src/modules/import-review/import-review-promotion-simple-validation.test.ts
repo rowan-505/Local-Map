@@ -252,6 +252,27 @@ describe("validateSimplePromotionCandidateRow per family", () => {
         assert.ok(result.errors.some((e) => e.code === "missing_admin_name"));
     });
 
+    it("buildings: blocked when manual_protected", () => {
+        const config = IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY.buildings;
+        const row = familyReadyRow("buildings", { match_status: "manual_protected" });
+        const result = validateSimplePromotionCandidateRow(config, row, {
+            fkExistsByColumn: allFkExist(config),
+        });
+        assert.equal(result.status, "blocked");
+        assert.ok(result.errors.some((e) => e.code === "manual_protected"));
+    });
+
+    it("buildings: blocked on insert target_conflict", () => {
+        const config = IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY.buildings;
+        const row = familyReadyRow("buildings");
+        const result = validateSimplePromotionCandidateRow(config, row, {
+            fkExistsByColumn: allFkExist(config),
+            insertTargetConflict: true,
+        });
+        assert.equal(result.status, "blocked");
+        assert.ok(result.errors.some((e) => e.code === "target_conflict"));
+    });
+
     it("addresses: blocked when promotion_blockers present", () => {
         const config = IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY.addresses;
         const row = familyReadyRow("addresses", {

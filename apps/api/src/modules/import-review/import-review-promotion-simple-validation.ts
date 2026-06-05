@@ -78,6 +78,8 @@ export type SimplePromotionValidationContext = {
     fkExistsByColumn?: Readonly<Record<string, boolean>>;
     /** Routing barrier dry-run style counts (optional). */
     nearbyCoreRoads?: number | null;
+    /** Insert action: active core row already exists for external_id. */
+    insertTargetConflict?: boolean;
 };
 
 const GLOBAL_REVIEW_FIELDS = ["review_status", "review_decision"] as const;
@@ -320,6 +322,36 @@ function validateAlreadyPromoted(
 ): void {
     if (trimString(row.promotion_status) === "promoted" || row.promoted_core_id !== null) {
         pushError(errors, "already_promoted", "Candidate is already promoted.", "promotion_status");
+    }
+}
+
+function validateManualProtected(
+    row: SimplePromotionCandidateValidationRow,
+    errors: SimplePromotionValidationIssue[]
+): void {
+    const matchStatus = trimString(row.match_status);
+    const autoAction = trimString(row.auto_action);
+    if (matchStatus === "manual_protected" || autoAction === "protect_manual") {
+        pushError(
+            errors,
+            "manual_protected",
+            "Candidate is manual protected and cannot be promoted.",
+            "match_status"
+        );
+    }
+}
+
+function validateInsertTargetConflict(
+    ctx: SimplePromotionValidationContext,
+    errors: SimplePromotionValidationIssue[]
+): void {
+    if (ctx.insertTargetConflict === true) {
+        pushError(
+            errors,
+            "target_conflict",
+            "An active core row already exists for this external_id (insert action).",
+            "external_id"
+        );
     }
 }
 
@@ -714,6 +746,8 @@ export function validateSimplePromotionCandidateRow(
 
     validateReviewApproval(row, errors);
     validateAlreadyPromoted(row, errors);
+    validateManualProtected(row, errors);
+    validateInsertTargetConflict(ctx, errors);
     validateConfidenceScore(row, errors, warnings);
     validateLineage(row, errors, warnings);
     validateScalarRequiredFields(config, row, errors);
@@ -954,23 +988,101 @@ export class ImportReviewSimplePromotionValidationRepository {
         row: SimplePromotionCandidateValidationRow,
         thresholdM = 30
     ): Promise<number | null> {
-        if (!row.geomDiagnostics?.present) {
-            return null;
+        const map = await this.countNearbyCoreRoadsForBarriersBatch([row.id], thresholdM);
+        const count = map.get(row.id.toString());
+        return count === undefined ? null : count;
+    }
+
+    /** One query per chunk: candidate_id → nearby core street count (scalar count only). */
+    async countNearbyCoreRoadsForBarriersBatch(
+        candidateIds: readonly bigint[],
+        thresholdM = 30
+    ): Promise<Map<string, number>> {
+        const out = new Map<string, number>();
+        if (candidateIds.length === 0) {
+            return out;
         }
-        const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
-            SELECT count(*)::bigint AS count
-            FROM core.core_streets AS r
-            WHERE r.geom IS NOT NULL
-              AND ST_DWithin(
-                  r.geom::geography,
-                  (SELECT c.point_geom::geography
-                   FROM import_review.routing_barrier_candidates AS c
-                   WHERE c.id = ${row.id}
-                   LIMIT 1),
-                  ${thresholdM}::double precision
-              )
+
+        const rows = await this.prisma.$queryRaw<{ candidate_id: bigint; nearby_count: bigint }[]>`
+            SELECT
+                c.id AS candidate_id,
+                count(r.id)::bigint AS nearby_count
+            FROM import_review.routing_barrier_candidates AS c
+            LEFT JOIN core.core_streets AS r
+              ON r.geom IS NOT NULL
+             AND c.point_geom IS NOT NULL
+             AND ST_DWithin(
+                 r.geom::geography,
+                 c.point_geom::geography,
+                 ${thresholdM}::double precision
+             )
+            WHERE c.id IN (${Prisma.join(candidateIds)})
+            GROUP BY c.id
         `;
-        return Number(rows[0]?.count ?? 0n);
+
+        for (const row of rows) {
+            out.set(row.candidate_id.toString(), Number(row.nearby_count ?? 0n));
+        }
+        for (const id of candidateIds) {
+            const key = id.toString();
+            if (!out.has(key)) {
+                out.set(key, 0);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Batch insert-action conflict: external_id already exists on active core target row.
+     */
+    async resolveInsertTargetConflictsBatch(
+        config: ImportReviewSimplePromotionFamilyConfig,
+        rows: readonly SimplePromotionCandidateValidationRow[],
+        targets: readonly { review_candidate_id: bigint; publish_action?: string | null }[]
+    ): Promise<Map<string, boolean>> {
+        const out = new Map<string, boolean>();
+        const targetByCandidate = new Map(
+            targets.map((t) => [t.review_candidate_id.toString(), t] as const)
+        );
+
+        const externalIds: string[] = [];
+        const candidateKeys: string[] = [];
+
+        for (const row of rows) {
+            const target = targetByCandidate.get(row.id.toString());
+            const action = trimString(target?.publish_action);
+            const externalId = trimString(row.external_id);
+            if (action !== "insert" || externalId === null) {
+                continue;
+            }
+            externalIds.push(externalId);
+            candidateKeys.push(row.id.toString());
+        }
+
+        if (externalIds.length === 0) {
+            return out;
+        }
+
+        const coreTable = Prisma.raw(`${config.targetSchema}.${config.targetTable}`);
+        const existing = await this.prisma.$queryRaw<{ external_id: string }[]>`
+            SELECT DISTINCT external_id
+            FROM ${coreTable}
+            WHERE external_id IN (${Prisma.join(externalIds)})
+        `;
+        const existingSet = new Set(existing.map((r) => r.external_id));
+
+        for (const row of rows) {
+            const key = row.id.toString();
+            const target = targetByCandidate.get(key);
+            const action = trimString(target?.publish_action);
+            const externalId = trimString(row.external_id);
+            if (action !== "insert" || externalId === null) {
+                continue;
+            }
+            out.set(key, existingSet.has(externalId));
+        }
+
+        return out;
     }
 }
 

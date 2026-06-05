@@ -104,6 +104,9 @@ export function buildRoadLightweightListExtensionSelect(config: ImportReviewEnti
         , NULL::numeric AS height_m
         , NULL::numeric AS area_m2
         , ${roadEffectiveRoadClassIdExpr(alias)} AS road_candidate_road_class_id
+        , ${colRef(config, "road_class")} AS road_class
+        , rc.name AS road_class_name
+        , COALESCE(rc.name, rc.code, ${colRef(config, "road_class")}) AS road_class_label
         , ${roadCoalesceTextExpr(alias, "surface")} AS road_candidate_surface
         , ${roadColumnBooleanExpr(alias, "is_oneway")} AS road_candidate_is_oneway
         , COALESCE(rc.code, ${colRef(config, "road_class")}) AS road_candidate_class_label

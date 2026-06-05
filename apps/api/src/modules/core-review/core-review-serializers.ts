@@ -2,7 +2,7 @@ import { resolveBuildingTypeCode } from "../../lib/building-type/building-type-r
 import { mapBuildingNameFields } from "../../lib/entity-names/building-detail-select-sql.js";
 import type { BuildingDetailRow } from "../buildings/buildings.repo.js";
 import type { PlaceDetailRow, PlaceNameRow, PlaceRow } from "../places/places.repo.js";
-import type { StreetRow } from "../streets/streets.repo.js";
+import type { StreetCoreReviewListRow, StreetRow } from "../streets/streets.repo.js";
 import type { CoreReviewNameDto } from "./core-review.types.js";
 import {
     effectiveVerificationStatusFromRow,
@@ -107,6 +107,40 @@ export function serializeCoreReviewPlace(row: PlaceRow | PlaceDetailRow, include
     };
 }
 
+export function serializeCoreReviewStreetListItem(row: StreetCoreReviewListRow) {
+    const verificationStatus = effectiveVerificationStatusFromRow(row);
+    return {
+        id: row.id,
+        publicId: row.public_id,
+        canonicalName: row.canonical_name,
+        adminAreaId: row.admin_area_id,
+        adminAreaName: row.admin_area_name,
+        roadClassId: row.road_class_id,
+        roadClass: row.road_class,
+        roadClassName: row.road_class_name,
+        surface: row.surface,
+        isOneway: row.is_oneway,
+        bridge: row.bridge,
+        tunnel: row.tunnel,
+        manualOverride: false,
+        editStatus: null as string | null,
+        routingStatus: row.routing_status,
+        deletedAt: iso(row.deleted_at),
+        lastEditedAt: null as string | null,
+        isActive: row.is_active,
+        verificationStatus,
+        isVerified: isVerifiedFromVerificationStatus(verificationStatus),
+        createdAt: iso(row.created_at),
+        updatedAt: iso(row.updated_at),
+        geometry: null,
+        names: [] as CoreReviewNameDto[],
+        myanmarName: row.myanmar_name,
+        englishName: row.english_name,
+        name_mm: row.myanmar_name,
+        name_en: row.english_name,
+    };
+}
+
 export function serializeCoreReviewStreet(row: StreetRow) {
     const verificationStatus = effectiveVerificationStatusFromRow(row);
     return {
@@ -142,6 +176,8 @@ export function serializeCoreReviewStreet(row: StreetRow) {
         })),
         myanmarName: row.myanmar_name,
         englishName: row.english_name,
+        name_mm: row.myanmar_name,
+        name_en: row.english_name,
     };
 }
 

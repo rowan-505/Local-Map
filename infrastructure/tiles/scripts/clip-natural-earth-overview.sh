@@ -61,6 +61,26 @@ clip_layer \
   "$NE_UNZIPPED/ne_10m_admin_0_countries/ne_10m_admin_0_countries.shp" \
   "$OUT/countries.geojsonseq"
 
+COUNTRIES_SHP="$NE_UNZIPPED/ne_10m_admin_0_countries/ne_10m_admin_0_countries.shp"
+if [ ! -f "$COUNTRIES_SHP" ]; then
+  echo "❌ Missing source for mmr_country_highlight:"
+  echo "   $COUNTRIES_SHP"
+  exit 1
+fi
+
+echo "→ Clipping mmr_country_highlight (Myanmar polygon from NE admin0 countries)"
+ogr2ogr \
+  -f GeoJSONSeq \
+  -t_srs EPSG:4326 \
+  -spat "$MIN_LNG" "$MIN_LAT" "$MAX_LNG" "$MAX_LAT" \
+  -where "ADM0_A3='MMR' OR ISO_A3='MMR' OR SOV_A3='MMR'" \
+  "$OUT/mmr_country_highlight.geojsonseq" \
+  "$COUNTRIES_SHP"
+echo "  ✅ $OUT/mmr_country_highlight.geojsonseq"
+
+echo "→ Preparing high-precision Myanmar admin0 boundary tiers (z0-2 / z3-4 / z5-6)"
+python3 "$ROOT/scripts/prepare-mmr-admin0-boundaries.py" "$OUT"
+
 clip_layer \
   "country_boundaries" \
   "$NE_UNZIPPED/ne_10m_admin_0_boundary_lines_land/ne_10m_admin_0_boundary_lines_land.shp" \

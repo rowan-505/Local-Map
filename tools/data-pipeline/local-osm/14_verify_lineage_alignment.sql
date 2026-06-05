@@ -43,6 +43,24 @@
 \else
 \set snapshot_version ''
 \endif
+\if :{?entity_families}
+\else
+\set entity_families 'all'
+\endif
+
+\if :{?entity_family}
+\else
+\set entity_family ''
+\endif
+
+SELECT CASE
+    WHEN lower(btrim(coalesce(:'entity_families', 'all'))) IN ('', 'all', '*')
+         AND nullif(btrim(coalesce(:'entity_family', '')), '') IS NOT NULL
+        THEN lower(btrim(:'entity_family'))
+    ELSE lower(btrim(coalesce(nullif(btrim(:'entity_families'), ''), 'all')))
+END AS effective_entity_families \gset stage14_ef_
+
+\set entity_families :stage14_ef_effective_entity_families
 
 -- Guard: nonempty package_name
 SELECT CAST(
@@ -81,6 +99,10 @@ SELECT CAST(
             '0'
         END AS integer)
     AS _known_package_guard;
+
+BEGIN;
+
+\ir pipeline_entity_families.sql
 
 DROP TABLE IF EXISTS _lineage_chk_14;
 
@@ -143,6 +165,15 @@ CREATE TEMP TABLE stage14_per_entity (
 
 INSERT INTO stage14_per_entity (entity_family)
 SELECT entity_family FROM stage14_family_manifest;
+
+DELETE FROM stage14_family_manifest AS mf
+WHERE NOT pg_temp.pipeline_entity_family_enabled(mf.entity_family);
+
+DELETE FROM stage14_per_entity AS pe
+WHERE NOT EXISTS (
+    SELECT 1 FROM stage14_family_manifest AS mf
+    WHERE mf.entity_family = pe.entity_family
+);
 -- ---------------------------------------------------------------------------
 -- Consolidated lineage checks on package + items (+ dynamic staging joins)
 -- ---------------------------------------------------------------------------
@@ -211,7 +242,7 @@ BEGIN
             v_sver, v_env_sv;
     END IF;
 
-    -- Item rows must resolve to expected staging table for THIS snapshot FK (all families).
+    -- Item rows must resolve to expected staging table for THIS snapshot FK (selected families).
     FOR r IN SELECT * FROM stage14_family_manifest ORDER BY entity_family LOOP
         IF to_regclass(format('%I.%I', v_schema, r.staging_table)) IS NULL THEN
             RAISE NOTICE 'stage14_skip family=% missing staging table %.%', r.entity_family, v_schema, r.staging_table;
@@ -309,10 +340,11 @@ $dq$,
         WHERE entity_family = r.entity_family;
     END LOOP;
 
-    -- Unknown entity families in package (not in manifest)
+    -- Selected families in package must use a known manifest slug.
     SELECT count(*) INTO v_miss_part
       FROM system.system_remote_review_package_items i
      WHERE i.package_id = v_pkg_id
+       AND pg_temp.pipeline_entity_family_enabled(i.entity_family)
        AND i.entity_family NOT IN (SELECT entity_family FROM stage14_family_manifest);
     miss_staging := miss_staging + coalesce(v_miss_part, 0);
 
@@ -320,7 +352,8 @@ $dq$,
            count(*) FILTER (WHERE i.normalized_data IS NULL OR i.normalized_data = '{}'::jsonb)
       INTO fail_empty_source_refs, fail_empty_normalized_data
       FROM system.system_remote_review_package_items i
-     WHERE i.package_id = v_pkg_id;
+     WHERE i.package_id = v_pkg_id
+       AND pg_temp.pipeline_entity_family_enabled(i.entity_family);
 
     SELECT coalesce(sum(pe.external_id_mismatch), 0)::bigint
       INTO warn_ext_mismatch
@@ -329,12 +362,14 @@ $dq$,
     SELECT count(*) INTO bad_conf
       FROM system.system_remote_review_package_items i
      WHERE i.package_id = v_pkg_id
+       AND pg_temp.pipeline_entity_family_enabled(i.entity_family)
        AND i.confidence_score IS NOT NULL
        AND (i.confidence_score < 0 OR i.confidence_score > 100);
 
     SELECT count(*) INTO miss_payload_mirror
       FROM system.system_remote_review_package_items i
      WHERE i.package_id = v_pkg_id
+       AND pg_temp.pipeline_entity_family_enabled(i.entity_family)
        AND (
             coalesce(trim(i.payload ->> 'source_snapshot_version'), '') = ''
          OR coalesce(trim(i.payload ->> 'snapshot_version'), '') = ''
@@ -348,12 +383,14 @@ $dq$,
     SELECT count(*) FILTER (WHERE NULLIF(trim(coalesce(external_id, '')), '') IS NULL)
       INTO warn_ext_blank
       FROM system.system_remote_review_package_items
-     WHERE package_id = v_pkg_id;
+     WHERE package_id = v_pkg_id
+       AND pg_temp.pipeline_entity_family_enabled(entity_family);
 
     SELECT count(*) FILTER (WHERE f2_comparison IS NULL)
       INTO warn_f2_blank
       FROM system.system_remote_review_package_items
-     WHERE package_id = v_pkg_id;
+     WHERE package_id = v_pkg_id
+       AND pg_temp.pipeline_entity_family_enabled(entity_family);
 
     SELECT count(*) FILTER (
             WHERE (
@@ -367,12 +404,14 @@ $dq$,
            )
       INTO warn_matched_xor
       FROM system.system_remote_review_package_items
-     WHERE package_id = v_pkg_id;
+     WHERE package_id = v_pkg_id
+       AND pg_temp.pipeline_entity_family_enabled(entity_family);
 
     IF post_review_batch IS NOT NULL THEN
         SELECT count(*) INTO post_upload_miss
           FROM system.system_remote_review_package_items i
          WHERE i.package_id = v_pkg_id
+           AND pg_temp.pipeline_entity_family_enabled(i.entity_family)
            AND i.upload_status <> 'skipped'
            AND i.remote_candidate_id IS NULL;
     END IF;
@@ -411,6 +450,9 @@ SELECT
     'lineage_per_entity'::text AS slice,
     pe.*
 FROM stage14_per_entity pe
+WHERE EXISTS (
+    SELECT 1 FROM stage14_family_manifest mf WHERE mf.entity_family = pe.entity_family
+)
 ORDER BY pe.entity_family;
 
 \echo ''
@@ -499,3 +541,5 @@ END $_lineage_guard$;
 DROP TABLE IF EXISTS _lineage_chk_14;
 
 \echo Stage 14 lineage alignment complete (local).
+
+COMMIT;

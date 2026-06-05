@@ -1,3 +1,7 @@
+import {
+    isValidationTerminalErrorCode,
+    publishBatchValidationFailureHeadline,
+} from "@/src/features/import-review/promotion/publishBatchValidationFailure";
 import type {
     ImportReviewHistoryPublishBatchItem,
     ImportReviewPromotionFailureSample,
@@ -72,7 +76,7 @@ export function promotionFailureRowFromHistoryItem(
     const error_message =
         typeof afterData?.error_message === "string" && afterData.error_message.trim()
             ? afterData.error_message.trim()
-            : sanitizeOperatorMessage(item.error_message ?? rawFromDetail);
+            : sanitizeOperatorMessage(item.error_message ?? rawFromDetail, error_code);
 
     const technical_detail: Record<string, unknown> | null = afterData
         ? {
@@ -110,13 +114,24 @@ function inferErrorCode(message: string | null): string {
     return match?.[1] ?? "PROMOTION_FAILED";
 }
 
-export function sanitizeOperatorMessage(message: string | null): string {
+export function sanitizeOperatorMessage(
+    message: string | null,
+    errorCode?: string | null
+): string {
+    if (isValidationTerminalErrorCode(errorCode)) {
+        return publishBatchValidationFailureHeadline(true);
+    }
     if (!message?.trim()) {
-        return "Promotion failed.";
+        return publishBatchValidationFailureHeadline(false);
     }
     const text = message.trim();
-    if (/prisma\.|is not a function|invocation in/i.test(text)) {
-        return "Promotion system error while writing to the database.";
+    if (/invalid reference to from-clause entry for table "spi"/i.test(text)) {
+        return "Validation system error while checking publish items.";
+    }
+    if (/prisma\.|is not a function|invocation in|raw query failed/i.test(text)) {
+        return isValidationTerminalErrorCode(errorCode)
+            ? "Validation system error while checking publish items."
+            : "Promotion system error while writing to the database.";
     }
     const firstLine = text.split(/\r?\n/).find((line) => line.trim())?.trim();
     return firstLine && firstLine.length > 0 ? firstLine : text;

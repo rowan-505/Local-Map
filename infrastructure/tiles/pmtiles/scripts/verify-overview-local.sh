@@ -5,10 +5,10 @@ set -euo pipefail
 PMTILES_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OVERVIEW_DIR="${PMTILES_ROOT}/overview/regions"
 PMTILES_FILE="${OVERVIEW_DIR}/myanmar-overview-v1.pmtiles"
-CURRENT_JSON="${OVERVIEW_DIR}/current.json"
+CURRENT_JSON="${PMTILES_ROOT}/overview/current.json"
 SERVE_URL="${OVERVIEW_SERVE_URL:-http://localhost:8080}"
 PMTILES_HTTP_URL="${SERVE_URL}/overview/regions/myanmar-overview-v1.pmtiles"
-CURRENT_HTTP_URL="${SERVE_URL}/overview/regions/current.json"
+CURRENT_HTTP_URL="${SERVE_URL}/overview/current.json"
 
 fail=0
 
@@ -66,6 +66,16 @@ if command -v curl >/dev/null 2>&1; then
     echo "✅ GET ${PMTILES_HTTP_URL} (range request)"
   else
     echo "ℹ️  ${PMTILES_HTTP_URL} not reachable yet"
+  fi
+fi
+
+if [[ -f "$PMTILES_FILE" ]] && command -v pmtiles >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+  echo ""
+  echo "PMTiles metadata vs style registry:"
+  if python3 "${PMTILES_ROOT}/scripts/validate-overview-pmtiles-metadata.py" "$PMTILES_FILE"; then
+    :
+  else
+    fail=1
   fi
 fi
 

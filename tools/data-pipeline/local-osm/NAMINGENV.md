@@ -260,7 +260,10 @@ Before running, check:
     [ ] SNAPSHOT_REF is a clean file name
     [ ] CHECKSUM is filled for serious imports
     [ ] If using Stages J/K/L: `REMOTE_REVIEW_PACKAGE_NAME` is set and equals Stage J `-v package_name` (see §10 below)
+    [ ] Optional: `PIPELINE_FROM_STAGE` if resuming mid-pipeline (see `README.md`)
+    [ ] Optional: `REMOTE_REVIEW_MAX_ROWS_PER_FAMILY` for smoke tests only (not production uploads)
     [ ] Optional: when using `REMOTE_LINEAGE_ALIGNMENT_VERIFY=true`, read **`README_REMOTE_REVIEW.md`** (Stage `14`)
+    [ ] Optional: when using `LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=true`, read **`README.md`** (Stage `15`)
 
 ---
 
@@ -303,7 +306,21 @@ Details: **`README_REMOTE_REVIEW.md`**.
 
 ---
 
-## 12. Recommended .gitignore
+## 12. Entity coverage Stage `15` (`LOCAL_ENTITY_COVERAGE_REPORT_ENABLED`)
+
+Set when you want a final read-only **`15_entity_coverage_report.sql`** run (staging health, optional `import_review` batch counts, **`stage15_promotion_readiness`**):
+
+```bash
+export LOCAL_ENTITY_COVERAGE_REPORT_ENABLED='true'
+```
+
+Runs after the remote-review block when stages **11–13** (or **14**) complete. Does not promote to `core`.
+
+Details: **`README.md`** § Pipeline stages.
+
+---
+
+## 13. Recommended .gitignore
 
 Real env files may contain database passwords.
 

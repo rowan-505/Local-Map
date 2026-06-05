@@ -6,7 +6,6 @@ import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 import {
     resolveRoadClassForSave,
     roadEditorSeedFromRow,
-    ROAD_CLASS_REQUIRED_MESSAGE,
 } from "./importReviewRoadEditorState";
 
 const REF_OPTIONS = [
@@ -35,16 +34,17 @@ function minimalRoadRow(
 }
 
 describe("resolveRoadClassForSave", () => {
-    it("requires road class when geometry exists and no fallback", () => {
+    it("allows save without road class when geometry exists and no fallback", () => {
         const result = resolveRoadClassForSave({
             roadClassId: "",
             row: minimalRoadRow(),
             roadClassOptions: REF_OPTIONS,
             hasGeometry: true,
         });
-        assert.equal(result.ok, false);
-        if (!result.ok) {
-            assert.equal(result.message, ROAD_CLASS_REQUIRED_MESSAGE);
+        assert.equal(result.ok, true);
+        if (result.ok) {
+            assert.equal(result.roadClassId, "");
+            assert.equal(result.roadClassCode, null);
         }
     });
 

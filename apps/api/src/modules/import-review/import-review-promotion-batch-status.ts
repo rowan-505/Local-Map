@@ -18,7 +18,7 @@ export type PromotionRunFinalize = {
     stored_batch_status: PublishBatchStoredStatus;
     /** Value for summary.promotion_status and promotion_result mapping. */
     promotion_status: PromotionOutcomeStatus;
-    promotion_result_status: "promoted" | "partially_promoted" | "failed";
+    promotion_result_status: "promoted" | "partial" | "failed";
     partial_promotion: boolean;
     logs_summary: string;
     /** Set promoted_at on the batch only when true. */
@@ -120,7 +120,7 @@ function promotionResultStatusFromOutcome(
         return "promoted";
     }
     if (status === "partially_promoted") {
-        return "partially_promoted";
+        return "partial";
     }
     return "failed";
 }
@@ -181,9 +181,9 @@ export function computePromotionRunFinalize(
             parts.push(`${failed_count} failed`);
         }
         return {
-            stored_batch_status: "partially_promoted",
+            stored_batch_status: "partial",
             promotion_status,
-            promotion_result_status: "partially_promoted",
+            promotion_result_status: "partial",
             partial_promotion: true,
             logs_summary: `${parts.join("; ")}.`,
             set_promoted_at: true,

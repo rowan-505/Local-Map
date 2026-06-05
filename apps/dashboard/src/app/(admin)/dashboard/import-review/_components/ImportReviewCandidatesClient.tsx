@@ -906,7 +906,6 @@ export function ImportReviewCandidatesClient({
             force?: boolean;
             confirmDuplicate?: boolean;
             confirmMatchedAutoUpdate?: boolean;
-            confirmRoutingWarnings?: boolean;
             note?: string | null;
         },
     ) => {
@@ -914,8 +913,6 @@ export function ImportReviewCandidatesClient({
         if (!scopeBody.review_batch_id && !scopeBody.source_snapshot_version) {
             return;
         }
-
-        let confirmRoutingWarnings = opts?.confirmRoutingWarnings ?? false;
 
         if (family === "roads" && decision === "approved") {
             const blocking = validationMessagesFromReviewJson(row.validation_errors);
@@ -928,20 +925,6 @@ export function ImportReviewCandidatesClient({
                 );
                 return;
             }
-
-            const warns = validationMessagesFromReviewJson(row.validation_warnings);
-            if (warns.length > 0 && !opts?.force && !confirmRoutingWarnings) {
-                const ok = window.confirm(
-                    `Routing validation warnings (${warns.length}):\n\n${warns
-                        .slice(0, 12)
-                        .map((line) => `• ${line}`)
-                        .join("\n")}${warns.length > 12 ? `\n(+${warns.length - 12} more)` : ""}\n\nApprove and send confirm_routing_warnings=true?`,
-                );
-                if (!ok) {
-                    return;
-                }
-                confirmRoutingWarnings = true;
-            }
         }
 
         const note = opts?.note !== undefined ? opts.note : row.review_note;
@@ -952,7 +935,6 @@ export function ImportReviewCandidatesClient({
             force: opts?.force ?? false,
             confirm_duplicate_reviewed: opts?.confirmDuplicate ?? false,
             confirm_matched_auto_update: opts?.confirmMatchedAutoUpdate ?? false,
-            ...(family === "roads" ? { confirm_routing_warnings: confirmRoutingWarnings } : {}),
         };
 
         const updated =
@@ -1031,11 +1013,6 @@ export function ImportReviewCandidatesClient({
                 return;
             }
 
-            if (family === "roads" && decision === "approved" && msg.includes("confirm_routing_warnings")) {
-                await patchDecision(row, decision, { confirmRoutingWarnings: true });
-                return;
-            }
-
             window.alert(msg);
         } finally {
             setRowActionBusyId(null);
@@ -1054,7 +1031,6 @@ export function ImportReviewCandidatesClient({
             return;
         }
 
-        let drawerRoutingAck = false;
         if (family === "roads" && drawerDecision === "approved") {
             const blocking = validationMessagesFromReviewJson(drawerRow.validation_errors);
             if (blocking.length > 0) {
@@ -1065,19 +1041,6 @@ export function ImportReviewCandidatesClient({
                         .join("\n")}${blocking.length > 20 ? `\n(+${blocking.length - 20} more)` : ""}`,
                 );
                 return;
-            }
-            const warns = validationMessagesFromReviewJson(drawerRow.validation_warnings);
-            if (warns.length > 0) {
-                const ok = window.confirm(
-                    `Routing validation warnings (${warns.length}):\n\n${warns
-                        .slice(0, 12)
-                        .map((line) => `• ${line}`)
-                        .join("\n")}${warns.length > 12 ? `\n(+${warns.length - 12} more)` : ""}\n\nApprove and send confirm_routing_warnings=true?`,
-                );
-                if (!ok) {
-                    return;
-                }
-                drawerRoutingAck = true;
             }
         }
 
@@ -1094,7 +1057,6 @@ export function ImportReviewCandidatesClient({
                           ...scopeBody,
                           review_decision: drawerDecision,
                           review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
-                          confirm_routing_warnings: drawerRoutingAck,
                       });
             mergeRow(updated);
         } catch (err) {
@@ -1115,7 +1077,6 @@ export function ImportReviewCandidatesClient({
                                   review_decision: drawerDecision,
                                   review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                                   force: true,
-                                  confirm_routing_warnings: drawerRoutingAck,
                               });
                     mergeRow(updated);
                 }
@@ -1135,7 +1096,6 @@ export function ImportReviewCandidatesClient({
                                   review_decision: drawerDecision,
                                   review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                                   confirm_duplicate_reviewed: true,
-                                  confirm_routing_warnings: drawerRoutingAck,
                               });
                     mergeRow(updated);
                 }
@@ -1151,22 +1111,9 @@ export function ImportReviewCandidatesClient({
                         review_decision: drawerDecision,
                         review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
                         confirm_matched_auto_update: true,
-                        confirm_routing_warnings: drawerRoutingAck,
                     });
                     mergeRow(updated);
                 }
-            } else if (
-                family === "roads" &&
-                drawerDecision === "approved" &&
-                msg.includes("confirm_routing_warnings")
-            ) {
-                const updated = await patchImportReviewRoadDecision(drawerRow.id, {
-                    ...scopeBody,
-                    review_decision: drawerDecision,
-                    review_note: drawerNote.trim() === "" ? null : drawerNote.trim(),
-                    confirm_routing_warnings: true,
-                });
-                mergeRow(updated);
             } else {
                 window.alert(msg);
             }

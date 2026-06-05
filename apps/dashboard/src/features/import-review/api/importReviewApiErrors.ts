@@ -169,6 +169,12 @@ export function formatImportReviewApiErrorBody(
     const parsed = parseImportReviewApiErrorBody(data);
     if (parsed) {
         let message = parsed.message;
+        if (parsed.code === "DB_POOL_TIMEOUT") {
+            return parsed.message;
+        }
+        if (parsed.code === "BULK_DUPLICATE_APPROVAL_REQUIRED") {
+            return "Duplicate candidates require force approval.";
+        }
         if (
             parsed.code === "PROMOTION_SELECTED_CANDIDATE" &&
             parsed.details &&

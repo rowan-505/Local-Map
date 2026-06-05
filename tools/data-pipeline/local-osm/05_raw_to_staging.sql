@@ -9,6 +9,11 @@
 --   snapshot_version
 --   raw_schema     optional, defaults to raw
 --   staging_schema optional, defaults to staging
+--   entity_families optional; default all (see pipeline_entity_families.sql)
+--     admin_areas  → admin area + admin area name staging only
+--     roads        → road + road name (+ routing_road when routing_roads selected) only
+--     all          → full Stage 05 extraction (current behavior)
+--   Unselected families skip DDL prep, extraction blocks, and final counts.
 --
 -- Reusable extraction patterns for later Stage E insert blocks:
 --   external_id = 'osm:' || osm_feature_type || ':' || osm_id
@@ -52,6 +57,10 @@
 \else
 \set staging_schema 'staging'
 \endif
+\if :{?entity_families}
+\else
+\set entity_families 'all'
+\endif
 
 BEGIN;
 
@@ -74,11 +83,15 @@ VALUES (
     coalesce(NULLIF(btrim(:'staging_schema'), ''), 'staging')
 );
 
+\ir pipeline_entity_families.sql
+\ir pipeline_tmp_import_mode.sql
+
 CREATE TEMP TABLE IF NOT EXISTS stage05_context (
     source_snapshot_id bigint NOT NULL,
     snapshot_version text NOT NULL,
     region_code text,
-    boundary_id bigint
+    boundary_id bigint,
+    boundary_mode text NOT NULL
 );
 
 TRUNCATE stage05_context;
@@ -121,13 +134,18 @@ BEGIN
         source_snapshot_id,
         snapshot_version,
         region_code,
-        boundary_id
+        boundary_id,
+        boundary_mode
     )
     SELECT
         snapshot.id,
         snapshot.snapshot_version,
         snapshot.region_code,
-        snapshot.boundary_id
+        snapshot.boundary_id,
+        CASE
+            WHEN snapshot.boundary_id IS NULL THEN 'WHOLE_REGION'
+            ELSE 'CLIPPED'
+        END
     FROM system.system_source_snapshots AS snapshot
     WHERE snapshot.snapshot_version = v_snapshot_version;
 
@@ -142,16 +160,18 @@ SELECT
     ctx.source_snapshot_id,
     ctx.snapshot_version,
     ctx.region_code,
-    ctx.boundary_id
+    ctx.boundary_id,
+    ctx.boundary_mode
 FROM stage05_context AS ctx;
 
 DO $stage05_raw_counts$
 DECLARE
     v_raw_schema text;
     v_source_snapshot_id bigint;
+    v_import_mode text;
     q text;
     v_count bigint;
-    v_total bigint;
+    v_total bigint := 0;
 BEGIN
     SELECT p.raw_schema
     INTO v_raw_schema
@@ -160,6 +180,10 @@ BEGIN
     SELECT ctx.source_snapshot_id
     INTO v_source_snapshot_id
     FROM stage05_context AS ctx;
+
+    SELECT mode.import_mode
+    INTO v_import_mode
+    FROM _pipeline_tmp_import_mode AS mode;
 
     IF to_regclass(format('%I.raw_osm_points', v_raw_schema)) IS NULL THEN
         RAISE EXCEPTION 'required raw table %.raw_osm_points does not exist', v_raw_schema;
@@ -171,38 +195,44 @@ BEGIN
         RAISE EXCEPTION 'required raw table %.raw_osm_polygons does not exist', v_raw_schema;
     END IF;
 
-    q := format(
-        'select count(*)::bigint from %I.raw_osm_points where source_snapshot_id = $1',
-        v_raw_schema
-    );
-    EXECUTE q INTO v_count USING v_source_snapshot_id;
-    v_total := coalesce(v_count, 0);
+    IF v_import_mode IN ('full', 'roads_only') THEN
+        q := format(
+            'select count(*)::bigint from %I.raw_osm_lines where source_snapshot_id = $1',
+            v_raw_schema
+        );
+        EXECUTE q INTO v_count USING v_source_snapshot_id;
+        v_total := v_total + coalesce(v_count, 0);
 
-    INSERT INTO stage05_report (section, entity_family, target_table, metric, value_n, status, note)
-    VALUES ('raw_counts', 'points', format('%s.raw_osm_points', v_raw_schema), 'rows_for_snapshot', v_count, 'PASS', NULL);
+        INSERT INTO stage05_report (section, entity_family, target_table, metric, value_n, status, note)
+        VALUES ('raw_counts', 'lines', format('%s.raw_osm_lines', v_raw_schema), 'rows_for_snapshot', v_count, 'PASS', NULL);
+    END IF;
 
-    q := format(
-        'select count(*)::bigint from %I.raw_osm_lines where source_snapshot_id = $1',
-        v_raw_schema
-    );
-    EXECUTE q INTO v_count USING v_source_snapshot_id;
-    v_total := v_total + coalesce(v_count, 0);
+    IF v_import_mode IN ('full', 'admin_areas_only') THEN
+        q := format(
+            'select count(*)::bigint from %I.raw_osm_polygons where source_snapshot_id = $1',
+            v_raw_schema
+        );
+        EXECUTE q INTO v_count USING v_source_snapshot_id;
+        v_total := v_total + coalesce(v_count, 0);
 
-    INSERT INTO stage05_report (section, entity_family, target_table, metric, value_n, status, note)
-    VALUES ('raw_counts', 'lines', format('%s.raw_osm_lines', v_raw_schema), 'rows_for_snapshot', v_count, 'PASS', NULL);
+        INSERT INTO stage05_report (section, entity_family, target_table, metric, value_n, status, note)
+        VALUES ('raw_counts', 'polygons', format('%s.raw_osm_polygons', v_raw_schema), 'rows_for_snapshot', v_count, 'PASS', NULL);
+    END IF;
 
-    q := format(
-        'select count(*)::bigint from %I.raw_osm_polygons where source_snapshot_id = $1',
-        v_raw_schema
-    );
-    EXECUTE q INTO v_count USING v_source_snapshot_id;
-    v_total := v_total + coalesce(v_count, 0);
+    IF v_import_mode = 'full' THEN
+        q := format(
+            'select count(*)::bigint from %I.raw_osm_points where source_snapshot_id = $1',
+            v_raw_schema
+        );
+        EXECUTE q INTO v_count USING v_source_snapshot_id;
+        v_total := v_total + coalesce(v_count, 0);
 
-    INSERT INTO stage05_report (section, entity_family, target_table, metric, value_n, status, note)
-    VALUES ('raw_counts', 'polygons', format('%s.raw_osm_polygons', v_raw_schema), 'rows_for_snapshot', v_count, 'PASS', NULL);
+        INSERT INTO stage05_report (section, entity_family, target_table, metric, value_n, status, note)
+        VALUES ('raw_counts', 'points', format('%s.raw_osm_points', v_raw_schema), 'rows_for_snapshot', v_count, 'PASS', NULL);
+    END IF;
 
     IF v_total = 0 THEN
-        RAISE EXCEPTION 'no raw OSM rows found for source_snapshot_id %', v_source_snapshot_id;
+        RAISE EXCEPTION 'no raw OSM rows found for source_snapshot_id % (import_mode=%)', v_source_snapshot_id, v_import_mode;
     END IF;
 END
 $stage05_raw_counts$;
@@ -251,7 +281,8 @@ CROSS JOIN stage05_params AS params
 LEFT JOIN information_schema.tables AS tables
     ON tables.table_schema = params.staging_schema
    AND tables.table_name = targets.table_name
-   AND tables.table_type = 'BASE TABLE';
+   AND tables.table_type = 'BASE TABLE'
+WHERE pg_temp.pipeline_stage05_extraction_enabled(targets.entity_family);
 
 DO $stage05_prepare_classification_targets$
 DECLARE
@@ -263,7 +294,8 @@ BEGIN
 
     -- Staging-only metadata columns. These mirror the remote review classification
     -- shape while keeping raw.raw_osm_* as immutable source truth.
-    IF to_regclass(format('%I.staging_place_candidates', v_staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('places')
+       AND to_regclass(format('%I.staging_place_candidates', v_staging_schema)) IS NOT NULL THEN
         EXECUTE format(
             'ALTER TABLE %I.staging_place_candidates
                 ADD COLUMN IF NOT EXISTS source_classification text null,
@@ -282,7 +314,8 @@ BEGIN
         );
     END IF;
 
-    IF to_regclass(format('%I.staging_address_candidates', v_staging_schema)) IS NOT NULL THEN
+    IF pg_temp.pipeline_entity_family_enabled('addresses')
+       AND to_regclass(format('%I.staging_address_candidates', v_staging_schema)) IS NOT NULL THEN
         EXECUTE format(
             'ALTER TABLE %I.staging_address_candidates
                 ADD COLUMN IF NOT EXISTS source_classification text null,
@@ -308,7 +341,8 @@ BEGIN
 
     -- Link candidates are local staging rows only. They are keyed by the same
     -- snapshot + external_id lineage as places/addresses, but in their own family.
-    IF to_regclass(format('%I.staging_place_candidates', v_staging_schema)) IS NOT NULL
+    IF pg_temp.pipeline_stage05_extraction_enabled('place_address_link')
+       AND to_regclass(format('%I.staging_place_candidates', v_staging_schema)) IS NOT NULL
        AND to_regclass(format('%I.staging_address_candidates', v_staging_schema)) IS NOT NULL THEN
         EXECUTE format(
             'CREATE TABLE IF NOT EXISTS %I.staging_place_address_link_candidates (
@@ -427,6 +461,14 @@ BEGIN
     SELECT c.source_snapshot_id, c.snapshot_version, c.region_code
     INTO v_source_snapshot_id, v_snapshot_version, v_region_code
     FROM stage05_context AS c;
+
+    IF NOT pg_temp.pipeline_entity_family_enabled_any(ARRAY['places', 'addresses', 'place_address_links']) THEN
+        INSERT INTO stage05_report VALUES (
+            'source_classification', 'all', 'stage05_source_feature_classification',
+            'skipped_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes place/address classification.'
+        );
+        RETURN;
+    END IF;
 
     q := format(
         $q$
@@ -681,6 +723,17 @@ BEGIN
     has_search_address := to_regclass(format('%I.staging_search_address_candidates', v_staging_schema)) IS NOT NULL;
     has_barrier := to_regclass(format('%I.staging_routing_barrier_candidates', v_staging_schema)) IS NOT NULL;
 
+    IF NOT pg_temp.pipeline_stage05_extraction_any_enabled(ARRAY[
+        'place', 'place_name', 'bus_stop', 'bus_stop_name', 'address', 'address_component',
+        'place_address_link', 'search_name', 'search_address', 'routing_barrier'
+    ]) THEN
+        INSERT INTO stage05_report VALUES (
+            'point_extraction', 'all', NULL, 'skipped', 0, 'SKIP',
+            'ENTITY_FAMILIES filter excludes all point-based staging families.'
+        );
+        RETURN;
+    END IF;
+
     SELECT pc.id
     INTO v_place_class_id
     FROM ref.ref_place_classes AS pc
@@ -705,7 +758,9 @@ BEGIN
     WHERE cls.source_snapshot_id = v_source_snapshot_id
       AND cls.has_place_evidence;
 
-    IF NOT has_place THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('place') THEN
+        INSERT INTO stage05_report VALUES ('point_extraction', 'place', format('%s.staging_place_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes places.');
+    ELSIF NOT has_place THEN
         INSERT INTO stage05_report VALUES ('point_extraction', 'place', format('%s.staging_place_candidates', v_staging_schema), 'available_rows', v_available, 'WARN', 'Target table missing; skipped place candidate extraction.');
     ELSIF v_place_class_id IS NULL THEN
         INSERT INTO stage05_report VALUES ('point_extraction', 'place', format('%s.staging_place_candidates', v_staging_schema), 'available_rows', v_available, 'WARN', 'ref.ref_place_classes has no rows; skipped place candidate extraction because place_class_id is required.');
@@ -831,7 +886,9 @@ BEGIN
     -- B. Place name candidates: real OSM name tags only.
     -- Do not insert fake names into name candidate tables.
     -- ---------------------------------------------------------------------
-    IF has_place AND has_place_name THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('place_name') THEN
+        INSERT INTO stage05_report VALUES ('point_extraction', 'place_name', format('%s.staging_place_name_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes places.');
+    ELSIF has_place AND has_place_name THEN
         q := format(
             $q$
             WITH src AS (
@@ -958,7 +1015,9 @@ BEGIN
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF has_bus_stop THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('bus_stop') THEN
+        INSERT INTO stage05_report VALUES ('point_extraction', 'bus_stop', format('%s.staging_bus_stop_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes bus_stops.');
+    ELSIF has_bus_stop THEN
         q := format(
             $q$
             WITH src AS (
@@ -1054,7 +1113,9 @@ BEGIN
     -- ---------------------------------------------------------------------
     -- D. Bus stop name candidates: real OSM name tags only.
     -- ---------------------------------------------------------------------
-    IF has_bus_stop AND has_bus_stop_name THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('bus_stop_name') THEN
+        INSERT INTO stage05_report VALUES ('point_extraction', 'bus_stop_name', format('%s.staging_bus_stop_name_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes bus_stops.');
+    ELSIF has_bus_stop AND has_bus_stop_name THEN
         q := format(
             $q$
             WITH src AS (
@@ -1168,7 +1229,9 @@ BEGIN
     WHERE cls.source_snapshot_id = v_source_snapshot_id
       AND cls.has_address_evidence;
 
-    IF has_address THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('address') THEN
+        INSERT INTO stage05_report VALUES ('point_extraction', 'address', format('%s.staging_address_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes addresses.');
+    ELSIF has_address THEN
         q := format(
             $q$
             WITH src AS (
@@ -1286,7 +1349,9 @@ BEGIN
     -- ---------------------------------------------------------------------
     -- F. Address component candidates
     -- ---------------------------------------------------------------------
-    IF has_address AND has_address_component THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('address_component') THEN
+        INSERT INTO stage05_report VALUES ('point_extraction', 'address_component', format('%s.staging_address_component_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes addresses.');
+    ELSIF has_address AND has_address_component THEN
         q := format(
             $q$
             WITH address_src AS (
@@ -1388,7 +1453,9 @@ BEGIN
       AND cls.has_place_evidence
       AND cls.address_strength IN ('partial', 'strong', 'full');
 
-    IF has_place_address_link THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('place_address_link') THEN
+        INSERT INTO stage05_report VALUES ('point_extraction', 'place_address_link', format('%s.staging_place_address_link_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes place_address_links.');
+    ELSIF has_place_address_link THEN
         q := format(
             $q$
             WITH link_src AS (
@@ -1480,7 +1547,9 @@ BEGIN
     -- ---------------------------------------------------------------------
     -- H. Search name candidates from point places and bus stops
     -- ---------------------------------------------------------------------
-    IF has_search_name THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('search_name') THEN
+        INSERT INTO stage05_report VALUES ('point_extraction', 'search_name', format('%s.staging_search_name_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes search_name sources.');
+    ELSIF has_search_name THEN
         q := format(
             $q$
             WITH candidate_names AS (
@@ -1567,7 +1636,9 @@ BEGIN
     -- ---------------------------------------------------------------------
     -- H. Search address candidates
     -- ---------------------------------------------------------------------
-    IF has_address AND has_search_address THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('search_address') THEN
+        INSERT INTO stage05_report VALUES ('point_extraction', 'search_address', format('%s.staging_search_address_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes addresses.');
+    ELSIF has_address AND has_search_address THEN
         q := format(
             $q$
             WITH address_text AS (
@@ -1650,7 +1721,9 @@ BEGIN
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF has_barrier THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('routing_barrier') THEN
+        INSERT INTO stage05_report VALUES ('point_extraction', 'routing_barrier', format('%s.staging_routing_barrier_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes routing_barriers.');
+    ELSIF has_barrier THEN
         q := format(
             $q$
             WITH src AS (
@@ -1737,7 +1810,9 @@ DECLARE
     v_region_code text;
     v_available bigint;
     v_inserted bigint;
+    v_updated bigint;
     q text;
+    v_line_extraction_started_at timestamptz := clock_timestamp();
 
     has_road boolean;
     has_road_name boolean;
@@ -1761,6 +1836,18 @@ BEGIN
     has_search_name := to_regclass(format('%I.staging_search_name_candidates', v_staging_schema)) IS NOT NULL;
     has_barrier := to_regclass(format('%I.staging_routing_barrier_candidates', v_staging_schema)) IS NOT NULL;
 
+    IF NOT pg_temp.pipeline_stage05_extraction_any_enabled(ARRAY[
+        'road', 'road_name', 'routing_road', 'water_line', 'search_name', 'routing_barrier'
+    ]) THEN
+        INSERT INTO stage05_report VALUES (
+            'line_extraction', 'all', NULL, 'skipped', 0, 'SKIP',
+            'ENTITY_FAMILIES filter excludes all line-based staging families.'
+        );
+        RETURN;
+    END IF;
+
+    RAISE NOTICE 'stage05_line_extraction: starting at %', v_line_extraction_started_at;
+
     -- ---------------------------------------------------------------------
     -- A. Road candidates from highway lines.
     -- No fake real names: generated fallback identifiers are stored in
@@ -1780,35 +1867,136 @@ BEGIN
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF has_road THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('road') THEN
+        INSERT INTO stage05_report VALUES ('line_extraction', 'road', format('%s.staging_road_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes roads.');
+    ELSIF has_road THEN
+        RAISE NOTICE 'stage05_line_extraction: road candidates — upserting % highway rows into %', v_available, format('%I.staging_road_candidates', v_staging_schema);
+
         q := format(
             $q$
-            WITH src AS (
+            WITH raw_rows AS (
                 SELECT
-                    raw.*,
+                    raw.id AS raw_id,
+                    raw.osm_id,
+                    raw.osm_feature_type,
+                    raw.geom,
+                    ST_Length(raw.geom::geography) AS length_m,
+                    coalesce(raw.tags, '{}'::jsonb) AS tags,
                     'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id,
                     coalesce(
-                        nullif(raw.tags->>'name', ''),
-                        nullif(raw.tags->>'name:en', ''),
-                        nullif(raw.tags->>'name:my', ''),
-                        nullif(raw.tags->>'name:mm', ''),
-                        nullif(raw.tags->>'name:my-MM', '')
+                        nullif(btrim(raw.tags->>'name:my'), ''),
+                        nullif(btrim(raw.tags->>'name'), ''),
+                        nullif(btrim(raw.tags->>'name:en'), ''),
+                        nullif(btrim(raw.tags->>'name:mm'), ''),
+                        nullif(btrim(raw.tags->>'name:my-MM'), '')
                     ) AS real_name,
-                    raw.tags->>'highway' AS road_class_code,
+                    CASE lower(btrim(raw.tags->>'highway'))
+                        WHEN 'motorway' THEN 'motorway'
+                        WHEN 'trunk' THEN 'trunk'
+                        WHEN 'primary' THEN 'primary'
+                        WHEN 'secondary' THEN 'secondary'
+                        WHEN 'tertiary' THEN 'tertiary'
+                        WHEN 'residential' THEN 'residential'
+                        WHEN 'service' THEN 'service'
+                        WHEN 'track' THEN 'track'
+                        WHEN 'path' THEN 'path'
+                        WHEN 'footway' THEN 'path'
+                        WHEN 'steps' THEN 'path'
+                        WHEN 'pedestrian' THEN 'path'
+                        WHEN 'unclassified' THEN 'unclassified'
+                        WHEN 'road' THEN 'unclassified'
+                        WHEN 'construction' THEN 'unclassified'
+                        WHEN 'proposed' THEN 'unclassified'
+                        ELSE 'unclassified'
+                    END AS road_class_code,
                     CASE
-                        WHEN lower(coalesce(raw.tags->>'oneway', '')) IN ('yes', 'true', '1') OR raw.tags->>'junction' = 'roundabout' THEN true
+                        WHEN lower(coalesce(raw.tags->>'oneway', '')) IN ('yes', 'true', '1') THEN true
                         WHEN lower(coalesce(raw.tags->>'oneway', '')) IN ('no', 'false', '0') THEN false
-                        ELSE NULL
+                        WHEN raw.tags->>'junction' = 'roundabout' THEN true
+                        ELSE false
                     END AS is_oneway,
                     CASE
-                        WHEN raw.tags->>'highway' IN ('service', 'track', 'path') THEN 55
-                        WHEN coalesce(raw.tags->>'name', raw.tags->>'name:en', raw.tags->>'name:my', raw.tags->>'name:mm', raw.tags->>'name:my-MM') IS NOT NULL THEN 80
-                        ELSE 65
+                        WHEN lower(btrim(raw.tags->>'highway')) IN ('construction', 'proposed') THEN 60::numeric
+                        WHEN lower(btrim(raw.tags->>'highway')) IN (
+                            'motorway', 'trunk', 'primary', 'secondary', 'tertiary'
+                        ) THEN 80::numeric
+                        WHEN lower(btrim(raw.tags->>'highway')) IN ('service', 'track', 'path') THEN 55::numeric
+                        WHEN coalesce(
+                            raw.tags->>'name',
+                            raw.tags->>'name:en',
+                            raw.tags->>'name:my',
+                            raw.tags->>'name:mm',
+                            raw.tags->>'name:my-MM'
+                        ) IS NOT NULL THEN 80::numeric
+                        ELSE 65::numeric
                     END AS confidence_score
                 FROM %I.raw_osm_lines AS raw
                 WHERE raw.source_snapshot_id = $1
                   AND raw.geom IS NOT NULL
                   AND raw.tags ? 'highway'
+            ),
+            src AS (
+                SELECT
+                    r.*,
+                    coalesce(r.real_name, r.external_id) AS canonical_name,
+                    rc.id AS road_class_id,
+                    jsonb_strip_nulls(jsonb_build_object(
+                        'tags', r.tags,
+                        'highway', r.tags->>'highway',
+                        'road_class', r.road_class_code,
+                        'surface', r.tags->>'surface',
+                        'bridge', r.tags->>'bridge',
+                        'tunnel', r.tags->>'tunnel',
+                        'layer', r.tags->>'layer',
+                        'generated_label', CASE WHEN r.real_name IS NULL THEN r.external_id ELSE NULL END,
+                        'routing', jsonb_strip_nulls(jsonb_build_object(
+                            'access', r.tags->>'access',
+                            'vehicle', r.tags->>'vehicle',
+                            'motor_vehicle', r.tags->>'motor_vehicle',
+                            'foot', r.tags->>'foot',
+                            'bicycle', r.tags->>'bicycle',
+                            'bus', r.tags->>'bus',
+                            'hgv', r.tags->>'hgv',
+                            'maxspeed', r.tags->>'maxspeed',
+                            'lanes', r.tags->>'lanes',
+                            'width', r.tags->>'width',
+                            'smoothness', r.tags->>'smoothness',
+                            'tracktype', r.tags->>'tracktype',
+                            'service', r.tags->>'service',
+                            'junction', r.tags->>'junction'
+                        ))
+                    )) AS normalized_data,
+                    jsonb_build_object(
+                        'source_snapshot_id', $1,
+                        'snapshot_version', $2,
+                        'region_code', $3,
+                        'raw_table', 'raw_osm_lines',
+                        'raw_id', r.raw_id,
+                        'osm_id', r.osm_id,
+                        'osm_feature_type', r.osm_feature_type
+                    ) AS source_refs
+                FROM raw_rows AS r
+                LEFT JOIN ref.ref_road_classes AS rc
+                    ON rc.code = r.road_class_code
+            ),
+            updated AS (
+                UPDATE %I.staging_road_candidates AS t
+                SET
+                    raw_id = s.raw_id,
+                    canonical_name = s.canonical_name,
+                    road_class_id = s.road_class_id,
+                    class_code = s.road_class_code,
+                    geom = s.geom,
+                    is_oneway = s.is_oneway,
+                    length_m = s.length_m,
+                    confidence_score = s.confidence_score,
+                    normalized_data = s.normalized_data,
+                    source_refs = s.source_refs,
+                    updated_at = now()
+                FROM src AS s
+                WHERE t.source_snapshot_id = $1
+                  AND t.external_id = s.external_id
+                RETURNING 1
             ),
             inserted AS (
                 INSERT INTO %I.staging_road_candidates (
@@ -1816,6 +2004,7 @@ BEGIN
                     raw_id,
                     external_id,
                     canonical_name,
+                    road_class_id,
                     class_code,
                     geom,
                     is_oneway,
@@ -1829,67 +2018,44 @@ BEGIN
                 )
                 SELECT
                     $1,
-                    src.id,
-                    src.external_id,
-                    coalesce(src.real_name, src.external_id),
-                    src.road_class_code,
-                    src.geom,
-                    src.is_oneway,
-                    ST_Length(src.geom::geography),
-                    src.confidence_score,
+                    s.raw_id,
+                    s.external_id,
+                    s.canonical_name,
+                    s.road_class_id,
+                    s.road_class_code,
+                    s.geom,
+                    s.is_oneway,
+                    s.length_m,
+                    s.confidence_score,
                     'new_candidate',
                     NULL,
                     'pending',
-                    jsonb_build_object(
-                        'tags', coalesce(src.tags, '{}'::jsonb),
-                        'generated_label', CASE WHEN src.real_name IS NULL THEN src.external_id ELSE NULL END,
-                        'routing', jsonb_strip_nulls(jsonb_build_object(
-                            'access', src.tags->>'access',
-                            'vehicle', src.tags->>'vehicle',
-                            'motor_vehicle', src.tags->>'motor_vehicle',
-                            'foot', src.tags->>'foot',
-                            'bicycle', src.tags->>'bicycle',
-                            'bus', src.tags->>'bus',
-                            'hgv', src.tags->>'hgv',
-                            'maxspeed', src.tags->>'maxspeed',
-                            'lanes', src.tags->>'lanes',
-                            'width', src.tags->>'width',
-                            'surface', src.tags->>'surface',
-                            'smoothness', src.tags->>'smoothness',
-                            'tracktype', src.tags->>'tracktype',
-                            'service', src.tags->>'service',
-                            'bridge', src.tags->>'bridge',
-                            'tunnel', src.tags->>'tunnel',
-                            'layer', src.tags->>'layer',
-                            'junction', src.tags->>'junction'
-                        ))
-                    ),
-                    jsonb_build_object(
-                        'source_snapshot_id', $1,
-                        'snapshot_version', $2,
-                        'region_code', $3,
-                        'raw_table', 'raw_osm_lines',
-                        'raw_id', src.id,
-                        'osm_id', src.osm_id,
-                        'osm_feature_type', src.osm_feature_type
-                    )
-                FROM src
+                    s.normalized_data,
+                    s.source_refs
+                FROM src AS s
                 WHERE NOT EXISTS (
                     SELECT 1
                     FROM %I.staging_road_candidates AS existing
                     WHERE existing.source_snapshot_id = $1
-                      AND existing.external_id = src.external_id
+                      AND existing.external_id = s.external_id
                 )
                 RETURNING 1
             )
-            SELECT count(*)::bigint FROM inserted
+            SELECT
+                (SELECT count(*)::bigint FROM updated),
+                (SELECT count(*)::bigint FROM inserted)
             $q$,
             v_raw_schema,
             v_staging_schema,
+            v_staging_schema,
             v_staging_schema
         );
-        EXECUTE q INTO v_inserted USING v_source_snapshot_id, v_snapshot_version, v_region_code;
-        INSERT INTO stage05_report VALUES ('line_extraction', 'road', format('%s.staging_road_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', format('available_rows=%s', v_available));
+        EXECUTE q INTO v_updated, v_inserted USING v_source_snapshot_id, v_snapshot_version, v_region_code;
+        RAISE NOTICE 'stage05_line_extraction: road candidates done — updated=%, inserted=%, elapsed=%',
+            coalesce(v_updated, 0), coalesce(v_inserted, 0), clock_timestamp() - v_line_extraction_started_at;
+
+        INSERT INTO stage05_report VALUES ('line_extraction', 'road', format('%s.staging_road_candidates', v_staging_schema), 'updated_rows', coalesce(v_updated, 0), 'PASS', format('available_rows=%s', v_available));
+        INSERT INTO stage05_report VALUES ('line_extraction', 'road', format('%s.staging_road_candidates', v_staging_schema), 'inserted_rows', coalesce(v_inserted, 0), 'PASS', format('available_rows=%s', v_available));
     ELSE
         INSERT INTO stage05_report VALUES ('line_extraction', 'road', format('%s.staging_road_candidates', v_staging_schema), 'available_rows', v_available, 'WARN', 'Target table missing; skipped road extraction.');
     END IF;
@@ -1897,7 +2063,11 @@ BEGIN
     -- ---------------------------------------------------------------------
     -- B. Road name candidates: real name/ref tags only; no generated names.
     -- ---------------------------------------------------------------------
-    IF has_road AND has_road_name THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('road_name') THEN
+        INSERT INTO stage05_report VALUES ('line_extraction', 'road_name', format('%s.staging_road_name_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes roads.');
+    ELSIF has_road AND has_road_name THEN
+        RAISE NOTICE 'stage05_line_extraction: road name candidates — extracting from staging roads';
+
         q := format(
             $q$
             WITH src AS (
@@ -1992,6 +2162,7 @@ BEGIN
             v_staging_schema
         );
         EXECUTE q INTO v_inserted USING v_source_snapshot_id, v_snapshot_version;
+        RAISE NOTICE 'stage05_line_extraction: road name candidates done — inserted=%', coalesce(v_inserted, 0);
         INSERT INTO stage05_report VALUES ('line_extraction', 'road_name', format('%s.staging_road_name_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', 'Real OSM road name/ref tags only.');
     ELSE
         INSERT INTO stage05_report VALUES ('line_extraction', 'road_name', format('%s.staging_road_name_candidates', v_staging_schema), 'inserted_rows', 0, 'WARN', 'Road or road-name target table missing; skipped.');
@@ -2000,7 +2171,10 @@ BEGIN
     -- ---------------------------------------------------------------------
     -- C. Routing road candidates (future graph derivation, not final edges).
     -- ---------------------------------------------------------------------
-    IF has_routing_road THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('routing_road') THEN
+        RAISE NOTICE 'stage05_line_extraction: routing road candidates skipped (ENTITY_FAMILIES excludes routing_roads)';
+        INSERT INTO stage05_report VALUES ('line_extraction', 'routing_road', format('%s.staging_routing_road_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes routing_roads.');
+    ELSIF has_routing_road THEN
         q := format(
             $q$
             WITH src AS (
@@ -2123,7 +2297,9 @@ BEGIN
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF has_water_line THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('water_line') THEN
+        INSERT INTO stage05_report VALUES ('line_extraction', 'water_line', format('%s.staging_water_line_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes water_lines.');
+    ELSIF has_water_line THEN
         q := format(
             $q$
             WITH src AS (
@@ -2201,7 +2377,9 @@ BEGIN
     -- ---------------------------------------------------------------------
     -- E. Search name candidates from road names and water line names.
     -- ---------------------------------------------------------------------
-    IF has_search_name THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('search_name') THEN
+        INSERT INTO stage05_report VALUES ('line_extraction', 'search_name', format('%s.staging_search_name_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes search_name sources.');
+    ELSIF has_search_name THEN
         q := format(
             $q$
             WITH candidate_names AS (
@@ -2300,7 +2478,9 @@ BEGIN
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF has_barrier THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('routing_barrier') THEN
+        INSERT INTO stage05_report VALUES ('line_extraction', 'routing_barrier', format('%s.staging_routing_barrier_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes routing_barriers.');
+    ELSIF has_barrier THEN
         q := format(
             $q$
             WITH src AS (
@@ -2402,6 +2582,16 @@ BEGIN
     SELECT c.source_snapshot_id, c.snapshot_version, c.region_code
     INTO v_source_snapshot_id, v_snapshot_version, v_region_code
     FROM stage05_context AS c;
+
+    IF NOT pg_temp.pipeline_stage05_extraction_any_enabled(ARRAY[
+        'bus_route', 'bus_route_name', 'bus_route_variant', 'bus_route_stop'
+    ]) THEN
+        INSERT INTO stage05_report VALUES (
+            'bus_route_extraction', 'all', NULL, 'skipped', 0, 'SKIP',
+            'ENTITY_FAMILIES filter excludes all bus-route staging families.'
+        );
+        RETURN;
+    END IF;
 
     has_bus_route := to_regclass(format('%I.staging_bus_route_candidates', v_staging_schema)) IS NOT NULL;
     has_bus_route_name := to_regclass(format('%I.staging_bus_route_name_candidates', v_staging_schema)) IS NOT NULL;
@@ -2923,6 +3113,7 @@ DECLARE
     v_region_code text;
     v_available bigint;
     v_inserted bigint;
+    v_updated bigint;
     q text;
 
     has_building boolean;
@@ -2953,6 +3144,17 @@ BEGIN
     has_search_name := to_regclass(format('%I.staging_search_name_candidates', v_staging_schema)) IS NOT NULL;
     has_barrier := to_regclass(format('%I.staging_routing_barrier_candidates', v_staging_schema)) IS NOT NULL;
 
+    IF NOT pg_temp.pipeline_stage05_extraction_any_enabled(ARRAY[
+        'building', 'address', 'address_component', 'landuse', 'water_polygon',
+        'admin_area', 'admin_area_name', 'search_name', 'routing_barrier'
+    ]) THEN
+        INSERT INTO stage05_report VALUES (
+            'polygon_extraction', 'all', NULL, 'skipped', 0, 'SKIP',
+            'ENTITY_FAMILIES filter excludes all polygon-based staging families.'
+        );
+        RETURN;
+    END IF;
+
     -- ---------------------------------------------------------------------
     -- A. Building candidates
     -- ---------------------------------------------------------------------
@@ -2962,7 +3164,9 @@ BEGIN
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF has_building THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('building') THEN
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'building', format('%s.staging_building_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes buildings.');
+    ELSIF has_building THEN
         q := format(
             $q$
             WITH src AS (
@@ -3260,7 +3464,9 @@ BEGIN
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF has_address THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('address') THEN
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'address', format('%s.staging_address_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes addresses.');
+    ELSIF has_address THEN
         q := format(
             $q$
             WITH src AS (
@@ -3305,7 +3511,9 @@ BEGIN
     -- ---------------------------------------------------------------------
     -- C. Address component candidates for polygon addresses
     -- ---------------------------------------------------------------------
-    IF has_address AND has_address_component THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('address_component') THEN
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'address_component', format('%s.staging_address_component_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes addresses.');
+    ELSIF has_address AND has_address_component THEN
         q := format(
             $q$
             WITH address_src AS (
@@ -3376,7 +3584,9 @@ BEGIN
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF has_landuse THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('landuse') THEN
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'landuse', format('%s.staging_landuse_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes landuse.');
+    ELSIF has_landuse THEN
         q := format(
             $q$
             WITH src AS (
@@ -3459,7 +3669,9 @@ BEGIN
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF has_water_polygon THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('water_polygon') THEN
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'water_polygon', format('%s.staging_water_polygon_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes water_polygons.');
+    ELSIF has_water_polygon THEN
         q := format(
             $q$
             WITH src AS (
@@ -3508,22 +3720,127 @@ BEGIN
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF has_admin_area THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('admin_area') THEN
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'admin_area', format('%s.staging_admin_area_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes admin_areas.');
+    ELSIF has_admin_area THEN
         q := format(
             $q$
-            WITH src AS (
-                SELECT raw.*, 'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id,
-                       coalesce(nullif(raw.tags->>'name',''), nullif(raw.tags->>'name:en',''), nullif(raw.tags->>'name:my',''), nullif(raw.tags->>'name:mm',''), nullif(raw.tags->>'name:my-MM','')) AS real_name
-                FROM %I.raw_osm_polygons raw
-                WHERE raw.source_snapshot_id = $1 AND raw.geom IS NOT NULL AND raw.tags->>'boundary' = 'administrative'
+            WITH raw_rows AS (
+                SELECT
+                    raw.id AS raw_id,
+                    raw.osm_id,
+                    raw.osm_feature_type,
+                    coalesce(raw.tags, '{}'::jsonb) AS tags,
+                    raw.geom,
+                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id,
+                    coalesce(
+                        nullif(btrim(raw.tags->>'name:my'), ''),
+                        nullif(btrim(raw.tags->>'name'), ''),
+                        nullif(btrim(raw.tags->>'name:en'), ''),
+                        nullif(btrim(raw.tags->>'name:mm'), ''),
+                        nullif(btrim(raw.tags->>'name:my-MM'), ''),
+                        nullif(btrim(raw.tags->>'official_name'), '')
+                    ) AS real_name,
+                    nullif(btrim(raw.tags->>'admin_level'), '') AS admin_level_tag
+                FROM %I.raw_osm_polygons AS raw
+                WHERE raw.source_snapshot_id = $1
+                  AND raw.geom IS NOT NULL
+                  AND raw.tags->>'boundary' = 'administrative'
+            ),
+            osm_parsed AS (
+                SELECT
+                    r.*,
+                    (
+                        SELECT max(btrim(part.part_value)::integer)
+                        FROM unnest(string_to_array(coalesce(r.admin_level_tag, ''), ';')) AS part(part_value)
+                        WHERE btrim(part.part_value) ~ '^[0-9]+$'
+                    ) AS osm_admin_level
+                FROM raw_rows AS r
+            ),
+            level_resolved AS (
+                SELECT
+                    p.*,
+                    CASE p.osm_admin_level
+                        WHEN 2 THEN 'country'
+                        WHEN 4 THEN 'state_region'
+                        WHEN 5 THEN 'district'
+                        WHEN 6 THEN 'township'
+                        WHEN 7 THEN 'ward_village_tract'
+                        WHEN 8 THEN 'ward_village_tract'
+                        WHEN 9 THEN 'ward_village_tract'
+                        WHEN 10 THEN 'ward_village_tract'
+                        ELSE NULL
+                    END AS osm_level_code,
+                    CASE
+                        WHEN p.real_name ~ 'ခရိုင်'
+                          OR p.real_name ~* '\mDistrict\M' THEN 'district'
+                        WHEN p.real_name ~ 'မြို့နယ်'
+                          OR p.real_name ~* '\mTownship\M' THEN 'township'
+                        WHEN p.real_name ~ 'ရပ်ကွက်'
+                          OR p.real_name ~ 'ကျေးရွာအုပ်စု'
+                          OR p.real_name ~* '\mWard\M'
+                          OR p.real_name ~* 'Village Tract' THEN 'ward_village_tract'
+                        ELSE NULL
+                    END AS semantic_level_code
+                FROM osm_parsed AS p
             ),
             mapped AS (
-                SELECT src.*, levels.id AS admin_level_id
-                FROM src
-                JOIN ref.ref_admin_levels levels
-                  ON levels.code = src.tags->>'admin_level'
-                  OR (src.tags->>'admin_level' ~ '^[0-9]+$' AND levels.rank = (src.tags->>'admin_level')::integer)
-                WHERE src.real_name IS NOT NULL
+                SELECT
+                    lr.*,
+                    coalesce(lr.semantic_level_code, lr.osm_level_code) AS resolved_level_code,
+                    levels.id AS admin_level_id,
+                    levels.code AS mapped_admin_level_code,
+                    jsonb_strip_nulls(jsonb_build_object(
+                        'tags', lr.tags,
+                        'admin_level', lr.admin_level_tag,
+                        'osm_admin_level', lr.osm_admin_level::text,
+                        'osm_level_code', lr.osm_level_code,
+                        'semantic_level_code', lr.semantic_level_code,
+                        'mapped_admin_level_code', levels.code,
+                        'level_correction_applied',
+                        (lr.semantic_level_code IS NOT NULL
+                         AND lr.semantic_level_code IS DISTINCT FROM lr.osm_level_code),
+                        'boundary', lr.tags->>'boundary',
+                        'place', lr.tags->>'place',
+                        'population', lr.tags->>'population',
+                        'wikidata', lr.tags->>'wikidata',
+                        'wikipedia', lr.tags->>'wikipedia',
+                        'official_name', lr.tags->>'official_name',
+                        'alt_name', lr.tags->>'alt_name',
+                        'area_m2', ST_Area(lr.geom::geography)
+                    )) AS normalized_data,
+                    jsonb_build_object(
+                        'source_snapshot_id', $1,
+                        'snapshot_version', $2,
+                        'region_code', $3,
+                        'raw_table', 'raw_osm_polygons',
+                        'raw_id', lr.raw_id,
+                        'osm_id', lr.osm_id,
+                        'osm_feature_type', lr.osm_feature_type
+                    ) AS source_refs
+                FROM level_resolved AS lr
+                LEFT JOIN ref.ref_admin_levels AS levels
+                    ON levels.code = coalesce(lr.semantic_level_code, lr.osm_level_code)
+                WHERE lr.real_name IS NOT NULL
+                  AND levels.id IS NOT NULL
+            ),
+            updated AS (
+                UPDATE %I.staging_admin_area_candidates AS t
+                SET
+                    raw_id = m.raw_id,
+                    canonical_name = m.real_name,
+                    class_code = m.mapped_admin_level_code,
+                    admin_level_id = m.admin_level_id,
+                    geom = m.geom,
+                    centroid = ST_PointOnSurface(m.geom),
+                    confidence_score = 80,
+                    normalized_data = m.normalized_data,
+                    source_refs = m.source_refs,
+                    updated_at = now()
+                FROM mapped AS m
+                WHERE t.source_snapshot_id = $1
+                  AND t.external_id = m.external_id
+                RETURNING 1
             ),
             inserted AS (
                 INSERT INTO %I.staging_admin_area_candidates (
@@ -3532,25 +3849,27 @@ BEGIN
                     normalized_data, source_refs
                 )
                 SELECT
-                    $1, mapped.id, mapped.external_id, mapped.real_name, mapped.tags->>'admin_level',
-                    mapped.admin_level_id, mapped.geom, ST_PointOnSurface(mapped.geom),
+                    $1, m.raw_id, m.external_id, m.real_name, m.mapped_admin_level_code, m.admin_level_id,
+                    m.geom, ST_PointOnSurface(m.geom),
                     80, 'new_candidate', NULL, 'pending',
-                    jsonb_build_object('tags', coalesce(mapped.tags, '{}'::jsonb), 'admin_level', mapped.tags->>'admin_level', 'boundary', mapped.tags->>'boundary', 'place', mapped.tags->>'place', 'population', mapped.tags->>'population', 'wikidata', mapped.tags->>'wikidata', 'wikipedia', mapped.tags->>'wikipedia', 'area_m2', ST_Area(mapped.geom::geography)),
-                    jsonb_build_object('source_snapshot_id', $1, 'snapshot_version', $2, 'region_code', $3, 'raw_table', 'raw_osm_polygons', 'raw_id', mapped.id, 'osm_id', mapped.osm_id, 'osm_feature_type', mapped.osm_feature_type)
-                FROM mapped
+                    m.normalized_data, m.source_refs
+                FROM mapped AS m
                 WHERE NOT EXISTS (
                     SELECT 1 FROM %I.staging_admin_area_candidates existing
-                    WHERE existing.source_snapshot_id = $1 AND existing.external_id = mapped.external_id
+                    WHERE existing.source_snapshot_id = $1 AND existing.external_id = m.external_id
                 )
                 RETURNING 1
             )
-            SELECT count(*)::bigint FROM inserted
+            SELECT
+                (SELECT count(*)::bigint FROM updated),
+                (SELECT count(*)::bigint FROM inserted)
             $q$,
             v_raw_schema,
             v_staging_schema,
+            v_staging_schema,
             v_staging_schema
         );
-        EXECUTE q INTO v_inserted USING v_source_snapshot_id, v_snapshot_version, v_region_code;
+        EXECUTE q INTO v_updated, v_inserted USING v_source_snapshot_id, v_snapshot_version, v_region_code;
 
         IF EXISTS (
             SELECT 1 FROM information_schema.columns
@@ -3573,7 +3892,8 @@ BEGIN
             EXECUTE q USING v_source_snapshot_id;
         END IF;
 
-        INSERT INTO stage05_report VALUES ('polygon_extraction', 'admin_area', format('%s.staging_admin_area_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', format('available_rows=%s; skipped rows without real name or matching ref_admin_levels', v_available));
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'admin_area', format('%s.staging_admin_area_candidates', v_staging_schema), 'updated_rows', coalesce(v_updated, 0), 'PASS', format('available_rows=%s; OSM admin levels mapped to country/state_region/district/township/ward_village_tract', v_available));
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'admin_area', format('%s.staging_admin_area_candidates', v_staging_schema), 'inserted_rows', coalesce(v_inserted, 0), 'PASS', format('available_rows=%s; skipped rows without real name or resolvable admin level', v_available));
     ELSE
         INSERT INTO stage05_report VALUES ('polygon_extraction', 'admin_area', format('%s.staging_admin_area_candidates', v_staging_schema), 'available_rows', v_available, 'WARN', 'Target table missing; skipped admin area extraction.');
     END IF;
@@ -3581,7 +3901,9 @@ BEGIN
     -- ---------------------------------------------------------------------
     -- G. Admin area names
     -- ---------------------------------------------------------------------
-    IF has_admin_area AND has_admin_area_name THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('admin_area_name') THEN
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'admin_area_name', format('%s.staging_admin_area_name_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes admin_areas.');
+    ELSIF has_admin_area AND has_admin_area_name THEN
         q := format(
             $q$
             WITH src AS (
@@ -3638,7 +3960,9 @@ BEGIN
     -- ---------------------------------------------------------------------
     -- H. Search name candidates for polygon-derived entities
     -- ---------------------------------------------------------------------
-    IF has_search_name THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('search_name') THEN
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'search_name', format('%s.staging_search_name_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes search_name sources.');
+    ELSIF has_search_name THEN
         CREATE TEMP TABLE IF NOT EXISTS stage05_polygon_search_candidates (
             entity_family text NOT NULL,
             candidate_id bigint NOT NULL,
@@ -3711,7 +4035,8 @@ BEGIN
             EXECUTE q USING v_source_snapshot_id;
         END IF;
 
-        IF has_admin_area AND has_admin_area_name THEN
+        IF pg_temp.pipeline_stage05_extraction_enabled('admin_area')
+           AND has_admin_area AND has_admin_area_name THEN
             q := format(
                 $q$
                 INSERT INTO stage05_polygon_search_candidates (
@@ -3768,7 +4093,9 @@ BEGIN
     );
     EXECUTE q INTO v_available USING v_source_snapshot_id;
 
-    IF has_barrier THEN
+    IF NOT pg_temp.pipeline_stage05_extraction_enabled('routing_barrier') THEN
+        INSERT INTO stage05_report VALUES ('polygon_extraction', 'routing_barrier', format('%s.staging_routing_barrier_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes routing_barriers.');
+    ELSIF has_barrier THEN
         q := format(
             $q$
             WITH src AS (
@@ -3851,6 +4178,10 @@ BEGIN
                 ('routing_barrier', 'staging_routing_barrier_candidates')
         ) AS targets(entity_family, table_name)
     LOOP
+        IF NOT pg_temp.pipeline_stage05_extraction_enabled(target.entity_family) THEN
+            CONTINUE;
+        END IF;
+
         IF to_regclass(format('%I.%I', v_staging_schema, target.table_name)) IS NULL THEN
             INSERT INTO stage05_final_target_counts (entity_family, target_table, row_count, status, note)
             VALUES (
@@ -3929,6 +4260,7 @@ SELECT
     status,
     note
 FROM stage05_final_target_counts
+WHERE pg_temp.pipeline_stage05_extraction_enabled(entity_family)
 ORDER BY
     CASE entity_family
         WHEN 'place' THEN 1
@@ -3957,12 +4289,37 @@ ORDER BY
         ELSE 99
     END;
 
+-- Inserted/updated counts for selected ENTITY_FAMILIES only.
+SELECT
+    'stage05_upsert_counts' AS output_type,
+    section,
+    entity_family,
+    target_table,
+    metric,
+    value_n,
+    status,
+    note
+FROM stage05_report
+WHERE metric IN ('inserted_rows', 'updated_rows')
+  AND pg_temp.pipeline_stage05_extraction_enabled(entity_family)
+ORDER BY
+    CASE section
+        WHEN 'point_extraction' THEN 1
+        WHEN 'line_extraction' THEN 2
+        WHEN 'bus_route_extraction' THEN 3
+        WHEN 'polygon_extraction' THEN 4
+        ELSE 99
+    END,
+    entity_family,
+    CASE metric WHEN 'updated_rows' THEN 1 WHEN 'inserted_rows' THEN 2 ELSE 99 END;
+
 -- Verification: count classified raw source features by final classification.
 SELECT
     'stage05_source_classification_counts' AS section,
     source_classification,
     count(*)::bigint AS row_count
 FROM stage05_source_feature_classification
+WHERE pg_temp.pipeline_entity_family_enabled_any(ARRAY['places', 'addresses', 'place_address_links'])
 GROUP BY source_classification
 ORDER BY source_classification;
 
@@ -3980,6 +4337,7 @@ FROM (
             WHERE entity_family = 'place'
         ), 0)::bigint AS row_count,
         1 AS sort_order
+    WHERE pg_temp.pipeline_stage05_extraction_enabled('place')
     UNION ALL
     SELECT
         'address_candidate_count',
@@ -3989,6 +4347,7 @@ FROM (
             WHERE entity_family = 'address'
         ), 0)::bigint,
         2
+    WHERE pg_temp.pipeline_stage05_extraction_enabled('address')
     UNION ALL
     SELECT
         'place_address_link_count',
@@ -3998,26 +4357,33 @@ FROM (
             WHERE entity_family = 'place_address_link'
         ), 0)::bigint,
         3
+    WHERE pg_temp.pipeline_stage05_extraction_enabled('place_address_link')
     UNION ALL
     SELECT
         'weak_address_count',
-        count(*)::bigint,
+        w.row_count,
         4
-    FROM stage05_source_feature_classification
-    WHERE address_strength = 'weak'
+    FROM (
+        SELECT count(*)::bigint AS row_count
+        FROM stage05_source_feature_classification
+        WHERE address_strength = 'weak'
+    ) AS w
+    WHERE pg_temp.pipeline_entity_family_enabled_any(ARRAY['places', 'addresses', 'place_address_links'])
 ) AS counts
 ORDER BY sort_order;
 
 SELECT
     'stage05_summary' AS section,
     (SELECT coalesce(sum(value_n), 0) FROM stage05_report WHERE section = 'raw_counts') AS raw_rows_for_snapshot,
-    (SELECT count(*) FROM stage05_final_target_counts WHERE status = 'PASS') AS pass_count,
-    (SELECT count(*) FROM stage05_final_target_counts WHERE status = 'WARN') + (SELECT count(*) FROM stage05_report WHERE status = 'WARN') AS warn_count,
+    (SELECT count(*) FROM stage05_final_target_counts WHERE status = 'PASS' AND pg_temp.pipeline_stage05_extraction_enabled(entity_family)) AS pass_count,
+    (SELECT count(*) FROM stage05_final_target_counts WHERE status = 'WARN' AND pg_temp.pipeline_stage05_extraction_enabled(entity_family))
+      + (SELECT count(*) FROM stage05_report WHERE status = 'WARN' AND (entity_family = 'all' OR pg_temp.pipeline_stage05_extraction_enabled(entity_family))) AS warn_count,
     (SELECT count(*) FROM stage05_report WHERE status = 'FAIL') AS fail_count,
+    (SELECT coalesce(sum(value_n), 0) FROM stage05_report WHERE metric IN ('inserted_rows', 'updated_rows') AND pg_temp.pipeline_stage05_extraction_enabled(entity_family)) AS selected_upsert_rows,
     CASE
         WHEN (SELECT count(*) FROM stage05_report WHERE status = 'FAIL') > 0 THEN 'FAIL'
-        WHEN (SELECT count(*) FROM stage05_final_target_counts WHERE status = 'WARN') > 0
-          OR (SELECT count(*) FROM stage05_report WHERE status = 'WARN') > 0 THEN 'WARN'
+        WHEN (SELECT count(*) FROM stage05_final_target_counts WHERE status = 'WARN' AND pg_temp.pipeline_stage05_extraction_enabled(entity_family)) > 0
+          OR (SELECT count(*) FROM stage05_report WHERE status = 'WARN' AND (entity_family = 'all' OR pg_temp.pipeline_stage05_extraction_enabled(entity_family))) > 0 THEN 'WARN'
         ELSE 'PASS'
     END AS status
 ;

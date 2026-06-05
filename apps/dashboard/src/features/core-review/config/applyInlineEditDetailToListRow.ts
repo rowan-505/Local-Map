@@ -280,6 +280,8 @@ export function applyAdminAreaDetailToListRow(
 ): CoreReviewAdminAreaRow {
     const d = detail as CoreReviewAdminAreaRow & {
         canonical_name?: string | null;
+        name_mm?: string | null;
+        name_en?: string | null;
         parent_id?: string | null;
         admin_level_id?: string | null;
         boundary_status?: string | null;
@@ -306,6 +308,8 @@ export function applyAdminAreaDetailToListRow(
         id: strOrNull(d.id) ?? row.id,
         publicId: strOrNull(d.publicId) ?? row.publicId,
         canonicalName: strOrNull(d.canonicalName ?? d.canonical_name) ?? row.canonicalName,
+        nameMm: strOrNull(d.nameMm ?? d.name_mm) ?? row.nameMm,
+        nameEn: strOrNull(d.nameEn ?? d.name_en) ?? row.nameEn,
         slug: strOrNull(d.slug) ?? row.slug,
         parentId: strOrNull(d.parentId ?? d.parent_id) ?? row.parentId,
         adminLevelId: strOrNull(d.adminLevelId ?? d.admin_level_id) ?? row.adminLevelId,

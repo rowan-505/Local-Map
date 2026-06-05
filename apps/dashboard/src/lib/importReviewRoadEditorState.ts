@@ -218,8 +218,6 @@ export function parseValidationBulletsFromApiErrorMessage(message: string): {
 export const SAVE_IMPORT_REVIEW_ROAD_ROUTING_WARNINGS_CONFIRM =
     "This road has routing continuity warnings. Save changes anyway?";
 
-export const ROAD_CLASS_REQUIRED_MESSAGE = "Road class is required.";
-
 export type ResolvedRoadClassForSave =
     | { ok: true; roadClassId: string; roadClassCode: string | null }
     | { ok: false; message: string };
@@ -241,14 +239,7 @@ export function resolveRoadClassForSave(args: {
         return { ok: true, roadClassId: resolved.roadClassId, roadClassCode: null };
     }
     if (resolved.roadClassCode) {
-        if (args.hasGeometry) {
-            return { ok: true, roadClassId: "", roadClassCode: resolved.roadClassCode };
-        }
         return { ok: true, roadClassId: "", roadClassCode: resolved.roadClassCode };
-    }
-
-    if (args.hasGeometry) {
-        return { ok: false, message: ROAD_CLASS_REQUIRED_MESSAGE };
     }
 
     return { ok: true, roadClassId: "", roadClassCode: null };

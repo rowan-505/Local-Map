@@ -8,7 +8,7 @@ import { ImportReviewService } from "./import-review.service.js";
 
 export function createImportReviewAddressComponentsMutationService(prisma: PrismaClient) {
     const repo = new ImportReviewAddressComponentsMutationRepository(prisma);
-    const importReviewService = new ImportReviewService(createImportReviewDataRepository(prisma));
+    const importReviewService = new ImportReviewService(createImportReviewDataRepository(prisma), prisma);
 
     return {
         async patchComponents(

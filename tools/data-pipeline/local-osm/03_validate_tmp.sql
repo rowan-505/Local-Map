@@ -7,10 +7,15 @@
 -- NULL geometry rows are WARN because Stage D skips them before raw insert.
 --
 -- Hard fail (second DO block raises; psql ON_ERROR_STOP stops the client):
---   - any of osm_points / osm_lines / osm_polygons missing
---   - all three tables empty (row count sum = 0)
---   - zero rows with non-null geometry across all three tables (nothing usable for Stage D)
+--   - required tmp_import table(s) for import mode missing
+--   - all required tables empty (row count sum = 0)
+--   - zero rows with non-null geometry across required tables
 --   - any non-null geometry with ST_SRID <> 4326
+--
+-- Import mode (from ENTITY_FAMILIES):
+--   admin_areas only → osm_admin_polygons
+--   roads only       → osm_road_lines
+--   all / multiple   → osm_points, osm_lines, osm_polygons
 --
 -- WARN (per-row metrics + FINAL_SUMMARY WARN when any apply): NULL geometry counts,
 -- invalid geometry (ST_IsValid false), null osm_id, empty/null jsonb tags.
@@ -23,6 +28,29 @@
 \else
 \set tmp_import_schema 'tmp_import'
 \endif
+\if :{?entity_families}
+\else
+\set entity_families 'all'
+\endif
+
+\ir pipeline_entity_families.sql
+\ir pipeline_tmp_import_mode.sql
+
+CREATE TEMP TABLE IF NOT EXISTS _stage03_tables (
+    tbl text NOT NULL PRIMARY KEY
+);
+
+TRUNCATE _stage03_tables;
+
+INSERT INTO _stage03_tables (tbl)
+SELECT unnest(
+    CASE mode.import_mode
+        WHEN 'admin_areas_only' THEN ARRAY['osm_admin_polygons']::text[]
+        WHEN 'roads_only' THEN ARRAY['osm_road_lines']::text[]
+        ELSE ARRAY['osm_points', 'osm_lines', 'osm_polygons']::text[]
+    END
+)
+FROM _pipeline_tmp_import_mode AS mode;
 
 CREATE TEMP TABLE IF NOT EXISTS _stage03_cfg (
     schema_name text NOT NULL PRIMARY KEY
@@ -51,36 +79,20 @@ TRUNCATE _stage03_report;
 DO $_$
 DECLARE
     s text;
-    has_points boolean;
-    has_lines boolean;
-    has_polygons boolean;
+    t text;
+    tbl_rec record;
 
-    cnt_points bigint := 0;
-    cnt_lines bigint := 0;
-    cnt_polygons bigint := 0;
+    v_has_table boolean;
+    v_count bigint;
+    v_null_geom bigint;
+    v_bad_geom bigint;
+    v_null_osm bigint;
+    v_bad_tags bigint;
 
-    total_rows bigint;
-
-    null_geom_points bigint;
-    null_geom_lines bigint;
-    null_geom_polygons bigint;
-
-    bad_geom_points bigint;
-    bad_geom_lines bigint;
-    bad_geom_polygons bigint;
-
-    null_osm_points bigint;
-    null_osm_lines bigint;
-    null_osm_polygons bigint;
-
-    bad_tags_points bigint;
-    bad_tags_lines bigint;
-    bad_tags_polygons bigint;
+    total_rows bigint := 0;
 
     rec record;
-
     invalid_srid boolean := false;
-
     qr text;
 
     summary_status text := 'PASS';
@@ -92,69 +104,110 @@ DECLARE
     null_osm_total bigint := 0;
     empty_tags_total bigint := 0;
 
+    missing_required boolean := false;
 BEGIN
     SELECT cfg.schema_name
     INTO STRICT s
     FROM _stage03_cfg AS cfg;
 
-    SELECT exists (
-        SELECT 1
-        FROM information_schema.tables AS t
-        WHERE t.table_schema = s
-          AND t.table_name = 'osm_points'
-          AND t.table_type = 'BASE TABLE'
-    )
-    INTO has_points;
+    FOR tbl_rec IN SELECT tbl FROM _stage03_tables ORDER BY tbl
+    LOOP
+        t := tbl_rec.tbl;
 
-    SELECT exists (
-        SELECT 1
-        FROM information_schema.tables AS t
-        WHERE t.table_schema = s
-          AND t.table_name = 'osm_lines'
-          AND t.table_type = 'BASE TABLE'
-    )
-    INTO has_lines;
+        SELECT exists (
+            SELECT 1
+            FROM information_schema.tables AS info
+            WHERE info.table_schema = s
+              AND info.table_name = t
+              AND info.table_type = 'BASE TABLE'
+        )
+        INTO v_has_table;
 
-    SELECT exists (
-        SELECT 1
-        FROM information_schema.tables AS t
-        WHERE t.table_schema = s
-          AND t.table_name = 'osm_polygons'
-          AND t.table_type = 'BASE TABLE'
-    )
-    INTO has_polygons;
+        INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
+        VALUES (
+            'existence', 'global', 'table_exists', t, NULL, NULL,
+            CASE WHEN v_has_table THEN 'PASS' ELSE 'FAIL' END
+        );
 
-    INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
-    VALUES
-        ('existence', 'global', 'table_exists', 'osm_points', NULL, NULL,
-            CASE WHEN has_points THEN 'PASS' ELSE 'FAIL' END),
-        ('existence', 'global', 'table_exists', 'osm_lines', NULL, NULL,
-            CASE WHEN has_lines THEN 'PASS' ELSE 'FAIL' END),
-        ('existence', 'global', 'table_exists', 'osm_polygons', NULL, NULL,
-            CASE WHEN has_polygons THEN 'PASS' ELSE 'FAIL' END);
+        IF NOT v_has_table THEN
+            missing_required := true;
+            CONTINUE;
+        END IF;
 
-    IF NOT has_points OR NOT has_lines OR NOT has_polygons THEN
+        qr := format('select count(*)::bigint from %I.%I', s, t);
+        EXECUTE qr INTO v_count;
+        total_rows := total_rows + coalesce(v_count, 0);
+
+        INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
+        VALUES ('row_count', t, 'row_count', t, NULL, v_count, 'PASS');
+
+        qr := format(
+            $q$
+                select st_srid(geom)::integer as srid, count(*)::bigint as c
+                from %I.%I
+                where geom is not null
+                group by 1
+                order by 1
+            $q$,
+            s, t
+        );
+
+        FOR rec IN EXECUTE qr
+        LOOP
+            INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
+            VALUES (
+                'srid',
+                t,
+                'srid_count',
+                t,
+                rec.srid::text,
+                rec.c,
+                CASE WHEN rec.srid = 4326 THEN 'PASS' ELSE 'FAIL' END
+            );
+
+            IF rec.srid IS DISTINCT FROM 4326 THEN
+                invalid_srid := true;
+            END IF;
+        END LOOP;
+
+        qr := format(
+            $q$
+                select
+                    count(*) filter (where geom is null)::bigint,
+                    count(*) filter (where geom is not null and not st_isvalid(geom))::bigint,
+                    count(*) filter (where osm_id is null)::bigint,
+                    count(*) filter (
+                        where tags is null or tags = '{}'::jsonb or jsonb_typeof(tags) = 'null'
+                    )::bigint
+                from %I.%I
+            $q$,
+            s, t
+        );
+        EXECUTE qr INTO v_null_geom, v_bad_geom, v_null_osm, v_bad_tags;
+
+        null_geom_total := null_geom_total + coalesce(v_null_geom, 0);
+        usable_geom_total := usable_geom_total + (coalesce(v_count, 0) - coalesce(v_null_geom, 0));
+        invalid_geom_total := invalid_geom_total + coalesce(v_bad_geom, 0);
+        null_osm_total := null_osm_total + coalesce(v_null_osm, 0);
+        empty_tags_total := empty_tags_total + coalesce(v_bad_tags, 0);
+
+        INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
+        VALUES
+            ('geom_null', t, 'null_geometry_count', t, NULL, v_null_geom,
+                CASE WHEN v_null_geom = 0 THEN 'PASS' ELSE 'WARN' END),
+            ('geom_valid', t, 'invalid_geometry_count', t, NULL, v_bad_geom,
+                CASE WHEN v_bad_geom = 0 THEN 'PASS' ELSE 'WARN' END),
+            ('osm_id', t, 'null_osm_id_count', t, NULL, v_null_osm,
+                CASE WHEN v_null_osm = 0 THEN 'PASS' ELSE 'WARN' END),
+            ('tags', t, 'null_or_empty_tags_count', t, NULL, v_bad_tags,
+                CASE WHEN v_bad_tags = 0 THEN 'PASS' ELSE 'WARN' END);
+    END LOOP;
+
+    IF missing_required THEN
         INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
         VALUES ('summary', 'global', 'FINAL_SUMMARY', NULL, 'missing-required-tables', NULL, 'FAIL');
         RETURN;
     END IF;
-
-    qr := format('select count(*)::bigint from %I.osm_points', s);
-    EXECUTE qr INTO cnt_points;
-
-    qr := format('select count(*)::bigint from %I.osm_lines', s);
-    EXECUTE qr INTO cnt_lines;
-
-    qr := format('select count(*)::bigint from %I.osm_polygons', s);
-    EXECUTE qr INTO cnt_polygons;
-
-    total_rows := coalesce(cnt_points, 0) + coalesce(cnt_lines, 0) + coalesce(cnt_polygons, 0);
-
-    INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
-    VALUES
-        ('row_count', 'osm_points', 'row_count', 'osm_points', NULL, cnt_points, 'PASS'),
-        ('row_count', 'osm_lines', 'row_count', 'osm_lines', NULL, cnt_lines, 'PASS'),
-        ('row_count', 'osm_polygons', 'row_count', 'osm_polygons', NULL, cnt_polygons, 'PASS');
 
     IF total_rows = 0 THEN
         INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
@@ -162,151 +215,11 @@ BEGIN
         RETURN;
     END IF;
 
-    qr := format(
-        $q$
-            select st_srid(geom)::integer as srid, count(*)::bigint as c
-            from %I.osm_points
-            where geom is not null
-            group by 1
-            order by 1
-        $q$,
-        s
-    );
-
-    FOR rec IN EXECUTE qr
-    LOOP
-        INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
-        VALUES (
-            'srid',
-            'osm_points',
-            'srid_count',
-            'osm_points',
-            rec.srid::text,
-            rec.c,
-            CASE WHEN rec.srid = 4326 THEN 'PASS' ELSE 'FAIL' END
-        );
-
-        IF rec.srid IS DISTINCT FROM 4326 THEN
-            invalid_srid := true;
-        END IF;
-    END LOOP;
-
-    qr := format(
-        $q$
-            select st_srid(geom)::integer as srid, count(*)::bigint as c
-            from %I.osm_lines
-            where geom is not null
-            group by 1
-            order by 1
-        $q$,
-        s
-    );
-
-    FOR rec IN EXECUTE qr
-    LOOP
-        INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
-        VALUES (
-            'srid',
-            'osm_lines',
-            'srid_count',
-            'osm_lines',
-            rec.srid::text,
-            rec.c,
-            CASE WHEN rec.srid = 4326 THEN 'PASS' ELSE 'FAIL' END
-        );
-
-        IF rec.srid IS DISTINCT FROM 4326 THEN
-            invalid_srid := true;
-        END IF;
-    END LOOP;
-
-    qr := format(
-        $q$
-            select st_srid(geom)::integer as srid, count(*)::bigint as c
-            from %I.osm_polygons
-            where geom is not null
-            group by 1
-            order by 1
-        $q$,
-        s
-    );
-
-    FOR rec IN EXECUTE qr
-    LOOP
-        INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
-        VALUES (
-            'srid',
-            'osm_polygons',
-            'srid_count',
-            'osm_polygons',
-            rec.srid::text,
-            rec.c,
-            CASE WHEN rec.srid = 4326 THEN 'PASS' ELSE 'FAIL' END
-        );
-
-        IF rec.srid IS DISTINCT FROM 4326 THEN
-            invalid_srid := true;
-        END IF;
-    END LOOP;
-
     IF invalid_srid THEN
         INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
         VALUES ('summary', 'global', 'FINAL_SUMMARY', NULL, 'non-4326-srid', NULL, 'FAIL');
         RETURN;
     END IF;
-
-    qr := format(
-        $q$
-            select
-                count(*) filter (where geom is null)::bigint,
-                count(*) filter (where geom is not null and not st_isvalid(geom))::bigint,
-                count(*) filter (where osm_id is null)::bigint,
-                count(*) filter (
-                    where tags is null or tags = '{}'::jsonb or jsonb_typeof(tags) = 'null'
-                )::bigint
-            from %I.osm_points
-        $q$,
-        s
-    );
-    EXECUTE qr INTO null_geom_points, bad_geom_points, null_osm_points, bad_tags_points;
-
-    qr := format(
-        $q$
-            select
-                count(*) filter (where geom is null)::bigint,
-                count(*) filter (where geom is not null and not st_isvalid(geom))::bigint,
-                count(*) filter (where osm_id is null)::bigint,
-                count(*) filter (
-                    where tags is null or tags = '{}'::jsonb or jsonb_typeof(tags) = 'null'
-                )::bigint
-            from %I.osm_lines
-        $q$,
-        s
-    );
-    EXECUTE qr INTO null_geom_lines, bad_geom_lines, null_osm_lines, bad_tags_lines;
-
-    qr := format(
-        $q$
-            select
-                count(*) filter (where geom is null)::bigint,
-                count(*) filter (where geom is not null and not st_isvalid(geom))::bigint,
-                count(*) filter (where osm_id is null)::bigint,
-                count(*) filter (
-                    where tags is null or tags = '{}'::jsonb or jsonb_typeof(tags) = 'null'
-                )::bigint
-            from %I.osm_polygons
-        $q$,
-        s
-    );
-    EXECUTE qr INTO null_geom_polygons, bad_geom_polygons, null_osm_polygons, bad_tags_polygons;
-
-    null_geom_total := coalesce(null_geom_points, 0) + coalesce(null_geom_lines, 0)
-        + coalesce(null_geom_polygons, 0);
-
-    usable_geom_total :=
-        (coalesce(cnt_points, 0) - coalesce(null_geom_points, 0))
-        + (coalesce(cnt_lines, 0) - coalesce(null_geom_lines, 0))
-        + (coalesce(cnt_polygons, 0) - coalesce(null_geom_polygons, 0));
 
     INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
     VALUES (
@@ -324,43 +237,6 @@ BEGIN
         VALUES ('summary', 'global', 'FINAL_SUMMARY', NULL, 'no-usable-non-null-geometries', total_rows, 'FAIL');
         RETURN;
     END IF;
-
-    INSERT INTO _stage03_report (section, scope, metric, tbl, bucket, n, status)
-    VALUES
-        ('geom_null', 'osm_points', 'null_geometry_count', 'osm_points', NULL, null_geom_points,
-            CASE WHEN null_geom_points = 0 THEN 'PASS' ELSE 'WARN' END),
-        ('geom_null', 'osm_lines', 'null_geometry_count', 'osm_lines', NULL, null_geom_lines,
-            CASE WHEN null_geom_lines = 0 THEN 'PASS' ELSE 'WARN' END),
-        ('geom_null', 'osm_polygons', 'null_geometry_count', 'osm_polygons', NULL, null_geom_polygons,
-            CASE WHEN null_geom_polygons = 0 THEN 'PASS' ELSE 'WARN' END),
-
-        ('geom_valid', 'osm_points', 'invalid_geometry_count', 'osm_points', NULL, bad_geom_points,
-            CASE WHEN bad_geom_points = 0 THEN 'PASS' ELSE 'WARN' END),
-        ('geom_valid', 'osm_lines', 'invalid_geometry_count', 'osm_lines', NULL, bad_geom_lines,
-            CASE WHEN bad_geom_lines = 0 THEN 'PASS' ELSE 'WARN' END),
-        ('geom_valid', 'osm_polygons', 'invalid_geometry_count', 'osm_polygons', NULL, bad_geom_polygons,
-            CASE WHEN bad_geom_polygons = 0 THEN 'PASS' ELSE 'WARN' END),
-
-        ('osm_id', 'osm_points', 'null_osm_id_count', 'osm_points', NULL, null_osm_points,
-            CASE WHEN null_osm_points = 0 THEN 'PASS' ELSE 'WARN' END),
-        ('osm_id', 'osm_lines', 'null_osm_id_count', 'osm_lines', NULL, null_osm_lines,
-            CASE WHEN null_osm_lines = 0 THEN 'PASS' ELSE 'WARN' END),
-        ('osm_id', 'osm_polygons', 'null_osm_id_count', 'osm_polygons', NULL, null_osm_polygons,
-            CASE WHEN null_osm_polygons = 0 THEN 'PASS' ELSE 'WARN' END),
-
-        ('tags', 'osm_points', 'null_or_empty_tags_count', 'osm_points', NULL, bad_tags_points,
-            CASE WHEN bad_tags_points = 0 THEN 'PASS' ELSE 'WARN' END),
-        ('tags', 'osm_lines', 'null_or_empty_tags_count', 'osm_lines', NULL, bad_tags_lines,
-            CASE WHEN bad_tags_lines = 0 THEN 'PASS' ELSE 'WARN' END),
-        ('tags', 'osm_polygons', 'null_or_empty_tags_count', 'osm_polygons', NULL, bad_tags_polygons,
-            CASE WHEN bad_tags_polygons = 0 THEN 'PASS' ELSE 'WARN' END);
-
-    invalid_geom_total := coalesce(bad_geom_points, 0) + coalesce(bad_geom_lines, 0)
-        + coalesce(bad_geom_polygons, 0);
-    null_osm_total := coalesce(null_osm_points, 0) + coalesce(null_osm_lines, 0)
-        + coalesce(null_osm_polygons, 0);
-    empty_tags_total := coalesce(bad_tags_points, 0) + coalesce(bad_tags_lines, 0)
-        + coalesce(bad_tags_polygons, 0);
 
     summary_notes := format(
         'rows=%s null_geom=%s usable_non_null_geom=%s invalid_geom=%s null_osm_id=%s empty_tags=%s',

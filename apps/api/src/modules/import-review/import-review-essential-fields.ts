@@ -42,11 +42,8 @@ export const IMPORT_REVIEW_ESSENTIAL_FIELD_RULES: Partial<
         { kind: "field", key: "admin_area_id" },
         { kind: "geometry" },
     ],
-    roads: [
-        { kind: "field", key: "road_class_id" },
-        { kind: "field", key: "admin_area_id" },
-        { kind: "geometry" },
-    ],
+    /** Roads: geometry only — admin_area_id and road_class_id are optional until promotion. */
+    roads: [{ kind: "geometry" }],
     buildings: [
         { kind: "field", key: "building_type_id" },
         { kind: "field", key: "admin_area_id" },

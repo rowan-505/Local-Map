@@ -1,4 +1,5 @@
 import BaseMapStyle from './base-map.json';
+import { REGIONAL_VECTOR_SOURCE_OVERZOOM_MAX_ZOOM } from './regionalZoomPolicy';
 
 export const DEFAULT_BASEMAP_CURRENT_JSON_URL =
   'http://localhost:8080/regions/yangon/current.json';
@@ -12,6 +13,14 @@ export type BasemapCurrentJson = {
   filename: string;
   /** Absolute HTTP(S) URL of the active `.pmtiles` file. */
   url: string;
+  /** Native tile min zoom from tippecanoe build (optional on older pointers). */
+  minZoom?: number;
+  /** Native tile max zoom from tippecanoe build (optional on older pointers). */
+  maxZoom?: number;
+  minzoom?: number;
+  maxzoom?: number;
+  nativeMaxzoom?: number;
+  recommendedMapMaxZoom?: number;
 };
 
 type BaseMapStyleJson = typeof BaseMapStyle;
@@ -46,7 +55,7 @@ export function createBasemapVectorSource(pmtilesHttpUrl: string): {
     type: 'vector',
     url: toPmtilesSchemeUrl(pmtilesHttpUrl),
     minzoom: 0,
-    maxzoom: 22,
+    maxzoom: REGIONAL_VECTOR_SOURCE_OVERZOOM_MAX_ZOOM,
   };
 }
 

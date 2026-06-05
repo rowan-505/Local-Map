@@ -157,7 +157,11 @@ function OverrideFieldGrid({
                                 <AdminAreaCombobox
                                     value={value.trim() === "" ? null : value}
                                     disabled={disabled || optionsLoading}
-                                    placeholder="Search admin area…"
+                                    placeholder={
+                                        config.apiFamily === "roads"
+                                            ? "Auto-assigned on promotion if empty"
+                                            : "Search admin area…"
+                                    }
                                     options={adminAreaOptions.length > 0 ? adminAreaOptions : undefined}
                                     optionsLoading={optionsLoading}
                                     onChange={(id) => onFormChange(def.configKey, id ?? "")}
@@ -178,7 +182,11 @@ function OverrideFieldGrid({
                                     onChange={(e) => onFormChange(def.configKey, e.target.value)}
                                     className={IMPORT_REVIEW_SELECT_CLASS}
                                 >
-                                    <option value="">—</option>
+                                    <option value="">
+                                        {config.apiFamily === "roads" && def.configKey === "road_class_id"
+                                            ? "Optional; falls back to source class if empty"
+                                            : "—"}
+                                    </option>
                                     {selectOptions.map((opt) => (
                                         <option key={opt.value} value={opt.value}>
                                             {opt.label}
@@ -600,6 +608,10 @@ export default function ImportReviewOverrideEditor({
         onClearField: handleClearField,
     };
 
+    const showRoadOptionalFieldsNote =
+        config.apiFamily === "roads" &&
+        (!(form.admin_area_id ?? "").trim() || !(form.road_class_id ?? "").trim());
+
     return (
         <section className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/30 p-4">
             <div>
@@ -663,6 +675,12 @@ export default function ImportReviewOverrideEditor({
                         description="Type/class codes and reference IDs — not used as display names."
                     >
                         <OverrideFieldGrid defs={classification} {...sharedGridProps} />
+                        {showRoadOptionalFieldsNote ? (
+                            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                                Missing admin area or road class will be auto-derived during promotion when
+                                possible.
+                            </div>
+                        ) : null}
                     </OverrideFormSection>
                 ) : null}
 

@@ -12,7 +12,7 @@ const emptyMeta = {
 };
 
 describe("computePublishBatchValidationFinalize", () => {
-    it("35 ready + 2 blocked => partial, promotable_count=35", () => {
+    it("35 ready + 2 blocked => validated (outcome partial), promotable_count=35", () => {
         const r = computePublishBatchValidationFinalize({
             ...emptyMeta,
             readyCount: 35,
@@ -30,7 +30,7 @@ describe("computePublishBatchValidationFinalize", () => {
         assert.match(r.logsSummary, /Partial: 35 promotable, 2 blocked/);
     });
 
-    it("0 ready + 2 blocked => blocked, promotable_count=0", () => {
+    it("0 ready + 2 blocked => validated, promotable_count=0", () => {
         const r = computePublishBatchValidationFinalize({
             ...emptyMeta,
             promotableFamiliesCount: 0,
@@ -61,7 +61,7 @@ describe("computePublishBatchValidationFinalize", () => {
         assert.equal(r.validationResult.can_promote, true);
     });
 
-    it("ready + warnings => partial", () => {
+    it("ready + warnings => validated (outcome partial)", () => {
         const r = computePublishBatchValidationFinalize({
             ...emptyMeta,
             readyCount: 8,

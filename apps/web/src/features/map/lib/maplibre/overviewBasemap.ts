@@ -1,5 +1,5 @@
 /**
- * Overview basemap source + layers for apps/web (Natural Earth + MIMU, z0–z8).
+ * Overview basemap source + layers for apps/web (Natural Earth + core admin0 outline + MIMU admin1, z0–z8).
  * No OSM roads, buildings, POIs, or transit — API overlays are added separately in MapView.
  *
  * PMTiles URL: `VITE_OVERVIEW_PMTILES_URL` (see `config/overviewPmtilesUrl.ts`).
@@ -18,10 +18,42 @@ import type {
 } from 'maplibre-gl';
 import {
   OVERVIEW_COUNTRY_LABEL_FILTER,
+  OVERVIEW_COUNTRY_LABEL_MAX_ZOOM,
+  OVERVIEW_COUNTRY_LABEL_HALO_COLOR,
+  OVERVIEW_COUNTRY_LABEL_HALO_WIDTH,
+  OVERVIEW_COUNTRY_LABEL_MIN_ZOOM,
+  OVERVIEW_COUNTRY_LABEL_TEXT_COLOR,
+  OVERVIEW_COUNTRY_LABEL_TEXT_SIZE,
+  OVERVIEW_EXCLUDE_MMR_COUNTRY_BOUNDARY_FILTER,
+  OVERVIEW_MMR_ADMIN0_BOUNDARY_CASING_COLOR,
+  OVERVIEW_MMR_ADMIN0_BOUNDARY_CASING_OPACITY,
+  OVERVIEW_MMR_ADMIN0_BOUNDARY_CASING_WIDTH,
+  OVERVIEW_MMR_ADMIN0_BOUNDARY_LINE_COLOR,
+  OVERVIEW_MMR_ADMIN0_BOUNDARY_LINE_OPACITY,
+  OVERVIEW_MMR_ADMIN0_BOUNDARY_LINE_WIDTH,
+  OVERVIEW_MMR_ADMIN0_BOUNDARY_TIERS,
+  OVERVIEW_MMR_ADMIN1_BOUNDARY_COLOR,
+  OVERVIEW_MMR_ADMIN1_BOUNDARY_MAX_ZOOM,
+  OVERVIEW_MMR_ADMIN1_BOUNDARY_MIN_ZOOM,
+  OVERVIEW_MMR_ADMIN1_BOUNDARY_OPACITY,
+  OVERVIEW_MMR_ADMIN1_BOUNDARY_WIDTH,
+  OVERVIEW_MMR_INTERNAL_ADMIN_BOUNDARY_LAYER_ID,
+  OVERVIEW_NEIGHBOR_COUNTRY_BOUNDARY_COLOR,
+  OVERVIEW_NEIGHBOR_COUNTRY_BOUNDARY_LAYER_ID,
+  OVERVIEW_NEIGHBOR_COUNTRY_BOUNDARY_OPACITY,
+  OVERVIEW_NEIGHBOR_COUNTRY_BOUNDARY_WIDTH,
   OVERVIEW_LAKES_FILTER,
   OVERVIEW_MAJOR_CITY_FILTER,
   OVERVIEW_MAX_ZOOM,
+  OVERVIEW_MMR_ADMIN1_LABEL_FILTER,
+  OVERVIEW_MMR_ADMIN1_LABEL_HALO_COLOR,
+  OVERVIEW_MMR_ADMIN1_LABEL_HALO_WIDTH,
+  OVERVIEW_MMR_ADMIN1_LABEL_MIN_ZOOM,
+  OVERVIEW_MMR_ADMIN1_LABEL_TEXT_COLOR,
+  OVERVIEW_MMR_ADMIN1_LABEL_TEXT_OPACITY,
+  OVERVIEW_MMR_ADMIN1_LABEL_TEXT_SIZE,
   OVERVIEW_PMTILES_SOURCE_LAYERS,
+  OVERVIEW_POPULATED_PLACES_MIN_ZOOM,
   OVERVIEW_RIVERS_FILTER,
 } from '../../../../../../../packages/map-style/overviewConstants.js';
 import {
@@ -48,9 +80,14 @@ export const OVERVIEW_LAYER_IDS = [
   'overview-countries-fill',
   'overview-mmr-admin1-fill',
   'overview-coastline',
-  'overview-country-boundaries',
-  'overview-mmr-admin1-boundaries',
-  'overview-mmr-admin0-outline',
+  'neighbor-country-boundary-line',
+  'myanmar-internal-admin-boundary-line',
+  'myanmar-admin0-boundary-casing-z02',
+  'myanmar-admin0-boundary-line-z02',
+  'myanmar-admin0-boundary-casing-z34',
+  'myanmar-admin0-boundary-line-z34',
+  'myanmar-admin0-boundary-casing-z56',
+  'myanmar-admin0-boundary-line-z56',
   'overview-country-labels',
   'overview-mmr-admin1-labels',
   'overview-populated-places',
@@ -120,20 +157,32 @@ export function createOverviewLayers(): LayerSpecification[] {
     coastlineLayer(src),
     countryBoundariesLayer(src),
     mmrAdmin1BoundariesLayer(src),
-    mmrAdmin0OutlineLayer(src),
+    ...mmrAdmin0BoundaryTierLayers(src),
     countryLabelsLayer(src),
     mmrAdmin1LabelsLayer(src),
     populatedPlacesLayer(src),
   ];
 }
 
+/** Logs active Myanmar admin0 boundary tier layers in dev (see overviewConstants). */
+export function logOverviewMyanmarHighlightLayers(): void {
+  if (import.meta.env?.DEV) {
+    const tiers = OVERVIEW_MMR_ADMIN0_BOUNDARY_TIERS.map(
+      (t) => `${t.lineLayerId}←${t.sourceLayer}(${t.zoomBand})`,
+    ).join(', ');
+    console.info('[map] Myanmar admin0 outer boundary tiers:', tiers);
+  }
+}
+
 /** Full MapLibre style for overview mode — used by `overviewBasemapStyle.ts`. */
 export function createOverviewBasemapStyle(pmtilesHttpUrl: string): StyleSpecification {
+  logOverviewMyanmarHighlightLayers();
   return {
     version: 8,
     name: 'CoreMap Myanmar Overview',
     metadata: {
-      'local-map:purpose': 'Natural Earth + MIMU overview basemap for z0–z8 only. No OSM detail.',
+      'local-map:purpose':
+        'Natural Earth + MIMU admin1 overview z0–z8. Myanmar admin0 high-precision land-aligned tiers (z0–z6).',
       'local-map:zoom-range': '0-8',
       'local-map:source-layers': OVERVIEW_PMTILES_SOURCE_LAYERS.join(','),
     },
@@ -219,7 +268,7 @@ function countriesFillLayer(source: string): FillLayerSpecification {
     'source-layer': 'countries',
     maxzoom: OVERVIEW_BOUNDARY_MAX_ZOOM,
     paint: {
-      // No duplicate outline — `overview-country-boundaries` draws borders.
+      // No duplicate outline — `neighbor-country-boundary-line` draws neighbor borders.
       'fill-color': '#e4e2dc',
       'fill-outline-color': 'rgba(0, 0, 0, 0)',
       'fill-opacity': [
@@ -280,40 +329,6 @@ function mmrAdmin1FillLayer(source: string): FillLayerSpecification {
   };
 }
 
-/**
- * Visual hierarchy: MIMU Admin 0 emphasizes Myanmar; Natural Earth country boundaries and
- * MIMU Admin 1 are medium context lines (matched strength, below admin0).
- */
-const OVERVIEW_MEDIUM_BOUNDARY_COLOR = '#A79CB3';
-
-const OVERVIEW_MEDIUM_BOUNDARY_OPACITY: ExpressionSpecification = [
-  'interpolate',
-  ['linear'],
-  ['zoom'],
-  2,
-  0.62,
-  6.5,
-  0.62,
-  7.5,
-  0.28,
-  8.5,
-  0,
-];
-
-const OVERVIEW_ADMIN0_BOUNDARY_OPACITY: ExpressionSpecification = [
-  'interpolate',
-  ['linear'],
-  ['zoom'],
-  2,
-  1.0,
-  6.5,
-  1.0,
-  7.5,
-  0.45,
-  8.5,
-  0,
-];
-
 const OVERVIEW_COASTLINE_OPACITY: ExpressionSpecification = [
   'interpolate',
   ['linear'],
@@ -326,22 +341,6 @@ const OVERVIEW_COASTLINE_OPACITY: ExpressionSpecification = [
   0.18,
   8.5,
   0,
-];
-
-const OVERVIEW_MEDIUM_BOUNDARY_WIDTH: ExpressionSpecification = [
-  'interpolate',
-  ['linear'],
-  ['zoom'],
-  2,
-  0.55,
-  4,
-  0.75,
-  6,
-  0.9,
-  8,
-  0.65,
-  9,
-  0.4,
 ];
 
 function coastlineLayer(source: string): LineLayerSpecification {
@@ -363,51 +362,90 @@ function coastlineLayer(source: string): LineLayerSpecification {
 
 function countryBoundariesLayer(source: string): LineLayerSpecification {
   return {
-    id: 'overview-country-boundaries',
+    id: OVERVIEW_NEIGHBOR_COUNTRY_BOUNDARY_LAYER_ID,
     type: 'line',
     source,
     'source-layer': 'country_boundaries',
     minzoom: 0,
     maxzoom: OVERVIEW_BOUNDARY_MAX_ZOOM,
+    filter: OVERVIEW_EXCLUDE_MMR_COUNTRY_BOUNDARY_FILTER as unknown as ExpressionSpecification,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
+    metadata: {
+      'local-map:role': 'neighbor-country-boundaries',
+      'local-map:note':
+        'Natural Earth land boundaries for neighbors only. Segments touching Myanmar are filtered out so mmr_admin0_z* tiers draw the outer ring through z6.',
+    },
     paint: {
-      'line-color': OVERVIEW_MEDIUM_BOUNDARY_COLOR,
-      'line-width': OVERVIEW_MEDIUM_BOUNDARY_WIDTH,
-      'line-opacity': OVERVIEW_MEDIUM_BOUNDARY_OPACITY,
+      'line-color': OVERVIEW_NEIGHBOR_COUNTRY_BOUNDARY_COLOR,
+      'line-width': OVERVIEW_NEIGHBOR_COUNTRY_BOUNDARY_WIDTH as unknown as ExpressionSpecification,
+      'line-opacity':
+        OVERVIEW_NEIGHBOR_COUNTRY_BOUNDARY_OPACITY as unknown as ExpressionSpecification,
     },
   };
 }
 
-function mmrAdmin0OutlineLayer(source: string): LineLayerSpecification {
-  return {
-    id: 'overview-mmr-admin0-outline',
-    type: 'line',
-    source,
-    'source-layer': 'mmr_admin0',
-    minzoom: 2,
-    maxzoom: OVERVIEW_BOUNDARY_MAX_ZOOM,
-    layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: {
-      'line-color': '#665276',
-      'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.45, 4, 1.8, 6, 2.1, 8, 1.45, 9, 0.85],
-      'line-opacity': OVERVIEW_ADMIN0_BOUNDARY_OPACITY,
-    },
-  };
+function mmrAdmin0BoundaryTierLayers(source: string): LayerSpecification[] {
+  const layers: LayerSpecification[] = [];
+  for (const tier of OVERVIEW_MMR_ADMIN0_BOUNDARY_TIERS) {
+    layers.push({
+      id: tier.casingLayerId,
+      type: 'line',
+      source,
+      'source-layer': tier.sourceLayer,
+      minzoom: tier.minZoom,
+      maxzoom: tier.maxZoom,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      metadata: {
+        'local-map:role': 'myanmar-admin0-boundary-casing',
+        'local-map:note': `Subtle land-tone halo under ${tier.lineLayerId}. ${tier.zoomBand}; hidden z${tier.maxZoom}+.`,
+      },
+      paint: {
+        'line-color': OVERVIEW_MMR_ADMIN0_BOUNDARY_CASING_COLOR,
+        'line-opacity':
+          OVERVIEW_MMR_ADMIN0_BOUNDARY_CASING_OPACITY as unknown as ExpressionSpecification,
+        'line-width': OVERVIEW_MMR_ADMIN0_BOUNDARY_CASING_WIDTH as unknown as ExpressionSpecification,
+      },
+    });
+    layers.push({
+      id: tier.lineLayerId,
+      type: 'line',
+      source,
+      'source-layer': tier.sourceLayer,
+      minzoom: tier.minZoom,
+      maxzoom: tier.maxZoom,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      metadata: {
+        'local-map:role': 'myanmar-admin0-boundary-line',
+        'local-map:note': `Myanmar admin0 ${tier.zoomBand}. source-layer ${tier.sourceLayer} (land-aligned NE).`,
+      },
+      paint: {
+        'line-color': OVERVIEW_MMR_ADMIN0_BOUNDARY_LINE_COLOR,
+        'line-opacity': OVERVIEW_MMR_ADMIN0_BOUNDARY_LINE_OPACITY as unknown as ExpressionSpecification,
+        'line-width': OVERVIEW_MMR_ADMIN0_BOUNDARY_LINE_WIDTH as unknown as ExpressionSpecification,
+      },
+    });
+  }
+  return layers;
 }
 
 function mmrAdmin1BoundariesLayer(source: string): LineLayerSpecification {
   return {
-    id: 'overview-mmr-admin1-boundaries',
+    id: OVERVIEW_MMR_INTERNAL_ADMIN_BOUNDARY_LAYER_ID,
     type: 'line',
     source,
     'source-layer': 'mmr_admin1',
-    minzoom: 2,
-    maxzoom: OVERVIEW_BOUNDARY_MAX_ZOOM,
+    minzoom: OVERVIEW_MMR_ADMIN1_BOUNDARY_MIN_ZOOM,
+    maxzoom: OVERVIEW_MMR_ADMIN1_BOUNDARY_MAX_ZOOM,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
+    metadata: {
+      'local-map:role': 'myanmar-internal-admin-boundaries',
+      'local-map:note':
+        'MIMU state/region internal boundaries z3–z10; regional admin_boundaries state_region from z7.',
+    },
     paint: {
-      'line-color': OVERVIEW_MEDIUM_BOUNDARY_COLOR,
-      'line-width': OVERVIEW_MEDIUM_BOUNDARY_WIDTH,
-      'line-opacity': OVERVIEW_MEDIUM_BOUNDARY_OPACITY,
+      'line-color': OVERVIEW_MMR_ADMIN1_BOUNDARY_COLOR,
+      'line-width': OVERVIEW_MMR_ADMIN1_BOUNDARY_WIDTH as unknown as ExpressionSpecification,
+      'line-opacity': OVERVIEW_MMR_ADMIN1_BOUNDARY_OPACITY as unknown as ExpressionSpecification,
     },
   };
 }
@@ -418,24 +456,27 @@ function countryLabelsLayer(source: string): SymbolLayerSpecification {
     type: 'symbol',
     source,
     'source-layer': 'countries',
-    minzoom: 0,
-    maxzoom: LAYER_MAX_ZOOM,
+    minzoom: OVERVIEW_COUNTRY_LABEL_MIN_ZOOM,
+    maxzoom: OVERVIEW_COUNTRY_LABEL_MAX_ZOOM,
     filter: OVERVIEW_COUNTRY_LABEL_FILTER as unknown as ExpressionSpecification,
     layout: {
+      'symbol-placement': 'point',
       'text-field': OVERVIEW_COUNTRY_LABEL_TEXT_FIELD,
       'text-font': [...OVERVIEW_TEXT_FONT],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 0, 8.5, 3, 9.5, 5, 11, 7, 12.5, 8, 13],
+      'text-size': OVERVIEW_COUNTRY_LABEL_TEXT_SIZE as unknown as ExpressionSpecification,
       'text-max-width': 7,
-      'text-padding': 36,
+      'text-padding': 52,
       'text-allow-overlap': false,
+      'text-ignore-placement': false,
       'text-optional': true,
+      'symbol-sort-key': ['-', ['coalesce', ['get', 'LABELRANK'], 10]],
     },
     paint: {
-      'text-color': '#4a5568',
-      'text-halo-color': '#f7f8f6',
-      'text-halo-width': 1.8,
-      'text-halo-blur': 0.4,
-      'text-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.7, 4, 0.85, 8, 0.92],
+      'text-color': OVERVIEW_COUNTRY_LABEL_TEXT_COLOR,
+      'text-halo-color': OVERVIEW_COUNTRY_LABEL_HALO_COLOR,
+      'text-halo-width': OVERVIEW_COUNTRY_LABEL_HALO_WIDTH,
+      'text-halo-blur': 0.25,
+      'text-opacity': ['interpolate', ['linear'], ['zoom'], 4, 0.72, 5, 0.88, 6, 0.8, 6.5, 0.2],
     },
   };
 }
@@ -446,23 +487,28 @@ function mmrAdmin1LabelsLayer(source: string): SymbolLayerSpecification {
     type: 'symbol',
     source,
     'source-layer': 'mmr_admin1',
-    minzoom: 4,
+    minzoom: OVERVIEW_MMR_ADMIN1_LABEL_MIN_ZOOM,
     maxzoom: LAYER_MAX_ZOOM,
+    filter: OVERVIEW_MMR_ADMIN1_LABEL_FILTER as unknown as ExpressionSpecification,
     layout: {
+      'symbol-placement': 'point',
       'text-field': OVERVIEW_MMR_ADMIN1_LABEL_TEXT_FIELD,
       'text-font': [...OVERVIEW_TEXT_FONT],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 4, 9, 5, 10, 7, 11.5, 8, 12],
+      'text-size': OVERVIEW_MMR_ADMIN1_LABEL_TEXT_SIZE as unknown as ExpressionSpecification,
       'text-max-width': 9,
-      'text-padding': 40,
+      'text-padding': 56,
       'text-allow-overlap': false,
+      'text-ignore-placement': false,
       'text-optional': true,
+      'symbol-sort-key': ['coalesce', ['to-number', ['get', 'PCode_V']], 99],
     },
     paint: {
-      'text-color': '#5c5670',
-      'text-halo-color': '#f7f8f6',
-      'text-halo-width': 1.6,
-      'text-halo-blur': 0.35,
-      'text-opacity': ['interpolate', ['linear'], ['zoom'], 4, 0.55, 6, 0.75, 8, 0.85],
+      'text-color': OVERVIEW_MMR_ADMIN1_LABEL_TEXT_COLOR,
+      'text-halo-color': OVERVIEW_MMR_ADMIN1_LABEL_HALO_COLOR,
+      'text-halo-width': OVERVIEW_MMR_ADMIN1_LABEL_HALO_WIDTH,
+      'text-halo-blur': 0.2,
+      'text-opacity':
+        OVERVIEW_MMR_ADMIN1_LABEL_TEXT_OPACITY as unknown as ExpressionSpecification,
     },
   };
 }
@@ -473,34 +519,35 @@ function populatedPlacesLayer(source: string): SymbolLayerSpecification {
     type: 'symbol',
     source,
     'source-layer': 'populated_places',
-    minzoom: 5,
+    minzoom: OVERVIEW_POPULATED_PLACES_MIN_ZOOM,
     maxzoom: LAYER_MAX_ZOOM,
     filter: OVERVIEW_POPULATED_PLACES_FILTER,
     layout: {
+      'symbol-placement': 'point',
       'text-field': OVERVIEW_POPULATED_PLACES_TEXT_FIELD,
       'text-font': [...OVERVIEW_TEXT_FONT],
       'text-size': [
         'interpolate',
         ['linear'],
         ['zoom'],
-        5,
-        ['case', ['==', ['coalesce', ['get', 'ADM0CAP'], 0], 1], 10.5, 9],
         7,
-        ['case', ['==', ['coalesce', ['get', 'ADM0CAP'], 0], 1], 12, 10.5],
+        ['case', ['==', ['coalesce', ['get', 'ADM0CAP'], 0], 1], 10.5, 9.5],
         8,
-        ['case', ['==', ['coalesce', ['get', 'ADM0CAP'], 0], 1], 13, 11.5],
+        ['case', ['==', ['coalesce', ['get', 'ADM0CAP'], 0], 1], 12, 10.5],
       ],
       'text-max-width': 7,
-      'text-padding': 44,
+      'text-padding': 48,
       'text-allow-overlap': false,
+      'text-ignore-placement': false,
       'text-optional': true,
+      'symbol-sort-key': ['coalesce', ['to-number', ['get', 'SCALERANK'], ['get', 'scalerank']], 99],
     },
     paint: {
       'text-color': '#3d4a5c',
       'text-halo-color': '#f7f8f6',
       'text-halo-width': 1.6,
       'text-halo-blur': 0.35,
-      'text-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.65, 7, 0.82, 8, 0.9],
+      'text-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.62, 8, 0.88],
     },
   };
 }

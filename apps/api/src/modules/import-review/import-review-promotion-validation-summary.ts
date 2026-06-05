@@ -18,7 +18,8 @@ export type PublishBatchValidationFinalizeInput = PublishBatchValidationSummaryC
 };
 
 export type PublishBatchValidationFinalizeResult = {
-    batchStatus: "ready" | "partial" | "blocked";
+    /** Stored batch status after validation (DB constraint). */
+    batchStatus: "ready" | "partial" | "blocked" | "failed" | "cancelled";
     stageStatus: "success" | "warning";
     logsSummary: string;
     validationResult: ImportReviewPublishBatchValidationResult;
@@ -53,19 +54,6 @@ export function computePublishBatchValidationFinalize(
         promotable_entity_families: input.promotable_entity_families,
     };
 
-    if (promotableCount === 0 && input.blockedCount > 0) {
-        return {
-            batchStatus: "blocked",
-            stageStatus: "warning",
-            logsSummary: `Validation blocked. ${input.blockedCount} item(s) have errors.`,
-            validationResult: {
-                ...baseResult,
-                outcome: "blocked",
-                can_promote: false,
-            },
-        };
-    }
-
     if (promotableCount > 0 && (input.blockedCount > 0 || input.warningCount > 0)) {
         const logsSummary = buildPartialLogsSummary(input, promotableCount);
         return {
@@ -84,7 +72,7 @@ export function computePublishBatchValidationFinalize(
         return {
             batchStatus: "ready",
             stageStatus: "success",
-            logsSummary: "Validation passed. Batch is ready for promotion.",
+            logsSummary: "Validation complete. Run dry-run before promote.",
             validationResult: {
                 ...baseResult,
                 outcome: "passed",
@@ -93,10 +81,23 @@ export function computePublishBatchValidationFinalize(
         };
     }
 
+    if (input.blockedCount > 0) {
+        return {
+            batchStatus: "blocked",
+            stageStatus: "warning",
+            logsSummary: `Validation complete. ${input.blockedCount} blocked item(s); none ready for dry-run.`,
+            validationResult: {
+                ...baseResult,
+                outcome: "blocked",
+                can_promote: false,
+            },
+        };
+    }
+
     return {
-        batchStatus: "blocked",
+        batchStatus: "failed",
         stageStatus: "warning",
-        logsSummary: "Validation finished with no promotable items.",
+        logsSummary: "Validation finished with no ready items.",
         validationResult: {
             ...baseResult,
             outcome: "blocked",

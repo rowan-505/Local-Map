@@ -22,7 +22,7 @@ export type ImportReviewCandidatesListQueryKeyInput = {
     sort: string;
     filters: ImportReviewListFilters;
     qApplied: string;
-    showPromoted: boolean;
+    promotionState: string;
 };
 
 export type ImportReviewCandidatesCountQueryKeyInput = {
@@ -30,7 +30,7 @@ export type ImportReviewCandidatesCountQueryKeyInput = {
     apiScopeQuery: ImportReviewEnvelopeQuery;
     filters: ImportReviewListFilters;
     qApplied: string;
-    showPromoted: boolean;
+    promotionState: string;
 };
 
 export const importReviewQueryKeys = {
@@ -56,7 +56,7 @@ export const importReviewQueryKeys = {
                   input.sort,
                   input.limit,
                   input.offset,
-                  input.showPromoted,
+                  input.promotionState,
               ] as const)
             : (["import-review", "candidates", "none"] as const),
     candidatesCount: (input: ImportReviewCandidatesCountQueryKeyInput | null) =>
@@ -73,7 +73,7 @@ export const importReviewQueryKeys = {
                   input.filters.promotion_status,
                   input.filters.class_code,
                   input.qApplied.trim(),
-                  input.showPromoted,
+                  input.promotionState,
               ] as const)
             : (["import-review", "candidates-count", "none"] as const),
     roadDryRunSummary: (reviewBatchId: string | null) =>

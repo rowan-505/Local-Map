@@ -1,5 +1,6 @@
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
+import { isCandidateRetryNeeded } from "../utils/importReviewPromotionListState";
 import { candidateCoreReviewHref } from "./candidateCoreReviewHref";
 
 export const SELECTED_PROMOTION_BLOCKING_BATCH_STATUSES = new Set([
@@ -48,12 +49,7 @@ export function isCandidateAlreadyPromoted(row: ImportReviewBuildingListItem): b
 }
 
 export function isCandidateFailedPromotionRetry(row: ImportReviewBuildingListItem): boolean {
-    if (isCandidateAlreadyPromoted(row)) {
-        return false;
-    }
-    const promotionStatus = norm(row.promotion_status);
-    const reviewStatus = norm(row.review_status);
-    return promotionStatus === "failed" || reviewStatus === "promotion_failed";
+    return isCandidateRetryNeeded(row);
 }
 
 export function isCandidateReviewApproved(row: ImportReviewBuildingListItem): boolean {

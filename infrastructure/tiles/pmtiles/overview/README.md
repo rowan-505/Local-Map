@@ -14,7 +14,7 @@ Overview PMTiles provide **national context at low zoom only** (z0–z8):
 - Show **admin boundaries and labels** suitable for a clean overview map.
 - **Do not** replace regional PMTiles (Yangon, Mandalay, …) used for OSM-level detail.
 
-**Included:** Natural Earth 1:10m layers + MIMU Myanmar admin0/admin1.
+**Included:** Natural Earth 1:10m layers + **high-precision land-aligned Myanmar admin0 tiers** (`mmr_admin0_z0_2`, `z3_4`, `z5_6`) + MIMU admin1.
 
 **Excluded by design:**
 
@@ -40,6 +40,7 @@ Downloaded manually into `infrastructure/tiles/data/natural-earth/unzipped/`, th
 | `coastline` | `ne_10m_coastline` |
 | `countries` | `ne_10m_admin_0_countries` |
 | `country_boundaries` | `ne_10m_admin_0_boundary_lines_land` |
+| `mmr_admin0_z0_2` / `z3_4` / `z5_6` | NE `ne_10m_land` ∩ Myanmar mask, zoom-tier simplify (see `prepare-mmr-admin0-boundaries.py`) |
 | `populated_places` | `ne_10m_populated_places` |
 | `lakes` | `ne_10m_lakes` |
 | `rivers` | `ne_10m_rivers_lake_centerlines` |
@@ -52,19 +53,32 @@ bash infrastructure/tiles/scripts/clip-natural-earth-overview.sh
 
 Overview bbox (WGS84): **75°E–115°E, 0°N–36°N** (Myanmar-centered, includes neighbors).
 
-### MIMU (Myanmar admin boundaries)
+### Myanmar admin0 overview outline (land-aligned Natural Earth)
+
+The **overview outer Myanmar boundary** uses three zoom-tier layers (`mmr_admin0_z0_2`, `z3_4`, `z5_6`) derived from **NE land polygons** clipped to a Myanmar mask — aligned with `overview-land` / `overview-ocean`. Visible in MapLibre only **z0–z6** (tier `maxzoom` 3 / 5 / 7).
+
+Pipeline:
+
+```text
+clip-natural-earth-overview.sh → mmr_country_highlight.geojsonseq (mask only, not tiled)
+prepare-mmr-admin0-boundaries.py → mmr_admin0_overview.geojsonseq
+```
+
+MapLibre layers: `myanmar-admin0-boundary-line` + `myanmar-admin0-boundary-casing` (`source-layer: mmr_admin0_overview`).
+
+Regional Yangon PMTiles use `core.core_admin_areas` via `tiles_admin_boundaries_v` from **z7+** — separate from overview.
+
+### MIMU (Myanmar state/region admin1)
 
 Processed GeoJSONSeq (not clipped by the Natural Earth script):
 
 | PMTiles `source-layer` | Description |
 |------------------------|-------------|
-| `mmr_admin0` | Myanmar country outline |
 | `mmr_admin1` | State / region polygons |
 
-Expected paths:
+Expected path:
 
 ```text
-infrastructure/tiles/data/processed/mimu/mmr_admin0.geojsonseq
 infrastructure/tiles/data/processed/mimu/mmr_admin1.geojsonseq
 ```
 
@@ -109,7 +123,7 @@ The `.pmtiles` file is a **generated binary** — `*.pmtiles` is gitignored. Cop
 
 ## 5. Build overview
 
-There is **no** `npm run tiles:rebuild:overview` yet. Overview builds use the same tools as regional PMTiles: **GDAL**, **tippecanoe**, optional **pmtiles** CLI.
+Overview builds use **GDAL**, **tippecanoe**, and optional **pmtiles** CLI. No PostGIS export is required for the overview outer boundary.
 
 ### Prerequisites
 
@@ -132,15 +146,25 @@ bash infrastructure/tiles/scripts/clip-natural-earth-overview.sh
 
 Outputs: `infrastructure/tiles/data/processed/natural-earth/clipped/*.geojsonseq`
 
-**2. MIMU — admin0 / admin1 GeoJSONSeq**
+The clip step writes `mmr_country_highlight.geojsonseq` (Myanmar mask) and runs `prepare-mmr-admin0-boundaries.py` → `mmr_admin0_overview.geojsonseq`.
 
-Ensure `mmr_admin0.geojsonseq` and `mmr_admin1.geojsonseq` exist under `infrastructure/tiles/data/processed/mimu/`.
+**2. MIMU — admin1 GeoJSONSeq**
 
-**3. tippecanoe — vector tiles z0–z8**
+Ensure `mmr_admin1.geojsonseq` exists under `infrastructure/tiles/data/processed/mimu/`.
+
+**3. tippecanoe — vector tiles z0–z8** (or use `npm run tiles:build:overview`)
 
 ```bash
-mkdir -p infrastructure/tiles/pmtiles/overview/regions
+npm run tiles:build:overview
+```
 
+Manual equivalent:
+
+```bash
+bash infrastructure/tiles/pmtiles/scripts/build-overview.sh v1
+```
+
+```bash
 tippecanoe \
   -o infrastructure/tiles/pmtiles/overview/regions/myanmar-overview-v1.pmtiles \
   -Z0 -z8 \
@@ -152,14 +176,27 @@ tippecanoe \
   -L coastline:infrastructure/tiles/data/processed/natural-earth/clipped/coastline.geojsonseq \
   -L countries:infrastructure/tiles/data/processed/natural-earth/clipped/countries.geojsonseq \
   -L country_boundaries:infrastructure/tiles/data/processed/natural-earth/clipped/country_boundaries.geojsonseq \
+  -L mmr_admin0_overview:infrastructure/tiles/data/processed/natural-earth/clipped/mmr_admin0_overview.geojsonseq \
   -L populated_places:infrastructure/tiles/data/processed/natural-earth/clipped/populated_places.geojsonseq \
   -L lakes:infrastructure/tiles/data/processed/natural-earth/clipped/lakes.geojsonseq \
   -L rivers:infrastructure/tiles/data/processed/natural-earth/clipped/rivers.geojsonseq \
-  -L mmr_admin0:infrastructure/tiles/data/processed/mimu/mmr_admin0.geojsonseq \
   -L mmr_admin1:infrastructure/tiles/data/processed/mimu/mmr_admin1.geojsonseq
 ```
 
 Layer names after `-L` become MapLibre **`source-layer`** ids — they must match `packages/map-style/overview-map.json`.
+
+**One-shot rebuild** (clip Natural Earth incl. Myanmar highlight + tippecanoe):
+
+```bash
+npm run tiles:rebuild:overview
+```
+
+Verify archive includes `mmr_admin0_overview` (and not `mmr_country_highlight` / `mmr_admin0`):
+
+```bash
+pmtiles show infrastructure/tiles/pmtiles/overview/regions/myanmar-overview-v1.pmtiles --metadata \
+  | python3 -c "import json,sys; print([l['id'] for l in json.load(sys.stdin).get('vector_layers',[])])"
+```
 
 **4. Verify locally**
 
@@ -212,14 +249,14 @@ Layer stack (bottom → top):
 3. Country fill (subtle neutral)
 4. Myanmar admin1 fill (z4+, hue by `PCode_V`)
 5. Coastline (z5+)
-6. Country boundaries, Myanmar admin0 outline, admin1 boundaries
-7. Country labels (stepped `LABELRANK`; hide `TINY` countries at low zoom)
-8. Admin1 labels (z4+, `ST_MMR` / `ST`)
-9. Major populated places (z5+; capitals / `SCALERANK` filter)
+6. Neighbor country boundaries (Myanmar segments excluded), admin1 boundaries, Natural Earth Myanmar highlight
+7. Neighbor country labels (z4–6.5 only; hide `TINY` + Myanmar; stepped `LABELRANK`)
+8. Admin1 labels (z5.5+, point placement, `ST` / `ST_MMR`; Myanmar only)
+9. Major populated places (z7+; capitals / `SCALERANK` filter)
 
 **Neighbor countries:** fill + boundaries + country names only — no admin1 detail outside Myanmar.
 
-**Myanmar:** admin0 outline + admin1 polygons, boundaries, and labels.
+**Myanmar:** Land-aligned admin0 outline (`mmr_admin0_overview` / `myanmar-admin0-boundary-line`, z0–z6) + MIMU admin1 polygons, boundaries, and labels. Natural Earth Myanmar segments are filtered out of `country_boundaries` to avoid duplicate neighbor outlines. Regional OSM admin from z7+.
 
 Filter constants (shared with style JSON): `packages/map-style/overviewConstants.ts`
 
@@ -254,7 +291,8 @@ Tune filters in `overview-map.json` / `overviewConstants.ts`:
 
 - **Countries:** tighten `LABELRANK` steps or raise `minzoom` on `overview-country-labels`.
 - **Cities:** populated_places filter uses `ADM0CAP`, `WORLDCITY`, `MEGACITY`, `FEATURECLA`, `SCALERANK`, `LABELRANK` — lower `SCALERANK` threshold only above z7.
-- **Admin1:** raise `minzoom` on `overview-mmr-admin1-labels` (currently z4).
+- **Admin1:** raise `minzoom` on `overview-mmr-admin1-labels` (currently z5.5).
+- **Myanmar duplicate:** country labels exclude `ISO_A3=MMR`; admin1 labels cover Myanmar from z5.5+.
 
 ### Clipped bbox too tight
 

@@ -20,7 +20,7 @@ echo "  CORS:          enabled (--cors)" >&2
 echo "" >&2
 echo "  Example URLs:" >&2
 echo "    http://localhost:8080/regions/yangon/current.json" >&2
-echo "    http://localhost:8080/overview/regions/current.json" >&2
+echo "    http://localhost:8080/overview/current.json" >&2
 echo "    http://localhost:8080/overview/regions/myanmar-overview-v1.pmtiles" >&2
 echo "" >&2
 echo "  Command: npx serve infrastructure/tiles/pmtiles -l 8080 --cors" >&2

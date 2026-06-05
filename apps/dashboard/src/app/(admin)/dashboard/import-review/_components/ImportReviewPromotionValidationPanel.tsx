@@ -45,7 +45,14 @@ import {
     type ImportReviewPublishStageLogItem,
 } from "@/src/lib/api";
 
-const POLL_MS = 1500;
+import {
+    nextPublishBatchPollDelayMs,
+    PUBLISH_BATCH_MAX_CONSECUTIVE_POLL_ERRORS,
+    PUBLISH_BATCH_POOLER_WARNING,
+    PUBLISH_BATCH_STALE_HEARTBEAT_EXTRA_POLLS,
+    shouldPollPublishBatchProgress,
+} from "@/src/features/import-review/promotion/publishBatchPolling";
+
 const CANCEL_POLL_MS = 500;
 const CANCEL_POLL_MAX_ATTEMPTS = 60;
 
@@ -128,11 +135,14 @@ export default function ImportReviewPromotionValidationPanel({
         mixedHighRiskConfirm: false,
     });
     const [error, setError] = useState<string | null>(null);
-    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const [pollWarning, setPollWarning] = useState<string | null>(null);
+    const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pollErrorCountRef = useRef(0);
+    const staleHeartbeatPollsRef = useRef(0);
 
     const stopPolling = useCallback(() => {
         if (pollRef.current) {
-            clearInterval(pollRef.current);
+            clearTimeout(pollRef.current);
             pollRef.current = null;
         }
     }, []);
@@ -143,41 +153,99 @@ export default function ImportReviewPromotionValidationPanel({
         onBatchUpdated(detail);
     }, [batchId, onBatchUpdated]);
 
-    const pollOnce = useCallback(async () => {
-        const [p, l] = await Promise.all([
-            getImportReviewPromotionBatchProgress(batchId),
-            getImportReviewPromotionBatchLogs(batchId),
-        ]);
+    const pollOnce = useCallback(async (): Promise<boolean> => {
+        const p = await getImportReviewPromotionBatchProgress(batchId);
         setProgress(p);
-        setLogs(l);
         setStatus(p.status);
-        if (p.status !== "validating") {
+        pollErrorCountRef.current = 0;
+        setPollWarning(null);
+
+        if (p.validation_heartbeat_stale_warning) {
+            staleHeartbeatPollsRef.current += 1;
+            if (staleHeartbeatPollsRef.current >= PUBLISH_BATCH_STALE_HEARTBEAT_EXTRA_POLLS) {
+                setPollWarning(
+                    "Validation heartbeat looks stale. Use Reset validation or SQL bulk validate for large road batches."
+                );
+                stopPolling();
+                return false;
+            }
+        } else {
+            staleHeartbeatPollsRef.current = 0;
+        }
+
+        try {
+            const l = await getImportReviewPromotionBatchLogs(batchId);
+            setLogs(l);
+        } catch (logErr) {
+            if (!isAbortError(logErr)) {
+                setPollWarning(formatError(logErr));
+            }
+        }
+
+        const continuePolling = shouldPollPublishBatchProgress(p.status);
+        if (!continuePolling) {
             stopPolling();
             await refreshBatchDetail();
         }
-    }, [batchId, refreshBatchDetail, stopPolling]);
+        return continuePolling;
+    }, [batchId, refreshBatchDetail, stopPolling, formatError]);
+
+    const scheduleNextPoll = useCallback(
+        (heartbeatStale: boolean) => {
+            const delay = nextPublishBatchPollDelayMs({
+                consecutiveErrors: pollErrorCountRef.current,
+                heartbeatStaleWarning: heartbeatStale,
+            });
+            pollRef.current = setTimeout(() => {
+                void pollOnce()
+                    .then((continuePolling) => {
+                        if (continuePolling) {
+                            scheduleNextPoll(heartbeatStale);
+                        }
+                    })
+                    .catch((err) => {
+                        if (isAbortError(err)) {
+                            return;
+                        }
+                        pollErrorCountRef.current += 1;
+                        setError(formatError(err));
+                        if (pollErrorCountRef.current >= PUBLISH_BATCH_MAX_CONSECUTIVE_POLL_ERRORS) {
+                            setPollWarning(PUBLISH_BATCH_POOLER_WARNING);
+                            stopPolling();
+                            return;
+                        }
+                        scheduleNextPoll(false);
+                    });
+            }, delay);
+        },
+        [formatError, pollOnce, stopPolling]
+    );
 
     const startPolling = useCallback(() => {
         stopPolling();
-        void pollOnce();
-        pollRef.current = setInterval(() => {
-            void pollOnce().catch((err) => {
-                if (!isAbortError(err)) {
-                    setError(formatError(err));
-                    stopPolling();
-                }
-            });
-        }, POLL_MS);
-    }, [pollOnce, stopPolling, formatError]);
+        pollErrorCountRef.current = 0;
+        staleHeartbeatPollsRef.current = 0;
+        void pollOnce().then((continuePolling) => {
+            if (continuePolling) {
+                scheduleNextPoll(false);
+            }
+        });
+    }, [pollOnce, scheduleNextPoll, stopPolling]);
 
     const hydrateProgress = useCallback(async (signal?: AbortSignal) => {
         try {
-            const [p, l] = await Promise.all([
-                getImportReviewPromotionBatchProgress(batchId, signal ? { signal } : undefined),
-                getImportReviewPromotionBatchLogs(batchId, signal ? { signal } : undefined),
-            ]);
+            const requestOpts = signal ? { signal } : undefined;
+            const p = await getImportReviewPromotionBatchProgress(batchId, requestOpts);
             setProgress(p);
-            setLogs(l);
+            setStatus(p.status);
+            try {
+                const l = await getImportReviewPromotionBatchLogs(batchId, requestOpts);
+                setLogs(l);
+            } catch (logErr) {
+                if (!isAbortError(logErr)) {
+                    setPollWarning(formatError(logErr));
+                }
+            }
         } catch (err) {
             if (!isAbortError(err)) {
                 setError(formatError(err));
@@ -417,6 +485,12 @@ export default function ImportReviewPromotionValidationPanel({
             </div>
 
             {error ? <ImportReviewStatusBanner message={error} tone="error" compact /> : null}
+            {pollWarning ? (
+                <ImportReviewStatusBanner message={pollWarning} tone="warning" compact />
+            ) : null}
+            {batchItemCount > 50 && selectedFamilies.includes("roads") ? (
+                <ImportReviewStatusBanner message={PUBLISH_BATCH_POOLER_WARNING} tone="warning" compact />
+            ) : null}
             {heartbeatStaleWarning && isValidating ? (
                 <ImportReviewStatusBanner
                     message="Validation worker stopped. Cancel and reset before validating again."

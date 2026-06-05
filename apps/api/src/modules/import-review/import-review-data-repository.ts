@@ -73,6 +73,9 @@ export type BuildingListRowDb = {
     /** GeoJSON centroid point. */
     centroid: unknown | null;
     road_candidate_road_class_id?: bigint | null;
+    road_class?: string | null;
+    road_class_name?: string | null;
+    road_class_label?: string | null;
     road_candidate_surface?: string | null;
     road_candidate_is_oneway?: boolean | null;
     road_candidate_class_label?: string | null;
@@ -127,6 +130,10 @@ export type BuildingListRowDb = {
     admin_match_confidence?: unknown;
     street_match_confidence?: unknown;
     promoted_core_address_id?: bigint | null;
+    latest_promotion_failure_message?: string | null;
+    latest_promotion_publish_batch_id?: string | null;
+    latest_promotion_error_code?: string | null;
+    promotion_retry_needed?: boolean | null;
 };
 
 export type ImportReviewCandidateListRepoResult = {

@@ -69,6 +69,8 @@ export class ImportReviewPromotionBatchLimitsError extends Error {
 
 export class ImportReviewPromotionNoEligibleCandidatesError extends Error {
     readonly statusCode = 400;
+    readonly errorCode = "NO_ELIGIBLE_CANDIDATES";
+    readonly responseStatus = "failed" as const;
 
     constructor(
         public readonly readyCount: number,
@@ -200,6 +202,18 @@ export class ImportReviewPublishBatchPromotionConfirmationError extends Error {
     }
 }
 
+export class ImportReviewPublishBatchStageControlError extends Error {
+    readonly statusCode = 409;
+
+    constructor(
+        public readonly batchId: string,
+        public readonly messageDetail: string
+    ) {
+        super(messageDetail);
+        this.name = "ImportReviewPublishBatchStageControlError";
+    }
+}
+
 export class ImportReviewPublishBatchCreationTimeoutError extends Error {
     readonly statusCode = 504;
 
@@ -225,10 +239,11 @@ export class ImportReviewPublishInvalidStageStatusError extends Error {
 export class ImportReviewRoadPromotionDisabledError extends Error {
     readonly statusCode = 409;
 
-    constructor(public readonly batchId: string) {
-        super(
-            "Road promotion is disabled. Set ENABLE_IMPORT_REVIEW_ROAD_PROMOTION=true, run road dry-run, and complete routing validation first."
-        );
+    constructor(
+        public readonly batchId: string,
+        message = "Road promotion is disabled. Set ENABLE_IMPORT_REVIEW_ROAD_PROMOTION=true, run road dry-run, and complete routing validation first."
+    ) {
+        super(message);
         this.name = "ImportReviewRoadPromotionDisabledError";
     }
 }

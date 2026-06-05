@@ -12,7 +12,17 @@
 --   snapshot_version
 --   staging_schema       optional, defaults to staging
 --   prod_mirror_schema   optional, defaults to prod_mirror
---   only_entity_family   optional, process one family only (e.g. roads, places, buildings)
+--   only_entity_family   optional legacy single-family filter (manual reruns)
+--   entity_families      optional; default all (see pipeline_entity_families.sql)
+--
+--     admin_areas        → staging_admin_area_candidates vs prod_mirror.core_admin_areas
+--     roads              → staging_road_candidates vs prod_mirror.core_streets
+--     all                → every configured family (current behavior)
+--
+-- Matching rules:
+--   admin_areas → primary external_id; cautious fallback when prod external_id is
+--                 missing: same admin_level_id + similar canonical_name + geom overlap
+--   roads       → external_id only (never name-only or spatial-only matching)
 --
 -- Run one family only (debug / isolate slow comparisons):
 --   psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
@@ -44,6 +54,10 @@ SET lock_timeout = '10s';
 \if :{?only_entity_family}
 \else
 \set only_entity_family ''
+\endif
+\if :{?entity_families}
+\else
+\set entity_families 'all'
 \endif
 
 BEGIN;
@@ -168,6 +182,11 @@ UPDATE stage07_family_config
 SET skip_f2_for_now = true
 WHERE entity_family = 'routing_roads';
 
+\ir pipeline_entity_families.sql
+
+DELETE FROM stage07_family_config AS fc
+WHERE NOT pg_temp.pipeline_entity_family_enabled(fc.entity_family);
+
 DO $stage07_context$
 DECLARE
     v_snapshot_version text;
@@ -215,7 +234,8 @@ FROM stage07_context;
 
 -- Rerun safety: remove only previous F2 staging-vs-prod-mirror output for this
 -- current snapshot. F1 snapshot_vs_snapshot diff runs are preserved.
--- When only_entity_family is set, delete only that family's prior F2 output.
+-- When only_entity_family is set (legacy), delete only that family's prior F2 output.
+-- When ENTITY_FAMILIES is narrowed, delete only selected families' prior F2 output.
 DELETE FROM system.system_diff_items AS item
 USING system.system_diff_runs AS run
 JOIN stage07_context AS ctx
@@ -223,14 +243,38 @@ JOIN stage07_context AS ctx
 CROSS JOIN stage07_params AS p
 WHERE item.diff_run_id = run.id
   AND run.summary->>'comparison_type' = 'staging_vs_prod_mirror'
-  AND (p.only_entity_family IS NULL OR run.entity_family = p.only_entity_family);
+  AND (
+      (
+          p.only_entity_family IS NOT NULL
+          AND run.entity_family = p.only_entity_family
+      )
+      OR (
+          p.only_entity_family IS NULL
+          AND (
+              pg_temp.pipeline_entity_families_is_all()
+              OR pg_temp.pipeline_entity_family_enabled(run.entity_family)
+          )
+      )
+  );
 
 DELETE FROM system.system_diff_runs AS run
 USING stage07_context AS ctx
 CROSS JOIN stage07_params AS p
 WHERE run.current_snapshot_id = ctx.current_snapshot_id
   AND run.summary->>'comparison_type' = 'staging_vs_prod_mirror'
-  AND (p.only_entity_family IS NULL OR run.entity_family = p.only_entity_family);
+  AND (
+      (
+          p.only_entity_family IS NOT NULL
+          AND run.entity_family = p.only_entity_family
+      )
+      OR (
+          p.only_entity_family IS NULL
+          AND (
+              pg_temp.pipeline_entity_families_is_all()
+              OR pg_temp.pipeline_entity_family_enabled(run.entity_family)
+          )
+      )
+  );
 
 DO $stage07_validate_targets$
 DECLARE
@@ -289,7 +333,16 @@ BEGIN
     END LOOP;
 
     IF missing_required_count > 0 THEN
-        RAISE EXCEPTION 'Stage F2 required prod_mirror minimum is not available. Required tables: %.core_places, %.core_streets, %.core_map_buildings', v_prod_mirror_schema, v_prod_mirror_schema, v_prod_mirror_schema;
+        RAISE EXCEPTION
+            'Stage F2 required prod_mirror minimum is not available for selected ENTITY_FAMILIES. Missing required staging/prod_mirror table pairs: %',
+            (
+                SELECT string_agg(cfg.entity_family, ', ' ORDER BY cfg.entity_family)
+                FROM stage07_family_config AS cfg
+                JOIN stage07_report AS report
+                    ON report.entity_family = cfg.entity_family
+                   AND report.auto_action = 'skip'
+                   AND report.status = 'FAIL'
+            );
     END IF;
 END
 $stage07_validate_targets$;
@@ -310,9 +363,10 @@ DECLARE
     v_staging_table_fq text;
     v_prod_table_fq text;
     v_road_source_match_count bigint;
-    v_road_spatial_match_count bigint;
-    v_road_best_match_count bigint;
     v_road_no_match_count bigint;
+    v_admin_source_match_count bigint;
+    v_admin_fallback_match_count bigint;
+    v_admin_no_match_count bigint;
     v_has_staging_confidence boolean;
     v_has_staging_point boolean;
     v_has_staging_geom boolean;
@@ -352,6 +406,62 @@ BEGIN
         VALUES (clock_timestamp(), p_entity_family, p_event_type, p_message, p_elapsed_ms, p_details);
     END;
     $fn$;
+
+    CREATE OR REPLACE FUNCTION pg_temp.stage07_write_family_summary(
+        p_entity_family text,
+        p_staging_table text,
+        p_prod_table text,
+        p_diff_run_id bigint,
+        p_staging_rows bigint,
+        p_prod_rows bigint
+    ) RETURNS void
+    LANGUAGE plpgsql
+    AS $fn$
+    BEGIN
+        DELETE FROM stage07_report AS report
+        WHERE report.entity_family = p_entity_family
+          AND report.auto_action IN (
+              'staging_rows', 'prod_rows', 'new_candidate', 'matched_existing',
+              'protected_match', 'needs_review'
+          );
+
+        INSERT INTO stage07_report (entity_family, staging_table, prod_table, auto_action, value_n, status, note)
+        VALUES
+            (p_entity_family, p_staging_table, p_prod_table, 'staging_rows', coalesce(p_staging_rows, 0), 'PASS', 'Selected family F2 summary metric.'),
+            (p_entity_family, p_staging_table, p_prod_table, 'prod_rows', coalesce(p_prod_rows, 0), 'PASS', 'Selected family F2 summary metric.');
+
+        INSERT INTO stage07_report (entity_family, staging_table, prod_table, auto_action, value_n, status, note)
+        SELECT
+            p_entity_family,
+            p_staging_table,
+            p_prod_table,
+            summary.metric,
+            summary.value_n,
+            'PASS',
+            'Selected family F2 summary metric.'
+        FROM (
+            SELECT 'new_candidate'::text AS metric, count(*)::bigint AS value_n
+            FROM system.system_diff_items
+            WHERE diff_run_id = p_diff_run_id
+              AND auto_action = 'insert_candidate'
+            UNION ALL
+            SELECT 'matched_existing', count(*)::bigint
+            FROM system.system_diff_items
+            WHERE diff_run_id = p_diff_run_id
+              AND auto_action = 'ignore_unchanged'
+            UNION ALL
+            SELECT 'protected_match', count(*)::bigint
+            FROM system.system_diff_items
+            WHERE diff_run_id = p_diff_run_id
+              AND auto_action = 'protect_manual'
+            UNION ALL
+            SELECT 'needs_review', count(*)::bigint
+            FROM system.system_diff_items
+            WHERE diff_run_id = p_diff_run_id
+              AND auto_action IN ('needs_review', 'update_candidate', 'possible_duplicate')
+        ) AS summary;
+    END;
+    $fn$;
     $create_log$;
 
     SELECT p.staging_schema, p.prod_mirror_schema, p.only_entity_family
@@ -369,16 +479,22 @@ BEGIN
     PERFORM pg_temp.stage07_log(
         NULL,
         'compare_begin',
-        format('snapshot_version=%s only_entity_family=%s', ctx.snapshot_version, coalesce(v_only_entity_family, '<all>')),
+        format(
+            'snapshot_version=%s only_entity_family=%s entity_families=%s',
+            ctx.snapshot_version,
+            coalesce(v_only_entity_family, '<all>'),
+            coalesce((SELECT c.entity_families FROM _pipeline_entity_families_ctx AS c LIMIT 1), 'all')
+        ),
         NULL,
         jsonb_build_object(
             'current_snapshot_id', ctx.current_snapshot_id,
             'staging_schema', v_staging_schema,
-            'prod_mirror_schema', v_prod_mirror_schema
+            'prod_mirror_schema', v_prod_mirror_schema,
+            'entity_families', coalesce((SELECT c.entity_families FROM _pipeline_entity_families_ctx AS c LIMIT 1), 'all')
         )
     );
 
-    IF v_only_entity_family IS NOT NULL
+    IF NULLIF(btrim(v_only_entity_family), '') IS NOT NULL
        AND NOT EXISTS (
            SELECT 1
            FROM stage07_family_config AS fc
@@ -390,7 +506,10 @@ BEGIN
     FOR cfg IN
         SELECT *
         FROM stage07_family_config
-        WHERE v_only_entity_family IS NULL OR entity_family = v_only_entity_family
+        WHERE (
+            NULLIF(btrim(v_only_entity_family), '') IS NULL
+            OR entity_family = v_only_entity_family
+        )
         ORDER BY entity_family
     LOOP
         v_staging_table_fq := format('%s.%s', v_staging_schema, cfg.staging_table);
@@ -836,22 +955,15 @@ BEGIN
                     p.prod_data,
                     1 AS match_rank,
                     true AS source_matched,
-                    false AS spatial_matched,
-                    (
-                        s.canonical_name IS NOT NULL
-                        AND p.canonical_name IS NOT NULL
-                        AND lower(s.canonical_name) = lower(p.canonical_name)
-                    ) AS name_matched,
+                    false AS fallback_matched,
                     p.manual_protected
                 FROM stage07_road_staging AS s
                 JOIN stage07_road_prod AS p
-                    ON p.external_id = s.external_id
-                    OR p.source_refs->>'external_id' = s.external_id
-                    OR p.source_refs->>'osm_external_id' = s.external_id
-                    OR (
-                        nullif(coalesce(s.normalized_data->>'osm_id', s.source_refs->>'osm_id', ''), '') IS NOT NULL
-                        AND p.source_refs->>'osm_id' = coalesce(s.normalized_data->>'osm_id', s.source_refs->>'osm_id')
-                    )
+                    ON nullif(btrim(s.external_id), '') IS NOT NULL
+                   AND (
+                       p.external_id = s.external_id
+                       OR p.source_refs->>'external_id' = s.external_id
+                   )
                 ORDER BY s.staging_id, p.manual_protected DESC, p.prod_id;
 
                 CREATE INDEX stage07_road_source_matches_staging_id_idx
@@ -868,62 +980,15 @@ BEGIN
                     jsonb_build_object('count', v_road_source_match_count)
                 );
 
-                DROP TABLE IF EXISTS stage07_road_spatial_matches;
-                CREATE TEMP TABLE stage07_road_spatial_matches ON COMMIT DROP AS
-                SELECT DISTINCT ON (s.staging_id)
-                    s.staging_id,
-                    p.prod_id,
-                    p.prod_data,
-                    3 AS match_rank,
-                    false AS source_matched,
-                    true AS spatial_matched,
-                    (
-                        s.canonical_name IS NOT NULL
-                        AND p.canonical_name IS NOT NULL
-                        AND lower(s.canonical_name) = lower(p.canonical_name)
-                    ) AS name_matched,
-                    p.manual_protected
-                FROM stage07_road_staging AS s
-                JOIN stage07_road_prod AS p
-                    ON p.geom && ST_Expand(s.geom, 0.00015)
-                   AND ST_DWithin(s.geom, p.geom, 0.00015)
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM stage07_road_source_matches AS sm
-                    WHERE sm.staging_id = s.staging_id
-                )
-                ORDER BY s.staging_id, ST_Distance(s.geom, p.geom), p.manual_protected DESC, p.prod_id;
-
-                CREATE INDEX stage07_road_spatial_matches_staging_id_idx
-                    ON stage07_road_spatial_matches (staging_id);
-                ANALYZE stage07_road_spatial_matches;
-
-                SELECT count(*)::bigint INTO v_road_spatial_match_count FROM stage07_road_spatial_matches;
-                RAISE NOTICE 'stage07_road_spatial_match_count count=%', v_road_spatial_match_count;
-                PERFORM pg_temp.stage07_log(
-                    cfg.entity_family,
-                    'road_spatial_match_count',
-                    format('count=%s', v_road_spatial_match_count),
-                    NULL,
-                    jsonb_build_object('count', v_road_spatial_match_count)
-                );
-
                 DROP TABLE IF EXISTS stage07_road_best_matches;
                 CREATE TEMP TABLE stage07_road_best_matches ON COMMIT DROP AS
-                SELECT DISTINCT ON (matches.staging_id)
-                    matches.*
-                FROM (
-                    SELECT * FROM stage07_road_source_matches
-                    UNION ALL
-                    SELECT * FROM stage07_road_spatial_matches
-                ) AS matches
-                ORDER BY matches.staging_id, matches.match_rank, matches.prod_id;
+                SELECT *
+                FROM stage07_road_source_matches;
 
                 CREATE INDEX stage07_road_best_matches_staging_id_idx
                     ON stage07_road_best_matches (staging_id);
                 ANALYZE stage07_road_best_matches;
 
-                SELECT count(*)::bigint INTO v_road_best_match_count FROM stage07_road_best_matches;
                 SELECT count(*)::bigint
                 INTO v_road_no_match_count
                 FROM stage07_road_staging AS s
@@ -933,15 +998,7 @@ BEGIN
                     WHERE bm.staging_id = s.staging_id
                 );
 
-                RAISE NOTICE 'stage07_road_best_match_count count=%', v_road_best_match_count;
                 RAISE NOTICE 'stage07_road_no_match_count count=%', v_road_no_match_count;
-                PERFORM pg_temp.stage07_log(
-                    cfg.entity_family,
-                    'road_best_match_count',
-                    format('count=%s', v_road_best_match_count),
-                    NULL,
-                    jsonb_build_object('count', v_road_best_match_count)
-                );
                 PERFORM pg_temp.stage07_log(
                     cfg.entity_family,
                     'road_no_match_count',
@@ -959,8 +1016,7 @@ BEGIN
                         bm.prod_data,
                         bm.match_rank,
                         coalesce(bm.source_matched, false) AS source_matched,
-                        coalesce(bm.spatial_matched, false) AS spatial_matched,
-                        coalesce(bm.name_matched, false) AS name_matched,
+                        coalesce(bm.fallback_matched, false) AS fallback_matched,
                         coalesce(bm.manual_protected, false) AS manual_protected,
                         (
                             jsonb_strip_nulls(jsonb_build_object(
@@ -1017,7 +1073,6 @@ BEGIN
                             WHEN manual_protected THEN 'manual_protected'
                             WHEN source_matched AND NOT changed THEN 'prod_match'
                             WHEN source_matched AND changed THEN 'prod_conflict'
-                            WHEN spatial_matched AND NOT source_matched THEN 'possible_duplicate'
                             ELSE 'prod_no_match'
                         END AS f2_result,
                         CASE
@@ -1025,7 +1080,6 @@ BEGIN
                             WHEN manual_protected THEN 'changed'
                             WHEN source_matched AND NOT changed THEN 'unchanged'
                             WHEN source_matched AND changed THEN 'changed'
-                            WHEN spatial_matched AND NOT source_matched THEN 'changed'
                             ELSE 'new'
                         END AS diff_type,
                         CASE
@@ -1033,7 +1087,6 @@ BEGIN
                             WHEN manual_protected THEN 'protect_manual'
                             WHEN source_matched AND NOT changed THEN 'ignore_unchanged'
                             WHEN source_matched AND changed THEN 'update_candidate'
-                            WHEN spatial_matched AND NOT source_matched THEN 'possible_duplicate'
                             ELSE 'insert_candidate'
                         END AS auto_action,
                         CASE
@@ -1068,8 +1121,7 @@ BEGIN
                             'f2_result', f2_result,
                             'prod_match_rank', match_rank,
                             'source_matched', source_matched,
-                            'spatial_matched', spatial_matched,
-                            'name_matched', name_matched,
+                            'fallback_matched', fallback_matched,
                             'manual_protected', manual_protected
                         )
                     ),
@@ -1104,8 +1156,6 @@ BEGIN
                         'diff_run_id', v_diff_run_id,
                         'inserted', v_inserted_count,
                         'source_matches', v_road_source_match_count,
-                        'spatial_matches', v_road_spatial_match_count,
-                        'best_matches', v_road_best_match_count,
                         'no_matches', v_road_no_match_count
                     )
                 );
@@ -1169,8 +1219,6 @@ BEGIN
                         'road_match_counts',
                         jsonb_build_object(
                             'source_matches', v_road_source_match_count,
-                            'spatial_matches', v_road_spatial_match_count,
-                            'best_matches', v_road_best_match_count,
                             'no_matches', v_road_no_match_count
                         ),
                         'total_items',
@@ -1198,10 +1246,418 @@ BEGIN
                 item.auto_action,
                 count(*)::bigint,
                 'PASS',
-                'F2 roads temp-table staging-vs-prod_mirror diff items written.'
+                'F2 roads external_id-only staging-vs-prod_mirror diff items written.'
             FROM system.system_diff_items AS item
             WHERE item.diff_run_id = v_diff_run_id
             GROUP BY item.auto_action;
+
+            PERFORM pg_temp.stage07_write_family_summary(
+                cfg.entity_family,
+                format('%s.%s', v_staging_schema, cfg.staging_table),
+                format('%s.%s', v_prod_mirror_schema, cfg.prod_table),
+                v_diff_run_id,
+                v_staging_count,
+                v_prod_count
+            );
+
+            UPDATE stage07_diff_runs AS runs
+            SET staging_rows = v_staging_count,
+                prod_rows = v_prod_count
+            WHERE runs.diff_run_id = v_diff_run_id;
+
+            CONTINUE;
+        END IF;
+
+        IF cfg.entity_family = 'admin_areas' THEN
+            RAISE NOTICE 'stage07_insert_start family=% diff_run_id=% at=%',
+                cfg.entity_family,
+                v_diff_run_id,
+                clock_timestamp();
+            PERFORM pg_temp.stage07_log(
+                cfg.entity_family,
+                'insert_start',
+                format('diff_run_id=%s', v_diff_run_id),
+                NULL,
+                jsonb_build_object('diff_run_id', v_diff_run_id)
+            );
+
+            BEGIN
+                v_insert_start_ts := clock_timestamp();
+
+                DROP TABLE IF EXISTS stage07_admin_staging;
+                EXECUTE format(
+                    $q$
+                    CREATE TEMP TABLE stage07_admin_staging ON COMMIT DROP AS
+                    SELECT
+                        s.id AS staging_id,
+                        s.external_id,
+                        s.canonical_name,
+                        s.admin_level_id,
+                        s.geom,
+                        coalesce(s.confidence_score, 50.0000) AS confidence_score,
+                        to_jsonb(s) AS staging_data,
+                        coalesce(s.source_refs, '{}'::jsonb) AS source_refs,
+                        coalesce(s.normalized_data, '{}'::jsonb) AS normalized_data
+                    FROM %I.%I AS s
+                    WHERE s.source_snapshot_id = $1
+                    $q$,
+                    v_staging_schema,
+                    cfg.staging_table
+                ) USING ctx.current_snapshot_id;
+
+                CREATE INDEX stage07_admin_staging_staging_id_idx
+                    ON stage07_admin_staging (staging_id);
+                CREATE INDEX stage07_admin_staging_external_id_idx
+                    ON stage07_admin_staging (external_id);
+                CREATE INDEX stage07_admin_staging_admin_level_id_idx
+                    ON stage07_admin_staging (admin_level_id);
+                CREATE INDEX stage07_admin_staging_geom_gix
+                    ON stage07_admin_staging USING gist (geom);
+                ANALYZE stage07_admin_staging;
+
+                DROP TABLE IF EXISTS stage07_admin_prod;
+                EXECUTE format(
+                    $q$
+                    CREATE TEMP TABLE stage07_admin_prod ON COMMIT DROP AS
+                    SELECT
+                        p.id AS prod_id,
+                        nullif(btrim(p.external_id), '') AS external_id,
+                        p.admin_level_id,
+                        p.canonical_name,
+                        p.geom,
+                        to_jsonb(p) AS prod_data,
+                        coalesce(p.source_refs, '{}'::jsonb) AS source_refs,
+                        (
+                            CASE
+                                WHEN to_jsonb(p)->>'is_verified' IN ('true', 'false')
+                                    THEN (to_jsonb(p)->>'is_verified')::boolean
+                                ELSE false
+                            END
+                            OR CASE
+                                WHEN to_jsonb(p)->>'manual_override' IN ('true', 'false')
+                                    THEN (to_jsonb(p)->>'manual_override')::boolean
+                                ELSE false
+                            END
+                            OR coalesce(p.source_refs, '{}'::jsonb)::text ILIKE '%%manual_dashboard%%'
+                            OR coalesce(to_jsonb(p)->>'source_type', '') ILIKE '%%manual%%'
+                            OR coalesce(to_jsonb(p)->>'source_type', '') ILIKE '%%dashboard%%'
+                        ) AS manual_protected
+                    FROM %I.%I AS p
+                    $q$,
+                    v_prod_mirror_schema,
+                    cfg.prod_table
+                );
+
+                CREATE INDEX stage07_admin_prod_prod_id_idx
+                    ON stage07_admin_prod (prod_id);
+                CREATE INDEX stage07_admin_prod_external_id_idx
+                    ON stage07_admin_prod (external_id);
+                CREATE INDEX stage07_admin_prod_admin_level_id_idx
+                    ON stage07_admin_prod (admin_level_id);
+                CREATE INDEX stage07_admin_prod_geom_gix
+                    ON stage07_admin_prod USING gist (geom);
+                ANALYZE stage07_admin_prod;
+
+                SELECT count(*)::bigint INTO v_staging_count FROM stage07_admin_staging;
+                SELECT count(*)::bigint INTO v_prod_count FROM stage07_admin_prod;
+
+                DROP TABLE IF EXISTS stage07_admin_source_matches;
+                CREATE TEMP TABLE stage07_admin_source_matches ON COMMIT DROP AS
+                SELECT DISTINCT ON (s.staging_id)
+                    s.staging_id,
+                    p.prod_id,
+                    p.prod_data,
+                    1 AS match_rank,
+                    true AS source_matched,
+                    false AS fallback_matched,
+                    p.manual_protected
+                FROM stage07_admin_staging AS s
+                JOIN stage07_admin_prod AS p
+                    ON nullif(btrim(s.external_id), '') IS NOT NULL
+                   AND (
+                       p.external_id = s.external_id
+                       OR p.source_refs->>'external_id' = s.external_id
+                   )
+                ORDER BY s.staging_id, p.manual_protected DESC, p.prod_id;
+
+                CREATE INDEX stage07_admin_source_matches_staging_id_idx
+                    ON stage07_admin_source_matches (staging_id);
+                ANALYZE stage07_admin_source_matches;
+
+                SELECT count(*)::bigint INTO v_admin_source_match_count FROM stage07_admin_source_matches;
+
+                DROP TABLE IF EXISTS stage07_admin_fallback_matches;
+                CREATE TEMP TABLE stage07_admin_fallback_matches ON COMMIT DROP AS
+                SELECT DISTINCT ON (s.staging_id)
+                    s.staging_id,
+                    p.prod_id,
+                    p.prod_data,
+                    2 AS match_rank,
+                    false AS source_matched,
+                    true AS fallback_matched,
+                    p.manual_protected
+                FROM stage07_admin_staging AS s
+                JOIN stage07_admin_prod AS p
+                    ON p.external_id IS NULL
+                   AND s.admin_level_id IS NOT NULL
+                   AND p.admin_level_id = s.admin_level_id
+                   AND s.canonical_name IS NOT NULL
+                   AND p.canonical_name IS NOT NULL
+                   AND lower(btrim(s.canonical_name)) = lower(btrim(p.canonical_name))
+                   AND s.geom IS NOT NULL
+                   AND p.geom IS NOT NULL
+                   AND p.geom && ST_Expand(s.geom, 0.0002)
+                   AND ST_Intersects(s.geom, p.geom)
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM stage07_admin_source_matches AS sm
+                    WHERE sm.staging_id = s.staging_id
+                )
+                ORDER BY s.staging_id, p.manual_protected DESC, p.prod_id;
+
+                CREATE INDEX stage07_admin_fallback_matches_staging_id_idx
+                    ON stage07_admin_fallback_matches (staging_id);
+                ANALYZE stage07_admin_fallback_matches;
+
+                SELECT count(*)::bigint INTO v_admin_fallback_match_count FROM stage07_admin_fallback_matches;
+
+                DROP TABLE IF EXISTS stage07_admin_best_matches;
+                CREATE TEMP TABLE stage07_admin_best_matches ON COMMIT DROP AS
+                SELECT DISTINCT ON (matches.staging_id)
+                    matches.*
+                FROM (
+                    SELECT * FROM stage07_admin_source_matches
+                    UNION ALL
+                    SELECT * FROM stage07_admin_fallback_matches
+                ) AS matches
+                ORDER BY matches.staging_id, matches.match_rank, matches.prod_id;
+
+                CREATE INDEX stage07_admin_best_matches_staging_id_idx
+                    ON stage07_admin_best_matches (staging_id);
+                ANALYZE stage07_admin_best_matches;
+
+                SELECT count(*)::bigint
+                INTO v_admin_no_match_count
+                FROM stage07_admin_staging AS s
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM stage07_admin_best_matches AS bm
+                    WHERE bm.staging_id = s.staging_id
+                );
+
+                WITH classified AS (
+                    SELECT
+                        s.staging_id,
+                        s.external_id,
+                        s.staging_data,
+                        s.confidence_score,
+                        bm.prod_data,
+                        bm.match_rank,
+                        coalesce(bm.source_matched, false) AS source_matched,
+                        coalesce(bm.fallback_matched, false) AS fallback_matched,
+                        coalesce(bm.manual_protected, false) AS manual_protected,
+                        (
+                            jsonb_strip_nulls(jsonb_build_object(
+                                'canonical_name', nullif(lower(btrim(coalesce(s.canonical_name, ''))), ''),
+                                'admin_level_id', nullif(s.admin_level_id::text, ''),
+                                'class_code', nullif(coalesce(s.staging_data->>'class_code', s.normalized_data->>'mapped_admin_level_code'), '')
+                            ))
+                            IS DISTINCT FROM
+                            jsonb_strip_nulls(jsonb_build_object(
+                                'canonical_name', nullif(lower(btrim(coalesce(bm.prod_data->>'canonical_name', ''))), ''),
+                                'admin_level_id', nullif(bm.prod_data->>'admin_level_id', ''),
+                                'class_code', nullif(coalesce(bm.prod_data->>'class_code', bm.prod_data->'normalized_data'->>'mapped_admin_level_code'), '')
+                            ))
+                        ) AS changed
+                    FROM stage07_admin_staging AS s
+                    LEFT JOIN stage07_admin_best_matches AS bm
+                        ON bm.staging_id = s.staging_id
+                ),
+                admin_items AS (
+                    SELECT
+                        classified.*,
+                        CASE
+                            WHEN prod_data IS NULL THEN 'prod_no_match'
+                            WHEN manual_protected THEN 'manual_protected'
+                            WHEN source_matched AND NOT changed THEN 'prod_match'
+                            WHEN source_matched AND changed THEN 'prod_conflict'
+                            WHEN fallback_matched THEN 'possible_duplicate'
+                            ELSE 'prod_no_match'
+                        END AS f2_result,
+                        CASE
+                            WHEN prod_data IS NULL THEN 'new'
+                            WHEN manual_protected THEN 'changed'
+                            WHEN source_matched AND NOT changed THEN 'unchanged'
+                            WHEN source_matched AND changed THEN 'changed'
+                            WHEN fallback_matched THEN 'changed'
+                            ELSE 'new'
+                        END AS diff_type,
+                        CASE
+                            WHEN prod_data IS NULL THEN 'insert_candidate'
+                            WHEN manual_protected THEN 'protect_manual'
+                            WHEN source_matched AND NOT changed THEN 'ignore_unchanged'
+                            WHEN source_matched AND changed THEN 'update_candidate'
+                            WHEN fallback_matched THEN 'needs_review'
+                            ELSE 'insert_candidate'
+                        END AS auto_action,
+                        CASE
+                            WHEN source_matched AND NOT changed AND NOT manual_protected THEN 'ignored'
+                            ELSE 'pending'
+                        END AS review_status
+                    FROM classified
+                )
+                INSERT INTO system.system_diff_items (
+                    diff_run_id,
+                    entity_family,
+                    diff_type,
+                    external_id,
+                    local_entity_id,
+                    before_data,
+                    after_data,
+                    confidence_score,
+                    auto_action,
+                    review_status,
+                    created_at
+                )
+                SELECT
+                    v_diff_run_id,
+                    cfg.entity_family,
+                    diff_type,
+                    external_id,
+                    staging_id,
+                    prod_data,
+                    staging_data || jsonb_build_object(
+                        'f2_comparison',
+                        jsonb_build_object(
+                            'f2_result', f2_result,
+                            'prod_match_rank', match_rank,
+                            'source_matched', source_matched,
+                            'fallback_matched', fallback_matched,
+                            'manual_protected', manual_protected
+                        )
+                    ),
+                    confidence_score,
+                    auto_action,
+                    review_status,
+                    now()
+                FROM admin_items;
+
+                GET DIAGNOSTICS v_inserted_count = ROW_COUNT;
+                v_elapsed_ms := round((extract(epoch FROM (clock_timestamp() - v_insert_start_ts)) * 1000.0)::numeric, 2);
+
+                PERFORM pg_temp.stage07_log(
+                    cfg.entity_family,
+                    'admin_inserted_count',
+                    format('count=%s', v_inserted_count),
+                    v_elapsed_ms,
+                    jsonb_build_object(
+                        'count', v_inserted_count,
+                        'source_matches', v_admin_source_match_count,
+                        'fallback_matches', v_admin_fallback_match_count,
+                        'no_matches', v_admin_no_match_count
+                    )
+                );
+            EXCEPTION
+                WHEN OTHERS THEN
+                    UPDATE system.system_diff_runs AS run
+                    SET
+                        status = 'failed',
+                        finished_at = now(),
+                        summary = run.summary || jsonb_build_object(
+                            'error_sqlstate', SQLSTATE,
+                            'error_message', SQLERRM
+                        )
+                    WHERE run.id = v_diff_run_id;
+
+                    PERFORM pg_temp.stage07_log(
+                        cfg.entity_family,
+                        'insert_fail',
+                        SQLERRM,
+                        NULL,
+                        jsonb_build_object(
+                            'diff_run_id', v_diff_run_id,
+                            'sqlstate', SQLSTATE,
+                            'sqlerrm', SQLERRM
+                        )
+                    );
+                    RAISE;
+            END;
+
+            UPDATE system.system_diff_runs AS run
+            SET
+                status = 'completed',
+                finished_at = now(),
+                summary = run.summary
+                    || jsonb_build_object(
+                        'counts_by_diff_type',
+                        coalesce((
+                            SELECT jsonb_object_agg(counts.diff_type, counts.value_n)
+                            FROM (
+                                SELECT item.diff_type, count(*)::bigint AS value_n
+                                FROM system.system_diff_items AS item
+                                WHERE item.diff_run_id = v_diff_run_id
+                                GROUP BY item.diff_type
+                            ) AS counts
+                        ), '{}'::jsonb),
+                        'counts_by_auto_action',
+                        coalesce((
+                            SELECT jsonb_object_agg(counts.auto_action, counts.value_n)
+                            FROM (
+                                SELECT item.auto_action, count(*)::bigint AS value_n
+                                FROM system.system_diff_items AS item
+                                WHERE item.diff_run_id = v_diff_run_id
+                                GROUP BY item.auto_action
+                            ) AS counts
+                        ), '{}'::jsonb),
+                        'admin_match_counts',
+                        jsonb_build_object(
+                            'source_matches', v_admin_source_match_count,
+                            'fallback_matches', v_admin_fallback_match_count,
+                            'no_matches', v_admin_no_match_count
+                        ),
+                        'total_items',
+                        (
+                            SELECT count(*)::bigint
+                            FROM system.system_diff_items AS item
+                            WHERE item.diff_run_id = v_diff_run_id
+                        )
+                    )
+            WHERE run.id = v_diff_run_id;
+
+            PERFORM pg_temp.stage07_log(
+                cfg.entity_family,
+                'family_done',
+                format('diff_run_id=%s status=completed', v_diff_run_id),
+                NULL,
+                jsonb_build_object('diff_run_id', v_diff_run_id)
+            );
+
+            INSERT INTO stage07_report (entity_family, staging_table, prod_table, auto_action, value_n, status, note)
+            SELECT
+                cfg.entity_family,
+                format('%s.%s', v_staging_schema, cfg.staging_table),
+                format('%s.%s', v_prod_mirror_schema, cfg.prod_table),
+                item.auto_action,
+                count(*)::bigint,
+                'PASS',
+                'F2 admin_areas staging-vs-prod_mirror diff items written.'
+            FROM system.system_diff_items AS item
+            WHERE item.diff_run_id = v_diff_run_id
+            GROUP BY item.auto_action;
+
+            UPDATE stage07_diff_runs AS runs
+            SET staging_rows = v_staging_count,
+                prod_rows = v_prod_count
+            WHERE runs.diff_run_id = v_diff_run_id;
+
+            PERFORM pg_temp.stage07_write_family_summary(
+                cfg.entity_family,
+                format('%s.%s', v_staging_schema, cfg.staging_table),
+                format('%s.%s', v_prod_mirror_schema, cfg.prod_table),
+                v_diff_run_id,
+                v_staging_count,
+                v_prod_count
+            );
 
             CONTINUE;
         END IF;
@@ -1660,6 +2116,15 @@ BEGIN
         FROM system.system_diff_items AS item
         WHERE item.diff_run_id = v_diff_run_id
         GROUP BY item.auto_action;
+
+        PERFORM pg_temp.stage07_write_family_summary(
+            cfg.entity_family,
+            format('%s.%s', v_staging_schema, cfg.staging_table),
+            format('%s.%s', v_prod_mirror_schema, cfg.prod_table),
+            v_diff_run_id,
+            v_staging_count,
+            v_prod_count
+        );
     END LOOP;
 
     RAISE NOTICE 'stage07_compare_end at=%', clock_timestamp();
@@ -1690,7 +2155,27 @@ SELECT
     staging_rows,
     prod_rows
 FROM stage07_diff_runs
+WHERE pg_temp.pipeline_entity_family_enabled(entity_family)
 ORDER BY entity_family;
+
+SELECT
+    'stage07_family_summary' AS section,
+    report.entity_family,
+    report.staging_table,
+    report.prod_table,
+    max(report.value_n) FILTER (WHERE report.auto_action = 'staging_rows') AS staging_rows,
+    max(report.value_n) FILTER (WHERE report.auto_action = 'prod_rows') AS prod_rows,
+    max(report.value_n) FILTER (WHERE report.auto_action = 'new_candidate') AS new_candidate,
+    max(report.value_n) FILTER (WHERE report.auto_action = 'matched_existing') AS matched_existing,
+    max(report.value_n) FILTER (WHERE report.auto_action = 'protected_match') AS protected_match,
+    max(report.value_n) FILTER (WHERE report.auto_action = 'needs_review') AS needs_review
+FROM stage07_report AS report
+WHERE report.auto_action IN (
+    'staging_rows', 'prod_rows', 'new_candidate', 'matched_existing',
+    'protected_match', 'needs_review'
+)
+GROUP BY report.entity_family, report.staging_table, report.prod_table
+ORDER BY report.entity_family;
 
 SELECT
     'stage07_report' AS section,
@@ -1728,6 +2213,8 @@ JOIN system.system_diff_items AS item
     ON item.diff_run_id = run.id
 JOIN stage07_context AS ctx
     ON ctx.current_snapshot_id = run.current_snapshot_id
+JOIN stage07_diff_runs AS selected
+    ON selected.diff_run_id = run.id
 WHERE run.summary->>'comparison_type' = 'staging_vs_prod_mirror'
 GROUP BY run.entity_family, item.auto_action, item.diff_type
 ORDER BY run.entity_family, item.auto_action, item.diff_type;
@@ -1742,6 +2229,8 @@ SELECT
         FROM system.system_diff_items AS item
         JOIN system.system_diff_runs AS run
             ON run.id = item.diff_run_id
+        JOIN stage07_diff_runs AS selected
+            ON selected.diff_run_id = run.id
         JOIN stage07_context AS ctx
             ON ctx.current_snapshot_id = run.current_snapshot_id
         WHERE run.summary->>'comparison_type' = 'staging_vs_prod_mirror'

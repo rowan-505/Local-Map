@@ -3,9 +3,9 @@ import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 import { reviewerFacingNameOrNull, type ImportReviewRoadNameRow } from "./importReviewNameFields";
 import { getImportReviewDisplayName } from "./importReviewNaming";
 import {
-    deriveRoadListRoadClassLabel,
+    displayImportReviewRoadClassColumn,
     type ImportReviewRoadClassOptionInput,
-} from "./importReviewRoadClassResolver";
+} from "./importReviewRoadClassDisplay";
 
 function typedColumnFields(fields: unknown): Record<string, unknown> {
     if (fields && typeof fields === "object" && !Array.isArray(fields)) {
@@ -74,7 +74,8 @@ export function deriveRoadListRoadClass(
     row: ImportReviewBuildingListItem,
     roadClassOptions: readonly ImportReviewRoadClassOptionInput[],
 ): string | null {
-    return deriveRoadListRoadClassLabel(row, roadClassOptions);
+    const label = displayImportReviewRoadClassColumn(row, roadClassOptions);
+    return label === "—" ? null : label;
 }
 
 /** Effective one-way flag for road list cells. */

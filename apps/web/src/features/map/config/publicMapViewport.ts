@@ -77,7 +77,7 @@ export const PUBLIC_MAP_OVERVIEW_MAX_BOUNDS: readonly [
   [112.0, 34.0],
 ];
 
-export const PUBLIC_MAP_MAX_ZOOM = 22;
+export const PUBLIC_MAP_MAX_ZOOM = 20;
 export const PUBLIC_MAP_VIEWPORT_SESSION_KEY = 'coremap.public-map.viewport.v1';
 
 export const MYANMAR_OVERVIEW_CENTER = PUBLIC_MAP_OVERVIEW_CENTER;

@@ -1,3 +1,6 @@
+/** Single stage log written for the simplified road dry-run flow. */
+export const IMPORT_REVIEW_ROAD_DRY_RUN_STAGE_KEY = "road_dry_run" as const;
+
 export const IMPORT_REVIEW_ROAD_DRY_RUN_STAGES = [
     { key: "road_dry_run_start", label: "Road dry-run start" },
     { key: "road_geometry_checks", label: "Road geometry checks" },

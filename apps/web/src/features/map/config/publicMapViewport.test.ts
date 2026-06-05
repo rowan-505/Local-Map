@@ -108,7 +108,7 @@ describe('clampZoomToPublicMap', () => {
       clampZoomToPublicMap(2),
       ENABLE_OVERVIEW_VIEWPORT_LOCK ? PUBLIC_MAP_OVERVIEW_MIN_ZOOM : OVERVIEW_FALLBACK_MIN_ZOOM,
     );
-    assert.equal(clampZoomToPublicMap(25), 22);
+    assert.equal(clampZoomToPublicMap(25), 20);
   });
 });
 

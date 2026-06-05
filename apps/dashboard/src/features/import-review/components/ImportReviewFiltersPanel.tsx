@@ -10,6 +10,10 @@ import {
     IMPORT_REVIEW_UNREVIEWED_FILTER,
     type ImportReviewListFilters,
 } from "../utils/entityPageUtils";
+import {
+    IMPORT_REVIEW_PROMOTION_STATE_OPTIONS,
+    type ImportReviewPromotionStateFilter,
+} from "../utils/importReviewPromotionListState";
 import { IMPORT_REVIEW_LOADING } from "../utils/loadingMessages";
 import ImportReviewInlineSpinner from "./ImportReviewInlineSpinner";
 
@@ -29,7 +33,8 @@ export default function ImportReviewFiltersPanel({
     qDraft,
     sort,
     limit,
-    showPromoted,
+    promotionState,
+    showPromotionStateFilter,
     isLoadingFilters,
     isApplyingFilters,
     totalLabel,
@@ -37,7 +42,7 @@ export default function ImportReviewFiltersPanel({
     onQDraftChange,
     onSortChange,
     onLimitChange,
-    onShowPromotedChange,
+    onPromotionStateChange,
     onApply,
     onClear,
 }: {
@@ -47,7 +52,8 @@ export default function ImportReviewFiltersPanel({
     qDraft: string;
     sort: string;
     limit: number;
-    showPromoted: boolean;
+    promotionState: ImportReviewPromotionStateFilter;
+    showPromotionStateFilter: boolean;
     isLoadingFilters: boolean;
     isApplyingFilters: boolean;
     totalLabel: string;
@@ -55,7 +61,7 @@ export default function ImportReviewFiltersPanel({
     onQDraftChange: (value: string) => void;
     onSortChange: (value: string) => void;
     onLimitChange: (value: number) => void;
-    onShowPromotedChange: (value: boolean) => void;
+    onPromotionStateChange: (value: ImportReviewPromotionStateFilter) => void;
     onApply: () => void;
     onClear: () => void;
 }) {
@@ -103,6 +109,26 @@ export default function ImportReviewFiltersPanel({
                             </select>
                         </label>
                     ))}
+                    {showPromotionStateFilter ? (
+                        <label className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold text-gray-600">Promotion state</span>
+                            <select
+                                value={promotionState}
+                                onChange={(e) =>
+                                    onPromotionStateChange(
+                                        e.target.value as ImportReviewPromotionStateFilter
+                                    )
+                                }
+                                className={IMPORT_REVIEW_SELECT_CLASS}
+                            >
+                                {IMPORT_REVIEW_PROMOTION_STATE_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                        {o.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    ) : null}
                     <label className="flex flex-col gap-1">
                         <span className="text-xs font-semibold text-gray-600">Search</span>
                         <input
@@ -156,14 +182,6 @@ export default function ImportReviewFiltersPanel({
                     >
                         Clear
                     </button>
-                    <label className="flex items-center gap-2 text-sm text-gray-700">
-                        <input
-                            type="checkbox"
-                            checked={showPromoted}
-                            onChange={(e) => onShowPromotedChange(e.target.checked)}
-                        />
-                        Show promoted
-                    </label>
                     {isLoadingFilters ? (
                         <ImportReviewInlineSpinner label={IMPORT_REVIEW_LOADING.loadingFilterOptions} />
                     ) : null}

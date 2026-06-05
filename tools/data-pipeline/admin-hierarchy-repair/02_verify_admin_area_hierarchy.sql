@@ -7,6 +7,7 @@
 --   - parent same or more detailed than child
 --   - orphan parent_id
 --   - invalid geometry on active areas > 0
+--   - duplicate external_id among active areas > 0
 --
 -- Warnings (reported only):
 --   - parent_id null on non-country levels
@@ -182,14 +183,40 @@ SELECT
        AND (
            v.canonical_name IS NULL
            OR btrim(v.canonical_name) = ''
-       )) AS missing_canonical_name_count;
+       )) AS missing_canonical_name_count,
+
+    (SELECT count(*)::bigint
+     FROM (
+         SELECT v.external_id
+         FROM _verify_admin AS v
+         WHERE v.deleted_at IS NULL
+           AND v.is_active IS TRUE
+           AND v.external_id IS NOT NULL
+           AND btrim(v.external_id) <> ''
+         GROUP BY v.external_id
+         HAVING count(*) > 1
+     ) AS dup) AS duplicate_external_id_group_count,
+
+    (SELECT coalesce(sum(g.cnt - 1), 0)::bigint
+     FROM (
+         SELECT count(*)::bigint AS cnt
+         FROM _verify_admin AS v
+         WHERE v.deleted_at IS NULL
+           AND v.is_active IS TRUE
+           AND v.external_id IS NOT NULL
+           AND btrim(v.external_id) <> ''
+         GROUP BY v.external_id
+         HAVING count(*) > 1
+     ) AS g) AS duplicate_external_id_extra_rows;
 
 SELECT
     'HARD_FAIL' AS severity,
     g.self_parent_count AS self_parent,
     g.parent_not_broader_count AS parent_same_or_more_detailed,
     g.orphan_parent_count AS orphan_parent_id,
-    g.invalid_geometry_count AS invalid_geometry
+    g.invalid_geometry_count AS invalid_geometry,
+    g.duplicate_external_id_group_count AS duplicate_external_id_groups,
+    g.duplicate_external_id_extra_rows AS duplicate_external_id_extra_rows
 FROM _verify_gates AS g;
 
 SELECT
@@ -398,6 +425,31 @@ WITH bad AS (
     WHERE v.deleted_at IS NULL
       AND v.is_active IS TRUE
       AND (v.canonical_name IS NULL OR btrim(v.canonical_name) = '')
+
+    UNION ALL
+
+    SELECT
+        v.id,
+        v.public_id,
+        v.canonical_name,
+        v.admin_level_code,
+        v.parent_id,
+        'duplicate_external_id'
+    FROM _verify_admin AS v
+    WHERE v.deleted_at IS NULL
+      AND v.is_active IS TRUE
+      AND v.external_id IS NOT NULL
+      AND btrim(v.external_id) <> ''
+      AND v.external_id IN (
+          SELECT x.external_id
+          FROM _verify_admin AS x
+          WHERE x.deleted_at IS NULL
+            AND x.is_active IS TRUE
+            AND x.external_id IS NOT NULL
+            AND btrim(x.external_id) <> ''
+          GROUP BY x.external_id
+          HAVING count(*) > 1
+      )
 )
 SELECT *
 FROM bad
@@ -470,6 +522,16 @@ BEGIN
     END IF;
     IF g.invalid_geometry_count > 0 THEN
         v_msgs := array_append(v_msgs, format('invalid_geometry=%s', g.invalid_geometry_count));
+    END IF;
+    IF g.duplicate_external_id_group_count > 0 THEN
+        v_msgs := array_append(
+            v_msgs,
+            format(
+                'duplicate_external_id_groups=%s extra_rows=%s',
+                g.duplicate_external_id_group_count,
+                g.duplicate_external_id_extra_rows
+            )
+        );
     END IF;
 
     IF coalesce(array_length(v_msgs, 1), 0) > 0 THEN

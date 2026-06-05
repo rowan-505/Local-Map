@@ -257,6 +257,11 @@ const postImportReviewPromotionBatchBodyObjectSchema = z.object({
     /** Required when roads are batched together with other simple (non-road) families. */
     mixed_high_risk_confirm: z.boolean().optional().default(false),
     warning_confirmation_note: z.string().trim().max(4000).optional(),
+    /** Max eligible candidates per family (all_ready mode). Roads use lightweight not_ready selection when set. */
+    max_items: z.coerce.number().int().min(1).max(10_000).optional(),
+    limit_per_family: z
+        .record(z.string().trim().min(1), z.coerce.number().int().min(1).max(10_000))
+        .optional(),
 });
 
 export const postImportReviewPromotionBatchValidateBodySchema = z
@@ -332,6 +337,8 @@ export const postImportReviewPromotionBatchPromoteBodySchema = z
         confirmation_text: z.literal("PROMOTE").optional().default("PROMOTE"),
         chunk_size: z.coerce.number().int().min(1).max(500).optional().default(100),
         confirm_warnings: z.boolean().optional().default(false),
+        allow_high_risk_families: z.boolean().optional().default(false),
+        confirm_large_batch: z.boolean().optional().default(false),
         promotion_note: z.string().trim().max(4000).optional(),
         warning_confirmation_note: z.string().trim().max(4000).optional(),
         review_note: z.string().trim().max(4000).optional(),
@@ -371,6 +378,16 @@ export const postImportReviewPromotionBatchRetryFailedReadyBodySchema = z
 
 export type PostImportReviewPromotionBatchRetryFailedReadyBody = z.infer<
     typeof postImportReviewPromotionBatchRetryFailedReadyBodySchema
+>;
+
+export const postImportReviewPromotionReleaseStaleBatchedBodySchema = z.object({
+    review_batch_id: z.coerce.number().int().positive(),
+    families: z.array(z.string().trim().min(1)).optional(),
+    dry_run: z.boolean().optional().default(false),
+});
+
+export type PostImportReviewPromotionReleaseStaleBatchedBody = z.infer<
+    typeof postImportReviewPromotionReleaseStaleBatchedBodySchema
 >;
 
 export const postImportReviewRepairInvalidPromotedBatchesBodySchema = z.object({

@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import BaseMapStyle from '../../../../../../../packages/map-style/base-map.json';
 
 import { OVERVIEW_LAYER_IDS, OVERVIEW_SOURCE_ID } from './overviewBasemap.js';
+import { validateZoomAtPaintRoot } from './overviewExpressionValidation.js';
 import {
   REGIONAL_DETAIL_MIN_ZOOM,
   composeWebMapStyle,
@@ -43,15 +44,28 @@ describe('composeWebMapStyle', () => {
     assert.equal(REGIONAL_DETAIL_MIN_ZOOM, 7);
   });
 
-  it('hides overview labels by z10', () => {
+  it('fades overview labels before regional detail dominates', () => {
     const style = composeWebMapStyle(BaseMapStyle as never, 'https://cdn.example/overview.pmtiles');
     const country = style.layers?.find((l) => l.id === 'overview-country-labels');
-    assert.equal(country?.maxzoom, 10);
+    const admin1 = style.layers?.find((l) => l.id === 'overview-mmr-admin1-labels');
+    assert.equal(country?.maxzoom, 6.5);
+    assert.equal(admin1?.maxzoom, 10);
   });
 
   it('keeps regional source and layers intact', () => {
     const style = composeWebMapStyle(BaseMapStyle as never, 'https://cdn.example/overview.pmtiles');
     assert.ok(style.sources?.['local-basemap']);
-    assert.ok(style.layers?.some((l) => l.id === 'road-fill'));
+    assert.ok(style.layers?.some((l) => l.id === 'road-major-fill'));
+  });
+
+  it('admin-boundaries paint uses top-level zoom interpolate (no nested zoom)', () => {
+    const style = composeWebMapStyle(BaseMapStyle as never, 'https://cdn.example/overview.pmtiles');
+    const admin = style.layers?.find((l) => l.id === 'admin-boundaries');
+    assert.ok(admin);
+    for (const key of ['line-width', 'line-opacity'] as const) {
+      const paint = admin?.paint?.[key];
+      assert.equal(validateZoomAtPaintRoot(paint, `admin-boundaries.paint.${key}`), null);
+      assert.equal((paint as unknown[] | undefined)?.[0], 'interpolate');
+    }
   });
 });

@@ -82,12 +82,20 @@ function formValuesToStreetCreatePayload(values: CoreEntityFormValues): CreateSt
     };
 }
 
+function streetNamePayload(values: CoreEntityFormValues): Pick<UpdateStreetPayload, "myanmarName" | "englishName"> {
+    const myanmarTrimmed = String(values.myanmarName ?? "").trim();
+    const englishTrimmed = String(values.englishName ?? "").trim();
+    return {
+        ...(myanmarTrimmed ? { myanmarName: myanmarTrimmed } : {}),
+        ...(englishTrimmed ? { englishName: englishTrimmed } : {}),
+    };
+}
+
 function formValuesToStreetUpdatePayload(values: CoreEntityFormValues): UpdateStreetPayload {
     const surfaceTrimmed = String(values.surface ?? "").trim();
     const reason = String(values.edit_reason ?? "").trim();
     return {
-        myanmarName: String(values.myanmarName ?? "").trim() || undefined,
-        englishName: String(values.englishName ?? "").trim() || undefined,
+        ...streetNamePayload(values),
         ...(entityAdminAreaIdForPayload(values, "admin_area_id") !== undefined
             ? { admin_area_id: entityAdminAreaIdForPayload(values, "admin_area_id") as string | null }
             : {}),
@@ -121,6 +129,7 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
         enableSnapping: true,
         showVertices: true,
         validateWithApi: true,
+        basemapOnly: true,
     },
     editableFields: [
         {
@@ -229,9 +238,10 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
             };
         }
 
+        const detailRecord = detail as Street & { name_mm?: string | null; name_en?: string | null };
         return {
-            myanmarName: detail.myanmarName ?? "",
-            englishName: detail.englishName ?? "",
+            myanmarName: detailRecord.myanmarName ?? detailRecord.name_mm ?? "",
+            englishName: detailRecord.englishName ?? detailRecord.name_en ?? "",
             road_class_id: detail.road_class_id ?? "",
             admin_area_id: detail.admin_area_id ?? "",
             is_oneway: detail.is_oneway,

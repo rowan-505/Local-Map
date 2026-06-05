@@ -12,6 +12,10 @@ import {
     polygonGeomExpr,
 } from "../../lib/geo/postgis-geometry.js";
 import { normalizePolygonGeoJsonForSave } from "../../lib/geo/normalize-polygon-geojson.js";
+import {
+    syncAdminAreaPrimaryNames,
+    type PrimaryNameSlots,
+} from "../../lib/entity-names/sync-primary-names.js";
 import { CoreReviewValidationError } from "./core-review-write.errors.js";
 import { pickTrimmedAlias, slugFromCanonicalName } from "./core-review-write.helpers.js";
 import { pickAlias, pickGeometry } from "./core-review-write.schema.js";
@@ -33,6 +37,29 @@ function lineDistanceMExpr(geojson: ReturnType<typeof geojsonSqlParam>): Prisma.
 
 function boolOr(value: unknown, fallback: boolean): boolean {
     return typeof value === "boolean" ? value : fallback;
+}
+
+/** When omitEmpty is true, blank name fields are ignored (existing rows are not cleared). */
+function pickAdminAreaNameSlots(
+    body: Record<string, unknown>,
+    options: { omitEmpty: boolean },
+): PrimaryNameSlots {
+    const slots: PrimaryNameSlots = {};
+    if (pickAlias(body, "nameMm", "name_mm") !== undefined) {
+        const raw = pickAlias<string | null>(body, "nameMm", "name_mm") ?? null;
+        const trimmed = raw?.trim() ?? "";
+        if (!options.omitEmpty || trimmed) {
+            slots.name_mm = trimmed || null;
+        }
+    }
+    if (pickAlias(body, "nameEn", "name_en") !== undefined) {
+        const raw = pickAlias<string | null>(body, "nameEn", "name_en") ?? null;
+        const trimmed = raw?.trim() ?? "";
+        if (!options.omitEmpty || trimmed) {
+            slots.name_en = trimmed || null;
+        }
+    }
+    return slots;
 }
 
 export class CoreReviewEntitiesWriteRepository {
@@ -644,37 +671,51 @@ export class CoreReviewEntitiesWriteRepository {
         );
         const boundaryNote = pickAlias<string | null>(body, "boundaryNote", "boundary_note") ?? null;
         const { isVerified, verificationStatus } = resolveCoreReviewVerificationWrite(body);
-        const rows = await this.prisma.$queryRaw<{ public_id: string }[]>(Prisma.sql`
-            INSERT INTO core.core_admin_areas (
-                public_id, canonical_name, slug, parent_id, admin_level_id,
-                source_type_id, geom, centroid, is_active, is_verified, verification_status, source_refs,
-                boundary_status, is_official_boundary, boundary_confidence_score,
-                address_usage, boundary_note
-            ) VALUES (
-                gen_random_uuid(),
-                ${canonicalName},
-                ${slug},
-                ${pickAlias<bigint | null>(body, "parentId", "parent_id") ?? null},
-                ${pickAlias<bigint>(body, "adminLevelId", "admin_level_id")},
-                ${sourceTypeId},
-                ${geomExpr},
-                ${centroidFromGeomExpr(geomExpr)},
-                ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
-                ${isVerified},
-                ${verificationStatus},
-                ${DASHBOARD_SOURCE_REFS}::jsonb,
-                ${boundaryStatus},
-                ${boolOr(pickAlias(body, "isOfficialBoundary", "is_official_boundary"), false)},
-                ${boundaryConfidenceScore},
-                ${addressUsage},
-                ${boundaryNote}
-            )
-            RETURNING public_id::text AS public_id
-        `);
-        return rows[0]?.public_id ?? null;
+        const nameSlots = pickAdminAreaNameSlots(body, { omitEmpty: true });
+        const hasNameUpdate = nameSlots.name_mm !== undefined || nameSlots.name_en !== undefined;
+
+        return this.prisma.$transaction(async (tx) => {
+            const rows = await tx.$queryRaw<{ id: bigint; public_id: string }[]>(Prisma.sql`
+                INSERT INTO core.core_admin_areas (
+                    public_id, canonical_name, slug, parent_id, admin_level_id,
+                    source_type_id, geom, centroid, is_active, is_verified, verification_status, source_refs,
+                    boundary_status, is_official_boundary, boundary_confidence_score,
+                    address_usage, boundary_note
+                ) VALUES (
+                    gen_random_uuid(),
+                    ${canonicalName},
+                    ${slug},
+                    ${pickAlias<bigint | null>(body, "parentId", "parent_id") ?? null},
+                    ${pickAlias<bigint>(body, "adminLevelId", "admin_level_id")},
+                    ${sourceTypeId},
+                    ${geomExpr},
+                    ${centroidFromGeomExpr(geomExpr)},
+                    ${boolOr(pickAlias(body, "isActive", "is_active"), true)},
+                    ${isVerified},
+                    ${verificationStatus},
+                    ${DASHBOARD_SOURCE_REFS}::jsonb,
+                    ${boundaryStatus},
+                    ${boolOr(pickAlias(body, "isOfficialBoundary", "is_official_boundary"), false)},
+                    ${boundaryConfidenceScore},
+                    ${addressUsage},
+                    ${boundaryNote}
+                )
+                RETURNING id, public_id::text AS public_id
+            `);
+            const row = rows[0];
+            if (!row) {
+                return null;
+            }
+            if (hasNameUpdate) {
+                await syncAdminAreaPrimaryNames(tx, row.id, nameSlots);
+            }
+            return row.public_id;
+        });
     }
 
     async updateAdminArea(publicId: string, body: Record<string, unknown>) {
+        const nameSlots = pickAdminAreaNameSlots(body, { omitEmpty: true });
+        const hasNameUpdate = nameSlots.name_mm !== undefined || nameSlots.name_en !== undefined;
         const sets: Prisma.Sql[] = [];
         if (pickAlias(body, "canonicalName", "canonical_name") !== undefined) {
             sets.push(
@@ -739,12 +780,36 @@ export class CoreReviewEntitiesWriteRepository {
             sets.push(Prisma.sql`geom = ${geomExpr}`);
             sets.push(Prisma.sql`centroid = ${centroidFromGeomExpr(geomExpr)}`);
         }
-        if (sets.length === 0) return false;
-        sets.push(Prisma.sql`updated_at = NOW()`);
-        const result = await this.prisma.$executeRaw(Prisma.sql`
-            UPDATE core.core_admin_areas SET ${Prisma.join(sets, ", ")}
-            WHERE public_id = CAST(${publicId} AS uuid)
-        `);
-        return result > 0;
+        if (sets.length === 0 && !hasNameUpdate) return false;
+
+        if (sets.length > 0) {
+            sets.push(Prisma.sql`updated_at = NOW()`);
+        }
+
+        await this.prisma.$transaction(async (tx) => {
+            if (sets.length > 0) {
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE core.core_admin_areas SET ${Prisma.join(sets, ", ")}
+                    WHERE public_id = CAST(${publicId} AS uuid)
+                `);
+            } else if (hasNameUpdate) {
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE core.core_admin_areas SET updated_at = NOW()
+                    WHERE public_id = CAST(${publicId} AS uuid)
+                `);
+            }
+            if (hasNameUpdate) {
+                const idRows = await tx.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+                    SELECT id FROM core.core_admin_areas
+                    WHERE public_id = CAST(${publicId} AS uuid)
+                    LIMIT 1
+                `);
+                const internalId = idRows[0]?.id;
+                if (internalId !== undefined) {
+                    await syncAdminAreaPrimaryNames(tx, internalId, nameSlots);
+                }
+            }
+        });
+        return true;
     }
 }

@@ -75,6 +75,10 @@ export type CoreGeometryEditorProps = {
     splitPickActive?: boolean;
     onSplitPointClicked?: (lng: number, lat: number) => void;
     splitPreviewLngLat?: { lng: number; lat: number } | null;
+    /** When true, polygon map skips Martin live overlay tile refreshes. */
+    basemapOnly?: boolean;
+    /** When false, polygon maps do not auto-activate draggable vertex edit mode on load. */
+    autoEnterVertexEdit?: boolean;
 };
 
 function previewEntityType(geometryType: CoreGeometryType): ImportReviewEntityType {
@@ -180,6 +184,8 @@ export default function CoreGeometryEditor({
     splitPickActive = false,
     onSplitPointClicked,
     splitPreviewLngLat = null,
+    basemapOnly = false,
+    autoEnterVertexEdit = true,
 }: CoreGeometryEditorProps) {
     const previewKind = coreGeometryTypeToPreviewKind(geometryType);
     const resolvedTitle = title ?? defaultCoreGeometryEditorTitle(geometryType);
@@ -439,6 +445,7 @@ export default function CoreGeometryEditor({
                     mapViewportClassName={MAP_EDITOR_VIEWPORT_CLASS}
                     defaultSnapToRoad={enableSnapping}
                     hideSnapControl={!enableSnapping}
+                    showContextOverlays={!basemapOnly}
                     splitPickActive={splitPickActive}
                     onSplitPointClicked={onSplitPointClicked}
                     splitPreviewLngLat={splitPreviewLngLat}
@@ -451,6 +458,8 @@ export default function CoreGeometryEditor({
                     onDrawOutput={handlePolygonDrawOutput}
                     basemapMode={basemapMode}
                     showVertexPreview={verticesVisible}
+                    autoEnterVertexEdit={autoEnterVertexEdit}
+                    showContextOverlays={!basemapOnly}
                     editorMapSurfaceRef={mapSurfaceRef ?? internalMapRef}
                     className=""
                 />
