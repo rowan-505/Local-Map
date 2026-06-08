@@ -8,6 +8,8 @@
 #   CONTINUE_ON_ERROR=1 npm run tiles:rebuild:regions -- v1
 #
 # Per-region version: all regions use <version> except Yangon when YANGON_VERSION is set.
+# PMTILES_SKIP_COMPLETED=1 skips regions whose .pmtiles already exists (>= 1 MiB).
+# For unattended full-country runs: npm run tiles:rebuild:regions:resilient -- v1
 # Default: stop on first failure. Logs: infrastructure/tiles/pmtiles/logs/rebuild-all-<timestamp>.log
 set -euo pipefail
 

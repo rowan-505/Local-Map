@@ -41,6 +41,7 @@ export default function CoreReviewEntityFilters({
     onApplyVerificationFilter,
     extraFilters,
     showRoutePicker,
+    adminAreaTownshipOnly = false,
 }: {
     draft: CoreReviewListDraft;
     setDraft: React.Dispatch<React.SetStateAction<CoreReviewListDraft>>;
@@ -54,13 +55,14 @@ export default function CoreReviewEntityFilters({
     onApplyVerificationFilter?: (filter: CoreReviewVerificationStatusFilter) => void;
     extraFilters?: React.ReactNode;
     showRoutePicker?: boolean;
+    adminAreaTownshipOnly?: boolean;
 }) {
     // Lazily enable each reference query on first interaction with its control.
     const [refsEnabled, setRefsEnabled] = useState({
         buildingTypes: false,
         categories: false,
         roadClasses: Boolean(filterSupport.roadClassId),
-        adminAreas: false,
+        adminAreas: adminAreaTownshipOnly && Boolean(filterSupport.adminAreaId),
         routes: false,
         landuseClasses: false,
     });
@@ -84,7 +86,8 @@ export default function CoreReviewEntityFilters({
     );
     const adminAreasQuery = useCoreReviewRefAdminAreas(
         200,
-        Boolean(filterSupport.adminAreaId) && refsEnabled.adminAreas
+        Boolean(filterSupport.adminAreaId) && refsEnabled.adminAreas,
+        adminAreaTownshipOnly,
     );
     const routesQuery = useCoreReviewRefBusRoutes(
         100,

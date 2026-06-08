@@ -15,6 +15,8 @@ from typing import Any
 
 # Must match packages/map-style/base-map.json source-layer names.
 # Native tile detail caps (tippecanoe per-feature maxzoom). Public map camera max is z20.
+# build-region.sh runs admin_areas/admin_boundaries in a separate tippecanoe pass capped at z14
+# (per-feature hints here still apply inside that pass).
 LAYER_MAXZOOM: dict[str, int] = {
     "streets": 20,
     "road_labels": 20,

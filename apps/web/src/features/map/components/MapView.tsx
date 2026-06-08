@@ -41,6 +41,10 @@ import {
   logAdminLabelLayersInDev,
   logAdminSourceFeaturesInDev,
 } from '../lib/maplibre/adminLabelLayerDebug';
+import {
+  logRoadLabelLayersInDev,
+  logRoadLabelSourceFeaturesInDev,
+} from '../lib/maplibre/roadLabelLayerDebug';
 import { applyAllLocalizedMapLabels } from '../lib/maplibre/localizedBasemapLabels';
 import {
   applyWebBasemapModePreservingCamera,
@@ -187,6 +191,8 @@ function MapViewInner({
           applyAllLocalizedMapLabels(map, languageModeRef.current);
           logAdminLabelLayersInDev(map);
           logAdminSourceFeaturesInDev(map);
+          logRoadLabelLayersInDev(map);
+          logRoadLabelSourceFeaturesInDev(map);
           applyStartupOverviewFit();
           requestAnimationFrame(() => {
             applyStartupOverviewFit();

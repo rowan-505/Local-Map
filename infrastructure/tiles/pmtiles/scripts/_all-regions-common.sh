@@ -33,6 +33,49 @@ all_regions_resolve_version() {
   fi
 }
 
+# Minimum bytes for an existing archive to count as completed (default 1 MiB).
+all_regions_min_complete_bytes() {
+  printf '%s' "${PMTILES_SKIP_MIN_BYTES:-1048576}"
+}
+
+all_regions_output_bytes() {
+  local path="$1"
+  if [[ ! -f "$path" ]]; then
+    printf '0'
+    return 0
+  fi
+  stat -f%z "$path" 2>/dev/null || stat -c%s "$path" 2>/dev/null || printf '0'
+}
+
+# True when PMTILES_SKIP_COMPLETED=1 and output archive already exists above min size.
+all_regions_is_completed() {
+  local out_pmtiles="$1"
+  if [[ "${PMTILES_SKIP_COMPLETED:-0}" != "1" ]]; then
+    return 1
+  fi
+  local min_bytes size
+  min_bytes="$(all_regions_min_complete_bytes)"
+  size="$(all_regions_output_bytes "$out_pmtiles")"
+  [[ "$size" -ge "$min_bytes" ]]
+}
+
+all_regions_list_incomplete() {
+  local default_version="$1"
+  local pmtiles_root="${PMTILES_ROOT:-}"
+  local script_dir region region_version out_pmtiles
+  if [[ -z "$pmtiles_root" ]]; then
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    pmtiles_root="$(cd "${script_dir}/.." && pwd)"
+  fi
+  for region in "${PMTILES_SUPPORTED_REGIONS[@]}"; do
+    region_version="$(all_regions_resolve_version "$region" "$default_version")"
+    out_pmtiles="${pmtiles_root}/regions/${region}/${region}-${region_version}.pmtiles"
+    if ! all_regions_is_completed "$out_pmtiles"; then
+      printf '%s\n' "$region"
+    fi
+  done
+}
+
 all_regions_parse_args() {
   ALL_REGIONS_VERSION=""
   ALL_REGIONS_START_REGION=""
@@ -105,6 +148,7 @@ all_regions_run_pipeline() {
   echo "[${tag}] mode=${mode} default_version=${ALL_REGIONS_VERSION}"
   echo "[${tag}] yangon_version=${YANGON_VERSION:-${ALL_REGIONS_VERSION}}"
   echo "[${tag}] start_region=${ALL_REGIONS_START_REGION:-<first>}"
+  echo "[${tag}] skip_completed=${PMTILES_SKIP_COMPLETED:-0}"
   echo "[${tag}] continue_on_error=${ALL_REGIONS_CONTINUE_ON_ERROR}"
   echo "[${tag}] log=${log_file}"
   echo "[${tag}] regions: $(pmtiles_region_list_supported)"
@@ -122,6 +166,13 @@ all_regions_run_pipeline() {
     local region_version region_started region_ended out_pmtiles
     region_version="$(all_regions_resolve_version "$region" "$ALL_REGIONS_VERSION")"
     out_pmtiles="${pmtiles_root}/regions/${region}/${region}-${region_version}.pmtiles"
+
+    if all_regions_is_completed "$out_pmtiles"; then
+      echo "[${tag}] skip ${region} ${region_version} (completed: ${out_pmtiles} size=$(all_regions_human_size "$out_pmtiles"))"
+      succeeded=$((succeeded + 1))
+      continue
+    fi
+
     region_started="$(date +%s)"
 
     echo "[${tag}] === ${region} ${region_version} ==="

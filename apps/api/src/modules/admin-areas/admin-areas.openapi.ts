@@ -83,3 +83,25 @@ export const getAdminAreaOptionsSchema = {
         401: messageSchema,
     },
 } satisfies FastifySchema;
+
+export const getRoadTownshipAdminAreaOptionsSchema = {
+    tags: [Tags.AdminAreas],
+    summary: "Road/street township override search",
+    description:
+        "Server-side search for active township-level admin areas only. Used by road edit manual township override.",
+    security: [...bearerAuth],
+    querystring: {
+        type: "object",
+        required: ["q"],
+        properties: {
+            q: { type: "string", minLength: 1, maxLength: 200 },
+            limit: { type: "integer", minimum: 1, maximum: 50, default: 50 },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: { type: "array", items: adminAreaOptionRowSchema },
+        400: badRequestSchema,
+        401: messageSchema,
+    },
+} satisfies FastifySchema;

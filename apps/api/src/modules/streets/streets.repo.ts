@@ -9,6 +9,14 @@ import {
     effectiveVerificationStatusExpr,
     type CoreReviewVerificationStatus,
 } from "../core-review/core-review-verification-filter.js";
+import {
+    resolveStreetsCoreReviewSortColumn,
+    streetsCoreReviewOrderBy,
+    streetsCoreReviewTextSearchClause,
+    streetsCoreReviewUpdatedAtKeysetOrderBy,
+    streetsTownshipAdminAreaFilterClause,
+    type StreetsCoreReviewSortColumn,
+} from "./streets-list-query.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -28,7 +36,7 @@ export type ListStreetsParams = {
     /** When true, index-friendly core SELECT + batch name/admin/road-class enrichment. */
     fast_list?: boolean;
     q?: string;
-    sortBy: "name" | "admin_area" | "created" | "updated" | "updated_at";
+    sortBy: StreetsCoreReviewSortColumn;
     sortOrder: "asc" | "desc";
     /** @deprecated Prefer status; true maps to status=all */
     include_deleted: boolean;
@@ -251,27 +259,15 @@ export type StreetNameRow = {
 };
 
 function streetsListOrderBy(sortBy: ListStreetsParams["sortBy"], sortOrder: ListStreetsParams["sortOrder"]): Prisma.Sql {
-    const dir = sortOrder === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
-
-    switch (sortBy) {
-        case "name":
-            return Prisma.sql`LOWER(COALESCE(s.canonical_name, '')) ${dir} NULLS LAST, s.public_id ASC`;
-        case "admin_area":
-            return Prisma.sql`LOWER(COALESCE(aa.canonical_name, '')) ${dir} NULLS LAST, s.public_id ASC`;
-        case "created":
-            return Prisma.sql`s.created_at ${dir} NULLS LAST, s.public_id ASC`;
-        case "updated":
-        case "updated_at":
-            return Prisma.sql`s.updated_at ${dir} NULLS LAST, s.id ${dir}`;
-        default:
-            return Prisma.sql`s.updated_at DESC NULLS LAST, s.id DESC`;
-    }
+    return streetsCoreReviewOrderBy(
+        resolveStreetsCoreReviewSortColumn(sortBy),
+        sortOrder,
+    );
 }
 
 /** Index-friendly ORDER BY for updated_at keyset lists (matches partial index, no NULLS LAST). */
 function streetsUpdatedAtKeysetOrderBy(sortOrder: ListStreetsParams["sortOrder"]): Prisma.Sql {
-    const dir = sortOrder === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
-    return Prisma.sql`s.updated_at ${dir}, s.id ${dir}`;
+    return streetsCoreReviewUpdatedAtKeysetOrderBy(sortOrder);
 }
 
 function streetsKeysetClause(params: ListStreetsParams, sortBy: ListStreetsParams["sortBy"], sortOrder: ListStreetsParams["sortOrder"]): Prisma.Sql {
@@ -300,7 +296,7 @@ function streetsScopeFilterClauses(params: StreetsListFilterParams): Prisma.Sql[
     const clauses = streetsLifecycleFilterClauses(params);
 
     if (params.admin_area_id !== undefined) {
-        clauses.push(Prisma.sql`s.admin_area_id = ${params.admin_area_id}`);
+        clauses.push(streetsTownshipAdminAreaFilterClause(params.admin_area_id));
     }
 
     if (params.road_class_id !== undefined) {
@@ -308,7 +304,7 @@ function streetsScopeFilterClauses(params: StreetsListFilterParams): Prisma.Sql[
     }
 
     if (params.q !== undefined) {
-        clauses.push(streetsTextSearchClause(params.q));
+        clauses.push(streetsCoreReviewTextSearchClause(params.q));
     }
 
     return clauses;
@@ -325,38 +321,6 @@ function streetsBaseFilterClauses(params: StreetsListFilterParams): Prisma.Sql[]
     }
 
     return clauses;
-}
-
-/** Text search via EXISTS only — no admin/road-class/name joins required in FROM. */
-function streetsTextSearchClause(q: string): Prisma.Sql {
-    const pattern = `%${q}%`;
-    return Prisma.sql`(
-        COALESCE(s.canonical_name, '') ILIKE ${pattern}
-        OR EXISTS (
-            SELECT 1
-            FROM core.core_street_names AS sn
-            WHERE sn.street_id = s.id
-              AND sn.name ILIKE ${pattern}
-        )
-        OR EXISTS (
-            SELECT 1
-            FROM core.core_admin_areas AS aa
-            WHERE aa.id = s.admin_area_id
-              AND COALESCE(aa.canonical_name, '') ILIKE ${pattern}
-        )
-        OR EXISTS (
-            SELECT 1
-            FROM ref.ref_road_classes AS rc
-            WHERE rc.id = s.road_class_id
-              AND (
-                  COALESCE(rc.code, '') ILIKE ${pattern}
-                  OR COALESCE(rc.name, '') ILIKE ${pattern}
-              )
-        )
-        OR (CASE WHEN s.is_active THEN 'Yes' ELSE 'No' END) ILIKE ${pattern}
-        OR (CASE WHEN s.is_verified THEN 'Yes' ELSE 'No' END) ILIKE ${pattern}
-        OR s.updated_at::text ILIKE ${pattern}
-    )`;
 }
 
 function streetsCountFilterClauses(params: StreetsListFilterParams): Prisma.Sql[] {
@@ -485,9 +449,11 @@ export class StreetsRepository {
         geometry: { type: "LineString"; coordinates: number[][] };
         excludePublicId?: string | null;
         excludeInternalId?: bigint | null;
+        searchRadiusMeters?: number;
     }): Promise<StreetGeometryCrossingRow[]> {
         const geojson = JSON.stringify(params.geometry);
         const excludeClause = editedStreetExcludeSql(params.excludePublicId, params.excludeInternalId);
+        const searchRadiusMeters = params.searchRadiusMeters ?? 200;
 
         return this.prisma.$queryRaw<StreetGeometryCrossingRow[]>(Prisma.sql`
             WITH inp AS (
@@ -505,6 +471,11 @@ export class StreetsRepository {
               AND s.is_active IS TRUE
               AND s.geom IS NOT NULL
               ${excludeClause}
+              AND ST_DWithin(
+                  s.geom::geography,
+                  inp.geom::geography,
+                  ${searchRadiusMeters}::double precision
+              )
               AND ST_Intersects(inp.geom, s.geom::geometry)
               AND ST_Crosses(inp.geom, s.geom::geometry)
             ORDER BY s.canonical_name NULLS LAST, s.public_id ASC
@@ -519,9 +490,11 @@ export class StreetsRepository {
         geometry: { type: "LineString"; coordinates: number[][] };
         excludePublicId?: string | null;
         excludeInternalId?: bigint | null;
+        searchRadiusMeters?: number;
     }): Promise<StreetGeometryDuplicateRow[]> {
         const geojson = JSON.stringify(params.geometry);
         const excludeClause = editedStreetExcludeSql(params.excludePublicId, params.excludeInternalId);
+        const searchRadiusMeters = params.searchRadiusMeters ?? 200;
 
         return this.prisma.$queryRaw<StreetGeometryDuplicateRow[]>(Prisma.sql`
             WITH inp AS (
@@ -555,6 +528,11 @@ export class StreetsRepository {
                   AND s.is_active IS TRUE
                   AND s.geom IS NOT NULL
                   ${excludeClause}
+                  AND ST_DWithin(
+                      s.geom::geography,
+                      inp.geom::geography,
+                      ${searchRadiusMeters}::double precision
+                  )
                   AND NOT (
                       ST_Intersects(inp.geom, s.geom::geometry)
                       AND ST_Crosses(inp.geom, s.geom::geometry)
@@ -887,16 +865,10 @@ export class StreetsRepository {
             SELECT
                 sn.street_id::text AS street_id,
                 max(sn.name) FILTER (
-                    WHERE sn.language_code IN ('my', 'mm')
-                      AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
-                      AND sn.name_type = 'official'
-                      AND sn.is_primary IS TRUE
+                    WHERE lower(trim(coalesce(sn.language_code, ''))) = 'my'
                 ) AS myanmar_name,
                 max(sn.name) FILTER (
-                    WHERE sn.language_code = 'en'
-                      AND upper(trim(coalesce(sn.script_code, ''))) = 'LATN'
-                      AND sn.name_type = 'official'
-                      AND sn.is_primary IS TRUE
+                    WHERE lower(trim(coalesce(sn.language_code, ''))) = 'en'
                 ) AS english_name
             FROM core.core_street_names AS sn
             WHERE sn.street_id IN (${Prisma.join(streetIds)})
@@ -1216,7 +1188,7 @@ export class StreetsRepository {
                 return null;
             }
 
-            await this.syncOfficialStreetName(tx, publicId, "mm", input.myanmarName);
+            await this.syncOfficialStreetName(tx, publicId, "my", input.myanmarName);
             await this.syncOfficialStreetName(tx, publicId, "en", input.englishName);
 
             return this.getStreetByPublicId(publicId, tx, { includeDeleted: true });
@@ -1252,7 +1224,7 @@ export class StreetsRepository {
             await applyStreetVersioningSession(tx, context);
 
             if (input.myanmarName !== undefined) {
-                await this.syncOfficialStreetName(tx, publicId, "mm", input.myanmarName);
+                await this.syncOfficialStreetName(tx, publicId, "my", input.myanmarName);
             }
 
             if (input.englishName !== undefined) {
@@ -1675,7 +1647,7 @@ export class StreetsRepository {
     private async syncOfficialStreetName(
         tx: Prisma.TransactionClient,
         publicId: string,
-        languageCode: "mm" | "en",
+        languageCode: "my" | "en",
         value: string | undefined,
     ) {
         if (value === undefined) {
@@ -1687,17 +1659,17 @@ export class StreetsRepository {
         }
 
         const updatedRows =
-            languageCode === "mm"
+            languageCode === "my"
                 ? await tx.$executeRaw(Prisma.sql`
                     UPDATE core.core_street_names AS sn
                     SET
                         name = ${value.trim()},
-                        language_code = 'mm',
+                        language_code = 'my',
                         script_code = 'Mymr'
                     FROM core.core_streets AS s
                     WHERE s.id = sn.street_id
                       AND s.public_id = CAST(${publicId} AS uuid)
-                      AND sn.language_code IN ('my', 'mm')
+                      AND sn.language_code = 'my'
                       AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
                       AND sn.name_type = 'official'
                       AND sn.is_primary = true
@@ -1721,7 +1693,7 @@ export class StreetsRepository {
             return;
         }
 
-        if (languageCode === "mm") {
+        if (languageCode === "my") {
             await tx.$executeRaw(Prisma.sql`
                 INSERT INTO core.core_street_names (
                     street_id,
@@ -1734,7 +1706,7 @@ export class StreetsRepository {
                 SELECT
                     s.id,
                     ${value.trim()},
-                    'mm',
+                    'my',
                     'Mymr',
                     'official',
                     true
@@ -1744,7 +1716,7 @@ export class StreetsRepository {
                       SELECT 1
                       FROM core.core_street_names AS sn
                       WHERE sn.street_id = s.id
-                        AND sn.language_code IN ('my', 'mm')
+                        AND sn.language_code = 'my'
                         AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
                         AND sn.name_type = 'official'
                         AND sn.is_primary = true
@@ -1793,7 +1765,7 @@ async function getOfficialStreetNames(tx: Prisma.TransactionClient, publicId: st
           AND sn.name_type = 'official'
           AND sn.is_primary = true
           AND (
-              (sn.language_code IN ('mm', 'my') AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR')
+              (sn.language_code = 'my' AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR')
               OR (
                   sn.language_code = 'en'
                   AND upper(trim(coalesce(sn.script_code, ''))) = 'LATN'
@@ -1801,9 +1773,7 @@ async function getOfficialStreetNames(tx: Prisma.TransactionClient, publicId: st
           )
     `);
 
-    const myanmar =
-        rows.find((row) => row.language_code === "mm")?.name ??
-        rows.find((row) => row.language_code === "my")?.name;
+    const myanmar = rows.find((row) => row.language_code === "my")?.name;
 
     return {
         myanmarName: myanmar,
@@ -1835,7 +1805,7 @@ function streetMyanmarNameScalarSql() {
         SELECT sn.name
         FROM core.core_street_names AS sn
         WHERE sn.street_id = s.id
-          AND sn.language_code IN ('my', 'mm')
+          AND sn.language_code = 'my'
           AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
           AND sn.name_type = 'official'
           AND sn.is_primary IS TRUE
@@ -1862,7 +1832,7 @@ function streetOfficialNamesLateralSql() {
     return Prisma.sql`
         SELECT
             max(sn.name) FILTER (
-                WHERE sn.language_code IN ('my', 'mm')
+                WHERE sn.language_code = 'my'
                   AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
                   AND sn.name_type = 'official'
                   AND sn.is_primary = true
@@ -1893,7 +1863,7 @@ function streetNamesJsonSql() {
                 ORDER BY sn.is_primary DESC, sn.name ASC
             ) AS names,
             max(sn.name) FILTER (
-                WHERE sn.language_code IN ('my', 'mm')
+                WHERE sn.language_code = 'my'
                   AND upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
                   AND sn.name_type = 'official'
                   AND sn.is_primary = true

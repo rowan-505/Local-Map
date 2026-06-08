@@ -91,7 +91,7 @@ const streetNameMyLateral = Prisma.sql`
         WHERE n.street_id = s.id
           AND lower(trim(coalesce(n.name_type, ''))) <> 'generated'
           AND (
-              lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+              lower(trim(coalesce(n.language_code, ''))) = 'my'
               OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
           )
           AND btrim(coalesce(n.name, '')) <> ''
@@ -332,7 +332,7 @@ export class ImportReviewAddressMatchesRepository {
                 SELECT n.name
                 FROM core.core_admin_area_names AS n
                 WHERE n.admin_area_id = c.id
-                  AND lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+                  AND lower(trim(coalesce(n.language_code, ''))) = 'my'
                 ORDER BY n.is_primary DESC NULLS LAST, n.name ASC
                 LIMIT 1
             ) AS an_mm ON true
@@ -529,7 +529,7 @@ export class ImportReviewAddressMatchesRepository {
                 SELECT n.name
                 FROM core.core_place_names AS n
                 WHERE n.place_id = p.id
-                  AND lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+                  AND lower(trim(coalesce(n.language_code, ''))) = 'my'
                   AND btrim(coalesce(n.name, '')) <> ''
                 ORDER BY n.is_primary DESC NULLS LAST, n.name ASC
                 LIMIT 1

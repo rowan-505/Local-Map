@@ -63,7 +63,7 @@ const ENTITY_DEFINITIONS: readonly CoreReviewEntityDefinition[] = [
         supportsIncludeDeleted: true,
         supportsRouteId: false,
         defaultSortBy: "updated_at",
-        allowedSortBy: ["name", "admin_area", "created", "updated", "updated_at"],
+        allowedSortBy: ["name", "admin_area", "created", "created_at", "updated", "updated_at", "id"],
     },
     {
         slug: "bus-stops",

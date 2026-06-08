@@ -15,7 +15,7 @@ const entityAdminAreaRoutes: FastifyPluginAsync = async (app) => {
     const repo = new EntityAdminAreaRepository(app.prisma);
     const service = new EntityAdminAreaService(repo);
 
-    app.post(
+        app.post(
         "/entity-admin-area/infer",
         {
             preHandler: app.authenticate,
@@ -30,8 +30,20 @@ const entityAdminAreaRoutes: FastifyPluginAsync = async (app) => {
                 });
             }
 
-            const result = await service.infer(parsed.data);
-            return reply.send(result);
+            try {
+                const result = await service.infer(parsed.data);
+                return reply.send(result);
+            } catch (error) {
+                request.log.warn({ err: error }, "entity-admin-area infer failed");
+                return reply.send({
+                    admin_area_id: null,
+                    canonical_name: null,
+                    admin_level_code: null,
+                    name_mm: null,
+                    name_en: null,
+                    geometry_contains: false,
+                });
+            }
         }
     );
 

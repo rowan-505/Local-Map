@@ -70,8 +70,8 @@ const paginationSchema = {
     properties: {
         page: { type: "integer" },
         pageSize: { type: "integer" },
-        total: { type: "integer" },
-        totalPages: { type: "integer" },
+        total: { type: ["integer", "null"] },
+        totalPages: { type: ["integer", "null"] },
     },
 };
 

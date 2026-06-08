@@ -166,7 +166,7 @@ export class ImportReviewPlaceValidationRepository {
                                 ELSE '[]'::jsonb
                             END
                         ) AS n(item)
-                        WHERE lower(n.item->>'language_code') IN ('my', 'mm')
+                        WHERE lower(n.item->>'language_code') = 'my'
                           AND NULLIF(btrim(n.item->>'name'), '') IS NOT NULL
                     )
                 ) AS has_myanmar_name,

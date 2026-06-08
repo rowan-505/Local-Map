@@ -16,7 +16,17 @@ export const ROAD_LABEL_LAYER_IDS = [
   'road-labels',
 ] as const;
 
-const ROAD_LABEL_LAYER_ID_SET = new Set<string>(ROAD_LABEL_LAYER_IDS);
+/** Yangon GeoJSON overlay (`exports/yangon/road_labels.geojson`) — not in PMTiles. */
+export const YANGON_ROAD_LABEL_OVERLAY_LAYER_IDS = [
+  'yangon-road-labels-major',
+  'yangon-road-labels-medium',
+  'yangon-road-labels-local',
+] as const;
+
+const ROAD_LABEL_LAYER_ID_SET = new Set<string>([
+  ...ROAD_LABEL_LAYER_IDS,
+  ...YANGON_ROAD_LABEL_OVERLAY_LAYER_IDS,
+]);
 
 export function isRoadLabelLayerId(layerId: string): boolean {
   return ROAD_LABEL_LAYER_ID_SET.has(layerId);

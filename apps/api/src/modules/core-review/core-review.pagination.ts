@@ -1,8 +1,9 @@
 export type CoreReviewPaginationMeta = {
     page: number;
     pageSize: number;
-    total: number;
-    totalPages: number;
+    /** Null when list skipped COUNT(*) (streets progressive loading). */
+    total: number | null;
+    totalPages: number | null;
 };
 
 export function pageToOffset(page: number, pageSize: number): number {
@@ -12,8 +13,17 @@ export function pageToOffset(page: number, pageSize: number): number {
 export function buildPaginationMeta(
     page: number,
     pageSize: number,
-    total: number
+    total: number | null
 ): CoreReviewPaginationMeta {
+    if (total === null) {
+        return {
+            page,
+            pageSize,
+            total: null,
+            totalPages: null,
+        };
+    }
+
     const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
     return {
         page,
@@ -27,7 +37,7 @@ export function buildListResponse<T>(input: {
     data: T[];
     page: number;
     pageSize: number;
-    total: number;
+    total: number | null;
     filters?: Record<string, unknown>;
     meta?: Record<string, unknown>;
 }) {

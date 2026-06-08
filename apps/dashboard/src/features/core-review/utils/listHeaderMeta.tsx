@@ -3,10 +3,14 @@ import type { CoreReviewVerificationTotals } from "../hooks/useCoreReviewVerific
 import type { CoreReviewVerificationStatusFilter } from "../verification/coreReviewVerificationFilter";
 
 export function formatCoreReviewHeaderMeta(
-    totals: CoreReviewVerificationTotals,
+    totals: CoreReviewVerificationTotals & { countUnavailable?: boolean },
     appliedDraft: CoreReviewListDraft,
     supportsVerification: boolean
 ): string | undefined {
+    if (totals.countUnavailable) {
+        return "Total unavailable";
+    }
+
     if (totals.isLoading) {
         return "Counting…";
     }

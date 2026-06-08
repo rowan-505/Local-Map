@@ -21,6 +21,7 @@ export type CoreReviewVerificationTotals = {
     verified: number;
     unverified: number;
     isLoading: boolean;
+    countUnavailable?: boolean;
 };
 
 export type CoreReviewListVerificationCounts = {

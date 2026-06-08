@@ -1323,10 +1323,10 @@ BEGIN
             SELECT
                 'invalid_language_code',
                 count(*) FILTER (
-                    WHERE lower(trim(coalesce(c.language_code, ''))) NOT IN ('en', 'my', 'mm', 'und')
+                    WHERE lower(trim(coalesce(c.language_code, ''))) NOT IN ('en', 'my', 'und')
                 )::bigint,
                 CASE WHEN count(*) FILTER (
-                    WHERE lower(trim(coalesce(c.language_code, ''))) NOT IN ('en', 'my', 'mm', 'und')
+                    WHERE lower(trim(coalesce(c.language_code, ''))) NOT IN ('en', 'my', 'und')
                 ) > 0 THEN 'WARN' ELSE 'PASS' END,
                 'Allowed staging language codes: en, my, mm, und'
             FROM %I.staging_address_component_candidates AS c

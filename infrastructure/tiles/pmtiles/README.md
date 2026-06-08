@@ -18,6 +18,7 @@ build    exports/<region>/*.geojson  →  regions/<region>/<region>-<version>.pm
 | `npm run tiles:export -- <region> <version>` | export only | Yes |
 | `npm run tiles:build -- <region> <version>` | build only | No |
 | `npm run tiles:rebuild -- <region> <version>` | export + build | Yes |
+| `npm run tiles:upload -- <region> <version>` | upload built `.pmtiles` to R2 | No (needs Wrangler) |
 
 ### Decision rule
 
@@ -311,6 +312,47 @@ pmtiles show infrastructure/tiles/pmtiles/regions/yangon/yangon-v2.pmtiles
 npm run tiles:serve
 # http://localhost:8080/regions/yangon/current.json
 ```
+
+---
+
+## Upload to Cloudflare R2
+
+Prerequisites: `wrangler login`, built `.pmtiles` on disk.
+
+```bash
+# Regional (resolves local path + uploads)
+npm run tiles:upload -- yangon v2
+npm run tiles:upload -- bago v1
+
+# Overview
+npm run tiles:upload -- overview v1
+```
+
+Resolved local paths:
+
+| Region | Local file |
+|--------|------------|
+| `yangon` `v2` | `infrastructure/tiles/pmtiles/regions/yangon/yangon-v2.pmtiles` |
+| `overview` `v1` | `infrastructure/tiles/pmtiles/overview/regions/myanmar-overview-v1.pmtiles` |
+
+R2 object key (all regions): `coremap-tiles-prod/basemaps/<region>/<version>/basemap.pmtiles`
+
+Explicit upload (any file path):
+
+```bash
+npm run tiles:upload:r2 -- infrastructure/tiles/pmtiles/regions/yangon/yangon-v2.pmtiles yangon v2
+npm run tiles:upload:yangon:v2
+```
+
+Verify after upload:
+
+```bash
+bash infrastructure/tiles/pmtiles/scripts/check-pmtiles-url.sh \
+  "https://pub-1f8b4bea1a884f51966c7916c5e618ce.r2.dev/basemaps/yangon/v2/basemap.pmtiles" \
+  "http://localhost:5173"
+```
+
+Release checklist: `docs/tiles/pmtiles/pmtiles-release-workflow.md`
 
 ---
 

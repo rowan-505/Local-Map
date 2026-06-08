@@ -5,10 +5,15 @@ import type { Geometry } from "geojson";
 import { Controller, type Control, type UseFormSetValue, type UseFormWatch } from "react-hook-form";
 
 import AdminAreaCombobox from "@/src/components/admin-areas/AdminAreaCombobox";
-import { formatAdminAreaOptionLabel } from "@/src/components/admin-areas/adminAreaLabels";
+import RoadTownshipAdminAreaCombobox from "@/src/components/admin-areas/RoadTownshipAdminAreaCombobox";
+import {
+    formatAdminAreaOptionLabel,
+    type AdminAreaOption,
+} from "@/src/components/admin-areas/adminAreaLabels";
 import {
     getAdminAreaOptions,
     inferEntityAdminArea,
+    searchRoadTownshipAdminAreaOptions,
     validateEntityAdminAreaManual,
     type EntityAdminAreaKind,
 } from "@/src/lib/api";
@@ -47,7 +52,7 @@ function lineOrPolygonGeometry(geometry: Geometry | null | undefined) {
     if (!geometry) {
         return null;
     }
-    if (geometry.type === "LineString" || geometry.type === "Polygon" || geometry.type === "MultiPolygon") {
+    if (geometry.type === "LineString" || geometry.type === "MultiLineString" || geometry.type === "Polygon" || geometry.type === "MultiPolygon") {
         return geometry;
     }
     return null;
@@ -76,6 +81,7 @@ export default function EntityTownshipAdminField({
     const [townshipOptions, setTownshipOptions] = useState<
         Awaited<ReturnType<typeof getAdminAreaOptions>>
     >([]);
+    const [selectedRoadTownship, setSelectedRoadTownship] = useState<AdminAreaOption | null>(null);
     const [optionsLoading, setOptionsLoading] = useState(false);
 
     const canAdminOverride = useMemo(() => canOverrideEntityAdminAreaGeometryMismatch(), []);
@@ -135,9 +141,17 @@ export default function EntityTownshipAdminField({
             setCalculatedId(result.admin_area_id);
             setCalculatedLabel(result.canonical_name);
             if (!manualOverride) {
-                setValue(config.adminAreaIdKey as keyof CoreEntityFormValues, result.admin_area_id ?? "", {
-                    shouldDirty: true,
-                });
+                if (config.entityKind === "street") {
+                    if (result.admin_area_id) {
+                        setValue(config.adminAreaIdKey as keyof CoreEntityFormValues, result.admin_area_id, {
+                            shouldDirty: true,
+                        });
+                    }
+                } else {
+                    setValue(config.adminAreaIdKey as keyof CoreEntityFormValues, result.admin_area_id ?? "", {
+                        shouldDirty: true,
+                    });
+                }
             }
         } catch (err) {
             setInferError(err instanceof Error ? err.message : "Could not infer township");
@@ -220,7 +234,7 @@ export default function EntityTownshipAdminField({
     }, [config, geometry, manualOverride, selectedAdminId]);
 
     useEffect(() => {
-        if (!manualOverride) {
+        if (!manualOverride || config.entityKind === "street") {
             return;
         }
         let cancelled = false;
@@ -239,7 +253,25 @@ export default function EntityTownshipAdminField({
         return () => {
             cancelled = true;
         };
-    }, [manualOverride]);
+    }, [manualOverride, config.entityKind]);
+
+    const isRoadTownshipOverride = config.entityKind === "street";
+
+    useEffect(() => {
+        if (!isRoadTownshipOverride || !manualOverride || !selectedAdminId) {
+            setSelectedRoadTownship(null);
+            return;
+        }
+        let cancelled = false;
+        void searchRoadTownshipAdminAreaOptions({ q: selectedAdminId, limit: 1 }).then((rows) => {
+            if (!cancelled) {
+                setSelectedRoadTownship(rows[0] ?? null);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [isRoadTownshipOverride, manualOverride, selectedAdminId]);
 
     const displayCalculated =
         calculatedLabel ??
@@ -294,17 +326,27 @@ export default function EntityTownshipAdminField({
                 <Controller
                     name={config.adminAreaIdKey}
                     control={control}
-                    render={({ field: f }) => (
-                        <AdminAreaCombobox
-                            id={`${baseId}-picker`}
-                            value={String(f.value ?? "").trim() || null}
-                            onChange={(id) => f.onChange(id ?? "")}
-                            disabled={disabled}
-                            placeholder="Search township…"
-                            options={townshipOptions}
-                            optionsLoading={optionsLoading}
-                        />
-                    )}
+                    render={({ field: f }) =>
+                        isRoadTownshipOverride ? (
+                            <RoadTownshipAdminAreaCombobox
+                                id={`${baseId}-picker`}
+                                value={String(f.value ?? "").trim() || null}
+                                onChange={(id) => f.onChange(id ?? "")}
+                                disabled={disabled}
+                                placeholder="Search township…"
+                            />
+                        ) : (
+                            <AdminAreaCombobox
+                                id={`${baseId}-picker`}
+                                value={String(f.value ?? "").trim() || null}
+                                onChange={(id) => f.onChange(id ?? "")}
+                                disabled={disabled}
+                                placeholder="Search township…"
+                                options={townshipOptions}
+                                optionsLoading={optionsLoading}
+                            />
+                        )
+                    }
                 />
             ) : null}
 
@@ -312,15 +354,25 @@ export default function EntityTownshipAdminField({
                 <p className="text-xs text-slate-600">
                     Selected:{" "}
                     {formatAdminAreaOptionLabel(
-                        townshipOptions.find((o) => o.id === selectedAdminId) ?? {
-                            id: selectedAdminId,
-                            canonical_name: selectedAdminId,
-                            name_mm: null,
-                            name_en: null,
-                            admin_level_id: "",
-                            admin_level_code: "township",
-                            parent_id: null,
-                        }
+                        isRoadTownshipOverride
+                            ? (selectedRoadTownship ?? {
+                                  id: selectedAdminId,
+                                  canonical_name: selectedAdminId,
+                                  name_mm: null,
+                                  name_en: null,
+                                  admin_level_id: "",
+                                  admin_level_code: "township",
+                                  parent_id: null,
+                              })
+                            : (townshipOptions.find((o) => o.id === selectedAdminId) ?? {
+                                  id: selectedAdminId,
+                                  canonical_name: selectedAdminId,
+                                  name_mm: null,
+                                  name_en: null,
+                                  admin_level_id: "",
+                                  admin_level_code: "township",
+                                  parent_id: null,
+                              })
                     )}
                 </p>
             ) : null}

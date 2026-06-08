@@ -577,7 +577,11 @@ export function useCoreReviewListState<T extends Record<string, unknown>>(option
         }
         const countTotal = streetsCountQuery.data?.total;
         if (countTotal === undefined) {
-            return { ...base, total: 0, totalPages: 1 };
+            return {
+                ...base,
+                total: base.total ?? 0,
+                totalPages: base.totalPages ?? 1,
+            };
         }
         const pageSize = base.pageSize || appliedDraft.pageSize;
         return {

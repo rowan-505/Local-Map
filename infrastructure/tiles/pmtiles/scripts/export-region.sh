@@ -42,6 +42,8 @@ fi
 
 command -v python3 >/dev/null 2>&1 || { echo "error: python3 required" >&2; exit 1; }
 command -v ogr2ogr >/dev/null 2>&1 || { echo "error: ogr2ogr required (brew install gdal)" >&2; exit 1; }
+command -v ogrinfo >/dev/null 2>&1 || { echo "error: ogrinfo required (brew install gdal)" >&2; exit 1; }
+VALIDATE_GEOJSON_PY="${SCRIPT_DIR}/validate-geojson.py"
 command -v psql >/dev/null 2>&1 || { echo "error: psql required" >&2; exit 1; }
 
 REGION="$1"
@@ -121,7 +123,7 @@ for entry in "${LAYERS[@]}"; do
     -s_srs EPSG:4326 \
     -t_srs EPSG:4326
 
-  python3 -m json.tool "$dest" >/dev/null || {
+  python3 "$VALIDATE_GEOJSON_PY" "$dest" || {
     echo "error: invalid GeoJSON: ${dest}" >&2
     exit 1
   }

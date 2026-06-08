@@ -62,6 +62,14 @@ export const REGIONAL_OVERZOOM_SOURCE_LAYERS = [
 
 const REGIONAL_OVERZOOM_SOURCE_LAYER_SET = new Set<string>(REGIONAL_OVERZOOM_SOURCE_LAYERS);
 
+/** Single regional source (`local-basemap`) or QA clones (`local-basemap-<region>-<version>`). */
+export function isRegionalBasemapVectorSource(source: unknown): boolean {
+  return (
+    source === 'local-basemap' ||
+    (typeof source === 'string' && source.startsWith('local-basemap-'))
+  );
+}
+
 /** Overview symbol layers turn off so regional street/admin labels are not doubled. */
 export const OVERVIEW_LABELS_END_ZOOM = 10;
 
@@ -176,7 +184,7 @@ function applyRegionalOverzoomMax(layer: LayerSpecification): LayerSpecification
   const sourceLayer = (layer as { 'source-layer'?: string })['source-layer'];
   const layerSource = 'source' in layer ? layer.source : undefined;
   if (
-    layerSource !== 'local-basemap' ||
+    !isRegionalBasemapVectorSource(layerSource) ||
     typeof sourceLayer !== 'string' ||
     !REGIONAL_OVERZOOM_SOURCE_LAYER_SET.has(sourceLayer)
   ) {

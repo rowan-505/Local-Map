@@ -149,7 +149,7 @@ export class ImportReviewOptionsRepository {
                 FROM core.core_admin_area_names AS n
                 WHERE n.admin_area_id = a.id
                   AND (
-                      lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+                      lower(trim(coalesce(n.language_code, ''))) = 'my'
                       OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
                   )
                 ORDER BY

@@ -248,7 +248,8 @@ function pickChildNameByLanguage(
                 continue;
             }
             const row = entry as Record<string, unknown>;
-            const lang = trimString(row.language_code ?? row.lang)?.toLowerCase();
+            const rawLang = trimString(row.language_code ?? row.lang)?.toLowerCase();
+            const lang = rawLang === "mm" ? "my" : rawLang;
             if (!lang || !languageCodes.includes(lang)) {
                 continue;
             }
@@ -330,7 +331,7 @@ export function deriveImportedNameMm(candidate: ImportReviewNameCandidate): stri
         acceptMyanmarName(normPick(nd, "name"), blocked),
         acceptMyanmarName(candidate.canonical_name, blocked),
         acceptMyanmarName(candidate.name, blocked),
-        pickChildNameByLanguage(nd, ["my", "mm"], "myanmar", blocked)
+        pickChildNameByLanguage(nd, ["my"], "myanmar", blocked)
     );
 }
 

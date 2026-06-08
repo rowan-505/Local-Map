@@ -1,0 +1,171 @@
+{
+  "version": 1,
+  "generatedAt": "2026-06-07",
+  "regions": [
+    {
+      "region": "yangon",
+      "version": "v2",
+      "pmtilesUrl": "http://localhost:8080/regions/yangon/yangon-v2.pmtiles",
+      "bounds": {
+        "west": 93.07505099999999,
+        "south": 13.831709,
+        "east": 96.96130600000001,
+        "north": 18.023564999999998
+      }
+    },
+    {
+      "region": "bago",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/bago/bago-v1.pmtiles",
+      "bounds": {
+        "west": 94.44130999999999,
+        "south": 16.499193,
+        "east": 97.518056,
+        "north": 19.745751
+      }
+    },
+    {
+      "region": "ayeyarwady",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/ayeyarwady/ayeyarwady-v1.pmtiles",
+      "bounds": {
+        "west": 94.05178699999999,
+        "south": 15.536826999999999,
+        "east": 96.35545,
+        "north": 18.812465999999997
+      }
+    },
+    {
+      "region": "mandalay",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/mandalay/mandalay-v1.pmtiles",
+      "bounds": {
+        "west": 94.544536,
+        "south": 19.917392000000003,
+        "east": 97.21352300000001,
+        "north": 23.977824
+      }
+    },
+    {
+      "region": "magway",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/magway/magway-v1.pmtiles",
+      "bounds": {
+        "west": 93.691125,
+        "south": 18.561752000000002,
+        "east": 96.311002,
+        "north": 23.138230999999998
+      }
+    },
+    {
+      "region": "sagaing",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/sagaing/sagaing-v1.pmtiles",
+      "bounds": {
+        "west": 93.658085,
+        "south": 21.31446,
+        "east": 97.15913300000001,
+        "north": 27.44305
+      }
+    },
+    {
+      "region": "tanintharyi",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/tanintharyi/tanintharyi-v1.pmtiles",
+      "bounds": {
+        "west": 97.62800299999999,
+        "south": 9.633255,
+        "east": 99.906901,
+        "north": 15.355813
+      }
+    },
+    {
+      "region": "naypyitaw",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/naypyitaw/naypyitaw-v1.pmtiles",
+      "bounds": {
+        "west": 95.329933,
+        "south": 19.087565,
+        "east": 96.951924,
+        "north": 20.612372999999998
+      }
+    },
+    {
+      "region": "kachin",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/kachin/kachin-v1.pmtiles",
+      "bounds": {
+        "west": 95.593854,
+        "south": 23.328052000000003,
+        "east": 99.047414,
+        "north": 28.528757
+      }
+    },
+    {
+      "region": "kayah",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/kayah/kayah-v1.pmtiles",
+      "bounds": {
+        "west": 96.452264,
+        "south": 18.249570000000002,
+        "east": 98.105204,
+        "north": 20.2518
+      }
+    },
+    {
+      "region": "kayin",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/kayin/kayin-v1.pmtiles",
+      "bounds": {
+        "west": 96.12654599999999,
+        "south": 15.013112,
+        "east": 99.101797,
+        "north": 19.768127999999997
+      }
+    },
+    {
+      "region": "chin",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/chin/chin-v1.pmtiles",
+      "bounds": {
+        "west": 92.415987,
+        "south": 20.521223000000003,
+        "east": 94.56250100000001,
+        "north": 24.270872999999998
+      }
+    },
+    {
+      "region": "mon",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/mon/mon-v1.pmtiles",
+      "bounds": {
+        "west": 96.419399,
+        "south": 14.584259,
+        "east": 98.492677,
+        "north": 18.091414
+      }
+    },
+    {
+      "region": "rakhine",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/rakhine/rakhine-v1.pmtiles",
+      "bounds": {
+        "west": 91.987208,
+        "south": 17.032966000000002,
+        "east": 95.259489,
+        "north": 21.665112999999998
+      }
+    },
+    {
+      "region": "shan",
+      "version": "v1",
+      "pmtilesUrl": "http://localhost:8080/regions/shan/shan-v1.pmtiles",
+      "bounds": {
+        "west": 95.87289399999999,
+        "south": 19.044148,
+        "east": 101.37853600000001,
+        "north": 24.441912
+      }
+    }
+  ]
+}

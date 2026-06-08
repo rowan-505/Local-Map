@@ -43,9 +43,52 @@ pmtiles_stage_warn() {
   printf '[%s] WARNING: %s\n' "${PMTILES_PIPELINE_SCOPE}" "$*" >&2
 }
 
+pmtiles_stage_start() {
+  printf '[%s] >>> START: %s\n' "${PMTILES_PIPELINE_SCOPE}" "$*" >&2
+}
+
+pmtiles_stage_finish() {
+  printf '[%s] <<< FINISH: %s\n' "${PMTILES_PIPELINE_SCOPE}" "$*" >&2
+}
+
+pmtiles_heartbeat_stop() {
+  if [[ -z "${PMTILES_HEARTBEAT_PID:-}" ]]; then
+    return 0
+  fi
+  kill "$PMTILES_HEARTBEAT_PID" 2>/dev/null || true
+  wait "$PMTILES_HEARTBEAT_PID" 2>/dev/null || true
+  PMTILES_HEARTBEAT_PID=""
+}
+
+# Print output file size every 30s while a long finalize command runs.
+pmtiles_heartbeat_start() {
+  local label="$1"
+  local watch_file="$2"
+
+  pmtiles_heartbeat_stop
+
+  local heartbeat_parent=$$
+  (
+    while kill -0 "$heartbeat_parent" 2>/dev/null; do
+      sleep 30
+      if [[ -f "$watch_file" ]]; then
+        printf '[%s] heartbeat %s: %s size=%s\n' \
+          "${PMTILES_PIPELINE_SCOPE}" "$label" "$watch_file" \
+          "$(ls -lh "$watch_file" | awk '{print $5}')" >&2
+      else
+        printf '[%s] heartbeat %s: waiting for %s\n' \
+          "${PMTILES_PIPELINE_SCOPE}" "$label" "$watch_file" >&2
+      fi
+    done
+  ) &
+  PMTILES_HEARTBEAT_PID=$!
+}
+
 # Estimated progress ticker (stage-based; never reaches next milestone until command finishes).
+# The ticker shows *estimated* progress only — not tippecanoe/pmtiles internal %.
 PMTILES_PROGRESS_TICKER_ENABLED="${PMTILES_PROGRESS_TICKER_ENABLED:-1}"
 PMTILES_TICKER_PID=""
+PMTILES_HEARTBEAT_PID=""
 
 pmtiles_ticker_estimate_pct() {
   local start="$1"
@@ -75,6 +118,11 @@ pmtiles_ticker_stop() {
   printf '\n' >&2
 }
 
+pmtiles_pipeline_stop_watchers() {
+  pmtiles_ticker_stop
+  pmtiles_heartbeat_stop
+}
+
 pmtiles_ticker_start() {
   local pct_start="$1"
   local pct_end="$2"
@@ -95,7 +143,7 @@ pmtiles_ticker_start() {
       now="$(date +%s)"
       elapsed=$((now - started_at))
       est="$(pmtiles_ticker_estimate_pct "$pct_start" "$pct_end" "$elapsed")"
-      printf '\r[%s] %6.2f%% %s... elapsed %s (estimated)' \
+      printf '\r[%s] %6.2f%% %s... elapsed %s (estimated progress)' \
         "${PMTILES_PIPELINE_SCOPE}" "$est" "$label" \
         "$(pmtiles_fmt_duration "$elapsed")" >&2
     done
@@ -107,7 +155,16 @@ pmtiles_ticker_start() {
 pmtiles_run_tippecanoe() {
   local stage_label="$1"
   shift
-  local err_log sparse_count status quiet_output
+  local err_log sparse_count status quiet_output output_mbtiles=""
+  local -a cmd=("$@")
+  local i
+
+  for ((i = 0; i < ${#cmd[@]}; i++)); do
+    if [[ "${cmd[$i]}" == "-o" && $((i + 1)) -lt ${#cmd[@]} ]]; then
+      output_mbtiles="${cmd[$((i + 1))]}"
+      break
+    fi
+  done
 
   err_log="$(mktemp "${TMPDIR:-/tmp}/pmtiles-tippecanoe.XXXXXX")"
   quiet_output=0
@@ -115,30 +172,37 @@ pmtiles_run_tippecanoe() {
     quiet_output=1
   fi
 
+  pmtiles_stage_start "tippecanoe ${stage_label}"
   if [[ "$quiet_output" != "1" ]]; then
-    pmtiles_stage_note "running tippecanoe (${stage_label})"
-    pmtiles_stage_note "command: $(printf '%q ' "$@")"
+    pmtiles_stage_note "command: $(printf '%q ' "${cmd[@]}")"
   fi
 
   if [[ "$quiet_output" == "1" ]]; then
-    if "$@" 2>"$err_log"; then
+    if "${cmd[@]}" 2>"$err_log"; then
       status=0
     else
       status=$?
     fi
   else
     set +o pipefail
-    "$@" 2>&1 | tee "$err_log"
+    "${cmd[@]}" 2>&1 | tee "$err_log"
     status=${PIPESTATUS[0]}
     set -o pipefail
   fi
 
   if [[ "$status" -ne 0 ]]; then
     pmtiles_stage_warn "tippecanoe failed during ${stage_label} (exit ${status})"
-    pmtiles_stage_warn "command: $(printf '%q ' "$@")"
+    pmtiles_stage_warn "command: $(printf '%q ' "${cmd[@]}")"
     if [[ -s "$err_log" ]]; then
       pmtiles_stage_warn "last output:"
       tail -40 "$err_log" >&2 || true
+    fi
+    pmtiles_stage_finish "tippecanoe ${stage_label} (failed exit ${status})"
+  else
+    if [[ -n "$output_mbtiles" && -f "$output_mbtiles" ]]; then
+      pmtiles_stage_finish "tippecanoe ${stage_label} ($(ls -lh "$output_mbtiles" | awk '{print $5}'))"
+    else
+      pmtiles_stage_finish "tippecanoe ${stage_label}"
     fi
   fi
 

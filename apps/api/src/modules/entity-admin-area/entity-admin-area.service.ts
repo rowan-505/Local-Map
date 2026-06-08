@@ -4,6 +4,7 @@ import {
     canOverrideEntityAdminAreaGeometryMismatch,
     ENTITY_ADMIN_AREA_TARGET_LEVEL,
 } from "./entity-admin-area.constants.js";
+import { isRoadEntityAdminAreaKind } from "./entity-admin-area-kind.js";
 import {
     EntityAdminAreaRepository,
     type EntityAdminAreaKind,
@@ -21,8 +22,21 @@ export type EntityAdminAreaInferResult = {
     admin_area_id: string | null;
     canonical_name: string | null;
     admin_level_code: string | null;
+    name_mm: string | null;
+    name_en: string | null;
     geometry_contains: boolean;
 };
+
+function emptyEntityAdminAreaInferResult(): EntityAdminAreaInferResult {
+    return {
+        admin_area_id: null,
+        canonical_name: null,
+        admin_level_code: null,
+        name_mm: null,
+        name_en: null,
+        geometry_contains: false,
+    };
+}
 
 export type EntityAdminAreaValidateManualInput = EntityAdminAreaInferInput & {
     admin_area_id: string;
@@ -63,6 +77,10 @@ export class EntityAdminAreaService {
     constructor(private readonly repo: EntityAdminAreaRepository) {}
 
     async infer(input: EntityAdminAreaInferInput): Promise<EntityAdminAreaInferResult> {
+        if (isRoadEntityAdminAreaKind(input.kind)) {
+            return this.inferRoadTownship(input);
+        }
+
         const inferredId = await this.inferId(input);
         const summary = inferredId !== null ? await this.repo.getActiveAdminAreaSummary(inferredId) : null;
         const geometryContains = inferredId !== null && summary !== null;
@@ -71,8 +89,34 @@ export class EntityAdminAreaService {
             admin_area_id: inferredId !== null ? inferredId.toString() : null,
             canonical_name: summary?.canonical_name ?? null,
             admin_level_code: summary?.admin_level_code ?? null,
+            name_mm: null,
+            name_en: null,
             geometry_contains: geometryContains,
         };
+    }
+
+    private async inferRoadTownship(input: EntityAdminAreaInferInput): Promise<EntityAdminAreaInferResult> {
+        if (!input.geometry) {
+            return emptyEntityAdminAreaInferResult();
+        }
+
+        try {
+            const row = await this.repo.inferTownshipAdminAreaForRoadGeoJson(JSON.stringify(input.geometry));
+            if (!row) {
+                return emptyEntityAdminAreaInferResult();
+            }
+
+            return {
+                admin_area_id: row.id.toString(),
+                canonical_name: row.canonical_name,
+                admin_level_code: row.admin_level_code,
+                name_mm: row.name_mm,
+                name_en: row.name_en,
+                geometry_contains: row.geometry_intersects,
+            };
+        } catch {
+            return emptyEntityAdminAreaInferResult();
+        }
     }
 
     async validateManual(

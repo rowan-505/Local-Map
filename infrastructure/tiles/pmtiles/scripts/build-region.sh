@@ -67,6 +67,7 @@ EXPORTS="${PMTILES_ROOT}/exports/${REGION}"
 OUT_DIR="${PMTILES_ROOT}/regions/${REGION}"
 OUT_PMTILES="${OUT_DIR}/${REGION}-${VERSION}.pmtiles"
 PREP_DIR="${PMTILES_ROOT}/.tmp-prep-${REGION}-${VERSION}-$$"
+MBTILES_ADMIN="${PMTILES_ROOT}/.tmp-build-admin-${REGION}-${VERSION}-$$.mbtiles"
 MBTILES_LIGHT="${PMTILES_ROOT}/.tmp-build-light-${REGION}-${VERSION}-$$.mbtiles"
 MBTILES_LABELS="${PMTILES_ROOT}/.tmp-build-labels-${REGION}-${VERSION}-$$.mbtiles"
 MBTILES_STREETS="${PMTILES_ROOT}/.tmp-build-streets-${REGION}-${VERSION}-$$.mbtiles"
@@ -74,6 +75,10 @@ MBTILES="${PMTILES_ROOT}/.tmp-build-${REGION}-${VERSION}-$$.mbtiles"
 PMTILES_NEW="${OUT_DIR}/${REGION}-${VERSION}.pmtiles.new.$$"
 CURRENT_NEW="${OUT_DIR}/current.json.new.$$"
 PREPARE_PY="${SCRIPT_DIR}/prepare-tippecanoe-input.py"
+VALIDATE_GEOJSON_PY="${SCRIPT_DIR}/validate-geojson.py"
+VERIFY_BUILD_PY="${SCRIPT_DIR}/verify-pmtiles-build.py"
+BUILD_MANIFEST="${OUT_DIR}/${REGION}-${VERSION}.build-manifest.json"
+PMTILES_ADMIN_MAX_ZOOM=14
 BUILD_STARTED_AT="$(date +%s)"
 BUILD_SUCCESS=false
 PMTILES_DEBUG="${PMTILES_DEBUG:-0}"
@@ -125,7 +130,7 @@ on_build_error() {
   local exit_code=$?
   local line="${1:-?}"
   local cmd="${2:-?}"
-  pmtiles_ticker_stop || true
+  pmtiles_pipeline_stop_watchers || true
   log "BUILD FAILED"
   log "  line: ${line}"
   log "  exit code: ${exit_code}"
@@ -177,13 +182,13 @@ close_log_fds() {
 }
 
 cleanup() {
-  pmtiles_ticker_stop || true
+  pmtiles_pipeline_stop_watchers || true
   if [[ "$BUILD_SUCCESS" != "true" ]]; then
     log "cleanup after failure: removing temp prep/mbtiles (keeps exports/ and published .pmtiles)"
     log "failure log preserved at: ${BUILD_LOG}"
   fi
   rm -rf "$PREP_DIR"
-  rm -f "$MBTILES_LIGHT" "$MBTILES_LABELS" "$MBTILES_STREETS" "$MBTILES" "$PMTILES_NEW" "$CURRENT_NEW"
+  rm -f "$MBTILES_ADMIN" "$MBTILES_LIGHT" "$MBTILES_LABELS" "$MBTILES_STREETS" "$MBTILES" "$PMTILES_NEW" "$CURRENT_NEW"
   close_log_fds
 }
 
@@ -192,6 +197,23 @@ feature_count() {
 }
 
 human_size() { ls -lh "$1" | awk '{print $5}'; }
+
+collect_validation_inputs_json() {
+  python3 - "$EXPORTS" "${LAYERS[@]}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+exports = Path(sys.argv[1])
+layers = sys.argv[2:]
+out: dict[str, dict[str, int]] = {}
+for base in layers:
+    path = exports / f"{base}.geojson"
+    stat = path.stat()
+    out[f"{base}.geojson"] = {"size_bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+print(json.dumps(out))
+PY
+}
 
 print_prepare_stats() {
   local base="$1"
@@ -237,11 +259,11 @@ else
   BUILD_MODE="full"
 fi
 
-log "mode: ${BUILD_MODE} progress_ticker=$([[ "${PMTILES_PROGRESS_TICKER_ENABLED:-1}" == "1" ]] && echo on || echo off)"
+log "mode: ${BUILD_MODE} estimated_progress_ticker=$([[ "${PMTILES_PROGRESS_TICKER_ENABLED:-1}" == "1" ]] && echo on || echo off)"
 log "log file: ${BUILD_LOG}"
 echo "" >&2
 
-for cmd in tippecanoe tile-join pmtiles python3 ogr2ogr; do
+for cmd in tippecanoe tile-join pmtiles python3 ogr2ogr ogrinfo; do
   command -v "$cmd" >/dev/null 2>&1 || {
     echo "error: '${cmd}' not found (brew install gdal tippecanoe pmtiles)" >&2
     exit 1
@@ -303,9 +325,12 @@ echo "" >&2
 
 build_stage "$PCT_VALIDATE" "validating GeoJSON"
 for base in "${LAYERS[@]}"; do
-  run_logged "validate GeoJSON: ${base}" python3 -m json.tool "${EXPORTS}/${base}.geojson" >/dev/null
+  run_logged "validate GeoJSON: ${base}" python3 "$VALIDATE_GEOJSON_PY" \
+    "${EXPORTS}/${base}.geojson" \
+    --manifest "$BUILD_MANIFEST" \
+    --layer "${base}.geojson"
 done
-pmtiles_stage_note "validated ${#LAYERS[@]} layer(s)"
+pmtiles_stage_note "validated ${#LAYERS[@]} layer(s) (full parse under ${PMTILES_GEOJSON_FULL_VALIDATE_MAX_BYTES:-33554432} bytes, else ogrinfo)"
 
 mkdir -p "$OUT_DIR"
 trap cleanup EXIT
@@ -334,9 +359,15 @@ for base in "${LAYERS[@]}"; do
       HAS_STREETS=1
       ;;
     road_labels)
-      run_logged "ogr2ogr road_labels GeoJSONSeq" ogr2ogr -overwrite -f GeoJSONSeq "$seq_in" "$src"
-      run_logged "prepare-tippecanoe road_labels" python3 "$PREPARE_PY" "$base" "$seq_in" "$seq_out"
-      HAS_LABELS=1
+      count="$(feature_count "$src")"
+      if [[ "$count" == "0" ]]; then
+        log "road_labels: 0 features — skipping label tile pass (streets layer still included)"
+        : >"$seq_out"
+      else
+        run_logged "ogr2ogr road_labels GeoJSONSeq" ogr2ogr -overwrite -f GeoJSONSeq "$seq_in" "$src"
+        run_logged "prepare-tippecanoe road_labels" python3 "$PREPARE_PY" "$base" "$seq_in" "$seq_out"
+        HAS_LABELS=1
+      fi
       ;;
     *)
       count="$(feature_count "$src")"
@@ -371,18 +402,57 @@ common_flags=(
   --attribution="Local Map"
 )
 
+ADMIN_LIGHT=()
+NON_ADMIN_LIGHT=()
+for base in "${LIGHT_LAYERS[@]}"; do
+  case "$base" in
+    admin_areas|admin_boundaries) ADMIN_LIGHT+=("$base") ;;
+    *) NON_ADMIN_LIGHT+=("$base") ;;
+  esac
+done
+
+HAS_ADMIN_LIGHT=0
+HAS_NON_ADMIN_LIGHT=0
 HAS_LIGHT=0
-if [[ ${#LIGHT_LAYERS[@]} -gt 0 ]]; then
-  HAS_LIGHT=1
-  build_stage "$PCT_LIGHT" "building light layers (admin/water/landuse/buildings)"
+[[ ${#ADMIN_LIGHT[@]} -gt 0 ]] && HAS_ADMIN_LIGHT=1
+[[ ${#NON_ADMIN_LIGHT[@]} -gt 0 ]] && HAS_NON_ADMIN_LIGHT=1
+[[ "$HAS_ADMIN_LIGHT" == "1" || "$HAS_NON_ADMIN_LIGHT" == "1" ]] && HAS_LIGHT=1
+
+LIGHT_TICKER_END="$PCT_STREETS"
+[[ "$LIGHT_ONLY" == "1" ]] && LIGHT_TICKER_END="$PCT_FINALIZE"
+ADMIN_TICKER_END="$LIGHT_TICKER_END"
+if [[ "$HAS_ADMIN_LIGHT" == "1" && "$HAS_NON_ADMIN_LIGHT" == "1" ]]; then
+  ADMIN_TICKER_END="$(awk -v a="$PCT_LIGHT" -v b="$LIGHT_TICKER_END" 'BEGIN { printf "%.2f", (a + b) / 2 }')"
+fi
+NON_ADMIN_LIGHT_START="$PCT_LIGHT"
+[[ "$HAS_ADMIN_LIGHT" == "1" ]] && NON_ADMIN_LIGHT_START="$ADMIN_TICKER_END"
+
+admin_common_flags=(
+  tippecanoe --force -pC
+  "--minimum-zoom=${PMTILES_MIN_ZOOM}"
+  "--maximum-zoom=${PMTILES_ADMIN_MAX_ZOOM}"
+  --drop-densest-as-needed
+  --attribution="Local Map"
+)
+
+if [[ "$HAS_ADMIN_LIGHT" == "1" ]]; then
+  build_stage "$PCT_LIGHT" "building admin layers (admin_areas/admin_boundaries, max z${PMTILES_ADMIN_MAX_ZOOM})"
+  admin_named=()
+  for base in "${ADMIN_LIGHT[@]}"; do
+    admin_named+=(--named-layer="${base}:${PREP_DIR}/${base}.annotated.geojsonseq")
+  done
+  admin_cmd=("${admin_common_flags[@]}" -o "$MBTILES_ADMIN" "${admin_named[@]}")
+  run_tippecanoe_tickered "$PCT_LIGHT" "$ADMIN_TICKER_END" "building admin layers (z14)" "${admin_cmd[@]}"
+fi
+
+if [[ "$HAS_NON_ADMIN_LIGHT" == "1" ]]; then
+  build_stage "$NON_ADMIN_LIGHT_START" "building light layers (water/landuse/buildings/labels)"
   light_named=()
-  for base in "${LIGHT_LAYERS[@]}"; do
+  for base in "${NON_ADMIN_LIGHT[@]}"; do
     light_named+=(--named-layer="${base}:${PREP_DIR}/${base}.annotated.geojsonseq")
   done
   light_cmd=("${common_flags[@]}" -o "$MBTILES_LIGHT" "${light_named[@]}")
-  LIGHT_TICKER_END="$PCT_STREETS"
-  [[ "$LIGHT_ONLY" == "1" ]] && LIGHT_TICKER_END="$PCT_FINALIZE"
-  run_tippecanoe_tickered "$PCT_LIGHT" "$LIGHT_TICKER_END" "building light layers" "${light_cmd[@]}"
+  run_tippecanoe_tickered "$NON_ADMIN_LIGHT_START" "$LIGHT_TICKER_END" "building light layers" "${light_cmd[@]}"
 fi
 
 if [[ "$HAS_STREETS" == "1" ]]; then
@@ -419,7 +489,8 @@ if [[ "$HAS_LABELS" == "1" ]]; then
 fi
 
 join_inputs=()
-[[ "$HAS_LIGHT" == "1" && -f "$MBTILES_LIGHT" ]] && join_inputs+=("$MBTILES_LIGHT")
+[[ "$HAS_ADMIN_LIGHT" == "1" && -f "$MBTILES_ADMIN" ]] && join_inputs+=("$MBTILES_ADMIN")
+[[ "$HAS_NON_ADMIN_LIGHT" == "1" && -f "$MBTILES_LIGHT" ]] && join_inputs+=("$MBTILES_LIGHT")
 [[ "$HAS_STREETS" == "1" && -f "$MBTILES_STREETS" ]] && join_inputs+=("$MBTILES_STREETS")
 [[ "$HAS_LABELS" == "1" && -f "$MBTILES_LABELS" ]] && join_inputs+=("$MBTILES_LABELS")
 
@@ -432,12 +503,24 @@ build_stage "$PCT_FINALIZE" "finalizing PMTiles"
 pmtiles_ticker_start "$PCT_FINALIZE" "$PCT_DONE" "finalizing PMTiles"
 
 if [[ ${#join_inputs[@]} -eq 1 ]]; then
+  pmtiles_stage_start "copy single mbtiles"
+  pmtiles_heartbeat_start "finalize" "$MBTILES"
   run_logged "copy single mbtiles" cp -f "${join_inputs[0]}" "$MBTILES"
+  pmtiles_heartbeat_stop
+  pmtiles_stage_finish "copy single mbtiles ($(human_size "$MBTILES"))"
 else
+  pmtiles_stage_start "tile-join"
+  pmtiles_heartbeat_start "tile-join" "$MBTILES"
   run_logged "tile-join" tile-join -f -o "$MBTILES" "${join_inputs[@]}"
+  pmtiles_heartbeat_stop
+  pmtiles_stage_finish "tile-join ($(human_size "$MBTILES"))"
 fi
 
+pmtiles_stage_start "pmtiles convert"
+pmtiles_heartbeat_start "pmtiles convert" "$PMTILES_NEW"
 run_logged "pmtiles convert" pmtiles convert "$MBTILES" "$PMTILES_NEW"
+pmtiles_heartbeat_stop
+pmtiles_stage_finish "pmtiles convert ($(human_size "$PMTILES_NEW"))"
 pmtiles_ticker_stop
 
 mv -f "$PMTILES_NEW" "$OUT_PMTILES"
@@ -457,13 +540,18 @@ PMTILES_RECOMMENDED_MAP_MAX_ZOOM="${PMTILES_RECOMMENDED_MAP_MAX_ZOOM:-20}"
 } >"$CURRENT_NEW"
 mv -f "$CURRENT_NEW" "$CURRENT"
 
+VALIDATION_INPUTS_JSON="$(collect_validation_inputs_json)"
+run_logged "verify PMTiles output" python3 "$VERIFY_BUILD_PY" \
+  "$REGION" "$VERSION" "$OUT_PMTILES" "$VALIDATION_INPUTS_JSON"
+
 trap - EXIT
 rm -rf "$PREP_DIR"
-rm -f "$MBTILES_LIGHT" "$MBTILES_LABELS" "$MBTILES_STREETS" "$MBTILES"
+rm -f "$MBTILES_ADMIN" "$MBTILES_LIGHT" "$MBTILES_LABELS" "$MBTILES_STREETS" "$MBTILES"
 BUILD_SUCCESS=true
 
 build_stage "$PCT_DONE" "done"
 log "SUCCESS output=${OUT_PMTILES} size=$(human_size "$OUT_PMTILES")"
+log "build manifest=${BUILD_MANIFEST}"
 log "current.json=${CURRENT}"
 log "inspect layers: pmtiles show ${OUT_PMTILES}"
 log "build log: ${BUILD_LOG}"

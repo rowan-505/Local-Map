@@ -1,9 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import { adminAreaOptionsQuerySchema, adminAreasQuerySchema } from "./admin-areas.schema.js";
+import { adminAreaOptionsQuerySchema, adminAreasQuerySchema, roadTownshipAdminAreaOptionsQuerySchema } from "./admin-areas.schema.js";
 import { AdminAreasRepository } from "./admin-areas.repo.js";
 import { AdminAreasService } from "./admin-areas.service.js";
-import { getAdminAreaOptionsSchema, getAdminAreasSchema } from "./admin-areas.openapi.js";
+import { getAdminAreaOptionsSchema, getAdminAreasSchema, getRoadTownshipAdminAreaOptionsSchema } from "./admin-areas.openapi.js";
 
 const adminAreasRoutes: FastifyPluginAsync = async (app) => {
     const adminAreasRepo = new AdminAreasRepository(app.prisma);
@@ -50,6 +50,30 @@ const adminAreasRoutes: FastifyPluginAsync = async (app) => {
                 limit: parsed.data.limit,
                 q: parsed.data.q,
                 adminLevelCode: parsed.data.admin_level_code,
+            });
+            return reply.send(options);
+        }
+    );
+
+    app.get(
+        "/admin-areas/road-township-options",
+        {
+            preHandler: app.authenticate,
+            schema: getRoadTownshipAdminAreaOptionsSchema,
+        },
+        async (request, reply) => {
+            const parsed = roadTownshipAdminAreaOptionsQuerySchema.safeParse(request.query);
+
+            if (!parsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid road township options query",
+                    issues: parsed.error.flatten(),
+                });
+            }
+
+            const options = await adminAreasService.searchRoadTownshipAdminAreaOptions({
+                q: parsed.data.q,
+                limit: parsed.data.limit,
             });
             return reply.send(options);
         }

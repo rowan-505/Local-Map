@@ -61,13 +61,13 @@
      });
  }
  
- export function useCoreReviewRefAdminAreas(limit: number, enabled: boolean) {
-     return useQuery({
-         queryKey: coreReviewRefQueryKeys.adminAreas(limit),
-         queryFn: () => getAdminAreaOptions({ limit }),
-         ...refQueryDefaults(enabled),
-     });
- }
+export function useCoreReviewRefAdminAreas(limit: number, enabled: boolean, townshipOnly = false) {
+    return useQuery({
+        queryKey: [...coreReviewRefQueryKeys.adminAreas(limit), townshipOnly ? "township" : "all"],
+        queryFn: () => getAdminAreaOptions({ limit, townshipOnly }),
+        ...refQueryDefaults(enabled),
+    });
+}
  
  export function useCoreReviewRefLanduseClasses(enabled: boolean) {
      return useQuery({

@@ -45,8 +45,9 @@ function sanitizeStreetPatchBody(body: unknown) {
 
 const streetsRoutes: FastifyPluginAsync = async (app) => {
     const streetsRepo = new StreetsRepository(app.prisma);
-    const entityAdminAreaService = new EntityAdminAreaService(new EntityAdminAreaRepository(app.prisma));
-    const streetsService = new StreetsService(streetsRepo, entityAdminAreaService);
+    const entityAdminAreaRepo = new EntityAdminAreaRepository(app.prisma);
+    const entityAdminAreaService = new EntityAdminAreaService(entityAdminAreaRepo);
+    const streetsService = new StreetsService(streetsRepo, entityAdminAreaService, entityAdminAreaRepo);
 
     app.get(
         "/road-classes",
@@ -126,7 +127,10 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
                 });
             }
 
-            const result = await streetsService.validateStreetGeometry(parsed.data);
+            const result = await streetsService.validateStreetGeometry(parsed.data, {
+                requestId: request.id,
+                log: request.log,
+            });
             return reply.send(result);
         },
     );

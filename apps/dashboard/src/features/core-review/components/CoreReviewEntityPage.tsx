@@ -197,12 +197,14 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                 verified: list.verificationCounts?.verified ?? 0,
                 unverified: list.verificationCounts?.unverified ?? 0,
                 isLoading: list.totalLoading,
+                countUnavailable: list.countUnavailable,
             };
         }
         return verificationTotals;
     }, [
         config.apiSlug,
         config.filterSupport.isVerified,
+        list.countUnavailable,
         list.totalLoading,
         list.verificationCounts,
         verificationTotals,
@@ -214,10 +216,11 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                   config.filterSupport.isVerified
                       ? headerVerificationTotals
                       : {
-                            total: list.pagination.total,
+                            total: list.pagination.total ?? 0,
                             verified: 0,
                             unverified: 0,
                             isLoading: list.totalLoading,
+                            countUnavailable: list.countUnavailable,
                         },
                   list.appliedDraft,
                   config.filterSupport.isVerified
@@ -277,12 +280,17 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                         sortOptions={config.sortOptions}
                         filterSupport={config.filterSupport}
                         searchPlaceholder={config.searchPlaceholder}
-                        totalCount={list.pagination.total}
+                        totalCount={
+                            config.apiSlug === "streets" && !list.totalKnown
+                                ? list.rows.length
+                                : (list.pagination.total ?? 0)
+                        }
                         filteredCount={list.rows.length}
                         onApply={handleApply}
                         onClear={handleClear}
                         onApplyVerificationFilter={list.applyVerificationFilter}
                         showRoutePicker={config.apiSlug === "bus-route-variants"}
+                        adminAreaTownshipOnly={config.apiSlug === "streets"}
                         extraFilters={config.extensions?.renderExtraFilters?.({
                             draft: list.draft,
                             setDraft: list.setDraft,
@@ -364,8 +372,8 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                     <ReviewPagination
                         page={list.pagination.page}
                         pageSize={list.pagination.pageSize}
-                        total={list.pagination.total}
-                        totalPages={list.pagination.totalPages}
+                        total={list.pagination.total ?? 0}
+                        totalPages={list.pagination.totalPages ?? 1}
                         onPageChange={list.setPage}
                         disabled={list.isLoading}
                         hasNextPage={list.hasNextPage}

@@ -6,3 +6,11 @@ firstly need to make sure successfully working locally
 
 
 3. 
+
+
+----------
+1. make r2 export all tiles  use another way "https://chatgpt.com/g/g-p-69cb95449e4081918f18db18e334b678/c/6a223906-d664-83aa-a626-07d0f6fa25fc"
+2.viewport loading , package registy 
+3.bus ,train data import
+4.OTP
+5. test and UI

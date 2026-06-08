@@ -1,4 +1,4 @@
-import { AdminAreasRepository } from "./admin-areas.repo.js";
+import { AdminAreasRepository, type AdminAreaOptionRow } from "./admin-areas.repo.js";
 
 type AdminAreaResponse = {
     id: string;
@@ -63,21 +63,28 @@ export class AdminAreasService {
         adminLevelCode?: "township";
     }) {
         const rows = await this.adminAreasRepo.listAdminAreaOptions(args);
-        return rows.map(
-            (row): AdminAreaOptionResponse => ({
-                id: row.id.toString(),
-                canonical_name: row.canonical_name,
-                name_mm: row.name_mm,
-                name_en: row.name_en,
-                admin_level_id: row.admin_level_id.toString(),
-                admin_level_code: row.admin_level_code,
-                admin_level_name: row.admin_level_name,
-                parent_id: row.parent_id !== null ? row.parent_id.toString() : null,
-                parent_label: row.parent_label,
-                boundary_status: row.boundary_status,
-                address_usage: row.address_usage,
-            })
-        );
+        return rows.map((row) => this.mapAdminAreaOptionRow(row));
+    }
+
+    async searchRoadTownshipAdminAreaOptions(args: { q: string; limit: number }) {
+        const rows = await this.adminAreasRepo.searchRoadTownshipAdminAreaOptions(args);
+        return rows.map((row) => this.mapAdminAreaOptionRow(row));
+    }
+
+    private mapAdminAreaOptionRow(row: AdminAreaOptionRow): AdminAreaOptionResponse {
+        return {
+            id: row.id.toString(),
+            canonical_name: row.canonical_name,
+            name_mm: row.name_mm,
+            name_en: row.name_en,
+            admin_level_id: row.admin_level_id.toString(),
+            admin_level_code: row.admin_level_code,
+            admin_level_name: row.admin_level_name,
+            parent_id: row.parent_id !== null ? row.parent_id.toString() : null,
+            parent_label: row.parent_label,
+            boundary_status: row.boundary_status,
+            address_usage: row.address_usage,
+        };
     }
 
     async assertActiveAdminAreaId(adminAreaId: bigint | null | undefined): Promise<bigint | null> {

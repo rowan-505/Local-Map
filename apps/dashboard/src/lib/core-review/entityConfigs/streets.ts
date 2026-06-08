@@ -12,6 +12,7 @@ import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 import { formatVerificationStatusLabel } from "@/src/features/core-review/config/verificationStatus";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import { entityAdminAreaIdForPayload } from "@/src/lib/core-review/entityAdminAreaPayload";
+import { roadAdminAreaForStreetUpdatePayload } from "@/src/lib/core-review/roadAdminAreaPayload";
 
 import {
     createCoreReviewWriteMutations,
@@ -96,9 +97,7 @@ function formValuesToStreetUpdatePayload(values: CoreEntityFormValues): UpdateSt
     const reason = String(values.edit_reason ?? "").trim();
     return {
         ...streetNamePayload(values),
-        ...(entityAdminAreaIdForPayload(values, "admin_area_id") !== undefined
-            ? { admin_area_id: entityAdminAreaIdForPayload(values, "admin_area_id") as string | null }
-            : {}),
+        ...roadAdminAreaForStreetUpdatePayload(values),
         road_class_id: String(values.road_class_id).trim() || null,
         is_oneway: Boolean(values.is_oneway),
         bridge: Boolean(values.bridge),
@@ -244,6 +243,7 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
             englishName: detailRecord.englishName ?? detailRecord.name_en ?? "",
             road_class_id: detail.road_class_id ?? "",
             admin_area_id: detail.admin_area_id ?? "",
+            admin_area_manual_override: Boolean(detail.manual_override),
             is_oneway: detail.is_oneway,
             bridge: detail.bridge,
             tunnel: detail.tunnel,

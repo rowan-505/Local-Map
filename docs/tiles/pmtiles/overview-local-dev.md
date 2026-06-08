@@ -120,19 +120,58 @@ window.__MAP_LAYERS__().map(l => l.id).filter(id => id.startsWith('overview-'))
 
 ---
 
-## 6. Env reference (names only)
+## 6. Local QA: all regional PMTiles at once
+
+**Temporary dev-only mode** — loads every built regional archive from `http://localhost:8080/regions` on one map. **Not for production.** Can be **slow** (15 regional sources + full layer stacks).
+
+**Terminal 1** (repo root):
+
+```bash
+npm run tiles:serve
+```
+
+**Terminal 2**:
+
+```bash
+cd apps/web
+VITE_LOAD_ALL_LOCAL_REGION_PMTILES=true \
+VITE_OVERVIEW_PMTILES_URL=http://localhost:8080/overview/regions/myanmar-overview-v1.pmtiles \
+npm run dev
+```
+
+Or in `apps/web/.env.local`:
+
+```env
+VITE_LOAD_ALL_LOCAL_REGION_PMTILES=true
+VITE_OVERVIEW_PMTILES_URL=http://localhost:8080/overview/regions/myanmar-overview-v1.pmtiles
+```
+
+Expect console logs:
+
+```text
+[pmtiles-qa] loading all local regions
+[pmtiles-qa] loaded yangon http://localhost:8080/regions/yangon/yangon-v2.pmtiles
+…
+```
+
+Ignored when `VITE_MAP_BASEMAP=overview` (overview-only mode). Ignored in production builds even if the env var is set.
+
+---
+
+## 7. Env reference (names only)
 
 | Variable | App | Purpose |
 |----------|-----|---------|
 | `VITE_OVERVIEW_PMTILES_URL` | web | Direct overview `.pmtiles` HTTP(S) URL — composes with regional when set |
 | `VITE_BASEMAP_PMTILES_URL` | web | Regional Yangon URL (unchanged) |
 | `VITE_MAP_BASEMAP` | web | Optional: `overview` for overview-only style (requires overview URL) |
+| `VITE_LOAD_ALL_LOCAL_REGION_PMTILES` | web | Dev-only: load all 15 regional PMTiles from localhost:8080 (local QA; may be slow) |
 
 Web app reads **only** `VITE_OVERVIEW_PMTILES_URL` for overview (no `current.json`). Rebuild/restart Vite after env changes.
 
 ---
 
-## 7. Common errors
+## 8. Common errors
 
 ### Blank map / “Failed to fetch”
 

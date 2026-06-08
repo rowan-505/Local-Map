@@ -1,7 +1,25 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { deriveCoalescedDisplayName, trimName } from "./derive-display-name.js";
+import {
+    ENGLISH_LANGUAGE_CODE,
+    MYANMAR_LANGUAGE_CODE,
+    deriveCoalescedDisplayName,
+    trimName,
+} from "./derive-display-name.js";
+import { BUILDING_NAMES_CONFIG, LANDUSE_NAMES_CONFIG } from "./sync-primary-names.js";
+
+describe("language code constants", () => {
+    it("uses my for Myanmar and en for English", () => {
+        assert.equal(MYANMAR_LANGUAGE_CODE, "my");
+        assert.equal(ENGLISH_LANGUAGE_CODE, "en");
+    });
+
+    it("entity name configs persist Myanmar rows as language_code=my", () => {
+        assert.equal(BUILDING_NAMES_CONFIG(1n).namesTable, "core.core_map_building_names");
+        assert.equal(LANDUSE_NAMES_CONFIG(2n).namesTable, "core.core_map_landuse_names");
+    });
+});
 
 describe("deriveCoalescedDisplayName", () => {
     it("prefers Myanmar then English then fallback", () => {

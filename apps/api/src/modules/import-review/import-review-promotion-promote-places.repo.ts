@@ -555,7 +555,7 @@ export class ImportReviewPromotionPromotePlacesRepository {
             typed_names AS (
                 SELECT
                     s.name_mm AS name,
-                    'mm'::text AS language_code,
+                    'my'::text AS language_code,
                     'MYMR'::text AS script_code,
                     'official'::text AS name_type,
                     true AS is_primary,

@@ -39,7 +39,15 @@ export function patchCoreReviewListRowEverywhere<T extends Record<string, unknow
             if (!prev) return prev;
             return {
                 ...prev,
-                data: prev.data.map((row) => (String((row as any)?.id) === rowId ? patch(row) : row)),
+                data: prev.data.map((row) => {
+                    const key = String(
+                        (row as { publicId?: string; public_id?: string; id?: string }).publicId ??
+                            (row as { public_id?: string }).public_id ??
+                            (row as { id?: string }).id ??
+                            "",
+                    );
+                    return key === rowId ? patch(row) : row;
+                }),
             };
         }
     );

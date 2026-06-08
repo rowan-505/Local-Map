@@ -200,6 +200,7 @@ export type UpdateStreetPayload = {
     myanmarName?: string;
     englishName?: string;
     admin_area_id?: string | null;
+    admin_area_manual_override?: boolean;
     geometry?: StreetLineStringGeoJson;
     road_class_id?: string | null;
     is_oneway?: boolean;
@@ -1579,12 +1580,24 @@ export function getAdminAreaOptions(params?: {
     return apiFetch<AdminAreaOption[]>(`/admin-areas/options${qs ? `?${qs}` : ""}`, { method: "GET" });
 }
 
+/** Road/street manual township override: server-side search, active townships only. */
+export function searchRoadTownshipAdminAreaOptions(params: { q: string; limit?: number }) {
+    const search = new URLSearchParams();
+    search.set("q", params.q.trim());
+    search.set("limit", String(params.limit ?? 50));
+    return apiFetch<AdminAreaOption[]>(`/admin-areas/road-township-options?${search.toString()}`, {
+        method: "GET",
+    });
+}
+
 export type EntityAdminAreaKind = "place" | "street" | "building";
 
 export type EntityAdminAreaInferResult = {
     admin_area_id: string | null;
     canonical_name: string | null;
     admin_level_code: string | null;
+    name_mm: string | null;
+    name_en: string | null;
     geometry_contains: boolean;
 };
 
@@ -3976,21 +3989,28 @@ export function getNearestStreetPoint(
     );
 }
 
-export function validateStreetGeometry(payload: {
-    geometry: StreetLineStringGeoJson;
-    /** `public_id` (UUID) or core `id` (digits / number). */
-    streetId?: string | number;
-    /** @deprecated Use `streetId`. */
-    street_id?: string;
-    toleranceMeters?: number;
-}) {
-    return apiFetch<ValidateStreetGeometryResponse>("/streets/validate-geometry", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
+export function validateStreetGeometry(
+    payload: {
+        geometry: StreetLineStringGeoJson;
+        /** `public_id` (UUID) or core `id` (digits / number). */
+        streetId?: string | number;
+        /** @deprecated Use `streetId`. */
+        street_id?: string;
+        toleranceMeters?: number;
+    },
+    init: Pick<RequestInit, "signal"> = {},
+) {
+    return apiFetch<ValidateStreetGeometryResponse>(
+        "/streets/validate-geometry",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+            ...init,
         },
-        body: JSON.stringify(payload),
-    });
+    );
 }
 
 export function createStreet(payload: CreateStreetPayload) {
@@ -4452,8 +4472,9 @@ export type CoreReviewEntitySlug =
 export type CoreReviewPagination = {
     page: number;
     pageSize: number;
-    total: number;
-    totalPages: number;
+    /** Null when list skipped COUNT(*) (streets progressive loading). */
+    total: number | null;
+    totalPages: number | null;
 };
 
 export type CoreReviewListResponse<T> = {

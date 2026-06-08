@@ -1,0 +1,12 @@
+{
+  "region": "bago",
+  "version": "v1",
+  "filename": "bago-v1.pmtiles",
+  "url": "http://localhost:8080/regions/bago/bago-v1.pmtiles",
+  "minZoom": 8,
+  "maxZoom": 20,
+  "minzoom": 8,
+  "maxzoom": 20,
+  "nativeMaxzoom": 20,
+  "recommendedMapMaxZoom": 20
+}

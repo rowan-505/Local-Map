@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-const entityKindSchema = z.enum(["place", "street", "building"]);
+import { normalizeEntityAdminAreaKind } from "./entity-admin-area-kind.js";
+
+const entityKindInputSchema = z.enum(["place", "street", "building", "road"]);
 
 const geoJsonGeometrySchema = z.object({
     type: z.string(),
@@ -9,13 +11,22 @@ const geoJsonGeometrySchema = z.object({
 
 export const entityAdminAreaInferBodySchema = z
     .object({
-        kind: entityKindSchema,
+        kind: entityKindInputSchema,
         lat: z.number().finite().optional(),
         lng: z.number().finite().optional(),
         geometry: geoJsonGeometrySchema.optional(),
     })
     .superRefine((body, ctx) => {
-        if (body.kind === "place") {
+        const kind = normalizeEntityAdminAreaKind(body.kind);
+        if (!kind) {
+            ctx.addIssue({
+                code: "custom",
+                message: "kind must be place, street, building, or road",
+                path: ["kind"],
+            });
+            return;
+        }
+        if (kind === "place") {
             if (body.lat === undefined || body.lng === undefined) {
                 ctx.addIssue({
                     code: "custom",
@@ -32,7 +43,11 @@ export const entityAdminAreaInferBodySchema = z
                 path: ["geometry"],
             });
         }
-    });
+    })
+    .transform((body) => ({
+        ...body,
+        kind: normalizeEntityAdminAreaKind(body.kind)!,
+    }));
 
 export const entityAdminAreaValidateManualBodySchema = entityAdminAreaInferBodySchema.and(
     z.object({

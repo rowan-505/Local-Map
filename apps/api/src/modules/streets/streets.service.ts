@@ -3,6 +3,7 @@ import {
     EntityAdminAreaService,
     EntityAdminAreaValidationError,
 } from "../entity-admin-area/entity-admin-area.service.js";
+import type { EntityAdminAreaRepository } from "../entity-admin-area/entity-admin-area.repo.js";
 import {
     effectiveVerificationStatusFromRow,
     isVerifiedFromVerificationStatus,
@@ -29,6 +30,10 @@ import type {
     ValidateStreetGeometryBody,
     ValidateStreetGeometryExcludeRef,
 } from "./streets.schema.js";
+import {
+    assertRoadTownshipAdminArea,
+    StreetAdminAreaValidationError,
+} from "./street-admin-area.js";
 
 export type NearestStreetPointResponse = {
     /** Public UUID identifying the snapped street (`core.core_streets.public_id`). */
@@ -66,6 +71,43 @@ export type ValidateStreetGeometryResponse = {
     crossings: StreetGeometryCrossingHit[];
     duplicates: StreetGeometryDuplicateHit[];
 };
+
+const STREET_TOPOLOGY_CHECK_TIMEOUT_MS = 3000;
+const STREET_TOPOLOGY_SEARCH_RADIUS_METERS = 200;
+const STREET_TOPOLOGY_TIMEOUT_WARNING = "Topology checks could not be completed";
+
+type ValidateStreetGeometryLogContext = {
+    requestId?: string;
+    log?: {
+        info: (obj: Record<string, unknown>, msg?: string) => void;
+        warn: (obj: Record<string, unknown>, msg?: string) => void;
+    };
+};
+
+class StreetTopologyCheckTimeoutError extends Error {
+    constructor() {
+        super("street_topology_check_timeout");
+        this.name = "StreetTopologyCheckTimeoutError";
+    }
+}
+
+function withStreetTopologyTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => {
+            reject(new StreetTopologyCheckTimeoutError());
+        }, timeoutMs);
+
+        promise
+            .then((value) => {
+                clearTimeout(timer);
+                resolve(value);
+            })
+            .catch((error: unknown) => {
+                clearTimeout(timer);
+                reject(error);
+            });
+    });
+}
 
 export type StreetLineStringGeometry = {
     type: "LineString";
@@ -147,7 +189,8 @@ export class StreetValidationError extends Error {
 export class StreetsService {
     constructor(
         private readonly streetsRepo: StreetsRepository,
-        private readonly entityAdminArea: EntityAdminAreaService
+        private readonly entityAdminArea: EntityAdminAreaService,
+        private readonly entityAdminAreaRepo: EntityAdminAreaRepository,
     ) {}
 
     private serializeStreet(street: Awaited<ReturnType<StreetsRepository["getStreetByPublicId"]>>) {
@@ -246,7 +289,24 @@ export class StreetsService {
      * Dashboard-only geometry checks (connectivity, crosses/overlap, near-duplicates).
      * `isValid` is false only when geometry fails basic rules; topology issues are warnings and detail arrays.
      */
-    async validateStreetGeometry(body: ValidateStreetGeometryBody): Promise<ValidateStreetGeometryResponse> {
+    async validateStreetGeometry(
+        body: ValidateStreetGeometryBody,
+        context: ValidateStreetGeometryLogContext = {},
+    ): Promise<ValidateStreetGeometryResponse> {
+        const startedAt = Date.now();
+        const vertexCount = body.geometry.coordinates.length;
+        const geometryType = body.geometry.type;
+        const requestId = context.requestId ?? "unknown";
+
+        context.log?.info(
+            {
+                requestId,
+                geometryType,
+                vertexCount,
+            },
+            "streets.validate-geometry.start",
+        );
+
         const baseline: ValidateStreetGeometryResponse = {
             isValid: false,
             errors: [],
@@ -261,6 +321,11 @@ export class StreetsService {
 
         if (!validity.ok) {
             const code = validity.reason ?? "invalid_geometry";
+            const blockingCodes = new Set([
+                "invalid_geometry",
+                "geometry_not_valid",
+                "geometry_must_be_linestring",
+            ]);
             const messageByCode: Record<string, string> = {
                 invalid_geometry: "Geometry could not be parsed as a GeoJSON LineString",
                 geometry_not_valid: "Geometry is not valid",
@@ -269,9 +334,34 @@ export class StreetsService {
                 geometry_length_must_exceed_2_meters: "Centerline length must be greater than 2 meters",
             };
 
+            const durationMs = Date.now() - startedAt;
+            context.log?.info(
+                {
+                    requestId,
+                    geometryType,
+                    vertexCount,
+                    durationMs,
+                    blocking: blockingCodes.has(code),
+                    reason: code,
+                },
+                "streets.validate-geometry.complete",
+            );
+
+            if (blockingCodes.has(code)) {
+                return {
+                    ...baseline,
+                    errors: [messageByCode[code] ?? "Invalid geometry"],
+                };
+            }
+
             return {
-                ...baseline,
-                errors: [messageByCode[code] ?? "Invalid geometry"],
+                isValid: true,
+                errors: [],
+                warnings: [messageByCode[code] ?? "Invalid geometry"],
+                startConnection: null,
+                endConnection: null,
+                crossings: [],
+                duplicates: [],
             };
         }
 
@@ -288,37 +378,60 @@ export class StreetsService {
         let duplicateRows: StreetGeometryDuplicateRow[];
 
         try {
-            [startRow, endRow, crossingRows, duplicateRows] = await Promise.all([
-                this.streetsRepo.findNearestStreetPoint({
-                    lat: start[1],
-                    lng: start[0],
-                    radiusMeters: toleranceMeters,
-                    excludePublicId,
-                    excludeInternalStreetId: excludeInternalId,
-                }),
-                this.streetsRepo.findNearestStreetPoint({
-                    lat: end[1],
-                    lng: end[0],
-                    radiusMeters: toleranceMeters,
-                    excludePublicId,
-                    excludeInternalStreetId: excludeInternalId,
-                }),
-                this.streetsRepo.listStreetGeometryCrossings({
-                    geometry: body.geometry,
-                    excludePublicId,
-                    excludeInternalId,
-                }),
-                this.streetsRepo.listStreetGeometryOverlapDuplicates({
-                    geometry: body.geometry,
-                    excludePublicId,
-                    excludeInternalId,
-                }),
-            ]);
-        } catch {
+            [startRow, endRow, crossingRows, duplicateRows] = await withStreetTopologyTimeout(
+                Promise.all([
+                    this.streetsRepo.findNearestStreetPoint({
+                        lat: start[1],
+                        lng: start[0],
+                        radiusMeters: toleranceMeters,
+                        excludePublicId,
+                        excludeInternalStreetId: excludeInternalId,
+                    }),
+                    this.streetsRepo.findNearestStreetPoint({
+                        lat: end[1],
+                        lng: end[0],
+                        radiusMeters: toleranceMeters,
+                        excludePublicId,
+                        excludeInternalStreetId: excludeInternalId,
+                    }),
+                    this.streetsRepo.listStreetGeometryCrossings({
+                        geometry: body.geometry,
+                        excludePublicId,
+                        excludeInternalId,
+                        searchRadiusMeters: STREET_TOPOLOGY_SEARCH_RADIUS_METERS,
+                    }),
+                    this.streetsRepo.listStreetGeometryOverlapDuplicates({
+                        geometry: body.geometry,
+                        excludePublicId,
+                        excludeInternalId,
+                        searchRadiusMeters: STREET_TOPOLOGY_SEARCH_RADIUS_METERS,
+                    }),
+                ]),
+                STREET_TOPOLOGY_CHECK_TIMEOUT_MS,
+            );
+        } catch (error) {
+            const durationMs = Date.now() - startedAt;
+            const timedOut = error instanceof StreetTopologyCheckTimeoutError;
+
+            context.log?.warn(
+                {
+                    requestId,
+                    geometryType,
+                    vertexCount,
+                    durationMs,
+                    timedOut,
+                },
+                "streets.validate-geometry.topology-incomplete",
+            );
+
             return {
-                ...baseline,
-                isValid: false,
-                errors: ["Topology checks could not be completed. Please try again."],
+                isValid: true,
+                errors: [],
+                warnings: [STREET_TOPOLOGY_TIMEOUT_WARNING],
+                startConnection: null,
+                endConnection: null,
+                crossings: [],
+                duplicates: [],
             };
         }
 
@@ -363,6 +476,20 @@ export class StreetsService {
             warnings.push("Similar road already exists nearby.");
         }
 
+        const durationMs = Date.now() - startedAt;
+        context.log?.info(
+            {
+                requestId,
+                geometryType,
+                vertexCount,
+                durationMs,
+                warningCount: warnings.length,
+                crossingCount: crossings.length,
+                duplicateCount: duplicates.length,
+            },
+            "streets.validate-geometry.complete",
+        );
+
         return {
             isValid: true,
             errors: [],
@@ -404,6 +531,101 @@ export class StreetsService {
         };
     }
 
+    private mapStreetAdminAreaError(error: unknown): never {
+        if (error instanceof EntityAdminAreaValidationError || error instanceof StreetAdminAreaValidationError) {
+            throw new StreetValidationError(error.message);
+        }
+        throw error;
+    }
+
+    private async inferStreetTownshipId(
+        geometry: StreetLineStringGeometry | undefined,
+    ): Promise<bigint | null> {
+        if (!geometry) {
+            return null;
+        }
+        const inferred = await this.entityAdminArea.infer({
+            kind: "street",
+            geometry,
+        });
+        if (!inferred.admin_area_id) {
+            return null;
+        }
+        return BigInt(inferred.admin_area_id);
+    }
+
+    /**
+     * Road edit save: preserve existing township unless manual override or successful re-infer.
+     */
+    private async resolveRoadAdminAreaForUpdate(args: {
+        existingAdminAreaId: bigint | null;
+        geometry: StreetLineStringGeometry | undefined;
+        requestedAdmin: bigint | null | undefined;
+        requestedAdminInBody: boolean;
+        manualOverride: boolean;
+        user: JwtUser;
+    }): Promise<{ admin_area_id: bigint | null | undefined; manual_override?: boolean }> {
+        if (args.manualOverride) {
+            if (!args.requestedAdminInBody) {
+                return { admin_area_id: undefined };
+            }
+            if (args.requestedAdmin === null || args.requestedAdmin === undefined) {
+                await assertRoadTownshipAdminArea(this.entityAdminAreaRepo, null);
+                return { admin_area_id: null, manual_override: true };
+            }
+            const resolved = await this.resolveRoadAdminAreaForWrite({
+                geometry: args.geometry,
+                requestedAdmin: args.requestedAdmin,
+                user: args.user,
+            });
+            if (!resolved) {
+                return { admin_area_id: undefined };
+            }
+            return {
+                admin_area_id: resolved.admin_area_id,
+                manual_override: true,
+            };
+        }
+
+        const inferredId = await this.inferStreetTownshipId(args.geometry);
+        if (inferredId !== null) {
+            await assertRoadTownshipAdminArea(this.entityAdminAreaRepo, inferredId);
+            return { admin_area_id: inferredId, manual_override: false };
+        }
+
+        if (args.existingAdminAreaId !== null) {
+            return { admin_area_id: undefined };
+        }
+
+        return { admin_area_id: undefined };
+    }
+
+    private async resolveRoadAdminAreaForWrite(args: {
+        geometry: StreetLineStringGeometry | undefined;
+        requestedAdmin: bigint | null | undefined;
+        user: JwtUser;
+        /** When true, omitted admin_area_id is inferred from geometry (create). */
+        autoWhenOmitted?: boolean;
+    }): Promise<{ admin_area_id: bigint | null; manual_override: boolean } | null> {
+        if (args.requestedAdmin === undefined && !args.autoWhenOmitted) {
+            return null;
+        }
+
+        try {
+            const resolved = await this.entityAdminArea.resolveForWrite({
+                kind: "street",
+                geometry: args.geometry,
+                requested_admin_area_id: args.requestedAdmin,
+                user: args.user,
+                path: "admin_area_id",
+            });
+            await assertRoadTownshipAdminArea(this.entityAdminAreaRepo, resolved.admin_area_id);
+            return resolved;
+        } catch (error) {
+            this.mapStreetAdminAreaError(error);
+        }
+    }
+
     async createStreet(body: CreateStreetBody, _user: JwtUser): Promise<StreetResponse> {
         if (!body.geometry) {
             throw new StreetValidationError("geometry is required");
@@ -420,21 +642,22 @@ export class StreetsService {
         let adminAreaId: bigint | null;
         let manualOverride = false;
         try {
-            const resolved = await this.entityAdminArea.resolveForWrite({
-                kind: "street",
+            const resolved = await this.resolveRoadAdminAreaForWrite({
                 geometry: body.geometry,
-                requested_admin_area_id:
-                    requestedAdmin === undefined ? undefined : requestedAdmin,
+                requestedAdmin,
                 user: _user,
-                path: "admin_area_id",
+                autoWhenOmitted: true,
             });
+            if (!resolved) {
+                throw new StreetValidationError("Road admin_area_id could not be resolved");
+            }
             adminAreaId = resolved.admin_area_id;
             manualOverride = resolved.manual_override;
         } catch (error) {
-            if (error instanceof EntityAdminAreaValidationError) {
-                throw new StreetValidationError(error.message);
+            if (error instanceof StreetValidationError) {
+                throw error;
             }
-            throw error;
+            this.mapStreetAdminAreaError(error);
         }
 
         if (!sourceTypeId) {
@@ -493,6 +716,8 @@ export class StreetsService {
 
     async updateStreet(publicId: string, body: UpdateStreetBody, user: JwtUser): Promise<StreetResponse> {
         const requestedAdmin = body.admin_area_id ?? body.adminAreaId;
+        const requestedAdminInBody = body.admin_area_id !== undefined || body.adminAreaId !== undefined;
+        const manualOverride = Boolean(body.admin_area_manual_override ?? body.adminAreaManualOverride);
         const roadClassId = body.road_class_id ?? body.roadClassId;
         const isOneway = body.is_oneway ?? body.isOneway;
 
@@ -501,27 +726,34 @@ export class StreetsService {
             throw new StreetNotFoundError();
         }
 
+        const existingAdminAreaId =
+            existing.admin_area_id !== null && existing.admin_area_id !== undefined
+                ? BigInt(existing.admin_area_id)
+                : null;
+
         const geometry =
             body.geometry ??
             (existing.geometry as StreetLineStringGeometry | null) ??
             undefined;
 
         let adminAreaId: bigint | null | undefined;
+        let manualOverrideFlag: boolean | undefined;
         try {
-            const resolved = await this.entityAdminArea.resolveForWrite({
-                kind: "street",
+            const resolved = await this.resolveRoadAdminAreaForUpdate({
+                existingAdminAreaId,
                 geometry,
-                requested_admin_area_id:
-                    requestedAdmin === undefined ? undefined : requestedAdmin,
+                requestedAdmin,
+                requestedAdminInBody,
+                manualOverride,
                 user,
-                path: "admin_area_id",
             });
             adminAreaId = resolved.admin_area_id;
+            manualOverrideFlag = resolved.manual_override;
         } catch (error) {
-            if (error instanceof EntityAdminAreaValidationError) {
-                throw new StreetValidationError(error.message);
+            if (error instanceof StreetValidationError) {
+                throw error;
             }
-            throw error;
+            this.mapStreetAdminAreaError(error);
         }
 
         const input: UpdateStreetInput = {
@@ -531,10 +763,16 @@ export class StreetsService {
             road_class_id: roadClassId,
             is_oneway: isOneway,
             surface: body.surface,
-            admin_area_id: adminAreaId ?? null,
             bridge: body.bridge,
             tunnel: body.tunnel,
         };
+
+        if (adminAreaId !== undefined) {
+            input.admin_area_id = adminAreaId;
+        }
+        if (manualOverrideFlag !== undefined) {
+            input.manual_override = manualOverrideFlag;
+        }
 
         const pickedVerification = pickCoreReviewVerificationWrite(body as unknown as Record<string, unknown>);
         if (pickedVerification) {

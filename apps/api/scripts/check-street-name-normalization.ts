@@ -6,7 +6,7 @@
  * - Apply migrations through `infrastructure/database/migrations/017_street_names_normalization.sql`.
  * - POST `/streets` with GeoJSON geometry and `myanmarName` and/or `englishName` only (omit `canonical_name`).
  * - In Postgres, confirm rows in `core.core_street_names` for that street:
- *   Myanmar: language_code `mm`, script_code `Mymr`, name_type `official`, is_primary `true`.
+ *   Myanmar: language_code `my`, script_code `Mymr`, name_type `official`, is_primary `true`.
  *   English: language_code `en`, script_code `Latn`, name_type `official`, is_primary `true`.
  * - Confirm placeholder OSM strings such as “Unnamed residential …” remain in `core.core_street_names` with
  *   name_type `generated`, is_primary `false`.

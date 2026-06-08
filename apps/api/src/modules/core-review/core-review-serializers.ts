@@ -132,8 +132,6 @@ export function serializeCoreReviewStreetListItem(row: StreetCoreReviewListRow) 
         isVerified: isVerifiedFromVerificationStatus(verificationStatus),
         createdAt: iso(row.created_at),
         updatedAt: iso(row.updated_at),
-        geometry: null,
-        names: [] as CoreReviewNameDto[],
         myanmarName: row.myanmar_name,
         englishName: row.english_name,
         name_mm: row.myanmar_name,

@@ -1,6 +1,10 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
-import { ENGLISH_LANGUAGE_CODE, MYANMAR_LANGUAGE_CODES, trimName } from "./derive-display-name.js";
+import {
+    ENGLISH_LANGUAGE_CODE,
+    MYANMAR_LANGUAGE_CODE,
+    trimName,
+} from "./derive-display-name.js";
 
 export type PrimaryNameSlots = {
     /** Omit key to leave that language unchanged; null clears primary official row(s). */
@@ -12,17 +16,11 @@ export type EntityNamesTableConfig = {
     namesTable: string;
     fkColumn: string;
     entityId: bigint;
-    /** Language code stored on INSERT for Myanmar (table CHECK may only allow `mm`). */
-    myanmarWriteLanguageCode: "my" | "mm";
     myanmarScriptCode: string;
     englishScriptCode: string;
 };
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
-
-function myanmarLanguageInList(): Prisma.Sql {
-    return Prisma.sql`(${Prisma.join(MYANMAR_LANGUAGE_CODES.map((c) => Prisma.sql`${c}`), ", ")})`;
-}
 
 async function clearPrimaryOfficial(
     tx: DbClient,
@@ -83,12 +81,12 @@ export async function syncPrimaryOfficialNames(
         await clearPrimaryOfficial(
             tx,
             config,
-            Prisma.sql`(lower(trim(n.language_code)) IN ${myanmarLanguageInList()} OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR')`
+            Prisma.sql`(lower(trim(n.language_code)) = ${MYANMAR_LANGUAGE_CODE} OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR')`
         );
         const mm = trimName(slots.name_mm);
         if (mm) {
             await insertPrimaryOfficial(tx, config, {
-                languageCode: config.myanmarWriteLanguageCode,
+                languageCode: MYANMAR_LANGUAGE_CODE,
                 scriptCode: config.myanmarScriptCode,
                 name: mm,
                 searchWeight: 100,
@@ -120,7 +118,6 @@ export const BUILDING_NAMES_CONFIG = (buildingId: bigint): EntityNamesTableConfi
     namesTable: "core.core_map_building_names",
     fkColumn: "building_id",
     entityId: buildingId,
-    myanmarWriteLanguageCode: "mm",
     myanmarScriptCode: "MYMR",
     englishScriptCode: "LATN",
 });
@@ -137,7 +134,6 @@ export const LANDUSE_NAMES_CONFIG = (landuseId: bigint): EntityNamesTableConfig 
     namesTable: "core.core_map_landuse_names",
     fkColumn: "landuse_id",
     entityId: landuseId,
-    myanmarWriteLanguageCode: "my",
     myanmarScriptCode: "MYMR",
     englishScriptCode: "LATN",
 });
@@ -151,7 +147,6 @@ export const ADMIN_AREA_NAMES_CONFIG = (adminAreaId: bigint): EntityNamesTableCo
     namesTable: "core.core_admin_area_names",
     fkColumn: "admin_area_id",
     entityId: adminAreaId,
-    myanmarWriteLanguageCode: "my",
     myanmarScriptCode: "MYMR",
     englishScriptCode: "LATN",
 });

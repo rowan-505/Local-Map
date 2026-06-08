@@ -383,9 +383,9 @@
       "type": "symbol",
       "source": "local-basemap",
       "source-layer": "road_labels",
-      "minzoom": 11,
+      "minzoom": 12,
       "maxzoom": 20,
-      "metadata": { "local-map:road-tier": "labels z11+ major roads from road_labels only" },
+      "metadata": { "local-map:road-tier": "labels z12+ debug — major roads from road_labels only (not streets)" },
       "filter": [
         "all",
         [
@@ -406,7 +406,7 @@
         "symbol-spacing": 520,
         "text-field": ["coalesce", ["get", "name_mm"], ["get", "name"], ["get", "name_en"]],
         "text-font": ["NotoSansMyanmar-Regular"],
-        "text-size": ["interpolate", ["linear"], ["zoom"], 11, 10, 14, 11, 17, 12],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 15, 12, 17, 14],
         "text-padding": 6,
         "text-max-angle": 28,
         "text-rotation-alignment": "map",
@@ -418,9 +418,9 @@
       "paint": {
         "text-color": "#5a6268",
         "text-halo-color": "#ffffff",
-        "text-halo-width": 1.2,
+        "text-halo-width": 1.4,
         "text-halo-blur": 0.3,
-        "text-opacity": ["interpolate", ["linear"], ["zoom"], 11, 0.82, 14, 0.92, 17, 0.94]
+        "text-opacity": ["interpolate", ["linear"], ["zoom"], 12, 0.88, 15, 0.94, 17, 0.96]
       }
     },
     {
@@ -430,7 +430,7 @@
       "source-layer": "road_labels",
       "minzoom": 12,
       "maxzoom": 20,
-      "metadata": { "local-map:road-tier": "labels z12+ medium roads from road_labels only" },
+      "metadata": { "local-map:road-tier": "labels z12+ debug — medium roads from road_labels only (not streets)" },
       "filter": [
         "all",
         [
@@ -451,7 +451,7 @@
         "symbol-spacing": 560,
         "text-field": ["coalesce", ["get", "name_mm"], ["get", "name"], ["get", "name_en"]],
         "text-font": ["NotoSansMyanmar-Regular"],
-        "text-size": ["interpolate", ["linear"], ["zoom"], 12, 9.5, 15, 10.5, 17, 11],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 15, 12, 17, 14],
         "text-padding": 6,
         "text-max-angle": 28,
         "text-rotation-alignment": "map",
@@ -463,9 +463,9 @@
       "paint": {
         "text-color": "#5a6268",
         "text-halo-color": "#ffffff",
-        "text-halo-width": 1.2,
+        "text-halo-width": 1.4,
         "text-halo-blur": 0.3,
-        "text-opacity": ["interpolate", ["linear"], ["zoom"], 12, 0.76, 15, 0.88, 17, 0.9]
+        "text-opacity": ["interpolate", ["linear"], ["zoom"], 12, 0.88, 15, 0.94, 17, 0.96]
       }
     },
     {
@@ -473,9 +473,9 @@
       "type": "symbol",
       "source": "local-basemap",
       "source-layer": "road_labels",
-      "minzoom": 14,
+      "minzoom": 12,
       "maxzoom": 20,
-      "metadata": { "local-map:road-tier": "labels z14+ local named roads from road_labels only" },
+      "metadata": { "local-map:road-tier": "labels z12+ debug — local + unclassified road_labels (includes missing road_class_code)" },
       "filter": [
         "all",
         [
@@ -486,7 +486,7 @@
         [
           "in",
           ["downcase", ["coalesce", ["get", "road_class_code"], "unknown"]],
-          ["literal", ["residential", "unclassified", "living_street"]]
+          ["literal", ["residential", "unclassified", "living_street", "unknown"]]
         ],
         ["!=", ["coalesce", ["get", "name"], ""], ""],
         ["!=", ["index-of", "road-", ["downcase", ["coalesce", ["get", "name"], ""]]], 0]
@@ -496,7 +496,7 @@
         "symbol-spacing": 600,
         "text-field": ["coalesce", ["get", "name_mm"], ["get", "name"], ["get", "name_en"]],
         "text-font": ["NotoSansMyanmar-Regular"],
-        "text-size": ["interpolate", ["linear"], ["zoom"], 14, 9, 16, 10, 18, 10.5],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 15, 12, 17, 14],
         "text-padding": 6,
         "text-max-angle": 26,
         "text-rotation-alignment": "map",
@@ -508,9 +508,9 @@
       "paint": {
         "text-color": "#636b72",
         "text-halo-color": "#ffffff",
-        "text-halo-width": 1.15,
+        "text-halo-width": 1.4,
         "text-halo-blur": 0.3,
-        "text-opacity": ["interpolate", ["linear"], ["zoom"], 14, 0.68, 16, 0.82, 18, 0.84]
+        "text-opacity": ["interpolate", ["linear"], ["zoom"], 12, 0.88, 15, 0.94, 17, 0.96]
       }
     },
     {

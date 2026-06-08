@@ -127,13 +127,14 @@ export class CoreReviewService {
     private readonly addressesWriteService: CoreReviewAddressesWriteService;
 
     constructor(prisma: PrismaClient) {
-        const entityAdminAreaService = new EntityAdminAreaService(new EntityAdminAreaRepository(prisma));
+        const entityAdminAreaRepo = new EntityAdminAreaRepository(prisma);
+        const entityAdminAreaService = new EntityAdminAreaService(entityAdminAreaRepo);
         this.buildingsRepo = new BuildingsRepository(prisma);
         this.buildingsService = new BuildingsService(this.buildingsRepo, entityAdminAreaService);
         this.placesRepo = new PlacesRepository(prisma);
         this.placesService = new PlacesService(this.placesRepo, entityAdminAreaService);
         this.streetsRepo = new StreetsRepository(prisma);
-        this.streetsService = new StreetsService(this.streetsRepo, entityAdminAreaService);
+        this.streetsService = new StreetsService(this.streetsRepo, entityAdminAreaService, entityAdminAreaRepo);
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
         this.genericWriteService = new CoreReviewGenericWriteService(prisma);
         this.lifecycleService = new CoreReviewLifecycleService(prisma);

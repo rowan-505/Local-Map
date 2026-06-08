@@ -11,6 +11,10 @@ import {
 } from '../lib/maplibre/basemapZoomVisibility';
 import { composeWebMapStyle } from '../lib/maplibre/composeWebMapStyle';
 import {
+  composeLocalRegionPmtilesQaWebMapStyle,
+  isLoadAllLocalRegionPmtilesQaEnabled,
+} from '../lib/maplibre/localRegionPmtilesQa';
+import {
   getActiveOverviewBasemapStyle,
   isOverviewBasemapEnabled,
 } from './overviewBasemapStyle';
@@ -98,8 +102,21 @@ export async function getActiveWebMapStyle(): Promise<StyleSpecification> {
     return getActiveOverviewBasemapStyle();
   }
 
-  const regionalStyle = await getActiveBasemapStyle();
   const overviewUrl = getOverviewPmtilesUrlForWebMap();
+
+  if (isLoadAllLocalRegionPmtilesQaEnabled()) {
+    const style = composeLocalRegionPmtilesQaWebMapStyle(overviewUrl);
+
+    if (import.meta.env.DEV) {
+      console.info(
+        '[map] local PMTiles QA mode: overview + all regional archives from localhost:8080',
+      );
+    }
+
+    return style;
+  }
+
+  const regionalStyle = await getActiveBasemapStyle();
 
   if (!overviewUrl) {
     return regionalStyle;

@@ -117,7 +117,7 @@ export class PublicMapRepository {
                 FROM core.core_place_names AS pn
                 WHERE pn.place_id = p.id
                   AND (
-                      pn.language_code IN ('my', 'mm')
+                      pn.language_code = 'my'
                       OR upper(trim(coalesce(pn.script_code, ''))) = 'MYMR'
                   )
                 ORDER BY
@@ -200,7 +200,7 @@ export class PublicMapRepository {
                 FROM core.core_place_names AS pn
                 WHERE pn.place_id = p.id
                   AND (
-                      pn.language_code IN ('my', 'mm')
+                      pn.language_code = 'my'
                       OR upper(trim(coalesce(pn.script_code, ''))) = 'MYMR'
                   )
                 ORDER BY
@@ -268,7 +268,7 @@ export class PublicMapRepository {
                 FROM core.core_place_names AS pn
                 WHERE pn.place_id = p.id
                   AND (
-                      pn.language_code IN ('my', 'mm')
+                      pn.language_code = 'my'
                       OR upper(trim(coalesce(pn.script_code, ''))) = 'MYMR'
                   )
                 ORDER BY
@@ -369,7 +369,7 @@ export class PublicMapRepository {
                 WHERE sn.street_id = s.id
                   AND lower(trim(coalesce(sn.name_type, ''))) <> 'generated'
                   AND (
-                      sn.language_code IN ('my', 'mm')
+                      sn.language_code = 'my'
                       OR upper(trim(coalesce(sn.script_code, ''))) = 'MYMR'
                   )
                 ORDER BY
@@ -449,7 +449,7 @@ export class PublicMapRepository {
                 FROM core.core_admin_area_names AS n
                 WHERE n.admin_area_id = a.id
                   AND (
-                      n.language_code IN ('my', 'mm')
+                      n.language_code = 'my'
                       OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
                   )
                 ORDER BY
@@ -553,7 +553,7 @@ export class PublicMapRepository {
                 SELECT n.name
                 FROM core.core_bus_stop_names AS n
                 WHERE n.stop_id = b.id
-                  AND lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+                  AND lower(trim(coalesce(n.language_code, ''))) = 'my'
                 ORDER BY
                     CASE
                         WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
@@ -606,7 +606,7 @@ export class PublicMapRepository {
                 SELECT n.name
                 FROM core.core_bus_route_names AS n
                 WHERE n.route_id = r.id
-                  AND lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+                  AND lower(trim(coalesce(n.language_code, ''))) = 'my'
                 ORDER BY
                     CASE
                         WHEN n.name_type = 'official' AND n.is_primary = true THEN 1
@@ -1004,7 +1004,7 @@ function buildSearchQuery(
                 FROM core.core_admin_area_names AS n
                 WHERE n.admin_area_id = parent.id
                   AND (
-                      n.language_code IN ('my', 'mm')
+                      n.language_code = 'my'
                       OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
                   )
                 ORDER BY
@@ -1107,7 +1107,7 @@ function localizedNameJoin(
 ) {
     const languageCondition =
         lang === "my"
-            ? Prisma.sql`(${Prisma.raw(tableAlias)}.language_code IN ('my', 'mm') OR upper(trim(coalesce(${Prisma.raw(tableAlias)}.script_code, ''))) = 'MYMR')`
+            ? Prisma.sql`(${Prisma.raw(tableAlias)}.language_code = 'my' OR upper(trim(coalesce(${Prisma.raw(tableAlias)}.script_code, ''))) = 'MYMR')`
             : Prisma.sql`(${Prisma.raw(tableAlias)}.language_code = 'en' OR upper(trim(coalesce(${Prisma.raw(tableAlias)}.script_code, ''))) = 'LATN')`;
 
     const excludeGeneratedStreetNames = tableName === "core.core_street_names";

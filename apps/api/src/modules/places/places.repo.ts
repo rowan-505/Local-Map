@@ -762,7 +762,7 @@ async function syncDashboardPlaceNames(
           AND p.public_id = CAST(${publicId} AS uuid)
           AND (
               (
-                  pn.language_code IN ('mm', 'my')
+                  pn.language_code = 'my'
                   AND pn.name_type = 'official'
               )
               OR (
@@ -795,7 +795,7 @@ async function syncDashboardPlaceNames(
             SELECT
                 p.id,
                 ${myanmarName},
-                'mm',
+                'my',
                 'MYMR',
                 'official',
                 true,
@@ -847,16 +847,10 @@ async function loadDashboardNameSlots(
                 WHERE p.public_id = CAST(${publicId} AS uuid)
                   AND pn.name_type = 'official'
                   AND (
-                      pn.language_code IN ('mm', 'my')
+                      pn.language_code = 'my'
                       OR upper(trim(COALESCE(pn.script_code, ''))) = 'MYMR'
                   )
-                ORDER BY
-                    CASE pn.language_code
-                        WHEN 'mm' THEN 0
-                        WHEN 'my' THEN 1
-                        ELSE 2
-                    END,
-                    pn.is_primary DESC
+                ORDER BY pn.is_primary DESC
                 LIMIT 1
             ) AS mm,
             (
@@ -914,7 +908,7 @@ function mmNameLateralSql() {
         FROM core.core_place_names pn
         WHERE pn.place_id = p.id
           AND (
-              pn.language_code IN ('mm', 'my')
+              pn.language_code = 'my'
               OR upper(trim(coalesce(pn.script_code, ''))) = 'MYMR'
           )
         ORDER BY pn.is_primary DESC, pn.search_weight DESC NULLS LAST, pn.id ASC

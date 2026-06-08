@@ -127,7 +127,7 @@ function buildingsListOrderBy(
                       AND n.is_primary IS TRUE
                       AND n.name_type = 'official'
                       AND (
-                          lower(trim(n.language_code)) IN ('my', 'mm')
+                          lower(trim(n.language_code)) = 'my'
                           OR upper(trim(coalesce(n.script_code, ''))) = 'MYMR'
                       )
                     ORDER BY n.search_weight DESC, n.id ASC

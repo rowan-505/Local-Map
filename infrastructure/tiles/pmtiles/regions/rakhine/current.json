@@ -1,0 +1,12 @@
+{
+  "region": "rakhine",
+  "version": "v1",
+  "filename": "rakhine-v1.pmtiles",
+  "url": "http://localhost:8080/regions/rakhine/rakhine-v1.pmtiles",
+  "minZoom": 8,
+  "maxZoom": 20,
+  "minzoom": 8,
+  "maxzoom": 20,
+  "nativeMaxzoom": 20,
+  "recommendedMapMaxZoom": 20
+}

@@ -11,7 +11,8 @@ import {
     ensureRoadClassSelected,
     prepareLocalStreetGeometryForSave,
 } from "@/src/features/streets/streetSaveLocalChecks";
-import { validateStreetGeometry, type ValidateStreetGeometryResponse } from "@/src/lib/api";
+import { validateStreetGeometryForSave } from "@/src/features/streets/streetGeometrySaveValidation";
+import type { ValidateStreetGeometryResponse } from "@/src/lib/api";
 import type { CoreEntityGeometryConfig } from "@/src/lib/core-review/entityConfigs/types";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 
@@ -84,13 +85,13 @@ export default function CoreEntityGeometrySection({
 
             setApiValidationBusy(true);
             try {
-                const result = await validateStreetGeometry({
+                const result = await validateStreetGeometryForSave({
                     geometry: local.sanitized,
                     ...(snapExcludePublicId ? { streetId: snapExcludePublicId } : {}),
                 });
                 onApiValidation?.(result);
                 dashDevLog("street:form:validate-geometry", result);
-                return result.isValid || result.warnings.length === 0;
+                return result.isValid && result.errors.length === 0;
             } catch (err) {
                 onApiValidation?.(
                     invalidGeometryValidation(

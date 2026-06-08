@@ -27,6 +27,18 @@ function geometryOrNull(value: unknown): ImportReviewGeoJson | null {
     return value as ImportReviewGeoJson;
 }
 
+function adminAreaFieldsFromStreetDetail(
+    d: StreetDetailLike,
+    row: CoreReviewStreetRow,
+): Pick<CoreReviewStreetRow, "adminAreaId" | "adminAreaName"> {
+    const hasId = "admin_area_id" in d || "adminAreaId" in d;
+    const hasName = "admin_area_name" in d || "adminAreaName" in d;
+    return {
+        adminAreaId: hasId ? strOrNull(d.adminAreaId ?? d.admin_area_id) : row.adminAreaId,
+        adminAreaName: hasName ? strOrNull(d.adminAreaName ?? d.admin_area_name) : row.adminAreaName,
+    };
+}
+
 /** Maps street edit detail (legacy `/streets/:id`) onto a core-review list row. */
 export function applyStreetDetailToListRow(
     row: CoreReviewStreetRow,
@@ -41,8 +53,7 @@ export function applyStreetDetailToListRow(
         canonicalName: d.canonicalName ?? d.canonical_name ?? row.canonicalName,
         myanmarName: d.myanmarName ?? row.myanmarName,
         englishName: d.englishName ?? row.englishName,
-        adminAreaId: strOrNull(d.adminAreaId ?? d.admin_area_id) ?? row.adminAreaId,
-        adminAreaName: strOrNull(d.adminAreaName ?? d.admin_area_name) ?? row.adminAreaName,
+        ...adminAreaFieldsFromStreetDetail(d, row),
         roadClassId: strOrNull(d.roadClassId ?? d.road_class_id) ?? row.roadClassId,
         roadClass: strOrNull(d.roadClass ?? d.road_class) ?? row.roadClass,
         roadClassName: strOrNull(d.roadClassName ?? d.road_class_name) ?? row.roadClassName,

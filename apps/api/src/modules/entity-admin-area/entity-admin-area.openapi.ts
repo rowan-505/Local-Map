@@ -4,11 +4,20 @@ import { Tags, badRequestSchema, bearerAuth } from "../../lib/openapi/common.js"
 
 const inferResultSchema = {
     type: "object",
-    required: ["admin_area_id", "canonical_name", "admin_level_code", "geometry_contains"],
+    required: [
+        "admin_area_id",
+        "canonical_name",
+        "admin_level_code",
+        "name_mm",
+        "name_en",
+        "geometry_contains",
+    ],
     properties: {
         admin_area_id: { type: "string", nullable: true },
         canonical_name: { type: "string", nullable: true },
         admin_level_code: { type: "string", nullable: true },
+        name_mm: { type: "string", nullable: true },
+        name_en: { type: "string", nullable: true },
         geometry_contains: { type: "boolean" },
     },
     additionalProperties: false,
@@ -43,7 +52,7 @@ export const postEntityAdminAreaInferSchema = {
         type: "object",
         required: ["kind"],
         properties: {
-            kind: { type: "string", enum: ["place", "street", "building"] },
+            kind: { type: "string", enum: ["place", "street", "building", "road"] },
             lat: { type: "number" },
             lng: { type: "number" },
             geometry: { type: "object", additionalProperties: true },
@@ -64,7 +73,7 @@ export const postEntityAdminAreaValidateManualSchema = {
         type: "object",
         required: ["kind", "admin_area_id"],
         properties: {
-            kind: { type: "string", enum: ["place", "street", "building"] },
+            kind: { type: "string", enum: ["place", "street", "building", "road"] },
             admin_area_id: { type: "string" },
             lat: { type: "number" },
             lng: { type: "number" },

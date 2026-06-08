@@ -4,6 +4,7 @@ import {
     type ListStreetsParams,
     type StreetsCoreReviewScopeCounts,
 } from "../../streets/streets.repo.js";
+import { resolveStreetsCoreReviewSortColumn } from "../../streets/streets-list-query.js";
 import { buildDetailResponse, buildListResponse, pageToOffset } from "../core-review.pagination.js";
 import { resolveCoreReviewListStatus } from "../core-review-list-status.js";
 import { serializeCoreReviewStreet, serializeCoreReviewStreetListItem } from "../core-review-serializers.js";
@@ -63,7 +64,9 @@ function buildStreetsListParams(
     fetchLimit: number,
     options: { fastList?: boolean } = {},
 ): ListStreetsParams {
-    const sortBy = resolveCoreReviewSortBy(def, query.sortBy) as ListStreetsParams["sortBy"];
+    const sortBy = resolveStreetsCoreReviewSortColumn(
+        resolveCoreReviewSortBy(def, query.sortBy),
+    ) as ListStreetsParams["sortBy"];
     const scopeFilters = scopeFilterParams(query, listStatus);
     const updatedAtSort = sortBy === "updated" || sortBy === "updated_at";
     const hasCursor = Boolean(query.cursorUpdatedAt && query.cursorId);
@@ -145,7 +148,9 @@ export async function listCoreReviewStreets(
     const pageSize = Math.min(query.pageSize, CORE_REVIEW_STREETS_MAX_PAGE_SIZE);
     const listStatus = resolveCoreReviewListStatus(query);
     const includeTotal = query.includeTotal === true;
-    const sortBy = resolveCoreReviewSortBy(def, query.sortBy) as ListStreetsParams["sortBy"];
+    const sortBy = resolveStreetsCoreReviewSortColumn(
+        resolveCoreReviewSortBy(def, query.sortBy),
+    ) as ListStreetsParams["sortBy"];
 
     if (!includeTotal) {
         const fetchLimit = pageSize + 1;
@@ -160,7 +165,7 @@ export async function listCoreReviewStreets(
             data: pageRows.map(serializeCoreReviewStreetListItem),
             page: query.page,
             pageSize,
-            total: 0,
+            total: null,
             filters: listFilterEcho(query, listStatus),
             meta: {
                 entity: "streets",

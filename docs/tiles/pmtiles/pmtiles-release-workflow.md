@@ -81,14 +81,27 @@ For a **direct** local test of the file you built, you can temporarily set the e
 
 ---
 
-## 3. Upload to R2 using `upload-r2.sh`
+## 3. Upload to R2
 
 Prerequisites: **Wrangler** installed and **`wrangler login`** done for the Cloudflare account that owns **`coremap-tiles-prod`**.
 
-From repo root:
+From repo root (recommended — resolves local path from region + version):
 
 ```bash
-bash infrastructure/tiles/pmtiles/scripts/upload-r2.sh \
+npm run tiles:upload -- yangon v2
+```
+
+Other examples:
+
+```bash
+npm run tiles:upload -- bago v1
+npm run tiles:upload -- overview v1
+```
+
+Explicit path (low-level):
+
+```bash
+npm run tiles:upload:r2 -- \
   infrastructure/tiles/pmtiles/regions/yangon/yangon-v2.pmtiles \
   yangon \
   v2
@@ -201,7 +214,7 @@ Use a copy of this list for each release (e.g. `v2`, `v3`).
 
 - [ ] **Built** new `yangon-<version>.pmtiles` locally (`npm run tiles:rebuild -- yangon <version>`).
 - [ ] **Tested** locally (`npm run tiles:serve` and/or app smoke tests).
-- [ ] **Uploaded** with `upload-r2.sh` to `basemaps/yangon/<version>/basemap.pmtiles` (**new key**, not overwriting an in-use version).
+- [ ] **Uploaded** with `npm run tiles:upload -- yangon <version>` to `basemaps/yangon/<version>/basemap.pmtiles` (**new key**, not overwriting an in-use version).
 - [ ] **`check-pmtiles-url.sh`** passed for the new URL (HEAD, Range, CORS for dev origins; add production origins to CORS before prod cutover).
 - [ ] **`apps/web`** tested with `VITE_BASEMAP_PMTILES_URL` pointing at the new object.
 - [ ] **`apps/dashboard`** tested with `NEXT_PUBLIC_BASEMAP_PMTILES_URL` pointing at the new object.

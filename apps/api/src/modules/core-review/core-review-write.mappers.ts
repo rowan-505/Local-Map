@@ -133,8 +133,8 @@ export function mapCoreReviewPlacePatch(body: Record<string, unknown>) {
     return out;
 }
 
-function pickStreetNameAlias(body: Record<string, unknown>, kind: "mm" | "en"): string | undefined {
-    if (kind === "mm") {
+function pickStreetNameAlias(body: Record<string, unknown>, kind: "myanmar" | "en"): string | undefined {
+    if (kind === "myanmar") {
         const fromAlias = pickAlias<string | undefined>(body, "myanmarName", "myanmar_name");
         if (fromAlias !== undefined) {
             return fromAlias;
@@ -157,8 +157,8 @@ function pickStreetNameAlias(body: Record<string, unknown>, kind: "mm" | "en"): 
     return undefined;
 }
 
-function hasStreetNameAlias(body: Record<string, unknown>, kind: "mm" | "en"): boolean {
-    if (kind === "mm") {
+function hasStreetNameAlias(body: Record<string, unknown>, kind: "myanmar" | "en"): boolean {
+    if (kind === "myanmar") {
         return (
             body.myanmarName !== undefined ||
             body.myanmar_name !== undefined ||
@@ -177,7 +177,7 @@ function hasStreetNameAlias(body: Record<string, unknown>, kind: "mm" | "en"): b
 export function mapCoreReviewStreetCreate(body: Record<string, unknown>) {
     return {
         geometry: body.geometry,
-        myanmarName: pickStreetNameAlias(body, "mm"),
+        myanmarName: pickStreetNameAlias(body, "myanmar"),
         englishName: pickStreetNameAlias(body, "en"),
         road_class_id: pickAlias<bigint>(body, "roadClassId", "road_class_id"),
         admin_area_id: pickAlias<bigint | null | undefined>(body, "adminAreaId", "admin_area_id"),
@@ -192,8 +192,8 @@ export function mapCoreReviewStreetCreate(body: Record<string, unknown>) {
 export function mapCoreReviewStreetPatch(body: Record<string, unknown>) {
     const out: Record<string, unknown> = {};
     if (body.geometry !== undefined) out.geometry = body.geometry;
-    if (hasStreetNameAlias(body, "mm")) {
-        out.myanmarName = pickStreetNameAlias(body, "mm");
+    if (hasStreetNameAlias(body, "myanmar")) {
+        out.myanmarName = pickStreetNameAlias(body, "myanmar");
     }
     if (hasStreetNameAlias(body, "en")) {
         out.englishName = pickStreetNameAlias(body, "en");
@@ -203,6 +203,13 @@ export function mapCoreReviewStreetPatch(body: Record<string, unknown>) {
     }
     if (pickAlias(body, "adminAreaId", "admin_area_id") !== undefined) {
         out.admin_area_id = pickAlias(body, "adminAreaId", "admin_area_id");
+    }
+    if (pickAlias(body, "adminAreaManualOverride", "admin_area_manual_override") !== undefined) {
+        out.admin_area_manual_override = pickAlias<boolean>(
+            body,
+            "adminAreaManualOverride",
+            "admin_area_manual_override",
+        );
     }
     if (pickAlias(body, "isOneway", "is_oneway") !== undefined) {
         out.is_oneway = pickAlias(body, "isOneway", "is_oneway");

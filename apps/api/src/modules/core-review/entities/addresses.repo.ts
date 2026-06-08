@@ -69,7 +69,7 @@ const STREET_NAME_JOINS = Prisma.sql`
         SELECT n.name
         FROM core.core_street_names AS n
         WHERE n.street_id = s.id
-          AND lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+          AND lower(trim(coalesce(n.language_code, ''))) = 'my'
         ORDER BY n.is_primary DESC NULLS LAST, n.name ASC
         LIMIT 1
     ) AS sn_my ON true
@@ -89,7 +89,7 @@ const ADMIN_NAME_JOINS = Prisma.sql`
         SELECT n.name
         FROM core.core_admin_area_names AS n
         WHERE n.admin_area_id = aa.id
-          AND lower(trim(coalesce(n.language_code, ''))) IN ('my', 'mm')
+          AND lower(trim(coalesce(n.language_code, ''))) = 'my'
         ORDER BY n.is_primary DESC NULLS LAST, n.name ASC
         LIMIT 1
     ) AS an_mm ON true

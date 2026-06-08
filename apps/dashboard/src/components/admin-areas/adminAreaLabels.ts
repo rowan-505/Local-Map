@@ -54,7 +54,11 @@ export function formatAdminAreaOptionMeta(
     if (level) {
         parts.push(level);
     }
-    if (option.admin_level_code === "village" && option.parent_label?.trim()) {
+    const code = option.admin_level_code?.trim().toLowerCase();
+    if (
+        option.parent_label?.trim() &&
+        (code === "village" || code === "township" || code === "town")
+    ) {
         parts.push(option.parent_label.trim());
     }
     const boundaryHint =

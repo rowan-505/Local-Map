@@ -38,6 +38,18 @@ interface ImportMetaEnv {
   readonly VITE_SATELLITE_RASTER_TILE_SIZE?: string;
   /** Optional attribution text for configured satellite raster tiles. */
   readonly VITE_SATELLITE_RASTER_ATTRIBUTION?: string;
+  /**
+   * Yangon-only: GeoJSON road labels from tile export (no PMTiles rebuild).
+   * Example: http://localhost:8080/exports/yangon/road_labels.geojson
+   */
+  readonly VITE_YANGON_ROAD_LABELS_GEOJSON_URL?: string;
+  /** `1`/`true` force on, `0`/`false` force off. In dev, auto-on for Yangon regional basemap. */
+  readonly VITE_YANGON_ROAD_LABELS_OVERLAY?: string;
+  /**
+   * Dev-only: load all 15 regional PMTiles from `http://localhost:8080/regions` at once (local QA).
+   * Ignored in production builds. Requires `npm run tiles:serve`.
+   */
+  readonly VITE_LOAD_ALL_LOCAL_REGION_PMTILES?: string;
 }
 
 interface ImportMeta {

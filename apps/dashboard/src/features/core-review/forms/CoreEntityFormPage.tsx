@@ -15,8 +15,12 @@ import {
     prepareLocalStreetGeometryForSave,
 } from "@/src/features/streets/streetSaveLocalChecks";
 import {
+    hasBlockingStreetGeometryErrors,
+    shouldConfirmStreetTopologyWarnings,
+    validateStreetGeometryForSave,
+} from "@/src/features/streets/streetGeometrySaveValidation";
+import {
     getPlaceFormOptions,
-    validateStreetGeometry,
     type ValidateStreetGeometryResponse,
 } from "@/src/lib/api";
 import {
@@ -198,19 +202,18 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
                     return;
                 }
 
-                const check = await validateStreetGeometry({
+                const check = await validateStreetGeometryForSave({
                     geometry: prep.sanitized,
                 });
                 setApiGeometryValidation(check);
 
-                if (!check.isValid) {
-                    setCreateIsSaving(false);
+                if (hasBlockingStreetGeometryErrors(check)) {
+                    setCreateSaveError(check.errors.join("\n"));
                     return;
                 }
 
-                if (check.warnings.length > 0) {
+                if (shouldConfirmStreetTopologyWarnings(check)) {
                     if (!window.confirm(SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM)) {
-                        setCreateIsSaving(false);
                         return;
                     }
                 }
