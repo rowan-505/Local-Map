@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
 import { streetsNearbyQuerySchema } from "./streets.schema.js";
 
@@ -8,10 +9,10 @@ describe("streetsNearbyQuerySchema", () => {
             bbox: "96.0,16.5,96.2,16.7",
         });
 
-        expect(parsed.success).toBe(true);
+        assert.equal(parsed.success, true);
         if (parsed.success) {
-            expect(parsed.data.bbox).toEqual([96, 16.5, 96.2, 16.7]);
-            expect(parsed.data.limit).toBe(100);
+            assert.deepEqual(parsed.data.bbox, [96, 16.5, 96.2, 16.7]);
+            assert.equal(parsed.data.limit, 100);
         }
     });
 
@@ -20,6 +21,6 @@ describe("streetsNearbyQuerySchema", () => {
             bbox: "96.2,16.7,96.0,16.5",
         });
 
-        expect(parsed.success).toBe(false);
+        assert.equal(parsed.success, false);
     });
 });

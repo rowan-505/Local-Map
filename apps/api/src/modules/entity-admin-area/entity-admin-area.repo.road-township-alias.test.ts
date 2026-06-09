@@ -102,7 +102,7 @@ describe("EntityAdminAreaService.infer roads district admin", () => {
                     road_length_m: 100,
                     nearest_unfiltered_distance_m: 2500,
                 }),
-            getAdminAreaSummaryAnyStatus: async (id) =>
+            getAdminAreaSummaryAnyStatus: async (id: bigint) =>
                 id === 7005n
                     ? {
                           id: 7005n,
