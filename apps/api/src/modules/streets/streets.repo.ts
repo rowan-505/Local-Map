@@ -17,6 +17,14 @@ import {
     streetsTownshipAdminAreaFilterClause,
     type StreetsCoreReviewSortColumn,
 } from "./streets-list-query.js";
+import {
+    applyStreetRowAfterScalarUpdate,
+    deriveCanonicalNameAfterNameEdits,
+    streetOfficialNameShouldSync,
+    streetRoadClassIdChanged,
+    streetUpdateNeedsDetailReload,
+    streetUpdateTouchesRoutingGraph,
+} from "./streets-update-plan.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -128,6 +136,17 @@ export type StreetsCoreReviewScopeCounts = {
     total: number;
     verified: number;
     unverified: number;
+};
+
+/** Map editor bbox query row — geometry + display labels only. */
+export type StreetMapBboxRow = {
+    id: string;
+    public_id: string;
+    canonical_name: string;
+    road_class: string | null;
+    is_active: boolean;
+    deleted_at: Date | null;
+    geometry: StreetGeometryJson;
 };
 
 export type StreetRow = {
@@ -340,6 +359,10 @@ function isStreetsCoreReviewQueryTimingEnabled(): boolean {
     return process.env.NODE_ENV !== "production" || process.env.CORE_REVIEW_STREETS_QUERY_TIMING === "1";
 }
 
+function isStreetUpdateQueryTimingEnabled(): boolean {
+    return isStreetsCoreReviewQueryTimingEnabled() || process.env.STREETS_UPDATE_QUERY_TIMING === "1";
+}
+
 async function timeStreetsCoreReviewQuery<T>(
     operation: "list" | "count",
     meta: Record<string, unknown>,
@@ -357,6 +380,31 @@ async function timeStreetsCoreReviewQuery<T>(
             JSON.stringify({
                 scope: "streets_core_review_repo",
                 operation,
+                duration_ms: Math.round((performance.now() - started) * 10) / 10,
+                ...meta,
+            }),
+        );
+    }
+}
+
+/** Opt-in timing for PATCH updateStreet sub-steps (set CORE_REVIEW_STREETS_QUERY_TIMING=1 or STREETS_UPDATE_QUERY_TIMING=1). */
+async function timeStreetUpdateStep<T>(
+    step: string,
+    meta: Record<string, unknown>,
+    fn: () => Promise<T>,
+): Promise<T> {
+    if (!isStreetUpdateQueryTimingEnabled()) {
+        return fn();
+    }
+
+    const started = performance.now();
+    try {
+        return await fn();
+    } finally {
+        console.info(
+            JSON.stringify({
+                scope: "streets_update_repo",
+                step,
                 duration_ms: Math.round((performance.now() - started) * 10) / 10,
                 ...meta,
             }),
@@ -980,6 +1028,68 @@ export class StreetsRepository {
     }
 
     /**
+     * Active streets intersecting a map viewport bbox — GIST-friendly `&&` probe plus ST_Intersects.
+     * No COUNT, no admin/road-class joins; primary names batched for returned ids only.
+     */
+    async listStreetsInMapBbox(params: {
+        minLng: number;
+        minLat: number;
+        maxLng: number;
+        maxLat: number;
+        limit: number;
+    }): Promise<
+        Array<
+            StreetMapBboxRow & {
+                myanmar_name: string | null;
+                english_name: string | null;
+            }
+        >
+    > {
+        const envelopeSql = Prisma.sql`ST_MakeEnvelope(
+            ${params.minLng}::double precision,
+            ${params.minLat}::double precision,
+            ${params.maxLng}::double precision,
+            ${params.maxLat}::double precision,
+            4326
+        )`;
+
+        const coreRows = await this.prisma.$queryRaw<StreetMapBboxRow[]>(Prisma.sql`
+            SELECT
+                s.id::text AS id,
+                s.public_id,
+                s.canonical_name,
+                s.road_class,
+                s.is_active,
+                s.deleted_at,
+                ST_AsGeoJSON(s.geom)::json AS geometry
+            FROM core.core_streets AS s
+            WHERE s.deleted_at IS NULL
+              AND s.is_active IS TRUE
+              AND s.geom IS NOT NULL
+              AND s.geom && ${envelopeSql}
+              AND ST_Intersects(s.geom, ${envelopeSql})
+            LIMIT ${params.limit}
+        `);
+
+        if (coreRows.length === 0) {
+            return [];
+        }
+
+        const namesByStreetId = await this.batchPrimaryStreetNames(
+            coreRows.map((row) => BigInt(row.id)),
+        );
+
+        return coreRows.map((row) => {
+            const names = namesByStreetId.get(row.id);
+            return {
+                ...row,
+                myanmar_name: names?.myanmar_name ?? null,
+                english_name: names?.english_name ?? null,
+            };
+        });
+    }
+
+    /**
      * Find the closest point on active street geometry within radius (geodesic).
      * Uses ST_ClosestPoint so snapping can target the line interior or endpoints.
      */
@@ -1199,104 +1309,183 @@ export class StreetsRepository {
         publicId: string,
         input: UpdateStreetInput,
         context?: StreetMutationContext,
+        options?: { existing?: StreetRow | null },
     ): Promise<StreetRow | null> {
         const roadClassId = input.road_class_id;
         const isOneway = input.is_oneway;
 
-        const existing = await this.getStreetByPublicId(publicId, this.prisma, { includeDeleted: true });
+        const existing = await timeStreetUpdateStep("prefetch_existing", { publicId }, async () => {
+            if (options?.existing) {
+                return options.existing;
+            }
+            return this.getStreetByPublicId(publicId, this.prisma, { includeDeleted: true });
+        });
+
         if (!existing || existing.deleted_at) {
             return null;
         }
 
         if (input.geometry) {
-            await this.assertValidCenterline(input.geometry);
+            await timeStreetUpdateStep("geometry_validation", { publicId }, () =>
+                this.assertValidCenterline(input.geometry!),
+            );
         }
 
+        const myanmarChanged = streetOfficialNameShouldSync(existing.myanmar_name, input.myanmarName);
+        const englishChanged = streetOfficialNameShouldSync(existing.english_name, input.englishName);
+        const roadClassIdChanged = streetRoadClassIdChanged(existing.road_class_id, roadClassId);
+        const routingGraphTouched = streetUpdateTouchesRoutingGraph(input, existing, roadClassIdChanged);
+        const needsDetailReload = streetUpdateNeedsDetailReload({
+            input,
+            existing,
+            myanmarChanged,
+            englishChanged,
+            roadClassIdChanged,
+        });
+
         let roadClassCode: string | null | undefined;
-        if (roadClassId !== undefined && roadClassId !== null) {
-            roadClassCode = await this.getRoadClassCodeById(roadClassId);
+        if (roadClassIdChanged && roadClassId !== null && roadClassId !== undefined) {
+            roadClassCode = await timeStreetUpdateStep("road_class_lookup", { publicId }, () =>
+                this.getRoadClassCodeById(roadClassId),
+            );
             if (!roadClassCode) {
                 throw new StreetCrudValidationError("road_class_id not found");
             }
         }
 
-        return this.prisma.$transaction(async (tx) => {
-            await applyStreetVersioningSession(tx, context);
+        return timeStreetUpdateStep(
+            "transaction_total",
+            {
+                publicId,
+                myanmarChanged,
+                englishChanged,
+                geometryChanged: Boolean(input.geometry),
+                roadClassIdChanged,
+                needsDetailReload,
+                routingGraphTouched,
+            },
+            () =>
+                this.prisma.$transaction(async (tx) => {
+                    await timeStreetUpdateStep("versioning_session", { publicId }, () =>
+                        applyStreetVersioningSession(tx, context),
+                    );
 
-            if (input.myanmarName !== undefined) {
-                await this.syncOfficialStreetName(tx, publicId, "my", input.myanmarName);
-            }
+                    if (myanmarChanged) {
+                        await timeStreetUpdateStep("sync_name_my", { publicId }, () =>
+                            this.syncOfficialStreetName(tx, publicId, "my", input.myanmarName),
+                        );
+                    }
 
-            if (input.englishName !== undefined) {
-                await this.syncOfficialStreetName(tx, publicId, "en", input.englishName);
-            }
+                    if (englishChanged) {
+                        await timeStreetUpdateStep("sync_name_en", { publicId }, () =>
+                            this.syncOfficialStreetName(tx, publicId, "en", input.englishName),
+                        );
+                    }
 
-            const names = await getOfficialStreetNames(tx, publicId);
-            const assignments: Prisma.Sql[] = [
-                Prisma.sql`updated_at = now()`,
-                Prisma.sql`last_edited_at = now()`,
-                Prisma.sql`manual_override = true`,
-                Prisma.sql`routing_status = 'needs_rebuild'`,
-                Prisma.sql`canonical_name = ${deriveStreetCanonicalName(names)}`,
-            ];
+                    const assignments: Prisma.Sql[] = [
+                        Prisma.sql`updated_at = now()`,
+                        Prisma.sql`last_edited_at = now()`,
+                        Prisma.sql`manual_override = ${input.manual_override ?? true}`,
+                    ];
 
-            if (input.admin_area_id !== undefined) {
-                assignments.push(Prisma.sql`admin_area_id = ${input.admin_area_id}`);
-            }
+                    if (routingGraphTouched) {
+                        assignments.push(Prisma.sql`routing_status = 'needs_rebuild'`);
+                    }
 
-            if (input.geometry) {
-                assignments.push(
-                    Prisma.sql`geom = ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(input.geometry)}::json), 4326)`,
-                );
-            }
+                    if (myanmarChanged || englishChanged) {
+                        const canonicalName = deriveCanonicalNameAfterNameEdits({
+                            existing,
+                            myanmarChanged,
+                            englishChanged,
+                            myanmarName: input.myanmarName,
+                            englishName: input.englishName,
+                        });
+                        if (canonicalName !== existing.canonical_name) {
+                            assignments.push(Prisma.sql`canonical_name = ${canonicalName}`);
+                        }
+                    }
 
-            if (roadClassId !== undefined) {
-                if (roadClassId === null) {
-                    assignments.push(Prisma.sql`road_class_id = NULL`);
-                    assignments.push(Prisma.sql`road_class = NULL`);
-                } else {
-                    assignments.push(Prisma.sql`road_class_id = ${roadClassId}`);
-                    assignments.push(Prisma.sql`road_class = ${roadClassCode}`);
-                }
-            }
+                    if (input.admin_area_id !== undefined) {
+                        assignments.push(Prisma.sql`admin_area_id = ${input.admin_area_id}`);
+                    }
 
-            if (isOneway !== undefined) {
-                assignments.push(Prisma.sql`is_oneway = ${isOneway}`);
-            }
+                    if (input.geometry) {
+                        assignments.push(
+                            Prisma.sql`geom = ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(input.geometry)}::json), 4326)`,
+                        );
+                    }
 
-            if (input.surface !== undefined) {
-                assignments.push(Prisma.sql`surface = ${input.surface}`);
-            }
+                    if (roadClassIdChanged) {
+                        if (roadClassId === null) {
+                            assignments.push(Prisma.sql`road_class_id = NULL`);
+                            assignments.push(Prisma.sql`road_class = NULL`);
+                        } else {
+                            assignments.push(Prisma.sql`road_class_id = ${roadClassId}`);
+                            assignments.push(Prisma.sql`road_class = ${roadClassCode}`);
+                        }
+                    }
 
-            if (input.bridge !== undefined) {
-                assignments.push(Prisma.sql`bridge = ${input.bridge}`);
-            }
+                    if (isOneway !== undefined) {
+                        assignments.push(Prisma.sql`is_oneway = ${isOneway}`);
+                    }
 
-            if (input.tunnel !== undefined) {
-                assignments.push(Prisma.sql`tunnel = ${input.tunnel}`);
-            }
+                    if (input.surface !== undefined) {
+                        assignments.push(Prisma.sql`surface = ${input.surface}`);
+                    }
 
-            if (input.verification_status !== undefined) {
-                assignments.push(Prisma.sql`verification_status = ${input.verification_status}`);
-            }
+                    if (input.bridge !== undefined) {
+                        assignments.push(Prisma.sql`bridge = ${input.bridge}`);
+                    }
 
-            if (input.is_verified !== undefined) {
-                assignments.push(Prisma.sql`is_verified = ${input.is_verified}`);
-            }
+                    if (input.tunnel !== undefined) {
+                        assignments.push(Prisma.sql`tunnel = ${input.tunnel}`);
+                    }
 
-            const updatedCount = await tx.$executeRaw(Prisma.sql`
-                UPDATE core.core_streets
-                SET ${Prisma.join(assignments, ", ")}
-                WHERE public_id = CAST(${publicId} AS uuid)
-                  AND deleted_at IS NULL
-            `);
+                    if (input.verification_status !== undefined) {
+                        assignments.push(Prisma.sql`verification_status = ${input.verification_status}`);
+                    }
 
-            if (Number(updatedCount) === 0) {
-                return null;
-            }
+                    if (input.is_verified !== undefined) {
+                        assignments.push(Prisma.sql`is_verified = ${input.is_verified}`);
+                    }
 
-            return this.getStreetByPublicId(publicId, tx, { includeDeleted: true });
-        });
+                    const updatedCount = await timeStreetUpdateStep("street_update", { publicId }, () =>
+                        tx.$executeRaw(Prisma.sql`
+                            UPDATE core.core_streets
+                            SET ${Prisma.join(assignments, ", ")}
+                            WHERE public_id = CAST(${publicId} AS uuid)
+                              AND deleted_at IS NULL
+                        `),
+                    );
+
+                    if (Number(updatedCount) === 0) {
+                        return null;
+                    }
+
+                    if (needsDetailReload) {
+                        return timeStreetUpdateStep("detail_reload", { publicId }, () =>
+                            this.getStreetByPublicId(publicId, tx, { includeDeleted: true }),
+                        );
+                    }
+
+                    return applyStreetRowAfterScalarUpdate(existing, input, {
+                        canonical_name:
+                            myanmarChanged || englishChanged
+                                ? deriveCanonicalNameAfterNameEdits({
+                                      existing,
+                                      myanmarChanged,
+                                      englishChanged,
+                                      myanmarName: input.myanmarName,
+                                      englishName: input.englishName,
+                                  })
+                                : undefined,
+                        myanmar_name: myanmarChanged ? (input.myanmarName?.trim() ?? null) : undefined,
+                        english_name: englishChanged ? (input.englishName?.trim() ?? null) : undefined,
+                        routing_status: routingGraphTouched ? "needs_rebuild" : undefined,
+                        manual_override: input.manual_override ?? true,
+                    });
+                }),
+        );
     }
 
     async softDeleteStreet(publicId: string, context?: StreetMutationContext): Promise<StreetRow | null> {

@@ -13,6 +13,7 @@ import {
 import {
     getAdminAreaOptions,
     inferEntityAdminArea,
+    isAbortError,
     searchRoadTownshipAdminAreaOptions,
     validateEntityAdminAreaManual,
     type EntityAdminAreaInferResult,
@@ -25,6 +26,13 @@ import {
     type RoadTownshipDebugReason,
     type RoadTownshipRecommendationMode,
 } from "@/src/lib/api";
+import {
+    abortInferDedupKeysExcept,
+    buildInferDedupKey,
+    peekCompletedInferResult,
+    scheduleInferDeduped,
+    stableInferGeometryKey,
+} from "./entityTownshipInferDedup";
 import { canOverrideEntityAdminAreaGeometryMismatch } from "@/src/lib/entityAdminAreaUx";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import {
@@ -528,8 +536,7 @@ export default function EntityTownshipAdminField({
     );
     const selectedAdminAreaIdRef = useRef(selectedAdminAreaId);
     const appliedRecommendationIdRef = useRef<string | null>(null);
-    /** Invalidates in-flight road infer when geometry, road, or debounce timer changes. */
-    const roadInferRequestIdRef = useRef(0);
+    const activeInferDedupKeyRef = useRef<string | null>(null);
 
     useEffect(() => {
         storedCurrentAdminAreaIdRef.current = storedAdminAreaId ?? "";
@@ -554,6 +561,31 @@ export default function EntityTownshipAdminField({
             );
         },
         [],
+    );
+
+    const applyRecommendApplyInferResult = useCallback(
+        (result: EntityAdminAreaInferResult) => {
+            const usesSimpleInferAudit =
+                config.entityKind === "place" || config.entityKind === "building";
+            const audit = usesSimpleInferAudit
+                ? auditStateFromSimpleInferResponse(result, storedCurrentAdminAreaRef.current)
+                : {
+                      status: result.status ?? null,
+                      message: result.message ?? null,
+                      currentAdminArea: result.currentAdminArea ?? null,
+                      recommendedTownship: result.recommendedTownship ?? null,
+                      recommendationMode: result.recommendationMode ?? null,
+                      intersectingTownships: result.intersectingTownships ?? [],
+                      commonParentAdminArea: result.commonParentAdminArea ?? null,
+                      debugReason: result.debugReason ?? null,
+                      fallbackReason: result.fallbackReason ?? null,
+                      nearestTownshipDistanceM: result.nearestTownshipDistanceM ?? null,
+                  };
+            const recommendedId = audit.recommendedTownship?.id ?? null;
+            setRoadAudit(audit);
+            syncRecommendationAppliedState(recommendedId, selectedAdminAreaIdRef.current);
+        },
+        [config.entityKind, syncRecommendationAppliedState],
     );
 
     const runInfer = useCallback(async () => {
@@ -671,7 +703,8 @@ export default function EntityTownshipAdminField({
                     : isNonEmptyRoadLineGeometry(geomValue);
 
         if (!geometryValid) {
-            roadInferRequestIdRef.current += 1;
+            activeInferDedupKeyRef.current = null;
+            abortInferDedupKeysExcept(null);
             setInferLoading(false);
             setInferError(null);
             setRoadAudit(
@@ -690,7 +723,8 @@ export default function EntityTownshipAdminField({
             config.entityKind !== "place" &&
             !lineOrPoly
         ) {
-            roadInferRequestIdRef.current += 1;
+            activeInferDedupKeyRef.current = null;
+            abortInferDedupKeysExcept(null);
             setInferLoading(false);
             setInferError(null);
             setRoadAudit(
@@ -703,94 +737,94 @@ export default function EntityTownshipAdminField({
             return;
         }
 
-        const requestId = ++roadInferRequestIdRef.current;
+        const geometryKey = stableInferGeometryKey(
+            config.entityKind,
+            geomValue,
+            placePoint,
+            busStopPoint,
+        );
+        const dedupKey = buildInferDedupKey({
+            kind: config.entityKind,
+            entityPublicId,
+            currentAdminAreaId: storedCurrentAdminAreaIdRef.current,
+            geometryKey,
+        });
+
+        if (activeInferDedupKeyRef.current !== dedupKey) {
+            abortInferDedupKeysExcept(dedupKey);
+            activeInferDedupKeyRef.current = dedupKey;
+        }
+
+        const cachedResult = peekCompletedInferResult(dedupKey);
+        if (cachedResult) {
+            setInferLoading(false);
+            setInferError(null);
+            applyRecommendApplyInferResult(cachedResult);
+            return;
+        }
+
         setInferLoading(true);
         setInferError(null);
 
-        const timer = window.setTimeout(() => {
-            void (async () => {
-                if (requestId !== roadInferRequestIdRef.current) {
+        let cancelled = false;
+
+        void scheduleInferDeduped(dedupKey, RECOMMEND_APPLY_INFER_DEBOUNCE_MS, (signal) =>
+            inferEntityAdminArea(
+                config.entityKind === "place" && placePoint
+                    ? {
+                          kind: "place",
+                          lat: placePoint.lat,
+                          lng: placePoint.lng,
+                          current_admin_area_id: storedCurrentAdminAreaIdRef.current,
+                          entity_public_id: entityPublicId?.trim() || undefined,
+                      }
+                    : config.entityKind === "bus_stop" && busStopPoint
+                      ? {
+                            kind: "bus_stop",
+                            lat: busStopPoint.lat,
+                            lng: busStopPoint.lng,
+                            current_admin_area_id: storedCurrentAdminAreaIdRef.current,
+                            entity_public_id: entityPublicId?.trim() || undefined,
+                        }
+                      : {
+                            kind: config.entityKind,
+                            geometry: lineOrPoly!,
+                            current_admin_area_id: storedCurrentAdminAreaIdRef.current,
+                            entity_public_id: entityPublicId?.trim() || undefined,
+                        },
+                { signal },
+            ),
+        )
+            .then((result) => {
+                if (cancelled) {
                     return;
                 }
-
-                try {
-                    const result = await inferEntityAdminArea(
-                        config.entityKind === "place" && placePoint
-                            ? {
-                                  kind: "place",
-                                  lat: placePoint.lat,
-                                  lng: placePoint.lng,
-                                  current_admin_area_id: storedCurrentAdminAreaIdRef.current,
-                                  entity_public_id: entityPublicId?.trim() || undefined,
-                              }
-                            : config.entityKind === "bus_stop" && busStopPoint
-                              ? {
-                                    kind: "bus_stop",
-                                    lat: busStopPoint.lat,
-                                    lng: busStopPoint.lng,
-                                    current_admin_area_id: storedCurrentAdminAreaIdRef.current,
-                                    entity_public_id: entityPublicId?.trim() || undefined,
-                                }
-                              : {
-                                    kind: config.entityKind,
-                                    geometry: lineOrPoly!,
-                                    current_admin_area_id: storedCurrentAdminAreaIdRef.current,
-                                    entity_public_id: entityPublicId?.trim() || undefined,
-                                },
-                    );
-
-                    if (requestId !== roadInferRequestIdRef.current) {
-                        return;
-                    }
-
-                    const usesSimpleInferAudit =
-                        config.entityKind === "place" || config.entityKind === "building";
-                    const audit = usesSimpleInferAudit
-                        ? auditStateFromSimpleInferResponse(
-                              result,
-                              storedCurrentAdminAreaRef.current,
-                          )
-                        : {
-                              status: result.status ?? null,
-                              message: result.message ?? null,
-                              currentAdminArea: result.currentAdminArea ?? null,
-                              recommendedTownship: result.recommendedTownship ?? null,
-                              recommendationMode: result.recommendationMode ?? null,
-                              intersectingTownships: result.intersectingTownships ?? [],
-                              commonParentAdminArea: result.commonParentAdminArea ?? null,
-                              debugReason: result.debugReason ?? null,
-                              fallbackReason: result.fallbackReason ?? null,
-                              nearestTownshipDistanceM: result.nearestTownshipDistanceM ?? null,
-                          };
-                    const recommendedId = audit.recommendedTownship?.id ?? null;
-                    setRoadAudit(audit);
-                    syncRecommendationAppliedState(recommendedId, selectedAdminAreaIdRef.current);
-                } catch (err) {
-                    if (requestId !== roadInferRequestIdRef.current) {
-                        return;
-                    }
-                    setInferError(err instanceof Error ? err.message : "Could not infer township");
-                    setRoadAudit(emptyRoadAudit);
-                    syncRecommendationAppliedState(null, selectedAdminAreaIdRef.current);
-                } finally {
-                    if (requestId === roadInferRequestIdRef.current) {
-                        setInferLoading(false);
-                    }
+                applyRecommendApplyInferResult(result);
+            })
+            .catch((err: unknown) => {
+                if (cancelled || isAbortError(err)) {
+                    return;
                 }
-            })();
-        }, RECOMMEND_APPLY_INFER_DEBOUNCE_MS);
+                setInferError(err instanceof Error ? err.message : "Could not infer township");
+                setRoadAudit(emptyRoadAudit);
+                syncRecommendationAppliedState(null, selectedAdminAreaIdRef.current);
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setInferLoading(false);
+                }
+            });
 
         return () => {
-            window.clearTimeout(timer);
-            roadInferRequestIdRef.current += 1;
+            cancelled = true;
         };
     }, [
+        applyRecommendApplyInferResult,
         config.entityKind,
         config.geometryFieldKey,
         entityPublicId,
         geometry,
         usesRecommendApplyInfer,
-        storedAdminAreaId,
         syncRecommendationAppliedState,
     ]);
 

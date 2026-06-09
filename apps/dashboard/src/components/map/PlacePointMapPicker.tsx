@@ -69,6 +69,11 @@ export default function PlacePointMapPicker({
     const lastCameraKeyRef = useRef<string | null>(null);
     const [isMapReady, setIsMapReady] = useState(false);
     const clientMounted = useClientMounted();
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
+    const onMapReadyRef = useRef(onMapReady);
+    onMapReadyRef.current = onMapReady;
+    const mapSurfaceRefStable = mapSurfaceRef;
 
     useEffect(() => {
         if (!clientMounted || !containerRef.current || mapRef.current) {
@@ -87,10 +92,10 @@ export default function PlacePointMapPicker({
                         ensureDataReviewSatelliteLayer(loadedMap);
                         applyDataReviewBasemapMode(loadedMap, basemapMode);
                         loadedMap.resize();
-                        if (mapSurfaceRef) {
-                            mapSurfaceRef.current = loadedMap;
+                        if (mapSurfaceRefStable) {
+                            mapSurfaceRefStable.current = loadedMap;
                         }
-                        onMapReady?.(loadedMap);
+                        onMapReadyRef.current?.(loadedMap);
                         setIsMapReady(true);
                     },
                 });
@@ -108,7 +113,7 @@ export default function PlacePointMapPicker({
                 if (isPlaceLinkOverlayHit(map, event.point)) {
                     return;
                 }
-                onChange({
+                onChangeRef.current({
                     lat: roundCoord(event.lngLat.lat),
                     lng: roundCoord(event.lngLat.lng),
                 });
@@ -124,13 +129,13 @@ export default function PlacePointMapPicker({
             markerRef.current = null;
             mapRef.current?.remove();
             mapRef.current = null;
-            if (mapSurfaceRef) {
-                mapSurfaceRef.current = null;
+            if (mapSurfaceRefStable) {
+                mapSurfaceRefStable.current = null;
             }
-            onMapReady?.(null);
+            onMapReadyRef.current?.(null);
             lastCameraKeyRef.current = null;
         };
-    }, [clientMounted, onChange, mapSurfaceRef, onMapReady]);
+    }, [clientMounted]);
 
     useEffect(() => {
         const map = mapRef.current;

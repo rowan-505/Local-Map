@@ -46,6 +46,45 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+export function getDashboardPlaceMapStyleCacheKey(options: {
+  includeBusTransitLayers: boolean;
+  includeMartinOverlays?: boolean;
+}): string {
+  const includeMartinOverlays = options.includeMartinOverlays !== false;
+  return `bus:${options.includeBusTransitLayers ? 1 : 0}|martin:${includeMartinOverlays ? 1 : 0}`;
+}
+
+const dashboardPlaceMapStyleCache = new Map<string, Promise<StyleSpecification>>();
+
+/**
+ * Session-cached dashboard style — reuses the same StyleSpecification object (and resolved PMTiles URL)
+ * across editor map mounts so form re-renders do not refetch `current.json` or rebuild layers.
+ */
+export function fetchDashboardPlaceMapStyleCached(options: {
+  includeBusTransitLayers: boolean;
+  includeMartinOverlays?: boolean;
+  signal?: AbortSignal;
+  currentJsonUrl?: string;
+}): Promise<StyleSpecification> {
+  const key = getDashboardPlaceMapStyleCacheKey(options);
+  const cached = dashboardPlaceMapStyleCache.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  const promise = fetchDashboardPlaceMapStyle(options);
+  dashboardPlaceMapStyleCache.set(key, promise);
+  void promise.catch(() => {
+    dashboardPlaceMapStyleCache.delete(key);
+  });
+  return promise;
+}
+
+/** Test-only reset. */
+export function resetDashboardPlaceMapStyleCacheForTests(): void {
+  dashboardPlaceMapStyleCache.clear();
+}
+
 function collectSourceIds(layers: readonly LayerSpecification[]): Set<string> {
   const ids = new Set<string>();
   for (const layer of layers) {

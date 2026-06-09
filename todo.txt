@@ -14,3 +14,12 @@ firstly need to make sure successfully working locally
 3.bus ,train data import
 4.OTP
 5. test and UI
+
+
+-----
+
+make one tile with mimu data and use as background adn draw manually boundaries for all admin areas for address 
+use that admin areas for auto assigning roads and places
+https://chatgpt.com/g/g-p-69cb95449e4081918f18db18e334b678/c/6a22f0a0-2aa8-83a9-be0e-5fe10532804a
+
+

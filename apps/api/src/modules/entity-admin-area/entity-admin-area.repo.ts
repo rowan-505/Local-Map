@@ -41,14 +41,17 @@ export type EntityAdminAreaRowStatus = {
 };
 
 /** Active township rows for road inference (matches picker/search eligibility). */
-const activeRoadTownshipBaseSql = Prisma.sql`
-    aa.is_active IS TRUE
-    AND aa.deleted_at IS NULL
-    AND aa.geom IS NOT NULL
-    AND NOT ST_IsEmpty(aa.geom)
-    AND ST_IsValid(aa.geom)
-    AND ${roadTownshipAdminLevelWhereSql}
-`;
+function activeRoadTownshipBaseSql(adminAreaAlias: string): Prisma.Sql {
+    const area = Prisma.raw(adminAreaAlias);
+    return Prisma.sql`
+        ${area}.is_active IS TRUE
+        AND ${area}.deleted_at IS NULL
+        AND ${area}.geom IS NOT NULL
+        AND NOT ST_IsEmpty(${area}.geom)
+        AND ST_IsValid(${area}.geom)
+        AND ${roadTownshipAdminLevelWhereSql}
+    `;
+}
 
 const adminAreaNameMmLateralSql = (adminAreaAlias: string) => Prisma.sql`
     LEFT JOIN LATERAL (
@@ -198,8 +201,13 @@ export class EntityAdminAreaRepository {
      */
     async recommendRoadTownshipFromGeoJson(geojsonText: string): Promise<RoadTownshipRecommendationResult> {
         try {
-            const geomRows = await this.prisma.$queryRaw<
-                { valid: boolean; road_length_m: number | null; geometry_type: string | null }[]
+            const prepRows = await this.prisma.$queryRaw<
+                {
+                    valid: boolean;
+                    road_length_m: number | null;
+                    has_global_townships: boolean;
+                    has_envelope_coverage: boolean;
+                }[]
             >`
                 WITH raw AS (
                     SELECT ST_SetSRID(ST_GeomFromGeoJSON(${geojsonText})::geometry, 4326) AS g
@@ -210,42 +218,79 @@ export class EntityAdminAreaRepository {
                             WHEN ST_GeometryType(g) IN ('ST_LineString', 'ST_MultiLineString')
                                 THEN ST_LineMerge(ST_MakeValid(g))
                             ELSE NULL::geometry
-                        END AS g,
-                        ST_GeometryType(g) AS geometry_type
+                        END AS g
                     FROM raw
+                ),
+                road_stats AS (
+                    SELECT
+                        g,
+                        (
+                            g IS NOT NULL
+                            AND NOT ST_IsEmpty(g)
+                            AND ST_IsValid(g)
+                        ) AS valid,
+                        CASE
+                            WHEN g IS NOT NULL AND NOT ST_IsEmpty(g)
+                                THEN ST_Length(g::geography)
+                            ELSE NULL
+                        END AS road_length_m,
+                        CASE
+                            WHEN g IS NOT NULL AND NOT ST_IsEmpty(g)
+                                THEN ST_Envelope(g)
+                            ELSE NULL
+                        END AS env
+                    FROM road
+                ),
+                global_townships AS (
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM core.core_admin_areas AS aa
+                        INNER JOIN ref.ref_admin_levels AS al ON al.id = aa.admin_level_id
+                        WHERE ${activeRoadTownshipBaseSql("aa")}
+                        LIMIT 1
+                    ) AS has_any
+                ),
+                envelope_coverage AS (
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM core.core_admin_areas AS aa
+                        INNER JOIN ref.ref_admin_levels AS al ON al.id = aa.admin_level_id
+                        CROSS JOIN road_stats AS rs
+                        WHERE rs.valid
+                          AND rs.env IS NOT NULL
+                          AND ${activeRoadTownshipBaseSql("aa")}
+                          AND aa.geom && rs.env
+                        LIMIT 1
+                    ) AS has_coverage
                 )
                 SELECT
-                    (
-                        road.g IS NOT NULL
-                        AND NOT ST_IsEmpty(road.g)
-                        AND ST_IsValid(road.g)
-                    ) AS valid,
-                    CASE
-                        WHEN road.g IS NOT NULL AND NOT ST_IsEmpty(road.g)
-                            THEN ST_Length(road.g::geography)
-                        ELSE NULL
-                    END AS road_length_m,
-                    road.geometry_type
-                FROM road
+                    rs.valid,
+                    rs.road_length_m,
+                    gt.has_any AS has_global_townships,
+                    ec.has_coverage AS has_envelope_coverage
+                FROM road_stats AS rs
+                CROSS JOIN global_townships AS gt
+                CROSS JOIN envelope_coverage AS ec
             `;
 
-            const geom = geomRows[0];
-            if (!geom?.valid) {
+            const prep = prepRows[0];
+            if (!prep?.valid) {
                 return emptyRoadTownshipRecommendation("invalid_geometry");
             }
 
-            const roadLengthM = geom.road_length_m;
+            const roadLengthM = prep.road_length_m;
 
-            const globalTownshipCountRows = await this.prisma.$queryRaw<{ cnt: number }[]>`
-                SELECT COUNT(*)::int AS cnt
-                FROM core.core_admin_areas AS aa
-                INNER JOIN ref.ref_admin_levels AS al ON al.id = aa.admin_level_id
-                WHERE ${activeRoadTownshipBaseSql}
-            `;
-
-            if ((globalTownshipCountRows[0]?.cnt ?? 0) === 0) {
+            if (!prep.has_global_townships) {
                 return emptyRoadTownshipRecommendation("no_township_polygons", {
                     road_length_m: roadLengthM,
+                });
+            }
+
+            if (!prep.has_envelope_coverage) {
+                const nearest = await this.findNearestRoadTownshipForGeoJson(geojsonText, roadLengthM);
+                return emptyRoadTownshipRecommendation("outside_all_townships", {
+                    road_length_m: roadLengthM,
+                    nearest_unfiltered_distance_m: nearest?.distance_m ?? null,
                 });
             }
 
@@ -276,7 +321,7 @@ export class EntityAdminAreaRepository {
                     INNER JOIN ref.ref_admin_levels AS al ON al.id = aa.admin_level_id
                     CROSS JOIN road
                     WHERE road.g IS NOT NULL
-                      AND ${activeRoadTownshipBaseSql}
+                      AND ${activeRoadTownshipBaseSql("aa")}
                       AND aa.geom && road.g
                       AND ST_Intersects(aa.geom, road.g)
                 )
@@ -299,6 +344,7 @@ export class EntityAdminAreaRepository {
                     (c.overlap_m / NULLIF(road_len.len_m, 0)) DESC NULLS LAST,
                     ST_Area(a.geom::geography) ASC NULLS LAST,
                     a.id ASC
+                LIMIT 25
             `;
 
             if (overlapRows.length > 0) {
@@ -320,135 +366,150 @@ export class EntityAdminAreaRepository {
                 };
             }
 
-            const pointRows = await this.prisma.$queryRaw<
-                {
-                    id: bigint;
-                    canonical_name: string;
-                    admin_level_code: string;
-                    name_mm: string | null;
-                    name_en: string | null;
-                }[]
-            >`
-                WITH raw AS (
-                    SELECT ST_SetSRID(ST_GeomFromGeoJSON(${geojsonText})::geometry, 4326) AS g
-                ),
-                road AS (
-                    SELECT ST_LineMerge(ST_MakeValid(g)) AS g FROM raw
-                ),
-                rep_pt AS (
-                    SELECT COALESCE(
-                        ST_PointOnSurface(road.g),
-                        ST_Centroid(road.g)
-                    )::geometry(Point, 4326) AS g
-                    FROM road
-                    WHERE road.g IS NOT NULL AND NOT ST_IsEmpty(road.g)
-                )
-                SELECT
-                    a.id,
-                    a.canonical_name,
-                    al.code AS admin_level_code,
-                    an_mm.name AS name_mm,
-                    an_en.name AS name_en
-                FROM core.core_admin_areas AS a
-                INNER JOIN ref.ref_admin_levels AS al ON al.id = a.admin_level_id
-                CROSS JOIN rep_pt AS pt
-                ${adminAreaNameMmLateralSql("a")}
-                ${adminAreaNameEnLateralSql("a")}
-                WHERE pt.g IS NOT NULL
-                  AND a.is_active IS TRUE
-                  AND a.deleted_at IS NULL
-                  AND a.geom IS NOT NULL
-                  AND NOT ST_IsEmpty(a.geom)
-                  AND ST_IsValid(a.geom)
-                  AND ${roadTownshipAdminLevelWhereSql}
-                  AND a.geom && pt.g
-                  AND (
-                      ST_Covers(a.geom, pt.g)
-                      OR ST_Contains(a.geom, pt.g)
-                      OR ST_Intersects(a.geom, pt.g)
-                  )
-                ORDER BY ST_Area(a.geom::geography) ASC NULLS LAST, a.id ASC
-                LIMIT 1
-            `;
-
-            if (pointRows[0]) {
-                const match = this.mapPointFallbackRow(pointRows[0]);
-                return {
-                    recommended: match,
-                    matches: [match],
-                    commonParent: null,
-                    fallback_reason: "point_fallback",
-                    distance_m: null,
-                    nearest_unfiltered_distance_m: null,
-                    debugReason: null,
-                    road_length_m: roadLengthM,
-                    geometry_intersects: false,
-                };
-            }
-
-            const nearestThresholdM = getRoadTownshipNearestMaxM();
-            const nearestRows = await this.prisma.$queryRaw<
-                {
-                    id: bigint;
-                    canonical_name: string;
-                    admin_level_code: string;
-                    name_mm: string | null;
-                    name_en: string | null;
-                    distance_m: number;
-                }[]
-            >`
-                WITH raw AS (
-                    SELECT ST_SetSRID(ST_GeomFromGeoJSON(${geojsonText})::geometry, 4326) AS g
-                ),
-                road AS (
-                    SELECT ST_LineMerge(ST_MakeValid(g)) AS g FROM raw
-                )
-                SELECT
-                    a.id,
-                    a.canonical_name,
-                    al.code AS admin_level_code,
-                    an_mm.name AS name_mm,
-                    an_en.name AS name_en,
-                    ST_Distance(a.geom::geography, road.g::geography) AS distance_m
-                FROM core.core_admin_areas AS a
-                INNER JOIN ref.ref_admin_levels AS al ON al.id = a.admin_level_id
-                CROSS JOIN road
-                ${adminAreaNameMmLateralSql("a")}
-                ${adminAreaNameEnLateralSql("a")}
-                WHERE road.g IS NOT NULL
-                  AND a.is_active IS TRUE
-                  AND a.deleted_at IS NULL
-                  AND a.geom IS NOT NULL
-                  AND NOT ST_IsEmpty(a.geom)
-                  AND ST_IsValid(a.geom)
-                  AND ${roadTownshipAdminLevelWhereSql}
-                ORDER BY a.geom <-> road.g ASC NULLS LAST, a.id ASC
-                LIMIT 1
-            `;
-
-            const nearest = nearestRows[0];
-            if (nearest && nearest.distance_m <= nearestThresholdM) {
-                const match = this.mapNearestRow(nearest, roadLengthM);
-                return {
-                    recommended: match,
-                    matches: [match],
-                    commonParent: null,
-                    fallback_reason: "nearest_township",
-                    distance_m: nearest.distance_m,
-                    nearest_unfiltered_distance_m: nearest.distance_m,
-                    debugReason: null,
-                    road_length_m: roadLengthM,
-                    geometry_intersects: false,
-                };
-            }
-
-            return emptyRoadTownshipRecommendation("outside_all_townships", {
-                road_length_m: roadLengthM,
-                nearest_unfiltered_distance_m: nearest?.distance_m ?? null,
-            });
+            return this.recommendRoadTownshipFallbackFromGeoJson(geojsonText, roadLengthM);
         } catch {
             return emptyRoadTownshipRecommendation("query_error");
         }
+    }
+
+    private async recommendRoadTownshipFallbackFromGeoJson(
+        geojsonText: string,
+        roadLengthM: number | null,
+    ): Promise<RoadTownshipRecommendationResult> {
+        const pointRows = await this.prisma.$queryRaw<
+            {
+                id: bigint;
+                canonical_name: string;
+                admin_level_code: string;
+                name_mm: string | null;
+                name_en: string | null;
+            }[]
+        >`
+            WITH raw AS (
+                SELECT ST_SetSRID(ST_GeomFromGeoJSON(${geojsonText})::geometry, 4326) AS g
+            ),
+            road AS (
+                SELECT ST_LineMerge(ST_MakeValid(g)) AS g FROM raw
+            ),
+            rep_pt AS (
+                SELECT COALESCE(
+                    ST_PointOnSurface(road.g),
+                    ST_Centroid(road.g)
+                )::geometry(Point, 4326) AS g
+                FROM road
+                WHERE road.g IS NOT NULL AND NOT ST_IsEmpty(road.g)
+            )
+            SELECT
+                a.id,
+                a.canonical_name,
+                al.code AS admin_level_code,
+                an_mm.name AS name_mm,
+                an_en.name AS name_en
+            FROM core.core_admin_areas AS a
+            INNER JOIN ref.ref_admin_levels AS al ON al.id = a.admin_level_id
+            CROSS JOIN rep_pt AS pt
+            ${adminAreaNameMmLateralSql("a")}
+            ${adminAreaNameEnLateralSql("a")}
+            WHERE pt.g IS NOT NULL
+              AND ${activeRoadTownshipBaseSql("a")}
+              AND a.geom && pt.g
+              AND (
+                  ST_Covers(a.geom, pt.g)
+                  OR ST_Contains(a.geom, pt.g)
+                  OR ST_Intersects(a.geom, pt.g)
+              )
+            ORDER BY ST_Area(a.geom::geography) ASC NULLS LAST, a.id ASC
+            LIMIT 1
+        `;
+
+        if (pointRows[0]) {
+            const match = this.mapPointFallbackRow(pointRows[0]);
+            return {
+                recommended: match,
+                matches: [match],
+                commonParent: null,
+                fallback_reason: "point_fallback",
+                distance_m: null,
+                nearest_unfiltered_distance_m: null,
+                debugReason: null,
+                road_length_m: roadLengthM,
+                geometry_intersects: false,
+            };
+        }
+
+        const nearestThresholdM = getRoadTownshipNearestMaxM();
+        const nearest = await this.findNearestRoadTownshipForGeoJson(geojsonText, roadLengthM);
+        if (nearest && nearest.distance_m <= nearestThresholdM) {
+            const match = this.mapNearestRow(nearest, roadLengthM);
+            return {
+                recommended: match,
+                matches: [match],
+                commonParent: null,
+                fallback_reason: "nearest_township",
+                distance_m: nearest.distance_m,
+                nearest_unfiltered_distance_m: nearest.distance_m,
+                debugReason: null,
+                road_length_m: roadLengthM,
+                geometry_intersects: false,
+            };
+        }
+
+        return emptyRoadTownshipRecommendation("outside_all_townships", {
+            road_length_m: roadLengthM,
+            nearest_unfiltered_distance_m: nearest?.distance_m ?? null,
+        });
+    }
+
+    private async findNearestRoadTownshipForGeoJson(
+        geojsonText: string,
+        _roadLengthM: number | null,
+    ): Promise<{
+        id: bigint;
+        canonical_name: string;
+        admin_level_code: string;
+        name_mm: string | null;
+        name_en: string | null;
+        distance_m: number;
+    } | null> {
+        const nearestThresholdM = getRoadTownshipNearestMaxM();
+        const expandDegrees = nearestThresholdM / 111_320;
+
+        const nearestRows = await this.prisma.$queryRaw<
+            {
+                id: bigint;
+                canonical_name: string;
+                admin_level_code: string;
+                name_mm: string | null;
+                name_en: string | null;
+                distance_m: number;
+            }[]
+        >`
+            WITH raw AS (
+                SELECT ST_SetSRID(ST_GeomFromGeoJSON(${geojsonText})::geometry, 4326) AS g
+            ),
+            road AS (
+                SELECT ST_LineMerge(ST_MakeValid(g)) AS g FROM raw
+            )
+            SELECT
+                a.id,
+                a.canonical_name,
+                al.code AS admin_level_code,
+                an_mm.name AS name_mm,
+                an_en.name AS name_en,
+                ST_Distance(a.geom::geography, road.g::geography) AS distance_m
+            FROM core.core_admin_areas AS a
+            INNER JOIN ref.ref_admin_levels AS al ON al.id = a.admin_level_id
+            CROSS JOIN road
+            ${adminAreaNameMmLateralSql("a")}
+            ${adminAreaNameEnLateralSql("a")}
+            WHERE road.g IS NOT NULL
+              AND ${activeRoadTownshipBaseSql("a")}
+              AND a.geom && ST_Expand(road.g, ${expandDegrees}::double precision)
+            ORDER BY a.geom <-> road.g ASC NULLS LAST, a.id ASC
+            LIMIT 1
+        `;
+
+        return nearestRows[0] ?? null;
     }
 
     /**

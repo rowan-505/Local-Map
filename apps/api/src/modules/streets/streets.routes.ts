@@ -4,6 +4,7 @@ import {
     createStreetBodySchema,
     deleteStreetBodySchema,
     nearestStreetPointQuerySchema,
+    streetsNearbyQuerySchema,
     splitStreetIdParamsSchema,
     splitStreetBodySchema,
     streetIdParamsSchema,
@@ -20,6 +21,7 @@ import {
     getRoadClassesSchema,
     getStreetByIdSchema,
     getStreetsListSchema,
+    getStreetsNearbySchema,
     getStreetsNearestPointSchema,
     patchStreetSchema,
     postStreetSplitSchema,
@@ -78,6 +80,27 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
             }
 
             const streets = await streetsService.listStreets(parsed.data);
+            return reply.send(streets);
+        },
+    );
+
+    app.get(
+        "/streets/nearby",
+        {
+            preHandler: app.authenticate,
+            schema: getStreetsNearbySchema,
+        },
+        async (request, reply) => {
+            const parsed = streetsNearbyQuerySchema.safeParse(request.query);
+
+            if (!parsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid nearby streets query",
+                    issues: parsed.error.flatten(),
+                });
+            }
+
+            const streets = await streetsService.listNearbyStreets(parsed.data);
             return reply.send(streets);
         },
     );

@@ -187,25 +187,52 @@ export const PLACES_ENTITY_CONFIG: CoreEntityConfig<
         point_geom: null,
     },
     formSchema: placeFormSchema,
-    detailToFormValues: (detail) => ({
-        myanmarName: detail.myanmarName ?? "",
-        englishName: detail.englishName ?? "",
-        categoryId: detail.category_id,
-        adminAreaId: detail.admin_area_id ?? "",
-        admin_area_explicit_clear: false,
-        plusCode: detail.plus_code ?? "",
-        importanceScore: detail.importance_score ?? "",
-        popularityScore: detail.popularity_score ?? "",
-        confidenceScore: detail.confidence_score ?? "",
-        isPublic: detail.is_public,
-        verification_status: verificationStatusFromDetail(detail),
-        sourceTypeId: detail.source_type_id,
-        publishStatusId: detail.publish_status_id ?? "",
-        point_geom: {
-            type: "Point",
-            coordinates: [detail.lng, detail.lat],
-        },
-    }),
+    detailToFormValues: (detail) => {
+        const d = detail as PlaceDetail & {
+            categoryId?: string | number | null;
+            adminAreaId?: string | number | null;
+            plusCode?: string | null;
+            importanceScore?: number | null;
+            popularityScore?: number | null;
+            confidenceScore?: number | null;
+            isPublic?: boolean | null;
+            sourceTypeId?: string | number | null;
+            publishStatusId?: string | number | null;
+            geometry?: { coordinates?: number[] };
+        };
+        const lat =
+            typeof d.lat === "number"
+                ? d.lat
+                : Array.isArray(d.geometry?.coordinates)
+                  ? Number(d.geometry.coordinates[1])
+                  : 0;
+        const lng =
+            typeof d.lng === "number"
+                ? d.lng
+                : Array.isArray(d.geometry?.coordinates)
+                  ? Number(d.geometry.coordinates[0])
+                  : 0;
+
+        return {
+            myanmarName: d.myanmarName ?? "",
+            englishName: d.englishName ?? "",
+            categoryId: String(d.category_id ?? d.categoryId ?? ""),
+            adminAreaId: String(d.admin_area_id ?? d.adminAreaId ?? ""),
+            admin_area_explicit_clear: false,
+            plusCode: d.plus_code ?? d.plusCode ?? "",
+            importanceScore: String(d.importance_score ?? d.importanceScore ?? ""),
+            popularityScore: String(d.popularity_score ?? d.popularityScore ?? ""),
+            confidenceScore: String(d.confidence_score ?? d.confidenceScore ?? ""),
+            isPublic: d.is_public ?? d.isPublic ?? true,
+            verification_status: verificationStatusFromDetail(d),
+            sourceTypeId: String(d.source_type_id ?? d.sourceTypeId ?? ""),
+            publishStatusId: String(d.publish_status_id ?? d.publishStatusId ?? ""),
+            point_geom: {
+                type: "Point",
+                coordinates: [lng, lat],
+            },
+        };
+    },
     formValuesToCreatePayload: formValuesToPlacePayload,
     formValuesToUpdatePayload: (values) => {
         const mm = String(values.myanmarName ?? "").trim();

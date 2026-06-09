@@ -10,6 +10,7 @@ export type CoreFormActionsProps = {
     showSubmit?: boolean;
     saveError?: string | null;
     saveSuccess?: string | null;
+    saveStageLabel?: string | null;
 };
 
 export default function CoreFormActions({
@@ -20,9 +21,13 @@ export default function CoreFormActions({
     showSubmit = true,
     saveError,
     saveSuccess,
+    saveStageLabel,
 }: CoreFormActionsProps) {
     return (
         <div className="sticky bottom-0 z-10 -mx-6 border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+            {isSubmitting && saveStageLabel ? (
+                <p className="mb-2 text-sm text-slate-600">{saveStageLabel}</p>
+            ) : null}
             {saveSuccess ? (
                 <div className="mb-3 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                     {saveSuccess}

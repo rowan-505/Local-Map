@@ -446,6 +446,7 @@ export default function CoreGeometryEditor({
                     defaultSnapToRoad={enableSnapping}
                     hideSnapControl={!enableSnapping}
                     showContextOverlays={!basemapOnly}
+                    editableStreetsLoadMode={basemapOnly ? "selected-only" : "global-recent"}
                     splitPickActive={splitPickActive}
                     onSplitPointClicked={onSplitPointClicked}
                     splitPreviewLngLat={splitPreviewLngLat}

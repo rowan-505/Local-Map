@@ -54,7 +54,7 @@ export default function StreetGeometryValidationFeedback({
                 <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
                     <div className="font-semibold">Warnings</div>
                     <p className="mt-1 text-xs text-amber-900/90">
-                        Saving is allowed, but you will be asked to confirm while these warnings remain.
+                        Saving is allowed; review these warnings before publishing.
                     </p>
                     <ul className="mt-1.5 list-disc space-y-1 pl-5">
                         {warnings.map((message, index) => (

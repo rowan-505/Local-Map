@@ -46,24 +46,42 @@ type CreatePreviewBaseMapOptions = {
  * then builds a pure PMTiles vector style.
  * Glyphs are served from `/fonts/{fontstack}/{range}.pbf` (self-hosted Myanmar font).
  */
+let cachedPmtilesOnlyStyle: Promise<StyleSpecification> | null = null;
+
 export async function fetchDashboardPmtilesOnlyStyle(options?: {
   signal?: AbortSignal;
   currentJsonUrl?: string;
 }): Promise<StyleSpecification> {
-  const currentJsonUrl = options?.currentJsonUrl ?? getDashboardBasemapCurrentJsonUrl();
-  const httpUrl = await resolveDashboardBasemapPmtilesHttpUrl({
-    currentJsonUrl,
-    signal: options?.signal,
-  });
-
-  if (IS_DEV) {
-    console.info("[dashboard] active PMTiles URL:", httpUrl);
+  if (!options?.signal && !options?.currentJsonUrl && cachedPmtilesOnlyStyle) {
+    return cachedPmtilesOnlyStyle;
   }
 
-  const style = applyDashboardLocalGlyphs(createBasemapStyle(httpUrl) as StyleSpecification);
-  logDashboardMapFontConfig("map:preview-style-fonts");
+  const load = async (): Promise<StyleSpecification> => {
+    const currentJsonUrl = options?.currentJsonUrl ?? getDashboardBasemapCurrentJsonUrl();
+    const httpUrl = await resolveDashboardBasemapPmtilesHttpUrl({
+      currentJsonUrl,
+      signal: options?.signal,
+    });
 
-  return style;
+    if (IS_DEV) {
+      console.info("[dashboard] active PMTiles URL:", httpUrl);
+    }
+
+    const style = applyDashboardLocalGlyphs(createBasemapStyle(httpUrl) as StyleSpecification);
+    logDashboardMapFontConfig("map:preview-style-fonts");
+
+    return style;
+  };
+
+  if (!options?.signal && !options?.currentJsonUrl) {
+    cachedPmtilesOnlyStyle = load();
+    void cachedPmtilesOnlyStyle.catch(() => {
+      cachedPmtilesOnlyStyle = null;
+    });
+    return cachedPmtilesOnlyStyle;
+  }
+
+  return load();
 }
 
 /**

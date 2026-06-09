@@ -13,7 +13,7 @@ import {
 } from "terra-draw";
 import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
 
-import { fetchDashboardPlaceMapStyle } from "@/src/components/map/dashboardBasemapStyle";
+import { fetchDashboardPlaceMapStyleCached } from "@/src/components/map/dashboardBasemapStyle";
 import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 import { useClientMounted } from "@/src/hooks/useClientMounted";
 import { attachDashboardMapErrorHandler } from "@/src/components/map/mapErrorHandlers";
@@ -34,9 +34,9 @@ import {
 } from "@/src/features/streets/streetMapConfig";
 import {
     getNearestStreetPoint,
-    getStreets,
+    getNearbyStreets,
     isAbortError,
-    type Street,
+    type NearbyStreet,
     type StreetLineStringGeoJson,
 } from "@/src/lib/api";
 import {
@@ -62,6 +62,9 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 const DEFAULT_SNAP_RADIUS_M = 5;
 const SNAP_DEBOUNCE_MS = 95;
+const VIEWPORT_STREETS_DEBOUNCE_MS = 300;
+const VIEWPORT_STREETS_LIMIT = 100;
+const VIEWPORT_BBOX_CACHE_DECIMALS = 4;
 const COORD_EPS = 1e-8;
 const EDITABLE_STREETS_SOURCE_ID = "street-editor-editable-streets";
 const EDITABLE_STREETS_CASING_LAYER_ID = "street-editor-editable-streets-casing";
@@ -105,11 +108,41 @@ function emptyStreetFeatureCollection(): StreetEditorFeatureCollection {
     };
 }
 
-function streetDisplayName(street: Pick<Street, "canonical_name" | "myanmarName" | "englishName" | "public_id">): string {
+type StreetMapOverlay = Pick<
+    NearbyStreet,
+    "public_id" | "canonical_name" | "myanmarName" | "englishName" | "road_class" | "is_active" | "deleted_at" | "geometry"
+>;
+
+function roundCoordForCache(value: number): number {
+    const factor = 10 ** VIEWPORT_BBOX_CACHE_DECIMALS;
+    return Math.round(value * factor) / factor;
+}
+
+function viewportStreetsCacheKey(bounds: maplibregl.LngLatBounds, zoom: number): string {
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+    return [
+        roundCoordForCache(sw.lng),
+        roundCoordForCache(sw.lat),
+        roundCoordForCache(ne.lng),
+        roundCoordForCache(ne.lat),
+        zoom.toFixed(1),
+    ].join(",");
+}
+
+function boundsToBboxParam(bounds: maplibregl.LngLatBounds): string {
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+    return `${sw.lng},${sw.lat},${ne.lng},${ne.lat}`;
+}
+
+function streetDisplayName(
+    street: Pick<StreetMapOverlay, "canonical_name" | "myanmarName" | "englishName" | "public_id">,
+): string {
     return street.englishName?.trim() || street.myanmarName?.trim() || street.canonical_name?.trim() || street.public_id;
 }
 
-function streetsToFeatureCollection(streets: Street[]): StreetEditorFeatureCollection {
+function streetsToFeatureCollection(streets: StreetMapOverlay[]): StreetEditorFeatureCollection {
     return {
         type: "FeatureCollection",
         features: streets
@@ -123,7 +156,7 @@ function streetsToFeatureCollection(streets: Street[]): StreetEditorFeatureColle
                     road_class: street.road_class,
                     is_active: street.is_active,
                 },
-                geometry: street.geometry as NonNullable<Street["geometry"]>,
+                geometry: street.geometry as NonNullable<StreetMapOverlay["geometry"]>,
             })),
     };
 }
@@ -443,6 +476,13 @@ export type StreetEditorMapProps = {
     hideSnapControl?: boolean;
     /** When false, load PMTiles basemap only and skip Martin vector overlay refreshes (core-review drawer). */
     showContextOverlays?: boolean;
+    /**
+     * How to populate the API-backed editable-streets GeoJSON overlay.
+     * - `global-recent`: fetch viewport-bounded streets after map bounds are known (import-review default).
+     * - `selected-only`: keep overlay empty; selected centerline uses {@link SELECTED_STREET_SOURCE_ID}.
+     *   Snap-to-roads uses {@link getNearestStreetPoint} and does not need nearby streets.
+     */
+    editableStreetsLoadMode?: "global-recent" | "selected-only";
 };
 
 type SnapCtl = {
@@ -473,6 +513,7 @@ export default function StreetEditorMap({
     defaultSnapToRoad = true,
     hideSnapControl = false,
     showContextOverlays = true,
+    editableStreetsLoadMode = "global-recent",
 }: StreetEditorMapProps) {
     const { streetTileVersion, placeTileVersion, roadLabelTileVersion } = useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -489,6 +530,10 @@ export default function StreetEditorMap({
     const [snapToRoad, setSnapToRoad] = useState(defaultSnapToRoad);
     const dataReviewBasemapModeRef = useRef(dataReviewBasemapMode);
     dataReviewBasemapModeRef.current = dataReviewBasemapMode;
+    const showContextOverlaysRef = useRef(showContextOverlays);
+    showContextOverlaysRef.current = showContextOverlays;
+    const onMapInstanceRef = useRef(onMapInstance);
+    onMapInstanceRef.current = onMapInstance;
 
     const seedPropRef = useRef(seedLine);
 
@@ -500,6 +545,9 @@ export default function StreetEditorMap({
     });
 
     const snapRoadDebounceTimerRef = useRef<number | null>(null);
+    const viewportStreetsDebounceTimerRef = useRef<number | null>(null);
+    const viewportStreetsAbortRef = useRef<AbortController | null>(null);
+    const viewportStreetsCacheRef = useRef<Map<string, StreetMapOverlay[]>>(new Map());
 
     const snapEnabledRef = useRef(defaultSnapToRoad);
 
@@ -794,6 +842,15 @@ export default function StreetEditorMap({
         [clearSnapFeedbackTimer],
     );
 
+    const safeGetDrawSnapshotRef = useRef(safeGetDrawSnapshot);
+    safeGetDrawSnapshotRef.current = safeGetDrawSnapshot;
+    const safeUpsertDrawLineRef = useRef(safeUpsertDrawLine);
+    safeUpsertDrawLineRef.current = safeUpsertDrawLine;
+    const scheduleSnapFeedbackRef = useRef(scheduleSnapFeedback);
+    scheduleSnapFeedbackRef.current = scheduleSnapFeedback;
+    const clearSnapFeedbackTimerFnRef = useRef(clearSnapFeedbackTimer);
+    clearSnapFeedbackTimerFnRef.current = clearSnapFeedbackTimer;
+
     const selectedVertexIndexRef = useRef<number | null>(null);
 
     useEffect(() => {
@@ -878,6 +935,71 @@ export default function StreetEditorMap({
         snapExcludePublicIdRef.current = snapExcludeStreetPublicId ?? undefined;
     }, [snapExcludeStreetPublicId]);
 
+    const fetchViewportEditableStreets = useCallback(
+        (map: maplibregl.Map, options: { force?: boolean } = {}) => {
+            if (editableStreetsLoadMode === "selected-only") {
+                return;
+            }
+
+            const bounds = map.getBounds();
+            const zoom = map.getZoom();
+            const cacheKey = viewportStreetsCacheKey(bounds, zoom);
+
+            if (!options.force && viewportStreetsCacheRef.current.has(cacheKey)) {
+                const cached = viewportStreetsCacheRef.current.get(cacheKey)!;
+                setStreetSourceError("");
+                setGeoJsonSourceData(map, EDITABLE_STREETS_SOURCE_ID, streetsToFeatureCollection(cached));
+                return;
+            }
+
+            viewportStreetsAbortRef.current?.abort();
+            const abort = new AbortController();
+            viewportStreetsAbortRef.current = abort;
+
+            void (async () => {
+                setStreetSourceError("");
+
+                try {
+                    const streets = await getNearbyStreets(
+                        {
+                            bbox: boundsToBboxParam(bounds),
+                            limit: VIEWPORT_STREETS_LIMIT,
+                        },
+                        { signal: abort.signal },
+                    );
+
+                    if (abort.signal.aborted) {
+                        return;
+                    }
+
+                    viewportStreetsCacheRef.current.set(cacheKey, streets);
+                    setGeoJsonSourceData(map, EDITABLE_STREETS_SOURCE_ID, streetsToFeatureCollection(streets));
+
+                    if (showContextOverlays) {
+                        const tileV =
+                            streetVectorTileVersion ?? streetSourceRefreshKey ?? streetTileVersion ?? Date.now();
+                        scheduleStreetTileRefresh(map, tileV);
+                    }
+                } catch (error) {
+                    if (isAbortError(error) || abort.signal.aborted) {
+                        return;
+                    }
+
+                    setStreetSourceError(
+                        error instanceof Error ? error.message : "Failed to load nearby editable streets",
+                    );
+                }
+            })();
+        },
+        [
+            editableStreetsLoadMode,
+            showContextOverlays,
+            streetSourceRefreshKey,
+            streetVectorTileVersion,
+            streetTileVersion,
+        ],
+    );
+
     useEffect(() => {
         const map = mapRef.current;
 
@@ -885,48 +1007,54 @@ export default function StreetEditorMap({
             return;
         }
 
-        const mapInstance = map;
-        const abort = new AbortController();
-
-        async function refreshEditableStreets() {
-            // Refresh flow: after create/update/delete the parent bumps `streetSourceRefreshKey`,
-            // then this source re-fetches from the API so editor previews do not rely on stale vector tiles.
+        if (editableStreetsLoadMode === "selected-only") {
             setStreetSourceError("");
-
-            try {
-                const streets = await getStreets(
-                    {
-                        limit: 100,
-                        sortBy: "updated",
-                        sortOrder: "desc",
-                    },
-                    { signal: abort.signal },
-                );
-
-                if (abort.signal.aborted) {
-                    return;
-                }
-
-                setGeoJsonSourceData(mapInstance, EDITABLE_STREETS_SOURCE_ID, streetsToFeatureCollection(streets));
-
-                if (showContextOverlays) {
-                    const tileV =
-                        streetVectorTileVersion ?? streetSourceRefreshKey ?? streetTileVersion ?? Date.now();
-                    scheduleStreetTileRefresh(mapInstance, tileV);
-                }
-            } catch (error) {
-                if (isAbortError(error) || abort.signal.aborted) {
-                    return;
-                }
-
-                setStreetSourceError(error instanceof Error ? error.message : "Failed to refresh editable streets");
-            }
+            setGeoJsonSourceData(map, EDITABLE_STREETS_SOURCE_ID, emptyStreetFeatureCollection());
+            return;
         }
 
-        void refreshEditableStreets();
+        const scheduleViewportFetch = (force = false) => {
+            if (viewportStreetsDebounceTimerRef.current !== null) {
+                window.clearTimeout(viewportStreetsDebounceTimerRef.current);
+            }
 
-        return () => abort.abort();
-    }, [mapReady, showContextOverlays, streetSourceRefreshKey, streetVectorTileVersion, streetTileVersion]);
+            viewportStreetsDebounceTimerRef.current = window.setTimeout(() => {
+                viewportStreetsDebounceTimerRef.current = null;
+                fetchViewportEditableStreets(map, { force });
+            }, VIEWPORT_STREETS_DEBOUNCE_MS);
+        };
+
+        const onMoveEnd = () => scheduleViewportFetch(false);
+
+        scheduleViewportFetch(false);
+        map.on("moveend", onMoveEnd);
+
+        return () => {
+            map.off("moveend", onMoveEnd);
+            if (viewportStreetsDebounceTimerRef.current !== null) {
+                window.clearTimeout(viewportStreetsDebounceTimerRef.current);
+                viewportStreetsDebounceTimerRef.current = null;
+            }
+            viewportStreetsAbortRef.current?.abort();
+            viewportStreetsAbortRef.current = null;
+        };
+    }, [editableStreetsLoadMode, fetchViewportEditableStreets, mapReady]);
+
+    const streetSourceRefreshKeyRef = useRef(streetSourceRefreshKey);
+
+    useEffect(() => {
+        if (editableStreetsLoadMode === "selected-only" || !mapReady || !mapRef.current) {
+            return;
+        }
+
+        if (streetSourceRefreshKeyRef.current === streetSourceRefreshKey) {
+            return;
+        }
+
+        streetSourceRefreshKeyRef.current = streetSourceRefreshKey;
+        viewportStreetsCacheRef.current.clear();
+        fetchViewportEditableStreets(mapRef.current, { force: true });
+    }, [editableStreetsLoadMode, fetchViewportEditableStreets, mapReady, streetSourceRefreshKey]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -1046,9 +1174,10 @@ export default function StreetEditorMap({
             logDashboardGlyphServingHealthInDev();
             let style: maplibregl.StyleSpecification;
             try {
-                style = await fetchDashboardPlaceMapStyle({
-                    includeBusTransitLayers: showContextOverlays,
-                    includeMartinOverlays: showContextOverlays,
+                const includeOverlays = showContextOverlaysRef.current;
+                style = await fetchDashboardPlaceMapStyleCached({
+                    includeBusTransitLayers: includeOverlays,
+                    includeMartinOverlays: includeOverlays,
                 });
             } catch (err) {
                 console.error("StreetEditorMap basemap style failed:", err);
@@ -1083,7 +1212,7 @@ export default function StreetEditorMap({
                 ensureDataReviewSatelliteLayer(map);
                 applyDashboardMergedBasemapMode(map, dataReviewBasemapModeRef.current);
             }
-            onMapInstance?.(map);
+            onMapInstanceRef.current?.(map);
 
             /** Hide TerraDraw's own stroke/points when editing an existing street — DOM vertex handles + blue GeoJSON line are authoritative. */
             const hideTerraDrawLineOverlay = Boolean(selectedStreetPublicIdRef.current);
@@ -1127,7 +1256,7 @@ export default function StreetEditorMap({
             drawRef.current = draw;
 
             function flushEmitGeometry() {
-                const next = snapshotToLineString(safeGetDrawSnapshot());
+                const next = snapshotToLineString(safeGetDrawSnapshotRef.current());
                 const key = lineStringCoordsKey(next);
 
                 if (key !== lastEmittedCoordsKey.current) {
@@ -1192,7 +1321,7 @@ export default function StreetEditorMap({
                             return;
                         }
 
-                        const snapshot = safeGetDrawSnapshot();
+                        const snapshot = safeGetDrawSnapshotRef.current();
                         const nextRaw = snapshotToLineString(snapshot);
 
                         if (!nextRaw || nextRaw.coordinates.length < 2) {
@@ -1262,9 +1391,9 @@ export default function StreetEditorMap({
                             }
 
                             if (snapApplied) {
-                                scheduleSnapFeedback("snapped");
+                                scheduleSnapFeedbackRef.current("snapped");
                             } else {
-                                scheduleSnapFeedback("miss");
+                                scheduleSnapFeedbackRef.current("miss");
                             }
 
                             if (!moved) {
@@ -1273,7 +1402,7 @@ export default function StreetEditorMap({
                             }
 
                             terraDrawStreetFeatureIdRef.current = fid as DrawFeatureId;
-                            safeUpsertDrawLine({
+                            safeUpsertDrawLineRef.current({
                                 type: "LineString",
                                 coordinates: coords,
                             });
@@ -1303,7 +1432,7 @@ export default function StreetEditorMap({
                 snapRoadDebounceTimerRef.current = null;
             }
 
-            clearSnapFeedbackTimer();
+            clearSnapFeedbackTimerFnRef.current();
 
             splitPreviewMarkerRef.current?.remove();
             splitPreviewMarkerRef.current = null;
@@ -1312,12 +1441,12 @@ export default function StreetEditorMap({
             drawRef.current?.stop();
             drawRef.current = null;
             lineModeRef.current = null;
-            onMapInstance?.(null);
+            onMapInstanceRef.current?.(null);
             mapRef.current?.remove();
             mapRef.current = null;
             lastEmittedCoordsKey.current = "";
         };
-    }, [clientMounted, clearSnapFeedbackTimer, safeGetDrawSnapshot, safeUpsertDrawLine, scheduleSnapFeedback]);
+    }, [clientMounted]);
 
     useEffect(() => {
         const map = mapRef.current;

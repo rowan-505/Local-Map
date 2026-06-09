@@ -16,7 +16,6 @@ import {
 } from "@/src/features/streets/streetSaveLocalChecks";
 import {
     hasBlockingStreetGeometryErrors,
-    shouldConfirmStreetTopologyWarnings,
     validateStreetGeometryForSave,
 } from "@/src/features/streets/streetGeometrySaveValidation";
 import {
@@ -33,6 +32,8 @@ import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 import { summarizeCoreReviewSavePayload } from "@/src/lib/core-review/savePayloadUtils";
 
+import { CORE_REVIEW_FORM_VALIDATION_SAVE_ERROR } from "@/src/features/core-review/save/coreReviewSaveStage";
+
 import { useCoreEntityEditForm, sanitizeSaveError } from "../drawer";
 import {
     CoreEntityEditBelowMapSection,
@@ -43,7 +44,6 @@ import {
     resolveCoreEntityExternalId,
 } from "./CoreEntityEditFormSections";
 import CoreEntityFormShell from "./CoreEntityFormShell";
-import { SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM } from "./CoreEntityGeometrySection";
 import CoreEntityValidationPanel from "./CoreEntityValidationPanel";
 import CoreEntityWriteApiBanner from "./CoreEntityWriteApiBanner";
 import CoreFormActions from "./CoreFormActions";
@@ -166,7 +166,8 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
         }
     }, [entityKey, mode, createRefStates, createForm]);
 
-    const onCreateSubmit = createForm.handleSubmit(async (values) => {
+    const onCreateSubmit = createForm.handleSubmit(
+        async (values) => {
         if (!config.writeApiAvailable) {
             return;
         }
@@ -213,12 +214,6 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
                 if (hasBlockingStreetGeometryErrors(check)) {
                     setCreateSaveError(check.errors.join("\n"));
                     return;
-                }
-
-                if (shouldConfirmStreetTopologyWarnings(check)) {
-                    if (!window.confirm(SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM)) {
-                        return;
-                    }
                 }
 
                 values = { ...values, [geometryFieldKey]: prep.sanitized };
@@ -274,7 +269,11 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
         } finally {
             setCreateIsSaving(false);
         }
-    });
+    },
+        () => {
+            setCreateSaveError(CORE_REVIEW_FORM_VALIDATION_SAVE_ERROR);
+        },
+    );
 
     const onEditSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -419,8 +418,9 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
                     isSubmitting={isSaving}
                     disabled={formDisabled}
                     showSubmit={config.writeApiAvailable}
-                    saveError={null}
+                    saveError={saveError}
                     saveSuccess={saveSuccess}
+                    saveStageLabel={isEdit ? editForm.saveStageLabel : null}
                 />
             }
         />

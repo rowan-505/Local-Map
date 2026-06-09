@@ -232,6 +232,44 @@ const streetsListQuery = {
     additionalProperties: false,
 } as const;
 
+const streetsNearbyQuery = {
+    type: "object",
+    required: ["bbox"],
+    properties: {
+        bbox: {
+            type: "string",
+            description: "Viewport bounds as minLng,minLat,maxLng,maxLat (EPSG:4326)",
+        },
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 100 },
+    },
+    additionalProperties: false,
+} as const;
+
+const streetNearbyRowSchema = {
+    type: "object",
+    required: [
+        "public_id",
+        "canonical_name",
+        "myanmarName",
+        "englishName",
+        "road_class",
+        "is_active",
+        "deleted_at",
+        "geometry",
+    ],
+    properties: {
+        public_id: { type: "string", format: "uuid" },
+        canonical_name: { type: "string", nullable: true },
+        myanmarName: { type: "string", nullable: true },
+        englishName: { type: "string", nullable: true },
+        road_class: { type: "string", nullable: true },
+        is_active: { type: "boolean" },
+        deleted_at: { type: "string", format: "date-time", nullable: true },
+        geometry: streetGeometrySchema,
+    },
+    additionalProperties: false,
+} as const;
+
 const nearestPointQuery = {
     type: "object",
     required: ["lat", "lng"],
@@ -371,6 +409,20 @@ export const getStreetsListSchema = {
     querystring: streetsListQuery,
     response: {
         200: { type: "array", items: streetRowSchema },
+        400: badRequestSchema,
+        401: messageSchema,
+    },
+} satisfies FastifySchema;
+
+export const getStreetsNearbySchema = {
+    tags: [Tags.Streets],
+    summary: "Streets in map viewport",
+    description:
+        "Returns active street centerlines intersecting a WGS84 bbox for map editor overlays. Uses GIST index; no COUNT.",
+    security: [...bearerAuth],
+    querystring: streetsNearbyQuery,
+    response: {
+        200: { type: "array", items: streetNearbyRowSchema },
         400: badRequestSchema,
         401: messageSchema,
     },

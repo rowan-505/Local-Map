@@ -24,7 +24,7 @@ import {
     refreshRoadLabelTiles,
     refreshStreetTiles,
 } from "@/src/components/map/placeMapConfig";
-import { fetchDashboardPlaceMapStyle } from "@/src/components/map/dashboardBasemapStyle";
+import { fetchDashboardPlaceMapStyleCached } from "@/src/components/map/dashboardBasemapStyle";
 import { ensurePmtilesProtocol } from "@local-map/map-style/registerPmtilesProtocol";
 import { useDashboardTileVersions } from "@/src/components/map/BuildingTileVersionContext";
 import { attachDashboardMapErrorHandler } from "@/src/components/map/mapErrorHandlers";
@@ -736,6 +736,8 @@ export default function BuildingEditorMap({
     autoEnterVertexEdit = true,
     showContextOverlays = true,
 }: BuildingEditorMapProps) {
+    const showContextOverlaysRef = useRef(showContextOverlays);
+    showContextOverlaysRef.current = showContextOverlays;
     const { buildingTileVersion, streetTileVersion, placeTileVersion, roadLabelTileVersion } =
         useDashboardTileVersions();
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -940,9 +942,9 @@ export default function BuildingEditorMap({
             logDashboardGlyphServingHealthInDev();
             let style: maplibregl.StyleSpecification;
             try {
-                style = await fetchDashboardPlaceMapStyle({
+                style = await fetchDashboardPlaceMapStyleCached({
                     includeBusTransitLayers: false,
-                    includeMartinOverlays: showContextOverlays,
+                    includeMartinOverlays: showContextOverlaysRef.current,
                 });
             } catch (err) {
                 console.error("BuildingEditorMap basemap style failed:", err);
@@ -1037,7 +1039,7 @@ export default function BuildingEditorMap({
             setMapReady(false);
             setStats({ areaSqM: null, vertexCount: 0 });
         };
-    }, [clientMounted, editorMapSurfaceRef]);
+    }, [clientMounted]);
 
     useEffect(() => {
         const map = mapRef.current;

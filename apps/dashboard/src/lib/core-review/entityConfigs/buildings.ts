@@ -126,6 +126,7 @@ export const BUILDINGS_ENTITY_CONFIG: CoreEntityConfig<
         geometryType: "polygon",
         title: "Building footprint",
         showVertices: true,
+        basemapOnly: true,
     },
     editableFields: [
         { key: "name_mm", label: "Myanmar name", type: "text" },
@@ -181,25 +182,45 @@ export const BUILDINGS_ENTITY_CONFIG: CoreEntityConfig<
         geom: null,
     },
     formSchema: buildingFormSchema,
-    detailToFormValues: (detail) => ({
-        name_mm: detail.name_mm ?? "",
-        name_en: detail.name_en ?? "",
-        fallback_name: detail.fallback_name ?? detail.name ?? "",
-        building_type_id:
-            detail.building_type_id != null
-                ? String(detail.building_type_id)
-                : detail.building_type?.id != null
-                  ? String(detail.building_type.id)
-                  : "",
-        admin_area_id: detail.admin_area_id != null ? String(detail.admin_area_id) : "",
-        admin_area_explicit_clear: false,
-        levels: detail.levels != null ? String(detail.levels) : "",
-        height_m: detail.height_m != null ? String(detail.height_m) : "",
-        confidence_score:
-            detail.confidence_score != null ? String(detail.confidence_score) : "80",
-        verification_status: verificationStatusFromDetail(detail),
-        geom: detail.geometry ?? null,
-    }),
+    detailToFormValues: (detail) => {
+        const d = detail as Building & {
+            nameMm?: string | null;
+            nameEn?: string | null;
+            buildingTypeId?: string | number | null;
+            adminAreaId?: string | number | null;
+            confidenceScore?: number | null;
+        };
+        return {
+            name_mm: d.name_mm ?? d.nameMm ?? "",
+            name_en: d.name_en ?? d.nameEn ?? "",
+            fallback_name: d.fallback_name ?? d.name ?? "",
+            building_type_id:
+                d.building_type_id != null
+                    ? String(d.building_type_id)
+                    : d.buildingTypeId != null
+                      ? String(d.buildingTypeId)
+                      : d.building_type?.id != null
+                        ? String(d.building_type.id)
+                        : "",
+            admin_area_id:
+                d.admin_area_id != null
+                    ? String(d.admin_area_id)
+                    : d.adminAreaId != null
+                      ? String(d.adminAreaId)
+                      : "",
+            admin_area_explicit_clear: false,
+            levels: d.levels != null ? String(d.levels) : "",
+            height_m: d.height_m != null ? String(d.height_m) : "",
+            confidence_score:
+                d.confidence_score != null
+                    ? String(d.confidence_score)
+                    : d.confidenceScore != null
+                      ? String(d.confidenceScore)
+                      : "80",
+            verification_status: verificationStatusFromDetail(d),
+            geom: d.geometry ?? null,
+        };
+    },
     formValuesToCreatePayload: (values) => formValuesToBuildingPayload(values, false),
     formValuesToUpdatePayload: (values) => formValuesToBuildingPayload(values, true),
     getDetailId: detailRecordId,

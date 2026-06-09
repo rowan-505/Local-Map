@@ -7,6 +7,8 @@ export type CoreReviewDrawerActionsProps = {
     canEdit: boolean;
     isSaving: boolean;
     formDisabled?: boolean;
+    saveError?: string | null;
+    saveStageLabel?: string | null;
     onEnterEdit: () => void;
     onCancel: () => void;
     onSave: () => void;
@@ -22,6 +24,8 @@ export default function CoreReviewDrawerActions({
     canEdit,
     isSaving,
     formDisabled = false,
+    saveError,
+    saveStageLabel,
     onEnterEdit,
     onCancel,
     onSave,
@@ -36,19 +40,27 @@ export default function CoreReviewDrawerActions({
 
     if (mode === "edit") {
         return (
-            <>
-                <button type="button" onClick={onCancel} disabled={isSaving} className={btnSecondary}>
-                    Cancel
-                </button>
-                <button
-                    type="button"
-                    onClick={onSave}
-                    disabled={isSaving || formDisabled}
-                    className={btnPrimary}
-                >
-                    {isSaving ? "Saving…" : "Save changes"}
-                </button>
-            </>
+            <div className="flex max-w-xs flex-col items-end gap-1.5">
+                {isSaving && saveStageLabel ? (
+                    <p className="text-xs text-slate-500">{saveStageLabel}</p>
+                ) : null}
+                {saveError ? (
+                    <p className="whitespace-pre-wrap text-right text-xs text-red-700">{saveError}</p>
+                ) : null}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button type="button" onClick={onCancel} disabled={isSaving} className={btnSecondary}>
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onSave}
+                        disabled={isSaving || formDisabled}
+                        className={btnPrimary}
+                    >
+                        {isSaving ? "Saving…" : "Save changes"}
+                    </button>
+                </div>
+            </div>
         );
     }
 

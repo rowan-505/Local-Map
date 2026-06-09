@@ -254,6 +254,25 @@ export type StreetsParams = {
     include_deleted?: boolean;
 };
 
+/** GET /streets/nearby — lightweight map-editor overlay rows. */
+export type NearbyStreet = Pick<
+    Street,
+    | "public_id"
+    | "canonical_name"
+    | "myanmarName"
+    | "englishName"
+    | "road_class"
+    | "is_active"
+    | "deleted_at"
+    | "geometry"
+>;
+
+export type NearbyStreetsParams = {
+    /** minLng,minLat,maxLng,maxLat (EPSG:4326) */
+    bbox: string;
+    limit?: number;
+};
+
 /** GET /streets/nearest-point — `street_id` is core street `public_id` (UUID). */
 export type NearestStreetPointHit = {
     street_id: string;
@@ -1673,21 +1692,28 @@ export type EntityAdminAreaValidateManualResult = {
     can_save_without_override: boolean;
 };
 
-export function inferEntityAdminArea(payload: {
-    kind: EntityAdminAreaKind;
-    lat?: number;
-    lng?: number;
-    geometry?: { type: string; coordinates: unknown };
-    /** Road/landuse edit audit: stored admin_area_id from DB. */
-    current_admin_area_id?: string;
-    /** Road/landuse edit audit logging only. */
-    entity_public_id?: string;
-}) {
-    return apiFetch<EntityAdminAreaInferResult>("/entity-admin-area/infer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-    });
+export function inferEntityAdminArea(
+    payload: {
+        kind: EntityAdminAreaKind;
+        lat?: number;
+        lng?: number;
+        geometry?: { type: string; coordinates: unknown };
+        /** Road/landuse edit audit: stored admin_area_id from DB. */
+        current_admin_area_id?: string;
+        /** Road/landuse edit audit logging only. */
+        entity_public_id?: string;
+    },
+    fetchInit?: Pick<RequestInit, "signal">,
+) {
+    return apiFetch<EntityAdminAreaInferResult>(
+        "/entity-admin-area/infer",
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            ...fetchInit,
+        },
+    );
 }
 
 export function validateEntityAdminAreaManual(payload: {
@@ -4029,6 +4055,10 @@ export function getRoadClasses(fetchInit?: Pick<RequestInit, "signal">) {
 
 export function getStreets(params?: StreetsParams, fetchInit?: Pick<RequestInit, "signal">) {
     return apiFetch<Street[]>("/streets", { method: "GET", ...fetchInit }, params);
+}
+
+export function getNearbyStreets(params: NearbyStreetsParams, fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<NearbyStreet[]>("/streets/nearby", { method: "GET", ...fetchInit }, params);
 }
 
 export function getStreet(id: string, fetchInit?: Pick<RequestInit, "signal">) {

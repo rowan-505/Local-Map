@@ -18,9 +18,6 @@ import { dashDevLog } from "@/src/lib/dashDevLog";
 
 import type { StreetSplitMapProps } from "./StreetEditExtras";
 
-export const SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM =
-    "This street has topology warnings. Save anyway?";
-
 function invalidGeometryValidation(message: string): ValidateStreetGeometryResponse {
     return {
         isValid: false,

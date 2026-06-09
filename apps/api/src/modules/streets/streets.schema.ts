@@ -52,6 +52,48 @@ export const streetsQuerySchema = z.object({
 
 export type StreetsListQuery = z.infer<typeof streetsQuerySchema>;
 
+const mapBboxQuerySchema = z
+    .string()
+    .trim()
+    .transform((value, ctx) => {
+        const parts = value.split(",").map((part) => Number(part.trim()));
+
+        if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part))) {
+            ctx.addIssue({
+                code: "custom",
+                message: 'bbox must be "minLng,minLat,maxLng,maxLat"',
+            });
+            return z.NEVER;
+        }
+
+        const [minLng, minLat, maxLng, maxLat] = parts;
+        const valid =
+            minLng >= -180 &&
+            maxLng <= 180 &&
+            minLat >= -90 &&
+            maxLat <= 90 &&
+            minLng < maxLng &&
+            minLat < maxLat;
+
+        if (!valid) {
+            ctx.addIssue({
+                code: "custom",
+                message: "bbox coordinates are out of range or not ordered",
+            });
+            return z.NEVER;
+        }
+
+        return [minLng, minLat, maxLng, maxLat] as [number, number, number, number];
+    });
+
+/** GET /streets/nearby — viewport-bounded streets for map editor overlays. */
+export const streetsNearbyQuerySchema = z.object({
+    bbox: mapBboxQuerySchema,
+    limit: z.coerce.number().int().min(1).max(100).default(100),
+});
+
+export type StreetsNearbyQuery = z.infer<typeof streetsNearbyQuerySchema>;
+
 /** GET /streets/nearest-point — dashboard map snap helper (read-only, no routing). */
 export const nearestStreetPointQuerySchema = z.object({
     lat: z.coerce.number().gte(-90).lte(90),

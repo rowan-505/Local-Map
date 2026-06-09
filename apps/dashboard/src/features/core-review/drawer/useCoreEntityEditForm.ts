@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type Resolver } from "react-hook-form";
 import { useQueryClient } from "@tanstack/react-query";
@@ -13,11 +13,15 @@ import {
     prepareLocalStreetGeometryForSave,
 } from "@/src/features/streets/streetSaveLocalChecks";
 import {
+    isStreetLineStringGeometryUnchanged,
+    streetLineStringFromDetail,
+} from "@/src/features/streets/streetGeometryCompare";
+import {
+    formatStreetGeometrySaveSuccessMessage,
     hasBlockingStreetGeometryErrors,
-    shouldConfirmStreetTopologyWarnings,
     validateStreetGeometryForSave,
 } from "@/src/features/streets/streetGeometrySaveValidation";
-import type { ValidateStreetGeometryResponse } from "@/src/lib/api";
+import type { UpdateStreetPayload, ValidateStreetGeometryResponse } from "@/src/lib/api";
 import {
     getCoreEntityConfig,
     type CoreEntityFormValues,
@@ -25,13 +29,22 @@ import {
 } from "@/src/lib/core-review/entityConfigs";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import { dashDevLog } from "@/src/lib/dashDevLog";
+import {
+    CORE_REVIEW_FORM_VALIDATION_SAVE_ERROR,
+    coreReviewSaveStageLabel,
+    type CoreReviewSaveStage,
+} from "@/src/features/core-review/save/coreReviewSaveStage";
+import {
+    isCompleteCoreReviewUpdateDetail,
+    resolveDetailAfterCoreReviewUpdate,
+} from "@/src/lib/core-review/resolveDetailAfterCoreReviewUpdate";
 import { summarizeCoreReviewSavePayload } from "@/src/lib/core-review/savePayloadUtils";
 
 import { isTownshipAdminEntity } from "@/src/lib/core-review/townshipAdminPolicy";
 import { townshipAdminSaveBlockMessage } from "../forms/EntityTownshipAdminField";
 import { collectRefSources, useCoreEntityRefs } from "../forms/useCoreEntityRefs";
 import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
-import { SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM } from "../forms/CoreEntityGeometrySection";
+import { tryAcquireInFlightRef } from "./saveInFlightGuard";
 import { sanitizeSaveError } from "./sanitizeSaveError";
 import { patchCoreReviewListRowEverywhere } from "../hooks/coreReviewCache";
 import { applyStreetDetailToListRow } from "../streets/applyStreetDetailToListRow";
@@ -63,10 +76,12 @@ export function useCoreEntityEditForm({
     const [saveError, setSaveError] = useState<string | null>(null);
     const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [saveStage, setSaveStage] = useState<CoreReviewSaveStage | null>(null);
     const [geometryValidation, setGeometryValidation] = useState<CoreGeometryValidationResult | null>(null);
     const [apiGeometryValidation, setApiGeometryValidation] = useState<ValidateStreetGeometryResponse | null>(
         null,
     );
+    const saveInFlightRef = useRef(false);
 
     const geometryFieldKey = config.geometry?.fieldKey ?? "geom";
 
@@ -84,7 +99,7 @@ export function useCoreEntityEditForm({
         reset,
         watch,
         setValue,
-        formState: { errors, isDirty, dirtyFields },
+        formState: { errors, isDirty },
     } = useForm<CoreEntityFormValues>({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- entity schemas vary by config; RHF resolver typing is unified at runtime.
         resolver: zodResolver(schema as any) as Resolver<CoreEntityFormValues>,
@@ -158,14 +173,20 @@ export function useCoreEntityEditForm({
             return null;
         }
 
+        if (!tryAcquireInFlightRef(saveInFlightRef)) {
+            return null;
+        }
+
         setSaveError(null);
         setSaveSuccess(null);
         setIsSaving(true);
+        setSaveStage("validating_form");
 
         let resolved: unknown | null = null;
 
         try {
-            const run = handleSubmit(async (values) => {
+            const run = handleSubmit(
+                async (values) => {
                 try {
                     if (isTownshipAdminEntity(entityKey)) {
                         const townshipBlock = townshipAdminSaveBlockMessage(values);
@@ -175,18 +196,25 @@ export function useCoreEntityEditForm({
                         }
                     }
 
-                    if (entityKey === "streets") {
-                        const geometryDirty = Boolean(
-                            (dirtyFields as Record<string, unknown>)[geometryFieldKey],
-                        );
+                    let streetGeometryChanged = false;
+                    let streetGeometryValidation: ValidateStreetGeometryResponse | null = null;
 
+                    if (entityKey === "streets") {
                         const roadClass = ensureRoadClassSelected(String(values.road_class_id ?? ""));
                         if (!roadClass) {
                             setSaveError("Select a road class before saving.");
                             return;
                         }
 
-                        if (geometryDirty) {
+                        const loadedGeometry = streetLineStringFromDetail(detail);
+                        const currentGeometry = getFormGeometry(values, geometryFieldKey);
+                        streetGeometryChanged = !isStreetLineStringGeometryUnchanged(
+                            loadedGeometry,
+                            currentGeometry,
+                        );
+
+                        if (streetGeometryChanged) {
+                            setSaveStage("checking_geometry");
                             const geom = getFormGeometry(values, geometryFieldKey);
                             const prep = prepareLocalStreetGeometryForSave(
                                 geom && typeof geom === "object" && "type" in geom && geom.type === "LineString"
@@ -198,31 +226,41 @@ export function useCoreEntityEditForm({
                                 return;
                             }
 
-                            const check = await validateStreetGeometryForSave({
+                            streetGeometryValidation = await validateStreetGeometryForSave({
                                 geometry: prep.sanitized,
                                 streetId: recordId,
                             });
-                            setApiGeometryValidation(check);
+                            setApiGeometryValidation(streetGeometryValidation);
 
-                            if (hasBlockingStreetGeometryErrors(check)) {
-                                setSaveError(check.errors.join("\n"));
+                            if (hasBlockingStreetGeometryErrors(streetGeometryValidation)) {
+                                setSaveError(streetGeometryValidation.errors.join("\n"));
                                 return;
-                            }
-
-                            if (shouldConfirmStreetTopologyWarnings(check)) {
-                                if (!window.confirm(SAVE_WITH_TOPOLOGY_WARNINGS_CONFIRM)) {
-                                    return;
-                                }
                             }
 
                             values = { ...values, [geometryFieldKey]: prep.sanitized };
                         }
                     }
 
-                    const payload = config.formValuesToUpdatePayload(values);
+                    let payload = config.formValuesToUpdatePayload(values);
+                    if (entityKey === "streets" && !streetGeometryChanged) {
+                        const { geometry: _omit, ...metadataOnly } = payload as UpdateStreetPayload;
+                        payload = metadataOnly;
+                    }
                     dashDevLog(`${entityKey}:edit:save-payload`, summarizeCoreReviewSavePayload(payload));
-                    await config.updateEntity(recordId, payload);
-                    const fresh = await config.fetchDetail(recordId);
+
+                    setSaveStage("saving_changes");
+                    const slug = config.coreReviewSlug ?? entityKey;
+                    const updated = await config.updateEntity(recordId, payload);
+                    if (!isCompleteCoreReviewUpdateDetail(slug, updated)) {
+                        setSaveStage("refreshing_row");
+                    }
+                    const fresh = await resolveDetailAfterCoreReviewUpdate({
+                        slug,
+                        recordId,
+                        updated,
+                        fetchDetail: config.fetchDetail,
+                    });
+
                     setDetail(fresh as Record<string, unknown>);
                     reset(config.detailToFormValues(fresh));
                     config.onAfterUpdate?.(fresh);
@@ -241,25 +279,39 @@ export function useCoreEntityEditForm({
                             () => fresh as Record<string, unknown> as any,
                         );
                     }
-                    setSaveSuccess(`${config.label} saved successfully.`);
+                    setSaveSuccess(
+                        entityKey === "streets"
+                            ? formatStreetGeometrySaveSuccessMessage(
+                                  config.label,
+                                  "saved",
+                                  streetGeometryValidation,
+                              )
+                            : `${config.label} saved successfully.`,
+                    );
                     bumpTilesAfterUpdate();
                     resolved = fresh;
                 } catch (err) {
                     dashDevLog(`${entityKey}:edit:save-error`, err);
                     setSaveError(sanitizeSaveError(err));
                 }
-            });
+            },
+                () => {
+                    setSaveError(CORE_REVIEW_FORM_VALIDATION_SAVE_ERROR);
+                },
+            );
 
             await run();
         } finally {
+            saveInFlightRef.current = false;
             setIsSaving(false);
+            setSaveStage(null);
         }
 
         return resolved;
     }, [
         bumpTilesAfterUpdate,
         config,
-        dirtyFields,
+        detail,
         entityKey,
         geometryFieldKey,
         handleSubmit,
@@ -281,6 +333,8 @@ export function useCoreEntityEditForm({
         isLoading,
         loadError,
         isSaving,
+        saveStage,
+        saveStageLabel: coreReviewSaveStageLabel(saveStage),
         saveError,
         saveSuccess,
         setSaveSuccess,

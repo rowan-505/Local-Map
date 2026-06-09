@@ -184,6 +184,8 @@ export default function CoreReviewEntityDrawer<T extends Record<string, unknown>
                         canEdit={canEdit}
                         isSaving={editForm.isSaving}
                         formDisabled={editForm.formDisabled}
+                        saveError={editForm.saveError}
+                        saveStageLabel={editForm.saveStageLabel}
                         onEnterEdit={handleEnterEdit}
                         onCancel={handleCancel}
                         onSave={() => void handleSave()}

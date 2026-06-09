@@ -235,18 +235,27 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
             };
         }
 
-        const detailRecord = detail as Street & { name_mm?: string | null; name_en?: string | null };
+        const detailRecord = detail as Street & {
+            name_mm?: string | null;
+            name_en?: string | null;
+            roadClassId?: string | null;
+            adminAreaId?: string | null;
+            manualOverride?: boolean;
+            isOneway?: boolean;
+        };
         return {
             myanmarName: detailRecord.myanmarName ?? detailRecord.name_mm ?? "",
             englishName: detailRecord.englishName ?? detailRecord.name_en ?? "",
-            road_class_id: detail.road_class_id ?? "",
-            admin_area_id: detail.admin_area_id ?? "",
-            admin_area_manual_override: Boolean(detail.manual_override),
+            road_class_id: detailRecord.road_class_id ?? detailRecord.roadClassId ?? "",
+            admin_area_id: detailRecord.admin_area_id ?? detailRecord.adminAreaId ?? "",
+            admin_area_manual_override: Boolean(
+                detailRecord.manual_override ?? detailRecord.manualOverride,
+            ),
             admin_area_explicit_clear: false,
-            is_oneway: detail.is_oneway,
-            bridge: detail.bridge,
-            tunnel: detail.tunnel,
-            surface: detail.surface ?? "",
+            is_oneway: detailRecord.is_oneway ?? detailRecord.isOneway ?? false,
+            bridge: detailRecord.bridge ?? false,
+            tunnel: detailRecord.tunnel ?? false,
+            surface: detailRecord.surface ?? "",
             verification_status: verificationStatusFromDetail(
                 detail as { verification_status?: string | null; is_verified?: boolean | null },
             ),

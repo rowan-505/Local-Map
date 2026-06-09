@@ -9,7 +9,13 @@ import {
     canOverrideEntityAdminAreaGeometryMismatch,
     ENTITY_ADMIN_AREA_TARGET_LEVEL,
 } from "./entity-admin-area.constants.js";
+import { isRoadTownshipAdminLevel } from "../admin-areas/admin-areas.road-township-level.js";
 import { isRoadEntityAdminAreaKind } from "./entity-admin-area-kind.js";
+import {
+    buildEntityAdminAreaInferCacheKey,
+    getCachedEntityAdminAreaInferResult,
+    setCachedEntityAdminAreaInferResult,
+} from "./entity-admin-area.infer-cache.js";
 import {
     buildRoadTownshipInferMessage,
     mapCommonParentResponse,
@@ -144,30 +150,37 @@ export class EntityAdminAreaService {
     constructor(private readonly repo: EntityAdminAreaRepository) {}
 
     async infer(input: EntityAdminAreaInferInput): Promise<EntityAdminAreaInferResult> {
+        const cacheKey = buildEntityAdminAreaInferCacheKey(input);
+        const cached = getCachedEntityAdminAreaInferResult(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
+        let result: EntityAdminAreaInferResult;
+
         if (isRoadEntityAdminAreaKind(input.kind)) {
-            return this.inferRoadTownship(input);
+            result = await this.inferRoadTownship(input);
+        } else if (input.kind === "landuse") {
+            result = await this.inferLanduseTownship(input);
+        } else if (input.kind === "bus_stop") {
+            result = await this.inferBusStopTownship(input);
+        } else {
+            const inferredId = await this.inferId(input);
+            const summary = inferredId !== null ? await this.repo.getActiveAdminAreaSummary(inferredId) : null;
+            const geometryContains = inferredId !== null && summary !== null;
+
+            result = {
+                admin_area_id: inferredId !== null ? inferredId.toString() : null,
+                canonical_name: summary?.canonical_name ?? null,
+                admin_level_code: summary?.admin_level_code ?? null,
+                name_mm: null,
+                name_en: null,
+                geometry_contains: geometryContains,
+            };
         }
 
-        if (input.kind === "landuse") {
-            return this.inferLanduseTownship(input);
-        }
-
-        if (input.kind === "bus_stop") {
-            return this.inferBusStopTownship(input);
-        }
-
-        const inferredId = await this.inferId(input);
-        const summary = inferredId !== null ? await this.repo.getActiveAdminAreaSummary(inferredId) : null;
-        const geometryContains = inferredId !== null && summary !== null;
-
-        return {
-            admin_area_id: inferredId !== null ? inferredId.toString() : null,
-            canonical_name: summary?.canonical_name ?? null,
-            admin_level_code: summary?.admin_level_code ?? null,
-            name_mm: null,
-            name_en: null,
-            geometry_contains: geometryContains,
-        };
+        setCachedEntityAdminAreaInferResult(cacheKey, result);
+        return result;
     }
 
     private isValidRoadLineGeometry(
@@ -577,8 +590,7 @@ export class EntityAdminAreaService {
             };
         }
 
-        const isTownship = await this.repo.isTownshipAdminArea(id);
-        if (!isTownship) {
+        if (!isRoadTownshipAdminLevel(row.admin_level_code, row.admin_level_name)) {
             return {
                 current_admin_area_status: "non_township",
                 currentAdminArea: {

@@ -17,6 +17,7 @@ import {
     type NearestStreetPointRow,
     type StreetGeometryCrossingRow,
     type StreetGeometryDuplicateRow,
+    type StreetGeometryJson,
     type StreetMutationContext,
     type UpdateStreetInput,
 } from "./streets.repo.js";
@@ -27,6 +28,7 @@ import type {
     StreetIdentifierRef,
     StreetsListQuery,
     UpdateStreetBody,
+    StreetsNearbyQuery,
     ValidateStreetGeometryBody,
     ValidateStreetGeometryExcludeRef,
 } from "./streets.schema.js";
@@ -157,6 +159,17 @@ type StreetResponse = {
     englishName: string | null;
 };
 
+export type StreetNearbyMapResponse = {
+    public_id: string;
+    canonical_name: string;
+    myanmarName: string | null;
+    englishName: string | null;
+    road_class: string | null;
+    is_active: boolean;
+    deleted_at: Date | string | null;
+    geometry: StreetLineStringGeometry | StreetGeometryJson | null;
+};
+
 function tryParseEditorBigint(user: JwtUser): bigint | undefined {
     const raw = user.id?.trim();
     if (raw && /^\d+$/.test(raw)) {
@@ -247,6 +260,29 @@ export class StreetsService {
         });
 
         return streets.map((street) => this.serializeStreet(street));
+    }
+
+    /** Viewport-bounded streets for map editor context overlays (no list COUNT or admin joins). */
+    async listNearbyStreets(query: StreetsNearbyQuery): Promise<StreetNearbyMapResponse[]> {
+        const [minLng, minLat, maxLng, maxLat] = query.bbox;
+        const rows = await this.streetsRepo.listStreetsInMapBbox({
+            minLng,
+            minLat,
+            maxLng,
+            maxLat,
+            limit: query.limit,
+        });
+
+        return rows.map((row) => ({
+            public_id: row.public_id,
+            canonical_name: row.canonical_name,
+            myanmarName: row.myanmar_name,
+            englishName: row.english_name,
+            road_class: row.road_class,
+            is_active: row.is_active,
+            deleted_at: row.deleted_at,
+            geometry: row.geometry as StreetLineStringGeometry | null,
+        }));
     }
 
     async getStreetByPublicId(publicId: string): Promise<StreetResponse> {
@@ -798,7 +834,12 @@ export class StreetsService {
         }
 
         try {
-            const street = await this.streetsRepo.updateStreet(publicId, input, mutationContext(user, body.edit_reason));
+            const street = await this.streetsRepo.updateStreet(
+                publicId,
+                input,
+                mutationContext(user, body.edit_reason),
+                { existing },
+            );
 
             if (!street) {
                 throw new StreetNotFoundError();

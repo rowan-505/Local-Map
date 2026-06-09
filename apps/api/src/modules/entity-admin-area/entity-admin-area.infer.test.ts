@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { beforeEach, describe, it } from "node:test";
 
 import {
     isRoadEntityAdminAreaKind,
@@ -10,6 +10,7 @@ import {
     type RoadTownshipMatchRow,
     type RoadTownshipRecommendationResult,
 } from "./entity-admin-area.road-township-recommend.js";
+import { resetEntityAdminAreaInferCacheForTests } from "./entity-admin-area.infer-cache.js";
 import { EntityAdminAreaService } from "./entity-admin-area.service.js";
 import type { EntityAdminAreaRepository } from "./entity-admin-area.repo.js";
 
@@ -91,6 +92,10 @@ describe("isRoadEntityAdminAreaKind", () => {
 });
 
 describe("EntityAdminAreaService.infer roads", () => {
+    beforeEach(() => {
+        resetEntityAdminAreaInferCacheForTests();
+    });
+
     it("returns no_match with debugReason when no township matches", async () => {
         const service = new EntityAdminAreaService(roadRepoStub());
 
