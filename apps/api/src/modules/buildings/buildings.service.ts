@@ -30,6 +30,7 @@ import {
     type BuildingGeometryAnalysisRow,
     type BuildingPersistSnapshot,
 } from "./buildings.repo.js";
+import { resolveBuildingAdminAreaForUpdate } from "../../lib/core-review/building-admin-area-write.js";
 import { createBuildingBodySchema, updateBuildingBodySchema } from "./buildings.schema.js";
 
 type CreateBuildingBody = z.infer<typeof createBuildingBodySchema>;
@@ -456,32 +457,20 @@ export class BuildingsService {
                 ? BigInt(existing.admin_area_id)
                 : null;
 
-        if (patch.admin_area_id === undefined) {
-            const omitted = await this.entityAdminArea.resolveTownshipAdminAreaForOmittedUpdate(
+        try {
+            return await resolveBuildingAdminAreaForUpdate({
+                service: this.entityAdminArea,
+                patch,
                 existingAdminAreaId,
-            );
-            if (omitted.admin_area_id === undefined) {
-                return {
-                    admin_area_id: existingAdminAreaId,
-                    admin_area_resolve_spatial: false,
-                };
+                fallbackGeometry: geometry,
+                user,
+            });
+        } catch (error) {
+            if (error instanceof EntityAdminAreaValidationError) {
+                throw new BuildingValidationError(error.message, error.issues);
             }
-            return {
-                admin_area_id: omitted.admin_area_id,
-                admin_area_resolve_spatial: false,
-            };
+            throw error;
         }
-
-        if (patch.admin_area_id === null) {
-            return { admin_area_id: null, admin_area_resolve_spatial: false };
-        }
-
-        const resolved = await this.resolveBuildingAdminAssignment(
-            geometry,
-            patch.admin_area_id,
-            user,
-        );
-        return resolved;
     }
 
     private async resolveBuildingAdminAssignment(

@@ -133,6 +133,7 @@ export type CreatePlacePayload = {
     englishName?: string;
     categoryId: string;
     adminAreaId?: string | null;
+    explicitClearAdminArea?: boolean;
     lat: number;
     lng: number;
     plusCode?: string | null;
@@ -1104,6 +1105,7 @@ export type CreateBuildingPayload = {
     building_type_id?: string | null;
     /** Omit, set, or null (PATCH) to clear. */
     admin_area_id?: string | null;
+    explicitClearAdminArea?: boolean;
     levels?: number;
     height_m?: number;
     confidence_score?: number;

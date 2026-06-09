@@ -20,6 +20,7 @@ import {
 } from "./places.repo.js";
 import type { UpdatePlaceInput } from "./places.repo.js";
 import { placeCategoryValidationError } from "./places-category-validation.js";
+import { resolvePlaceAdminAreaForUpdate } from "../../lib/core-review/place-admin-area-write.js";
 import { createPlaceBodySchema, updatePlaceBodySchema } from "./places.schema.js";
 
 type CreatePlaceBody = z.infer<typeof createPlaceBodySchema>;
@@ -337,34 +338,17 @@ export class PlacesService {
         body: UpdatePlaceBody,
         user: JwtUser,
     ): Promise<void> {
-        const existingAdminAreaId = existing.admin_area_id;
-
-        if (body.adminAreaId === undefined) {
-            const omitted = await this.entityAdminArea.resolveTownshipAdminAreaForOmittedUpdate(
-                existingAdminAreaId,
-            );
-            if (omitted.admin_area_id !== undefined) {
-                patch.admin_area_id = omitted.admin_area_id;
-            }
-            return;
-        }
-
-        if (body.adminAreaId === null) {
-            patch.admin_area_id = null;
-            return;
-        }
-
-        const lat = patch.lat ?? existing.lat;
-        const lng = patch.lng ?? existing.lng;
-        const resolved = await this.entityAdminArea.resolveForWrite({
-            kind: "place",
-            lat,
-            lng,
-            requested_admin_area_id: body.adminAreaId,
+        const adminPatch = await resolvePlaceAdminAreaForUpdate({
+            service: this.entityAdminArea,
+            body,
+            existingAdminAreaId: existing.admin_area_id,
+            existingLat: existing.lat,
+            existingLng: existing.lng,
             user,
-            path: "adminAreaId",
         });
-        patch.admin_area_id = resolved.admin_area_id;
+        if (adminPatch.admin_area_id !== undefined) {
+            patch.admin_area_id = adminPatch.admin_area_id;
+        }
     }
 
     async deletePlace(publicId: string) {

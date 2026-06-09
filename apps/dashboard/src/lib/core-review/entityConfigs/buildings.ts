@@ -5,7 +5,7 @@ import type { Building, BuildingGeometry, CreateBuildingPayload, UpdateBuildingP
 import { getBuilding } from "@/src/lib/api";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
-import { entityAdminAreaIdForPayload } from "@/src/lib/core-review/entityAdminAreaPayload";
+import { buildingAdminAreaForUpdatePayload } from "@/src/lib/core-review/buildingAdminAreaPayload";
 import { townshipAdminEntityField } from "@/src/lib/core-review/townshipAdminEntityField";
 
 import {
@@ -29,6 +29,7 @@ function buildingFormSchema() {
         building_type_id: z.string(),
         admin_area_id: z.string(),
         admin_area_manual_override: z.boolean().optional(),
+        admin_area_explicit_clear: z.boolean().optional(),
         levels: z.string(),
         height_m: z.string(),
         confidence_score: z.string(),
@@ -62,16 +63,17 @@ function formValuesToBuildingPayload(values: CoreEntityFormValues, isEdit: boole
 
     const buildingTypeId = String(values.building_type_id ?? "").trim();
 
-    const manualAdmin = entityAdminAreaIdForPayload(values, "admin_area_id");
+    const adminSlice = buildingAdminAreaForUpdatePayload(values);
     if (isEdit) {
         payload.building_type_id = buildingTypeId || null;
-        if (manualAdmin !== undefined) {
-            payload.admin_area_id = manualAdmin;
-        }
+        Object.assign(payload, adminSlice);
     } else {
         if (buildingTypeId) payload.building_type_id = buildingTypeId;
-        if (manualAdmin !== undefined && manualAdmin) {
-            payload.admin_area_id = manualAdmin;
+        if (adminSlice.admin_area_id) {
+            payload.admin_area_id = adminSlice.admin_area_id;
+        } else if (adminSlice.explicitClearAdminArea) {
+            payload.admin_area_id = null;
+            payload.explicitClearAdminArea = true;
         }
     }
 
@@ -171,6 +173,7 @@ export const BUILDINGS_ENTITY_CONFIG: CoreEntityConfig<
         building_type_id: "",
         admin_area_id: "",
         admin_area_manual_override: false,
+        admin_area_explicit_clear: false,
         levels: "",
         height_m: "",
         confidence_score: "80",
@@ -189,6 +192,7 @@ export const BUILDINGS_ENTITY_CONFIG: CoreEntityConfig<
                   ? String(detail.building_type.id)
                   : "",
         admin_area_id: detail.admin_area_id != null ? String(detail.admin_area_id) : "",
+        admin_area_explicit_clear: false,
         levels: detail.levels != null ? String(detail.levels) : "",
         height_m: detail.height_m != null ? String(detail.height_m) : "",
         confidence_score:

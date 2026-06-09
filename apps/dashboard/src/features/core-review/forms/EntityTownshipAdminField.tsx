@@ -15,6 +15,7 @@ import {
     inferEntityAdminArea,
     searchRoadTownshipAdminAreaOptions,
     validateEntityAdminAreaManual,
+    type EntityAdminAreaInferResult,
     type EntityAdminAreaKind,
     type RoadAdminAreaInferStatus,
     type RoadInferCommonParentAdminArea,
@@ -50,9 +51,11 @@ export type EntityTownshipAdminFieldProps = {
     setValue: UseFormSetValue<CoreEntityFormValues>;
     disabled?: boolean;
     error?: string;
-    /** Stored DB admin_area_id from detail — roads/landuse; never overwritten by inference. */
+    /** Stored DB admin_area_id from detail — never overwritten by inference. */
     storedAdminAreaId?: string | null;
-    /** Road/landuse public id for infer audit logging only. */
+    /** Place/building detail row for audit panel before infer audit fields exist on API. */
+    storedCurrentAdminArea?: RoadInferCurrentAdminArea | null;
+    /** Entity public id for infer audit logging only. */
     entityPublicId?: string | null;
 };
 
@@ -86,6 +89,18 @@ const RECOMMEND_APPLY_INFER_DEBOUNCE_MS = 500;
 const ROAD_GEOMETRY_MISSING_MESSAGE = "Road geometry missing; township cannot be inferred.";
 const LANDUSE_GEOMETRY_MISSING_MESSAGE = "Landuse polygon missing; township cannot be inferred.";
 const BUS_STOP_GEOMETRY_MISSING_MESSAGE = "Bus stop location missing; township cannot be inferred.";
+const PLACE_GEOMETRY_MISSING_MESSAGE = "Place location missing; township cannot be inferred.";
+const BUILDING_GEOMETRY_MISSING_MESSAGE = "Building footprint missing; township cannot be inferred.";
+
+function usesRecommendApplyInferKind(entityKind: EntityAdminAreaKind): boolean {
+    return (
+        entityKind === "street" ||
+        entityKind === "landuse" ||
+        entityKind === "bus_stop" ||
+        entityKind === "place" ||
+        entityKind === "building"
+    );
+}
 
 /** Roads: LineString/MultiLineString with enough coordinates for infer API. */
 function isNonEmptyRoadLineGeometry(geometry: Geometry | null | undefined): boolean {
@@ -135,11 +150,22 @@ function isNonEmptyLandusePolygonGeometry(geometry: Geometry | null | undefined)
     return false;
 }
 
-function recommendApplyMissingGeometryAudit(message: string): RoadTownshipAuditState {
+function isNonTownshipAdminLevel(levelCode: string | null | undefined): boolean {
+    if (!levelCode?.trim()) {
+        return false;
+    }
+    const code = levelCode.trim().toLowerCase();
+    return code !== "township" && code !== "town";
+}
+
+function recommendApplyMissingGeometryAudit(
+    message: string,
+    storedCurrentAdminArea?: RoadInferCurrentAdminArea | null,
+): RoadTownshipAuditState {
     return {
         status: "invalid_geometry",
         message,
-        currentAdminArea: null,
+        currentAdminArea: storedCurrentAdminArea?.id ? storedCurrentAdminArea : null,
         recommendedTownship: null,
         recommendationMode: null,
         intersectingTownships: [],
@@ -175,6 +201,8 @@ function formatCurrentAdminAreaLine(current: RoadInferCurrentAdminArea | null | 
         parts.push("— active");
     } else if (current.is_active === false) {
         parts.push("— inactive");
+    } else if (current.level_code === null && current.name) {
+        // Place/building detail may include name without level metadata yet.
     } else {
         parts.push("— missing or invalid");
     }
@@ -190,13 +218,9 @@ function formatRecommendedTownshipLine(
     }
 
     return formatAdminAreaOptionLabel({
-        id: recommended.id,
         canonical_name: recommended.canonical_name ?? recommended.id,
         name_mm: recommended.name_mm,
         name_en: recommended.name_en,
-        admin_level_id: "",
-        admin_level_code: "township",
-        parent_id: null,
     });
 }
 
@@ -250,6 +274,82 @@ const emptyRoadAudit: RoadTownshipAuditState = {
     fallbackReason: null,
     nearestTownshipDistanceM: null,
 };
+
+/** Map place/building infer API (no audit fields yet) into the shared audit panel shape. */
+function auditStateFromSimpleInferResponse(
+    result: EntityAdminAreaInferResult,
+    storedCurrentAdminArea: RoadInferCurrentAdminArea | null,
+): RoadTownshipAuditState {
+    const inferredId = result.admin_area_id?.trim() || null;
+    const storedId = storedCurrentAdminArea?.id?.trim() || "";
+
+    if (!inferredId) {
+        return {
+            status: "no_match",
+            message: storedId
+                ? "No township match found for this geometry. Review the stored assignment manually."
+                : "No township match found for this geometry.",
+            currentAdminArea: storedId ? storedCurrentAdminArea : null,
+            recommendedTownship: null,
+            recommendationMode: null,
+            intersectingTownships: [],
+            commonParentAdminArea: null,
+            debugReason: null,
+            fallbackReason: null,
+            nearestTownshipDistanceM: null,
+        };
+    }
+
+    const recommendedTownship: RoadInferRecommendedTownship = {
+        id: inferredId,
+        canonical_name: result.canonical_name,
+        name_mm: result.name_mm,
+        name_en: result.name_en,
+    };
+
+    if (storedId && storedId === inferredId) {
+        return {
+            status: "valid_existing",
+            message: null,
+            currentAdminArea: {
+                id: storedId,
+                name: storedCurrentAdminArea?.name ?? result.canonical_name,
+                level_code: result.admin_level_code ?? storedCurrentAdminArea?.level_code ?? null,
+                is_active: storedCurrentAdminArea?.is_active ?? true,
+            },
+            recommendedTownship,
+            recommendationMode: null,
+            intersectingTownships: [],
+            commonParentAdminArea: null,
+            debugReason: null,
+            fallbackReason: null,
+            nearestTownshipDistanceM: null,
+        };
+    }
+
+    let message: string | null = null;
+    if (storedId) {
+        if (isNonTownshipAdminLevel(storedCurrentAdminArea?.level_code)) {
+            const level = storedCurrentAdminArea?.level_code?.trim() || "non-township";
+            message = `Current assignment is ${level}-level, not township — recommended township found`;
+        } else {
+            message = "Stored township does not match geometry — recommended township found";
+        }
+    }
+
+    return {
+        status: "recommendation_found",
+        message,
+        currentAdminArea: storedId ? storedCurrentAdminArea : null,
+        recommendedTownship,
+        recommendationMode: null,
+        intersectingTownships: [],
+        commonParentAdminArea: null,
+        debugReason: null,
+        fallbackReason: null,
+        nearestTownshipDistanceM: null,
+    };
+}
 
 function RoadTownshipAuditDetails({
     audit,
@@ -338,19 +438,21 @@ function RoadTownshipAuditDetails({
 
 function RoadTownshipAuditPanel({
     loading,
+    loadingMessage,
     error,
     audit,
     storedAdminAreaId,
     selectedAdminAreaId,
 }: {
     loading: boolean;
+    loadingMessage: string;
     error: string | null;
     audit: RoadTownshipAuditState;
     storedAdminAreaId: string;
     selectedAdminAreaId: string;
 }) {
     if (loading) {
-        return <p className="text-sm text-slate-600">Finding township from road geometry...</p>;
+        return <p className="text-sm text-slate-600">{loadingMessage}</p>;
     }
 
     if (error) {
@@ -394,15 +496,13 @@ export default function EntityTownshipAdminField({
     disabled = false,
     error,
     storedAdminAreaId = null,
+    storedCurrentAdminArea = null,
     entityPublicId = null,
 }: EntityTownshipAdminFieldProps) {
     const manualOverrideKey = config.manualOverrideKey ?? "admin_area_manual_override";
     const explicitClearKey = "admin_area_explicit_clear";
     const baseId = useId();
-    const usesRecommendApplyInfer =
-        config.entityKind === "street" ||
-        config.entityKind === "landuse" ||
-        config.entityKind === "bus_stop";
+    const usesRecommendApplyInfer = usesRecommendApplyInferKind(config.entityKind);
 
     const geometry = watch(config.geometryFieldKey as keyof CoreEntityFormValues);
     const manualOverride = Boolean(watch(manualOverrideKey as keyof CoreEntityFormValues));
@@ -423,6 +523,9 @@ export default function EntityTownshipAdminField({
 
     /** DB value from detail — never updated by infer or form edits. */
     const storedCurrentAdminAreaIdRef = useRef(storedAdminAreaId ?? "");
+    const storedCurrentAdminAreaRef = useRef<RoadInferCurrentAdminArea | null>(
+        storedCurrentAdminArea ?? null,
+    );
     const selectedAdminAreaIdRef = useRef(selectedAdminAreaId);
     const appliedRecommendationIdRef = useRef<string | null>(null);
     /** Invalidates in-flight road infer when geometry, road, or debounce timer changes. */
@@ -430,9 +533,10 @@ export default function EntityTownshipAdminField({
 
     useEffect(() => {
         storedCurrentAdminAreaIdRef.current = storedAdminAreaId ?? "";
+        storedCurrentAdminAreaRef.current = storedCurrentAdminArea ?? null;
         appliedRecommendationIdRef.current = null;
         setRecommendationApplied(false);
-    }, [storedAdminAreaId]);
+    }, [storedAdminAreaId, storedCurrentAdminArea]);
 
     useEffect(() => {
         selectedAdminAreaIdRef.current = selectedAdminAreaId;
@@ -547,32 +651,54 @@ export default function EntityTownshipAdminField({
                 ? LANDUSE_GEOMETRY_MISSING_MESSAGE
                 : config.entityKind === "bus_stop"
                   ? BUS_STOP_GEOMETRY_MISSING_MESSAGE
-                  : ROAD_GEOMETRY_MISSING_MESSAGE;
+                  : config.entityKind === "place"
+                    ? PLACE_GEOMETRY_MISSING_MESSAGE
+                    : config.entityKind === "building"
+                      ? BUILDING_GEOMETRY_MISSING_MESSAGE
+                      : ROAD_GEOMETRY_MISSING_MESSAGE;
 
+        const placePoint =
+            config.entityKind === "place" ? pointFromGeometry(geomValue ?? null) : null;
         const busStopPoint =
             config.entityKind === "bus_stop" ? pointFromGeometry(geomValue ?? null) : null;
         const geometryValid =
-            config.entityKind === "bus_stop"
-                ? busStopPoint !== null
-                : config.entityKind === "landuse"
-                  ? isNonEmptyLandusePolygonGeometry(geomValue)
-                  : isNonEmptyRoadLineGeometry(geomValue);
+            config.entityKind === "place"
+                ? placePoint !== null
+                : config.entityKind === "bus_stop"
+                  ? busStopPoint !== null
+                  : config.entityKind === "landuse" || config.entityKind === "building"
+                    ? isNonEmptyLandusePolygonGeometry(geomValue)
+                    : isNonEmptyRoadLineGeometry(geomValue);
 
         if (!geometryValid) {
             roadInferRequestIdRef.current += 1;
             setInferLoading(false);
             setInferError(null);
-            setRoadAudit(recommendApplyMissingGeometryAudit(geometryMissingMessage));
+            setRoadAudit(
+                recommendApplyMissingGeometryAudit(
+                    geometryMissingMessage,
+                    storedCurrentAdminAreaRef.current,
+                ),
+            );
             syncRecommendationAppliedState(null, selectedAdminAreaIdRef.current);
             return;
         }
 
         const lineOrPoly = lineOrPolygonGeometry(geomValue);
-        if (config.entityKind !== "bus_stop" && !lineOrPoly) {
+        if (
+            config.entityKind !== "bus_stop" &&
+            config.entityKind !== "place" &&
+            !lineOrPoly
+        ) {
             roadInferRequestIdRef.current += 1;
             setInferLoading(false);
             setInferError(null);
-            setRoadAudit(recommendApplyMissingGeometryAudit(geometryMissingMessage));
+            setRoadAudit(
+                recommendApplyMissingGeometryAudit(
+                    geometryMissingMessage,
+                    storedCurrentAdminAreaRef.current,
+                ),
+            );
             syncRecommendationAppliedState(null, selectedAdminAreaIdRef.current);
             return;
         }
@@ -589,39 +715,55 @@ export default function EntityTownshipAdminField({
 
                 try {
                     const result = await inferEntityAdminArea(
-                        config.entityKind === "bus_stop" && busStopPoint
+                        config.entityKind === "place" && placePoint
                             ? {
-                                  kind: "bus_stop",
-                                  lat: busStopPoint.lat,
-                                  lng: busStopPoint.lng,
+                                  kind: "place",
+                                  lat: placePoint.lat,
+                                  lng: placePoint.lng,
                                   current_admin_area_id: storedCurrentAdminAreaIdRef.current,
                                   entity_public_id: entityPublicId?.trim() || undefined,
                               }
-                            : {
-                                  kind: config.entityKind,
-                                  geometry: lineOrPoly!,
-                                  current_admin_area_id: storedCurrentAdminAreaIdRef.current,
-                                  entity_public_id: entityPublicId?.trim() || undefined,
-                              },
+                            : config.entityKind === "bus_stop" && busStopPoint
+                              ? {
+                                    kind: "bus_stop",
+                                    lat: busStopPoint.lat,
+                                    lng: busStopPoint.lng,
+                                    current_admin_area_id: storedCurrentAdminAreaIdRef.current,
+                                    entity_public_id: entityPublicId?.trim() || undefined,
+                                }
+                              : {
+                                    kind: config.entityKind,
+                                    geometry: lineOrPoly!,
+                                    current_admin_area_id: storedCurrentAdminAreaIdRef.current,
+                                    entity_public_id: entityPublicId?.trim() || undefined,
+                                },
                     );
 
                     if (requestId !== roadInferRequestIdRef.current) {
                         return;
                     }
 
-                    const recommendedId = result.recommendedTownship?.id ?? null;
-                    setRoadAudit({
-                        status: result.status ?? null,
-                        message: result.message ?? null,
-                        currentAdminArea: result.currentAdminArea ?? null,
-                        recommendedTownship: result.recommendedTownship ?? null,
-                        recommendationMode: result.recommendationMode ?? null,
-                        intersectingTownships: result.intersectingTownships ?? [],
-                        commonParentAdminArea: result.commonParentAdminArea ?? null,
-                        debugReason: result.debugReason ?? null,
-                        fallbackReason: result.fallbackReason ?? null,
-                        nearestTownshipDistanceM: result.nearestTownshipDistanceM ?? null,
-                    });
+                    const usesSimpleInferAudit =
+                        config.entityKind === "place" || config.entityKind === "building";
+                    const audit = usesSimpleInferAudit
+                        ? auditStateFromSimpleInferResponse(
+                              result,
+                              storedCurrentAdminAreaRef.current,
+                          )
+                        : {
+                              status: result.status ?? null,
+                              message: result.message ?? null,
+                              currentAdminArea: result.currentAdminArea ?? null,
+                              recommendedTownship: result.recommendedTownship ?? null,
+                              recommendationMode: result.recommendationMode ?? null,
+                              intersectingTownships: result.intersectingTownships ?? [],
+                              commonParentAdminArea: result.commonParentAdminArea ?? null,
+                              debugReason: result.debugReason ?? null,
+                              fallbackReason: result.fallbackReason ?? null,
+                              nearestTownshipDistanceM: result.nearestTownshipDistanceM ?? null,
+                          };
+                    const recommendedId = audit.recommendedTownship?.id ?? null;
+                    setRoadAudit(audit);
                     syncRecommendationAppliedState(recommendedId, selectedAdminAreaIdRef.current);
                 } catch (err) {
                     if (requestId !== roadInferRequestIdRef.current) {
@@ -814,13 +956,22 @@ export default function EntityTownshipAdminField({
             ? "landuse footprint"
             : config.entityKind === "bus_stop"
               ? "bus stop location"
-              : "road centerline";
+              : config.entityKind === "place"
+                ? "place location"
+                : config.entityKind === "building"
+                  ? "building footprint"
+                  : "road centerline";
     const entitySaveNoun =
         config.entityKind === "landuse"
             ? "landuse"
             : config.entityKind === "bus_stop"
               ? "bus stop"
-              : "road";
+              : config.entityKind === "place"
+                ? "place"
+                : config.entityKind === "building"
+                  ? "building"
+                  : "road";
+    const inferLoadingMessage = `Finding township from ${inferGeometryLabel}...`;
 
     return (
         <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/80 px-3 py-3">
@@ -829,6 +980,7 @@ export default function EntityTownshipAdminField({
                     <span className="mb-1 block text-sm font-medium text-slate-700">Township</span>
                     <RoadTownshipAuditPanel
                         loading={inferLoading}
+                        loadingMessage={inferLoadingMessage}
                         error={inferError}
                         audit={roadAudit}
                         storedAdminAreaId={storedAdminAreaId ?? ""}

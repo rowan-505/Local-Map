@@ -173,6 +173,79 @@ describe("BuildingsService.updateBuilding admin_area_id", () => {
         assert.equal(captured, TOWNSHIP_ID);
     });
 
+    it("preserves admin_area_id when null is sent without explicitClearAdminArea", async () => {
+        let captured: bigint | null | undefined;
+        const service = makeBuildingsService({
+            existingAdminAreaId: TOWNSHIP_ID,
+            onUpdate: (snapshot) => {
+                captured = snapshot.admin_area_id;
+            },
+        });
+
+        await service.updateBuilding("building-1", { admin_area_id: null, name_en: "Updated" }, testUser);
+        assert.equal(captured, TOWNSHIP_ID);
+    });
+
+    it("clears admin_area_id only when explicitClearAdminArea is true", async () => {
+        let captured: bigint | null | undefined;
+        const service = makeBuildingsService({
+            existingAdminAreaId: TOWNSHIP_ID,
+            onUpdate: (snapshot) => {
+                captured = snapshot.admin_area_id;
+            },
+        });
+
+        await service.updateBuilding(
+            "building-1",
+            { admin_area_id: null, explicitClearAdminArea: true, name_en: "Updated" },
+            testUser,
+        );
+        assert.equal(captured, null);
+    });
+
+    it("preserves legacy district when null is sent without explicitClearAdminArea", async () => {
+        let captured: bigint | null | undefined;
+        const service = makeBuildingsService({
+            existingAdminAreaId: DISTRICT_ID,
+            onUpdate: (snapshot) => {
+                captured = snapshot.admin_area_id;
+            },
+        });
+
+        await service.updateBuilding("building-1", { admin_area_id: null, name_en: "Updated" }, testUser);
+        assert.equal(captured, DISTRICT_ID);
+    });
+
+    it("clears legacy district when explicitClearAdminArea is true", async () => {
+        let captured: bigint | null | undefined;
+        const service = makeBuildingsService({
+            existingAdminAreaId: DISTRICT_ID,
+            onUpdate: (snapshot) => {
+                captured = snapshot.admin_area_id;
+            },
+        });
+
+        await service.updateBuilding(
+            "building-1",
+            { admin_area_id: null, explicitClearAdminArea: true, name_en: "Updated" },
+            testUser,
+        );
+        assert.equal(captured, null);
+    });
+
+    it("rejects provided non-township admin_area_id without geometry in patch", async () => {
+        const service = makeBuildingsService({ existingAdminAreaId: TOWNSHIP_ID });
+
+        await assert.rejects(
+            () => service.updateBuilding("building-1", { admin_area_id: WARD_ID, name_en: "Updated" }, testUser),
+            (error: unknown) => {
+                assert.ok(error instanceof BuildingValidationError);
+                assert.match(error.message, /ward_village_tract/);
+                return true;
+            },
+        );
+    });
+
     it("rejects provided non-township admin_area_id", async () => {
         const service = makeBuildingsService({ existingAdminAreaId: TOWNSHIP_ID });
 

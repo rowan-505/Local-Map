@@ -53,6 +53,13 @@ export function mapCoreReviewBuildingPatch(body: Record<string, unknown>) {
     if (pickAlias(body, "adminAreaId", "admin_area_id") !== undefined) {
         out.admin_area_id = pickAlias(body, "adminAreaId", "admin_area_id");
     }
+    if (pickAlias(body, "explicitClearAdminArea", "explicit_clear_admin_area") !== undefined) {
+        out.explicitClearAdminArea = pickAlias<boolean>(
+            body,
+            "explicitClearAdminArea",
+            "explicit_clear_admin_area",
+        );
+    }
     if (body.levels !== undefined) out.levels = body.levels;
     if (pickAlias(body, "heightM", "height_m") !== undefined) {
         out.height_m = pickAlias(body, "heightM", "height_m");
@@ -102,6 +109,13 @@ export function mapCoreReviewPlacePatch(body: Record<string, unknown>) {
     }
     if (pickAlias(body, "adminAreaId", "admin_area_id") !== undefined) {
         out.adminAreaId = pickAlias(body, "adminAreaId", "admin_area_id");
+    }
+    if (pickAlias(body, "explicitClearAdminArea", "explicit_clear_admin_area") !== undefined) {
+        out.explicitClearAdminArea = pickAlias<boolean>(
+            body,
+            "explicitClearAdminArea",
+            "explicit_clear_admin_area",
+        );
     }
     const { lat, lng } = extractLatLng(body);
     if (lat !== undefined) out.lat = lat;

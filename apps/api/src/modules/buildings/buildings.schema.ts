@@ -185,6 +185,8 @@ export const updateBuildingBodySchema = z
         building_type: optionalTrimmedStringSchema,
         building_type_id: optionalBuildingTypeIdPatchSchema,
         admin_area_id: optionalAdminAreaIdPatchSchema,
+        explicitClearAdminArea: z.boolean().optional(),
+        explicit_clear_admin_area: z.boolean().optional(),
         levels: optionalLevelsPatchSchema,
         height_m: optionalHeightPatchSchema,
         confidence_score: finiteConfidenceSchema,

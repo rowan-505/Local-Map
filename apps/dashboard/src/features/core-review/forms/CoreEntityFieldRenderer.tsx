@@ -21,6 +21,7 @@ import CoreRefDropdown from "./CoreRefDropdown";
 import EntityTownshipAdminField from "./EntityTownshipAdminField";
 import type { CoreRefLoadState } from "./useCoreEntityRefs";
 import type { CoreRefSourceKind } from "@/src/lib/core-review/entityConfigs/types";
+import type { EntityAdminAreaKind, RoadInferCurrentAdminArea } from "@/src/lib/api";
 
 const inputClass =
     "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:bg-slate-50";
@@ -72,6 +73,48 @@ function fieldError(errors: FieldErrors<Record<string, unknown>>, key: string): 
     return typeof err?.message === "string" ? err.message : undefined;
 }
 
+/** Stored admin-area row from place/building detail (no infer audit fields on API yet). */
+function storedCurrentAdminAreaFromDetail(
+    entityKind: EntityAdminAreaKind,
+    detailRecord: Record<string, unknown> | null,
+): RoadInferCurrentAdminArea | null {
+    if (!detailRecord) {
+        return null;
+    }
+
+    const id = String(detailRecord.admin_area_id ?? detailRecord.adminAreaId ?? "").trim();
+    if (!id) {
+        return null;
+    }
+
+    if (entityKind === "place") {
+        const name =
+            typeof detailRecord.admin_area_name === "string"
+                ? detailRecord.admin_area_name
+                : typeof detailRecord.adminAreaName === "string"
+                  ? detailRecord.adminAreaName
+                  : null;
+        return { id, name, level_code: null, is_active: null };
+    }
+
+    if (entityKind === "building") {
+        const embedded = detailRecord.admin_area;
+        if (embedded && typeof embedded === "object" && !Array.isArray(embedded)) {
+            const ref = embedded as Record<string, unknown>;
+            const name =
+                typeof ref.canonical_name === "string"
+                    ? ref.canonical_name
+                    : typeof ref.name === "string"
+                      ? ref.name
+                      : null;
+            return { id, name, level_code: null, is_active: null };
+        }
+        return { id, name: null, level_code: null, is_active: null };
+    }
+
+    return null;
+}
+
 export default function CoreEntityFieldRenderer({
     field,
     mode,
@@ -93,7 +136,9 @@ export default function CoreEntityFieldRenderer({
         const usesStoredAdminInfer =
             field.townshipAdmin.entityKind === "street" ||
             field.townshipAdmin.entityKind === "landuse" ||
-            field.townshipAdmin.entityKind === "bus_stop";
+            field.townshipAdmin.entityKind === "bus_stop" ||
+            field.townshipAdmin.entityKind === "place" ||
+            field.townshipAdmin.entityKind === "building";
         const detailRecord =
             usesStoredAdminInfer && editDetail && typeof editDetail === "object"
                 ? (editDetail as Record<string, unknown>)
@@ -104,6 +149,11 @@ export default function CoreEntityFieldRenderer({
         const entityPublicId = detailRecord
             ? String(detailRecord.public_id ?? detailRecord.publicId ?? "").trim()
             : "";
+        const storedCurrentAdminArea =
+            field.townshipAdmin.entityKind === "place" ||
+            field.townshipAdmin.entityKind === "building"
+                ? storedCurrentAdminAreaFromDetail(field.townshipAdmin.entityKind, detailRecord)
+                : null;
 
         return (
             <EntityTownshipAdminField
@@ -119,6 +169,7 @@ export default function CoreEntityFieldRenderer({
                 disabled={disabled}
                 error={error}
                 storedAdminAreaId={storedAdminAreaId || null}
+                storedCurrentAdminArea={storedCurrentAdminArea}
                 entityPublicId={entityPublicId || null}
             />
         );

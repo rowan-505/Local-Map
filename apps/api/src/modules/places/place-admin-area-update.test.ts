@@ -153,6 +153,66 @@ describe("PlacesService.updatePlace admin_area_id", () => {
         assert.equal(captured, TOWNSHIP_ID);
     });
 
+    it("preserves admin_area_id when null is sent without explicitClearAdminArea", async () => {
+        let captured: bigint | null | undefined;
+        const service = makePlacesService({
+            existingAdminAreaId: TOWNSHIP_ID,
+            onUpdate: (input) => {
+                captured = input.admin_area_id;
+            },
+        });
+
+        await service.updatePlace("place-1", { adminAreaId: null, englishName: "Updated" }, testUser);
+        assert.equal(captured, undefined);
+    });
+
+    it("clears admin_area_id only when explicitClearAdminArea is true", async () => {
+        let captured: bigint | null | undefined;
+        const service = makePlacesService({
+            existingAdminAreaId: TOWNSHIP_ID,
+            onUpdate: (input) => {
+                captured = input.admin_area_id;
+            },
+        });
+
+        await service.updatePlace(
+            "place-1",
+            { adminAreaId: null, explicitClearAdminArea: true, englishName: "Updated" },
+            testUser,
+        );
+        assert.equal(captured, null);
+    });
+
+    it("preserves legacy district when null is sent without explicitClearAdminArea", async () => {
+        let captured: bigint | null | undefined;
+        const service = makePlacesService({
+            existingAdminAreaId: DISTRICT_ID,
+            onUpdate: (input) => {
+                captured = input.admin_area_id;
+            },
+        });
+
+        await service.updatePlace("place-1", { adminAreaId: null, englishName: "Updated" }, testUser);
+        assert.equal(captured, undefined);
+    });
+
+    it("clears legacy district when explicitClearAdminArea is true", async () => {
+        let captured: bigint | null | undefined;
+        const service = makePlacesService({
+            existingAdminAreaId: DISTRICT_ID,
+            onUpdate: (input) => {
+                captured = input.admin_area_id;
+            },
+        });
+
+        await service.updatePlace(
+            "place-1",
+            { adminAreaId: null, explicitClearAdminArea: true, englishName: "Updated" },
+            testUser,
+        );
+        assert.equal(captured, null);
+    });
+
     it("rejects provided non-township adminAreaId", async () => {
         const service = makePlacesService({ existingAdminAreaId: TOWNSHIP_ID });
 

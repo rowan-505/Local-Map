@@ -9,7 +9,7 @@ import type {
 import { getPlace } from "@/src/lib/api";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
-import { entityAdminAreaIdForPayload } from "@/src/lib/core-review/entityAdminAreaPayload";
+import { placeAdminAreaForPayload } from "@/src/lib/core-review/placeAdminAreaPayload";
 import { townshipAdminEntityField } from "@/src/lib/core-review/townshipAdminEntityField";
 
 import { scoreFieldSchema } from "./buildings";
@@ -36,6 +36,7 @@ function placeFormSchema(mode: CoreEntityFormMode) {
         categoryId: z.string().min(1, "Category is required"),
         adminAreaId: z.string(),
         admin_area_manual_override: z.boolean().optional(),
+        admin_area_explicit_clear: z.boolean().optional(),
         plusCode: z.string(),
         importanceScore: scoreFieldSchema,
         popularityScore: scoreFieldSchema,
@@ -86,9 +87,7 @@ function formValuesToPlacePayload(values: CoreEntityFormValues): CreatePlacePayl
         ...(mm ? { myanmarName: mm } : {}),
         ...(en ? { englishName: en } : {}),
         categoryId: String(parseRequiredFormRefId(values.categoryId, "Category")),
-        ...(entityAdminAreaIdForPayload(values, "adminAreaId") !== undefined
-            ? { adminAreaId: entityAdminAreaIdForPayload(values, "adminAreaId") }
-            : {}),
+        ...placeAdminAreaForPayload(values),
         lat,
         lng,
         plusCode: String(values.plusCode ?? "").trim() || null,
@@ -176,6 +175,7 @@ export const PLACES_ENTITY_CONFIG: CoreEntityConfig<
         categoryId: "",
         adminAreaId: "",
         admin_area_manual_override: false,
+        admin_area_explicit_clear: false,
         plusCode: "",
         importanceScore: "",
         popularityScore: "",
@@ -192,6 +192,7 @@ export const PLACES_ENTITY_CONFIG: CoreEntityConfig<
         englishName: detail.englishName ?? "",
         categoryId: detail.category_id,
         adminAreaId: detail.admin_area_id ?? "",
+        admin_area_explicit_clear: false,
         plusCode: detail.plus_code ?? "",
         importanceScore: detail.importance_score ?? "",
         popularityScore: detail.popularity_score ?? "",
