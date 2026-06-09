@@ -30,6 +30,9 @@ export function stableInferGeometryKey(
     if (!geomValue) {
         return "none";
     }
+    if (geomValue.type === "GeometryCollection") {
+        return `${geomValue.type}:${stableCoordinatesKey(geomValue.geometries)}`;
+    }
     return `${geomValue.type}:${stableCoordinatesKey(geomValue.coordinates)}`;
 }
 
