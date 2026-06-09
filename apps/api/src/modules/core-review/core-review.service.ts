@@ -352,7 +352,12 @@ export class CoreReviewService {
             case "addresses":
                 return this.addressesWriteService.create(body);
             default:
-                return this.genericWriteService.create(def.slug as CoreReviewEntitySlug, body, log);
+                return this.genericWriteService.create(
+                    def.slug as CoreReviewEntitySlug,
+                    body,
+                    user ?? { sub: "system", email: "system@local", roles: ["admin"] },
+                    log,
+                );
         }
     }
 
@@ -396,7 +401,13 @@ export class CoreReviewService {
             case "addresses":
                 return this.addressesWriteService.update(id, body);
             default:
-                return this.genericWriteService.update(def.slug as CoreReviewEntitySlug, id, body, log);
+                return this.genericWriteService.update(
+                    def.slug as CoreReviewEntitySlug,
+                    id,
+                    body,
+                    user ?? { sub: "system", email: "system@local", roles: ["admin"] },
+                    log,
+                );
         }
     }
 }

@@ -207,6 +207,7 @@ export class CoreReviewAddressesWriteService {
         return manual;
     }
 
+    /** Address admin_area_id: any active admin level (not township-only). See township-admin-policy. */
     private async validateRefs(
         body: Record<string, unknown>,
         sourceTypeId: bigint | undefined

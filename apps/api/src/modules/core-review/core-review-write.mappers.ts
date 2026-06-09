@@ -201,14 +201,23 @@ export function mapCoreReviewStreetPatch(body: Record<string, unknown>) {
     if (pickAlias(body, "roadClassId", "road_class_id") !== undefined) {
         out.road_class_id = pickAlias(body, "roadClassId", "road_class_id");
     }
-    if (pickAlias(body, "adminAreaId", "admin_area_id") !== undefined) {
-        out.admin_area_id = pickAlias(body, "adminAreaId", "admin_area_id");
+    if ("admin_area_id" in body) {
+        out.admin_area_id = body.admin_area_id as bigint | null | undefined;
+    } else if ("adminAreaId" in body) {
+        out.admin_area_id = body.adminAreaId as bigint | null | undefined;
     }
     if (pickAlias(body, "adminAreaManualOverride", "admin_area_manual_override") !== undefined) {
         out.admin_area_manual_override = pickAlias<boolean>(
             body,
             "adminAreaManualOverride",
             "admin_area_manual_override",
+        );
+    }
+    if (pickAlias(body, "explicitClearAdminArea", "explicit_clear_admin_area") !== undefined) {
+        out.explicit_clear_admin_area = pickAlias<boolean>(
+            body,
+            "explicitClearAdminArea",
+            "explicit_clear_admin_area",
         );
     }
     if (pickAlias(body, "isOneway", "is_oneway") !== undefined) {

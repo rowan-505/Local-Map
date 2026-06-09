@@ -5,7 +5,7 @@ import { BuildingsRepository } from "../../modules/buildings/buildings.repo.js";
 import { PlacesRepository } from "../../modules/places/places.repo.js";
 import { StreetsRepository } from "../../modules/streets/streets.repo.js";
 
-export type ValidationIssue = { path: string; message: string };
+export type ValidationIssue = { path: string; message: string; code?: string };
 
 export class CoreReviewRefValidator {
     private readonly buildingsRepo: BuildingsRepository;

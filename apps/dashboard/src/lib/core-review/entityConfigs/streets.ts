@@ -13,6 +13,7 @@ import { formatVerificationStatusLabel } from "@/src/features/core-review/config
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import { entityAdminAreaIdForPayload } from "@/src/lib/core-review/entityAdminAreaPayload";
 import { roadAdminAreaForStreetUpdatePayload } from "@/src/lib/core-review/roadAdminAreaPayload";
+import { townshipAdminEntityField } from "@/src/lib/core-review/townshipAdminEntityField";
 
 import {
     createCoreReviewWriteMutations,
@@ -38,6 +39,7 @@ function streetFormSchema(mode: CoreEntityFormMode) {
         road_class_id: z.string().trim().min(1, "Road class is required"),
         admin_area_id: nullableStringIdSchema,
         admin_area_manual_override: z.boolean().optional(),
+        admin_area_explicit_clear: z.boolean().optional(),
         is_oneway: z.boolean(),
         bridge: z.boolean(),
         tunnel: z.boolean(),
@@ -146,16 +148,11 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
             type: "surface-preset",
             helpText: "Common OSM-style surface values, or type a custom value.",
         },
-        {
-            key: "township_admin",
-            label: "Township",
-            type: "township-admin",
-            townshipAdmin: {
-                entityKind: "street",
-                geometryFieldKey: GEOM_FIELD,
-                adminAreaIdKey: "admin_area_id",
-            },
-        },
+        townshipAdminEntityField({
+            slug: "streets",
+            geometryFieldKey: GEOM_FIELD,
+            adminAreaIdKey: "admin_area_id",
+        }),
         { key: "is_oneway", label: "One-way", type: "boolean" },
         { key: "bridge", label: "Bridge", type: "boolean" },
         { key: "tunnel", label: "Tunnel", type: "boolean" },
@@ -217,6 +214,7 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
         road_class_id: "",
         admin_area_id: "",
         admin_area_manual_override: false,
+        admin_area_explicit_clear: false,
         is_oneway: false,
         bridge: false,
         tunnel: false,
@@ -244,6 +242,7 @@ export const STREETS_ENTITY_CONFIG: CoreEntityConfig<Street, CreateStreetPayload
             road_class_id: detail.road_class_id ?? "",
             admin_area_id: detail.admin_area_id ?? "",
             admin_area_manual_override: Boolean(detail.manual_override),
+            admin_area_explicit_clear: false,
             is_oneway: detail.is_oneway,
             bridge: detail.bridge,
             tunnel: detail.tunnel,

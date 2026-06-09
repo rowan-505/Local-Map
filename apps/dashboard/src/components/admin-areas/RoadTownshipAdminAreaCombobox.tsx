@@ -240,7 +240,9 @@ export default function RoadTownshipAdminAreaCombobox({
                     {loading ? (
                         <li className="px-3 py-2 text-gray-500">Searching…</li>
                     ) : showHint ? (
-                        <li className="px-3 py-2 text-gray-500">Type a township name, id, or slug…</li>
+                        <li className="px-3 py-2 text-gray-500">
+                            Type township name, id, public id, slug, or external id…
+                        </li>
                     ) : showEmpty ? (
                         <li className="px-3 py-2 text-gray-500">No matches</li>
                     ) : (

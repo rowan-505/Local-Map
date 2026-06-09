@@ -19,6 +19,7 @@ const testUser = { sub: "1", email: "test@example.com", roles: ["admin"] as stri
 
 const mockEntityAdminArea = {
     resolveForWrite: async () => ({ admin_area_id: null, manual_override: false }),
+    resolveTownshipAdminAreaForOmittedUpdate: async () => ({ admin_area_id: undefined }),
 } as unknown as EntityAdminAreaService;
 
 describe("core review place category write", () => {

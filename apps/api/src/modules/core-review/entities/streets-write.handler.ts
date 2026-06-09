@@ -66,7 +66,11 @@ export async function updateCoreReviewStreet(
             return null;
         }
         if (error instanceof StreetValidationError) {
-            throw new CoreReviewValidationError(error.message);
+            throw new CoreReviewValidationError(
+                error.message,
+                [{ path: "admin_area_id", message: error.message, code: error.code }],
+                error.code,
+            );
         }
         throw error;
     }

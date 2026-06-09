@@ -33,6 +33,14 @@ import { CORE_REVIEW_VERIFICATION_SUMMARY_CONFIGS } from "./core-review-verifica
 import { buildVerificationSummary } from "../../lib/verification-summary/verification-summary.repo.js";
 import { replyCoreReviewReadError } from "./core-review-read.errors.js";
 
+function replyCoreReviewValidationError(reply: FastifyReply, error: CoreReviewValidationError) {
+    return reply.code(400).send({
+        message: error.message,
+        issues: error.issues,
+        ...(error.code ? { code: error.code } : {}),
+    });
+}
+
 function replyCoreReviewWriteError(
     request: FastifyRequest,
     reply: FastifyReply,
@@ -130,7 +138,7 @@ async function handleCoreReviewLifecycle(
                 },
                 `core-review ${operation} rejected`,
             );
-            return reply.code(400).send({ message: error.message, issues: error.issues });
+            return replyCoreReviewValidationError(reply, error);
         }
         return replyCoreReviewWriteError(
             request,
@@ -374,7 +382,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
                         },
                         "core-review create rejected",
                     );
-                    return reply.code(400).send({ message: error.message, issues: error.issues });
+                    return replyCoreReviewValidationError(reply, error);
                 }
                 return replyCoreReviewWriteError(request, reply, error, "core-review create failed", {
                     entity: def.slug,
@@ -459,7 +467,7 @@ const coreReviewRoutes: FastifyPluginAsync = async (app) => {
                         },
                         "core-review update rejected",
                     );
-                    return reply.code(400).send({ message: error.message, issues: error.issues });
+                    return replyCoreReviewValidationError(reply, error);
                 }
                 return replyCoreReviewWriteError(request, reply, error, "core-review update failed", {
                     entity: def.slug,

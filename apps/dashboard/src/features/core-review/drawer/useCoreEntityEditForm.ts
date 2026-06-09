@@ -27,6 +27,7 @@ import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import { dashDevLog } from "@/src/lib/dashDevLog";
 import { summarizeCoreReviewSavePayload } from "@/src/lib/core-review/savePayloadUtils";
 
+import { isTownshipAdminEntity } from "@/src/lib/core-review/townshipAdminPolicy";
 import { townshipAdminSaveBlockMessage } from "../forms/EntityTownshipAdminField";
 import { collectRefSources, useCoreEntityRefs } from "../forms/useCoreEntityRefs";
 import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
@@ -166,10 +167,12 @@ export function useCoreEntityEditForm({
         try {
             const run = handleSubmit(async (values) => {
                 try {
-                    const townshipBlock = townshipAdminSaveBlockMessage(values);
-                    if (townshipBlock) {
-                        setSaveError(townshipBlock);
-                        return;
+                    if (isTownshipAdminEntity(entityKey)) {
+                        const townshipBlock = townshipAdminSaveBlockMessage(values);
+                        if (townshipBlock) {
+                            setSaveError(townshipBlock);
+                            return;
+                        }
                     }
 
                     if (entityKey === "streets") {

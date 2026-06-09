@@ -1,15 +1,47 @@
 import type { FastifyPluginAsync } from "fastify";
 
+import { isRoadEntityAdminAreaKind } from "./entity-admin-area-kind.js";
 import {
     entityAdminAreaInferBodySchema,
     entityAdminAreaValidateManualBodySchema,
 } from "./entity-admin-area.schema.js";
 import { EntityAdminAreaRepository } from "./entity-admin-area.repo.js";
+import type { EntityAdminAreaInferResult } from "./entity-admin-area.service.js";
 import { EntityAdminAreaService } from "./entity-admin-area.service.js";
 import {
     postEntityAdminAreaInferSchema,
     postEntityAdminAreaValidateManualSchema,
 } from "./entity-admin-area.openapi.js";
+
+const ROAD_INFER_QUERY_ERROR_MESSAGE = "Township inference failed. Check API logs.";
+
+function roadInferQueryErrorResult(): EntityAdminAreaInferResult {
+    return {
+        admin_area_id: null,
+        canonical_name: null,
+        admin_level_code: null,
+        name_mm: null,
+        name_en: null,
+        geometry_contains: false,
+        status: "no_match",
+        message: ROAD_INFER_QUERY_ERROR_MESSAGE,
+        currentAdminArea: null,
+        recommendedTownship: null,
+        intersectingTownships: [],
+        debugReason: "query_error",
+    };
+}
+
+function legacyInferErrorResult(): EntityAdminAreaInferResult {
+    return {
+        admin_area_id: null,
+        canonical_name: null,
+        admin_level_code: null,
+        name_mm: null,
+        name_en: null,
+        geometry_contains: false,
+    };
+}
 
 const entityAdminAreaRoutes: FastifyPluginAsync = async (app) => {
     const repo = new EntityAdminAreaRepository(app.prisma);
@@ -31,18 +63,46 @@ const entityAdminAreaRoutes: FastifyPluginAsync = async (app) => {
             }
 
             try {
+                const started = performance.now();
                 const result = await service.infer(parsed.data);
+                const durationMs = Math.round(performance.now() - started);
+                const body = parsed.data;
+                if (body.kind === "street") {
+                    request.log.info(
+                        {
+                            streetId: body.entity_public_id ?? null,
+                            geometryType: body.geometry?.type ?? null,
+                            currentAdminAreaId: body.current_admin_area_id ?? null,
+                            currentAdminLevelCode: result.currentAdminArea?.level_code ?? null,
+                            intersectingTownshipCount: result.intersectingTownships?.length ?? 0,
+                            nearestTownshipDistanceM: result.nearestTownshipDistanceM ?? null,
+                            recommendationStatus: result.status ?? null,
+                            recommendationMode: result.recommendationMode ?? null,
+                            debugReason: result.debugReason ?? null,
+                            durationMs,
+                        },
+                        "road township infer completed",
+                    );
+                }
                 return reply.send(result);
             } catch (error) {
-                request.log.warn({ err: error }, "entity-admin-area infer failed");
-                return reply.send({
-                    admin_area_id: null,
-                    canonical_name: null,
-                    admin_level_code: null,
-                    name_mm: null,
-                    name_en: null,
-                    geometry_contains: false,
-                });
+                const body = parsed.data;
+                const logContext = {
+                    err: error,
+                    stack: error instanceof Error ? error.stack : undefined,
+                    kind: body.kind,
+                    entityPublicId: body.entity_public_id ?? null,
+                    currentAdminAreaId: body.current_admin_area_id ?? null,
+                    geometryType: body.geometry?.type ?? null,
+                };
+
+                if (isRoadEntityAdminAreaKind(body.kind)) {
+                    request.log.error(logContext, "road township infer failed");
+                    return reply.send(roadInferQueryErrorResult());
+                }
+
+                request.log.error(logContext, "entity-admin-area infer failed");
+                return reply.send(legacyInferErrorResult());
             }
         }
     );

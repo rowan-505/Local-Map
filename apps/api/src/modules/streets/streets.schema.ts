@@ -269,6 +269,8 @@ export const updateStreetBodySchema = z
         adminAreaId: nullableBigintBodySchema,
         admin_area_manual_override: z.boolean().optional(),
         adminAreaManualOverride: z.boolean().optional(),
+        explicit_clear_admin_area: z.boolean().optional(),
+        explicitClearAdminArea: z.boolean().optional(),
         edit_reason: z.string().max(500).optional(),
         bridge: z.boolean().optional(),
         tunnel: z.boolean().optional(),

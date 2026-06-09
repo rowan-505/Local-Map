@@ -10,6 +10,7 @@ import { getPlace } from "@/src/lib/api";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import { entityAdminAreaIdForPayload } from "@/src/lib/core-review/entityAdminAreaPayload";
+import { townshipAdminEntityField } from "@/src/lib/core-review/townshipAdminEntityField";
 
 import { scoreFieldSchema } from "./buildings";
 import {
@@ -135,16 +136,11 @@ export const PLACES_ENTITY_CONFIG: CoreEntityConfig<
             refSource: "place-form-options:categories",
             required: true,
         },
-        {
-            key: "township_admin",
-            label: "Township",
-            type: "township-admin",
-            townshipAdmin: {
-                entityKind: "place",
-                geometryFieldKey: POINT_GEOM_FIELD,
-                adminAreaIdKey: "adminAreaId",
-            },
-        },
+        townshipAdminEntityField({
+            slug: "places",
+            geometryFieldKey: POINT_GEOM_FIELD,
+            adminAreaIdKey: "adminAreaId",
+        }),
         { key: "plusCode", label: "Plus code", type: "text", placeholder: "Optional" },
         { key: "importanceScore", label: "Importance score", type: "number", placeholder: "Optional" },
         { key: "popularityScore", label: "Popularity score", type: "number", placeholder: "Optional" },

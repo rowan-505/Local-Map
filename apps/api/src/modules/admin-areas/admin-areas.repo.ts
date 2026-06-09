@@ -1,5 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import { roadTownshipAdminLevelWhereSql } from "./admin-areas.road-township-level.js";
+
 export type AdminAreaRecord = {
     id: bigint;
     parentId: bigint | null;
@@ -327,12 +329,11 @@ export class AdminAreasRepository {
             WHERE a.is_active = true
               AND a.deleted_at IS NULL
               AND a.address_usage <> 'disabled'
-              AND lower(btrim(al.code)) IN ('township', 'town')
+              AND ${roadTownshipAdminLevelWhereSql}
               AND (
                   a.canonical_name ILIKE ${pattern}
-                  OR coalesce(an_mm.name, '') ILIKE ${pattern}
-                  OR coalesce(an_en.name, '') ILIKE ${pattern}
-                  OR a.slug ILIKE ${pattern}
+                  OR lower(btrim(coalesce(a.slug, ''))) = lower(${q})
+                  OR coalesce(a.slug, '') ILIKE ${pattern}
                   OR (a.external_id IS NOT NULL AND (
                       lower(btrim(a.external_id)) = lower(${q})
                       OR a.external_id ILIKE ${pattern}

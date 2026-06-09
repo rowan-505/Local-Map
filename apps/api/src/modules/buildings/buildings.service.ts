@@ -418,16 +418,14 @@ export class BuildingsService {
         const geometry =
             patch.geometry ??
             (existing.geometry as CreateBuildingBody["geometry"] | null | undefined);
-        const requested =
-            patch.admin_area_id === undefined
-                ? undefined
-                : patch.admin_area_id;
 
-        const { admin_area_id, admin_area_resolve_spatial } = await this.resolveBuildingAdminAssignment(
-            geometry ?? undefined,
-            requested,
-            user
-        );
+        const { admin_area_id, admin_area_resolve_spatial } =
+            await this.resolveBuildingAdminAssignmentForUpdate(
+                existing,
+                patch,
+                geometry ?? undefined,
+                user,
+            );
 
         return {
             name,
@@ -445,6 +443,45 @@ export class BuildingsService {
             verification_status,
             is_verified,
         };
+    }
+
+    private async resolveBuildingAdminAssignmentForUpdate(
+        existing: BuildingDetailRow,
+        patch: UpdateBuildingBody,
+        geometry: CreateBuildingBody["geometry"] | undefined,
+        user: JwtUser,
+    ): Promise<{ admin_area_id: bigint | null; admin_area_resolve_spatial: boolean }> {
+        const existingAdminAreaId =
+            existing.admin_area_id !== null && existing.admin_area_id !== undefined
+                ? BigInt(existing.admin_area_id)
+                : null;
+
+        if (patch.admin_area_id === undefined) {
+            const omitted = await this.entityAdminArea.resolveTownshipAdminAreaForOmittedUpdate(
+                existingAdminAreaId,
+            );
+            if (omitted.admin_area_id === undefined) {
+                return {
+                    admin_area_id: existingAdminAreaId,
+                    admin_area_resolve_spatial: false,
+                };
+            }
+            return {
+                admin_area_id: omitted.admin_area_id,
+                admin_area_resolve_spatial: false,
+            };
+        }
+
+        if (patch.admin_area_id === null) {
+            return { admin_area_id: null, admin_area_resolve_spatial: false };
+        }
+
+        const resolved = await this.resolveBuildingAdminAssignment(
+            geometry,
+            patch.admin_area_id,
+            user,
+        );
+        return resolved;
     }
 
     private async resolveBuildingAdminAssignment(

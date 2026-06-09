@@ -199,3 +199,5 @@ infrastructure/database/introspection/**/snapshots/
 /infrastructure/tiles/**/cache/
 /infrastructure/tiles/**/*.tmp
 /infrastructure/tiles/**/*.temp
+
+/todo.txt

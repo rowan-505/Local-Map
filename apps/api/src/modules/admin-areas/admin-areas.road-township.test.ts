@@ -1,9 +1,26 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { isRoadTownshipAdminLevel } from "./admin-areas.road-township-level.js";
 import { roadTownshipAdminAreaOptionsQuerySchema } from "./admin-areas.schema.js";
 import { AdminAreasService } from "./admin-areas.service.js";
 import type { AdminAreasRepository } from "./admin-areas.repo.js";
+
+describe("isRoadTownshipAdminLevel", () => {
+    it("accepts active township and town codes", () => {
+        assert.equal(isRoadTownshipAdminLevel("township", "Township"), true);
+        assert.equal(isRoadTownshipAdminLevel("town", "Town"), true);
+        assert.equal(isRoadTownshipAdminLevel("subdistrict", "Township"), true);
+    });
+
+    it("rejects ward, village, district, state, and country levels", () => {
+        assert.equal(isRoadTownshipAdminLevel("ward", "Ward"), false);
+        assert.equal(isRoadTownshipAdminLevel("village", "Village"), false);
+        assert.equal(isRoadTownshipAdminLevel("district", "District"), false);
+        assert.equal(isRoadTownshipAdminLevel("state", "State"), false);
+        assert.equal(isRoadTownshipAdminLevel("country", "Country"), false);
+    });
+});
 
 describe("roadTownshipAdminAreaOptionsQuerySchema", () => {
     it("requires q and caps limit at 50", () => {

@@ -1,5 +1,7 @@
-/** Admin level used as admin_area_id on places, streets, and buildings. */
-export const ENTITY_ADMIN_AREA_TARGET_LEVEL = "township" as const;
+import { TOWNSHIP_ADMIN_TARGET_LEVEL } from "../../lib/core-review/township-admin-policy.js";
+
+/** Admin level used as admin_area_id on township-default core-review entities. */
+export const ENTITY_ADMIN_AREA_TARGET_LEVEL = TOWNSHIP_ADMIN_TARGET_LEVEL;
 
 /** Roles allowed to save a manual township that does not contain/intersect entity geometry. */
 export const ENTITY_ADMIN_AREA_OVERRIDE_ROLES = new Set(["admin"]);

@@ -1,6 +1,24 @@
 import type { PrismaClient } from "@prisma/client";
 
+import type { JwtUser } from "../../plugins/auth.js";
 import { CoreReviewRefValidator } from "../../lib/core-review/ref-validation.js";
+import {
+    applyBusStopAdminAreaForCreate,
+    applyBusStopAdminAreaForUpdate,
+} from "../../lib/core-review/bus-stop-admin-area-write.js";
+import {
+    applyLanduseAdminAreaForCreate,
+    applyLanduseAdminAreaForUpdate,
+} from "../../lib/core-review/landuse-admin-area-write.js";
+import {
+    applyTownshipAdminAreaToGenericWriteBody,
+    genericWriteSlugUsesTownshipPolicy,
+} from "../../lib/core-review/township-admin-resolve.js";
+import { EntityAdminAreaRepository } from "../entity-admin-area/entity-admin-area.repo.js";
+import {
+    EntityAdminAreaService,
+    EntityAdminAreaValidationError,
+} from "../entity-admin-area/entity-admin-area.service.js";
 import {
     applyAdminAreaBoundaryDefaultsForCreate,
     applyAdminAreaBoundaryDefaultsForPatch,
@@ -10,7 +28,7 @@ import { CoreReviewEntitiesWriteRepository } from "./core-review-entities-write.
 import { CoreReviewLanduseRepository } from "./entities/landuse.repo.js";
 import { CoreReviewNotFoundError, CoreReviewValidationError } from "./core-review-write.errors.js";
 import { validationMessageFromIssues } from "./core-review-write.helpers.js";
-import { pickAlias } from "./core-review-write.schema.js";
+import { pickAlias, pickGeometry } from "./core-review-write.schema.js";
 import { buildDetailResponse } from "./core-review.pagination.js";
 import { serializeGenericCoreRow } from "./core-review-serializers.js";
 import { getCoreReviewLanduseDetail } from "./entities/landuse.handler.js";
@@ -43,6 +61,7 @@ export class CoreReviewGenericWriteService {
     private readonly entitiesRepo: CoreReviewEntitiesRepository;
     private readonly refValidator: CoreReviewRefValidator;
     private readonly landuseRepo: CoreReviewLanduseRepository;
+    private readonly entityAdminArea: EntityAdminAreaService;
 
     constructor(prisma: PrismaClient) {
         this.prisma = prisma;
@@ -50,6 +69,36 @@ export class CoreReviewGenericWriteService {
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
         this.refValidator = new CoreReviewRefValidator(prisma);
         this.landuseRepo = new CoreReviewLanduseRepository(prisma);
+        this.entityAdminArea = new EntityAdminAreaService(new EntityAdminAreaRepository(prisma));
+    }
+
+    private mapEntityAdminAreaError(error: unknown): never {
+        if (error instanceof EntityAdminAreaValidationError) {
+            throw new CoreReviewValidationError(error.message, error.issues);
+        }
+        throw error;
+    }
+
+    private async applyTownshipPolicyIfNeeded(
+        slug: CoreReviewEntitySlug,
+        body: Record<string, unknown>,
+        geometry: unknown,
+        user: JwtUser,
+    ): Promise<void> {
+        if (!genericWriteSlugUsesTownshipPolicy(slug)) {
+            return;
+        }
+        try {
+            await applyTownshipAdminAreaToGenericWriteBody(
+                this.entityAdminArea,
+                slug,
+                body,
+                geometry,
+                user,
+            );
+        } catch (error) {
+            this.mapEntityAdminAreaError(error);
+        }
     }
 
     private async validateIssues(
@@ -69,10 +118,25 @@ export class CoreReviewGenericWriteService {
         }
     }
 
-    async create(slug: CoreReviewEntitySlug, body: Record<string, unknown>, log?: WriteLogger) {
+    async create(
+        slug: CoreReviewEntitySlug,
+        body: Record<string, unknown>,
+        user: JwtUser,
+        log?: WriteLogger,
+    ) {
         switch (slug) {
             case "bus-stops": {
                 const sourceTypeId = await resolveSourceTypeId(this.refValidator, body);
+                try {
+                    await applyBusStopAdminAreaForCreate(
+                        this.entityAdminArea,
+                        body,
+                        pickGeometry(body),
+                        user,
+                    );
+                } catch (error) {
+                    this.mapEntityAdminAreaError(error);
+                }
                 await this.validateIssues([
                     this.refValidator.validateAdminAreaId(
                         pickAlias<bigint | null>(body, "adminAreaId", "admin_area_id") ?? null,
@@ -111,6 +175,16 @@ export class CoreReviewGenericWriteService {
                 return buildDetailResponse(serializeGenericCoreRow(row!));
             }
             case "landuse": {
+                try {
+                    await applyLanduseAdminAreaForCreate(
+                        this.entityAdminArea,
+                        body,
+                        pickGeometry(body),
+                        user,
+                    );
+                } catch (error) {
+                    this.mapEntityAdminAreaError(error);
+                }
                 await this.validateIssues([
                     this.refValidator.validateLanduseClassId(
                         pickAlias<bigint>(body, "landuseClassId", "landuse_class_id"),
@@ -200,9 +274,34 @@ export class CoreReviewGenericWriteService {
         }
     }
 
-    async update(slug: CoreReviewEntitySlug, id: string, body: Record<string, unknown>, log?: WriteLogger) {
+    async update(
+        slug: CoreReviewEntitySlug,
+        id: string,
+        body: Record<string, unknown>,
+        user: JwtUser,
+        log?: WriteLogger,
+    ) {
         switch (slug) {
             case "bus-stops": {
+                const existingStop = await this.entitiesRepo.getBusStopByPublicId(id);
+                if (!existingStop) {
+                    throw new CoreReviewNotFoundError();
+                }
+                const stopGeometry = pickGeometry(body) ?? existingStop.geometry;
+                const existingAdminAreaId = existingStop.adminAreaId
+                    ? BigInt(String(existingStop.adminAreaId))
+                    : null;
+                try {
+                    await applyBusStopAdminAreaForUpdate(
+                        this.entityAdminArea,
+                        body,
+                        stopGeometry,
+                        existingAdminAreaId,
+                        user,
+                    );
+                } catch (error) {
+                    this.mapEntityAdminAreaError(error);
+                }
                 await this.validateIssues([
                     this.refValidator.validateAdminAreaId(
                         pickAlias<bigint | null>(body, "adminAreaId", "admin_area_id"),
@@ -241,6 +340,25 @@ export class CoreReviewGenericWriteService {
                 return buildDetailResponse(serializeGenericCoreRow(row!));
             }
             case "landuse": {
+                const existingLanduse = await this.landuseRepo.getLanduseById(id);
+                if (!existingLanduse) {
+                    throw new CoreReviewNotFoundError();
+                }
+                const landuseGeometry = pickGeometry(body) ?? existingLanduse.geometry;
+                const existingAdminAreaId = existingLanduse.admin_area_id
+                    ? BigInt(existingLanduse.admin_area_id)
+                    : null;
+                try {
+                    await applyLanduseAdminAreaForUpdate(
+                        this.entityAdminArea,
+                        body,
+                        landuseGeometry,
+                        existingAdminAreaId,
+                        user,
+                    );
+                } catch (error) {
+                    this.mapEntityAdminAreaError(error);
+                }
                 await this.validateIssues([
                     this.refValidator.validateLanduseClassId(
                         pickAlias<bigint | null>(body, "landuseClassId", "landuse_class_id"),

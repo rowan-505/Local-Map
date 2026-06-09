@@ -47,4 +47,16 @@ describe("mapCoreReviewStreetPatch", () => {
         assert.equal(mapped.myanmarName, undefined);
         assert.equal(mapped.englishName, "English only");
     });
+
+    it("maps explicitClearAdminArea for road admin_area clear", () => {
+        const mapped = mapCoreReviewStreetPatch({
+            admin_area_manual_override: true,
+            admin_area_id: null,
+            explicitClearAdminArea: true,
+        });
+
+        assert.equal(mapped.admin_area_manual_override, true);
+        assert.equal(mapped.admin_area_id, null);
+        assert.equal(mapped.explicit_clear_admin_area, true);
+    });
 });

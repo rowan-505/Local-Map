@@ -1,3 +1,4 @@
+import { isTownshipAdminEntity } from "../../lib/core-review/township-admin-policy.js";
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
 
 export type CoreReviewIdKind = "public_id" | "numeric_id";
@@ -214,4 +215,12 @@ export function resolveCoreReviewSortBy(
 ): string {
     const raw = sortBy?.trim() || def.defaultSortBy;
     return def.allowedSortBy.includes(raw) ? raw : def.defaultSortBy;
+}
+
+/**
+ * Whether core-review writes default admin_area_id to township (see township-admin-policy).
+ * Returns false for `addresses` — addresses keep generic admin-area refs and validation.
+ */
+export function coreReviewEntityUsesTownshipAdminDefault(slug: CoreReviewEntitySlug): boolean {
+    return isTownshipAdminEntity(slug);
 }

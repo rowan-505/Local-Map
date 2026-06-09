@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { EntityAdminAreaRepository } from "../entity-admin-area/entity-admin-area.repo.js";
-import { assertRoadTownshipAdminArea, StreetAdminAreaValidationError } from "./street-admin-area.js";
+import {
+    assertRoadTownshipAdminArea,
+    ROAD_ADMIN_AREA_MUST_BE_TOWNSHIP_CODE,
+    StreetAdminAreaValidationError,
+} from "./street-admin-area.js";
 
 function mockRepo(overrides: Partial<EntityAdminAreaRepository>): EntityAdminAreaRepository {
     return {
@@ -53,6 +57,7 @@ describe("assertRoadTownshipAdminArea", () => {
             () => assertRoadTownshipAdminArea(repo, 7n),
             (error: unknown) => {
                 assert.ok(error instanceof StreetAdminAreaValidationError);
+                assert.equal(error.code, ROAD_ADMIN_AREA_MUST_BE_TOWNSHIP_CODE);
                 assert.match(error.message, /ward-level/);
                 return true;
             },

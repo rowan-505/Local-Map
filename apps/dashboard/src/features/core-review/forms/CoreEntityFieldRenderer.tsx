@@ -90,6 +90,21 @@ export default function CoreEntityFieldRenderer({
     const id = `core-field-${field.key}`;
 
     if (field.type === "township-admin" && field.townshipAdmin && watch && setValue) {
+        const usesStoredAdminInfer =
+            field.townshipAdmin.entityKind === "street" ||
+            field.townshipAdmin.entityKind === "landuse" ||
+            field.townshipAdmin.entityKind === "bus_stop";
+        const detailRecord =
+            usesStoredAdminInfer && editDetail && typeof editDetail === "object"
+                ? (editDetail as Record<string, unknown>)
+                : null;
+        const storedAdminAreaId = detailRecord
+            ? String(detailRecord.admin_area_id ?? detailRecord.adminAreaId ?? "").trim()
+            : "";
+        const entityPublicId = detailRecord
+            ? String(detailRecord.public_id ?? detailRecord.publicId ?? "").trim()
+            : "";
+
         return (
             <EntityTownshipAdminField
                 config={{
@@ -103,6 +118,8 @@ export default function CoreEntityFieldRenderer({
                 setValue={setValue}
                 disabled={disabled}
                 error={error}
+                storedAdminAreaId={storedAdminAreaId || null}
+                entityPublicId={entityPublicId || null}
             />
         );
     }

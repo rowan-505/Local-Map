@@ -67,7 +67,19 @@ CONFIRM_WRITE=true ./run_backfill_streets_admin_area_id_loop.sh imports/local.en
 | `invalid_existing` | Invalid/non-township FK kept (no township match) |
 | `would_clear_invalid` | Same as `invalid_existing` in dry run (future NULL-clear report) |
 
+## Admin area audit (read-only)
+
+Inspect `admin_area_id` quality without writes:
+
+```bash
+./run_audit_streets_admin_area_id.sh imports/local.env
+# or: psql "$DATABASE_URL" -f audit_streets_admin_area_id.sql
+```
+
+Reports: counts by admin level, null/broken/non-township totals, sample 50 bad rows.
+
 ## Related
 
 - `../admin-hierarchy-repair/05_backfill_roads_admin_area.sql` — faster point-only NULL backfill (legacy)
 - `apps/api/src/modules/entity-admin-area/` — dashboard infer API (runtime, not bulk backfill)
+- `infrastructure/database/checks/supabase/check_streets_admin_area_id.sql` — quick gate summary

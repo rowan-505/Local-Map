@@ -88,7 +88,7 @@ export const getRoadTownshipAdminAreaOptionsSchema = {
     tags: [Tags.AdminAreas],
     summary: "Road/street township override search",
     description:
-        "Server-side search for active township-level admin areas only. Used by road edit manual township override.",
+        "Server-side search for active township-level admin areas only (roads). Matches id, public_id, canonical_name, Myanmar/English names (language_code my/en), slug, and external_id. Excludes ward, village, district, state, and country levels.",
     security: [...bearerAuth],
     querystring: {
         type: "object",

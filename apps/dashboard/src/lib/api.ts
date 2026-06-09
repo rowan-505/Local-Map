@@ -1590,7 +1590,57 @@ export function searchRoadTownshipAdminAreaOptions(params: { q: string; limit?: 
     });
 }
 
-export type EntityAdminAreaKind = "place" | "street" | "building";
+export type EntityAdminAreaKind = "place" | "street" | "building" | "landuse" | "bus_stop";
+
+export type RoadAdminAreaInferStatus =
+    | "valid_existing"
+    | "recommendation_found"
+    | "no_match"
+    | "invalid_geometry";
+
+export type RoadInferCurrentAdminArea = {
+    id: string | null;
+    name: string | null;
+    level_code: string | null;
+    is_active: boolean | null;
+};
+
+export type RoadInferRecommendedTownship = {
+    id: string;
+    name_mm: string | null;
+    name_en: string | null;
+    canonical_name: string | null;
+};
+
+export type RoadTownshipRecommendationMode =
+    | "single_overlap"
+    | "multi_overlap"
+    | "point_fallback"
+    | "nearest";
+
+export type RoadTownshipDebugReason =
+    | "invalid_geometry"
+    | "no_township_polygons"
+    | "outside_all_townships"
+    | "query_error";
+
+export type RoadInferIntersectingTownship = {
+    id: string;
+    canonical_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    admin_level_code: string;
+    overlap_m: number;
+    overlap_pct: number | null;
+};
+
+export type RoadInferCommonParentAdminArea = {
+    id: string;
+    canonical_name: string;
+    admin_level_code: string;
+    name_mm: string | null;
+    name_en: string | null;
+};
 
 export type EntityAdminAreaInferResult = {
     admin_area_id: string | null;
@@ -1599,6 +1649,17 @@ export type EntityAdminAreaInferResult = {
     name_mm: string | null;
     name_en: string | null;
     geometry_contains: boolean;
+    /** Road/street, landuse, and bus_stop infer audit — returned for recommend/apply kinds. */
+    status?: RoadAdminAreaInferStatus;
+    message?: string | null;
+    currentAdminArea?: RoadInferCurrentAdminArea | null;
+    recommendedTownship?: RoadInferRecommendedTownship | null;
+    recommendationMode?: RoadTownshipRecommendationMode | null;
+    intersectingTownships?: RoadInferIntersectingTownship[];
+    commonParentAdminArea?: RoadInferCommonParentAdminArea | null;
+    debugReason?: RoadTownshipDebugReason | null;
+    fallbackReason?: "point_fallback" | "nearest_township" | null;
+    nearestTownshipDistanceM?: number | null;
 };
 
 export type EntityAdminAreaValidateManualResult = {
@@ -1615,6 +1676,10 @@ export function inferEntityAdminArea(payload: {
     lat?: number;
     lng?: number;
     geometry?: { type: string; coordinates: unknown };
+    /** Road/landuse edit audit: stored admin_area_id from DB. */
+    current_admin_area_id?: string;
+    /** Road/landuse edit audit logging only. */
+    entity_public_id?: string;
 }) {
     return apiFetch<EntityAdminAreaInferResult>("/entity-admin-area/infer", {
         method: "POST",

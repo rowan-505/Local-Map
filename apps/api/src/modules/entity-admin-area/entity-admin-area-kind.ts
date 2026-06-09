@@ -1,6 +1,12 @@
 import type { EntityAdminAreaKind } from "./entity-admin-area.repo.js";
 
-const ENTITY_ADMIN_AREA_KINDS = new Set<EntityAdminAreaKind>(["place", "street", "building"]);
+const ENTITY_ADMIN_AREA_KINDS = new Set<EntityAdminAreaKind>([
+    "place",
+    "street",
+    "building",
+    "landuse",
+    "bus_stop",
+]);
 
 /** Normalize API kind values; `road` is an alias for `street`. */
 export function normalizeEntityAdminAreaKind(kind: string): EntityAdminAreaKind | null {
@@ -13,4 +19,9 @@ export function normalizeEntityAdminAreaKind(kind: string): EntityAdminAreaKind 
 
 export function isRoadEntityAdminAreaKind(kind: EntityAdminAreaKind): boolean {
     return kind === "street";
+}
+
+/** Entity kinds that use recommend/apply infer UX (no auto-write to form). */
+export function isRecommendApplyInferEntityKind(kind: EntityAdminAreaKind): boolean {
+    return kind === "street" || kind === "landuse" || kind === "bus_stop";
 }

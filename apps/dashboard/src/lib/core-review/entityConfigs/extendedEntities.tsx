@@ -14,6 +14,9 @@ import {
     transportWriteExtras,
 } from "@/src/features/core-review/transport/coreReviewTransportShared";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
+import { busStopAdminAreaForUpdatePayload } from "@/src/lib/core-review/busStopAdminAreaPayload";
+import { entityAdminAreaIdForPayload } from "@/src/lib/core-review/entityAdminAreaPayload";
+import { townshipAdminEntityField } from "@/src/lib/core-review/townshipAdminEntityField";
 
 import {
     bool,
@@ -107,6 +110,8 @@ function busStopFormSchema(_mode: CoreEntityFormMode) {
             name_local: optionalStringSchema,
             stop_code: optionalStringSchema,
             admin_area_id: optionalStringSchema,
+            admin_area_manual_override: optionalBooleanSchema,
+            admin_area_explicit_clear: optionalBooleanSchema,
             is_active: optionalBooleanSchema,
             verification_status: optionalStringSchema,
             confidence_score: optionalNumberStringSchema,
@@ -123,16 +128,31 @@ function busStopFormSchema(_mode: CoreEntityFormMode) {
         });
 }
 
-function busStopPayload(values: CoreEntityFormValues) {
+function busStopAdminSlice(values: CoreEntityFormValues, mode: "create" | "edit") {
+    if (mode === "edit") {
+        return busStopAdminAreaForUpdatePayload(values);
+    }
+    const manualAdmin = entityAdminAreaIdForPayload(values, "admin_area_id");
+    if (manualAdmin === undefined) {
+        return {};
+    }
     return {
+        admin_area_id: manualAdmin,
+        admin_area_manual_override: true,
+    };
+}
+
+function busStopPayload(values: CoreEntityFormValues) {
+    const payload: Record<string, unknown> = {
         name: nullableFormString(values.name),
         name_local: nullableFormString(values.name_local),
         stop_code: nullableFormString(values.stop_code),
-        admin_area_id: optionalFormRefId(values.admin_area_id),
         is_active: bool(values.is_active),
         geom: requirePointGeometry(values, BUS_STOP_GEOM),
         ...transportWriteExtras(values),
     };
+    Object.assign(payload, busStopAdminSlice(values, "create"));
+    return payload;
 }
 
 function busStopUpdatePayload(values: CoreEntityFormValues) {
@@ -144,10 +164,7 @@ function busStopUpdatePayload(values: CoreEntityFormValues) {
         geom: requirePointGeometry(values, BUS_STOP_GEOM),
         ...transportWriteExtras(values),
     };
-    const adminAreaId = String(values.admin_area_id ?? "").trim();
-    if (adminAreaId) {
-        payload.admin_area_id = parseOptionalFormRefId(values.admin_area_id);
-    }
+    Object.assign(payload, busStopAdminSlice(values, "edit"));
     return payload;
 }
 
@@ -170,7 +187,11 @@ export const BUS_STOPS_ENTITY_CONFIG = baseWriteConfig<BusStopDetail>({
         { key: "stop_code", label: "Stop code", type: "text" },
         { key: "name_local", label: "Myanmar name", type: "text" },
         { key: "name", label: "English / display name", type: "text" },
-        { key: "admin_area_id", label: "Admin area", type: "ref", refSource: "admin-areas" },
+        townshipAdminEntityField({
+            slug: "bus-stops",
+            geometryFieldKey: BUS_STOP_GEOM,
+            adminAreaIdKey: "admin_area_id",
+        }),
         { key: "is_active", label: "Active", type: "boolean" },
         verificationStatusFormField(),
         {
@@ -200,6 +221,7 @@ export const BUS_STOPS_ENTITY_CONFIG = baseWriteConfig<BusStopDetail>({
         name_local: "",
         stop_code: "",
         admin_area_id: "",
+        admin_area_manual_override: false,
         is_active: true,
         verification_status: "unverified",
         confidence_score: "",
@@ -211,6 +233,7 @@ export const BUS_STOPS_ENTITY_CONFIG = baseWriteConfig<BusStopDetail>({
         name_local: str(detail.nameMm ?? detail.nameLocal),
         stop_code: str(detail.stopCode),
         admin_area_id: str(detail.adminAreaId),
+        admin_area_manual_override: false,
         is_active: bool(detail.isActive),
         verification_status: verificationStatusFromDetail(detail),
         confidence_score: detail.confidenceScore == null ? "" : String(detail.confidenceScore),
@@ -618,6 +641,9 @@ export const WATER_POLYGONS_ENTITY_CONFIG = createMapFeatureConfig(
 );
 
 // ── Addresses ───────────────────────────────────────────────────────────────
+// Township-only rollout does NOT apply here. Keep generic admin area selection
+// (`ref` + `admin-areas`) and pass admin_area_id through save unchanged — ward,
+// village tract, township, district, and other active levels remain valid.
 
 function addressFormSchema(_mode: CoreEntityFormMode) {
     return z

@@ -3,6 +3,9 @@ import { z } from "zod";
 
 import type { CoreReviewLanduseRow } from "@/src/features/core-review/config/types";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
+import { entityAdminAreaIdForPayload } from "@/src/lib/core-review/entityAdminAreaPayload";
+import { landuseAdminAreaForUpdatePayload } from "@/src/lib/core-review/landuseAdminAreaPayload";
+import { townshipAdminEntityField } from "@/src/lib/core-review/townshipAdminEntityField";
 
 import {
     bool,
@@ -11,7 +14,6 @@ import {
     detailRecordId,
     nullableFormString,
     optionalBooleanSchema,
-    optionalFormRefId,
     optionalGeometrySchema,
     optionalStringSchema,
     polygonFromDetailGeometry,
@@ -41,6 +43,8 @@ function landuseFormSchema(mode: CoreEntityFormMode) {
         name_en: optionalStringSchema,
         landuse_class_id: z.string().min(1, "Landuse class is required"),
         admin_area_id: optionalStringSchema,
+        admin_area_manual_override: z.boolean().optional(),
+        admin_area_explicit_clear: z.boolean().optional(),
         confidence_score: z.string(),
         verification_status: optionalStringSchema,
         detail_level: z.enum(["zone", "parcel"]),
@@ -73,10 +77,18 @@ function parseConfidence(raw: unknown, fallback: number): number {
 }
 
 function landusePayload(values: CoreEntityFormValues, mode: CoreEntityFormMode) {
+    const adminSlice =
+        mode === "edit"
+            ? landuseAdminAreaForUpdatePayload(values)
+            : entityAdminAreaIdForPayload(values, "admin_area_id") !== undefined
+              ? {
+                    admin_area_id: entityAdminAreaIdForPayload(values, "admin_area_id"),
+                    admin_area_manual_override: true,
+                }
+              : {};
     const payload: Record<string, unknown> = {
         geom: requirePolygonGeometry(values, GEOM_FIELD),
         landuse_class_id: String(values.landuse_class_id ?? "").trim(),
-        admin_area_id: optionalFormRefId(values.admin_area_id),
         name_mm: nullableFormString(values.name_mm),
         name_en: nullableFormString(values.name_en),
         confidence_score: parseConfidence(values.confidence_score, mode === "create" ? 90 : 90),
@@ -85,6 +97,8 @@ function landusePayload(values: CoreEntityFormValues, mode: CoreEntityFormMode) 
         crop_code: nullableFormString(values.crop_code),
         seasonality: nullableFormString(values.seasonality),
     };
+
+    Object.assign(payload, adminSlice);
 
     if (values.irrigated === true || values.irrigated === false) {
         payload.irrigated = values.irrigated;
@@ -135,7 +149,11 @@ export const LANDUSE_ENTITY_CONFIG: CoreEntityConfig<
             required: true,
             helpText: "Category from ref.ref_landuse_classes (separate from feature name).",
         },
-        { key: "admin_area_id", label: "Admin area", type: "ref", refSource: "admin-areas" },
+        townshipAdminEntityField({
+            slug: "landuse",
+            geometryFieldKey: GEOM_FIELD,
+            adminAreaIdKey: "admin_area_id",
+        }),
         {
             key: "detail_level",
             label: "Detail level",
@@ -209,6 +227,7 @@ export const LANDUSE_ENTITY_CONFIG: CoreEntityConfig<
         name_en: "",
         landuse_class_id: "",
         admin_area_id: "",
+        admin_area_manual_override: false,
         confidence_score: "90",
         verification_status: "unverified",
         detail_level: "zone",
@@ -227,6 +246,7 @@ export const LANDUSE_ENTITY_CONFIG: CoreEntityConfig<
                 ? String(detail.landuseClassId)
                 : "",
         admin_area_id: detail.adminAreaId != null ? String(detail.adminAreaId) : "",
+        admin_area_manual_override: false,
         confidence_score:
             detail.confidenceScore != null ? String(detail.confidenceScore) : "90",
         verification_status: verificationStatusFromDetail(detail),

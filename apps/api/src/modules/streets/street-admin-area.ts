@@ -4,12 +4,16 @@ import {
 } from "../entity-admin-area/entity-admin-area.constants.js";
 import type { EntityAdminAreaRepository } from "../entity-admin-area/entity-admin-area.repo.js";
 
+export const ROAD_ADMIN_AREA_MUST_BE_TOWNSHIP_CODE = "ROAD_ADMIN_AREA_MUST_BE_TOWNSHIP";
+
 export class StreetAdminAreaValidationError extends Error {
     readonly path = "admin_area_id";
+    readonly code?: string;
 
-    constructor(message: string) {
+    constructor(message: string, code?: string) {
         super(message);
         this.name = "StreetAdminAreaValidationError";
+        this.code = code;
     }
 }
 
@@ -39,6 +43,9 @@ export async function assertRoadTownshipAdminArea(
     }
 
     if (!(await repo.isTownshipAdminArea(adminAreaId))) {
-        throw new StreetAdminAreaValidationError(formatForbiddenLevelMessage(summary.admin_level_code));
+        throw new StreetAdminAreaValidationError(
+            formatForbiddenLevelMessage(summary.admin_level_code),
+            ROAD_ADMIN_AREA_MUST_BE_TOWNSHIP_CODE,
+        );
     }
 }

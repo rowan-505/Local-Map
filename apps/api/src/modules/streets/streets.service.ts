@@ -180,9 +180,12 @@ export class StreetNotFoundError extends Error {
 }
 
 export class StreetValidationError extends Error {
-    constructor(message: string) {
+    readonly code?: string;
+
+    constructor(message: string, code?: string) {
         super(message);
         this.name = "StreetValidationError";
+        this.code = code;
     }
 }
 
@@ -532,7 +535,10 @@ export class StreetsService {
     }
 
     private mapStreetAdminAreaError(error: unknown): never {
-        if (error instanceof EntityAdminAreaValidationError || error instanceof StreetAdminAreaValidationError) {
+        if (error instanceof StreetAdminAreaValidationError) {
+            throw new StreetValidationError(error.message, error.code);
+        }
+        if (error instanceof EntityAdminAreaValidationError) {
             throw new StreetValidationError(error.message);
         }
         throw error;
@@ -555,7 +561,8 @@ export class StreetsService {
     }
 
     /**
-     * Road edit save: preserve existing township unless manual override or successful re-infer.
+     * Road edit save: preserve existing township when admin_area is omitted; clear legacy
+     * non-township assignments to null; accept explicit township only via manual override.
      */
     private async resolveRoadAdminAreaForUpdate(args: {
         existingAdminAreaId: bigint | null;
@@ -563,41 +570,47 @@ export class StreetsService {
         requestedAdmin: bigint | null | undefined;
         requestedAdminInBody: boolean;
         manualOverride: boolean;
+        explicitClearAdminArea: boolean;
         user: JwtUser;
     }): Promise<{ admin_area_id: bigint | null | undefined; manual_override?: boolean }> {
-        if (args.manualOverride) {
-            if (!args.requestedAdminInBody) {
-                return { admin_area_id: undefined };
-            }
-            if (args.requestedAdmin === null || args.requestedAdmin === undefined) {
-                await assertRoadTownshipAdminArea(this.entityAdminAreaRepo, null);
+        if (!args.requestedAdminInBody) {
+            if (args.explicitClearAdminArea) {
                 return { admin_area_id: null, manual_override: true };
             }
-            const resolved = await this.resolveRoadAdminAreaForWrite({
-                geometry: args.geometry,
-                requestedAdmin: args.requestedAdmin,
-                user: args.user,
-            });
-            if (!resolved) {
+            if (args.existingAdminAreaId === null) {
                 return { admin_area_id: undefined };
             }
-            return {
-                admin_area_id: resolved.admin_area_id,
-                manual_override: true,
-            };
+            if (await this.entityAdminAreaRepo.isTownshipAdminArea(args.existingAdminAreaId)) {
+                return { admin_area_id: undefined };
+            }
+            return { admin_area_id: null };
         }
 
-        const inferredId = await this.inferStreetTownshipId(args.geometry);
-        if (inferredId !== null) {
-            await assertRoadTownshipAdminArea(this.entityAdminAreaRepo, inferredId);
-            return { admin_area_id: inferredId, manual_override: false };
-        }
-
-        if (args.existingAdminAreaId !== null) {
+        if (args.requestedAdmin === null || args.requestedAdmin === undefined) {
+            if (args.explicitClearAdminArea) {
+                return { admin_area_id: null, manual_override: true };
+            }
             return { admin_area_id: undefined };
         }
 
-        return { admin_area_id: undefined };
+        await assertRoadTownshipAdminArea(this.entityAdminAreaRepo, args.requestedAdmin);
+
+        if (!args.manualOverride) {
+            return { admin_area_id: undefined };
+        }
+
+        const resolved = await this.resolveRoadAdminAreaForWrite({
+            geometry: args.geometry,
+            requestedAdmin: args.requestedAdmin,
+            user: args.user,
+        });
+        if (!resolved) {
+            return { admin_area_id: undefined };
+        }
+        return {
+            admin_area_id: resolved.admin_area_id,
+            manual_override: true,
+        };
     }
 
     private async resolveRoadAdminAreaForWrite(args: {
@@ -718,6 +731,9 @@ export class StreetsService {
         const requestedAdmin = body.admin_area_id ?? body.adminAreaId;
         const requestedAdminInBody = body.admin_area_id !== undefined || body.adminAreaId !== undefined;
         const manualOverride = Boolean(body.admin_area_manual_override ?? body.adminAreaManualOverride);
+        const explicitClearAdminArea = Boolean(
+            body.explicit_clear_admin_area ?? body.explicitClearAdminArea,
+        );
         const roadClassId = body.road_class_id ?? body.roadClassId;
         const isOneway = body.is_oneway ?? body.isOneway;
 
@@ -745,6 +761,7 @@ export class StreetsService {
                 requestedAdmin,
                 requestedAdminInBody,
                 manualOverride,
+                explicitClearAdminArea,
                 user,
             });
             adminAreaId = resolved.admin_area_id;

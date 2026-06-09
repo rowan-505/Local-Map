@@ -289,27 +289,13 @@ export class PlacesService {
             }
         }
 
-        const lat = patch.lat ?? existing.lat;
-        const lng = patch.lng ?? existing.lng;
-
-        if (lat !== undefined && lng !== undefined) {
-            try {
-                const resolved = await this.entityAdminArea.resolveForWrite({
-                    kind: "place",
-                    lat,
-                    lng,
-                    requested_admin_area_id:
-                        body.adminAreaId === undefined ? undefined : body.adminAreaId,
-                    user,
-                    path: "adminAreaId",
-                });
-                patch.admin_area_id = resolved.admin_area_id;
-            } catch (error) {
-                if (error instanceof EntityAdminAreaValidationError) {
-                    throw new PlaceValidationError(error.message);
-                }
-                throw error;
+        try {
+            await this.applyPlaceAdminAreaForUpdate(patch, existing, body, user);
+        } catch (error) {
+            if (error instanceof EntityAdminAreaValidationError) {
+                throw new PlaceValidationError(error.message);
             }
+            throw error;
         }
 
         if (patch.source_type_id !== undefined) {
@@ -343,6 +329,42 @@ export class PlacesService {
 
             throw error;
         }
+    }
+
+    private async applyPlaceAdminAreaForUpdate(
+        patch: UpdatePlaceInput,
+        existing: PlaceDetailRow,
+        body: UpdatePlaceBody,
+        user: JwtUser,
+    ): Promise<void> {
+        const existingAdminAreaId = existing.admin_area_id;
+
+        if (body.adminAreaId === undefined) {
+            const omitted = await this.entityAdminArea.resolveTownshipAdminAreaForOmittedUpdate(
+                existingAdminAreaId,
+            );
+            if (omitted.admin_area_id !== undefined) {
+                patch.admin_area_id = omitted.admin_area_id;
+            }
+            return;
+        }
+
+        if (body.adminAreaId === null) {
+            patch.admin_area_id = null;
+            return;
+        }
+
+        const lat = patch.lat ?? existing.lat;
+        const lng = patch.lng ?? existing.lng;
+        const resolved = await this.entityAdminArea.resolveForWrite({
+            kind: "place",
+            lat,
+            lng,
+            requested_admin_area_id: body.adminAreaId,
+            user,
+            path: "adminAreaId",
+        });
+        patch.admin_area_id = resolved.admin_area_id;
     }
 
     async deletePlace(publicId: string) {
@@ -384,10 +406,6 @@ function mapUpdateBodyToRepo(body: UpdatePlaceBody): UpdatePlaceInput {
 
     if (body.categoryId !== undefined) {
         patch.category_id = body.categoryId;
-    }
-
-    if (body.adminAreaId !== undefined) {
-        patch.admin_area_id = body.adminAreaId;
     }
 
     if (body.lat !== undefined) {

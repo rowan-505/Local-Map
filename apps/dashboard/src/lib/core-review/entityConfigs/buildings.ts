@@ -6,6 +6,7 @@ import { getBuilding } from "@/src/lib/api";
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 import { getFormGeometry } from "@/src/lib/core-review/geometryFieldUtils";
 import { entityAdminAreaIdForPayload } from "@/src/lib/core-review/entityAdminAreaPayload";
+import { townshipAdminEntityField } from "@/src/lib/core-review/townshipAdminEntityField";
 
 import {
     createCoreReviewWriteMutations,
@@ -129,16 +130,11 @@ export const BUILDINGS_ENTITY_CONFIG: CoreEntityConfig<
         { key: "name_en", label: "English name", type: "text" },
         { key: "fallback_name", label: "Fallback name", type: "text", helpText: "Used when localized names are empty." },
         { key: "building_type_id", label: "Building type", type: "ref", refSource: "building-types" },
-        {
-            key: "township_admin",
-            label: "Township",
-            type: "township-admin",
-            townshipAdmin: {
-                entityKind: "building",
-                geometryFieldKey: GEOM_FIELD,
-                adminAreaIdKey: "admin_area_id",
-            },
-        },
+        townshipAdminEntityField({
+            slug: "buildings",
+            geometryFieldKey: GEOM_FIELD,
+            adminAreaIdKey: "admin_area_id",
+        }),
         { key: "levels", label: "Levels", type: "number", numberMin: 0, numberStep: 1, placeholder: "Optional" },
         { key: "height_m", label: "Height (m)", type: "number", numberMin: 0, placeholder: "Optional" },
         { key: "confidence_score", label: "Confidence score", type: "number", numberMin: 0, numberMax: 100 },

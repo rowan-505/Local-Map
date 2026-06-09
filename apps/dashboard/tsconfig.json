@@ -20,7 +20,11 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "@local-map/map-style/*": ["../../packages/map-style/*"]
+      "@local-map/map-style/*": ["../../packages/map-style/*"],
+      "@local-map/core-review-policy": [
+        "../../packages/core-review-policy/township-admin-policy.ts",
+        "../../apps/api/src/lib/core-review/township-admin-policy.ts"
+      ]
     }
   },
   "include": [
