@@ -9,7 +9,7 @@
  */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
-import { getMartinTileUrl } from '../config';
+import { resolveMartinTileUrl } from '../config';
 import {
   addTransportSources,
   bindTransportTileErrorHandler,
@@ -180,11 +180,17 @@ function MapViewInner({
           ensureWebSatelliteLayer(map);
           const camera = snapshotMapCamera(map);
           applyWebBasemapModePreservingCamera(map, mapModeRef.current, camera);
-          const martinTileUrl = getMartinTileUrl();
-          if (martinTileUrl) {
-            addTransportSources(map, martinTileUrl);
+          // Production is PMTiles-only: Martin is an optional transport overlay. Resolve it
+          // without throwing so a missing/invalid VITE_MARTIN_TILE_URL just disables the overlay
+          // instead of aborting `onLoad` (which would leave `mapReady` false and stop the
+          // regional PMTiles loader from ever starting).
+          const martin = resolveMartinTileUrl();
+          if (martin.status === 'configured') {
+            addTransportSources(map, martin.baseUrl);
             addTransportLayers(map);
             setTransportOverlayVisible(map, transportOverlayVisibleRef.current);
+          } else if (import.meta.env.DEV) {
+            console.warn('[map] Martin transport overlay disabled:', martin.status);
           }
           ensurePlacesLayer(map, geojsonRef.current, selectedRef.current, languageModeRef.current);
           ensureDirectionsRouteLayers(map);
@@ -321,7 +327,7 @@ function MapViewInner({
         handle = started;
       })
       .catch((err) => {
-        if (import.meta.env.DEV) console.warn('[regions] loader failed to start:', err);
+        console.warn('[regions] loader failed to start:', err);
       });
 
     return () => {

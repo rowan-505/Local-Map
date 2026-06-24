@@ -26,8 +26,6 @@ export const MAX_LOADED_REGIONS = 4;
 /** Coalesce viewport bursts: run the sync at most once per this interval. */
 const SYNC_THROTTLE_MS = 300;
 
-const DEV = import.meta.env.DEV;
-
 /** MapLibre surface the loader needs. `MapEngine` (maplibre `Map`) satisfies this. */
 export type RegionLoaderMap = Pick<
   MaplibreMap,
@@ -81,12 +79,12 @@ function syncRegions(
   loaded: Set<string>,
   onAfterSync?: () => void,
 ): void {
+  const zoom = map.getZoom();
   const visibleIds = getVisibleRegionIds(map, manifest);
   const visible = new Set(visibleIds);
 
-  if (DEV) console.log('[regions] visible:', visibleIds);
-
-  let changed = false;
+  const added: string[] = [];
+  const removed: string[] = [];
 
   // Add regions newly in view. Already-loaded regions are skipped (no source reload), and a
   // region that stays visible across small movements stays loaded — it is neither removed nor
@@ -99,8 +97,9 @@ function syncRegions(
     }
     addRegionLayers(map, region.id, sourceId);
     loaded.add(region.id);
-    changed = true;
-    if (DEV) console.log('[regions] loaded:', region.id);
+    added.push(region.id);
+    // Production-safe: confirms the exact region source URL being added.
+    console.info(`[regions] + ${region.id} pmtiles://${region.url}`);
   }
 
   // Unload regions that dropped out of view (or below z7). Only `region-*` sources are removed;
@@ -114,11 +113,18 @@ function syncRegions(
       map.removeSource(sourceId);
     }
     loaded.delete(regionId);
-    changed = true;
-    if (DEV) console.log('[regions] unloaded:', regionId);
+    removed.push(regionId);
+    console.info(`[regions] - ${regionId}`);
   }
 
-  if (changed) onAfterSync?.();
+  // One concise summary per sync (production-safe) to diagnose zoom/visibility on Vercel.
+  console.info(
+    `[regions] z=${zoom.toFixed(1)} visible=[${visibleIds.join(',')}] loaded=[${[...loaded].join(',')}]` +
+      (added.length ? ` added=[${added.join(',')}]` : '') +
+      (removed.length ? ` removed=[${removed.join(',')}]` : ''),
+  );
+
+  if (added.length || removed.length) onAfterSync?.();
 }
 
 /**
@@ -142,7 +148,7 @@ export async function startRegionalPmtilesLoader(
     try {
       syncRegions(map, manifest, loaded, onAfterSync);
     } catch (err) {
-      if (DEV) console.warn('[regions] sync failed:', err);
+      console.warn('[regions] sync failed:', err);
     }
   };
 
