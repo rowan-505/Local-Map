@@ -1,0 +1,132 @@
+{
+  "overview": {
+    "id": "overview",
+    "version": "v1",
+    "url": "https://tiles.coremapmm.com/basemaps/overview/v1/myanmar-overview-v1.pmtiles",
+    "minZoom": 0,
+    "maxZoom": 7,
+    "bounds": [90, 9, 102, 29]
+  },
+  "regions": [
+    {
+      "id": "ayeyarwady",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/ayeyarwady/v1/basemap.pmtiles",
+      "bounds": [94.05178699999999, 15.536826999999999, 96.35545, 18.812465999999997],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "bago",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/bago/v1/basemap.pmtiles",
+      "bounds": [94.44130999999999, 16.499193, 97.518056, 19.745751],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "chin",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/chin/v1/basemap.pmtiles",
+      "bounds": [92.415987, 20.521223000000003, 94.56250100000001, 24.270872999999998],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "kachin",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/kachin/v1/basemap.pmtiles",
+      "bounds": [95.593854, 23.328052000000003, 99.047414, 28.528757],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "kayah",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/kayah/v1/basemap.pmtiles",
+      "bounds": [96.452264, 18.249570000000002, 98.105204, 20.2518],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "kayin",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/kayin/v1/basemap.pmtiles",
+      "bounds": [96.12654599999999, 15.013112, 99.101797, 19.768127999999997],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "magway",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/magway/v1/basemap.pmtiles",
+      "bounds": [93.691125, 18.561752000000002, 96.311002, 23.138230999999998],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "mandalay",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/mandalay/v1/basemap.pmtiles",
+      "bounds": [94.544536, 19.917392000000003, 97.21352300000001, 23.977824],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "mon",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/mon/v1/basemap.pmtiles",
+      "bounds": [96.419399, 14.584259, 98.492677, 18.091414],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "naypyitaw",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/naypyitaw/v1/basemap.pmtiles",
+      "bounds": [95.329933, 19.087565, 96.951924, 20.612372999999998],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "rakhine",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/rakhine/v1/basemap.pmtiles",
+      "bounds": [91.987208, 17.032966000000002, 95.259489, 21.665112999999998],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "sagaing",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/sagaing/v1/basemap.pmtiles",
+      "bounds": [93.658085, 21.31446, 97.15913300000001, 27.44305],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "shan",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/shan/v1/basemap.pmtiles",
+      "bounds": [95.87289399999999, 19.044148, 101.37853600000001, 24.441912],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "tanintharyi",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/tanintharyi/v1/basemap.pmtiles",
+      "bounds": [97.62800299999999, 9.633255, 99.906901, 15.355813],
+      "minZoom": 7,
+      "maxZoom": 20
+    },
+    {
+      "id": "yangon",
+      "version": "v1",
+      "url": "https://tiles.coremapmm.com/basemaps/yangon/v1/basemap.pmtiles",
+      "bounds": [93.07505099999999, 13.831709, 96.96130600000001, 18.023564999999998],
+      "minZoom": 7,
+      "maxZoom": 20
+    }
+  ]
+}

@@ -11,6 +11,7 @@ import {
     TRANSPORT_MODE_OPTIONS,
     TRANSPORT_REVIEW_STATUS_OPTIONS,
 } from "./constants";
+import { hasTransportManualName, normalizeTransportNameInput } from "./naming";
 import type {
     TransportRouteDetail,
     TransportVariantSummary,
@@ -90,7 +91,8 @@ export function TransportRouteEditForm({
     readonly onSaved: (updated: TransportRouteDetail) => void;
 }) {
     const [routeCode, setRouteCode] = useState(route.route_code);
-    const [publicName, setPublicName] = useState(route.public_name);
+    const [nameMm, setNameMm] = useState(route.name_mm ?? "");
+    const [nameEn, setNameEn] = useState(route.name_en ?? "");
     const [mode, setMode] = useState(route.mode);
     const [routeKind, setRouteKind] = useState(route.route_kind);
     const [originName, setOriginName] = useState(route.origin_name ?? "");
@@ -107,14 +109,22 @@ export function TransportRouteEditForm({
         e.preventDefault();
         setError("");
 
-        if (!routeCode.trim() || !publicName.trim() || !routeKind.trim()) {
-            setError("Route code, public name, and route kind are required.");
+        if (!routeCode.trim() || !routeKind.trim()) {
+            setError("Route code and route kind are required.");
+            return;
+        }
+
+        if (!hasTransportManualName(nameMm, nameEn)) {
+            setError("Enter at least one of Myanmar name or English name.");
             return;
         }
 
         const body: UpdateTransportRouteBody = {};
         if (routeCode.trim() !== route.route_code) body.route_code = routeCode.trim();
-        if (publicName.trim() !== route.public_name) body.public_name = publicName.trim();
+        const newMm = normalizeTransportNameInput(nameMm);
+        if (newMm !== route.name_mm) body.name_mm = newMm;
+        const newEn = normalizeTransportNameInput(nameEn);
+        if (newEn !== route.name_en) body.name_en = newEn;
         if (mode !== route.mode) body.mode = mode;
         if (routeKind.trim() !== route.route_kind) body.route_kind = routeKind.trim();
         if (originName.trim() !== (route.origin_name ?? "")) body.origin_name = originName.trim();
@@ -157,9 +167,26 @@ export function TransportRouteEditForm({
             <Field label="Route code">
                 <input className={INPUT_CLASS} value={routeCode} onChange={(e) => setRouteCode(e.target.value)} />
             </Field>
-            <Field label="Public name">
-                <input className={INPUT_CLASS} value={publicName} onChange={(e) => setPublicName(e.target.value)} />
+            <Field label="Myanmar name (name_mm)">
+                <input
+                    className={INPUT_CLASS}
+                    value={nameMm}
+                    placeholder="—"
+                    onChange={(e) => setNameMm(e.target.value)}
+                />
             </Field>
+            <Field label="English name (name_en)">
+                <input
+                    className={INPUT_CLASS}
+                    value={nameEn}
+                    placeholder="—"
+                    onChange={(e) => setNameEn(e.target.value)}
+                />
+            </Field>
+            <p className="text-[11px] text-gray-500">
+                The public display name is derived automatically (Myanmar first, English fallback).
+                Enter at least one.
+            </p>
             <div className="grid grid-cols-2 gap-2">
                 <Field label="Mode">
                     <select className={INPUT_CLASS} value={mode} onChange={(e) => setMode(e.target.value)}>

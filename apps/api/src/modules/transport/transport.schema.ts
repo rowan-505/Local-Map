@@ -81,6 +81,7 @@ export const listTransportStopsQuerySchema = transportListQuerySchema.extend({
     stopType: z.string().trim().min(1).max(50).optional(),
     generatedName: boolFromQuery,
     hasRoutes: boolFromQuery,
+    hasTerminal: boolFromQuery,
     adminAreaId: z.coerce.number().int().min(1).optional(),
     page: z.coerce.number().int().min(1).optional(),
 });
@@ -206,13 +207,21 @@ const confidenceScoreField = z.number().min(0).max(100).optional();
 
 /**
  * PATCH /transport/routes/:publicId body. All fields optional (partial update);
- * `.strict()` rejects unknown keys — notably `source_refs` and `normalized_data`,
- * which are not editable through the normal form. At least one field is required.
+ * `.strict()` rejects unknown keys — notably `source_refs`, `normalized_data`,
+ * and `public_name` (the display cache is DERIVED from name_mm/name_en, never
+ * edited directly). At least one field is required.
+ *
+ * Manual naming policy: editors set `name_mm` / `name_en` only. The repo derives
+ * `routes.public_name` from name_mm (Myanmar first) else name_en, and writes the
+ * `transport.route_names` rows for `language_code` my/en. A merge-aware "at least
+ * one of name_mm/name_en" rule is enforced in the repo against the stored names;
+ * the refine below only catches the obvious "clear both in one request" case.
  */
 export const updateRouteBodySchema = z
     .object({
         route_code: requiredText(50),
-        public_name: requiredText(200),
+        name_mm: nullableText(200),
+        name_en: nullableText(200),
         mode: transportModeEnum.optional(),
         route_kind: requiredText(50),
         origin_name: nullableText(200),
@@ -225,7 +234,17 @@ export const updateRouteBodySchema = z
     .strict()
     .refine((body) => Object.keys(body).length > 0, {
         message: "At least one field must be provided.",
-    });
+    })
+    .refine(
+        (body) =>
+            !(
+                body.name_mm !== undefined &&
+                body.name_en !== undefined &&
+                body.name_mm === null &&
+                body.name_en === null
+            ),
+        { message: "At least one of name_mm or name_en is required." }
+    );
 
 export type UpdateRouteInput = z.infer<typeof updateRouteBodySchema>;
 
@@ -275,8 +294,16 @@ const stopPointField = z
 
 /**
  * PATCH /transport/stops/:publicId body. Partial update; `.strict()` rejects
- * unknown keys — notably `source_refs` / `normalized_data`, which are not editable
- * through the normal form. At least one field is required.
+ * unknown keys — notably the raw `name` cache, `source_refs`, and
+ * `normalized_data`, none of which are edited directly. At least one field is
+ * required.
+ *
+ * Naming is edited via `name_mm` / `name_en` only. The repo writes the
+ * `transport.stop_names` rows (language my/en) as the source of truth, mirrors
+ * them onto the `stops.name_mm` / `stops.name_en` cache columns, and derives the
+ * `stops.name` cache (Myanmar first, English fallback). A merge-aware "at least
+ * one of name_mm/name_en" rule is enforced in the repo; the refine below only
+ * catches the obvious "clear both in one request" case.
  *
  * `admin_area_id` / `parent_stop_id` are nullable internal FKs (numbers). The
  * service validates referential integrity and surfaces a 400 on a bad reference.
@@ -284,7 +311,6 @@ const stopPointField = z
 export const updateStopBodySchema = z
     .object({
         stop_code: nullableText(50),
-        name: requiredText(255),
         name_mm: nullableText(255),
         name_en: nullableText(255),
         mode: transportModeEnum.optional(),
@@ -299,7 +325,17 @@ export const updateStopBodySchema = z
     .strict()
     .refine((body) => Object.keys(body).length > 0, {
         message: "At least one field must be provided.",
-    });
+    })
+    .refine(
+        (body) =>
+            !(
+                body.name_mm !== undefined &&
+                body.name_en !== undefined &&
+                body.name_mm === null &&
+                body.name_en === null
+            ),
+        { message: "At least one of name_mm or name_en is required." }
+    );
 
 export type UpdateStopInput = z.infer<typeof updateStopBodySchema>;
 

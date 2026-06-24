@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 
 import {
     TransportInvalidReferenceError,
+    TransportNameRequiredError,
     TransportNotFoundError,
     TransportSchemaUnavailableError,
 } from "./transport.errors.js";
@@ -12,6 +13,7 @@ import {
     resolvePointAwareAction,
     type TransportAuditContext,
 } from "./transport-audit.js";
+import { getTransportTypeFallbackLabel } from "./transport-naming.js";
 import type {
     ListTransportRoutesQuery,
     ListTransportStopsQuery,
@@ -83,6 +85,9 @@ type RouteListRow = {
     public_id: string;
     route_code: string;
     public_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    display_name: string;
     mode: string;
     route_kind: string;
     origin_name: string | null;
@@ -102,9 +107,13 @@ type StopListRow = {
     name: string;
     name_mm: string | null;
     name_en: string | null;
+    display_name: string;
     mode: string;
     stop_type: string;
     route_count: bigint;
+    has_terminal: boolean;
+    terminal_role: string | null;
+    terminal_code: string | null;
     admin_area_id: bigint | null;
     admin_area_name: string | null;
     review_status: string;
@@ -139,6 +148,17 @@ type StopDetailRow = {
     deleted_at: Date | null;
     source_refs: unknown;
     normalized_data: unknown;
+};
+
+type StopLinkedTerminalRow = {
+    public_id: string;
+    terminal_code: string | null;
+    terminal_role: string;
+    operator_id: bigint | null;
+    operator_name: string | null;
+    review_status: string;
+    confidence_score: number | null;
+    is_active: boolean;
 };
 
 type TerminalDetailRow = {
@@ -434,6 +454,44 @@ function isMissingTransportSchemaError(error: unknown): boolean {
 
 function num(value: bigint | number | null | undefined): number {
     return value === null || value === undefined ? 0 : Number(value);
+}
+
+/**
+ * TEMPORARY dev-only performance instrumentation for Transport list endpoints.
+ *
+ * Disabled by default; enable per-process with `TRANSPORT_PERF_LOG=1`. It is a
+ * no-op (zero overhead, no logging) when the flag is unset, so it is safe to
+ * leave shipped but it MUST NOT be relied on in production. Remove once the
+ * Transport list query optimization work is complete.
+ */
+const TRANSPORT_PERF_LOG = process.env.TRANSPORT_PERF_LOG === "1";
+
+async function perf<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    if (!TRANSPORT_PERF_LOG) {
+        return fn();
+    }
+    const start = performance.now();
+    try {
+        return await fn();
+    } finally {
+        const ms = (performance.now() - start).toFixed(1);
+        // eslint-disable-next-line no-console
+        console.log(`[transport.perf] ${label}: ${ms}ms`);
+    }
+}
+
+function perfSync<T>(label: string, fn: () => T): T {
+    if (!TRANSPORT_PERF_LOG) {
+        return fn();
+    }
+    const start = performance.now();
+    try {
+        return fn();
+    } finally {
+        const ms = (performance.now() - start).toFixed(1);
+        // eslint-disable-next-line no-console
+        console.log(`[transport.perf] ${label}: ${ms}ms`);
+    }
 }
 
 function mapRouteStopRow(row: RouteStopRow): TransportRouteStopItem {
@@ -925,7 +983,8 @@ export class TransportRepository {
               AND (${status}::text IS NULL OR b.status = ${status})
         `;
 
-        const rows = await this.prisma.$queryRaw<ImportBatchRow[]>(Prisma.sql`
+        const rows = await perf("importBatches.list.rowsQuery", () =>
+            this.prisma.$queryRaw<ImportBatchRow[]>(Prisma.sql`
             SELECT
                 b.id,
                 b.public_id::text AS public_id,
@@ -948,11 +1007,14 @@ export class TransportRepository {
             ORDER BY b.started_at DESC, b.id DESC
             LIMIT ${limit}
             OFFSET ${offset}
-        `);
+        `)
+        );
 
-        const countRows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+        const countRows = await perf("importBatches.list.countQuery", () =>
+            this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT count(*)::bigint AS count FROM transport.import_batches b ${where}
-        `);
+        `)
+        );
 
         return {
             items: rows.map((row) => ({
@@ -1004,7 +1066,8 @@ export class TransportRepository {
               )
         `;
 
-        const rows = await this.prisma.$queryRaw<ImportErrorRow[]>(Prisma.sql`
+        const rows = await perf("importErrors.list.rowsQuery", () =>
+            this.prisma.$queryRaw<ImportErrorRow[]>(Prisma.sql`
             SELECT
                 e.id,
                 e.import_batch_id,
@@ -1018,11 +1081,14 @@ export class TransportRepository {
             ORDER BY e.id DESC
             LIMIT ${limit}
             OFFSET ${offset}
-        `);
+        `)
+        );
 
-        const countRows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+        const countRows = await perf("importErrors.list.countQuery", () =>
+            this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT count(*)::bigint AS count FROM transport.import_errors e ${where}
-        `);
+        `)
+        );
 
         return {
             items: rows.map((row) => ({
@@ -1062,7 +1128,8 @@ export class TransportRepository {
               AND (${externalId}::text IS NULL OR s.external_id = ${externalId})
         `;
 
-        const rows = await this.prisma.$queryRaw<SourceLinkRowListItem[]>(Prisma.sql`
+        const rows = await perf("sourceLinks.list.rowsQuery", () =>
+            this.prisma.$queryRaw<SourceLinkRowListItem[]>(Prisma.sql`
             SELECT
                 s.id,
                 s.entity_type,
@@ -1080,11 +1147,14 @@ export class TransportRepository {
             ORDER BY s.id DESC
             LIMIT ${limit}
             OFFSET ${offset}
-        `);
+        `)
+        );
 
-        const countRows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+        const countRows = await perf("sourceLinks.list.countQuery", () =>
+            this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT count(*)::bigint AS count FROM transport.source_links s ${where}
-        `);
+        `)
+        );
 
         return {
             items: rows.map((row) => ({
@@ -1122,11 +1192,20 @@ export class TransportRepository {
         const includeDeleted = query.includeDeleted === true;
         const searchLike = toLikeParam(query.search);
 
-        const rows = await this.prisma.$queryRaw<RouteListRow[]>`
+        const rows = await perf("routes.list.rowsQuery", () =>
+            this.prisma.$queryRaw<RouteListRow[]>`
             SELECT
                 r.public_id::text AS public_id,
                 r.route_code,
                 r.public_name,
+                rn_mm.name AS name_mm,
+                rn_en.name AS name_en,
+                COALESCE(
+                    rn_mm.name,
+                    rn_en.name,
+                    NULLIF(btrim(r.public_name), ''),
+                    r.route_code
+                ) AS display_name,
                 r.mode,
                 r.route_kind,
                 r.origin_name,
@@ -1144,6 +1223,22 @@ export class TransportRepository {
                     WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL)::bigint AS path_count,
                 r.updated_at
             FROM transport.routes r
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM transport.route_names AS n
+                WHERE n.route_id = r.id
+                  AND lower(btrim(coalesce(n.language_code, ''))) = 'my'
+                ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+                LIMIT 1
+            ) AS rn_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM transport.route_names AS n
+                WHERE n.route_id = r.id
+                  AND lower(btrim(coalesce(n.language_code, ''))) = 'en'
+                ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+                LIMIT 1
+            ) AS rn_en ON true
             WHERE (${includeDeleted}::boolean OR r.deleted_at IS NULL)
               AND (${mode}::text IS NULL OR r.mode = ${mode})
               AND (${reviewStatus}::text IS NULL OR r.review_status = ${reviewStatus})
@@ -1181,9 +1276,11 @@ export class TransportRepository {
             ORDER BY r.updated_at DESC, r.id DESC
             LIMIT ${limit}
             OFFSET ${offset}
-        `;
+        `
+        );
 
-        const countRows = await this.prisma.$queryRaw<{ count: bigint }[]>`
+        const countRows = await perf("routes.list.countQuery", () =>
+            this.prisma.$queryRaw<{ count: bigint }[]>`
             SELECT count(*)::bigint AS count
             FROM transport.routes r
             WHERE (${includeDeleted}::boolean OR r.deleted_at IS NULL)
@@ -1220,13 +1317,17 @@ export class TransportRepository {
                     )
                 ) = ${hasPath}
               )
-        `;
+        `
+        );
 
         return {
             items: rows.map((row) => ({
                 public_id: row.public_id,
                 route_code: row.route_code,
                 public_name: row.public_name,
+                name_mm: row.name_mm,
+                name_en: row.name_en,
+                display_name: row.display_name,
                 mode: row.mode,
                 route_kind: row.route_kind,
                 origin_name: row.origin_name,
@@ -1259,6 +1360,7 @@ export class TransportRepository {
         const isActive = query.isActive === undefined ? null : query.isActive;
         const generatedName = query.generatedName === undefined ? null : query.generatedName;
         const hasRoutes = query.hasRoutes === undefined ? null : query.hasRoutes;
+        const hasTerminal = query.hasTerminal === undefined ? null : query.hasTerminal;
         const adminAreaId = query.adminAreaId ?? null;
         const includeDeleted = query.includeDeleted === true;
         const searchLike = toLikeParam(query.search);
@@ -1291,58 +1393,124 @@ export class TransportRepository {
                     )
                 ) = ${hasRoutes}
               )
+              AND (
+                ${hasTerminal}::boolean IS NULL OR (
+                    EXISTS (
+                        SELECT 1 FROM transport.terminals t
+                        WHERE t.linked_stop_id = s.id AND t.deleted_at IS NULL
+                    )
+                ) = ${hasTerminal}
+              )
         `;
 
-        const rows = await this.prisma.$queryRaw<StopListRow[]>(Prisma.sql`
+        // Page-first strategy: filter + sort + paginate the base `stops` table
+        // (selected columns only, no geometry) inside the `page` CTE, then attach
+        // admin-area name, route_count, and terminal info for ONLY the <=limit
+        // page rows. This avoids the previous per-row LATERAL/correlated subqueries
+        // that ran across the whole table before LIMIT was applied.
+        const rows = await perf("stops.list.rowsQuery", () =>
+            this.prisma.$queryRaw<StopListRow[]>(Prisma.sql`
+            WITH page AS (
+                SELECT
+                    s.id,
+                    s.public_id,
+                    s.stop_code,
+                    s.name,
+                    s.name_mm,
+                    s.name_en,
+                    s.mode,
+                    s.stop_type,
+                    s.admin_area_id,
+                    s.review_status,
+                    s.confidence_score,
+                    s.is_active,
+                    s.updated_at
+                FROM transport.stops s
+                ${where}
+                ORDER BY s.updated_at DESC, s.id DESC
+                LIMIT ${limit}
+                OFFSET ${offset}
+            ),
+            route_counts AS (
+                SELECT rs.stop_id, count(DISTINCT v.route_id)::bigint AS route_count
+                FROM transport.route_stops rs
+                JOIN transport.route_variants v
+                    ON v.id = rs.route_variant_id AND v.deleted_at IS NULL
+                WHERE rs.stop_id IN (SELECT id FROM page)
+                GROUP BY rs.stop_id
+            ),
+            terminal_info AS (
+                SELECT DISTINCT ON (t.linked_stop_id)
+                    t.linked_stop_id,
+                    t.terminal_role,
+                    t.terminal_code
+                FROM transport.terminals t
+                WHERE t.deleted_at IS NULL
+                  AND t.linked_stop_id IN (SELECT id FROM page)
+                ORDER BY t.linked_stop_id, t.id ASC
+            )
             SELECT
-                s.public_id::text AS public_id,
-                s.stop_code,
-                s.name,
-                s.name_mm,
-                s.name_en,
-                s.mode,
-                s.stop_type,
-                (SELECT count(DISTINCT v.route_id)
-                    FROM transport.route_stops rs
-                    JOIN transport.route_variants v ON v.id = rs.route_variant_id
-                    WHERE rs.stop_id = s.id AND v.deleted_at IS NULL)::bigint AS route_count,
-                s.admin_area_id,
+                p.public_id::text AS public_id,
+                p.stop_code,
+                p.name,
+                p.name_mm,
+                p.name_en,
+                COALESCE(
+                    NULLIF(btrim(p.name_mm), ''),
+                    NULLIF(btrim(p.name_en), ''),
+                    'Unnamed ' || replace(p.stop_type, '_', ' ')
+                ) AS display_name,
+                p.mode,
+                p.stop_type,
+                COALESCE(rc.route_count, 0)::bigint AS route_count,
+                (ti.linked_stop_id IS NOT NULL) AS has_terminal,
+                ti.terminal_role,
+                ti.terminal_code,
+                p.admin_area_id,
                 aa.canonical_name AS admin_area_name,
-                s.review_status,
-                s.confidence_score::float8 AS confidence_score,
-                s.is_active,
-                s.updated_at
-            FROM transport.stops s
-            LEFT JOIN core.core_admin_areas aa ON aa.id = s.admin_area_id
-            ${where}
-            ORDER BY s.updated_at DESC, s.id DESC
-            LIMIT ${limit}
-            OFFSET ${offset}
-        `);
+                p.review_status,
+                p.confidence_score::float8 AS confidence_score,
+                p.is_active,
+                p.updated_at
+            FROM page p
+            LEFT JOIN core.core_admin_areas aa ON aa.id = p.admin_area_id
+            LEFT JOIN route_counts rc ON rc.stop_id = p.id
+            LEFT JOIN terminal_info ti ON ti.linked_stop_id = p.id
+            ORDER BY p.updated_at DESC, p.id DESC
+        `)
+        );
 
-        const countRows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+        const countRows = await perf("stops.list.countQuery", () =>
+            this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT count(*)::bigint AS count
             FROM transport.stops s
             ${where}
-        `);
+        `)
+        );
 
         return {
-            items: rows.map((row) => ({
+            items: perfSync("stops.list.serialize", () =>
+                rows.map((row) => ({
                 public_id: row.public_id,
                 stop_code: row.stop_code,
                 name: row.name,
                 name_mm: row.name_mm,
                 name_en: row.name_en,
+                display_name: row.display_name,
                 mode: row.mode,
                 stop_type: row.stop_type,
                 route_count: num(row.route_count),
+                has_terminal: row.has_terminal === true,
+                terminal_role: row.terminal_role,
+                terminal_code: row.terminal_code,
                 admin_area_id: row.admin_area_id === null ? null : Number(row.admin_area_id),
                 admin_area_name: row.admin_area_name,
                 review_status: row.review_status,
                 confidence_score: row.confidence_score,
                 is_active: row.is_active,
                 updated_at: row.updated_at.toISOString(),
-            })),
+                }))
+            ),
             total: num(countRows[0]?.count),
             limit,
             offset,
@@ -1500,7 +1668,8 @@ export class TransportRepository {
               )
         `;
 
-        const rows = await this.prisma.$queryRaw<InfrastructureLineListRow[]>(Prisma.sql`
+        const rows = await perf("infrastructureLines.list.rowsQuery", () =>
+            this.prisma.$queryRaw<InfrastructureLineListRow[]>(Prisma.sql`
             SELECT
                 l.public_id::text AS public_id,
                 l.name,
@@ -1525,13 +1694,16 @@ export class TransportRepository {
             ORDER BY l.updated_at DESC, l.id DESC
             LIMIT ${limit}
             OFFSET ${offset}
-        `);
+        `)
+        );
 
-        const countRows = await this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+        const countRows = await perf("infrastructureLines.list.countQuery", () =>
+            this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
             SELECT count(*)::bigint AS count
             FROM transport.infrastructure_lines l
             ${where}
-        `);
+        `)
+        );
 
         return {
             items: rows.map((row) => ({
@@ -1741,8 +1913,8 @@ export class TransportRepository {
                 s.public_id::text AS public_id,
                 s.stop_code,
                 s.name,
-                s.name_mm,
-                s.name_en,
+                COALESCE(sn_mm.name, s.name_mm) AS name_mm,
+                COALESCE(sn_en.name, s.name_en) AS name_en,
                 s.mode,
                 s.stop_type,
                 s.admin_area_id,
@@ -1768,6 +1940,22 @@ export class TransportRepository {
             FROM transport.stops s
             LEFT JOIN core.core_admin_areas aa ON aa.id = s.admin_area_id
             LEFT JOIN transport.stops ps ON ps.id = s.parent_stop_id
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM transport.stop_names AS n
+                WHERE n.stop_id = s.id
+                  AND lower(btrim(coalesce(n.language_code, ''))) = 'my'
+                ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+                LIMIT 1
+            ) AS sn_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM transport.stop_names AS n
+                WHERE n.stop_id = s.id
+                  AND lower(btrim(coalesce(n.language_code, ''))) = 'en'
+                ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+                LIMIT 1
+            ) AS sn_en ON true
             WHERE s.public_id = ${publicId}::uuid
             LIMIT 1
         `;
@@ -1785,12 +1973,42 @@ export class TransportRepository {
             LIMIT 50
         `;
 
+        // Linked terminal summary (1:1 via terminals.linked_stop_id). No name/geometry —
+        // the stop owns display name + location.
+        const terminalRows = await this.prisma.$queryRaw<StopLinkedTerminalRow[]>`
+            SELECT
+                t.public_id::text AS public_id,
+                t.terminal_code,
+                t.terminal_role,
+                t.operator_id,
+                o.name AS operator_name,
+                t.review_status,
+                t.confidence_score::float8 AS confidence_score,
+                t.is_active
+            FROM transport.terminals t
+            LEFT JOIN transport.operators o ON o.id = t.operator_id
+            WHERE t.linked_stop_id = ${row.id} AND t.deleted_at IS NULL
+            ORDER BY t.id ASC
+            LIMIT 1
+        `;
+        const terminalRow = terminalRows[0];
+
+        const trimToNull = (value: string | null): string | null => {
+            if (value === null) return null;
+            const trimmed = value.trim();
+            return trimmed === "" ? null : trimmed;
+        };
+        const stopNameMm = trimToNull(row.name_mm);
+        const stopNameEn = trimToNull(row.name_en);
+
         return {
             public_id: row.public_id,
             stop_code: row.stop_code,
             name: row.name,
-            name_mm: row.name_mm,
-            name_en: row.name_en,
+            name_mm: stopNameMm,
+            name_en: stopNameEn,
+            display_name:
+                stopNameMm ?? stopNameEn ?? getTransportTypeFallbackLabel(row.stop_type),
             mode: row.mode,
             stop_type: row.stop_type,
             admin_area_id: row.admin_area_id === null ? null : Number(row.admin_area_id),
@@ -1810,6 +2028,27 @@ export class TransportRepository {
             latitude: row.latitude,
             geometry: asGeometry(row.geometry),
             route_count: num(row.route_count),
+            linked_terminal: terminalRow
+                ? {
+                      public_id: terminalRow.public_id,
+                      terminal_code: terminalRow.terminal_code,
+                      terminal_role: terminalRow.terminal_role,
+                      operator_id:
+                          terminalRow.operator_id === null
+                              ? null
+                              : Number(terminalRow.operator_id),
+                      operator:
+                          terminalRow.operator_id === null
+                              ? null
+                              : {
+                                    id: Number(terminalRow.operator_id),
+                                    name: terminalRow.operator_name ?? "",
+                                },
+                      review_status: terminalRow.review_status,
+                      confidence_score: terminalRow.confidence_score,
+                      is_active: terminalRow.is_active,
+                  }
+                : null,
             created_at: row.created_at.toISOString(),
             updated_at: row.updated_at.toISOString(),
             deleted_at: row.deleted_at ? row.deleted_at.toISOString() : null,
@@ -1932,9 +2171,6 @@ export class TransportRepository {
 
         const sets: Prisma.Sql[] = [];
         if (input.stop_code !== undefined) sets.push(Prisma.sql`stop_code = ${input.stop_code}`);
-        if (input.name !== undefined) sets.push(Prisma.sql`name = ${input.name}`);
-        if (input.name_mm !== undefined) sets.push(Prisma.sql`name_mm = ${input.name_mm}`);
-        if (input.name_en !== undefined) sets.push(Prisma.sql`name_en = ${input.name_en}`);
         if (input.mode !== undefined) sets.push(Prisma.sql`mode = ${input.mode}`);
         if (input.stop_type !== undefined) sets.push(Prisma.sql`stop_type = ${input.stop_type}`);
         if (input.admin_area_id !== undefined)
@@ -1951,7 +2187,9 @@ export class TransportRepository {
                 Prisma.sql`geom = ST_SetSRID(ST_MakePoint(${input.point.longitude}, ${input.point.latitude}), 4326)`
             );
 
-        if (sets.length === 0) {
+        const editingNames = input.name_mm !== undefined || input.name_en !== undefined;
+
+        if (sets.length === 0 && !editingNames) {
             return this.getStopByPublicId(publicId);
         }
 
@@ -1970,14 +2208,70 @@ export class TransportRepository {
                 throw new TransportNotFoundError("stop", publicId);
             }
 
-            await tx.$executeRaw(Prisma.sql`
-                UPDATE transport.stops
-                SET ${Prisma.join([...sets, Prisma.sql`updated_at = now()`], ", ")}
-                WHERE public_id = ${publicId}::uuid AND deleted_at IS NULL
-            `);
+            // Localized-name edits (transport.stop_names = source of truth) +
+            // derived stops.name_mm / stops.name_en / stops.name cache columns.
+            let derivedName: string | null = null;
+            let effectiveMm: string | null = null;
+            let effectiveEn: string | null = null;
 
+            if (editingNames) {
+                const existingNames = await tx.$queryRaw<
+                    { language_code: string; name: string }[]
+                >`
+                    SELECT lower(btrim(coalesce(language_code, ''))) AS language_code, name
+                    FROM transport.stop_names
+                    WHERE stop_id = ${before.id}
+                      AND lower(btrim(coalesce(language_code, ''))) IN ('my', 'en')
+                    ORDER BY is_primary DESC, search_weight DESC, id ASC
+                `;
+                const existingMm =
+                    existingNames.find((n) => n.language_code === "my")?.name ??
+                    before.name_mm ??
+                    null;
+                const existingEn =
+                    existingNames.find((n) => n.language_code === "en")?.name ??
+                    before.name_en ??
+                    null;
+
+                effectiveMm = input.name_mm !== undefined ? input.name_mm : existingMm;
+                effectiveEn = input.name_en !== undefined ? input.name_en : existingEn;
+                if (effectiveMm === null && effectiveEn === null) {
+                    throw new TransportNameRequiredError();
+                }
+
+                if (input.name_mm !== undefined && input.name_mm !== existingMm) {
+                    await this.upsertLocalizedStopName(tx, before.id, "my", input.name_mm);
+                }
+                if (input.name_en !== undefined && input.name_en !== existingEn) {
+                    await this.upsertLocalizedStopName(tx, before.id, "en", input.name_en);
+                }
+
+                derivedName = effectiveMm ?? effectiveEn;
+                sets.push(Prisma.sql`name_mm = ${effectiveMm}`);
+                sets.push(Prisma.sql`name_en = ${effectiveEn}`);
+                sets.push(Prisma.sql`name = ${derivedName}`);
+            }
+
+            if (sets.length > 0) {
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE transport.stops
+                    SET ${Prisma.join([...sets, Prisma.sql`updated_at = now()`], ", ")}
+                    WHERE public_id = ${publicId}::uuid AND deleted_at IS NULL
+                `);
+            }
+
+            // Audit: scalar fields (incl. name_mm/name_en from input) + point +
+            // the derived `name` cache (input never carries `name`).
             const diff = diffScalarFields(before, input, STOP_AUDIT_FIELDS);
             appendPointDiff(diff, { lat: before.point_lat, lng: before.point_lng }, input.point);
+            if (editingNames) {
+                const prevName = before.name ?? null;
+                if (prevName !== derivedName) {
+                    diff.changedFields.push("name");
+                    diff.oldValues.name = prevName;
+                    diff.newValues.name = derivedName;
+                }
+            }
             if (diff.changedFields.length > 0) {
                 await insertTransportAuditLog(tx, {
                     action: resolvePointAwareAction(
@@ -1995,9 +2289,201 @@ export class TransportRepository {
                     context: audit,
                 });
             }
+
+            // Keep terminal-linked display fields (name/name_mm/name_en/mode/geom) in
+            // sync with the owning stop. Terminal-specific metadata (code, role,
+            // operator, review, confidence, active) and source_refs/normalized_data
+            // are never touched here. Direct SQL only (no terminal→stop write-back),
+            // so there is no update loop.
+            const syncName = editingNames;
+            const syncMode = input.mode !== undefined;
+            const syncPoint = input.point !== undefined;
+            if (syncName || syncMode || syncPoint) {
+                await this.syncLinkedTerminalsFromStop(tx, {
+                    stopId: before.id,
+                    stopPublicId: publicId,
+                    name: syncName ? derivedName : undefined,
+                    nameMm: syncName ? effectiveMm : undefined,
+                    nameEn: syncName ? effectiveEn : undefined,
+                    mode: syncMode ? (input.mode as string) : undefined,
+                    point: syncPoint ? input.point : undefined,
+                    audit,
+                });
+            }
         });
 
         return this.getStopByPublicId(publicId);
+    }
+
+    /**
+     * Mirrors a stop's display fields onto every terminal linked to it
+     * (`terminals.linked_stop_id = stopId`, soft-deletes excluded). Only the
+     * provided display fields are written; terminal-specific metadata,
+     * `source_refs`, and `normalized_data` are left untouched. Runs inside the
+     * caller's transaction. Each terminal whose values actually change is updated
+     * once (no loop back to the stop) and gets a `transport.terminal.sync_from_stop`
+     * audit row referencing the source stop.
+     */
+    private async syncLinkedTerminalsFromStop(
+        tx: Prisma.TransactionClient,
+        params: {
+            stopId: bigint;
+            stopPublicId: string;
+            name?: string | null;
+            nameMm?: string | null;
+            nameEn?: string | null;
+            mode?: string;
+            point?: { longitude: number; latitude: number };
+            audit?: TransportAuditContext;
+        }
+    ): Promise<void> {
+        const { stopId, stopPublicId, name, nameMm, nameEn, mode, point, audit } = params;
+
+        const terminals = await tx.$queryRaw<
+            {
+                id: bigint;
+                public_id: string;
+                name: string;
+                name_mm: string | null;
+                name_en: string | null;
+                mode: string;
+                point_lng: number | null;
+                point_lat: number | null;
+            }[]
+        >`
+            SELECT id, public_id::text AS public_id, name, name_mm, name_en, mode,
+                   ST_X(geom)::float8 AS point_lng, ST_Y(geom)::float8 AS point_lat
+            FROM transport.terminals
+            WHERE linked_stop_id = ${stopId} AND deleted_at IS NULL
+            FOR UPDATE
+        `;
+        if (terminals.length === 0) {
+            return;
+        }
+
+        for (const term of terminals) {
+            const sets: Prisma.Sql[] = [];
+            const changedFields: string[] = [];
+            const oldValues: Record<string, unknown> = {};
+            const newValues: Record<string, unknown> = {};
+
+            if (name !== undefined && (term.name ?? null) !== name) {
+                sets.push(Prisma.sql`name = ${name}`);
+                changedFields.push("name");
+                oldValues.name = term.name ?? null;
+                newValues.name = name;
+            }
+            if (nameMm !== undefined && (term.name_mm ?? null) !== nameMm) {
+                sets.push(Prisma.sql`name_mm = ${nameMm}`);
+                changedFields.push("name_mm");
+                oldValues.name_mm = term.name_mm ?? null;
+                newValues.name_mm = nameMm;
+            }
+            if (nameEn !== undefined && (term.name_en ?? null) !== nameEn) {
+                sets.push(Prisma.sql`name_en = ${nameEn}`);
+                changedFields.push("name_en");
+                oldValues.name_en = term.name_en ?? null;
+                newValues.name_en = nameEn;
+            }
+            if (mode !== undefined && term.mode !== mode) {
+                sets.push(Prisma.sql`mode = ${mode}`);
+                changedFields.push("mode");
+                oldValues.mode = term.mode;
+                newValues.mode = mode;
+            }
+            if (point !== undefined) {
+                const moved =
+                    term.point_lng === null ||
+                    term.point_lat === null ||
+                    Math.abs(point.longitude - term.point_lng) > 1e-9 ||
+                    Math.abs(point.latitude - term.point_lat) > 1e-9;
+                if (moved) {
+                    sets.push(
+                        Prisma.sql`geom = ST_SetSRID(ST_MakePoint(${point.longitude}, ${point.latitude}), 4326)`
+                    );
+                    changedFields.push("point");
+                    oldValues.point = { lng: term.point_lng, lat: term.point_lat };
+                    newValues.point = { lng: point.longitude, lat: point.latitude };
+                }
+            }
+
+            if (sets.length === 0) {
+                continue;
+            }
+
+            await tx.$executeRaw(Prisma.sql`
+                UPDATE transport.terminals
+                SET ${Prisma.join([...sets, Prisma.sql`updated_at = now()`], ", ")}
+                WHERE id = ${term.id} AND deleted_at IS NULL
+            `);
+
+            await insertTransportAuditLog(tx, {
+                action: "transport.terminal.sync_from_stop",
+                entityType: "transport_terminal",
+                entityId: term.id,
+                entityPublicId: term.public_id,
+                changedFields,
+                oldValues,
+                newValues,
+                metadata: { synced_from_stop_public_id: stopPublicId },
+                context: audit,
+            });
+        }
+    }
+
+    /**
+     * Upsert one localized stop name (language my/en) in `transport.stop_names`,
+     * the source of truth. With no unique `(stop_id, language_code)` constraint,
+     * this updates the first existing row for the language and deletes any
+     * duplicates; a `null` value deletes all rows for that language. `und` /
+     * other languages are never touched.
+     */
+    private async upsertLocalizedStopName(
+        tx: Prisma.TransactionClient,
+        stopId: bigint,
+        languageCode: "my" | "en",
+        value: string | null
+    ): Promise<void> {
+        const existing = await tx.$queryRaw<{ id: bigint }[]>`
+            SELECT id
+            FROM transport.stop_names
+            WHERE stop_id = ${stopId}
+              AND lower(btrim(coalesce(language_code, ''))) = ${languageCode}
+            ORDER BY is_primary DESC, search_weight DESC, id ASC
+        `;
+
+        if (value === null) {
+            if (existing.length > 0) {
+                await tx.$executeRaw`
+                    DELETE FROM transport.stop_names
+                    WHERE stop_id = ${stopId}
+                      AND lower(btrim(coalesce(language_code, ''))) = ${languageCode}
+                `;
+            }
+            return;
+        }
+
+        const [first, ...rest] = existing;
+        if (first) {
+            await tx.$executeRaw`
+                UPDATE transport.stop_names
+                SET name = ${value}, language_code = ${languageCode}, is_primary = true,
+                    updated_at = now()
+                WHERE id = ${first.id}
+            `;
+            if (rest.length > 0) {
+                await tx.$executeRaw(Prisma.sql`
+                    DELETE FROM transport.stop_names
+                    WHERE id IN (${Prisma.join(rest.map((r) => r.id))})
+                `);
+            }
+        } else {
+            await tx.$executeRaw`
+                INSERT INTO transport.stop_names
+                    (stop_id, name, language_code, name_type, is_primary, search_weight)
+                VALUES (${stopId}, ${value}, ${languageCode}, 'primary', true, 100)
+            `;
+        }
     }
 
     async getTerminalByPublicId(publicId: string): Promise<TransportTerminalDetail> {
@@ -2294,10 +2780,22 @@ export class TransportRepository {
             `,
         ]);
 
+        const pickLocalizedName = (lang: "my" | "en"): string | null =>
+            nameRows.find((n) => (n.language_code ?? "").trim().toLowerCase() === lang)?.name ??
+            null;
+        const nameMm = pickLocalizedName("my");
+        const nameEn = pickLocalizedName("en");
+        const publicNameFallback =
+            row.public_name && row.public_name.trim() !== "" ? row.public_name : row.route_code;
+        const displayName = nameMm ?? nameEn ?? publicNameFallback;
+
         return {
             public_id: row.public_id,
             route_code: row.route_code,
             public_name: row.public_name,
+            name_mm: nameMm,
+            name_en: nameEn,
+            display_name: displayName,
             mode: row.mode,
             route_kind: row.route_kind,
             origin_name: row.origin_name,
@@ -2485,10 +2983,72 @@ export class TransportRepository {
     }
 
     /**
-     * Partial update of an active route's editable metadata. Only provided keys are
-     * written; `source_refs` / `normalized_data` are never touched here. Returns the
-     * refreshed route detail. Throws {@link TransportNotFoundError} when the route is
-     * missing or soft-deleted.
+     * Upserts a single localized route name row (`language_code` my/en) as the
+     * editable source of truth. There is no unique constraint on
+     * `(route_id, language_code)` yet, so this updates the FIRST existing row for
+     * that language and removes any duplicates (never creates a second row); a
+     * `null` value clears the localized name. `und` rows are never touched.
+     */
+    private async upsertLocalizedRouteName(
+        tx: Prisma.TransactionClient,
+        routeId: bigint,
+        languageCode: "my" | "en",
+        value: string | null
+    ): Promise<void> {
+        const existing = await tx.$queryRaw<{ id: bigint }[]>`
+            SELECT id
+            FROM transport.route_names
+            WHERE route_id = ${routeId}
+              AND lower(btrim(coalesce(language_code, ''))) = ${languageCode}
+            ORDER BY is_primary DESC, search_weight DESC, id ASC
+        `;
+
+        if (value === null) {
+            if (existing.length > 0) {
+                await tx.$executeRaw`
+                    DELETE FROM transport.route_names
+                    WHERE route_id = ${routeId}
+                      AND lower(btrim(coalesce(language_code, ''))) = ${languageCode}
+                `;
+            }
+            return;
+        }
+
+        const [first, ...rest] = existing;
+        if (first) {
+            await tx.$executeRaw`
+                UPDATE transport.route_names
+                SET name = ${value}, language_code = ${languageCode}, is_primary = true,
+                    updated_at = now()
+                WHERE id = ${first.id}
+            `;
+            if (rest.length > 0) {
+                await tx.$executeRaw(Prisma.sql`
+                    DELETE FROM transport.route_names
+                    WHERE id IN (${Prisma.join(rest.map((r) => r.id))})
+                `);
+            }
+        } else {
+            await tx.$executeRaw`
+                INSERT INTO transport.route_names
+                    (route_id, name, language_code, name_type, is_primary, search_weight)
+                VALUES (${routeId}, ${value}, ${languageCode}, 'primary', true, 100)
+            `;
+        }
+    }
+
+    /**
+     * Partial update of an active route's editable metadata.
+     *
+     * Naming is edited via `name_mm` / `name_en` only; the repo writes the
+     * `transport.route_names` rows (language my/en) as the source of truth and
+     * derives the `routes.public_name` cache (Myanmar first, English fallback).
+     * `public_name` is never accepted as direct input. A merge-aware rule
+     * enforces that at least one of name_mm/name_en remains after the edit.
+     * `und` names, `source_refs`, and `normalized_data` are never touched.
+     * Returns the refreshed route detail. Throws {@link TransportNotFoundError}
+     * when the route is missing/soft-deleted, or {@link TransportNameRequiredError}
+     * when an edit would clear both localized names.
      */
     async updateRouteByPublicId(
         publicId: string,
@@ -2499,8 +3059,6 @@ export class TransportRepository {
 
         const sets: Prisma.Sql[] = [];
         if (input.route_code !== undefined) sets.push(Prisma.sql`route_code = ${input.route_code}`);
-        if (input.public_name !== undefined)
-            sets.push(Prisma.sql`public_name = ${input.public_name}`);
         if (input.mode !== undefined) sets.push(Prisma.sql`mode = ${input.mode}`);
         if (input.route_kind !== undefined) sets.push(Prisma.sql`route_kind = ${input.route_kind}`);
         if (input.origin_name !== undefined)
@@ -2515,7 +3073,9 @@ export class TransportRepository {
             sets.push(Prisma.sql`confidence_score = ${input.confidence_score}`);
         if (input.is_active !== undefined) sets.push(Prisma.sql`is_active = ${input.is_active}`);
 
-        if (sets.length === 0) {
+        const editingNames = input.name_mm !== undefined || input.name_en !== undefined;
+
+        if (sets.length === 0 && !editingNames) {
             return this.getRouteByPublicId(publicId);
         }
 
@@ -2533,13 +3093,74 @@ export class TransportRepository {
                 throw new TransportNotFoundError("route", publicId);
             }
 
-            await tx.$executeRaw(Prisma.sql`
-                UPDATE transport.routes
-                SET ${Prisma.join([...sets, Prisma.sql`updated_at = now()`], ", ")}
-                WHERE public_id = ${publicId}::uuid AND deleted_at IS NULL
-            `);
+            // Localized-name edits (source of truth) + derived public_name cache.
+            const nameChangedFields: string[] = [];
+            const nameOldValues: Record<string, unknown> = {};
+            const nameNewValues: Record<string, unknown> = {};
+            let derivedPublicName: string | null = null;
 
+            if (editingNames) {
+                const existingNames = await tx.$queryRaw<
+                    { language_code: string; name: string }[]
+                >`
+                    SELECT lower(btrim(coalesce(language_code, ''))) AS language_code, name
+                    FROM transport.route_names
+                    WHERE route_id = ${before.id}
+                      AND lower(btrim(coalesce(language_code, ''))) IN ('my', 'en')
+                    ORDER BY is_primary DESC, search_weight DESC, id ASC
+                `;
+                const existingMm =
+                    existingNames.find((n) => n.language_code === "my")?.name ?? null;
+                const existingEn =
+                    existingNames.find((n) => n.language_code === "en")?.name ?? null;
+
+                const effectiveMm = input.name_mm !== undefined ? input.name_mm : existingMm;
+                const effectiveEn = input.name_en !== undefined ? input.name_en : existingEn;
+                if (effectiveMm === null && effectiveEn === null) {
+                    throw new TransportNameRequiredError();
+                }
+
+                if (input.name_mm !== undefined && input.name_mm !== existingMm) {
+                    await this.upsertLocalizedRouteName(tx, before.id, "my", input.name_mm);
+                    nameChangedFields.push("name_mm");
+                    nameOldValues.name_mm = existingMm;
+                    nameNewValues.name_mm = input.name_mm;
+                }
+                if (input.name_en !== undefined && input.name_en !== existingEn) {
+                    await this.upsertLocalizedRouteName(tx, before.id, "en", input.name_en);
+                    nameChangedFields.push("name_en");
+                    nameOldValues.name_en = existingEn;
+                    nameNewValues.name_en = input.name_en;
+                }
+
+                derivedPublicName = effectiveMm ?? effectiveEn;
+                sets.push(Prisma.sql`public_name = ${derivedPublicName}`);
+            }
+
+            if (sets.length > 0) {
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE transport.routes
+                    SET ${Prisma.join([...sets, Prisma.sql`updated_at = now()`], ", ")}
+                    WHERE public_id = ${publicId}::uuid AND deleted_at IS NULL
+                `);
+            }
+
+            // Audit: scalar fields (input has no public_name) + derived public_name + names.
             const diff = diffScalarFields(before, input, ROUTE_AUDIT_FIELDS);
+            if (editingNames) {
+                const prevPublicName = before.public_name ?? null;
+                if (prevPublicName !== derivedPublicName) {
+                    diff.changedFields.push("public_name");
+                    diff.oldValues.public_name = prevPublicName;
+                    diff.newValues.public_name = derivedPublicName;
+                }
+                for (const field of nameChangedFields) {
+                    diff.changedFields.push(field);
+                    diff.oldValues[field] = nameOldValues[field];
+                    diff.newValues[field] = nameNewValues[field];
+                }
+            }
+
             if (diff.changedFields.length > 0) {
                 await insertTransportAuditLog(tx, {
                     action: "transport.route.update",

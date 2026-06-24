@@ -1,17 +1,20 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
 import { getTransportRoutes } from "./api";
+import { transportListRootKey, useTransportListQuery } from "./transportListQuery";
 import {
     TRANSPORT_MODE_OPTIONS,
     TRANSPORT_REVIEW_STATUS_OPTIONS,
     transportModeLabel,
     transportReviewStatusLabel,
 } from "./constants";
+import TransportDetailDrawer from "./TransportDetailDrawer";
+import TransportRouteDetailContent from "./TransportRouteDetailContent";
 import type { TransportRouteListItem } from "./types";
 
 const PAGE_SIZE = 50;
@@ -92,16 +95,52 @@ function TriSelect({
 export default function TransportRoutesPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const filters = useMemo(
-        () => readFilters(new URLSearchParams(searchParams.toString())),
-        [searchParams]
+
+    // Drawer state lives in the `route` query param. It is kept out of the
+    // filter key so opening/closing the drawer never re-runs the list query.
+    const filtersKey = useMemo(() => {
+        const sp = new URLSearchParams(searchParams.toString());
+        sp.delete("route");
+        return sp.toString();
+    }, [searchParams]);
+    const filters = useMemo(() => readFilters(new URLSearchParams(filtersKey)), [filtersKey]);
+    const routePublicId = searchParams.get("route");
+
+    const queryClient = useQueryClient();
+    const [searchInput, setSearchInput] = useState(filters.search);
+
+    // Map URL filters -> API params. This object is BOTH the request payload and
+    // the cache key, so equivalent filters/pages reuse the same cached response.
+    const apiQuery = useMemo(
+        () => ({
+            search: filters.search || undefined,
+            mode: filters.mode || undefined,
+            reviewStatus: filters.reviewStatus || undefined,
+            hasStops: filters.hasStops === "" ? undefined : filters.hasStops === "true",
+            hasPath: filters.hasPath === "" ? undefined : filters.hasPath === "true",
+            isActive: filters.isActive === "" ? undefined : filters.isActive === "true",
+            limit: PAGE_SIZE,
+            page: filters.page,
+        }),
+        [filters]
     );
 
-    const [searchInput, setSearchInput] = useState(filters.search);
-    const [items, setItems] = useState<readonly TransportRouteListItem[]>([]);
-    const [total, setTotal] = useState(0);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
+    const { data, isPending, isFetching, isError, error: queryError } =
+        useTransportListQuery<TransportRouteListItem>({
+            resource: "routes",
+            params: apiQuery,
+            queryFn: (signal) => getTransportRoutes(apiQuery, { signal }),
+        });
+
+    const items = data?.items ?? [];
+    const total = data?.total ?? 0;
+    // Skeleton only on the very first load; keepPreviousData keeps rows during refetch.
+    const loading = isPending;
+    const error = isError
+        ? queryError instanceof Error
+            ? queryError.message
+            : "Failed to load routes."
+        : "";
 
     useEffect(() => {
         setSearchInput(filters.search);
@@ -120,49 +159,48 @@ export default function TransportRoutesPage() {
         [filters, router]
     );
 
-    const load = useCallback(
-        async (signal: AbortSignal) => {
-            setLoading(true);
-            setError("");
-            try {
-                const result = await getTransportRoutes(
-                    {
-                        search: filters.search || undefined,
-                        mode: filters.mode || undefined,
-                        reviewStatus: filters.reviewStatus || undefined,
-                        hasStops: filters.hasStops === "" ? undefined : filters.hasStops === "true",
-                        hasPath: filters.hasPath === "" ? undefined : filters.hasPath === "true",
-                        isActive: filters.isActive === "" ? undefined : filters.isActive === "true",
-                        limit: PAGE_SIZE,
-                        page: filters.page,
-                    },
-                    { signal }
-                );
-                setItems(result.items);
-                setTotal(result.total);
-            } catch (err) {
-                if (isAbortError(err)) return;
-                setError(err instanceof Error ? err.message : "Failed to load routes.");
-            } finally {
-                setLoading(false);
-            }
-        },
-        [filters]
-    );
-
-    useEffect(() => {
-        const controller = new AbortController();
-        void load(controller.signal);
-        return () => controller.abort();
-    }, [load]);
+    // After a save in the drawer, refetch the current routes query in the
+    // background. keepPreviousData keeps rows visible and the URL is unchanged,
+    // so filters/page/scroll are preserved.
+    const reloadCurrentPage = useCallback(() => {
+        void queryClient.invalidateQueries({ queryKey: transportListRootKey("routes") });
+    }, [queryClient]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const rangeStart = total === 0 ? 0 : (filters.page - 1) * PAGE_SIZE + 1;
     const rangeEnd = Math.min(filters.page * PAGE_SIZE, total);
 
-    const openRoute = (publicId: string) => {
-        router.push(transportPath(`routes/${publicId}`));
-    };
+    // Open the drawer by pushing `?route=<publicId>` (filters preserved). Using
+    // push (not navigation to the detail route) keeps the list mounted and lets
+    // the browser Back button close the drawer.
+    const openRoute = useCallback(
+        (publicId: string) => {
+            const sp = new URLSearchParams(searchParams.toString());
+            sp.set("route", publicId);
+            // scroll: false keeps the list scroll position when the drawer opens.
+            router.push(`${transportPath("routes")}?${sp.toString()}`, { scroll: false });
+        },
+        [router, searchParams]
+    );
+
+    // Close the drawer by removing only the `route` param (filters preserved).
+    const closeRoute = useCallback(() => {
+        const sp = new URLSearchParams(searchParams.toString());
+        sp.delete("route");
+        const qs = sp.toString();
+        router.replace(qs ? `${transportPath("routes")}?${qs}` : transportPath("routes"), {
+            scroll: false,
+        });
+    }, [router, searchParams]);
+
+    const selectedRow = useMemo(
+        () => items.find((r) => r.public_id === routePublicId) ?? null,
+        [items, routePublicId]
+    );
+
+    const drawerTitle = selectedRow
+        ? [selectedRow.route_code, selectedRow.public_name].filter(Boolean).join(" · ")
+        : "Route detail";
 
     return (
         <main className="p-6">
@@ -371,7 +409,7 @@ export default function TransportRoutesPage() {
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
-                            disabled={loading || filters.page <= 1}
+                            disabled={isFetching || filters.page <= 1}
                             onClick={() => applyFilters({ page: filters.page - 1 }, false)}
                             className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -382,7 +420,7 @@ export default function TransportRoutesPage() {
                         </span>
                         <button
                             type="button"
-                            disabled={loading || filters.page >= totalPages}
+                            disabled={isFetching || filters.page >= totalPages}
                             onClick={() => applyFilters({ page: filters.page + 1 }, false)}
                             className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -391,6 +429,40 @@ export default function TransportRoutesPage() {
                     </div>
                 </div>
             </div>
+
+            <TransportDetailDrawer
+                open={Boolean(routePublicId)}
+                title={drawerTitle}
+                meta={
+                    selectedRow ? (
+                        <>
+                            <span>
+                                {transportModeLabel(selectedRow.mode)} · {selectedRow.route_kind}
+                            </span>
+                            <span>{transportReviewStatusLabel(selectedRow.review_status)}</span>
+                            {selectedRow.is_active ? (
+                                <span className="text-emerald-700">Active</span>
+                            ) : (
+                                <span className="text-gray-400">Inactive</span>
+                            )}
+                        </>
+                    ) : undefined
+                }
+                onClose={closeRoute}
+            >
+                {routePublicId ? (
+                    <div className="p-5">
+                        <div className="space-y-4">
+                            <TransportRouteDetailContent
+                                key={routePublicId}
+                                publicId={routePublicId}
+                                hideHeader
+                                afterSave={reloadCurrentPage}
+                            />
+                        </div>
+                    </div>
+                ) : null}
+            </TransportDetailDrawer>
         </main>
     );
 }

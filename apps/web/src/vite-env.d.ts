@@ -24,6 +24,8 @@ interface ImportMetaEnv {
   readonly VITE_BASEMAP_CURRENT_JSON_URL?: string;
   /** Optional direct `.pmtiles` HTTP(S) URL — when set, skips fetching `current.json`. */
   readonly VITE_BASEMAP_PMTILES_URL?: string;
+  /** Optional basemap manifest URL (defaults to `/basemaps/manifest.json`). */
+  readonly VITE_BASEMAP_MANIFEST_URL?: string;
   /**
    * Basemap mode: `overview` loads overview PMTiles style (see docs/tiles/pmtiles/overview-local-dev.md).
    * Unset or any other value keeps the regional Yangon basemap.

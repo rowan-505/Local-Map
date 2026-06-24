@@ -58,6 +58,10 @@ import {
   getWebImageryAttributionHtml,
   snapshotMapCamera,
 } from '../lib/maplibre/webBasemapMode';
+import {
+  startRegionalPmtilesLoader,
+  type RegionalPmtilesLoaderHandle,
+} from '@/lib/basemaps/regionLoader';
 const KYAUKTAN_CENTER: [number, number] = [96.3168, 16.6590];
 const KYAUKTAN_CENTER_ZOOM = 14.5;
 
@@ -294,6 +298,36 @@ function MapViewInner({
     const map = mapRef.current;
     if (!map) return;
     return bindTransportDebugPopups(map);
+  }, [mapReady]);
+
+  /**
+   * Dynamic regional PMTiles: load only the regions visible in the viewport at z>=7,
+   * unload them when out of view. Overlays are re-stacked on top after each change.
+   */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    let cancelled = false;
+    let handle: RegionalPmtilesLoaderHandle | null = null;
+
+    void startRegionalPmtilesLoader(map, () => applyMapOverlayStackOrder(map))
+      .then((started) => {
+        if (cancelled) {
+          started.destroy();
+          return;
+        }
+        handle = started;
+      })
+      .catch((err) => {
+        if (import.meta.env.DEV) console.warn('[regions] loader failed to start:', err);
+      });
+
+    return () => {
+      cancelled = true;
+      handle?.destroy();
+    };
   }, [mapReady]);
 
   /** Keep latest POI GeoJSON in sync when `pois` changes after the map exists. */

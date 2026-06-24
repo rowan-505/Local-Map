@@ -31,9 +31,13 @@ export type TransportStopListItem = {
     name: string;
     name_mm: string | null;
     name_en: string | null;
+    display_name: string;
     mode: string;
     stop_type: string;
     route_count: number;
+    has_terminal: boolean;
+    terminal_role: string | null;
+    terminal_code: string | null;
     admin_area_id: number | null;
     admin_area_name: string | null;
     review_status: string;
@@ -238,6 +242,7 @@ export type TransportStopDetail = {
     name: string;
     name_mm: string | null;
     name_en: string | null;
+    display_name: string;
     mode: string;
     stop_type: string;
     admin_area_id: number | null;
@@ -251,12 +256,24 @@ export type TransportStopDetail = {
     latitude: number | null;
     geometry: GeoJsonGeometry | null;
     route_count: number;
+    linked_terminal: TransportStopLinkedTerminal | null;
     created_at: string;
     updated_at: string;
     deleted_at: string | null;
     sources: TransportSourceSummaryLite[];
     source_refs: unknown;
     normalized_data: unknown;
+};
+
+export type TransportStopLinkedTerminal = {
+    public_id: string;
+    terminal_code: string | null;
+    terminal_role: string;
+    operator_id: number | null;
+    operator: { id: number; name: string } | null;
+    review_status: string;
+    confidence_score: number | null;
+    is_active: boolean;
 };
 
 export type TransportStopRouteUsage = {
@@ -273,7 +290,6 @@ export type TransportStopRouteUsage = {
 
 export type UpdateTransportStopBody = {
     stop_code?: string | null;
-    name?: string;
     name_mm?: string | null;
     name_en?: string | null;
     mode?: string;
@@ -307,6 +323,9 @@ export type TransportRouteDetail = {
     public_id: string;
     route_code: string;
     public_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    display_name: string;
     mode: string;
     route_kind: string;
     origin_name: string | null;
@@ -375,7 +394,8 @@ export type TransportVariantsResponse = {
 
 export type UpdateTransportRouteBody = {
     route_code?: string;
-    public_name?: string;
+    name_mm?: string | null;
+    name_en?: string | null;
     mode?: string;
     route_kind?: string;
     origin_name?: string | null;

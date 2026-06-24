@@ -1,4 +1,4 @@
-import TransportTerminalDetailPage from "@/src/features/transport/TransportTerminalDetailPage";
+import TransportTerminalRedirect from "@/src/features/transport/TransportTerminalRedirect";
 
 export default async function TransportTerminalDetailRoutePage({
     params,
@@ -6,5 +6,5 @@ export default async function TransportTerminalDetailRoutePage({
     params: Promise<{ publicId: string }>;
 }) {
     const { publicId } = await params;
-    return <TransportTerminalDetailPage publicId={publicId} />;
+    return <TransportTerminalRedirect publicId={publicId} />;
 }

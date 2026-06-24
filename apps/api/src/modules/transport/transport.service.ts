@@ -2,6 +2,11 @@ import type { PrismaClient } from "@prisma/client";
 
 import { TransportRepository } from "./transport.repo.js";
 import { TransportSchemaUnavailableError } from "./transport.errors.js";
+import {
+    clearTransportCache,
+    getTransportCached,
+    transportCacheKey,
+} from "./transport-cache.js";
 import type { TransportAuditContext } from "./transport-audit.js";
 import type {
     ListImportBatchesQuery,
@@ -98,44 +103,42 @@ function emptyDataQualityQueues(schemaAvailable: boolean): TransportDataQualityQ
 }
 
 /**
- * In-memory TTL for the two read-only aggregate endpoints. These run several
- * count/EXISTS subqueries against a remote pooled Postgres and are re-fetched on
- * every navigation to the Overview / Data Quality pages, so a short process-local
- * cache removes the repeated round-trip without risking stale data (it is also
- * invalidated after any Transport write mutation). No external cache is used.
+ * Short-TTL cache windows (ms) per Transport read endpoint group. Aggregate /
+ * import pages tolerate more staleness; live list pages use a short window.
+ * Detail endpoints are intentionally NOT cached (edited frequently in the
+ * dashboard). Every Transport mutation clears the whole Transport cache, so no
+ * cached value survives a write. No external cache is used.
  */
-const AGGREGATE_CACHE_TTL_MS = 45_000;
-
-type CacheEntry<T> = { value: T; expiresAt: number };
+const CACHE_TTL = {
+    overview: 60_000,
+    dataQuality: 60_000,
+    importBatches: 60_000,
+    importErrors: 45_000,
+    sourceLinks: 45_000,
+    list: 20_000,
+} as const;
 
 export class TransportService {
     private readonly repo: TransportRepository;
-    private overviewCache: CacheEntry<TransportOverview> | null = null;
-    private dataQualityCache: CacheEntry<TransportDataQualityQueues> | null = null;
 
     constructor(prisma: PrismaClient) {
         this.repo = new TransportRepository(prisma);
     }
 
-    /** Drops cached Overview / Data Quality results so the next read reflects a write. */
+    /** Drops every cached Transport read result so the next read reflects a write. */
     private invalidateAggregateCaches(): void {
-        this.overviewCache = null;
-        this.dataQualityCache = null;
+        clearTransportCache();
     }
 
     /**
      * Returns a graceful empty overview (schemaAvailable=false) when transport tables
-     * are missing. Successful results are cached for {@link AGGREGATE_CACHE_TTL_MS}.
+     * are missing. Successful results are cached for {@link CACHE_TTL.overview}.
      */
     async getOverview(): Promise<TransportOverview> {
-        const now = Date.now();
-        if (this.overviewCache && this.overviewCache.expiresAt > now) {
-            return this.overviewCache.value;
-        }
         try {
-            const result = await this.repo.getOverview();
-            this.overviewCache = { value: result, expiresAt: now + AGGREGATE_CACHE_TTL_MS };
-            return result;
+            return await getTransportCached("transport:overview", CACHE_TTL.overview, () =>
+                this.repo.getOverview()
+            );
         } catch (error) {
             if (error instanceof TransportSchemaUnavailableError) {
                 return emptyOverview(false);
@@ -151,7 +154,11 @@ export class TransportService {
         const limit = query.limit;
         const offset = query.page !== undefined ? (query.page - 1) * limit : query.offset;
         try {
-            return await this.repo.listImportBatches(query);
+            return await getTransportCached(
+                transportCacheKey("transport:import-batches", { ...query }),
+                CACHE_TTL.importBatches,
+                () => this.repo.listImportBatches(query)
+            );
         } catch (error) {
             if (error instanceof TransportSchemaUnavailableError) {
                 return { items: [], total: 0, limit, offset };
@@ -167,7 +174,11 @@ export class TransportService {
         const limit = query.limit;
         const offset = query.page !== undefined ? (query.page - 1) * limit : query.offset;
         try {
-            return await this.repo.listImportErrors(query);
+            return await getTransportCached(
+                transportCacheKey("transport:import-errors", { ...query }),
+                CACHE_TTL.importErrors,
+                () => this.repo.listImportErrors(query)
+            );
         } catch (error) {
             if (error instanceof TransportSchemaUnavailableError) {
                 return { items: [], total: 0, limit, offset };
@@ -183,7 +194,11 @@ export class TransportService {
         const limit = query.limit;
         const offset = query.page !== undefined ? (query.page - 1) * limit : query.offset;
         try {
-            return await this.repo.listSourceLinks(query);
+            return await getTransportCached(
+                transportCacheKey("transport:source-links", { ...query }),
+                CACHE_TTL.sourceLinks,
+                () => this.repo.listSourceLinks(query)
+            );
         } catch (error) {
             if (error instanceof TransportSchemaUnavailableError) {
                 return { items: [], total: 0, limit, offset };
@@ -194,17 +209,15 @@ export class TransportService {
 
     /**
      * Returns zeroed queues (schemaAvailable=false) when transport tables are missing.
-     * Successful results are cached for {@link AGGREGATE_CACHE_TTL_MS}.
+     * Successful results are cached for {@link CACHE_TTL.dataQuality}.
      */
     async getDataQualityQueues(): Promise<TransportDataQualityQueues> {
-        const now = Date.now();
-        if (this.dataQualityCache && this.dataQualityCache.expiresAt > now) {
-            return this.dataQualityCache.value;
-        }
         try {
-            const result = await this.repo.getDataQualityQueues();
-            this.dataQualityCache = { value: result, expiresAt: now + AGGREGATE_CACHE_TTL_MS };
-            return result;
+            return await getTransportCached(
+                "transport:data-quality",
+                CACHE_TTL.dataQuality,
+                () => this.repo.getDataQualityQueues()
+            );
         } catch (error) {
             if (error instanceof TransportSchemaUnavailableError) {
                 return emptyDataQualityQueues(false);
@@ -220,7 +233,11 @@ export class TransportService {
         const limit = query.limit;
         const offset = query.page !== undefined ? (query.page - 1) * limit : query.offset;
         try {
-            return await this.repo.listRoutes(query);
+            return await getTransportCached(
+                transportCacheKey("transport:routes", { ...query }),
+                CACHE_TTL.list,
+                () => this.repo.listRoutes(query)
+            );
         } catch (error) {
             if (error instanceof TransportSchemaUnavailableError) {
                 return { items: [], total: 0, limit, offset };
@@ -236,7 +253,11 @@ export class TransportService {
         const limit = query.limit;
         const offset = query.page !== undefined ? (query.page - 1) * limit : query.offset;
         try {
-            return await this.repo.listStops(query);
+            return await getTransportCached(
+                transportCacheKey("transport:stops", { ...query }),
+                CACHE_TTL.list,
+                () => this.repo.listStops(query)
+            );
         } catch (error) {
             if (error instanceof TransportSchemaUnavailableError) {
                 return { items: [], total: 0, limit, offset };
@@ -252,7 +273,11 @@ export class TransportService {
         const limit = query.limit;
         const offset = query.page !== undefined ? (query.page - 1) * limit : query.offset;
         try {
-            return await this.repo.listTerminals(query);
+            return await getTransportCached(
+                transportCacheKey("transport:terminals", { ...query }),
+                CACHE_TTL.list,
+                () => this.repo.listTerminals(query)
+            );
         } catch (error) {
             if (error instanceof TransportSchemaUnavailableError) {
                 return { items: [], total: 0, limit, offset };
@@ -268,7 +293,11 @@ export class TransportService {
         const limit = query.limit;
         const offset = query.page !== undefined ? (query.page - 1) * limit : query.offset;
         try {
-            return await this.repo.listInfrastructureLines(query);
+            return await getTransportCached(
+                transportCacheKey("transport:infrastructure-lines", { ...query }),
+                CACHE_TTL.list,
+                () => this.repo.listInfrastructureLines(query)
+            );
         } catch (error) {
             if (error instanceof TransportSchemaUnavailableError) {
                 return { items: [], total: 0, limit, offset };

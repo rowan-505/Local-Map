@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 
 import {
     TransportInvalidReferenceError,
+    TransportNameRequiredError,
     TransportNotFoundError,
     TransportSchemaUnavailableError,
 } from "./transport.errors.js";
@@ -82,6 +83,9 @@ function sendTransportError(reply: FastifyReply, error: unknown): FastifyReply |
         return reply.code(404).send({ message: error.message });
     }
     if (error instanceof TransportInvalidReferenceError) {
+        return reply.code(400).send({ message: error.message });
+    }
+    if (error instanceof TransportNameRequiredError) {
         return reply.code(400).send({ message: error.message });
     }
     if (error instanceof TransportSchemaUnavailableError) {

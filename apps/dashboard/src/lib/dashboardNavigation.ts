@@ -169,7 +169,6 @@ export const transportTabs: readonly FamilyNavTab[] = [
     { label: "Overview", segment: "", match: "exact" },
     { label: "Routes", segment: "routes" },
     { label: "Stops", segment: "stops" },
-    { label: "Terminals", segment: "terminals" },
     { label: "Infrastructure", segment: "infrastructure" },
     { label: "Imports", segment: "imports" },
 ];

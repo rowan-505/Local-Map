@@ -1,11 +1,12 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
 import { getTransportInfrastructureLines } from "./api";
+import { transportListRootKey, useTransportListQuery } from "./transportListQuery";
 import {
     TRANSPORT_MODE_OPTIONS,
     TRANSPORT_REVIEW_STATUS_OPTIONS,
@@ -13,6 +14,8 @@ import {
     transportModeLabel,
     transportReviewStatusLabel,
 } from "./constants";
+import TransportDetailDrawer from "./TransportDetailDrawer";
+import TransportInfrastructureDetailContent from "./TransportInfrastructureDetailContent";
 import type { TransportInfrastructureLineListItem, TransportRawNameStatus } from "./types";
 
 const PAGE_SIZE = 50;
@@ -109,19 +112,59 @@ function TriSelect({
 export default function TransportInfrastructureLinesPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const filters = useMemo(
-        () => readFilters(new URLSearchParams(searchParams.toString())),
-        [searchParams]
-    );
 
+    // Drawer state lives in the `line` query param. It is kept out of the
+    // filter key so opening/closing the drawer never re-runs the list query.
+    const filtersKey = useMemo(() => {
+        const sp = new URLSearchParams(searchParams.toString());
+        sp.delete("line");
+        return sp.toString();
+    }, [searchParams]);
+    const filters = useMemo(() => readFilters(new URLSearchParams(filtersKey)), [filtersKey]);
+    const linePublicId = searchParams.get("line");
+
+    const queryClient = useQueryClient();
     const [searchInput, setSearchInput] = useState(filters.search);
     const [lineTypeInput, setLineTypeInput] = useState(filters.lineType);
     const [adminAreaInput, setAdminAreaInput] = useState(filters.adminAreaId);
 
-    const [items, setItems] = useState<readonly TransportInfrastructureLineListItem[]>([]);
-    const [total, setTotal] = useState(0);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
+    // Map URL filters -> API params. This object is BOTH the request payload and
+    // the cache key, so equivalent filters/pages reuse the same cached response.
+    const apiQuery = useMemo(() => {
+        const adminAreaId = Number(filters.adminAreaId);
+        return {
+            search: filters.search || undefined,
+            mode: filters.mode || undefined,
+            lineType: filters.lineType || undefined,
+            reviewStatus: filters.reviewStatus || undefined,
+            generatedName:
+                filters.generatedName === "" ? undefined : filters.generatedName === "true",
+            adminAreaId:
+                filters.adminAreaId.trim() && Number.isFinite(adminAreaId) && adminAreaId >= 1
+                    ? Math.floor(adminAreaId)
+                    : undefined,
+            isActive: filters.isActive === "" ? undefined : filters.isActive === "true",
+            limit: PAGE_SIZE,
+            page: filters.page,
+        };
+    }, [filters]);
+
+    const { data, isPending, isFetching, isError, error: queryError } =
+        useTransportListQuery<TransportInfrastructureLineListItem>({
+            resource: "infrastructure-lines",
+            params: apiQuery,
+            queryFn: (signal) => getTransportInfrastructureLines(apiQuery, { signal }),
+        });
+
+    const items = data?.items ?? [];
+    const total = data?.total ?? 0;
+    // Skeleton only on the very first load; keepPreviousData keeps rows during refetch.
+    const loading = isPending;
+    const error = isError
+        ? queryError instanceof Error
+            ? queryError.message
+            : "Failed to load infrastructure lines."
+        : "";
 
     useEffect(() => setSearchInput(filters.search), [filters.search]);
     useEffect(() => setLineTypeInput(filters.lineType), [filters.lineType]);
@@ -141,59 +184,51 @@ export default function TransportInfrastructureLinesPage() {
         [filters, router]
     );
 
-    const load = useCallback(
-        async (signal: AbortSignal) => {
-            setLoading(true);
-            setError("");
-            try {
-                const adminAreaId = Number(filters.adminAreaId);
-                const result = await getTransportInfrastructureLines(
-                    {
-                        search: filters.search || undefined,
-                        mode: filters.mode || undefined,
-                        lineType: filters.lineType || undefined,
-                        reviewStatus: filters.reviewStatus || undefined,
-                        generatedName:
-                            filters.generatedName === ""
-                                ? undefined
-                                : filters.generatedName === "true",
-                        adminAreaId:
-                            filters.adminAreaId.trim() &&
-                            Number.isFinite(adminAreaId) &&
-                            adminAreaId >= 1
-                                ? Math.floor(adminAreaId)
-                                : undefined,
-                        isActive: filters.isActive === "" ? undefined : filters.isActive === "true",
-                        limit: PAGE_SIZE,
-                        page: filters.page,
-                    },
-                    { signal }
-                );
-                setItems(result.items);
-                setTotal(result.total);
-            } catch (err) {
-                if (isAbortError(err)) return;
-                setError(err instanceof Error ? err.message : "Failed to load infrastructure lines.");
-            } finally {
-                setLoading(false);
-            }
-        },
-        [filters]
-    );
-
-    useEffect(() => {
-        const controller = new AbortController();
-        void load(controller.signal);
-        return () => controller.abort();
-    }, [load]);
+    // After a save in the drawer, refetch the current infrastructure-lines query
+    // in the background. keepPreviousData keeps rows visible and the URL is
+    // unchanged, so filters/page/scroll are preserved.
+    const reloadCurrentPage = useCallback(() => {
+        void queryClient.invalidateQueries({
+            queryKey: transportListRootKey("infrastructure-lines"),
+        });
+    }, [queryClient]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const rangeStart = total === 0 ? 0 : (filters.page - 1) * PAGE_SIZE + 1;
     const rangeEnd = Math.min(filters.page * PAGE_SIZE, total);
 
-    const openLine = (publicId: string) => {
-        router.push(transportPath(`infrastructure/${publicId}`));
-    };
+    // Open the drawer by pushing `?line=<publicId>` (filters preserved). Using
+    // push (not navigation to the detail route) keeps the list mounted and lets
+    // the browser Back button close the drawer.
+    const openLine = useCallback(
+        (publicId: string) => {
+            const sp = new URLSearchParams(searchParams.toString());
+            sp.set("line", publicId);
+            // scroll: false keeps the list scroll position when the drawer opens.
+            router.push(`${transportPath("infrastructure")}?${sp.toString()}`, { scroll: false });
+        },
+        [router, searchParams]
+    );
+
+    // Close the drawer by removing only the `line` param (filters preserved).
+    const closeLine = useCallback(() => {
+        const sp = new URLSearchParams(searchParams.toString());
+        sp.delete("line");
+        const qs = sp.toString();
+        router.replace(
+            qs ? `${transportPath("infrastructure")}?${qs}` : transportPath("infrastructure"),
+            { scroll: false }
+        );
+    }, [router, searchParams]);
+
+    const selectedRow = useMemo(
+        () => items.find((r) => r.public_id === linePublicId) ?? null,
+        [items, linePublicId]
+    );
+
+    const drawerTitle = selectedRow
+        ? transportInfrastructureLineDisplayName(selectedRow)
+        : "Infrastructure line";
 
     const resetAll = () => {
         setSearchInput("");
@@ -437,7 +472,7 @@ export default function TransportInfrastructureLinesPage() {
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
-                            disabled={loading || filters.page <= 1}
+                            disabled={isFetching || filters.page <= 1}
                             onClick={() => applyFilters({ page: filters.page - 1 }, false)}
                             className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -448,7 +483,7 @@ export default function TransportInfrastructureLinesPage() {
                         </span>
                         <button
                             type="button"
-                            disabled={loading || filters.page >= totalPages}
+                            disabled={isFetching || filters.page >= totalPages}
                             onClick={() => applyFilters({ page: filters.page + 1 }, false)}
                             className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -457,6 +492,40 @@ export default function TransportInfrastructureLinesPage() {
                     </div>
                 </div>
             </div>
+
+            <TransportDetailDrawer
+                open={Boolean(linePublicId)}
+                title={drawerTitle}
+                meta={
+                    selectedRow ? (
+                        <>
+                            <span>
+                                {transportModeLabel(selectedRow.mode)} · {selectedRow.line_type}
+                            </span>
+                            <span>{transportReviewStatusLabel(selectedRow.review_status)}</span>
+                            {selectedRow.is_active ? (
+                                <span className="text-emerald-700">Active</span>
+                            ) : (
+                                <span className="text-gray-400">Inactive</span>
+                            )}
+                        </>
+                    ) : undefined
+                }
+                onClose={closeLine}
+            >
+                {linePublicId ? (
+                    <div className="p-5">
+                        <div className="space-y-4">
+                            <TransportInfrastructureDetailContent
+                                key={linePublicId}
+                                publicId={linePublicId}
+                                hideHeader
+                                afterSave={reloadCurrentPage}
+                            />
+                        </div>
+                    </div>
+                ) : null}
+            </TransportDetailDrawer>
         </main>
     );
 }

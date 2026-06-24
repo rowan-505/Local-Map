@@ -20,16 +20,20 @@ describe("updateRouteBodySchema", () => {
 
     it("rejects source_refs and normalized_data (strict)", () => {
         const withSourceRefs = updateRouteBodySchema.safeParse({
-            public_name: "Route A",
+            name_en: "Route A",
             source_refs: { foo: "bar" },
         });
         assert.equal(withSourceRefs.success, false);
 
         const withNormalized = updateRouteBodySchema.safeParse({
-            public_name: "Route A",
+            name_en: "Route A",
             normalized_data: { foo: "bar" },
         });
         assert.equal(withNormalized.success, false);
+    });
+
+    it("rejects public_name (display name is derived, not editable)", () => {
+        assert.equal(updateRouteBodySchema.safeParse({ public_name: "Route A" }).success, false);
     });
 
     it("rejects an invalid mode and review_status", () => {
@@ -57,6 +61,37 @@ describe("updateRouteBodySchema", () => {
     it("accepts an explicit null to clear a nullable field", () => {
         const parsed = updateRouteBodySchema.parse({ description: null });
         assert.equal(parsed.description, null);
+    });
+
+    it("accepts name_mm / name_en and trims them", () => {
+        const parsed = updateRouteBodySchema.parse({
+            name_mm: "  အမှတ် ၉၅  ",
+            name_en: "  Route 95  ",
+        });
+        assert.equal(parsed.name_mm, "အမှတ် ၉၅");
+        assert.equal(parsed.name_en, "Route 95");
+    });
+
+    it("normalizes an empty name_mm / name_en to null", () => {
+        const parsed = updateRouteBodySchema.parse({ name_mm: "", name_en: "Route 95" });
+        assert.equal(parsed.name_mm, null);
+        assert.equal(parsed.name_en, "Route 95");
+    });
+
+    it("rejects clearing both name_mm and name_en in one request", () => {
+        assert.equal(
+            updateRouteBodySchema.safeParse({ name_mm: "", name_en: "" }).success,
+            false
+        );
+        assert.equal(
+            updateRouteBodySchema.safeParse({ name_mm: null, name_en: null }).success,
+            false
+        );
+    });
+
+    it("allows clearing only one localized name (merge rule enforced in repo)", () => {
+        assert.equal(updateRouteBodySchema.safeParse({ name_mm: "" }).success, true);
+        assert.equal(updateRouteBodySchema.safeParse({ name_en: null }).success, true);
     });
 
     it("accepts a valid partial update and trims text", () => {
@@ -161,20 +196,46 @@ describe("updateStopBodySchema", () => {
     });
 
     it("rejects source_refs / normalized_data (strict)", () => {
-        assert.equal(updateStopBodySchema.safeParse({ name: "X", source_refs: {} }).success, false);
         assert.equal(
-            updateStopBodySchema.safeParse({ name: "X", normalized_data: {} }).success,
+            updateStopBodySchema.safeParse({ name_en: "X", source_refs: {} }).success,
+            false
+        );
+        assert.equal(
+            updateStopBodySchema.safeParse({ name_en: "X", normalized_data: {} }).success,
             false
         );
     });
 
-    it("rejects an empty required name", () => {
-        assert.equal(updateStopBodySchema.safeParse({ name: "   " }).success, false);
+    it("rejects the raw `name` cache as a direct edit (strict)", () => {
+        assert.equal(updateStopBodySchema.safeParse({ name: "Sule" }).success, false);
+    });
+
+    it("accepts name_mm / name_en and trims them", () => {
+        const parsed = updateStopBodySchema.parse({
+            name_mm: "  ဆူးလေ  ",
+            name_en: "  Sule  ",
+        });
+        assert.equal(parsed.name_mm, "ဆူးလေ");
+        assert.equal(parsed.name_en, "Sule");
     });
 
     it("normalizes empty nullable text to null", () => {
-        const parsed = updateStopBodySchema.parse({ name_mm: "" });
+        const parsed = updateStopBodySchema.parse({ name_mm: "", name_en: "Sule" });
         assert.equal(parsed.name_mm, null);
+        assert.equal(parsed.name_en, "Sule");
+    });
+
+    it("rejects clearing both name_mm and name_en in one request", () => {
+        assert.equal(updateStopBodySchema.safeParse({ name_mm: "", name_en: "" }).success, false);
+        assert.equal(
+            updateStopBodySchema.safeParse({ name_mm: null, name_en: null }).success,
+            false
+        );
+    });
+
+    it("allows clearing a single localized name (merge-aware rule lives in repo)", () => {
+        assert.equal(updateStopBodySchema.safeParse({ name_mm: "" }).success, true);
+        assert.equal(updateStopBodySchema.safeParse({ name_en: null }).success, true);
     });
 
     it("accepts null to clear admin_area_id / parent_stop_id", () => {
@@ -196,7 +257,7 @@ describe("updateStopBodySchema", () => {
 
     it("accepts a valid point + fields", () => {
         const parsed = updateStopBodySchema.parse({
-            name: "  Sule  ",
+            name_en: "  Sule  ",
             mode: "bus",
             stop_type: "stop",
             review_status: "verified",
@@ -204,7 +265,7 @@ describe("updateStopBodySchema", () => {
             is_active: true,
             point: { longitude: 96.16, latitude: 16.77 },
         });
-        assert.equal(parsed.name, "Sule");
+        assert.equal(parsed.name_en, "Sule");
         assert.deepEqual(parsed.point, { longitude: 96.16, latitude: 16.77 });
     });
 });

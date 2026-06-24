@@ -1,9 +1,9 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
-import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
 import {
     getTransportImportBatches,
@@ -11,6 +11,10 @@ import {
     getTransportOverview,
     getTransportSourceLinks,
 } from "./api";
+import {
+    TRANSPORT_IMPORTS_STALE_MS,
+    useTransportListQuery,
+} from "./transportListQuery";
 import type {
     TransportImportBatchListItem,
     TransportImportErrorListItem,
@@ -120,36 +124,33 @@ function ImportBatchesTab() {
     const [applied, setApplied] = useState({ sourceName: "", sourceKind: "", status: "" });
     const [page, setPage] = useState(1);
 
-    const [items, setItems] = useState<readonly TransportImportBatchListItem[]>([]);
-    const [total, setTotal] = useState(0);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
+    const apiQuery = useMemo(
+        () => ({
+            sourceName: applied.sourceName || undefined,
+            sourceKind: applied.sourceKind || undefined,
+            status: applied.status || undefined,
+            limit: PAGE_SIZE,
+            page,
+        }),
+        [applied, page]
+    );
 
-    useEffect(() => {
-        const controller = new AbortController();
-        setLoading(true);
-        setError("");
-        getTransportImportBatches(
-            {
-                sourceName: applied.sourceName || undefined,
-                sourceKind: applied.sourceKind || undefined,
-                status: applied.status || undefined,
-                limit: PAGE_SIZE,
-                page,
-            },
-            { signal: controller.signal }
-        )
-            .then((result) => {
-                setItems(result.items);
-                setTotal(result.total);
-            })
-            .catch((err) => {
-                if (isAbortError(err)) return;
-                setError(err instanceof Error ? err.message : "Failed to load import batches.");
-            })
-            .finally(() => setLoading(false));
-        return () => controller.abort();
-    }, [applied, page]);
+    const { data, isPending, isFetching, isError, error: queryError } =
+        useTransportListQuery<TransportImportBatchListItem>({
+            resource: "import-batches",
+            params: apiQuery,
+            queryFn: (signal) => getTransportImportBatches(apiQuery, { signal }),
+            staleTimeMs: TRANSPORT_IMPORTS_STALE_MS,
+        });
+
+    const items = data?.items ?? [];
+    const total = data?.total ?? 0;
+    const loading = isPending;
+    const error = isError
+        ? queryError instanceof Error
+            ? queryError.message
+            : "Failed to load import batches."
+        : "";
 
     const apply = () => {
         setPage(1);
@@ -297,7 +298,7 @@ function ImportBatchesTab() {
             <PaginationFooter
                 page={page}
                 total={total}
-                loading={loading}
+                loading={isFetching}
                 onPageChange={setPage}
             />
         </div>
@@ -319,42 +320,38 @@ function SourceLinksTab() {
     });
     const [page, setPage] = useState(1);
 
-    const [items, setItems] = useState<readonly TransportSourceLinkListItem[]>([]);
-    const [total, setTotal] = useState(0);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
-
-    useEffect(() => {
-        const controller = new AbortController();
-        setLoading(true);
-        setError("");
+    const apiQuery = useMemo(() => {
         const idNum = Number(applied.entityId);
-        getTransportSourceLinks(
-            {
-                entityType: applied.entityType || undefined,
-                entityId:
-                    applied.entityId && Number.isFinite(idNum) && idNum >= 1
-                        ? Math.floor(idNum)
-                        : undefined,
-                sourceName: applied.sourceName || undefined,
-                sourceKind: applied.sourceKind || undefined,
-                externalId: applied.externalId || undefined,
-                limit: PAGE_SIZE,
-                page,
-            },
-            { signal: controller.signal }
-        )
-            .then((result) => {
-                setItems(result.items);
-                setTotal(result.total);
-            })
-            .catch((err) => {
-                if (isAbortError(err)) return;
-                setError(err instanceof Error ? err.message : "Failed to load source links.");
-            })
-            .finally(() => setLoading(false));
-        return () => controller.abort();
+        return {
+            entityType: applied.entityType || undefined,
+            entityId:
+                applied.entityId && Number.isFinite(idNum) && idNum >= 1
+                    ? Math.floor(idNum)
+                    : undefined,
+            sourceName: applied.sourceName || undefined,
+            sourceKind: applied.sourceKind || undefined,
+            externalId: applied.externalId || undefined,
+            limit: PAGE_SIZE,
+            page,
+        };
     }, [applied, page]);
+
+    const { data, isPending, isFetching, isError, error: queryError } =
+        useTransportListQuery<TransportSourceLinkListItem>({
+            resource: "source-links",
+            params: apiQuery,
+            queryFn: (signal) => getTransportSourceLinks(apiQuery, { signal }),
+            staleTimeMs: TRANSPORT_IMPORTS_STALE_MS,
+        });
+
+    const items = data?.items ?? [];
+    const total = data?.total ?? 0;
+    const loading = isPending;
+    const error = isError
+        ? queryError instanceof Error
+            ? queryError.message
+            : "Failed to load source links."
+        : "";
 
     const apply = () => {
         setPage(1);
@@ -520,7 +517,7 @@ function SourceLinksTab() {
             <PaginationFooter
                 page={page}
                 total={total}
-                loading={loading}
+                loading={isFetching}
                 onPageChange={setPage}
             />
         </div>
@@ -529,22 +526,16 @@ function SourceLinksTab() {
 
 /** Read-only top-category breakdown of import issues (reuses the cached overview aggregate). */
 function ImportIssueBreakdownPanel() {
-    const [issues, setIssues] = useState<TransportImportIssueBreakdown | null>(null);
-    const [total, setTotal] = useState(0);
+    // Cached overview aggregate (60s); shared across tab visits so revisiting the
+    // Issues tab does not re-fetch the breakdown.
+    const { data: overview } = useQuery({
+        queryKey: ["transport", "overview"],
+        queryFn: ({ signal }) => getTransportOverview({ signal }),
+        staleTime: TRANSPORT_IMPORTS_STALE_MS,
+    });
 
-    useEffect(() => {
-        const controller = new AbortController();
-        getTransportOverview({ signal: controller.signal })
-            .then((overview) => {
-                setIssues(overview.importIssues);
-                setTotal(overview.counts.importErrors);
-            })
-            .catch((err) => {
-                if (isAbortError(err)) return;
-                // Breakdown is supplementary; the table below still works without it.
-            });
-        return () => controller.abort();
-    }, []);
+    const issues: TransportImportIssueBreakdown | null = overview?.importIssues ?? null;
+    const total = overview?.counts.importErrors ?? 0;
 
     if (!issues) {
         return null;
@@ -598,41 +589,37 @@ function ImportErrorsTab() {
     });
     const [page, setPage] = useState(1);
 
-    const [items, setItems] = useState<readonly TransportImportErrorListItem[]>([]);
-    const [total, setTotal] = useState(0);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
-
-    useEffect(() => {
-        const controller = new AbortController();
-        setLoading(true);
-        setError("");
+    const apiQuery = useMemo(() => {
         const batchNum = Number(applied.importBatchId);
-        getTransportImportErrors(
-            {
-                importBatchId:
-                    applied.importBatchId && Number.isFinite(batchNum) && batchNum >= 1
-                        ? Math.floor(batchNum)
-                        : undefined,
-                entityType: applied.entityType || undefined,
-                errorCode: applied.errorCode || undefined,
-                search: applied.search || undefined,
-                limit: PAGE_SIZE,
-                page,
-            },
-            { signal: controller.signal }
-        )
-            .then((result) => {
-                setItems(result.items);
-                setTotal(result.total);
-            })
-            .catch((err) => {
-                if (isAbortError(err)) return;
-                setError(err instanceof Error ? err.message : "Failed to load import issues.");
-            })
-            .finally(() => setLoading(false));
-        return () => controller.abort();
+        return {
+            importBatchId:
+                applied.importBatchId && Number.isFinite(batchNum) && batchNum >= 1
+                    ? Math.floor(batchNum)
+                    : undefined,
+            entityType: applied.entityType || undefined,
+            errorCode: applied.errorCode || undefined,
+            search: applied.search || undefined,
+            limit: PAGE_SIZE,
+            page,
+        };
     }, [applied, page]);
+
+    const { data, isPending, isFetching, isError, error: queryError } =
+        useTransportListQuery<TransportImportErrorListItem>({
+            resource: "import-errors",
+            params: apiQuery,
+            queryFn: (signal) => getTransportImportErrors(apiQuery, { signal }),
+            staleTimeMs: TRANSPORT_IMPORTS_STALE_MS,
+        });
+
+    const items = data?.items ?? [];
+    const total = data?.total ?? 0;
+    const loading = isPending;
+    const error = isError
+        ? queryError instanceof Error
+            ? queryError.message
+            : "Failed to load import issues."
+        : "";
 
     const apply = () => {
         setPage(1);
@@ -775,7 +762,7 @@ function ImportErrorsTab() {
             <PaginationFooter
                 page={page}
                 total={total}
-                loading={loading}
+                loading={isFetching}
                 onPageChange={setPage}
             />
         </div>

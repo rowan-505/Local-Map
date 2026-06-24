@@ -13,6 +13,9 @@ export type TransportRouteListItem = {
     public_id: string;
     route_code: string;
     public_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    display_name: string;
     mode: string;
     route_kind: string;
     origin_name: string | null;
@@ -32,9 +35,13 @@ export type TransportStopListItem = {
     name: string;
     name_mm: string | null;
     name_en: string | null;
+    display_name: string;
     mode: string;
     stop_type: string;
     route_count: number;
+    has_terminal: boolean;
+    terminal_role: string | null;
+    terminal_code: string | null;
     admin_area_id: number | null;
     admin_area_name: string | null;
     review_status: string;
@@ -77,6 +84,7 @@ export type TransportStopDetail = {
     name: string;
     name_mm: string | null;
     name_en: string | null;
+    display_name: string;
     mode: string;
     stop_type: string;
     admin_area_id: number | null;
@@ -90,6 +98,12 @@ export type TransportStopDetail = {
     latitude: number | null;
     geometry: GeoJsonGeometry | null;
     route_count: number;
+    /**
+     * Summary of the terminal linked to this stop (1:1 via terminals.linked_stop_id),
+     * or null when no terminal references it. Terminal-specific metadata is edited
+     * via the terminals PATCH; the stop remains the source of truth for name/location.
+     */
+    linked_terminal: TransportStopLinkedTerminal | null;
     created_at: string;
     updated_at: string;
     deleted_at: string | null;
@@ -97,6 +111,18 @@ export type TransportStopDetail = {
     /** Raw importer/debug blobs (admin-only). */
     source_refs: unknown;
     normalized_data: unknown;
+};
+
+/** Terminal metadata surfaced inside the linked stop's detail (no name/geometry). */
+export type TransportStopLinkedTerminal = {
+    public_id: string;
+    terminal_code: string | null;
+    terminal_role: string;
+    operator_id: number | null;
+    operator: { id: number; name: string } | null;
+    review_status: string;
+    confidence_score: number | null;
+    is_active: boolean;
 };
 
 /** One import batch row for the read-only Imports page. */
@@ -273,6 +299,9 @@ export type TransportRouteDetail = {
     public_id: string;
     route_code: string;
     public_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    display_name: string;
     mode: string;
     route_kind: string;
     origin_name: string | null;

@@ -26,3 +26,14 @@ export class TransportInvalidReferenceError extends Error {
         this.name = "TransportInvalidReferenceError";
     }
 }
+
+/**
+ * Thrown when a manual name edit would leave an entity with neither a Myanmar
+ * nor an English name. At least one of name_mm / name_en must remain set.
+ */
+export class TransportNameRequiredError extends Error {
+    constructor() {
+        super("At least one of name_mm or name_en is required.");
+        this.name = "TransportNameRequiredError";
+    }
+}

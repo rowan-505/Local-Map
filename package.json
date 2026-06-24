@@ -22,6 +22,8 @@
     "tiles:build:yangon:v2:light-only": "npm run tiles:build -- yangon v2 --light-only",
     "tiles:upload": "bash infrastructure/tiles/pmtiles/scripts/upload-package-r2.sh",
     "tiles:upload:r2": "bash infrastructure/tiles/pmtiles/scripts/upload-r2.sh",
+    "tiles:upload:regions": "bash infrastructure/tiles/pmtiles/scripts/upload-all-regions-r2.sh",
+    "tiles:verify:regions": "bash infrastructure/tiles/pmtiles/scripts/verify-all-regions-r2.sh",
     "tiles:upload:yangon:v2": "npm run tiles:upload:r2 -- infrastructure/tiles/pmtiles/regions/yangon/yangon-v2.pmtiles yangon v2",
     "tiles:serve": "bash infrastructure/tiles/pmtiles/scripts/serve-local.sh",
     "tiles:build:overview": "bash infrastructure/tiles/pmtiles/scripts/build-overview.sh",

@@ -1,37 +1,22 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/maplibre/martin/main/schemas/config.json
+#
+# Runtime: set DATABASE_URL (Fly: `fly secrets set DATABASE_URL='postgresql://...'`).
+# Never put credentials in this file — see config.yaml.example and README.md.
+
 listen_addresses: "0.0.0.0:3000"
 
 postgres:
-  connection_string: ${DATABASE_URL:?Set DATABASE_URL}
+  # Martin expands ${VAR:?message} at startup; fails fast if unset.
+  connection_string: ${DATABASE_URL:?Set DATABASE_URL — e.g. fly secrets set DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/postgres'}
 
   auto_publish:
     from_schemas:
       - tiles
 
   tables:
-    transport_stops_v:
+    tiles_buildings_v:
       schema: tiles
-      table: transport_stops_v
-      srid: 4326
-      geometry_column: geom
-      id_column: id
-
-    transport_terminals_v:
-      schema: tiles
-      table: transport_terminals_v
-      srid: 4326
-      geometry_column: geom
-      id_column: id
-
-    transport_route_paths_v:
-      schema: tiles
-      table: transport_route_paths_v
-      srid: 4326
-      geometry_column: geom
-      id_column: id
-
-    transport_infrastructure_lines_v:
-      schema: tiles
-      table: transport_infrastructure_lines_v
+      table: tiles_buildings_v
       srid: 4326
       geometry_column: geom
       id_column: id

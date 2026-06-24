@@ -9,16 +9,11 @@ import {
   REGIONAL_VECTOR_SOURCE_MAX_ZOOM,
   patchRegionalLayersForProgressiveDetail,
 } from '../lib/maplibre/basemapZoomVisibility';
-import { composeWebMapStyle } from '../lib/maplibre/composeWebMapStyle';
-import {
-  composeLocalRegionPmtilesQaWebMapStyle,
-  isLoadAllLocalRegionPmtilesQaEnabled,
-} from '../lib/maplibre/localRegionPmtilesQa';
 import {
   getActiveOverviewBasemapStyle,
   isOverviewBasemapEnabled,
 } from './overviewBasemapStyle';
-import { getOverviewPmtilesUrlForWebMap } from './overviewPmtilesUrl';
+import { getOverviewWebMapStyleFromManifest } from './manifestBasemapStyle';
 import { getWebBasemapCurrentJsonUrl } from './webBasemapCurrentJsonUrl';
 
 /** Single fontstack for every symbol layer — must match `apps/web/public/fonts/<name>/`. */
@@ -94,39 +89,30 @@ export async function getActiveBasemapStyle(): Promise<StyleSpecification> {
 }
 
 /**
- * Public web map style: overview PMTiles base (low zoom) + regional PMTiles (detail z9+).
- * Overview URL: `VITE_OVERVIEW_PMTILES_URL` only. Set `VITE_MAP_BASEMAP=overview` for overview-only mode.
+ * Public web map style.
+ *
+ * Preferred path: overview PMTiles from the basemap manifest (`VITE_BASEMAP_MANIFEST_URL`,
+ * default `/basemaps/manifest.json`); regional PMTiles are then loaded dynamically by viewport.
+ *
+ * Fallback: if the manifest fetch fails, fall back to the legacy single-PMTiles basemap
+ * (`VITE_BASEMAP_PMTILES_URL`, else `current.json`).
+ *
+ * Env override: `VITE_MAP_BASEMAP=overview` keeps the legacy env-only overview path
+ * (`VITE_OVERVIEW_PMTILES_URL`) for local testing.
  */
 export async function getActiveWebMapStyle(): Promise<StyleSpecification> {
   if (isOverviewBasemapEnabled()) {
     return getActiveOverviewBasemapStyle();
   }
 
-  const overviewUrl = getOverviewPmtilesUrlForWebMap();
-
-  if (isLoadAllLocalRegionPmtilesQaEnabled()) {
-    const style = composeLocalRegionPmtilesQaWebMapStyle(overviewUrl);
-
+  try {
+    return await getOverviewWebMapStyleFromManifest();
+  } catch (err) {
+    // Backward fallback: manifest fetch failed → use the legacy single-PMTiles basemap
+    // (`VITE_BASEMAP_PMTILES_URL`, else `current.json`). Manifest remains the preferred path.
     if (import.meta.env.DEV) {
-      console.info(
-        '[map] local PMTiles QA mode: overview + all regional archives from localhost:8080',
-      );
+      console.warn('[map] basemap manifest unavailable; using single-PMTiles fallback:', err);
     }
-
-    return style;
+    return getActiveBasemapStyle();
   }
-
-  const regionalStyle = await getActiveBasemapStyle();
-
-  if (!overviewUrl) {
-    return regionalStyle;
-  }
-
-  const style = composeWebMapStyle(regionalStyle, overviewUrl);
-
-  if (import.meta.env.DEV) {
-    console.info('[map] composed style: overview base + regional detail (overview URL configured)');
-  }
-
-  return style;
 }

@@ -1,0 +1,19 @@
+Here's a single command that uploads every region folder as v1:
+
+for region in infrastructure/tiles/pmtiles/regions/*/; do
+  r="$(basename "$region")"
+  npm run tiles:upload -- "$r" v1
+done
+If a region's v1 file is missing or a key already exists, that one fails/stops but the loop continues to the next region. To replace existing R2 keys, set OVERWRITE=true:
+
+for region in infrastructure/tiles/pmtiles/regions/*/; do
+  r="$(basename "$region")"
+  OVERWRITE=true npm run tiles:upload -- "$r" v1
+done
+To include the overview package as v1 too:
+
+npm run tiles:upload -- overview v1
+Verify everything afterward:
+
+
+npm run tiles:verify:regions

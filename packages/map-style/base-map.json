@@ -10,7 +10,7 @@
   "sources": {
     "local-basemap": {
       "type": "vector",
-      "url": "pmtiles://https://pub-1f8b4bea1a884f51966c7916c5e618ce.r2.dev/basemaps/yangon/v1/basemap.pmtiles",
+      "url": "pmtiles://https://tiles.coremapmm.com/basemaps/yangon/v1/basemap.pmtiles",
       "minzoom": 0,
       "maxzoom": 20
     }

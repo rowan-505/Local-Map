@@ -166,6 +166,7 @@ export type TransportStopsParams = {
     reviewStatus?: string;
     generatedName?: boolean;
     hasRoutes?: boolean;
+    hasTerminal?: boolean;
     adminAreaId?: number;
     isActive?: boolean;
     limit?: number;
@@ -183,6 +184,7 @@ export function getTransportStops(
     if (params.reviewStatus) search.set("reviewStatus", params.reviewStatus);
     if (params.generatedName !== undefined) search.set("generatedName", String(params.generatedName));
     if (params.hasRoutes !== undefined) search.set("hasRoutes", String(params.hasRoutes));
+    if (params.hasTerminal !== undefined) search.set("hasTerminal", String(params.hasTerminal));
     if (params.adminAreaId !== undefined) search.set("adminAreaId", String(params.adminAreaId));
     if (params.isActive !== undefined) search.set("isActive", String(params.isActive));
     if (params.limit !== undefined) search.set("limit", String(params.limit));
