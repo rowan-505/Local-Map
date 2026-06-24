@@ -37,6 +37,9 @@ type PublicPlaceDto = {
   readonly importance_score?: number | null;
   readonly isVerified?: boolean;
   readonly is_verified?: boolean;
+  // Detail-only enrichment (GET /public/places/:id); absent on list/viewport rows.
+  readonly address_line?: string | null;
+  readonly plus_code?: string | null;
 };
 
 export type PlaceLanguageMode = 'my' | 'en' | 'both';
@@ -250,6 +253,59 @@ export async function fetchPublicMapGeoJson(
   return fetchJson<GeoJSON.FeatureCollection>(`/public/map/geo/${layer}`);
 }
 
+export type ReverseAddressConfidence =
+  | 'exact_nearby'
+  | 'street_nearby'
+  | 'area_based'
+  | 'unknown';
+
+export type ReverseAddressResult = {
+  readonly address_line: string;
+  readonly plus_code: string | null;
+  readonly lat: number;
+  readonly lng: number;
+  readonly confidence: ReverseAddressConfidence;
+};
+
+const REVERSE_ADDRESS_CONFIDENCES: readonly ReverseAddressConfidence[] = [
+  'exact_nearby',
+  'street_nearby',
+  'area_based',
+  'unknown',
+];
+
+function normalizeReverseConfidence(value: unknown): ReverseAddressConfidence {
+  return typeof value === 'string' &&
+    (REVERSE_ADDRESS_CONFIDENCES as readonly string[]).includes(value)
+    ? (value as ReverseAddressConfidence)
+    : 'unknown';
+}
+
+/**
+ * Reverse geocode a single point via GET /search/reverse.
+ * Throws on network/HTTP failure (catch at the call site); response fields are
+ * defensively normalized so the shape is always valid.
+ */
+export async function getReverseAddress(
+  lat: number,
+  lng: number,
+  signal?: AbortSignal,
+): Promise<ReverseAddressResult> {
+  const search = new URLSearchParams({ lat: String(lat), lng: String(lng) });
+  const dto = await fetchJson<Partial<ReverseAddressResult>>(
+    `/search/reverse?${search.toString()}`,
+    signal ? { signal } : undefined,
+  );
+
+  return {
+    address_line: typeof dto.address_line === 'string' ? dto.address_line : 'Myanmar',
+    plus_code: typeof dto.plus_code === 'string' ? dto.plus_code : null,
+    lat: typeof dto.lat === 'number' ? dto.lat : lat,
+    lng: typeof dto.lng === 'number' ? dto.lng : lng,
+    confidence: normalizeReverseConfidence(dto.confidence),
+  };
+}
+
 function trimOpt(value: string | null | undefined): string | undefined {
   if (typeof value !== 'string') return undefined;
   const t = value.trim();
@@ -296,6 +352,8 @@ function publicPlaceToPoi(place: PublicPlaceDto): Poi {
     subcategory: categoryLabel,
     latitude: place.lat,
     longitude: place.lng,
+    addressLine: trimOpt(place.address_line ?? undefined),
+    plusCode: trimOpt(place.plus_code ?? undefined) ?? null,
     importanceScore: place.importanceScore ?? place.importance_score ?? null,
     isVerified: place.isVerified ?? place.is_verified ?? false,
     source: 'api',

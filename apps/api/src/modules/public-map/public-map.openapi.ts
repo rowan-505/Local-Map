@@ -48,6 +48,18 @@ const publicPlaceSchema = {
     additionalProperties: false,
 } as const;
 
+/** Detail-only: base public place plus on-demand reverse-address enrichment (never on list responses). */
+const publicPlaceDetailSchema = {
+    type: "object",
+    required: publicPlaceSchema.required,
+    properties: {
+        ...publicPlaceSchema.properties,
+        address_line: { type: "string" },
+        plus_code: { type: "string", nullable: true },
+    },
+    additionalProperties: false,
+} as const;
+
 const publicMapPlaceFeatureSchema = {
     type: "object",
     required: ["type", "id", "geometry", "properties"],
@@ -250,7 +262,7 @@ export const getPublicPlaceByIdSchema = {
         additionalProperties: false,
     },
     response: {
-        200: publicPlaceSchema,
+        200: publicPlaceDetailSchema,
         400: badRequestSchema,
         404: notFoundSchema,
     },

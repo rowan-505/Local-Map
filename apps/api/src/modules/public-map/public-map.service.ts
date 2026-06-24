@@ -1,3 +1,5 @@
+import { generatePlusCode } from "../../lib/geo/plus-code.js";
+import type { ReverseSearchService } from "../addresses/reverse-search.service.js";
 import {
     effectiveImportanceThresholdForZoom,
     PublicMapRepository,
@@ -70,7 +72,11 @@ export class PublicPlaceNotFoundError extends Error {
 }
 
 export class PublicMapService {
-    constructor(private readonly publicMapRepo: PublicMapRepository) {}
+    constructor(
+        private readonly publicMapRepo: PublicMapRepository,
+        /** Optional: enriches single-place detail with address_line. List paths never use it. */
+        private readonly reverseSearch?: ReverseSearchService,
+    ) {}
 
     async listPlaces(input: {
         q?: string;
@@ -119,7 +125,25 @@ export class PublicMapService {
             throw new PublicPlaceNotFoundError();
         }
 
-        return serializePlace(place);
+        const serialized = serializePlace(place);
+
+        // Detail-only enrichment: one Plus Code (pure compute) + one reverse lookup for this place.
+        const plus_code = generatePlusCode(place.lat, place.lng);
+        let address_line: string | undefined;
+        if (this.reverseSearch) {
+            try {
+                const reverse = await this.reverseSearch.reverse(place.lat, place.lng);
+                address_line = reverse.address_line;
+            } catch {
+                // Reverse lookup is best-effort; place detail must still return without it.
+            }
+        }
+
+        return {
+            ...serialized,
+            plus_code,
+            ...(address_line !== undefined ? { address_line } : {}),
+        };
     }
 
     async listCategories() {

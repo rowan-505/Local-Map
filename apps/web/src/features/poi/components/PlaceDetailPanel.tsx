@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import type { ReactNode } from 'react';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
+import { useReverseAddress } from '@/features/map/api/useReverseAddress';
 import type { PlaceLanguageMode, PublicSearchResult } from '@/features/poi/api/publicMapApi';
 import type { Poi } from '@/types';
 import { getLocalizedName } from '@local-map/localized-name';
@@ -36,6 +37,10 @@ function PlaceDetailPanelInner({
     languageMode,
   });
 
+  // Fallback only when this single detail is open and the API didn't supply an address line.
+  const needsReverse = Boolean(detail && !detail.addressLine && detail.coordinates);
+  const reverse = useReverseAddress(needsReverse ? detail!.coordinates : null);
+
   if (detailLoading && !detail) {
     return (
       <section className="p-4" aria-label="Selected place details">
@@ -66,6 +71,9 @@ function PlaceDetailPanelInner({
   const coordinatesText = detail.coordinates
     ? formatCoordinates(detail.coordinates[0], detail.coordinates[1])
     : null;
+
+  const addressLine = detail.addressLine ?? reverse.data?.address_line ?? null;
+  const plusCode = detail.plusCode ?? reverse.data?.plus_code ?? null;
 
   return (
     <section className="space-y-3 p-3.5" aria-label="Selected place details">
@@ -137,10 +145,21 @@ function PlaceDetailPanelInner({
         <InfoRow label="Lat, lng" value={coordinatesText ?? 'No coordinate available'} mono />
       </InfoSection>
 
-      <InfoSection title="Nearby / Address">
-        <InfoRow label="Address" value={detail.address ?? 'Address intelligence coming soon'} />
-        <InfoRow label="Nearby" value="Nearby places coming soon" />
-      </InfoSection>
+      {addressLine ? (
+        <InfoSection title="Address">
+          <p className="text-sm leading-6 text-neutral-800">{addressLine}</p>
+        </InfoSection>
+      ) : reverse.loading ? (
+        <InfoSection title="Address">
+          <p className="text-sm leading-6 text-neutral-400">Loading address…</p>
+        </InfoSection>
+      ) : null}
+
+      {plusCode ? (
+        <InfoSection title="Plus Code">
+          <p className="font-mono text-sm leading-6 text-neutral-800">{plusCode}</p>
+        </InfoSection>
+      ) : null}
 
       <InfoSection title="Data status">
         <InfoRow
@@ -256,6 +275,8 @@ type PlaceDetail = {
   readonly category: string;
   readonly area?: string;
   readonly address?: string;
+  readonly addressLine?: string;
+  readonly plusCode?: string | null;
   readonly coordinates: readonly [number, number] | null;
   readonly placeId?: string;
   readonly verified: boolean;
@@ -276,6 +297,8 @@ function buildPlaceDetail({
       category: poiCategoryLabel(poi.category, poi.categoryName, poi.categoryCode),
       area: poi.address,
       address: poi.address,
+      addressLine: poi.addressLine,
+      plusCode: poi.plusCode ?? null,
       coordinates: [poi.longitude, poi.latitude],
       placeId: poi.publicId ?? poi.id,
       verified: poi.isVerified === true,

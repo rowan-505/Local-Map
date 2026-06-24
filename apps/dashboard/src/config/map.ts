@@ -4,8 +4,18 @@ import {
     getDashboardBasemapCurrentJsonUrl,
     getDashboardOverviewCurrentJsonUrl,
 } from "@/src/lib/dashboardBasemapCurrentJsonUrl";
+import {
+    assertPublicBasemapUrl,
+    DashboardBasemapNotConfiguredError,
+} from "@/src/lib/basemaps/basemapEnv";
 
 import "./env";
+
+// Re-exported from the centralized basemap env module so existing importers keep working.
+export {
+    DASHBOARD_BASEMAP_NOT_CONFIGURED_MESSAGE,
+    DashboardBasemapNotConfiguredError,
+} from "@/src/lib/basemaps/basemapEnv";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 
@@ -22,7 +32,8 @@ const DEFAULT_LOCAL_REGION_PMTILES_BASE_URL = "http://localhost:8080/regions";
 export function getDashboardBasemapPmtilesUrlOverride(): string | undefined {
   const v = process.env.NEXT_PUBLIC_BASEMAP_PMTILES_URL;
   if (typeof v === "string" && v.trim() !== "") {
-    return v.trim();
+    // Reject a localhost URL in production (allowed in local dev); never fetch localhost when deployed.
+    return assertPublicBasemapUrl(v.trim(), "NEXT_PUBLIC_BASEMAP_PMTILES_URL");
   }
   return undefined;
 }
@@ -39,8 +50,13 @@ export async function resolveDashboardBasemapPmtilesHttpUrl(options?: {
     if (override) {
         return override;
     }
+    const currentJsonUrl = options?.currentJsonUrl ?? getDashboardBasemapCurrentJsonUrl();
+    if (!currentJsonUrl) {
+        // Production with no public basemap env var: do NOT fetch the localhost default.
+        throw new DashboardBasemapNotConfiguredError();
+    }
     return fetchActiveBasemapPmtilesHttpUrl({
-        currentJsonUrl: options?.currentJsonUrl ?? getDashboardBasemapCurrentJsonUrl(),
+        currentJsonUrl,
         signal: options?.signal,
     });
 }
@@ -52,7 +68,8 @@ export async function resolveDashboardBasemapPmtilesHttpUrl(options?: {
 export function getDashboardOverviewPmtilesUrlOverride(): string | undefined {
     const v = process.env.NEXT_PUBLIC_OVERVIEW_PMTILES_URL;
     if (typeof v === "string" && v.trim() !== "") {
-        return v.trim();
+        // Reject a localhost URL in production (allowed in local dev); never fetch localhost when deployed.
+        return assertPublicBasemapUrl(v.trim(), "NEXT_PUBLIC_OVERVIEW_PMTILES_URL");
     }
     return undefined;
 }
@@ -69,8 +86,14 @@ export async function resolveDashboardOverviewPmtilesHttpUrl(options?: {
     if (override) {
         return override;
     }
+    const currentJsonUrl = options?.currentJsonUrl ?? getDashboardOverviewCurrentJsonUrl();
+    if (!currentJsonUrl) {
+        // Production with no public overview env var: do NOT fetch the localhost default.
+        // The overview is optional — `tryLoadOverviewStyle` catches this and renders regional only.
+        throw new DashboardBasemapNotConfiguredError();
+    }
     return fetchActiveOverviewPmtilesHttpUrl({
-        currentJsonUrl: options?.currentJsonUrl ?? getDashboardOverviewCurrentJsonUrl(),
+        currentJsonUrl,
         signal: options?.signal,
     });
 }

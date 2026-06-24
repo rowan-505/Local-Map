@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 
+import { ReverseSearchRepository } from "../addresses/reverse-search.repo.js";
+import { ReverseSearchService } from "../addresses/reverse-search.service.js";
 import { PublicMapRepository } from "./public-map.repo.js";
 import { PublicMapService, PublicPlaceNotFoundError } from "./public-map.service.js";
 import {
@@ -22,7 +24,8 @@ import {
 
 const publicMapRoutes: FastifyPluginAsync = async (app) => {
     const publicMapRepo = new PublicMapRepository(app.prisma);
-    const publicMapService = new PublicMapService(publicMapRepo);
+    const reverseSearchService = new ReverseSearchService(new ReverseSearchRepository(app.prisma));
+    const publicMapService = new PublicMapService(publicMapRepo, reverseSearchService);
 
     app.get("/public/places", { schema: getPublicPlacesSchema }, async (request, reply) => {
         const parsed = publicPlacesQuerySchema.safeParse(request.query);

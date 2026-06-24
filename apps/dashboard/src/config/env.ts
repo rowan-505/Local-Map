@@ -3,6 +3,11 @@ export {};
 
 declare namespace NodeJS {
   interface ProcessEnv {
+    /**
+     * Optional basemap manifest URL for preview maps (overview + dynamic regional PMTiles).
+     * Defaults to the same-origin `/basemaps/manifest.json`; see `lib/basemaps/manifest.ts`.
+     */
+    NEXT_PUBLIC_BASEMAP_MANIFEST_URL?: string;
     /** Optional `current.json` URL for basemap resolution (see `dashboardBasemapCurrentJsonUrl.ts`). */
     NEXT_PUBLIC_BASEMAP_CURRENT_JSON_URL?: string;
     /** Optional direct `.pmtiles` HTTP(S) URL — when set, skips fetching `current.json`. */

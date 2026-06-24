@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test:entity-names": "node --import tsx --test src/lib/entity-names/entity-names.test.ts",
     "test:address-composer": "node --import tsx --test src/modules/addresses/address-composer.test.ts",
+    "test:plus-code": "node --import tsx --test src/lib/geo/plus-code.test.ts",
+    "test:minimal-address-composer": "node --import tsx --test src/modules/addresses/minimal-address-composer.test.ts",
     "check:streets-names": "tsx scripts/check-street-name-normalization.ts",
     "build:routing-graph": "tsx src/scripts/build-routing-graph.ts",
     "docs:api": "tsx scripts/generate-api-docs.ts",
@@ -29,6 +31,7 @@
     "fastify-plugin": "^5.1.0",
     "generate": "^0.14.0",
     "npx": "^10.2.2",
+    "pluscodes": "^3.0.1",
     "prisma": "^6.15.0",
     "zod": "^4.3.6"
   },

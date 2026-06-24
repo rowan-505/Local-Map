@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { MapClickedLocation } from '@/features/map/types';
+import { useReverseAddress } from '@/features/map/api/useReverseAddress';
 import type { RoutePoint } from '@/features/routing/lib/routePoint';
 
 type AddressLocationPanelProps = {
@@ -13,6 +14,8 @@ export function AddressLocationPanel({
   onUseAsRouteStart,
   onUseAsRouteDestination,
 }: AddressLocationPanelProps) {
+  const reverse = useReverseAddress(location?.coordinates ?? null);
+
   if (!location) {
     return (
       <section className="p-3.5" aria-label="Inspect map location">
@@ -45,16 +48,11 @@ export function AddressLocationPanel({
               Location
             </p>
             <h2 className="mt-1 text-lg font-semibold text-neutral-950">Inspect location</h2>
-            <p className="mt-1 font-mono text-xs leading-5 text-neutral-600">{coordinates}</p>
           </div>
           <span className="shrink-0 rounded-full bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-100">
             Map point
           </span>
         </div>
-
-        <p className="mt-3 rounded-2xl bg-neutral-50 px-3 py-2 text-xs leading-5 text-neutral-600 ring-1 ring-neutral-100">
-          Address intelligence will use nearest road, landmark, and admin area later.
-        </p>
 
         <div className="mt-3 flex flex-wrap gap-2">
           <ActionButton icon={<CopyIcon />} label="Copy coordinates" onClick={() => copyText(coordinates)}>
@@ -72,17 +70,27 @@ export function AddressLocationPanel({
         </div>
       </div>
 
+      <InfoSection title="Address">
+        {reverse.loading ? (
+          <p className="text-sm leading-6 text-neutral-400">Loading address…</p>
+        ) : reverse.error ? (
+          <p className="text-sm leading-6 text-neutral-500">Address unavailable</p>
+        ) : (
+          <p className="text-sm leading-6 text-neutral-800">
+            {reverse.data?.address_line ?? 'Address unavailable'}
+          </p>
+        )}
+      </InfoSection>
+
+      {!reverse.loading && !reverse.error && reverse.data?.plus_code ? (
+        <InfoSection title="Plus Code">
+          <p className="font-mono text-sm leading-6 text-neutral-800">{reverse.data.plus_code}</p>
+        </InfoSection>
+      ) : null}
+
       <InfoSection title="Coordinates">
         <InfoRow label="Latitude" value={lat.toFixed(6)} mono />
         <InfoRow label="Longitude" value={lng.toFixed(6)} mono />
-      </InfoSection>
-
-      <InfoSection title="Address intelligence">
-        {/* TODO: Wire future reverse geocoding endpoint: GET /public/address/reverse?lat=...&lng=... */}
-        <InfoRow label="Approx. address" value="Address intelligence coming soon" />
-        <InfoRow label="Nearest road" value="Road match coming soon" />
-        <InfoRow label="Nearest landmark" value="Landmark match coming soon" />
-        <InfoRow label="Confidence" value="Pending" />
       </InfoSection>
     </section>
   );

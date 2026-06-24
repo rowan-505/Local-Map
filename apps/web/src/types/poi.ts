@@ -23,6 +23,10 @@ export type Poi = {
   readonly latitude: number;
   readonly longitude: number;
   readonly address?: string;
+  /** Composed reverse-address line — present only on single place detail responses. */
+  readonly addressLine?: string;
+  /** Dynamically generated Plus Code — present only on single place detail responses. */
+  readonly plusCode?: string | null;
   readonly importanceScore?: number | null;
   readonly isVerified?: boolean;
   readonly source: PoiDataSource;
