@@ -282,7 +282,6 @@ VALUES
     ('buildings', 'staging_building_candidates', 'building_candidates', 'geom', NULL, 't.geom IS NULL', 's.geom IS NOT NULL'),
     ('places', 'staging_place_candidates', 'place_candidates', 'point_geom', NULL, 't.point_geom IS NULL', 's.point_geom IS NOT NULL'),
     ('roads', 'staging_road_candidates', 'road_candidates', 'geom', NULL, 't.geom IS NULL', 's.geom IS NOT NULL'),
-    ('bus_stops', 'staging_bus_stop_candidates', 'bus_stop_candidates', 'geom', NULL, 't.geom IS NULL', 's.point_geom IS NOT NULL'),
     ('landuse', 'staging_landuse_candidates', 'landuse_candidates', 'geom', 'centroid', 't.geom IS NULL', 's.geom IS NOT NULL'),
     ('water_lines', 'staging_water_line_candidates', 'water_line_candidates', 'geom', NULL, 't.geom IS NULL', 's.geom IS NOT NULL'),
     ('water_polygons', 'staging_water_polygon_candidates', 'water_polygon_candidates', 'geom', 'centroid', 't.geom IS NULL', 's.geom IS NOT NULL'),

@@ -36,7 +36,7 @@ describe("resolveReleaseStaleBatchedFamilies", () => {
 
     it("rejects unsupported families", () => {
         assert.throws(
-            () => resolveReleaseStaleBatchedFamilies(["roads", "bus_routes"]),
+            () => resolveReleaseStaleBatchedFamilies(["roads", "not_a_real_family"]),
             ImportReviewInvalidScopeError
         );
     });

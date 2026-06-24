@@ -10,12 +10,6 @@ import {
     logImportReviewAuthDecision,
     readImportReviewAuthDebugState,
 } from "@/src/lib/importReviewDevAccess";
-import {
-    consumeImportTransportApiAuthFailed,
-    isImportTransportDevRouteBypassActive,
-    logImportTransportAuthDecision,
-    readImportTransportAuthDebugState,
-} from "@/src/lib/importTransportDevAccess";
 
 type LoginResponse = {
     accessToken: string;
@@ -116,7 +110,6 @@ export default function LoginPageClient() {
     useEffect(() => {
         const pathname = window.location.pathname;
         const state = readImportReviewAuthDebugState(pathname, true);
-        const transportState = readImportTransportAuthDebugState(pathname, true);
         const postLoginPath = resolvePostLoginPath(searchParams.get("next"));
 
         if (consumeImportReviewApiAuthFailed()) {
@@ -129,25 +122,11 @@ export default function LoginPageClient() {
             return;
         }
 
-        if (consumeImportTransportApiAuthFailed()) {
-            logImportTransportAuthDecision(
-                "LoginPageClient",
-                "stay-on-login-after-import-transport-api-401",
-                { ...transportState, authLoading: false, importReviewApiAuthFailedFlag: true }
-            );
-            setAuthChecked(true);
-            return;
-        }
-
         const accessToken = window.localStorage.getItem("accessToken")?.trim();
 
         if (!accessToken) {
             logImportReviewAuthDecision("LoginPageClient", "show-login-form", {
                 ...state,
-                authLoading: false,
-            });
-            logImportTransportAuthDecision("LoginPageClient", "show-login-form", {
-                ...transportState,
                 authLoading: false,
             });
             setAuthChecked(true);
@@ -156,10 +135,6 @@ export default function LoginPageClient() {
 
         logImportReviewAuthDecision("LoginPageClient", "redirect-after-login", {
             ...readImportReviewAuthDebugState(pathname, false),
-            hasAccessToken: true,
-        });
-        logImportTransportAuthDecision("LoginPageClient", "redirect-after-login", {
-            ...readImportTransportAuthDebugState(pathname, false),
             hasAccessToken: true,
         });
         router.replace(postLoginPath);
@@ -274,18 +249,6 @@ export default function LoginPageClient() {
                         Development: you can open{" "}
                         <Link href="/dashboard/import-review" className="font-medium underline">
                             Import review
-                        </Link>{" "}
-                        without signing in when{" "}
-                        <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_IMPORT_REVIEW_ADMIN_TOKEN</code> is
-                        set.
-                    </p>
-                ) : null}
-
-                {isImportTransportDevRouteBypassActive("/dashboard/import-transport") ? (
-                    <p className="mt-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                        Development: you can open{" "}
-                        <Link href="/dashboard/import-transport" className="font-medium underline">
-                            Import transport
                         </Link>{" "}
                         without signing in when{" "}
                         <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_IMPORT_REVIEW_ADMIN_TOKEN</code> is

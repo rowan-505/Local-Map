@@ -209,10 +209,6 @@ const NORMALIZED_STRING = (effectiveKey: string, overrideKey: string): Effective
 export const IMPORT_REVIEW_EFFECTIVE_FIELD_REGISTRY: Partial<
     Record<ImportReviewEntityFamilySlug, readonly EffectiveFieldDef[]>
 > = {
-    bus_stops: [
-        STRING_FIELD("effective_stop_code", "stop_code"),
-        BIGINT_FIELD("effective_admin_area_id", "admin_area_id"),
-    ],
     buildings: [
         BIGINT_FIELD("effective_admin_area_id", "admin_area_id"),
         NUMBER_FIELD("effective_levels", "levels"),
@@ -322,7 +318,6 @@ function computeEffectiveField(
 }
 
 const BILINGUAL_NAME_FAMILIES = new Set<ImportReviewEntityFamilySlug>([
-    "bus_stops",
     "buildings",
     "places",
     "roads",
@@ -401,34 +396,6 @@ function applyBilingualNameFields(
     };
 }
 
-/** Bus-stop-specific extras beyond bilingual names. */
-function applyBusStopEffectiveExtras(
-    item: ImportReviewBuildingListItem,
-    raw: EffectiveValuesRawRow
-): ImportReviewBuildingListItem {
-    const withNames = applyBilingualNameFields(item, raw);
-    const emptyOverrides: Record<string, unknown> = {};
-    const effective_stop_code = pickEffectiveString(
-        "stop_code",
-        emptyOverrides,
-        raw.stop_code,
-        normPick(raw.normalized_data, "stop_code")
-    );
-    const effective_admin_area_id = pickEffectiveBigint(
-        "admin_area_id",
-        emptyOverrides,
-        raw.admin_area_id,
-        normPick(raw.normalized_data, "admin_area_id")
-    );
-
-    return {
-        ...withNames,
-        effective_stop_code,
-        effective_admin_area_id,
-        effective_admin_area_name: raw.effective_admin_area_name ?? item.effective_admin_area_name ?? null,
-    };
-}
-
 export function applyImportReviewEffectiveFields(
     family: ImportReviewEntityFamilySlug,
     baseItem: ImportReviewBuildingListItem,
@@ -456,14 +423,6 @@ export function applyImportReviewEffectiveFields(
         has_overrides: meta.has_overrides,
         overridden_fields: meta.overridden_fields,
     };
-
-    if (family === "bus_stops") {
-        enriched = applyBusStopEffectiveExtras(enriched, raw);
-        if (raw.effective_admin_area_name) {
-            enriched = { ...enriched, effective_admin_area_name: raw.effective_admin_area_name };
-        }
-        return enriched;
-    }
 
     if (BILINGUAL_NAME_FAMILIES.has(family)) {
         enriched = applyBilingualNameFields(enriched, raw);
@@ -502,106 +461,6 @@ export function applyImportReviewEffectiveFields(
 }
 
 // --- SQL expression builders (shared with promotion + validation) ---
-
-export function busStopStopCodeExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${a}.stop_code,
-            ${a}.normalized_data->>'stop_code',
-            ''
-        )), '')
-    `;
-}
-
-export function busStopNameMmExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${a}.name_mm,
-            ${a}.normalized_data->'tags'->>'name',
-            ${a}.canonical_name,
-            ''
-        )), '')
-    `;
-}
-
-export function busStopNameEnExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${a}.name_en,
-            ${a}.normalized_data->'tags'->>'name:en',
-            ''
-        )), '')
-    `;
-}
-
-export function busStopPrimaryRealNameExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        nullif(trim(coalesce(
-            ${busStopNameEnExpr(alias)},
-            ${busStopNameMmExpr(alias)},
-            ''
-        )), '')
-    `;
-}
-
-export function busStopNameExpr(alias: string): Prisma.Sql {
-    return busStopNameEnExpr(alias);
-}
-
-export function busStopNameLocalExpr(alias: string): Prisma.Sql {
-    return busStopNameMmExpr(alias);
-}
-
-export function busStopDisplayNameExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        coalesce(
-            ${busStopPrimaryRealNameExpr(alias)},
-            CASE
-                WHEN ${busStopStopCodeExpr(alias)} IS NOT NULL
-                    THEN 'Bus stop ' || ${busStopStopCodeExpr(alias)}
-            END,
-            CASE
-                WHEN ${externalIdExpr(alias)} IS NOT NULL
-                    THEN 'Bus stop ' || ${externalIdExpr(alias)}
-            END,
-            'Unnamed bus stop'
-        )
-    `;
-}
-
-export function busStopPointGeomExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        CASE
-            WHEN ${a}.geom IS NOT NULL THEN ${a}.geom
-            ELSE NULL::geometry(Point, 4326)
-        END
-    `;
-}
-
-/** Raw effective admin_area_id (no FK existence check) — for validation/read joins. */
-export function busStopEffectiveAdminAreaIdRawExpr(alias: string): Prisma.Sql {
-    return effectiveAdminAreaIdExpr(alias, { hasAdminAreaColumn: true });
-}
-
-export function busStopAdminAreaIdExpr(alias: string): Prisma.Sql {
-    const a = Prisma.raw(alias);
-    return Prisma.sql`
-        CASE
-            WHEN ${busStopEffectiveAdminAreaIdRawExpr(alias)} IS NULL THEN NULL::bigint
-            WHEN EXISTS (
-                SELECT 1 FROM core.core_admin_areas AS aa
-                WHERE aa.id = ${busStopEffectiveAdminAreaIdRawExpr(alias)}
-            ) THEN ${busStopEffectiveAdminAreaIdRawExpr(alias)}
-            ELSE NULL::bigint
-        END
-    `;
-}
 
 export function effectiveAdminAreaIdExpr(
     alias: string,

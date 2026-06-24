@@ -3,11 +3,7 @@ import { Prisma } from "@prisma/client";
 import { importReviewCandidateTableHasColumn } from "./import-review-candidate-column-registry.js";
 import type { ImportReviewEntityFamilyConfig } from "./import-review-config.js";
 import { ImportReviewDecisionRuleError } from "./import-review-errors.js";
-import {
-    busStopNameEnExpr,
-    busStopNameMmExpr,
-    effectiveAdminAreaIdExpr,
-} from "./import-review-effective-values.js";
+import { effectiveAdminAreaIdExpr } from "./import-review-effective-values.js";
 import {
     buildRoadAdminAreaJoins,
     roadResolvedAdminAreaIdExpr,
@@ -279,17 +275,6 @@ export function effectiveLanduseClassIdExpr(config: ImportReviewEntityFamilyConf
 
 function buildSearchClause(config: ImportReviewEntityFamilyConfig, q: string): Prisma.Sql {
     const pattern = `%${q}%`;
-    if (config.routeFamily === "bus_stops") {
-        return Prisma.sql`(
-            ${colRef(config, "canonical_name")} ILIKE ${pattern}
-            OR ${colRef(config, "external_id")} ILIKE ${pattern}
-            OR ${colRef(config, "stop_code")} ILIKE ${pattern}
-            OR ${colRef(config, "name_mm")} ILIKE ${pattern}
-            OR ${colRef(config, "name_en")} ILIKE ${pattern}
-            OR ${colRef(config, "normalized_data")}->'tags'->>'name' ILIKE ${pattern}
-            OR ${colRef(config, "normalized_data")}->'tags'->>'name:en' ILIKE ${pattern}
-        )`;
-    }
     const parts = config.searchableFields.map((field) =>
         Prisma.sql`${colRef(config, field)} ILIKE ${pattern}`
     );
@@ -540,15 +525,6 @@ export function buildCandidateCommonSelect(
             Prisma.sql`lc.code AS landuse_class_code,`,
             Prisma.sql`lc.name_en AS landuse_class_name,`,
             Prisma.sql`lc.name_mm AS landuse_class_name_mm`
-        );
-    }
-
-    if (config.routeFamily === "bus_stops") {
-        selectParts.push(
-            Prisma.sql`,`,
-            Prisma.sql`${busStopNameMmExpr(config.tableAlias)} AS name_mm,`,
-            Prisma.sql`${busStopNameEnExpr(config.tableAlias)} AS name_en,`,
-            Prisma.sql`${colRef(config, "stop_code")} AS stop_code`
         );
     }
 

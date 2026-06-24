@@ -29,7 +29,7 @@ test("importReviewInternalErrorMessage preserves message in development", () => 
     const prev = process.env.NODE_ENV;
     process.env.NODE_ENV = "development";
     try {
-        const err = new Error("Table import_review.bus_route_variants does not exist");
+        const err = new Error("Table import_review.place_candidates does not exist");
         assert.equal(importReviewInternalErrorMessage(err), err.message);
     } finally {
         process.env.NODE_ENV = prev;

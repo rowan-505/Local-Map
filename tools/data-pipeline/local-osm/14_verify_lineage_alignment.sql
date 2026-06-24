@@ -144,7 +144,6 @@ VALUES
     ('buildings', 'staging_building_candidates', 'core_map_buildings'),
     ('places', 'staging_place_candidates', 'core_places'),
     ('roads', 'staging_road_candidates', 'core_streets'),
-    ('bus_stops', 'staging_bus_stop_candidates', 'core_bus_stops'),
     ('landuse', 'staging_landuse_candidates', 'core_map_landuse'),
     ('water_lines', 'staging_water_line_candidates', 'core_map_water_lines'),
     ('water_polygons', 'staging_water_polygon_candidates', 'core_map_water_polygons'),

@@ -22,7 +22,7 @@ export type VerificationSummaryEntityConfig = {
     table: string;
     path: string;
     idColumns: readonly string[];
-    /** Optional UI label, e.g. core_transport. */
+    /** Optional UI source label. */
     sourceLabel?: string;
 };
 

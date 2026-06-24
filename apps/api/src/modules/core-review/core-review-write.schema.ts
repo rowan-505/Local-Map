@@ -237,108 +237,6 @@ export const coreReviewPatchStreetSchema = z
         { message: "At least one field is required" },
     );
 
-const transportModeTypeSchema = z.enum([
-    "local_bus",
-    "express_bus",
-    "train",
-    "ferry",
-    "airport_access",
-]);
-
-const transportEntityWriteExtras = {
-    confidenceScore: optionalConfidenceScore,
-    confidence_score: optionalConfidenceScore,
-    ...coreReviewVerificationWriteFields,
-};
-
-// ── Bus stops ───────────────────────────────────────────────────────────────
-
-const busStopFields = {
-    name: nullableTrimmedString,
-    nameLocal: nullableTrimmedString,
-    name_local: nullableTrimmedString,
-    stopCode: nullableTrimmedString,
-    stop_code: nullableTrimmedString,
-    adminAreaId: nullableBigintId,
-    admin_area_id: nullableBigintId,
-    sourceTypeId: nullableBigintId,
-    source_type_id: nullableBigintId,
-    isActive: optionalBoolean,
-    is_active: optionalBoolean,
-    ...transportEntityWriteExtras,
-    geometry: pointFieldSchema(),
-    geom: pointFieldSchema(),
-};
-
-export const coreReviewCreateBusStopSchema = z.object(busStopFields);
-export const coreReviewPatchBusStopSchema = z
-    .object({ ...busStopFields, geometry: pointFieldSchema().optional(), geom: pointFieldSchema().optional() })
-    .partial()
-    .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required" });
-
-// ── Bus routes ──────────────────────────────────────────────────────────────
-
-const busRouteFields = {
-    routeCode: nullableTrimmedString,
-    route_code: nullableTrimmedString,
-    publicName: nullableTrimmedString,
-    public_name: nullableTrimmedString,
-    operatorName: nullableTrimmedString,
-    operator_name: nullableTrimmedString,
-    operatorId: nullableBigintId,
-    operator_id: nullableBigintId,
-    routeType: transportModeTypeSchema.nullable().optional(),
-    route_type: transportModeTypeSchema.nullable().optional(),
-    modeType: transportModeTypeSchema.nullable().optional(),
-    mode_type: transportModeTypeSchema.nullable().optional(),
-    directionality: nullableTrimmedString,
-    sourceTypeId: nullableBigintId,
-    source_type_id: nullableBigintId,
-    isActive: optionalBoolean,
-    is_active: optionalBoolean,
-    ...transportEntityWriteExtras,
-};
-
-export const coreReviewCreateBusRouteSchema = z.object(busRouteFields);
-export const coreReviewPatchBusRouteSchema = z
-    .object(busRouteFields)
-    .partial()
-    .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required" });
-
-// ── Bus route variants ──────────────────────────────────────────────────────
-
-const variantFields = {
-    routeId: requiredBigintId,
-    route_id: requiredBigintId,
-    variantCode: nullableTrimmedString,
-    variant_code: nullableTrimmedString,
-    directionName: nullableTrimmedString,
-    direction_name: nullableTrimmedString,
-    originName: nullableTrimmedString,
-    origin_name: nullableTrimmedString,
-    destinationName: nullableTrimmedString,
-    destination_name: nullableTrimmedString,
-    distanceM: z.number().finite().min(0).optional(),
-    distance_m: z.number().finite().min(0).optional(),
-    isActive: optionalBoolean,
-    is_active: optionalBoolean,
-    ...transportEntityWriteExtras,
-    geometry: lineStringGeometrySchema,
-    geom: lineStringGeometrySchema,
-};
-
-export const coreReviewCreateBusRouteVariantSchema = z.object(variantFields);
-export const coreReviewPatchBusRouteVariantSchema = z
-    .object({
-        ...variantFields,
-        routeId: optionalBigintId,
-        route_id: optionalBigintId,
-        geometry: lineStringGeometrySchema.optional(),
-        geom: lineStringGeometrySchema.optional(),
-    })
-    .partial()
-    .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required" });
-
 // ── Map features (landuse / water) ──────────────────────────────────────────
 
 const detailLevelSchema = z.enum(["zone", "parcel"]);
@@ -629,9 +527,6 @@ const CREATE_SCHEMAS: Record<CoreReviewEntitySlug, z.ZodType> = {
     buildings: coreReviewCreateBuildingSchema,
     places: coreReviewCreatePlaceSchema,
     streets: coreReviewCreateStreetSchema,
-    "bus-stops": coreReviewCreateBusStopSchema,
-    "bus-routes": coreReviewCreateBusRouteSchema,
-    "bus-route-variants": coreReviewCreateBusRouteVariantSchema,
     landuse: coreReviewCreateLanduseSchema,
     "water-lines": coreReviewCreateWaterLineSchema,
     "water-polygons": coreReviewCreateWaterPolygonSchema,
@@ -643,9 +538,6 @@ const PATCH_SCHEMAS: Record<CoreReviewEntitySlug, z.ZodType> = {
     buildings: coreReviewPatchBuildingSchema,
     places: coreReviewPatchPlaceSchema,
     streets: coreReviewPatchStreetSchema,
-    "bus-stops": coreReviewPatchBusStopSchema,
-    "bus-routes": coreReviewPatchBusRouteSchema,
-    "bus-route-variants": coreReviewPatchBusRouteVariantSchema,
     landuse: coreReviewPatchLanduseSchema,
     "water-lines": coreReviewPatchWaterLineSchema,
     "water-polygons": coreReviewPatchWaterPolygonSchema,
@@ -722,8 +614,6 @@ const WRITE_ID_ALIAS_PAIRS: [string, string][] = [
     ["landuseClassId", "landuse_class_id"],
     ["adminAreaId", "admin_area_id"],
     ["roadClassId", "road_class_id"],
-    ["routeId", "route_id"],
-    ["operatorId", "operator_id"],
     ["buildingTypeId", "building_type_id"],
     ["categoryId", "category_id"],
 ];

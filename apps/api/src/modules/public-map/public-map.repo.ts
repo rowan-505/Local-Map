@@ -548,10 +548,10 @@ export class PublicMapRepository {
                 bn_mm.name AS name_mm,
                 bn_en.name AS name_en,
                 ST_AsGeoJSON(b.geom)::json AS geom
-            FROM core.core_bus_stops AS b
+            FROM transport.stops AS b
             LEFT JOIN LATERAL (
                 SELECT n.name
-                FROM core.core_bus_stop_names AS n
+                FROM transport.stop_names AS n
                 WHERE n.stop_id = b.id
                   AND lower(trim(coalesce(n.language_code, ''))) = 'my'
                 ORDER BY
@@ -566,7 +566,7 @@ export class PublicMapRepository {
             ) AS bn_mm ON true
             LEFT JOIN LATERAL (
                 SELECT n.name
-                FROM core.core_bus_stop_names AS n
+                FROM transport.stop_names AS n
                 WHERE n.stop_id = b.id
                   AND lower(trim(coalesce(n.language_code, ''))) = 'en'
                 ORDER BY
@@ -580,6 +580,7 @@ export class PublicMapRepository {
                 LIMIT 1
             ) AS bn_en ON true
             WHERE b.is_active = true
+              AND b.deleted_at IS NULL
               AND ST_Intersects(b.geom, ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL})
             ORDER BY b.name ASC
             LIMIT 2000
@@ -599,12 +600,23 @@ export class PublicMapRepository {
                 rn_mm.name AS name_mm,
                 rn_en.name AS name_en,
                 true AS label_dense,
-                ST_AsGeoJSON(v.geom)::json AS geom
-            FROM core.core_bus_route_variants AS v
-            INNER JOIN core.core_bus_routes AS r ON r.id = v.route_id
+                ST_AsGeoJSON(rp.geom)::json AS geom
+            FROM transport.route_variants AS v
+            INNER JOIN transport.routes AS r ON r.id = v.route_id
+            LEFT JOIN LATERAL (
+                SELECT p.geom
+                FROM transport.route_paths AS p
+                WHERE p.route_variant_id = v.id
+                  AND p.is_active = true
+                  AND p.deleted_at IS NULL
+                ORDER BY
+                    CASE WHEN p.path_kind = 'primary' THEN 0 ELSE 1 END,
+                    p.id ASC
+                LIMIT 1
+            ) AS rp ON true
             LEFT JOIN LATERAL (
                 SELECT n.name
-                FROM core.core_bus_route_names AS n
+                FROM transport.route_names AS n
                 WHERE n.route_id = r.id
                   AND lower(trim(coalesce(n.language_code, ''))) = 'my'
                 ORDER BY
@@ -619,7 +631,7 @@ export class PublicMapRepository {
             ) AS rn_mm ON true
             LEFT JOIN LATERAL (
                 SELECT n.name
-                FROM core.core_bus_route_names AS n
+                FROM transport.route_names AS n
                 WHERE n.route_id = r.id
                   AND lower(trim(coalesce(n.language_code, ''))) = 'en'
                 ORDER BY
@@ -633,8 +645,11 @@ export class PublicMapRepository {
                 LIMIT 1
             ) AS rn_en ON true
             WHERE v.is_active = true
+              AND v.deleted_at IS NULL
               AND r.is_active = true
-              AND ST_Intersects(v.geom, ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL})
+              AND r.deleted_at IS NULL
+              AND rp.geom IS NOT NULL
+              AND ST_Intersects(rp.geom, ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL})
             ORDER BY r.route_code ASC, v.variant_code ASC
             LIMIT 500
         `);

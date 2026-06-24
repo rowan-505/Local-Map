@@ -579,15 +579,15 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
             minzoom: 0,
             maxzoom: 22,
         },
-        tiles_bus_stops_v: {
+        transport_stops_v: {
             type: "vector",
-            tiles: [`${TILE_SERVER_URL}/tiles_bus_stops_v/{z}/{x}/{y}`],
+            tiles: [`${TILE_SERVER_URL}/transport_stops_v/{z}/{x}/{y}`],
             minzoom: 0,
             maxzoom: 22,
         },
-        tiles_bus_route_variants_v: {
+        transport_route_paths_v: {
             type: "vector",
-            tiles: [`${TILE_SERVER_URL}/tiles_bus_route_variants_v/{z}/{x}/{y}`],
+            tiles: [`${TILE_SERVER_URL}/transport_route_paths_v/{z}/{x}/{y}`],
             minzoom: 0,
             maxzoom: 22,
         },
@@ -678,8 +678,8 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         {
             id: "bus-routes",
             type: "line",
-            source: "tiles_bus_route_variants_v",
-            "source-layer": "tiles_bus_route_variants_v",
+            source: "transport_route_paths_v",
+            "source-layer": "transport_route_paths_v",
             layout: {
                 "line-cap": "round",
                 "line-join": "round",
@@ -737,8 +737,8 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
         {
             id: "bus-stops",
             type: "circle",
-            source: "tiles_bus_stops_v",
-            "source-layer": "tiles_bus_stops_v",
+            source: "transport_stops_v",
+            "source-layer": "transport_stops_v",
             minzoom: 14,
             paint: {
                 "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 3, 17, 4.5, 20, 7],
@@ -794,13 +794,13 @@ export const PLACE_MAP_STYLE: StyleSpecification = {
 
 /**
  * Same basemap as {@link PLACE_MAP_STYLE} but omits Martin bus stop / bus route vector
- * sources and layers. Use on **Buildings** admin routes so failing `tiles_bus_stops_v` does
+ * sources and layers. Use on **Buildings** admin routes so failing `transport_stops_v` does
  * not request tiles at all (see `attachDashboardMapErrorHandler` for remaining soft failures).
  */
 export const PLACE_MAP_STYLE_BUILDINGS: StyleSpecification = (() => {
     const sources = { ...PLACE_MAP_STYLE.sources } as Record<string, (typeof PLACE_MAP_STYLE.sources)[string]>;
-    delete sources.tiles_bus_stops_v;
-    delete sources.tiles_bus_route_variants_v;
+    delete sources.transport_stops_v;
+    delete sources.transport_route_paths_v;
 
     return {
         ...PLACE_MAP_STYLE,

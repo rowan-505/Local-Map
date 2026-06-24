@@ -67,6 +67,8 @@ export function MapFloatingControls({
   const dispatchUtilityAction = useMapUiStore((s) => s.dispatchUtilityAction);
   const mapMode = useMapUiStore((s) => s.mapMode);
   const setMapMode = useMapUiStore((s) => s.setMapMode);
+  const transportOverlayVisible = useMapUiStore((s) => s.transportOverlayVisible);
+  const toggleTransportOverlay = useMapUiStore((s) => s.toggleTransportOverlay);
   useEffect(() => {
     if (openPanel === null) return;
 
@@ -115,6 +117,10 @@ export function MapFloatingControls({
             onSelectLanguageMode(nextMode);
             setOpenPanel(null);
           }}
+        />
+        <TransportToggle
+          active={transportOverlayVisible}
+          onToggle={toggleTransportOverlay}
         />
         <ZoomControls
           onZoomIn={() => dispatchUtilityAction('zoomIn')}
@@ -269,6 +275,33 @@ function CompactControlSelect({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function TransportToggle({
+  active,
+  onToggle,
+}: {
+  readonly active: boolean;
+  readonly onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`flex h-10 w-10 items-center justify-center gap-1.5 rounded-2xl border text-xs font-semibold shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-colors lg:h-9 lg:w-auto lg:min-w-18 lg:px-2.5 ${
+        active
+          ? 'border-sky-500 bg-sky-600 text-white shadow-sky-900/20'
+          : 'border-white/80 bg-white/95 text-neutral-700 hover:bg-neutral-100'
+      }`}
+      aria-pressed={active}
+      title="Transport overlay"
+      onClick={onToggle}
+    >
+      <span className="grid h-4.5 w-4.5 shrink-0 place-items-center lg:h-4 lg:w-4">
+        <TransportIcon />
+      </span>
+      <span className="hidden min-w-0 truncate lg:block">Transport</span>
+    </button>
   );
 }
 
@@ -437,6 +470,18 @@ function LayersIcon() {
     <svg className="h-4.5 w-4.5 lg:h-4 lg:w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M8 1.8 14 5 8 8.2 2 5l6-3.2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
       <path d="m2 8 6 3.2L14 8M2 11l6 3.2L14 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TransportIcon() {
+  return (
+    <svg className="h-4.5 w-4.5 lg:h-4 lg:w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="3.5" y="2.5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M3.5 6.5h9" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M5.5 11.5 4.5 14M10.5 11.5l1 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <circle cx="6" cy="9" r="0.9" fill="currentColor" />
+      <circle cx="10" cy="9" r="0.9" fill="currentColor" />
     </svg>
   );
 }

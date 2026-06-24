@@ -1990,7 +1990,7 @@ export const getImportReviewPromotionEligibilitySchema = {
     tags: [Tags.ImportReview],
     summary: "Promotion eligibility for checkbox-selected entity families",
     description:
-        "Read-only approximate per-family counts from import_review candidate tables (no candidate updates or validation runs). Requires explicit families query (comma-separated). Rejects legacy bus families with TRANSPORT_PROMOTION_DEPRECATED.",
+        "Read-only approximate per-family counts from import_review candidate tables (no candidate updates or validation runs). Requires explicit families query (comma-separated).",
     security: [...bearerAuth],
     querystring: {
         type: "object",

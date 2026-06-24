@@ -1,10 +1,6 @@
 export { adminAreasImportReviewEntityConfig } from "./admin-areas";
 export { addressesImportReviewEntityConfig } from "./addresses";
 export { buildingsImportReviewEntityConfig } from "./buildings";
-export { busRouteStopsImportReviewEntityConfig } from "./bus-route-stops";
-export { busRouteVariantsImportReviewEntityConfig } from "./bus-route-variants";
-export { busRoutesImportReviewEntityConfig } from "./bus-routes";
-export { busStopsImportReviewEntityConfig } from "./bus-stops";
 export { landuseImportReviewEntityConfig } from "./landuse";
 export { placesImportReviewEntityConfig } from "./places";
 export { roadsImportReviewEntityConfig } from "./roads";

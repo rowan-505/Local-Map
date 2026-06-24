@@ -1,3 +1,0 @@
-import { createImportReviewEntityRoutePage } from "@/src/features/import-review/routes/importReviewEntityRoutePage";
-
-export default createImportReviewEntityRoutePage("bus-route-stops");

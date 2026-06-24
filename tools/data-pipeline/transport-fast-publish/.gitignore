@@ -1,0 +1,7 @@
+# Generated pipeline artifacts (not source).
+/logs/
+/exports/
+
+# Local secrets-bearing env files (keep only template.full.env).
+imports/*.env
+!imports/template.full.env

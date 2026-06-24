@@ -102,16 +102,26 @@ valhalla_require_built_tiles() {
 valhalla_prepare_custom_files() {
     mkdir -p "${VALHALLA_DATA_DIR}"
 
-    local pbf_dest="${VALHALLA_DATA_DIR}/${VALHALLA_PBF_BASENAME}"
-    local pbf_abs
+    local data_dir_abs pbf_abs pbf_dest
+    data_dir_abs="$(cd "${VALHALLA_DATA_DIR}" && pwd)"
     pbf_abs="$(cd "$(dirname "${VALHALLA_PBF_PATH}")" && pwd)/$(basename "${VALHALLA_PBF_PATH}")"
+    pbf_dest="${data_dir_abs}/${VALHALLA_PBF_BASENAME}"
 
-    if [[ -L "${pbf_dest}" ]] || [[ -f "${pbf_dest}" ]]; then
-        rm -f "${pbf_dest}"
+    # Docker bind-mounts only VALHALLA_DATA_DIR to /custom_files. A symlink whose
+    # target is outside that dir resolves to a dangling link inside the container
+    # ("Unable to open: /custom_files/<pbf>"), so the PBF must be a real file here.
+    if [[ "${pbf_abs}" != "${pbf_dest}" ]]; then
+        # Drop any stale symlink left by older script versions.
+        if [[ -L "${pbf_dest}" ]]; then
+            rm -f "${pbf_dest}"
+        fi
+        if [[ ! -f "${pbf_dest}" ]] || [[ "${pbf_abs}" -nt "${pbf_dest}" ]]; then
+            echo "info: copying PBF into ${VALHALLA_DATA_DIR} (Docker mount /custom_files)..."
+            cp -f "${pbf_abs}" "${pbf_dest}"
+        fi
     fi
-    ln -sf "${pbf_abs}" "${pbf_dest}"
 
-    local config_dest="${VALHALLA_DATA_DIR}/valhalla.json"
+    local config_dest="${data_dir_abs}/valhalla.json"
     if [[ ! -f "${config_dest}" ]] && [[ -f "${VALHALLA_CONFIG_DIR}/valhalla.json.template" ]]; then
         cp "${VALHALLA_CONFIG_DIR}/valhalla.json.template" "${config_dest}"
         echo "info: copied config/valhalla.json.template -> data/builds/valhalla.json"

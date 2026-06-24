@@ -16,10 +16,10 @@ function isOptionalTransitTileFailureMessage(message: string): boolean {
     const m = message.toLowerCase();
 
     return (
-        m.includes("tiles_bus_stops_v") ||
-        m.includes("tiles_bus_route") ||
-        m.includes("/tiles_bus_stops") ||
-        m.includes("/tiles_bus_route")
+        m.includes("transport_stops_v") ||
+        m.includes("transport_route_paths_v") ||
+        m.includes("/transport_stops") ||
+        m.includes("/transport_route_paths")
     );
 }
 

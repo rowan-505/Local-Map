@@ -15,10 +15,13 @@ type MapUiState = {
   readonly mapMode: MapMode;
   readonly basemapModeError: string | null;
   readonly utilityCommand: MapUtilityCommand | null;
+  readonly transportOverlayVisible: boolean;
   setLanguageMode: (mode: PlaceLanguageMode) => void;
   setMapMode: (mode: MapMode) => void;
   setBasemapModeError: (message: string | null) => void;
   dispatchUtilityAction: (action: MapUtilityAction) => void;
+  setTransportOverlayVisible: (visible: boolean) => void;
+  toggleTransportOverlay: () => void;
 };
 
 const initialMapMode = readPersistedMapMode() ?? 'normal';
@@ -29,6 +32,7 @@ export const useMapUiStore = create<MapUiState>((set) => ({
   mapMode: initialMapMode,
   basemapModeError: null,
   utilityCommand: null,
+  transportOverlayVisible: false,
   setLanguageMode: (mode) => set({ languageMode: mode }),
   setMapMode: (mode) => {
     persistMapMode(mode);
@@ -42,4 +46,7 @@ export const useMapUiStore = create<MapUiState>((set) => ({
         action,
       },
     })),
+  setTransportOverlayVisible: (visible) => set({ transportOverlayVisible: visible }),
+  toggleTransportOverlay: () =>
+    set((state) => ({ transportOverlayVisible: !state.transportOverlayVisible })),
 }));

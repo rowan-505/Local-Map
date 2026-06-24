@@ -184,13 +184,13 @@ Use `ENTITY_FAMILIES` in your import env to limit extraction, diff, review packa
 | `buildings` | `staging_building_candidates` | `import_review.building_candidates` |
 | `roads` | `staging_road_candidates` | `import_review.road_candidates` |
 | `admin_areas` | `staging_admin_area_candidates` | `import_review.admin_area_candidates` |
-| `bus_stops` | `staging_bus_stop_candidates` | `import_review.bus_stop_candidates` |
 | `landuse` | `staging_landuse_candidates` | `import_review.landuse_candidates` |
 | `water_lines` | `staging_water_line_candidates` | `import_review.water_line_candidates` |
 | `water_polygons` | `staging_water_polygon_candidates` | `import_review.water_polygon_candidates` |
 | `routing_barriers` | `staging_routing_barrier_candidates` | `import_review.routing_barrier_candidates` |
-| `bus_routes`, `bus_route_variants`, `bus_route_stops` | staging tables when present | not in Stage K yet |
 | `routing_roads`, `routing_turn_restrictions` | staging / export helpers | not in Stage K yet |
+
+> Transport families (bus stops/routes) are no longer part of this OSM pipeline. Transport data now lives in `transport.*` and is loaded by a separate direct-upsert path.
 
 Use `all` (default) for every configured family. Comma-separate for subsets, e.g. `admin_areas,roads`.
 

@@ -4,12 +4,10 @@ import { useCallback, useMemo, useState } from "react";
 
 import DataTableToolbar, { type DataTableSortOption } from "@/src/components/dashboard/DataTableToolbar";
 import CoreReviewFilterCard from "@/src/components/core-review/CoreReviewFilterCard";
-import type { CoreReviewBusRouteRow } from "../config/types";
 
 import {
     useCoreReviewRefAdminAreas,
     useCoreReviewRefBuildingTypes,
-    useCoreReviewRefBusRoutes,
     useCoreReviewRefCategories,
     useCoreReviewRefLanduseClasses,
     useCoreReviewRefRoadClasses,
@@ -40,7 +38,6 @@ export default function CoreReviewEntityFilters({
     onClear,
     onApplyVerificationFilter,
     extraFilters,
-    showRoutePicker,
     adminAreaTownshipOnly = false,
 }: {
     draft: CoreReviewListDraft;
@@ -54,7 +51,6 @@ export default function CoreReviewEntityFilters({
     onClear: () => void;
     onApplyVerificationFilter?: (filter: CoreReviewVerificationStatusFilter) => void;
     extraFilters?: React.ReactNode;
-    showRoutePicker?: boolean;
     adminAreaTownshipOnly?: boolean;
 }) {
     // Lazily enable each reference query on first interaction with its control.
@@ -63,7 +59,6 @@ export default function CoreReviewEntityFilters({
         categories: false,
         roadClasses: Boolean(filterSupport.roadClassId),
         adminAreas: adminAreaTownshipOnly && Boolean(filterSupport.adminAreaId),
-        routes: false,
         landuseClasses: false,
     });
 
@@ -88,10 +83,6 @@ export default function CoreReviewEntityFilters({
         200,
         Boolean(filterSupport.adminAreaId) && refsEnabled.adminAreas,
         adminAreaTownshipOnly,
-    );
-    const routesQuery = useCoreReviewRefBusRoutes(
-        100,
-        Boolean(showRoutePicker && filterSupport.routeId) && refsEnabled.routes
     );
     const landuseClassesQuery = useCoreReviewRefLanduseClasses(
         Boolean(filterSupport.landuseClassId) && refsEnabled.landuseClasses
@@ -123,15 +114,6 @@ export default function CoreReviewEntityFilters({
                 label: r.canonical_name,
             })),
         [adminAreasQuery.data]
-    );
-
-    const routes: Option[] = useMemo(
-        () =>
-            (routesQuery.data ?? []).map((r: CoreReviewBusRouteRow) => ({
-                id: r.id,
-                label: r.publicName?.trim() || r.routeCode?.trim() || r.id,
-            })),
-        [routesQuery.data]
     );
 
     const landuseClasses: Option[] = useMemo(
@@ -257,16 +239,6 @@ export default function CoreReviewEntityFilters({
                             { id: "false", label: "Private" },
                         ]}
                         onChange={(v) => setDraft((d) => ({ ...d, isPublic: v }))}
-                    />
-                ) : null}
-
-                {showRoutePicker && filterSupport.routeId ? (
-                    <FilterSelect
-                        label="Route"
-                        value={draft.routeId}
-                        options={[{ id: "", label: "All routes" }, ...routes]}
-                        onOpen={() => enableRef("routes")}
-                        onChange={(v) => setDraft((d) => ({ ...d, routeId: v }))}
                     />
                 ) : null}
 

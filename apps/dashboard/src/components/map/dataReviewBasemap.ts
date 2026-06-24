@@ -140,6 +140,87 @@ export function applyDashboardMergedBasemapMode(map: maplibregl.Map, mode: DataR
     }
 }
 
+function isFillLikeLayer(layerType: string): boolean {
+    return layerType === "fill" || layerType === "fill-extrusion";
+}
+
+function safeStyleLayers(map: maplibregl.Map): { id: string; type: string }[] {
+    try {
+        return (map.getStyle().layers ?? []) as { id: string; type: string }[];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Map / Sat / Hyb for the composed PMTiles preview style (overview + regional, and
+ * the dev all-region QA style) used by {@link createPreviewBaseMap}.
+ *
+ * Unlike {@link applyDataReviewBasemapMode} — which toggles a fixed list of regional
+ * layer ids and therefore misses overview layers and split label ids — this classifies
+ * the style's layers dynamically so every basemap layer is handled regardless of how the
+ * style was composed:
+ *
+ *   map       → all basemap layers visible, satellite hidden
+ *   satellite → all basemap layers hidden, satellite visible (clean imagery)
+ *   hybrid    → satellite + basemap line/symbol layers (roads + labels); fills hidden
+ *
+ * `overlayLayerIds` (e.g. transport route / stop / vertex overlays) and `background`
+ * are never hidden, and overlays are re-raised above the satellite raster so they stay
+ * visible in every mode.
+ *
+ * Returns `false` when the satellite layer is unavailable (caller can surface a graceful
+ * "imagery unavailable" note); in that case the vector basemap is left fully visible.
+ */
+export function applyPreviewCompositeBasemapMode(
+    map: maplibregl.Map,
+    mode: DataReviewBasemapMode,
+    options: { overlayLayerIds: readonly string[] },
+): boolean {
+    const satId = DATA_REVIEW_SATELLITE_LAYER_ID;
+    const overlay = new Set<string>(options.overlayLayerIds);
+
+    if (!map.getLayer(satId)) {
+        // Satellite raster unavailable — keep the vector basemap fully visible.
+        for (const layer of safeStyleLayers(map)) {
+            if (layer.id === "background" || overlay.has(layer.id)) {
+                continue;
+            }
+            setLayerVisibility(map, layer.id, true);
+        }
+        return false;
+    }
+
+    const imageryOn = mode !== "map";
+    setLayerVisibility(map, satId, imageryOn);
+
+    const protectedIds = new Set<string>([satId, "background", ...options.overlayLayerIds]);
+    for (const layer of safeStyleLayers(map)) {
+        if (protectedIds.has(layer.id)) {
+            continue;
+        }
+        let visible: boolean;
+        if (mode === "map") {
+            visible = true;
+        } else if (mode === "satellite") {
+            visible = false;
+        } else {
+            // hybrid: keep roads + labels (line/symbol/circle), hide fills.
+            visible = !isFillLikeLayer(layer.type);
+        }
+        setLayerVisibility(map, layer.id, visible);
+    }
+
+    if (imageryOn) {
+        for (const id of options.overlayLayerIds) {
+            if (map.getLayer(id)) {
+                map.moveLayer(id);
+            }
+        }
+    }
+    return true;
+}
+
 function satelliteInsertBeforeId(map: maplibregl.Map): string | undefined {
     for (const id of SATELLITE_INSERT_BEFORE_CANDIDATES) {
         if (map.getLayer(id)) {

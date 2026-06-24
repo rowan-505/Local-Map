@@ -1,6 +1,6 @@
 import { coreReviewPath } from "@/src/lib/dashboardNavigation";
 
-export type CoreReviewOverviewSourceSchema = "core" | "core_transport";
+export type CoreReviewOverviewSourceSchema = "core";
 
 export type CoreReviewOverviewAccess = "editable" | "read-only";
 
@@ -40,33 +40,6 @@ export const CORE_REVIEW_OVERVIEW_MODULES: readonly CoreReviewOverviewModule[] =
         href: coreReviewPath("roads"),
         sourceTable: "core.core_streets",
         sourceSchema: "core",
-        access: "read-only",
-    },
-    {
-        segment: "bus-stops",
-        title: "Bus stops",
-        description: "Transit stop points — search, verify, and edit stop metadata.",
-        href: coreReviewPath("bus-stops"),
-        sourceTable: "core_transport.stops",
-        sourceSchema: "core_transport",
-        access: "read-only",
-    },
-    {
-        segment: "bus-routes",
-        title: "Bus routes",
-        description: "Route codes, operators, and verification for production transit routes.",
-        href: coreReviewPath("bus-routes"),
-        sourceTable: "core_transport.routes",
-        sourceSchema: "core_transport",
-        access: "read-only",
-    },
-    {
-        segment: "bus-route-variants",
-        title: "Bus route variants",
-        description: "Directional variants with geometry, route paths, and stop sequences.",
-        href: coreReviewPath("bus-route-variants"),
-        sourceTable: "core_transport.route_variants",
-        sourceSchema: "core_transport",
         access: "read-only",
     },
     {

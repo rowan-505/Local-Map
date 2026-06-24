@@ -7,10 +7,6 @@ const PLACE_CANDIDATE_TABLE = "import_review.place_candidates";
 const LANDUSE_CANDIDATE_TABLE = "import_review.landuse_candidates";
 const WATER_LINE_CANDIDATE_TABLE = "import_review.water_line_candidates";
 const WATER_POLYGON_CANDIDATE_TABLE = "import_review.water_polygon_candidates";
-const BUS_ROUTE_CANDIDATE_TABLE = "import_review.bus_route_candidates";
-const BUS_ROUTE_VARIANT_CANDIDATE_TABLE = "import_review.bus_route_variant_candidates";
-const BUS_ROUTE_STOP_CANDIDATE_TABLE = "import_review.bus_route_stop_candidates";
-const BUS_STOP_CANDIDATE_TABLE = "import_review.bus_stop_candidates";
 const ROAD_CANDIDATE_TABLE = "import_review.road_candidates";
 const ADMIN_AREA_CANDIDATE_TABLE = "import_review.admin_area_candidates";
 const ROUTING_BARRIER_CANDIDATE_TABLE = "import_review.routing_barrier_candidates";
@@ -797,46 +793,6 @@ export class ImportReviewPublishBatchSummaryRepository {
                   AND spi.publish_status = 'success'
                   AND wp.promotion_status = 'promoted'
                   AND wp.promoted_core_id IS NOT NULL
-                UNION ALL
-                SELECT spi.id
-                FROM system.system_publish_items AS spi
-                INNER JOIN import_review.bus_route_candidates AS br
-                    ON br.id = spi.review_candidate_id
-                   AND spi.review_candidate_table = ${BUS_ROUTE_CANDIDATE_TABLE}
-                WHERE spi.publish_batch_id = ${batchId}
-                  AND spi.publish_status = 'success'
-                  AND br.promotion_status = 'promoted'
-                  AND br.promoted_core_id IS NOT NULL
-                UNION ALL
-                SELECT spi.id
-                FROM system.system_publish_items AS spi
-                INNER JOIN import_review.bus_route_variant_candidates AS brv
-                    ON brv.id = spi.review_candidate_id
-                   AND spi.review_candidate_table = ${BUS_ROUTE_VARIANT_CANDIDATE_TABLE}
-                WHERE spi.publish_batch_id = ${batchId}
-                  AND spi.publish_status = 'success'
-                  AND brv.promotion_status = 'promoted'
-                  AND brv.promoted_core_id IS NOT NULL
-                UNION ALL
-                SELECT spi.id
-                FROM system.system_publish_items AS spi
-                INNER JOIN import_review.bus_route_stop_candidates AS brs
-                    ON brs.id = spi.review_candidate_id
-                   AND spi.review_candidate_table = ${BUS_ROUTE_STOP_CANDIDATE_TABLE}
-                WHERE spi.publish_batch_id = ${batchId}
-                  AND spi.publish_status = 'success'
-                  AND brs.promotion_status = 'promoted'
-                  AND brs.normalized_data->'promotion'->'relation_key' IS NOT NULL
-                UNION ALL
-                SELECT spi.id
-                FROM system.system_publish_items AS spi
-                INNER JOIN import_review.bus_stop_candidates AS bs
-                    ON bs.id = spi.review_candidate_id
-                   AND spi.review_candidate_table = ${BUS_STOP_CANDIDATE_TABLE}
-                WHERE spi.publish_batch_id = ${batchId}
-                  AND spi.publish_status = 'success'
-                  AND bs.promotion_status = 'promoted'
-                  AND bs.promoted_core_id IS NOT NULL
                 UNION ALL
                 SELECT spi.id
                 FROM system.system_publish_items AS spi

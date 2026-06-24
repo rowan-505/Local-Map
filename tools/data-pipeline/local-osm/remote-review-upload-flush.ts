@@ -854,84 +854,6 @@ function roadsSpec(): UpsertSpec {
   };
 }
 
-function busStopsSpec(): UpsertSpec {
-  const table = importReviewTableQualified('bus_stops');
-  return {
-    family: 'bus_stops',
-    recordTypeSql: COMMON_RECORD,
-    geomPrepSql: '',
-    mapRows: (items, pkg) =>
-      items.map((it) => {
-        const c = buildCommonRow(it, pkg);
-        const nd = c.normalized_data;
-        return {
-          ...c,
-          geom_json: resolveItemGeomJson(it, 'point'),
-          name: c.canonical_name ?? pickString(nd, ['name']),
-          name_local: pickString(nd, ['name_local', 'name:my']),
-          stop_code: pickString(nd, ['stop_code', 'ref', 'public_transport:ref']),
-          admin_area_id:
-            pickInteger(it.payload, ['admin_area_candidate_id']) ??
-            pickInteger(nd, ['admin_area_id']),
-        };
-      }),
-    insertSql: `
-    WITH data AS (
-      SELECT * FROM jsonb_to_recordset($2::jsonb) AS d (
-        ${COMMON_RECORD}, name text, name_local text, stop_code text, admin_area_id bigint
-      )
-    ),
-    geom_prep AS (
-      SELECT data.*,
-        CASE WHEN geom_json IS NOT NULL AND btrim(geom_json) <> '' THEN
-          ST_SetSRID(ST_GeomFromGeoJSON(geom_json::text)::geometry, 4326)::geometry(Point,4326)
-        END AS pt_geom FROM data
-    )
-    INSERT INTO ${table} (
-      review_batch_id, source_snapshot_version, source_snapshot_id_local, local_staging_id,
-      entity_family, external_id, canonical_name, class_code, confidence_score,
-      match_status, auto_action, review_status, review_decision,
-      normalized_data, source_refs, matched_core_id, matched_core_table, matched_core_data, f2_comparison,
-      name, name_local, stop_code, admin_area_id, geom, updated_at
-    )
-    SELECT $1::bigint, gp.source_snapshot_version, gp.source_snapshot_id_local::bigint, gp.local_staging_id::bigint,
-      'bus_stops', gp.external_id, gp.canonical_name, gp.class_code, gp.confidence_score,
-      gp.match_status, gp.auto_action, gp.review_status, gp.review_decision,
-      coalesce(gp.normalized_data,'{}'), coalesce(gp.source_refs,'{}'),
-      gp.matched_core_id, gp.matched_core_table, gp.matched_core_data::jsonb, gp.f2_comparison::jsonb,
-      gp.name, gp.name_local, gp.stop_code, gp.admin_area_id::bigint, gp.pt_geom, now()
-    FROM geom_prep gp
-    ${insertSkipExistingBySnapshotSql(table, 'bus_stops')}
-    RETURNING id, local_staging_id`,
-    updateSql: `
-    WITH data AS (
-      SELECT * FROM jsonb_to_recordset($2::jsonb) AS d (
-        ${COMMON_RECORD}, name text, name_local text, stop_code text, admin_area_id bigint
-      )
-    ),
-    geom_prep AS (
-      SELECT data.*,
-        CASE WHEN geom_json IS NOT NULL AND btrim(geom_json) <> '' THEN
-          ST_SetSRID(ST_GeomFromGeoJSON(geom_json::text)::geometry, 4326)::geometry(Point,4326)
-        END AS pt_geom FROM data
-    )
-    UPDATE ${table} t SET
-      review_batch_id = $1::bigint,
-      source_snapshot_version = gp.source_snapshot_version, source_snapshot_id_local = gp.source_snapshot_id_local::bigint,
-      external_id = gp.external_id, canonical_name = gp.canonical_name, class_code = gp.class_code,
-      confidence_score = gp.confidence_score, match_status = gp.match_status, auto_action = gp.auto_action,
-      normalized_data = coalesce(gp.normalized_data,'{}'), source_refs = coalesce(gp.source_refs,'{}'),
-      matched_core_id = gp.matched_core_id, matched_core_table = gp.matched_core_table,
-      matched_core_data = gp.matched_core_data::jsonb, f2_comparison = gp.f2_comparison::jsonb,
-      name = gp.name, name_local = gp.name_local, stop_code = gp.stop_code,
-      admin_area_id = gp.admin_area_id::bigint, geom = gp.pt_geom, updated_at = now()
-    FROM geom_prep gp
-    WHERE ${updateMatchBySnapshotSql('bus_stops')}
-      AND ${PRESERVED_REMOTE_WHERE_SQL}
-    RETURNING t.id, t.local_staging_id`,
-  };
-}
-
 function addressesSpec(): UpsertSpec {
   const table = importReviewTableQualified('addresses');
   const addrFields =
@@ -1630,7 +1552,6 @@ function getUpsertSpec(family: EntityFamilySlug): UpsertSpec {
   if (family === 'buildings') return buildingsSpec();
   if (family === 'places') return placesSpec();
   if (family === 'roads') return roadsSpec();
-  if (family === 'bus_stops') return busStopsSpec();
   if (family === 'addresses') return addressesSpec();
   if (family === 'admin_areas') return adminAreasSpec();
   if (family === 'routing_barriers') return routingBarriersSpec();

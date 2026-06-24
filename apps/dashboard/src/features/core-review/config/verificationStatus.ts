@@ -1,7 +1,7 @@
 import type { ReviewStatusBadgeVariant } from "@/src/components/review/ReviewStatusBadge";
 
 /**
- * Canonical verification_status values stored in core / core_transport tables.
+ * Canonical verification_status values stored in core tables.
  * Input alias "rejected" normalizes to rejected_after_core_review.
  */
 export const CORE_REVIEW_VERIFICATION_STATUSES = [
@@ -98,7 +98,7 @@ export function getVerificationStatusBadgeVariant(
     }
 }
 
-/** Pill-style classes aligned with TransportVerificationStatusCell tones. */
+/** Pill-style classes for verification status tones. */
 export function getVerificationStatusBadgeToneClasses(
     status: string | null | undefined,
     isVerifiedFallback?: boolean | null,

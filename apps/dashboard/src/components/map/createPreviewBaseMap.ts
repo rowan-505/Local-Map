@@ -12,9 +12,19 @@ import type { StyleSpecification } from "maplibre-gl";
 import maplibregl from "maplibre-gl";
 
 import { createBasemapStyle } from "@local-map/map-style/basemapSource";
+import { createOverviewStyle } from "@local-map/map-style/overviewSource";
 import { ensurePmtilesProtocol } from "@local-map/map-style/registerPmtilesProtocol";
 import { getDashboardBasemapCurrentJsonUrl } from "@/src/lib/dashboardBasemapCurrentJsonUrl";
-import { resolveDashboardBasemapPmtilesHttpUrl } from "@/src/config/map";
+import {
+  getDashboardLocalRegionPmtilesBaseUrl,
+  isDashboardLoadAllRegionPmtilesEnabled,
+  resolveDashboardBasemapPmtilesHttpUrl,
+  resolveDashboardOverviewPmtilesHttpUrl,
+} from "@/src/config/map";
+import {
+  composeAllRegionPreviewStyle,
+  composeOverviewRegionalPreviewStyle,
+} from "./composeDashboardPreviewStyle";
 import { attachMapLibreDevDebugMap } from "@/src/lib/mapLibreDebug";
 import { attachDashboardMapErrorHandler } from "./mapErrorHandlers";
 import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
@@ -29,6 +39,29 @@ import {
 } from "@/src/lib/map/dashboardMaplibreComplexText";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
+
+/**
+ * Resolves the overview (whole-country) PMTiles style, or `null` when it is not configured /
+ * reachable. Missing overview config is a graceful fallback to the regional-only basemap, with a
+ * dev hint to set the required env var rather than hardcoding a URL.
+ */
+async function tryLoadOverviewStyle(
+  signal?: AbortSignal,
+): Promise<StyleSpecification | null> {
+  try {
+    const overviewUrl = await resolveDashboardOverviewPmtilesHttpUrl({ signal });
+    return createOverviewStyle(overviewUrl) as StyleSpecification;
+  } catch (err) {
+    if (IS_DEV) {
+      console.warn(
+        "[dashboard] overview PMTiles unavailable — preview maps use the regional basemap only. " +
+          "Set NEXT_PUBLIC_OVERVIEW_PMTILES_URL (or NEXT_PUBLIC_OVERVIEW_CURRENT_JSON_URL) for whole-country coverage.",
+        err,
+      );
+    }
+    return null;
+  }
+}
 
 type CreatePreviewBaseMapOptions = {
   zoom: number;
@@ -58,16 +91,40 @@ export async function fetchDashboardPmtilesOnlyStyle(options?: {
 
   const load = async (): Promise<StyleSpecification> => {
     const currentJsonUrl = options?.currentJsonUrl ?? getDashboardBasemapCurrentJsonUrl();
+
+    // Whole-country overview base (z0–z8). Optional: when unavailable we fall back to the
+    // regional-only basemap (previous behavior) so nothing regresses.
+    const overviewStyle = await tryLoadOverviewStyle(options?.signal);
+
+    // DEV-ONLY: full nationwide detail by loading every regional archive locally.
+    if (isDashboardLoadAllRegionPmtilesEnabled()) {
+      const composed = composeAllRegionPreviewStyle({
+        overviewStyle,
+        regionBaseUrl: getDashboardLocalRegionPmtilesBaseUrl(),
+      });
+      if (IS_DEV) {
+        console.info("[dashboard] PMTiles: overview + all local regions (dev QA mode)");
+      }
+      const style = applyDashboardLocalGlyphs(composed);
+      logDashboardMapFontConfig("map:preview-style-fonts");
+      return style;
+    }
+
     const httpUrl = await resolveDashboardBasemapPmtilesHttpUrl({
       currentJsonUrl,
       signal: options?.signal,
     });
 
     if (IS_DEV) {
-      console.info("[dashboard] active PMTiles URL:", httpUrl);
+      console.info("[dashboard] active regional PMTiles URL:", httpUrl);
     }
 
-    const style = applyDashboardLocalGlyphs(createBasemapStyle(httpUrl) as StyleSpecification);
+    const regionalStyle = createBasemapStyle(httpUrl) as StyleSpecification;
+    const composed = overviewStyle
+      ? composeOverviewRegionalPreviewStyle(regionalStyle, overviewStyle)
+      : regionalStyle;
+
+    const style = applyDashboardLocalGlyphs(composed);
     logDashboardMapFontConfig("map:preview-style-fonts");
 
     return style;

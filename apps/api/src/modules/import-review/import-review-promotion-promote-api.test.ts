@@ -7,7 +7,6 @@ import {
     type PublishItemValidationRow,
 } from "./import-review-promotion-execution.js";
 import {
-    assertBusFamilyCannotPromote,
     assertPromotionNotBlocked,
     assertPromotionWarningConfirmationAllowed,
     buildPromotionPreflightFromItemSelection,
@@ -199,13 +198,8 @@ describe("import-review-promotion-promote-api", () => {
         );
     });
 
-    it("bus family cannot promote via publish batch", () => {
-        assert.throws(() => assertBusFamilyCannotPromote("bus_stops"), /cannot be promoted/);
-        assert.equal(getImportReviewPromotionTargetTable("bus_routes"), null);
-    });
-
-    it("promotionFamilyStagesForBatch only includes families present in batch", () => {
-        const stages = promotionFamilyStagesForBatch(["buildings", "places", "bus_stops"]);
+    it("promotionFamilyStagesForBatch only includes promotable families present in batch", () => {
+        const stages = promotionFamilyStagesForBatch(["buildings", "places", "unknown_family"]);
         assert.deepEqual(
             stages.map((s) => s.entityFamily),
             ["buildings", "places"]

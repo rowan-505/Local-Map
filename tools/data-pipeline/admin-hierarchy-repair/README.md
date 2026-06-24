@@ -141,6 +141,29 @@ Representative point per entity:
 
 Among **active** admin polygons, pick the **smallest containing** area (any level; township not required). Nullable `admin_area_id` only when no polygon matches.
 
+## Roads admin_area_id backfill (stage 05)
+
+Stage **05** assigns township-level `core.core_streets.admin_area_id` via `core.find_admin_area_for_line(geom, 'township')` (largest line–township overlap, then representative-point fallback). It processes **one chunk per psql call** (resumable via `last_id`) to avoid Supabase `statement_timeout`.
+
+Candidates include rows where `admin_area_id` is **NULL or points to a missing / inactive / non-township admin area** — so it both fills gaps and repairs stale FKs. Protected rows (`manual_override`, verified) are skipped unless forced.
+
+A full run via `run_admin_hierarchy_repair.sh` executes only the **first** chunk of stage 05. To backfill the whole table, loop it:
+
+```bash
+# plan
+DRY_RUN=true ./run_05_roads_loop.sh imports/admin_hierarchy_roads_2026_06_05.env
+# apply
+CONFIRM_WRITE=true ./run_05_roads_loop.sh imports/admin_hierarchy_roads_2026_06_05.env
+```
+
+Read-only verification (counts + overlap spot-check):
+
+```bash
+psql "$LOCAL_DATABASE_URL" -f verify_roads_admin_area_id.sql
+```
+
+Chunk result columns: `last_id, scanned, updated, unchanged, no_match, invalid_existing, would_clear_invalid, elapsed_ms, done`. Re-run until `done = t`.
+
 ## Hierarchy repair (summary)
 
 For each active admin area, compute immediate broader parent from geometry:

@@ -62,6 +62,14 @@ export {
   validateOverviewPmtilesHttpUrl,
 } from './overviewPmtilesUrl';
 export {
+  MartinTileUrlConfigError,
+  getMartinTileUrl,
+  martinTileTemplate,
+  readMartinTileUrlFromEnv,
+  resolveMartinTileUrl,
+  validateMartinTileHttpUrl,
+} from './martinTileUrl';
+export {
   EXPECTED_OVERVIEW_SOURCE_LAYERS,
   OVERVIEW_LAYER_IDS,
   OVERVIEW_SOURCE_ID,

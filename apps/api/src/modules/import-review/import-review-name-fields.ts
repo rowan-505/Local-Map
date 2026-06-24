@@ -77,7 +77,6 @@ const LATIN_FALLBACK_NAME_TAG_KEYS = ["name:my-Latn", "official_name", "alt_name
 const CHILD_NAME_CANDIDATE_ARRAY_KEYS = [
     "place_name_candidates",
     "road_name_candidates",
-    "bus_stop_name_candidates",
     "names",
     "name_candidates",
 ] as const;

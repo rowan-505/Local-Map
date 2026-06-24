@@ -1,9 +1,7 @@
-import { useInfiniteQuery, useQuery, useQueries } from '@tanstack/react-query';
-import type { FeatureCollection } from 'geojson';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import {
   fetchPublicCategories,
   fetchPublicMapPlaces,
-  fetchPublicMapGeoJson,
   fetchPublicPlace,
   fetchPublicPlaces,
   fetchPublicSearch,
@@ -58,23 +56,5 @@ export function usePublicSearch(q: string) {
     queryKey: ['public-search', trimmedQuery],
     queryFn: () => fetchPublicSearch(trimmedQuery),
     enabled: trimmedQuery.length > 0,
-  });
-}
-
-/** Bus route/stop GeoJSON overlays from `/public/map/geo/*`. Road labels use PMTiles `road_labels` only. */
-export function usePublicMapGeoLabelQueries() {
-  return useQueries({
-    queries: [
-      {
-        queryKey: ['public-map-geo', 'bus-stops'],
-        queryFn: () => fetchPublicMapGeoJson('bus-stops'),
-        placeholderData: (previousData: FeatureCollection | undefined) => previousData,
-      },
-      {
-        queryKey: ['public-map-geo', 'bus-routes'],
-        queryFn: () => fetchPublicMapGeoJson('bus-routes'),
-        placeholderData: (previousData: FeatureCollection | undefined) => previousData,
-      },
-    ],
   });
 }

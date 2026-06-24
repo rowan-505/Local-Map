@@ -98,48 +98,17 @@ export function useAdminLevelCode(
 type EditDetailSlices = {
     placeDetail: PlaceDetail | null;
     streetDetail: Street | null;
-    busStopNames: Array<{
-        id?: string;
-        name: string;
-        language_code?: string | null;
-        name_type?: string;
-        is_primary?: boolean;
-    }> | null;
 };
 
 export function resolveEditDetailSlices(entityKey: CoreEntityKey, detail: unknown | null): EditDetailSlices {
     if (!detail) {
-        return { placeDetail: null, streetDetail: null, busStopNames: null };
+        return { placeDetail: null, streetDetail: null };
     }
 
     const placeDetail = entityKey === "places" ? (detail as PlaceDetail) : null;
     const streetDetail = entityKey === "streets" ? (detail as Street) : null;
-    const busStopNames =
-        entityKey === "bus-stops" &&
-        typeof detail === "object" &&
-        detail !== null &&
-        "names" in detail &&
-        Array.isArray((detail as { names?: unknown }).names)
-            ? (
-                  detail as {
-                      names: {
-                          id?: string;
-                          name: string;
-                          languageCode?: string | null;
-                          nameType?: string;
-                          isPrimary?: boolean;
-                      }[];
-                  }
-              ).names.map((n) => ({
-                  id: n.id,
-                  name: n.name,
-                  language_code: n.languageCode,
-                  name_type: n.nameType,
-                  is_primary: n.isPrimary,
-              }))
-            : null;
 
-    return { placeDetail, streetDetail, busStopNames };
+    return { placeDetail, streetDetail };
 }
 
 /** Primary map editor — geometry, manual API validate button, and street-specific map props. */
@@ -292,7 +261,7 @@ export function CoreEntityEditMetadataSection({
         return null;
     }
 
-    const { placeDetail, streetDetail, busStopNames } = resolveEditDetailSlices(entityKey, detail);
+    const { placeDetail, streetDetail } = resolveEditDetailSlices(entityKey, detail);
 
     return (
         <>
@@ -305,9 +274,6 @@ export function CoreEntityEditMetadataSection({
             ) : null}
             {streetDetail?.names?.length ? (
                 <CoreEntityNamesMetadata names={streetDetail.names} title="Street name records" />
-            ) : null}
-            {busStopNames?.length ? (
-                <CoreEntityNamesMetadata names={busStopNames} title="Bus stop name records" />
             ) : null}
         </>
     );

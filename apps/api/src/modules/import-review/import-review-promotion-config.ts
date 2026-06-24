@@ -1,6 +1,5 @@
 import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
 import { getImportReviewEntityConfig } from "./import-review-config.js";
-import { ImportReviewTransportPromotionDeprecatedError } from "./import-review-promotion.errors.js";
 
 /** Default batch-selection families (normal tier). */
 export const NORMAL_PROMOTION_FAMILIES = [
@@ -22,17 +21,6 @@ export const HIGH_RISK_PROMOTION_FAMILIES = [
 ] as const satisfies readonly ImportReviewEntityFamilySlug[];
 
 export type HighRiskPromotionFamily = (typeof HIGH_RISK_PROMOTION_FAMILIES)[number];
-
-/** Legacy import-review bus families — review-only; use import_transport for promotion. */
-export const DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES = [
-    "bus_routes",
-    "bus_route_variants",
-    "bus_route_stops",
-    "bus_stops",
-] as const satisfies readonly ImportReviewEntityFamilySlug[];
-
-export type DisabledImportReviewPromotionFamily =
-    (typeof DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES)[number];
 
 /** Promotion target table per allowed family. */
 export const IMPORT_REVIEW_PROMOTION_TARGETS = {
@@ -63,12 +51,6 @@ export function isImportReviewPromotionAllowedFamily(
     return (IMPORT_REVIEW_PROMOTION_ALLOWED_FAMILIES as readonly string[]).includes(family);
 }
 
-export function isDisabledImportReviewPromotionFamily(
-    family: string
-): family is DisabledImportReviewPromotionFamily {
-    return (DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES as readonly string[]).includes(family);
-}
-
 export function isHighRiskPromotionFamily(family: string): family is HighRiskPromotionFamily {
     return (HIGH_RISK_PROMOTION_FAMILIES as readonly string[]).includes(family);
 }
@@ -82,9 +64,6 @@ export function getImportReviewPromotionTarget(family: ImportReviewPromotionAllo
 }
 
 export function assertImportReviewPromotionFamilyAllowed(family: string): asserts family is ImportReviewPromotionAllowedFamily {
-    if (isDisabledImportReviewPromotionFamily(family)) {
-        throw new ImportReviewTransportPromotionDeprecatedError([family]);
-    }
     if (!isImportReviewPromotionAllowedFamily(family)) {
         throw new Error(`Import review promotion is not allowed for entity family: ${family}`);
     }
@@ -98,7 +77,7 @@ export const DEFAULT_PUBLISH_ENTITY_FAMILIES = NORMAL_PROMOTION_FAMILIES;
 /** @deprecated Prefer {@link HIGH_RISK_PROMOTION_FAMILIES} */
 export const HIGH_RISK_PUBLISH_ENTITY_FAMILIES = HIGH_RISK_PROMOTION_FAMILIES;
 
-/** Families validated by the multi-family publish batch validation runner (excludes disabled bus families). */
+/** Families validated by the multi-family publish batch validation runner. */
 export const VALIDATABLE_PUBLISH_FAMILIES = [
     ...IMPORT_REVIEW_PROMOTION_ALLOWED_FAMILIES,
 ] as const satisfies readonly ImportReviewPromotionAllowedFamily[];
@@ -109,7 +88,7 @@ export function isValidatablePublishFamily(family: string): family is Validatabl
     return (VALIDATABLE_PUBLISH_FAMILIES as readonly string[]).includes(family);
 }
 
-/** Families written by the publish batch promotion runner (excludes disabled bus families). */
+/** Families written by the publish batch promotion runner. */
 export const PROMOTABLE_PUBLISH_FAMILIES = [
     ...NORMAL_PROMOTION_FAMILIES,
     "roads",

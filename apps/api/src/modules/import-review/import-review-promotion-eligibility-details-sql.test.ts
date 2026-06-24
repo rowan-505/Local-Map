@@ -14,8 +14,6 @@ import {
 } from "./import-review-promotion-eligibility-details-filters.js";
 import { parsePromotionEligibilityFamilyParam } from "./import-review-promotion-eligibility-details-api.js";
 import { getImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
-import { ImportReviewTransportPromotionDeprecatedError } from "./import-review-promotion.errors.js";
-import { TRANSPORT_PROMOTION_DEPRECATED_MESSAGE } from "./import-review-promotion.errors.js";
 import { duplicateCoreExternalIdSql as duplicateGuardSql } from "./import-review-promotion-eligibility-family-guards.js";
 
 function sqlText(fragment: Prisma.Sql): string {
@@ -106,17 +104,6 @@ describe("import-review promotion eligibility details SQL", () => {
         const display = buildEligibilityDetailsDisplayNameExpr("r", "places", columns);
         const sql = sqlText(buildEligibilityDetailsSearchSql("r", display, "foo", columns));
         assert.doesNotMatch(sql, /review_note/);
-    });
-
-    it("disabled bus family returns TRANSPORT_PROMOTION_DEPRECATED", () => {
-        assert.throws(
-            () => parsePromotionEligibilityFamilyParam("bus_routes"),
-            (err: unknown) => {
-                assert.ok(err instanceof ImportReviewTransportPromotionDeprecatedError);
-                assert.equal(err.message, TRANSPORT_PROMOTION_DEPRECATED_MESSAGE);
-                return true;
-            }
-        );
     });
 
     it("ELIGIBILITY_DETAILS_DISPLAY_NAME_COLUMNS lists family-specific fields", () => {

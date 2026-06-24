@@ -12,16 +12,9 @@ import {
     type ImportReviewPublishFamilyConfig,
 } from "./import-review-promotion-config.js";
 import { importReviewPromotionFamilyTarget } from "./import-review-promotion-family-meta.js";
-import {
-    ImportReviewPromotionUnknownFamilyError,
-    ImportReviewTransportPromotionDeprecatedError,
-} from "./import-review-promotion.errors.js";
-import { isDisabledImportReviewPromotionFamily } from "./import-review-promotion-config.js";
+import { ImportReviewPromotionUnknownFamilyError } from "./import-review-promotion.errors.js";
 export function parsePromotionEligibilityFamilyParam(family: string): ImportReviewPublishFamilyConfig {
     const trimmed = family.trim();
-    if (isDisabledImportReviewPromotionFamily(trimmed)) {
-        throw new ImportReviewTransportPromotionDeprecatedError([trimmed]);
-    }
     if (!isImportReviewEntityFamily(trimmed)) {
         throw new ImportReviewPromotionUnknownFamilyError(trimmed);
     }

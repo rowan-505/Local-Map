@@ -375,7 +375,7 @@ BEGIN
             WHERE table_schema = v_staging_schema AND table_name = cfg.target_table AND column_name = cfg.area_column
         ) INTO v_has_area;
 
-        v_compare_current_json := 'to_jsonb(c) - ''id'' - ''source_snapshot_id'' - ''raw_id'' - ''created_at'' - ''updated_at'' - ''match_status'' - ''review_status'' - ''auto_action'' - ''source_refs'' - ''confidence_score'' - ''geom'' - ''geom_multi'' - ''point_geom'' - ''footprint_geom'' - ''centroid'' - ''area_m2'' - ''length_m'' - ''matched_core_place_id'' - ''matched_core_edge_id'' - ''matched_core_admin_area_id'' - ''matched_core_bus_stop_id'' - ''matched_core_bus_route_id'' - ''matched_core_address_id''';
+        v_compare_current_json := 'to_jsonb(c) - ''id'' - ''source_snapshot_id'' - ''raw_id'' - ''created_at'' - ''updated_at'' - ''match_status'' - ''review_status'' - ''auto_action'' - ''source_refs'' - ''confidence_score'' - ''geom'' - ''geom_multi'' - ''point_geom'' - ''footprint_geom'' - ''centroid'' - ''area_m2'' - ''length_m'' - ''matched_core_place_id'' - ''matched_core_edge_id'' - ''matched_core_admin_area_id'' - ''matched_core_address_id''';
         v_compare_previous_json := replace(v_compare_current_json, 'to_jsonb(c)', 'to_jsonb(p)');
 
         v_geom_changed := 'false';

@@ -13,7 +13,6 @@ import ImportReviewInlineSpinner from "@/src/features/import-review/components/I
 import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-review/components/ImportReviewLoadingState";
 import ImportReviewSkeletonCards from "@/src/features/import-review/components/ImportReviewSkeletonCards";
 import ImportReviewStatusBanner from "@/src/features/import-review/components/ImportReviewStatusBanner";
-import ImportReviewTransportMovedNotice from "@/src/features/import-review/components/ImportReviewTransportMovedNotice";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 import {
     applyImportReviewScopeSearchParams,
@@ -405,8 +404,6 @@ function ImportReviewSummaryInner() {
                         </div>
                     </div>
                 </header>
-
-                <ImportReviewTransportMovedNotice compact />
 
                 {ambiguousBatches && ambiguousBatches.length > 0 ? (
                     <>

@@ -86,42 +86,6 @@ function runTests(): void {
         }
     );
 
-    assert.deepEqual(
-        buildVerificationMetadataTracking({
-            outcome: "inserted",
-            beforeData: null,
-            entityKey: "bus_routes",
-        }),
-        {
-            verification_metadata_applied: true,
-            verification_metadata_skipped_already_verified: false,
-        }
-    );
-
-    assert.deepEqual(
-        buildVerificationMetadataTracking({
-            outcome: "inserted",
-            beforeData: null,
-            entityKey: "bus_route_variants",
-        }),
-        {
-            verification_metadata_applied: true,
-            verification_metadata_skipped_already_verified: false,
-        }
-    );
-
-    assert.deepEqual(
-        buildVerificationMetadataTracking({
-            outcome: "inserted",
-            beforeData: null,
-            entityKey: "bus_route_stops",
-        }),
-        {
-            verification_metadata_applied: true,
-            verification_metadata_skipped_already_verified: false,
-        }
-    );
-
     assert.deepEqual(normalizeCoreVerificationColumns([]), []);
 
     console.log("import-review-promotion-core-verification tests passed");

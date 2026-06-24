@@ -6,7 +6,6 @@ import { ImportReviewDecisionRuleError } from "./import-review-errors.js";
 import { pickEffectiveString } from "./import-review-effective-values.js";
 import {
     BUILDING_TYPE_FALLBACK_CODES,
-    IMPORT_REVIEW_BUS_STOP_UNNAMED_NAME_MM,
     IMPORT_REVIEW_CONFIDENCE_DEFAULT_FAMILIES,
     IMPORT_REVIEW_DEFAULT_CONFIDENCE_SCORE,
     IMPORT_REVIEW_ESSENTIAL_FIELD_RULES,
@@ -208,19 +207,6 @@ async function resolveRoadClassId(
     return refRepo.findFirstRoadClassIdByCodes(ROAD_CLASS_FALLBACK_CODES);
 }
 
-function resolveBusStopNameMm(
-    ctx: ImportReviewEssentialCandidateContext,
-    overrides: Record<string, unknown>
-): string {
-    const source = nameSourceFromContext(ctx);
-    return (
-        deriveImportedNameMm(source) ??
-        deriveImportedNameEn(source) ??
-        pickEffectiveNameEn(overrides, source) ??
-        IMPORT_REVIEW_BUS_STOP_UNNAMED_NAME_MM
-    );
-}
-
 function resolveClassCode(
     ctx: ImportReviewEssentialCandidateContext,
     overrides: Record<string, unknown>
@@ -243,16 +229,6 @@ export async function buildEssentialDefaultOverridesPatch(
     const essentialRepo = new ImportReviewEssentialDefaultsRepository(prisma);
     const overrides = mergedColumnFields(ctx, incomingPatch);
     const patch: Record<string, unknown> = {};
-
-    if (family === "bus_stops") {
-        if (!pickEffectiveNameMm(overrides, nameSourceFromContext(ctx))) {
-            patch.name_mm = resolveBusStopNameMm(ctx, overrides);
-        }
-        const adminId = await resolveAdminAreaId(family, ctx, overrides, essentialRepo);
-        if (adminId !== null && parseBigintId(overrides.admin_area_id) === null && ctx.admin_area_id === null) {
-            patch.admin_area_id = adminId.toString();
-        }
-    }
 
     if (family === "places") {
         const nameMm = pickEffectiveNameMm(overrides, nameSourceFromContext(ctx));

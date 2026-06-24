@@ -8,8 +8,6 @@ export type ImportReviewEssentialFieldRule =
 /** Default confidence when candidate column is null (0–100 scale). */
 export const IMPORT_REVIEW_DEFAULT_CONFIDENCE_SCORE = 65;
 
-export const IMPORT_REVIEW_BUS_STOP_UNNAMED_NAME_MM = "Unnamed bus stop";
-
 export const POI_CATEGORY_FALLBACK_CODES = ["unknown", "other"] as const;
 /** Resolved via classifyBuildingTypeCode before ref lookup (yes/building → unknown). */
 export const BUILDING_TYPE_FALLBACK_CODES = ["unknown"] as const;
@@ -31,11 +29,6 @@ export const IMPORT_REVIEW_CONFIDENCE_DEFAULT_FAMILIES: ReadonlySet<ImportReview
 export const IMPORT_REVIEW_ESSENTIAL_FIELD_RULES: Partial<
     Record<ImportReviewEntityFamilySlug, readonly ImportReviewEssentialFieldRule[]>
 > = {
-    bus_stops: [
-        { kind: "field", key: "name_mm" },
-        { kind: "field", key: "admin_area_id" },
-        { kind: "geometry" },
-    ],
     places: [
         { kind: "at_least_one", keys: ["name_mm", "name_en"] },
         { kind: "field", key: "category_id" },

@@ -34,6 +34,11 @@ docker build -t local-martin infrastructure/tiles/martin
 docker run --rm -p 3000:3000 -e DATABASE_URL "$DATABASE_URL" local-martin
 ```
 
+> **If popups show `properties: {}`, check that selected columns are included in Martin config.**
+> Explicit table sources (e.g. [`config.local.yaml`](./config.local.yaml)) only emit geometry + `id_column`
+> unless each source lists a `properties:` map (`column: postgres_type`). Add the columns you need there
+> and restart Martin. Verify with the source TileJSON (`/<source>` should show non-empty `fields`).
+
 ## Redeploy (Fly.io)
 
 From this folder:

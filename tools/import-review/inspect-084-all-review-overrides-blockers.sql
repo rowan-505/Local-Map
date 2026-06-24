@@ -11,10 +11,6 @@
 -- - address_candidates
 -- - admin_area_candidates
 -- - building_candidates
--- - bus_route_candidates
--- - bus_route_stop_candidates
--- - bus_route_variant_candidates
--- - bus_stop_candidates
 -- - landuse_candidates
 -- - place_candidates
 -- - road_candidates
@@ -62,10 +58,6 @@ declare
     'address_candidates',
     'admin_area_candidates',
     'building_candidates',
-    'bus_route_candidates',
-    'bus_route_stop_candidates',
-    'bus_route_variant_candidates',
-    'bus_stop_candidates',
     'landuse_candidates',
     'place_candidates',
     'road_candidates',

@@ -37,7 +37,6 @@ test("detail SELECT without geometry does not produce id CASE syntax error", () 
         "buildings",
         "places",
         "roads",
-        "bus_stops",
         "admin_areas",
         "landuse",
         "water_lines",
@@ -67,7 +66,4 @@ test("geometry SELECT references configured geom columns", () => {
     const addresses = sqlText(buildCandidateGeometrySelect(getImportReviewEntityConfig("addresses")));
     assert.match(addresses, /point_geom/);
     assert.match(addresses, /entrance_geom/);
-
-    const busRoutes = sqlText(buildCandidateGeometrySelect(getImportReviewEntityConfig("bus_routes")));
-    assert.match(busRoutes, /NULL::json AS geometry/);
 });

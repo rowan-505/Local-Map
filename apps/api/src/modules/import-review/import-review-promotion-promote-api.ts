@@ -1,14 +1,12 @@
 import {
     PROMOTABLE_PUBLISH_FAMILIES,
     type PromotablePublishEntityFamily,
-    isDisabledImportReviewPromotionFamily,
     isPromotablePublishFamily,
 } from "./import-review-promotion-config.js";
 import {
     getPromotionFamilyConfig,
     promotionTargetQualifiedTable,
 } from "./import-review-promotion-simple-config.js";
-import { isDeprecatedCoreBusPublishFamily } from "./import-review-transport-promotion-deprecated.js";
 import type {
     PublishItemPromotionSelection,
     PublishItemValidationRow,
@@ -40,9 +38,6 @@ export type PromotionFamilyItemCounts = {
 };
 
 export function getImportReviewPromotionTargetTable(family: string): string | null {
-    if (isDisabledImportReviewPromotionFamily(family) || isDeprecatedCoreBusPublishFamily(family)) {
-        return null;
-    }
     const config = getPromotionFamilyConfig(family);
     if (config) {
         return promotionTargetQualifiedTable(config);
@@ -51,12 +46,6 @@ export function getImportReviewPromotionTargetTable(family: string): string | nu
         return null;
     }
     return null;
-}
-
-export function assertBusFamilyCannotPromote(family: string): void {
-    if (isDeprecatedCoreBusPublishFamily(family) || isDisabledImportReviewPromotionFamily(family)) {
-        throw new Error(`Bus entity family ${family} cannot be promoted via import review publish batches.`);
-    }
 }
 
 export function resolvePromotionWarningNote(body: PostImportReviewPromotionBatchPromoteBody): string | undefined {

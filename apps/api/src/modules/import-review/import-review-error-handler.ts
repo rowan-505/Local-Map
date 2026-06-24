@@ -46,7 +46,6 @@ import {
     ImportReviewRoutingBarrierPromotionBatchLimitError,
     ImportReviewRoutingBarrierPromotionDisabledError,
     ImportReviewPromotionUnknownFamilyError,
-    ImportReviewTransportPromotionDeprecatedError,
 } from "./import-review-promotion.errors.js";
 import {
     ImportReviewPromotionRoadDryRunNoEligibleItemsError,
@@ -294,13 +293,6 @@ export function sendImportReviewError(reply: FastifyReply, error: unknown): bool
     if (error instanceof ImportReviewPromotionUnknownFamilyError) {
         sendImportReviewApiError(reply, 400, "PROMOTION_UNKNOWN_ENTITY_FAMILY", error.message, {
             family: error.family,
-        });
-        return true;
-    }
-
-    if (error instanceof ImportReviewTransportPromotionDeprecatedError) {
-        sendImportReviewApiError(reply, 409, "TRANSPORT_PROMOTION_DEPRECATED", error.message, {
-            entity_families: [...error.entityFamilies],
         });
         return true;
     }

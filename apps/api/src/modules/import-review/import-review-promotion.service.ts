@@ -92,7 +92,6 @@ import {
     ImportReviewPublishBatchNotFoundError,
     ImportReviewPublishBatchValidationNotRunningError,
     ImportReviewPublishBatchValidationResetError,
-    ImportReviewTransportPromotionDeprecatedError,
 } from "./import-review-promotion.errors.js";
 import { parsePromotionOutcomeStatus } from "./import-review-promotion-batch-status.js";
 import {
@@ -105,7 +104,6 @@ import {
 import { releaseStaleBatchedImportReviewCandidates } from "./import-review-promotion-release-stale-batched.js";
 import { createRetryBatchFromFailedReady } from "./import-review-promotion-retry-failed-ready.service.js";
 import { resolveFailedReadyRetryCandidates } from "./import-review-promotion-retry-failed-ready.js";
-import { isDisabledImportReviewPromotionFamily } from "./import-review-promotion-config.js";
 import { ImportReviewReviewBatchSummaryRepository } from "./import-review-review-batch-summary.js";
 import {
     createImportReviewPromotionRoadDryRunService,
@@ -160,9 +158,6 @@ function n(v: bigint | number): number {
 }
 
 function throwPromotionFamilyResolutionError(err: unknown): never {
-    if (err instanceof ImportReviewTransportPromotionDeprecatedError) {
-        throw err;
-    }
     throw new ImportReviewInvalidScopeError(
         err instanceof Error ? err.message : "Invalid entity_families"
     );
@@ -552,12 +547,8 @@ export class ImportReviewPromotionService {
                 total: row.total,
             };
         }
-        const fromSummary = parseEntityFamiliesFromBatchSummary(row.summary).filter(
-            (family) => !isDisabledImportReviewPromotionFamily(family)
-        );
-        const fromItems = Object.keys(itemCountsByEntityFamily).filter(
-            (family) => !isDisabledImportReviewPromotionFamily(family)
-        );
+        const fromSummary = parseEntityFamiliesFromBatchSummary(row.summary);
+        const fromItems = Object.keys(itemCountsByEntityFamily);
         const entityFamilies = fromSummary.length > 0 ? fromSummary : fromItems.sort();
         return {
             ...mapBatchSummary(row, computed),

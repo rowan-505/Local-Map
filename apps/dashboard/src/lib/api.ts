@@ -6,14 +6,6 @@ import {
     markImportReviewApiAuthFailed,
     readImportReviewAuthDebugState,
 } from "./importReviewDevAccess";
-import {
-    attachImportTransportDevAdminTokenHeader,
-    isImportTransportApiPath,
-    isImportTransportDevRouteBypassActive,
-    logImportTransportAuthDecision,
-    markImportTransportApiAuthFailed,
-    readImportTransportAuthDebugState,
-} from "./importTransportDevAccess";
 import { resolveImportReviewApiFamily } from "@/src/features/import-review/utils/importReviewApiFamily";
 import type { CoreReviewVerificationStatusFilter } from "@/src/features/core-review/verification/coreReviewVerificationFilter";
 
@@ -1202,24 +1194,10 @@ function redirectToLogin(reason: string) {
         return;
     }
 
-    if (isImportTransportDevRouteBypassActive(pathname)) {
-        logImportTransportAuthDecision(
-            "apiFetch.redirectToLogin",
-            `skip-dev-route-bypass:${reason}`,
-            readImportTransportAuthDebugState(pathname, false)
-        );
-        return;
-    }
-
     logImportReviewAuthDecision(
         "apiFetch.redirectToLogin",
         reason,
         readImportReviewAuthDebugState(pathname, false)
-    );
-    logImportTransportAuthDecision(
-        "apiFetch.redirectToLogin",
-        reason,
-        readImportTransportAuthDebugState(pathname, false)
     );
 
     window.location.replace("/login");
@@ -1376,11 +1354,9 @@ export async function apiFetch<T>(
     headers.set("Accept", "application/json");
 
     const importReviewHeaderFallbackOk = attachImportReviewDevAdminTokenHeader(headers, path);
-    const importTransportHeaderFallbackOk = attachImportTransportDevAdminTokenHeader(headers, path);
-    const adminHeaderFallbackOk = importReviewHeaderFallbackOk || importTransportHeaderFallbackOk;
+    const adminHeaderFallbackOk = importReviewHeaderFallbackOk;
     const accessToken = getAccessToken();
-    const importPipelineApiDevAuth =
-        adminHeaderFallbackOk && (isImportReviewApiPath(path) || isImportTransportApiPath(path));
+    const importPipelineApiDevAuth = adminHeaderFallbackOk && isImportReviewApiPath(path);
 
     if (accessToken && !importPipelineApiDevAuth) {
         headers.set("Authorization", `Bearer ${accessToken}`);
@@ -1389,14 +1365,6 @@ export async function apiFetch<T>(
             "apiFetch",
             "omit-bearer-for-import-pipeline-dev-admin-header",
             readImportReviewAuthDebugState(
-                typeof window !== "undefined" ? window.location.pathname : "",
-                false
-            )
-        );
-        logImportTransportAuthDecision(
-            "apiFetch",
-            "omit-bearer-for-import-pipeline-dev-admin-header",
-            readImportTransportAuthDebugState(
                 typeof window !== "undefined" ? window.location.pathname : "",
                 false
             )
@@ -1417,9 +1385,6 @@ export async function apiFetch<T>(
         if (isImportReviewApiPath(path)) {
             markImportReviewApiAuthFailed();
         }
-        if (isImportTransportApiPath(path)) {
-            markImportTransportApiAuthFailed();
-        }
         if (!adminHeaderFallbackOk) {
             clearAuthTokens();
             redirectToLogin("http-401");
@@ -1428,14 +1393,6 @@ export async function apiFetch<T>(
                 "apiFetch",
                 "http-401-with-dev-admin-header-no-redirect",
                 readImportReviewAuthDebugState(
-                    typeof window !== "undefined" ? window.location.pathname : "",
-                    false
-                )
-            );
-            logImportTransportAuthDecision(
-                "apiFetch",
-                "http-401-with-dev-admin-header-no-redirect",
-                readImportTransportAuthDebugState(
                     typeof window !== "undefined" ? window.location.pathname : "",
                     false
                 )

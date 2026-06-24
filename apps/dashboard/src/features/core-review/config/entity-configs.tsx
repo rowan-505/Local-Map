@@ -16,29 +16,10 @@ import {
     applyAddressDetailToListRow,
     applyAdminAreaDetailToListRow,
     applyBuildingDetailToListRow,
-    applyBusRouteDetailToListRow,
-    applyBusRouteVariantDetailToListRow,
-    applyBusStopDetailToListRow,
     applyLanduseDetailToListRow,
     applyMapFeatureDetailToListRow,
     applyPlaceDetailToListRow,
 } from "./applyInlineEditDetailToListRow";
-import CoreReviewTransportDrawerEdit from "../transport/CoreReviewTransportDrawerEdit";
-import CoreReviewTransportSourceBadge, {
-    CORE_REVIEW_TRANSPORT_DATA_SOURCE,
-} from "../transport/CoreReviewTransportSourceBadge";
-import CoreReviewTransportDrawerView from "../transport/CoreReviewTransportDrawerView";
-import {
-    busRouteTransportDetailFields,
-    busRouteVariantTransportDetailFields,
-    busStopTransportDetailFields,
-    TransportVerificationStatusCell,
-} from "../transport/coreReviewTransportUi";
-import {
-    coreReviewTransportMapEntityType,
-    formatTransportModeType,
-    hasRenderableGeometry,
-} from "../transport/coreReviewTransportShared";
 import { dash, formatArea, formatDate, yesNo } from "../utils/formatters";
 import {
     buildingDisplayName,
@@ -53,9 +34,6 @@ import type {
     CoreReviewAddressRow,
     CoreReviewAdminAreaRow,
     CoreReviewBuildingRow,
-    CoreReviewBusRouteRow,
-    CoreReviewBusRouteVariantRow,
-    CoreReviewBusStopRow,
     CoreReviewLanduseRow,
     CoreReviewMapFeatureRow,
     CoreReviewPlaceRow,
@@ -108,39 +86,6 @@ const FILTER_STREETS: CoreReviewFilterSupport = {
     isPublic: false,
     includeDeleted: false,
     routeId: false,
-};
-
-const FILTER_BUS_STOPS: CoreReviewFilterSupport = {
-    isVerified: true,
-    adminAreaId: true,
-    categoryId: false,
-    buildingTypeId: false,
-    roadClassId: false,
-    isPublic: false,
-    includeDeleted: false,
-    routeId: false,
-};
-
-const FILTER_BUS_ROUTES: CoreReviewFilterSupport = {
-    isVerified: true,
-    adminAreaId: false,
-    categoryId: false,
-    buildingTypeId: false,
-    roadClassId: false,
-    isPublic: false,
-    includeDeleted: false,
-    routeId: false,
-};
-
-const FILTER_BUS_VARIANTS: CoreReviewFilterSupport = {
-    isVerified: true,
-    adminAreaId: false,
-    categoryId: false,
-    buildingTypeId: false,
-    roadClassId: false,
-    isPublic: false,
-    includeDeleted: false,
-    routeId: true,
 };
 
 const FILTER_LANDUSE: CoreReviewFilterSupport = {
@@ -391,208 +336,6 @@ function genericClassColumns<
         { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt) },
     ];
 }
-
-export const CORE_REVIEW_BUS_STOPS_CONFIG: CoreReviewEntityConfig<CoreReviewBusStopRow> = {
-    segment: "bus-stops",
-    entityKey: "bus-stops",
-    apiSlug: "bus-stops",
-    supportsInlineEdit: true,
-    applyDetailToListRow: applyBusStopDetailToListRow,
-    title: "Bus stops",
-    description: "Transit stop points — search, verify, and edit stop metadata.",
-    dataSource: CORE_REVIEW_TRANSPORT_DATA_SOURCE,
-    overviewStatus: "partial",
-    idKind: "public_id",
-    geometryKind: "point",
-    mapEntityType: coreReviewTransportMapEntityType("bus-stops"),
-    defaultSortBy: "updated_at",
-    sortOptions: [
-        { value: "name", label: "Name", type: "text" },
-        { value: "admin_area", label: "Admin Area", type: "text" },
-        { value: "updated_at", label: "Updated", type: "date" },
-    ],
-    filterSupport: FILTER_BUS_STOPS,
-    getRowId: (r) => r.publicId,
-    getRowTitle: (r) => dash(r.nameEn ?? r.name) || r.publicId,
-    getRowSubtitle: (r) => dash(r.stopCode),
-    getGeometry: (r) => r.geometry,
-    searchPlaceholder: "Search bus stops…",
-    columns: [
-        { id: "code", header: "Stop code", cell: (r, q) => hl(dash(r.stopCode), q) },
-        { id: "display", header: "Display name", cell: (r, q) => hl(dash(r.nameEn ?? r.name), q) },
-        { id: "mm", header: "Myanmar name", cell: (r, q) => hl(dash(r.nameMm ?? r.nameLocal), q) },
-        { id: "en", header: "English name", cell: (r, q) => hl(dash(r.nameEn ?? r.name), q) },
-        { id: "mode", header: "Mode", cell: (r, q) => hl(formatTransportModeType(r.modeType), q) },
-        { id: "admin", header: "Admin area", cell: (r, q) => hl(dash(r.adminAreaName), q) },
-        {
-            id: "verification",
-            header: "Verification",
-            cell: (r) => (
-                <TransportVerificationStatusCell
-                    status={r.verificationStatus}
-                    isVerifiedFallback={r.isVerified}
-                />
-            ),
-        },
-        { id: "confidence", header: "Confidence", cell: (r) => <ConfidenceBadge score={r.confidenceScore ?? null} /> },
-        { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt) },
-    ],
-    detailFields: (r) => busStopTransportDetailFields(r),
-    extensions: {
-        renderDrawerView: ({ row, rowId, successMessage }) => (
-            <CoreReviewTransportDrawerView
-                apiSlug="bus-stops"
-                rowId={rowId}
-                idKind="public_id"
-                geometryKind="point"
-                mapEntityType={coreReviewTransportMapEntityType("bus-stops")}
-                listGeometry={row.geometry}
-                listFields={busStopTransportDetailFields(row)}
-                successMessage={successMessage}
-            />
-        ),
-        renderDrawerEdit: ({ rowId, editForm }) => (
-            <CoreReviewTransportDrawerEdit editForm={editForm} recordId={rowId} />
-        ),
-    },
-    newPath: coreReviewPath("bus-stops/new"),
-};
-
-export const CORE_REVIEW_BUS_ROUTES_CONFIG: CoreReviewEntityConfig<CoreReviewBusRouteRow> = {
-    segment: "bus-routes",
-    entityKey: "bus-routes",
-    apiSlug: "bus-routes",
-    supportsInlineEdit: true,
-    applyDetailToListRow: applyBusRouteDetailToListRow,
-    title: "Bus routes",
-    description: "Route codes, operators, and verification for production transit routes.",
-    dataSource: CORE_REVIEW_TRANSPORT_DATA_SOURCE,
-    overviewStatus: "partial",
-    idKind: "numeric_id",
-    geometryKind: "none",
-    mapEntityType: "generic",
-    defaultSortBy: "updated_at",
-    sortOptions: [
-        { value: "name", label: "Name", type: "text" },
-        { value: "updated_at", label: "Updated", type: "date" },
-    ],
-    filterSupport: FILTER_BUS_ROUTES,
-    getRowId: (r) => r.id,
-    getRowTitle: (r) => dash(r.publicName) || dash(r.routeCode) || r.id,
-    getRowSubtitle: (r) => dash(r.operatorName),
-    getGeometry: () => null,
-    searchPlaceholder: "Search routes (name, code, operator)…",
-    columns: [
-        { id: "code", header: "Route code", cell: (r, q) => hl(dash(r.routeCode), q) },
-        { id: "name", header: "Public name", cell: (r, q) => hl(dash(r.publicName), q) },
-        { id: "mode", header: "Mode", cell: (r, q) => hl(formatTransportModeType(r.modeType ?? r.routeType), q) },
-        { id: "operator", header: "Operator", cell: (r, q) => hl(dash(r.operatorName), q) },
-        { id: "status", header: "Route status", cell: (r) => <TransportVerificationStatusCell status={r.routeStatus ?? r.verificationStatus} /> },
-        { id: "active", header: "Active", cell: (r) => yesNo(r.isActive) },
-        {
-            id: "verification",
-            header: "Verification",
-            cell: (r) => (
-                <TransportVerificationStatusCell
-                    status={r.verificationStatus}
-                    isVerifiedFallback={r.isVerified}
-                />
-            ),
-        },
-        { id: "confidence", header: "Confidence", cell: (r) => <ConfidenceBadge score={r.confidenceScore ?? null} /> },
-        { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt) },
-    ],
-    detailFields: (r) => busRouteTransportDetailFields(r),
-    extensions: {
-        renderDrawerView: ({ row, rowId, successMessage }) => (
-            <CoreReviewTransportDrawerView
-                apiSlug="bus-routes"
-                rowId={rowId}
-                idKind="numeric_id"
-                geometryKind="none"
-                mapEntityType="generic"
-                listGeometry={null}
-                listFields={busRouteTransportDetailFields(row)}
-                successMessage={successMessage}
-            />
-        ),
-    },
-    newPath: coreReviewPath("bus-routes/new"),
-};
-
-export const CORE_REVIEW_BUS_ROUTE_VARIANTS_CONFIG: CoreReviewEntityConfig<CoreReviewBusRouteVariantRow> =
-    {
-        segment: "bus-route-variants",
-        entityKey: "bus-route-variants",
-        apiSlug: "bus-route-variants",
-        supportsInlineEdit: true,
-        applyDetailToListRow: applyBusRouteVariantDetailToListRow,
-        title: "Bus route variants",
-        description:
-            "Directional variants with geometry, route paths, and stop sequences (route stops open in the variant drawer).",
-        dataSource: CORE_REVIEW_TRANSPORT_DATA_SOURCE,
-        overviewStatus: "partial",
-        idKind: "numeric_id",
-        geometryKind: "line",
-        mapEntityType: coreReviewTransportMapEntityType("bus-route-variants"),
-        defaultSortBy: "id",
-        sortOptions: [
-            { value: "name", label: "Name", type: "text" },
-            { value: "id", label: "ID", type: "text" },
-            { value: "route_id", label: "Route ID", type: "text" },
-        ],
-        filterSupport: FILTER_BUS_VARIANTS,
-        getRowId: (r) => r.id,
-        getRowTitle: (r) =>
-            [r.directionName, r.originName, r.destinationName].filter(Boolean).join(" → ") || r.id,
-        getGeometry: (r) => r.geometry,
-        searchPlaceholder: "Search variants…",
-        columns: [
-            { id: "route", header: "Route code", cell: (r, q) => hl(dash(r.routeCode), q) },
-            { id: "variant", header: "Variant code", cell: (r, q) => hl(dash(r.variantCode), q) },
-            { id: "direction", header: "Direction", cell: (r, q) => hl(dash(r.directionName), q) },
-            { id: "origin", header: "Origin", cell: (r, q) => hl(dash(r.originName), q) },
-            { id: "destination", header: "Destination", cell: (r, q) => hl(dash(r.destinationName), q) },
-            { id: "distance", header: "Distance (m)", cell: (r) => dash(r.distanceM) },
-            { id: "geom", header: "Geometry", cell: (r) => yesNo(hasRenderableGeometry(r.geometry)) },
-            {
-                id: "verification",
-                header: "Verification",
-                cell: (r) => (
-                    <TransportVerificationStatusCell
-                        status={r.verificationStatus}
-                        isVerifiedFallback={r.isVerified}
-                    />
-                ),
-            },
-            { id: "updated", header: "Updated", cell: (r) => formatDate(r.updatedAt ?? null) },
-        ],
-        detailFields: (r) => busRouteVariantTransportDetailFields(r),
-        extensions: {
-            renderDrawerView: ({ row, rowId, successMessage }) => (
-                <CoreReviewTransportDrawerView
-                    apiSlug="bus-route-variants"
-                    rowId={rowId}
-                    idKind="numeric_id"
-                    geometryKind="line"
-                    mapEntityType={coreReviewTransportMapEntityType("bus-route-variants")}
-                    listGeometry={row.geometry}
-                    listFields={busRouteVariantTransportDetailFields(row)}
-                    successMessage={successMessage}
-                    showRouteStops
-                    showRoutePaths
-                />
-            ),
-            renderDrawerEdit: ({ rowId, editForm }) => (
-                <CoreReviewTransportDrawerEdit
-                    editForm={editForm}
-                    recordId={rowId}
-                    showRoutePaths
-                />
-            ),
-        },
-        newPath: coreReviewPath("bus-route-variants/new"),
-    };
 
 function landuseClassLabel(row: CoreReviewLanduseRow): string {
     const en = row.landuseClassNameEn?.trim();
@@ -885,9 +628,6 @@ export const CORE_REVIEW_ENTITY_CONFIG_BY_SEGMENT = {
     buildings: CORE_REVIEW_BUILDINGS_CONFIG,
     places: CORE_REVIEW_PLACES_CONFIG,
     roads: CORE_REVIEW_STREETS_CONFIG,
-    "bus-stops": CORE_REVIEW_BUS_STOPS_CONFIG,
-    "bus-routes": CORE_REVIEW_BUS_ROUTES_CONFIG,
-    "bus-route-variants": CORE_REVIEW_BUS_ROUTE_VARIANTS_CONFIG,
     landuse: CORE_REVIEW_LANDUSE_CONFIG,
     "water-lines": CORE_REVIEW_WATER_LINES_CONFIG,
     "water-polygons": CORE_REVIEW_WATER_POLYGONS_CONFIG,

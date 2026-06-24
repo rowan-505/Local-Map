@@ -71,7 +71,7 @@ infrastructure/routing/valhalla/scripts/build-valhalla.sh
 The script:
 
 1. Fails with a clear message if the PBF is missing  
-2. Symlinks the PBF into `data/builds/` (Docker mount `/custom_files`)  
+2. Copies the PBF into `data/builds/` (Docker mount `/custom_files`) — a symlink to a path outside the mount is a dangling link inside the container  
 3. Runs `docker compose` with `force_rebuild=True` and streams build logs  
 
 Outputs land in `data/builds/` (e.g. `valhalla_tiles/`, `valhalla_tiles.tar`, `admins.sqlite`, generated `valhalla.json`).

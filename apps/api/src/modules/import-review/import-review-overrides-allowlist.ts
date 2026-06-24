@@ -5,37 +5,6 @@ export const IMPORT_REVIEW_OVERRIDE_ALLOWLIST: Record<
     ImportReviewEntityFamilySlug,
     readonly string[]
 > = {
-    bus_stops: ["name_mm", "name_en", "stop_code", "admin_area_id"],
-    bus_routes: [
-        "name",
-        "name_mm",
-        "name_en",
-        "public_name",
-        "route_code",
-        "operator_name",
-        "route_type",
-        "directionality",
-        "confidence_score",
-    ],
-    bus_route_variants: [
-        "route_id",
-        "route_code",
-        "variant_code",
-        "direction_name",
-        "origin_name",
-        "destination_name",
-        "distance_m",
-        "confidence_score",
-        "geom",
-    ],
-    bus_route_stops: [
-        "route_variant_id",
-        "stop_id",
-        "stop_sequence",
-        "distance_from_start_m",
-        "is_timing_point",
-        "confidence_score",
-    ],
     places: [
         "name_mm",
         "name_en",
@@ -113,15 +82,6 @@ export const IMPORT_REVIEW_OVERRIDE_PATCH_KEY_ALIASES: Readonly<Record<string, s
     parent_admin_area_id: "parent_id",
     poi_category_id: "category_id",
 };
-
-/** Reserved for future bus route review UI. */
-export const IMPORT_REVIEW_BUS_ROUTES_OVERRIDE_ALLOWLIST = [
-    "name_mm",
-    "name_en",
-    "route_code",
-    "operator_name",
-    "route_type",
-] as const;
 
 export function overrideAllowlistForFamily(family: ImportReviewEntityFamilySlug): ReadonlySet<string> {
     return new Set(IMPORT_REVIEW_OVERRIDE_ALLOWLIST[family] ?? []);

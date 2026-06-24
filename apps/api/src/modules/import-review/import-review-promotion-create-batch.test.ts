@@ -19,7 +19,6 @@ import { IMPORT_REVIEW_PROMOTION_TARGETS } from "./import-review-promotion-confi
 import {
     ImportReviewPromotionNoEligibleCandidatesError,
     ImportReviewPromotionSelectedCandidateError,
-    ImportReviewTransportPromotionDeprecatedError,
 } from "./import-review-promotion.errors.js";
 import { ImportReviewPromotionService } from "./import-review-promotion.service.js";
 import type { ImportReviewPromotionRepository } from "./import-review-promotion.repo.js";
@@ -156,13 +155,6 @@ describe("resolveCreateBatchFamiliesFromSimpleRegistry", () => {
     it("includes all nine simple promotable families", () => {
         const configs = resolveCreateBatchFamiliesFromSimpleRegistry(listPromotableFamilies());
         assert.equal(configs.length, 9);
-    });
-
-    it("rejects bus families", () => {
-        assert.throws(
-            () => resolveCreateBatchFamiliesFromSimpleRegistry(["bus_routes"]),
-            (err: unknown) => err instanceof ImportReviewTransportPromotionDeprecatedError
-        );
     });
 });
 

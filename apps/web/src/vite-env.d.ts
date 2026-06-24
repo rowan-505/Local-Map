@@ -16,6 +16,8 @@ declare global {
 interface ImportMetaEnv {
   /** Fastify API origin (e.g. `http://localhost:3001`). Required for map data and routing clients. */
   readonly VITE_API_BASE_URL: string;
+  /** Martin dynamic vector-tile origin (e.g. `http://localhost:3002`). Optional; enables the transport overlay when set. */
+  readonly VITE_MARTIN_TILE_URL?: string;
   /** Optional origin + base path if you self-host multiscript `.pbf` ranges (otherwise the default GitHub Pages mirror is used). */
   readonly VITE_MULTISCRIPT_GLYPH_BASE_URL?: string;
   /** Optional `current.json` URL (defaults to Yangon on `localhost:8080`). */

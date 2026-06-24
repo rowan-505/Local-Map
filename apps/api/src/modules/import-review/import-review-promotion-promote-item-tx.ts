@@ -57,14 +57,12 @@ export async function applyImportReviewPromotionItemBookkeeping(
             beforeData: result.before_data,
             afterData: result.after_data ?? { id: result.target_id?.toString() ?? null },
         });
-        if (item.entity_family !== "bus_route_stops" || result.target_id != null) {
-            await repo.markCandidatePromoted({
-                entityFamily: item.entity_family as ImportReviewEntityFamilySlug,
-                reviewCandidateId: item.review_candidate_id,
-                promotedCoreId: result.target_id,
-                promotedBy: config.promotedBy,
-            });
-        }
+        await repo.markCandidatePromoted({
+            entityFamily: item.entity_family as ImportReviewEntityFamilySlug,
+            reviewCandidateId: item.review_candidate_id,
+            promotedCoreId: result.target_id,
+            promotedBy: config.promotedBy,
+        });
         return result;
     }
 

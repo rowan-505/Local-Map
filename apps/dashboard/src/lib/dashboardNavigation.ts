@@ -13,33 +13,33 @@ import { listImportReviewNavEntityConfigs } from "@/src/features/import-review/c
 import {
     coreReviewPath,
     importReviewPath,
-    importTransportPath,
     referencesPath,
     routingAdminPath,
     statsPath,
+    transportPath,
 } from "@/src/lib/dashboardPaths";
 
 export {
     CORE_REVIEW_PATH,
     DASHBOARD_PATH,
     IMPORT_REVIEW_PATH,
-    IMPORT_TRANSPORT_PATH,
     REFERENCES_PATH,
     STATS_PATH,
+    TRANSPORT_PATH,
     coreReviewPath,
     importReviewPath,
-    importTransportPath,
     referencesPath,
     statsPath,
+    transportPath,
 } from "@/src/lib/dashboardPaths";
 
 export type DashboardSidebarModuleKey =
     | "core-review"
     | "import-review"
-    | "import-transport"
     | "references"
     | "routing"
-    | "stats";
+    | "stats"
+    | "transport";
 
 export type FamilyNavTab = {
     label: string;
@@ -63,10 +63,10 @@ export function sidebarModuleFromPathname(pathname: string): DashboardSidebarMod
     if (
         key === "core-review" ||
         key === "import-review" ||
-        key === "import-transport" ||
         key === "references" ||
         key === "routing" ||
-        key === "stats"
+        key === "stats" ||
+        key === "transport"
     ) {
         return key;
     }
@@ -87,12 +87,6 @@ export const dashboardSidebarItems: readonly DashboardSidebarItem[] = [
         Icon: ClipboardList,
     },
     {
-        moduleKey: "import-transport",
-        href: importTransportPath(),
-        label: "Import transport",
-        Icon: Bus,
-    },
-    {
         moduleKey: "references",
         href: referencesPath(),
         label: "References",
@@ -110,24 +104,20 @@ export const dashboardSidebarItems: readonly DashboardSidebarItem[] = [
         label: "Stats",
         Icon: BarChart3,
     },
+    {
+        moduleKey: "transport",
+        href: transportPath(),
+        label: "Transport",
+        Icon: Bus,
+    },
 ];
 
-/**
- * Core review top nav. Transport tabs keep legacy `bus-*` URL segments for dashboard
- * compatibility; list/detail/write APIs read `core_transport.stops`, `.routes`, and
- * `.route_variants` — not legacy `core.core_bus_*`.
- *
- * Route stop sequences (`core_transport.route_stops`) have no separate core-review list
- * page yet — they appear on the bus route variant detail drawer.
- */
+/** Core review top nav. */
 export const coreReviewTabs: readonly FamilyNavTab[] = [
     { label: "Overview", segment: "", match: "exact" },
     { label: "Buildings", segment: "buildings" },
     { label: "Places", segment: "places" },
     { label: "Roads", segment: "roads" },
-    { label: "Bus stops", segment: "bus-stops" },
-    { label: "Bus routes", segment: "bus-routes" },
-    { label: "Bus route variants", segment: "bus-route-variants" },
     { label: "Landuse", segment: "landuse" },
     { label: "Water lines", segment: "water-lines" },
     { label: "Water polygons", segment: "water-polygons" },
@@ -148,17 +138,6 @@ export const importReviewTabs: readonly FamilyNavTab[] = [
     ...importReviewEntityNavTabs(),
     { label: "Promotion", segment: "promotion" },
     { label: "History", segment: "history" },
-];
-
-export const importTransportTabs: readonly FamilyNavTab[] = [
-    { label: "Overview", segment: "", match: "exact" },
-    { label: "Routes", segment: "routes" },
-    { label: "Stops", segment: "stops" },
-    { label: "Variants", segment: "variants" },
-    { label: "Route Stops", segment: "route-stops" },
-    { label: "Promotion", segment: "promotion" },
-    { label: "History", segment: "history" },
-    { label: "GTFS / OTP", segment: "gtfs" },
 ];
 
 export const referencesTabs: readonly FamilyNavTab[] = [
@@ -184,6 +163,15 @@ export const statsTabs: readonly FamilyNavTab[] = [
     { label: "Import stats", segment: "import" },
     { label: "Promotion stats", segment: "promotion" },
     { label: "Data quality", segment: "data-quality" },
+];
+
+export const transportTabs: readonly FamilyNavTab[] = [
+    { label: "Overview", segment: "", match: "exact" },
+    { label: "Routes", segment: "routes" },
+    { label: "Stops", segment: "stops" },
+    { label: "Terminals", segment: "terminals" },
+    { label: "Infrastructure", segment: "infrastructure" },
+    { label: "Imports", segment: "imports" },
 ];
 
 function joinPath(base: string, segment?: string): string {

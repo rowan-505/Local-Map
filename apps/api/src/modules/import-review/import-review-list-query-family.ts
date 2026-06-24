@@ -72,16 +72,7 @@ export function buildGenericLightweightListExtensionSelect(
         `);
     }
 
-    if (config.routeFamily === "bus_stops") {
-        parts.push(
-            Prisma.sql`
-            ${buildLightweightTypedNameColumns(config)}
-            , ${colRef(config, "stop_code")} AS stop_code
-        `
-        );
-    } else {
-        parts.push(buildLightweightTypedNameColumns(config));
-    }
+    parts.push(buildLightweightTypedNameColumns(config));
 
     if (config.routeFamily === "places") {
         parts.push(Prisma.sql`

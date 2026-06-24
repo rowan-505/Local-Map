@@ -42,7 +42,6 @@ import {
     isValidationHeartbeatStalled,
     type ImportReviewValidationHeartbeatState,
 } from "./import-review-promotion-validation-control.js";
-import { assertPublishBatchHasNoDeprecatedCoreBusItems } from "./import-review-transport-promotion-deprecated.js";
 import { outcomeFromPersistedValidationResult } from "./import-review-promotion-validation-resume.js";
 
 const runningBatchIds = new Set<bigint>();
@@ -314,11 +313,6 @@ export class ImportReviewPromotionValidationRunner {
                 `Cannot validate publish batch with status=${batchRow.status}.`
             );
         }
-
-        await assertPublishBatchHasNoDeprecatedCoreBusItems(
-            this.repo.prisma,
-            batchId
-        );
 
         const claim = await this.repo.claimBatchForValidation(batchId);
         if (!claim.claimed) {

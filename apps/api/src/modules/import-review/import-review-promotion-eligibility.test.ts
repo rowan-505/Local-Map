@@ -18,8 +18,6 @@ import {
 } from "./import-review-promotion.schema.js";
 import {
     ImportReviewPromotionUnknownFamilyError,
-    ImportReviewTransportPromotionDeprecatedError,
-    TRANSPORT_PROMOTION_DEPRECATED_MESSAGE,
 } from "./import-review-promotion.errors.js";
 import { getImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 
@@ -107,18 +105,6 @@ describe("import-review promotion eligibility API", () => {
         for (const row of response.families) {
             assert.match(row.target, /^core\./);
         }
-    });
-
-    it("rejects bus_routes with TRANSPORT_PROMOTION_DEPRECATED", () => {
-        assert.throws(
-            () => parsePromotionEligibilityFamiliesParam(["bus_routes"]),
-            (err: unknown) => {
-                assert.ok(err instanceof ImportReviewTransportPromotionDeprecatedError);
-                assert.equal(err.message, TRANSPORT_PROMOTION_DEPRECATED_MESSAGE);
-                assert.deepEqual(err.entityFamilies, ["bus_routes"]);
-                return true;
-            }
-        );
     });
 
     it("rejects unknown family with typed error", () => {

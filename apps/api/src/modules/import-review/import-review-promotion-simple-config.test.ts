@@ -1,16 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES } from "./import-review-promotion-config.js";
 import {
     IMPORT_REVIEW_SIMPLE_PROMOTION_FAMILIES,
     IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY,
-    assertPromotableFamily,
     getPromotionFamilyConfig,
     listPromotableFamilies,
     promotionTargetQualifiedTable,
 } from "./import-review-promotion-simple-config.js";
-import { ImportReviewTransportPromotionDeprecatedError } from "./import-review-promotion.errors.js";
 
 describe("import-review-promotion-simple-config", () => {
     it("lists nine promotable families in contract order", () => {
@@ -36,16 +33,6 @@ describe("import-review-promotion-simple-config", () => {
             (f) => IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY[f].highRisk
         );
         assert.deepEqual(highRisk.sort(), ["addresses", "admin_areas"]);
-    });
-
-    it("rejects bus families", () => {
-        for (const family of DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES) {
-            assert.equal(getPromotionFamilyConfig(family), null);
-            assert.throws(
-                () => assertPromotableFamily(family),
-                (err: unknown) => err instanceof ImportReviewTransportPromotionDeprecatedError
-            );
-        }
     });
 
     it("does not reference review_overrides in column lists", () => {

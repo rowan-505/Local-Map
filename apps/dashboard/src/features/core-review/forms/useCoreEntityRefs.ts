@@ -18,10 +18,8 @@ import {
 } from "@/src/lib/api";
 
 import type { CoreRefSourceKind } from "@/src/lib/core-review/entityConfigs/types";
-import type { CoreReviewBusRouteRow } from "@/src/features/core-review/config/types";
 import {
     useCoreReviewRefBuildingTypes,
-    useCoreReviewRefBusRoutes,
     useCoreReviewRefLanduseClasses,
     useCoreReviewRefRoadClasses,
     useCoreReviewRefStreets,
@@ -92,16 +90,6 @@ function mapAdminLevelOptions(items: ImportReviewReferenceOptionDto[]): CoreRefO
     });
 }
 
-function mapBusRoutes(items: CoreReviewBusRouteRow[]): CoreRefOption[] {
-    return items.map((item) => ({
-        value: item.id,
-        label: item.publicName
-            ? `${item.publicName}${item.routeCode ? ` (${item.routeCode})` : ""}`
-            : item.routeCode ?? item.id,
-        code: item.routeCode ?? undefined,
-    }));
-}
-
 function mapLanduseClasses(items: RefLanduseClass[]): CoreRefOption[] {
     return items
         .filter((item) => item.is_active)
@@ -156,10 +144,6 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
     const [referenceLoading, setReferenceLoading] = useState(false);
     const [referenceError, setReferenceError] = useState<string | null>(null);
 
-    const [busRoutes, setBusRoutes] = useState<CoreRefOption[]>([]);
-    const [busRoutesLoading, setBusRoutesLoading] = useState(false);
-    const [busRoutesError, setBusRoutesError] = useState<string | null>(null);
-
     const [streets, setStreets] = useState<CoreRefOption[]>([]);
     const [streetsLoading, setStreetsLoading] = useState(false);
     const [streetsError, setStreetsError] = useState<string | null>(null);
@@ -172,14 +156,12 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
     const needsRoadClasses = sources.includes("road-classes");
     const needsPlaceForm = sources.some((s) => s.startsWith("place-form-options:"));
     const needsReferenceOptions = sources.some((s) => s.startsWith("reference-options:"));
-    const needsBusRoutes = sources.includes("core-review:bus-routes");
     const needsStreets = sources.includes("streets");
     const needsLanduseClasses = sources.includes("landuse-classes");
 
     // Global cached reference data (React Query).
     const buildingTypesQuery = useCoreReviewRefBuildingTypes(needsBuildingTypes);
     const roadClassesQuery = useCoreReviewRefRoadClasses(needsRoadClasses);
-    const busRoutesQuery = useCoreReviewRefBusRoutes(200, needsBusRoutes);
     const streetsQuery = useCoreReviewRefStreets(100, needsStreets);
     const landuseClassesQuery = useCoreReviewRefLanduseClasses(needsLanduseClasses);
 
@@ -256,24 +238,6 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
     useEffect(() => {
         void loadReferenceOptions();
     }, [loadReferenceOptions]);
-
-    useEffect(() => {
-        if (!needsBusRoutes) {
-            setBusRoutes([]);
-            setBusRoutesLoading(false);
-            setBusRoutesError(null);
-            return;
-        }
-        setBusRoutes(mapBusRoutes(busRoutesQuery.data ?? []));
-        setBusRoutesLoading(busRoutesQuery.isFetching && !(busRoutesQuery.data?.length));
-        setBusRoutesError(
-            busRoutesQuery.error instanceof Error
-                ? busRoutesQuery.error.message
-                : busRoutesQuery.error
-                  ? String(busRoutesQuery.error)
-                  : null
-        );
-    }, [needsBusRoutes, busRoutesQuery.data, busRoutesQuery.error, busRoutesQuery.isFetching]);
 
     useEffect(() => {
         if (!needsStreets) {
@@ -360,12 +324,6 @@ export function useCoreEntityRefs(sources: CoreRefSourceKind[]): Record<CoreRefS
             isLoading: referenceLoading,
             error: referenceError,
             reload: () => void loadReferenceOptions(),
-        },
-        "core-review:bus-routes": {
-            options: busRoutes,
-            isLoading: busRoutesLoading,
-            error: busRoutesError,
-            reload: () => void busRoutesQuery.refetch(),
         },
         streets: {
             options: streets,

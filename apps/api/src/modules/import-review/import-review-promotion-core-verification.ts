@@ -41,22 +41,6 @@ export const CORE_ENTITY_VERIFICATION_CONFIG = {
         table: "core.core_map_water_polygons",
         columns: [...CORE_VERIFICATION_COLUMNS] as CoreVerificationColumn[],
     },
-    bus_stops: {
-        table: "core.core_bus_stops",
-        columns: [...CORE_VERIFICATION_COLUMNS] as CoreVerificationColumn[],
-    },
-    bus_routes: {
-        table: "core.core_bus_routes",
-        columns: [...CORE_VERIFICATION_COLUMNS] as CoreVerificationColumn[],
-    },
-    bus_route_variants: {
-        table: "core.core_bus_route_variants",
-        columns: [...CORE_VERIFICATION_COLUMNS] as CoreVerificationColumn[],
-    },
-    bus_route_stops: {
-        table: "core.core_bus_route_stops",
-        columns: [...CORE_VERIFICATION_COLUMNS] as CoreVerificationColumn[],
-    },
     roads: {
         table: "core.core_streets",
         columns: [...CORE_VERIFICATION_COLUMNS] as CoreVerificationColumn[],

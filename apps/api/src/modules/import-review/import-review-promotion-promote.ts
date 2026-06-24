@@ -11,7 +11,6 @@ import {
     ImportReviewRoutingBarrierPromotionBatchLimitError,
     ImportReviewRoutingBarrierPromotionDisabledError,
 } from "./import-review-promotion.errors.js";
-import { assertPublishBatchHasNoDeprecatedCoreBusItems } from "./import-review-transport-promotion-deprecated.js";
 import {
     IMPORT_REVIEW_ADMIN_AREA_PROMOTION_MAX_ITEMS,
     IMPORT_REVIEW_ROAD_PROMOTION_MAX_ITEMS,
@@ -168,8 +167,6 @@ export class ImportReviewPromotionPromoteRunner {
                 "Publish batch is already promoting."
             );
         }
-
-        await assertPublishBatchHasNoDeprecatedCoreBusItems(this.repo.prisma, args.batchId);
 
         const promotionGate = {
             confirm_warnings: args.confirmWarnings === true,

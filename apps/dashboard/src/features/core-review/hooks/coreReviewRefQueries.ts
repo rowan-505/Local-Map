@@ -2,17 +2,15 @@
  
  import { useQuery } from "@tanstack/react-query";
  
- import {
-     getAdminAreaOptions,
-     getBuildingTypes,
-     getCategories,
-     getCoreReviewList,
-     getRefLanduseClasses,
-     getRoadClasses,
-     getStreets,
- } from "@/src/lib/api";
- import type { CoreReviewBusRouteRow } from "@/src/features/core-review/config/types";
- 
+import {
+    getAdminAreaOptions,
+    getBuildingTypes,
+    getCategories,
+    getRefLanduseClasses,
+    getRoadClasses,
+    getStreets,
+} from "@/src/lib/api";
+
  // Cache policy: stable reference data, shared across core-review pages.
  const CORE_REVIEW_REFS_STALE_MS = 20 * 60 * 1000;
  const CORE_REVIEW_REFS_GC_MS = 60 * 60 * 1000;
@@ -23,9 +21,8 @@
      buildingTypes: () => ["core-review", "refs", "building-types"] as const,
      adminAreas: (limit: number) => ["core-review", "refs", "admin-areas", limit] as const,
      landuseClasses: () => ["core-review", "refs", "landuse-classes"] as const,
-     streets: (limit: number) => ["core-review", "refs", "streets", limit] as const,
-     busRoutes: (pageSize: number) => ["core-review", "refs", "bus-routes", pageSize] as const,
- } as const;
+    streets: (limit: number) => ["core-review", "refs", "streets", limit] as const,
+} as const;
  
  function refQueryDefaults(enabled: boolean) {
      return {
@@ -77,22 +74,11 @@ export function useCoreReviewRefAdminAreas(limit: number, enabled: boolean, town
      });
  }
  
- export function useCoreReviewRefStreets(limit: number, enabled: boolean) {
-     return useQuery({
-         queryKey: coreReviewRefQueryKeys.streets(limit),
-         queryFn: ({ signal }) => getStreets({ limit }, { signal }),
-         ...refQueryDefaults(enabled),
-     });
- }
- 
- export function useCoreReviewRefBusRoutes(pageSize: number, enabled: boolean) {
-     return useQuery({
-         queryKey: coreReviewRefQueryKeys.busRoutes(pageSize),
-         queryFn: ({ signal }) =>
-             getCoreReviewList<CoreReviewBusRouteRow>("bus-routes", { page: 1, pageSize }, { signal }).then(
-                 (res) => res.data
-             ),
-         ...refQueryDefaults(enabled),
-     });
- }
+export function useCoreReviewRefStreets(limit: number, enabled: boolean) {
+    return useQuery({
+        queryKey: coreReviewRefQueryKeys.streets(limit),
+        queryFn: ({ signal }) => getStreets({ limit }, { signal }),
+        ...refQueryDefaults(enabled),
+    });
+}
  

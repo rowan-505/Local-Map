@@ -201,3 +201,6 @@ infrastructure/database/introspection/**/snapshots/
 /infrastructure/tiles/**/*.temp
 
 /todo.txt
+
+/packages/admin_area_manual_fixes
+/packages/manual_fixes_gap1

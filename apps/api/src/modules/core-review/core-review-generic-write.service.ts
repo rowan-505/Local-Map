@@ -3,10 +3,6 @@ import type { PrismaClient } from "@prisma/client";
 import type { JwtUser } from "../../plugins/auth.js";
 import { CoreReviewRefValidator } from "../../lib/core-review/ref-validation.js";
 import {
-    applyBusStopAdminAreaForCreate,
-    applyBusStopAdminAreaForUpdate,
-} from "../../lib/core-review/bus-stop-admin-area-write.js";
-import {
     applyLanduseAdminAreaForCreate,
     applyLanduseAdminAreaForUpdate,
 } from "../../lib/core-review/landuse-admin-area-write.js";
@@ -125,55 +121,6 @@ export class CoreReviewGenericWriteService {
         log?: WriteLogger,
     ) {
         switch (slug) {
-            case "bus-stops": {
-                const sourceTypeId = await resolveSourceTypeId(this.refValidator, body);
-                try {
-                    await applyBusStopAdminAreaForCreate(
-                        this.entityAdminArea,
-                        body,
-                        pickGeometry(body),
-                        user,
-                    );
-                } catch (error) {
-                    this.mapEntityAdminAreaError(error);
-                }
-                await this.validateIssues([
-                    this.refValidator.validateAdminAreaId(
-                        pickAlias<bigint | null>(body, "adminAreaId", "admin_area_id") ?? null,
-                    ),
-                    this.refValidator.validateSourceTypeId(sourceTypeId),
-                ]);
-                const publicId = await this.writeRepo.createBusStop(body, sourceTypeId);
-                if (!publicId) throw new CoreReviewValidationError("Failed to create bus stop");
-                const row = await this.entitiesRepo.getBusStopByPublicId(publicId);
-                return buildDetailResponse(serializeGenericCoreRow(row!));
-            }
-            case "bus-routes": {
-                const sourceTypeId = await resolveSourceTypeId(this.refValidator, body);
-                await this.validateIssues([
-                    this.refValidator.validateSourceTypeId(sourceTypeId),
-                    this.refValidator.validateTransportOperatorId(
-                        pickAlias<bigint | null>(body, "operatorId", "operator_id"),
-                    ),
-                ]);
-                const id = await this.writeRepo.createBusRoute(body, sourceTypeId);
-                if (!id) throw new CoreReviewValidationError("Failed to create bus route");
-                const row = await this.entitiesRepo.getBusRouteById(id);
-                return buildDetailResponse(serializeGenericCoreRow(row!));
-            }
-            case "bus-route-variants": {
-                const routeId = pickAlias<bigint>(body, "routeId", "route_id");
-                if (routeId === undefined) {
-                    throw new CoreReviewValidationError("routeId is required", [
-                        { path: "routeId", message: "Required" },
-                    ]);
-                }
-                await this.validateIssues([this.refValidator.validateBusRouteId(routeId)]);
-                const id = await this.writeRepo.createBusRouteVariant(body);
-                if (!id) throw new CoreReviewValidationError("Failed to create bus route variant");
-                const row = await this.entitiesRepo.getBusRouteVariantById(id);
-                return buildDetailResponse(serializeGenericCoreRow(row!));
-            }
             case "landuse": {
                 try {
                     await applyLanduseAdminAreaForCreate(
@@ -282,63 +229,6 @@ export class CoreReviewGenericWriteService {
         log?: WriteLogger,
     ) {
         switch (slug) {
-            case "bus-stops": {
-                const existingStop = await this.entitiesRepo.getBusStopByPublicId(id);
-                if (!existingStop) {
-                    throw new CoreReviewNotFoundError();
-                }
-                const stopGeometry = pickGeometry(body) ?? existingStop.geometry;
-                const existingAdminAreaId = existingStop.adminAreaId
-                    ? BigInt(String(existingStop.adminAreaId))
-                    : null;
-                try {
-                    await applyBusStopAdminAreaForUpdate(
-                        this.entityAdminArea,
-                        body,
-                        stopGeometry,
-                        existingAdminAreaId,
-                        user,
-                    );
-                } catch (error) {
-                    this.mapEntityAdminAreaError(error);
-                }
-                await this.validateIssues([
-                    this.refValidator.validateAdminAreaId(
-                        pickAlias<bigint | null>(body, "adminAreaId", "admin_area_id"),
-                    ),
-                    this.refValidator.validateSourceTypeId(
-                        pickAlias<bigint | null>(body, "sourceTypeId", "source_type_id"),
-                    ),
-                ]);
-                const ok = await this.writeRepo.updateBusStop(id, body);
-                if (!ok) throw new CoreReviewNotFoundError();
-                const row = await this.entitiesRepo.getBusStopByPublicId(id);
-                return buildDetailResponse(serializeGenericCoreRow(row!));
-            }
-            case "bus-routes": {
-                await this.validateIssues([
-                    this.refValidator.validateSourceTypeId(
-                        pickAlias<bigint | null>(body, "sourceTypeId", "source_type_id"),
-                    ),
-                    this.refValidator.validateTransportOperatorId(
-                        pickAlias<bigint | null>(body, "operatorId", "operator_id"),
-                    ),
-                ]);
-                const ok = await this.writeRepo.updateBusRoute(id, body);
-                if (!ok) throw new CoreReviewNotFoundError();
-                const row = await this.entitiesRepo.getBusRouteById(id);
-                return buildDetailResponse(serializeGenericCoreRow(row!));
-            }
-            case "bus-route-variants": {
-                const routeId = pickAlias<bigint>(body, "routeId", "route_id");
-                if (routeId !== undefined) {
-                    await this.validateIssues([this.refValidator.validateBusRouteId(routeId)]);
-                }
-                const ok = await this.writeRepo.updateBusRouteVariant(id, body);
-                if (!ok) throw new CoreReviewNotFoundError();
-                const row = await this.entitiesRepo.getBusRouteVariantById(id);
-                return buildDetailResponse(serializeGenericCoreRow(row!));
-            }
             case "landuse": {
                 const existingLanduse = await this.landuseRepo.getLanduseById(id);
                 if (!existingLanduse) {

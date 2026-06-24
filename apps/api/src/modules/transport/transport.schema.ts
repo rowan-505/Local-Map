@@ -1,0 +1,400 @@
+import { z } from "zod";
+
+/**
+ * Local pagination/list conventions for the transport dashboard module.
+ * No shared API-wide pagination helper exists yet, so these stay local to
+ * transport (re-promote to a shared lib later if other modules need them).
+ */
+export const TRANSPORT_LIST_MAX_LIMIT = 100;
+export const TRANSPORT_LIST_DEFAULT_LIMIT = 25;
+
+/** Query string booleans arrive as "true"/"false"; undefined means "no filter". */
+const boolFromQuery = z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true"));
+
+/** review_status values mirror the live transport.* CHECK constraints. */
+export const transportReviewStatusEnum = z.enum([
+    "imported_unreviewed",
+    "needs_review",
+    "reviewed",
+    "verified",
+    "rejected",
+    "manual_protected",
+]);
+
+/** mode values mirror the live transport.* CHECK constraints. */
+export const transportModeEnum = z.enum([
+    "bus",
+    "express_bus",
+    "train",
+    "ferry",
+    "air",
+    "other",
+]);
+
+/** limit (hard-capped at 100) + offset. */
+export const transportPaginationQuerySchema = z.object({
+    limit: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(TRANSPORT_LIST_MAX_LIMIT)
+        .default(TRANSPORT_LIST_DEFAULT_LIMIT),
+    offset: z.coerce.number().int().min(0).default(0),
+});
+
+/**
+ * Shared base for transport list endpoints. Individual list endpoints extend
+ * this and drop fields that do not apply (e.g. import batches have no `mode`).
+ */
+export const transportListQuerySchema = transportPaginationQuerySchema.extend({
+    search: z.string().trim().min(1).max(120).optional(),
+    mode: transportModeEnum.optional(),
+    reviewStatus: transportReviewStatusEnum.optional(),
+    isActive: boolFromQuery,
+    includeDeleted: boolFromQuery,
+});
+
+export type TransportPaginationQuery = z.infer<typeof transportPaginationQuerySchema>;
+export type TransportListQuery = z.infer<typeof transportListQuerySchema>;
+
+/**
+ * GET /transport/routes query. Extends the shared list base with route-specific
+ * existence filters and an optional 1-based `page` (alternative to `offset`).
+ */
+export const listTransportRoutesQuerySchema = transportListQuerySchema.extend({
+    hasStops: boolFromQuery,
+    hasPath: boolFromQuery,
+    page: z.coerce.number().int().min(1).optional(),
+});
+
+export type ListTransportRoutesQuery = z.infer<typeof listTransportRoutesQuerySchema>;
+
+/**
+ * GET /transport/stops query. Extends the shared list base with stop-specific
+ * filters (stop_type, generated-name, has-routes, admin area) and an optional
+ * 1-based `page` (alternative to `offset`).
+ */
+export const listTransportStopsQuerySchema = transportListQuerySchema.extend({
+    stopType: z.string().trim().min(1).max(50).optional(),
+    generatedName: boolFromQuery,
+    hasRoutes: boolFromQuery,
+    adminAreaId: z.coerce.number().int().min(1).optional(),
+    page: z.coerce.number().int().min(1).optional(),
+});
+
+export type ListTransportStopsQuery = z.infer<typeof listTransportStopsQuerySchema>;
+
+/**
+ * GET /transport/terminals query. Extends the shared list base with terminal-specific
+ * filters (role, generated-name, linked-stop, admin area, confidence range) and an
+ * optional 1-based `page` (alternative to `offset`).
+ */
+export const listTransportTerminalsQuerySchema = transportListQuerySchema.extend({
+    terminalRole: z.string().trim().min(1).max(50).optional(),
+    generatedName: boolFromQuery,
+    linkedStop: boolFromQuery,
+    adminAreaId: z.coerce.number().int().min(1).optional(),
+    confidenceMin: z.coerce.number().min(0).max(100).optional(),
+    confidenceMax: z.coerce.number().min(0).max(100).optional(),
+    page: z.coerce.number().int().min(1).optional(),
+});
+
+export type ListTransportTerminalsQuery = z.infer<typeof listTransportTerminalsQuerySchema>;
+
+/**
+ * GET /transport/infrastructure-lines query. Extends the shared list base with
+ * line-specific filters (line_type, generated-name, admin area) and an optional
+ * 1-based `page` (alternative to `offset`).
+ */
+export const listTransportInfrastructureLinesQuerySchema = transportListQuerySchema.extend({
+    lineType: z.string().trim().min(1).max(50).optional(),
+    generatedName: boolFromQuery,
+    adminAreaId: z.coerce.number().int().min(1).optional(),
+    page: z.coerce.number().int().min(1).optional(),
+});
+
+export type ListTransportInfrastructureLinesQuery = z.infer<
+    typeof listTransportInfrastructureLinesQuerySchema
+>;
+
+/** GET /transport/import-batches query. Read-only import audit list. */
+export const listImportBatchesQuerySchema = transportPaginationQuerySchema.extend({
+    sourceName: z.string().trim().min(1).max(120).optional(),
+    sourceKind: z.string().trim().min(1).max(120).optional(),
+    status: z.string().trim().min(1).max(50).optional(),
+    page: z.coerce.number().int().min(1).optional(),
+});
+
+export type ListImportBatchesQuery = z.infer<typeof listImportBatchesQuerySchema>;
+
+/** GET /transport/import-errors query. Read-only import error list. */
+export const listImportErrorsQuerySchema = transportPaginationQuerySchema.extend({
+    importBatchId: z.coerce.number().int().min(1).optional(),
+    entityType: z.string().trim().min(1).max(50).optional(),
+    errorCode: z.string().trim().min(1).max(120).optional(),
+    search: z.string().trim().min(1).max(200).optional(),
+    page: z.coerce.number().int().min(1).optional(),
+});
+
+export type ListImportErrorsQuery = z.infer<typeof listImportErrorsQuerySchema>;
+
+/** GET /transport/source-links query. Read-only source provenance list. */
+export const listSourceLinksQuerySchema = transportPaginationQuerySchema.extend({
+    entityType: z.string().trim().min(1).max(50).optional(),
+    entityId: z.coerce.number().int().min(1).optional(),
+    sourceName: z.string().trim().min(1).max(120).optional(),
+    sourceKind: z.string().trim().min(1).max(120).optional(),
+    externalId: z.string().trim().min(1).max(200).optional(),
+    page: z.coerce.number().int().min(1).optional(),
+});
+
+export type ListSourceLinksQuery = z.infer<typeof listSourceLinksQuerySchema>;
+
+/** Path param for `:publicId` route/variant lookups. */
+export const transportPublicIdParamSchema = z.object({
+    publicId: z.string().uuid(),
+});
+
+export type TransportPublicIdParam = z.infer<typeof transportPublicIdParamSchema>;
+
+/**
+ * GET /transport/route-variants/:publicId/stops query.
+ * Stops are variant-scoped (bounded), so the cap is higher than list endpoints.
+ * `includePath` opts in to the variant's route-path geometry (kept out by default).
+ */
+export const STOPS_LIST_MAX_LIMIT = 1000;
+export const STOPS_LIST_DEFAULT_LIMIT = 500;
+
+export const listVariantStopsQuerySchema = z.object({
+    limit: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(STOPS_LIST_MAX_LIMIT)
+        .default(STOPS_LIST_DEFAULT_LIMIT),
+    offset: z.coerce.number().int().min(0).default(0),
+    includePath: boolFromQuery,
+});
+
+export type ListVariantStopsQuery = z.infer<typeof listVariantStopsQuerySchema>;
+
+/**
+ * Nullable, trimmed free-text field for edit forms. Empty string is normalized to
+ * `null` so clearing a field in the UI clears the column. `undefined` (key absent)
+ * means "leave unchanged".
+ */
+function nullableText(max: number) {
+    return z
+        .string()
+        .trim()
+        .max(max)
+        .nullable()
+        .optional()
+        .transform((v) => (v === "" ? null : v));
+}
+
+/** Required, trimmed, non-empty text for edit forms. */
+function requiredText(max: number) {
+    return z.string().trim().min(1).max(max).optional();
+}
+
+/** confidence_score mirrors the live CHECK (0–100). Numeric column → number body. */
+const confidenceScoreField = z.number().min(0).max(100).optional();
+
+/**
+ * PATCH /transport/routes/:publicId body. All fields optional (partial update);
+ * `.strict()` rejects unknown keys — notably `source_refs` and `normalized_data`,
+ * which are not editable through the normal form. At least one field is required.
+ */
+export const updateRouteBodySchema = z
+    .object({
+        route_code: requiredText(50),
+        public_name: requiredText(200),
+        mode: transportModeEnum.optional(),
+        route_kind: requiredText(50),
+        origin_name: nullableText(200),
+        destination_name: nullableText(200),
+        description: nullableText(2000),
+        review_status: transportReviewStatusEnum.optional(),
+        confidence_score: confidenceScoreField,
+        is_active: z.boolean().optional(),
+    })
+    .strict()
+    .refine((body) => Object.keys(body).length > 0, {
+        message: "At least one field must be provided.",
+    });
+
+export type UpdateRouteInput = z.infer<typeof updateRouteBodySchema>;
+
+/**
+ * PATCH /transport/route-variants/:publicId body. Same conventions as the route
+ * update schema. `.strict()` blocks `source_refs` / `normalized_data`.
+ */
+export const updateVariantBodySchema = z
+    .object({
+        variant_code: requiredText(50),
+        direction_name: nullableText(100),
+        direction_id: z.number().int().min(0).max(32767).nullable().optional(),
+        headsign: nullableText(200),
+        origin_name: nullableText(200),
+        destination_name: nullableText(200),
+        estimated_duration_min: z.number().int().min(0).max(100000).nullable().optional(),
+        review_status: transportReviewStatusEnum.optional(),
+        confidence_score: confidenceScoreField,
+        is_active: z.boolean().optional(),
+    })
+    .strict()
+    .refine((body) => Object.keys(body).length > 0, {
+        message: "At least one field must be provided.",
+    });
+
+export type UpdateVariantInput = z.infer<typeof updateVariantBodySchema>;
+
+/**
+ * GET /transport/stops/:publicId/routes query — paginates the (potentially large)
+ * list of route variants that include this stop. Capped like the other lists.
+ */
+export const stopRoutesQuerySchema = transportPaginationQuerySchema;
+
+export type StopRoutesQuery = z.infer<typeof stopRoutesQuerySchema>;
+
+/**
+ * Editable point geometry for a stop. Sent as an explicit lng/lat pair so the
+ * frontend never has to construct GeoJSON. `geom` is NOT NULL in the DB, so this
+ * (when present) always replaces with a valid point; it can never clear geometry.
+ */
+const stopPointField = z
+    .object({
+        longitude: z.number().min(-180).max(180),
+        latitude: z.number().min(-90).max(90),
+    })
+    .optional();
+
+/**
+ * PATCH /transport/stops/:publicId body. Partial update; `.strict()` rejects
+ * unknown keys — notably `source_refs` / `normalized_data`, which are not editable
+ * through the normal form. At least one field is required.
+ *
+ * `admin_area_id` / `parent_stop_id` are nullable internal FKs (numbers). The
+ * service validates referential integrity and surfaces a 400 on a bad reference.
+ */
+export const updateStopBodySchema = z
+    .object({
+        stop_code: nullableText(50),
+        name: requiredText(255),
+        name_mm: nullableText(255),
+        name_en: nullableText(255),
+        mode: transportModeEnum.optional(),
+        stop_type: z.string().trim().min(1).max(50).optional(),
+        admin_area_id: z.number().int().min(1).nullable().optional(),
+        parent_stop_id: z.number().int().min(1).nullable().optional(),
+        review_status: transportReviewStatusEnum.optional(),
+        confidence_score: confidenceScoreField,
+        is_active: z.boolean().optional(),
+        point: stopPointField,
+    })
+    .strict()
+    .refine((body) => Object.keys(body).length > 0, {
+        message: "At least one field must be provided.",
+    });
+
+export type UpdateStopInput = z.infer<typeof updateStopBodySchema>;
+
+/**
+ * PATCH /transport/terminals/:publicId body. Partial update; `.strict()` rejects
+ * unknown keys — notably `source_refs` / `normalized_data`. At least one field
+ * required. `linked_stop_id` / `operator_id` / `admin_area_id` are nullable
+ * internal FKs validated by the service. `point` replaces the (NOT NULL) geometry.
+ */
+export const updateTerminalBodySchema = z
+    .object({
+        terminal_code: nullableText(50),
+        name: requiredText(255),
+        name_mm: nullableText(255),
+        name_en: nullableText(255),
+        mode: transportModeEnum.optional(),
+        terminal_role: z.string().trim().min(1).max(50).optional(),
+        linked_stop_id: z.number().int().min(1).nullable().optional(),
+        operator_id: z.number().int().min(1).nullable().optional(),
+        admin_area_id: z.number().int().min(1).nullable().optional(),
+        review_status: transportReviewStatusEnum.optional(),
+        confidence_score: confidenceScoreField,
+        is_active: z.boolean().optional(),
+        point: stopPointField,
+    })
+    .strict()
+    .refine((body) => Object.keys(body).length > 0, {
+        message: "At least one field must be provided.",
+    });
+
+export type UpdateTerminalInput = z.infer<typeof updateTerminalBodySchema>;
+
+/**
+ * PATCH /transport/infrastructure-lines/:publicId body. Partial update; `.strict()`
+ * rejects unknown keys — notably `source_refs` / `normalized_data`. At least one
+ * field required. `name` is nullable (many lines are unnamed/generated). Line
+ * geometry editing is intentionally NOT supported here.
+ */
+export const updateInfrastructureLineBodySchema = z
+    .object({
+        name: nullableText(255),
+        name_mm: nullableText(255),
+        name_en: nullableText(255),
+        mode: transportModeEnum.optional(),
+        line_type: z.string().trim().min(1).max(50).optional(),
+        admin_area_id: z.number().int().min(1).nullable().optional(),
+        review_status: transportReviewStatusEnum.optional(),
+        confidence_score: confidenceScoreField,
+        is_active: z.boolean().optional(),
+    })
+    .strict()
+    .refine((body) => Object.keys(body).length > 0, {
+        message: "At least one field must be provided.",
+    });
+
+export type UpdateInfrastructureLineInput = z.infer<typeof updateInfrastructureLineBodySchema>;
+
+/** Path param for `:id` route_stops lookups (numeric primary key). */
+export const routeStopIdParamSchema = z.object({
+    id: z.string().regex(/^\d+$/, "id must be a positive integer"),
+});
+
+export type RouteStopIdParam = z.infer<typeof routeStopIdParamSchema>;
+
+/**
+ * PATCH /transport/route-stops/:id body. Stop membership flags only.
+ * pickup_type / drop_off_type follow GTFS semantics (0–3). `.strict()` blocks
+ * editing stop_sequence (use the move endpoint) and source_refs / normalized_data.
+ */
+export const updateRouteStopBodySchema = z
+    .object({
+        pickup_type: z.number().int().min(0).max(3).optional(),
+        drop_off_type: z.number().int().min(0).max(3).optional(),
+        is_timing_point: z.boolean().optional(),
+    })
+    .strict()
+    .refine((body) => Object.keys(body).length > 0, {
+        message: "At least one field must be provided.",
+    });
+
+export type UpdateRouteStopInput = z.infer<typeof updateRouteStopBodySchema>;
+
+/** POST /transport/route-stops/:id/move body — swap with the adjacent stop. */
+export const moveRouteStopBodySchema = z.object({
+    direction: z.enum(["up", "down"]),
+});
+
+export type MoveRouteStopInput = z.infer<typeof moveRouteStopBodySchema>;
+
+/**
+ * DELETE /transport/route-stops/:id body. Optional free-text reason recorded in
+ * the removal audit log metadata. The body itself is optional (no body = no reason).
+ */
+export const removeRouteStopBodySchema = z.object({
+    reason: z.string().trim().max(500).optional(),
+});
+
+export type RemoveRouteStopInput = z.infer<typeof removeRouteStopBodySchema>;

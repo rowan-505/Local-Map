@@ -2,18 +2,19 @@
 -- check_streets_admin_area_id.sql
 -- =============================================================================
 -- Supabase validation entry point (read-only).
--- Canonical audit SQL lives in:
---   tools/data-pipeline/streets/audit_streets_admin_area_id.sql
+-- Full report + overlap spot-check lives in:
+--   tools/data-pipeline/admin-hierarchy-repair/verify_roads_admin_area_id.sql
 --
--- Run from repo root:
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
---     -f tools/data-pipeline/streets/audit_streets_admin_area_id.sql
+-- Run from that folder:
+--   psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
+--     -f tools/data-pipeline/admin-hierarchy-repair/verify_roads_admin_area_id.sql
 --
--- Or:
---   cd tools/data-pipeline/streets && ./run_audit_streets_admin_area_id.sh imports/local.env
+-- Backfill (chunked loop):
+--   cd tools/data-pipeline/admin-hierarchy-repair && \
+--     CONFIRM_WRITE=true ./run_05_roads_loop.sh imports/<name>.env
 -- =============================================================================
 
-\echo 'Use tools/data-pipeline/streets/audit_streets_admin_area_id.sql for the full report.'
+\echo 'Use tools/data-pipeline/admin-hierarchy-repair/verify_roads_admin_area_id.sql for the full report.'
 \echo 'Quick health gates below (all core.core_streets rows).'
 
 \set ON_ERROR_STOP on

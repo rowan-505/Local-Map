@@ -3,8 +3,8 @@ import type { CoreReviewOverviewAccess, CoreReviewOverviewSourceSchema } from "@
 const BADGE_BASE =
     "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium leading-tight";
 
-export function coreReviewSourceSchemaFromTable(table: string): CoreReviewOverviewSourceSchema {
-    return table.startsWith("core_transport.") ? "core_transport" : "core";
+export function coreReviewSourceSchemaFromTable(_table: string): CoreReviewOverviewSourceSchema {
+    return "core";
 }
 
 export function CoreReviewOverviewSourceBadge({
@@ -14,10 +14,7 @@ export function CoreReviewOverviewSourceBadge({
     source: CoreReviewOverviewSourceSchema;
     className?: string;
 }) {
-    const styles =
-        source === "core_transport"
-            ? "border-teal-200 bg-teal-50 text-teal-900"
-            : "border-slate-200 bg-slate-50 text-slate-800";
+    const styles = "border-slate-200 bg-slate-50 text-slate-800";
 
     return (
         <span className={`${BADGE_BASE} ${styles} ${className}`}>Source: {source}</span>

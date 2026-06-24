@@ -12,9 +12,9 @@ const defaultInspectedSchemas = [
   "tiles",
   "app_auth",
   "routing",
-  "core_transport",
+  "transport",
+  "transit_export",
   "import_review",
-  "import_transport",
 ];
 const missingDatabaseUrlMessage = "Missing DATABASE_URL. Add it to root .env.";
 const connectionFailureMessage = "Failed to connect to database. Check DATABASE_URL.";

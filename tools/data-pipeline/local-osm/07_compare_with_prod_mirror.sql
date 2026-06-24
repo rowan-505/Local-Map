@@ -167,10 +167,6 @@ VALUES
     ('landuse', 'staging_landuse_candidates', 'core_map_landuse', false, false, false, NULL, 'geom', NULL, NULL, 'geom', 5),
     ('water_lines', 'staging_water_line_candidates', 'core_map_water_lines', false, false, false, NULL, 'geom', NULL, NULL, 'geom', 10),
     ('water_polygons', 'staging_water_polygon_candidates', 'core_map_water_polygons', false, false, false, NULL, 'geom', NULL, NULL, 'geom', 5),
-    ('bus_stops', 'staging_bus_stop_candidates', 'core_bus_stops', false, false, false, 'point_geom', NULL, NULL, 'point_geom', 'geom', 30),
-    ('bus_routes', 'staging_bus_route_candidates', 'core_bus_routes', false, false, true, NULL, 'geom', NULL, NULL, 'geom', 10),
-    ('bus_route_variants', 'staging_bus_route_variant_candidates', 'core_bus_route_variants', false, false, true, NULL, 'geom', NULL, NULL, 'geom', 10),
-    ('bus_route_stops', 'staging_bus_route_stop_candidates', 'core_bus_route_stops', false, true, true, 'point_geom', NULL, NULL, 'point_geom', NULL, 30),
     ('addresses', 'staging_address_candidates', 'core_addresses', false, false, false, 'point_geom', 'geom', NULL, 'point_geom', 'geom', 30),
     ('routing_roads', 'staging_routing_road_candidates', 'core_streets', false, false, true, NULL, 'geom', 'geom_multi', NULL, 'geom', 10),
     ('routing_barriers', 'staging_routing_barrier_candidates', 'core_routing_barriers', false, false, true, 'point_geom', 'geom', NULL, 'point_geom', 'geom', 10);

@@ -2,8 +2,7 @@
  * Compatibility shim — source of truth is @/src/features/import-review/config.
  * Existing imports from this module keep working without changes.
  */
-import { importReviewPath, importTransportPath } from "@/src/lib/dashboardPaths";
-import { isDeprecatedImportReviewBusSlug } from "@/src/features/import-review/utils/deprecatedCoreBusPromotion";
+import { importReviewPath } from "@/src/lib/dashboardPaths";
 import {
     applyImportReviewScopeSearchParams,
     reviewBatchIdFromImportReviewSearch,
@@ -68,9 +67,6 @@ export function getImportReviewEntityByApiFamily(apiFamily: string): ImportRevie
 
 /** Entity page href scoped to a resolved review batch (preferred for navigation from overview). */
 export function importReviewEntityHrefForBatch(slug: string, reviewBatchId: string): string {
-    if (isDeprecatedImportReviewBusSlug(slug)) {
-        return importTransportPath();
-    }
     const id = reviewBatchId.trim();
     if (!id) {
         return importReviewPath(slug);
@@ -84,9 +80,6 @@ export function importReviewEntityHref(
     sp: Pick<URLSearchParams, "get" | "toString">,
     resolvedReviewBatchId?: string | null
 ): string {
-    if (isDeprecatedImportReviewBusSlug(slug)) {
-        return importTransportPath();
-    }
     const resolvedBatch = resolvedReviewBatchId?.trim() || reviewBatchIdFromImportReviewSearch(sp);
     if (resolvedBatch) {
         return importReviewEntityHrefForBatch(slug, resolvedBatch);

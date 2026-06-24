@@ -1,4 +1,5 @@
 erDiagram
+  %% Inspected schemas (9): ref, core, raw, staging, system, tiles, routing, search, app_auth
   app_auth_auth_roles {
     bigint id PK
     text code
@@ -73,6 +74,9 @@ erDiagram
     boolean is_active
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    text external_id
+    jsonb source_refs
+    jsonb normalized_data
     timestamp_with_time_zone deleted_at
   }
   core_core_bus_route_names {
@@ -315,6 +319,12 @@ erDiagram
     jsonb raw_payload
     timestamp_with_time_zone ingested_at
   }
+  raw_v2_kyauktan_custom_boundary {
+    integer ogc_fid PK
+    geometry wkb_geometry
+    integer fid
+    character_varying text_string
+  }
   ref_ref_address_component_types {
     bigint id PK
     text code
@@ -383,6 +393,65 @@ erDiagram
     text name
     timestamp_with_time_zone created_at
   }
+  staging_staging_address_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    text raw_table
+    bigint raw_id
+    text external_id
+    text source_feature_family
+    text full_address
+    text house_number
+    text street_name
+    text quarter
+    text suburb
+    text township
+    text city
+    text district
+    text state_region
+    text postcode
+    text country
+    geometry point_geom
+    geometry geom
+    bigint matched_core_address_id
+    bigint matched_place_candidate_id
+    bigint matched_building_candidate_id
+    bigint matched_road_candidate_id
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+    text validation_status
+    text promotion_status
+    text source_classification
+    boolean has_place_evidence
+    boolean has_address_evidence
+    text address_strength
+    text source_name
+    text source_type_hint
+    text source_category_hint
+  }
+  staging_staging_address_component_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    bigint address_candidate_id FK
+    text component_type_code
+    text component_value
+    text language_code
+    text source_tag
+    integer sort_order
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+  }
   staging_staging_admin_area_candidates {
     bigint id PK
     bigint source_snapshot_id FK
@@ -399,6 +468,30 @@ erDiagram
     jsonb source_refs
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    bigint raw_id
+    text class_code
+    text auto_action
+    text review_status
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_staging_admin_area_name_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    bigint admin_area_candidate_id FK
+    text external_id
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    text source_tag
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
   }
   staging_staging_building_candidates {
     bigint id PK
@@ -414,6 +507,12 @@ erDiagram
     geometry geom
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    text auto_action
+    text review_status
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
   }
   staging_staging_bus_route_candidates {
     bigint id PK
@@ -429,6 +528,77 @@ erDiagram
     jsonb source_refs
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    bigint raw_id
+    text canonical_name
+    text class_code
+    text auto_action
+    text review_status
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_staging_bus_route_name_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    bigint bus_route_candidate_id FK
+    text external_id
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    text source_tag
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+  }
+  staging_staging_bus_route_stop_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    bigint bus_route_variant_candidate_id FK
+    bigint bus_stop_candidate_id FK
+    text external_id
+    integer stop_sequence
+    text role
+    geometry point_geom
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text match_status
+    timestamp_with_time_zone created_at
+    text auto_action
+    text review_status
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_staging_bus_route_variant_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    bigint bus_route_candidate_id FK
+    text external_id
+    text variant_code
+    text direction
+    text from_name
+    text to_name
+    geometry geom
+    numeric sequence_confidence
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
   }
   staging_staging_bus_stop_candidates {
     bigint id PK
@@ -444,6 +614,30 @@ erDiagram
     jsonb source_refs
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    bigint raw_id
+    text class_code
+    text auto_action
+    text review_status
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_staging_bus_stop_name_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    bigint bus_stop_candidate_id FK
+    text external_id
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    text source_tag
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
   }
   staging_staging_landuse_candidates {
     bigint id PK
@@ -459,6 +653,12 @@ erDiagram
     geometry geom
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    text auto_action
+    text review_status
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
   }
   staging_staging_place_candidates {
     bigint id PK
@@ -477,6 +677,23 @@ erDiagram
     jsonb source_refs
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    bigint raw_id
+    text class_code
+    geometry footprint_geom
+    text auto_action
+    text review_status
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+    text promotion_status
+    text source_classification
+    boolean has_place_evidence
+    boolean has_address_evidence
+    text address_strength
+    text source_name
+    text source_type_hint
+    text source_category_hint
   }
   staging_staging_place_name_candidates {
     bigint id PK
@@ -488,6 +705,16 @@ erDiagram
     text name_type
     boolean is_primary
     numeric search_weight
+    text external_id
+    text source_tag
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
   }
   staging_staging_road_candidates {
     bigint id PK
@@ -505,6 +732,133 @@ erDiagram
     jsonb source_refs
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    bigint raw_id
+    text class_code
+    text auto_action
+    text review_status
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_staging_road_name_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    bigint road_candidate_id FK
+    text external_id
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    text source_tag
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+  }
+  staging_staging_routing_barrier_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    text raw_table
+    bigint raw_id
+    text external_id
+    text barrier_type
+    jsonb access_tags
+    geometry point_geom
+    geometry geom
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text match_status
+    timestamp_with_time_zone created_at
+    text auto_action
+    text review_status
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_staging_routing_road_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    bigint road_candidate_id FK
+    bigint raw_id
+    text external_id
+    text road_class_code
+    boolean is_oneway
+    numeric maxspeed_kph
+    integer lanes
+    text surface
+    jsonb access_tags
+    jsonb routing_tags
+    geometry geom
+    geometry geom_multi
+    numeric length_m
+    numeric confidence_score
+    text match_status
+    text auto_action
+    text review_status
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_staging_routing_turn_restriction_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    text external_id
+    text restriction_type
+    text from_external_id
+    text via_external_id
+    text to_external_id
+    text raw_relation_id
+    jsonb relation_tags
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text match_status
+    timestamp_with_time_zone created_at
+    text auto_action
+    text review_status
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_staging_search_address_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    bigint address_candidate_id FK
+    text external_id
+    text search_text
+    text language_code
+    jsonb tokens
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+  }
+  staging_staging_search_name_candidates {
+    bigint id PK
+    bigint source_snapshot_id FK
+    text entity_family
+    bigint candidate_id
+    text external_id
+    text name
+    text language_code
+    text script_code
+    text name_type
+    integer search_weight
+    jsonb tokens
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
   }
   staging_staging_water_line_candidates {
     bigint id PK
@@ -520,6 +874,12 @@ erDiagram
     geometry geom
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    text auto_action
+    text review_status
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
   }
   staging_staging_water_polygon_candidates {
     bigint id PK
@@ -535,6 +895,12 @@ erDiagram
     geometry geom
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    text auto_action
+    text review_status
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
   }
   system_system_conflict_queue {
     bigint id PK
@@ -580,6 +946,23 @@ erDiagram
     timestamp_with_time_zone finished_at
     text note
   }
+  system_system_import_boundaries {
+    bigint id PK
+    text boundary_code
+    text boundary_name
+    text region_code
+    text boundary_ref
+    text boundary_version
+    text checksum
+    text source_file_path
+    geometry geom
+    geometry bbox
+    numeric area_m2
+    jsonb metadata
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
   system_system_publish_batches {
     bigint id PK
     text batch_name
@@ -599,6 +982,49 @@ erDiagram
     text publish_action
     text publish_status
     timestamp_with_time_zone created_at
+  }
+  system_system_remote_review_package_items {
+    bigint id PK
+    bigint package_id FK
+    text entity_family
+    text source_table
+    bigint local_staging_id
+    text external_id
+    text match_status
+    text auto_action
+    text review_status
+    text review_decision
+    numeric confidence_score
+    text canonical_name
+    text class_code
+    jsonb normalized_data
+    jsonb source_refs
+    jsonb review_overrides
+    bigint matched_core_id
+    text matched_core_table
+    jsonb matched_core_data
+    jsonb f2_comparison
+    jsonb geometry_geojson
+    jsonb payload
+    text upload_status
+    bigint remote_candidate_id
+    timestamp_with_time_zone created_at
+  }
+  system_system_remote_review_packages {
+    bigint id PK
+    text package_name
+    bigint source_snapshot_id FK
+    text snapshot_version
+    text region_code
+    text status
+    text[] entity_families
+    integer total_item_count
+    jsonb summary
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone uploaded_at
+    bigint remote_review_batch_id
+    text remote_upload_status
+    text note
   }
   system_system_review_logs {
     bigint id PK
@@ -644,8 +1070,560 @@ erDiagram
     text checksum
     timestamp_with_time_zone captured_at
     timestamp_with_time_zone created_at
+    bigint boundary_id FK
   }
   %% VIEWS
+  staging_v_manual_protected_building_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_manual_protected_landuse_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_manual_protected_place_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text source_entity_type
+    text class_code
+    bigint place_class_id
+    bigint poi_category_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry point_geom
+    geometry footprint_geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_manual_protected_road_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    bigint road_class_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    numeric length_m
+    boolean is_oneway
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_no_conflict_address_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry point_geom
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_no_conflict_admin_area_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    bigint admin_level_id
+    bigint parent_candidate_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry centroid
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_no_conflict_building_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_no_conflict_bus_stop_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry point_geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_no_conflict_landuse_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_no_conflict_place_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text source_entity_type
+    text class_code
+    bigint place_class_id
+    bigint poi_category_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry point_geom
+    geometry footprint_geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_no_conflict_road_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    bigint road_class_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    numeric length_m
+    boolean is_oneway
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_no_conflict_routing_barrier_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry point_geom
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_no_conflict_water_line_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_no_conflict_water_polygon_candidates {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_review_address_conflicts {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry point_geom
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_review_admin_area_conflicts {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    bigint admin_level_id
+    bigint parent_candidate_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry centroid
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_review_building_conflicts {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_review_bus_stop_conflicts {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry point_geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_review_landuse_conflicts {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_review_place_conflicts {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text source_entity_type
+    text class_code
+    bigint place_class_id
+    bigint poi_category_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry point_geom
+    geometry footprint_geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_review_road_conflicts {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    bigint road_class_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    numeric length_m
+    boolean is_oneway
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_review_routing_barrier_conflicts {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry point_geom
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_review_water_line_conflicts {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
+  staging_v_review_water_polygon_conflicts {
+    bigint candidate_id
+    bigint source_snapshot_id
+    text snapshot_version
+    text external_id
+    text canonical_name
+    text class_code
+    text match_status
+    text auto_action
+    text review_status
+    numeric confidence_score
+    jsonb source_refs
+    jsonb normalized_data
+    geometry geom
+    bigint raw_id
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    text review_decision
+    text reviewed_by
+    timestamp_with_time_zone reviewed_at
+    text review_note
+  }
   tiles_tiles_admin_areas_v {
     bigint id
     text name
@@ -732,6 +1710,7 @@ erDiagram
     text water_class
     geometry geom
   }
+  %% RELATIONSHIPS
   app_auth_auth_roles ||--o{ app_auth_auth_user_roles : "role_id"
   app_auth_auth_users ||--o{ app_auth_auth_user_roles : "user_id"
   core_core_addresses ||--o{ core_core_address_components : "address_id"
@@ -771,12 +1750,26 @@ erDiagram
   system_system_source_snapshots ||--o{ raw_raw_osm_points : "source_snapshot_id"
   system_system_source_snapshots ||--o{ raw_raw_osm_polygons : "source_snapshot_id"
   ref_ref_poi_categories ||--o{ ref_ref_poi_categories : "parent_id"
+  system_system_source_snapshots ||--o{ staging_staging_address_candidates : "source_snapshot_id"
+  staging_staging_address_candidates ||--o{ staging_staging_address_component_candidates : "address_candidate_id"
+  system_system_source_snapshots ||--o{ staging_staging_address_component_candidates : "source_snapshot_id"
   ref_ref_admin_levels ||--o{ staging_staging_admin_area_candidates : "admin_level_id"
   staging_staging_admin_area_candidates ||--o{ staging_staging_admin_area_candidates : "parent_candidate_id"
   system_system_source_snapshots ||--o{ staging_staging_admin_area_candidates : "source_snapshot_id"
+  staging_staging_admin_area_candidates ||--o{ staging_staging_admin_area_name_candidates : "admin_area_candidate_id"
+  system_system_source_snapshots ||--o{ staging_staging_admin_area_name_candidates : "source_snapshot_id"
   system_system_source_snapshots ||--o{ staging_staging_bus_route_candidates : "source_snapshot_id"
+  staging_staging_bus_route_candidates ||--o{ staging_staging_bus_route_name_candidates : "bus_route_candidate_id"
+  system_system_source_snapshots ||--o{ staging_staging_bus_route_name_candidates : "source_snapshot_id"
+  staging_staging_bus_route_variant_candidates ||--o{ staging_staging_bus_route_stop_candidates : "bus_route_variant_candidate_id"
+  staging_staging_bus_stop_candidates ||--o{ staging_staging_bus_route_stop_candidates : "bus_stop_candidate_id"
+  system_system_source_snapshots ||--o{ staging_staging_bus_route_stop_candidates : "source_snapshot_id"
+  staging_staging_bus_route_candidates ||--o{ staging_staging_bus_route_variant_candidates : "bus_route_candidate_id"
+  system_system_source_snapshots ||--o{ staging_staging_bus_route_variant_candidates : "source_snapshot_id"
   staging_staging_admin_area_candidates ||--o{ staging_staging_bus_stop_candidates : "admin_area_candidate_id"
   system_system_source_snapshots ||--o{ staging_staging_bus_stop_candidates : "source_snapshot_id"
+  staging_staging_bus_stop_candidates ||--o{ staging_staging_bus_stop_name_candidates : "bus_stop_candidate_id"
+  system_system_source_snapshots ||--o{ staging_staging_bus_stop_name_candidates : "source_snapshot_id"
   staging_staging_admin_area_candidates ||--o{ staging_staging_place_candidates : "admin_area_candidate_id"
   ref_ref_place_classes ||--o{ staging_staging_place_candidates : "place_class_id"
   ref_ref_poi_categories ||--o{ staging_staging_place_candidates : "poi_category_id"
@@ -785,14 +1778,55 @@ erDiagram
   system_system_source_snapshots ||--o{ staging_staging_place_name_candidates : "source_snapshot_id"
   ref_ref_road_classes ||--o{ staging_staging_road_candidates : "road_class_id"
   system_system_source_snapshots ||--o{ staging_staging_road_candidates : "source_snapshot_id"
+  staging_staging_road_candidates ||--o{ staging_staging_road_name_candidates : "road_candidate_id"
+  system_system_source_snapshots ||--o{ staging_staging_road_name_candidates : "source_snapshot_id"
+  system_system_source_snapshots ||--o{ staging_staging_routing_barrier_candidates : "source_snapshot_id"
+  staging_staging_road_candidates ||--o{ staging_staging_routing_road_candidates : "road_candidate_id"
+  system_system_source_snapshots ||--o{ staging_staging_routing_road_candidates : "source_snapshot_id"
+  system_system_source_snapshots ||--o{ staging_staging_routing_turn_restriction_candidates : "source_snapshot_id"
+  staging_staging_address_candidates ||--o{ staging_staging_search_address_candidates : "address_candidate_id"
+  system_system_source_snapshots ||--o{ staging_staging_search_address_candidates : "source_snapshot_id"
+  system_system_source_snapshots ||--o{ staging_staging_search_name_candidates : "source_snapshot_id"
   system_system_diff_items ||--o{ system_system_conflict_queue : "diff_item_id"
   system_system_diff_runs ||--o{ system_system_diff_items : "diff_run_id"
   system_system_source_snapshots ||--o{ system_system_diff_runs : "current_snapshot_id"
   system_system_source_snapshots ||--o{ system_system_diff_runs : "previous_snapshot_id"
   system_system_source_registry ||--o{ system_system_import_batches : "source_registry_id"
   system_system_publish_batches ||--o{ system_system_publish_items : "publish_batch_id"
+  system_system_remote_review_packages ||--o{ system_system_remote_review_package_items : "package_id"
+  system_system_source_snapshots ||--o{ system_system_remote_review_packages : "source_snapshot_id"
   ref_ref_validation_statuses ||--o{ system_system_review_tasks : "status_id"
   ref_ref_validation_task_types ||--o{ system_system_review_tasks : "task_type_id"
   ref_ref_source_types ||--o{ system_system_source_registry : "source_type_id"
+  system_system_import_boundaries ||--o{ system_system_source_snapshots : "boundary_id"
   system_system_import_batches ||--o{ system_system_source_snapshots : "import_batch_id"
   system_system_source_registry ||--o{ system_system_source_snapshots : "source_registry_id"
+  %% FUNCTIONS
+  %% [core]
+  %% function: get_initial_publish_status_id() -> bigint
+  %% function: get_source_registry_from_snapshot(p_source_snapshot_id bigint) -> system.system_source_registry
+  %% function: get_source_snapshot_row(p_source_snapshot_id bigint) -> system.system_source_snapshots
+  %% function: get_source_type_id_from_snapshot(p_source_snapshot_id bigint) -> bigint
+  %% function: is_promotable_match_status(p_match_status text) -> boolean
+  %% function: make_slug(p_value text) -> text
+  %% function: promote_admin_area_candidate(p_candidate_id bigint) -> bigint
+  %% function: promote_bus_route_candidate(p_candidate_id bigint) -> bigint
+  %% function: promote_bus_stop_candidate(p_candidate_id bigint) -> bigint
+  %% function: promote_place_candidate(p_candidate_id bigint) -> bigint
+  %% function: promote_road_candidate(p_candidate_id bigint) -> bigint
+  %% [system]
+  %% function: pipeline_entity_families_is_all(p_entity_families text) -> boolean
+  %% function: pipeline_entity_family_registry() -> text[]
+  %% function: pipeline_family_enabled(p_entity_families text, p_family text) -> boolean
+  %% function: pipeline_family_enabled_any(p_entity_families text, p_families text[]) -> boolean
+  %% function: pipeline_normalize_entity_families(p_entity_families text) -> text
+  %% function: pipeline_selected_entity_families(p_entity_families text) -> text[]
+  %% function: pipeline_stage05_extraction_any_enabled(p_entity_families text, p_stage05_keys text[]) -> boolean
+  %% function: pipeline_stage05_extraction_enabled(p_entity_families text, p_stage05_key text) -> boolean
+  %% function: pipeline_stage11_family_enabled(p_entity_families text, p_family text) -> boolean
+  %% function: pipeline_stage15_manifest_enabled(p_entity_families text, p_manifest_family text) -> boolean
+  %% function: pipeline_validate_entity_families(p_entity_families text) -> text
+  %% [tiles]
+  %% function: get_admin_areas_tile(z integer, x integer, y integer) -> bytea
+  %% function: get_places_tile(z integer, x integer, y integer) -> bytea
+  %% function: get_streets_tile(z integer, x integer, y integer) -> bytea

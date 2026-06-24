@@ -88,78 +88,6 @@ export type CoreReviewStreetRow = {
     englishName: string | null;
 };
 
-export type CoreReviewBusStopRow = {
-    id: string;
-    publicId: string;
-    name: string | null;
-    nameLocal: string | null;
-    nameEn?: string | null;
-    nameMm?: string | null;
-    stopCode: string | null;
-    modeType?: string | null;
-    adminAreaId: string | null;
-    adminAreaName: string | null;
-    sourceTypeId?: string | null;
-    verificationStatus?: string | null;
-    confidenceScore?: number | null;
-    sourceRefs?: unknown;
-    normalizedData?: unknown;
-    isActive: boolean;
-    isVerified: boolean;
-    deletedAt?: string | null;
-    createdAt: string | null;
-    updatedAt: string | null;
-    geometry: ImportReviewGeoJson | null;
-};
-
-export type CoreReviewBusRouteRow = {
-    id: string;
-    publicId?: string | null;
-    routeCode: string | null;
-    publicName: string | null;
-    operatorId?: string | null;
-    operatorName: string | null;
-    routeType: string | null;
-    modeType?: string | null;
-    directionality: string | null;
-    routeStatus?: string | null;
-    verificationStatus?: string | null;
-    confidenceScore?: number | null;
-    sourceRefs?: unknown;
-    normalizedData?: unknown;
-    sourceTypeId?: string | null;
-    variantCount?: number;
-    isActive: boolean;
-    isVerified: boolean;
-    deletedAt?: string | null;
-    createdAt: string | null;
-    updatedAt: string | null;
-};
-
-export type CoreReviewBusRouteVariantRow = {
-    id: string;
-    publicId?: string | null;
-    routeId: string;
-    routePublicName: string | null;
-    routeCode: string | null;
-    variantCode: string | null;
-    directionName: string | null;
-    originName: string | null;
-    destinationName: string | null;
-    distanceM: number | null;
-    verificationStatus?: string | null;
-    confidenceScore?: number | null;
-    sourceRefs?: unknown;
-    normalizedData?: unknown;
-    routeStops?: import("../transport/coreReviewTransportShared").CoreReviewTransportRouteStopRow[];
-    isActive: boolean;
-    isVerified: boolean;
-    deletedAt?: string | null;
-    createdAt?: string | null;
-    updatedAt?: string | null;
-    geometry: ImportReviewGeoJson | null;
-};
-
 export type CoreReviewMapFeatureRow = {
     id: string;
     externalId: string | null;
@@ -301,9 +229,6 @@ export type CoreReviewRowBySlug = {
     buildings: CoreReviewBuildingRow;
     places: CoreReviewPlaceRow;
     streets: CoreReviewStreetRow;
-    "bus-stops": CoreReviewBusStopRow;
-    "bus-routes": CoreReviewBusRouteRow;
-    "bus-route-variants": CoreReviewBusRouteVariantRow;
     landuse: CoreReviewLanduseRow;
     "water-lines": CoreReviewWaterLineRow;
     "water-polygons": CoreReviewWaterPolygonRow;

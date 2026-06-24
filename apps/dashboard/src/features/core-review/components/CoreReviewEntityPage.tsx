@@ -27,7 +27,6 @@ import CoreReviewLifecycleDrawerActions from "../lifecycle/CoreReviewLifecycleDr
 import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
 import CoreReviewEntityDrawer from "../drawer/CoreReviewEntityDrawer";
 import type { CoreReviewInlineEditGuard } from "../drawer";
-import CoreReviewTransportSourceBadge from "../transport/CoreReviewTransportSourceBadge";
 
 export type CoreReviewEntityPageProps<T extends Record<string, unknown> = Record<string, unknown>> = {
     config: CoreReviewEntityConfig<T>;
@@ -250,11 +249,6 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
             <CoreReviewHeaderCard
                 title={config.title}
                 description={config.description}
-                badge={
-                    config.dataSource ? (
-                        <CoreReviewTransportSourceBadge source={config.dataSource} />
-                    ) : undefined
-                }
                 meta={metaLabel}
                 actions={headerActions}
             />
@@ -289,7 +283,6 @@ function CoreReviewEntityPageInner<T extends Record<string, unknown>>({
                         onApply={handleApply}
                         onClear={handleClear}
                         onApplyVerificationFilter={list.applyVerificationFilter}
-                        showRoutePicker={config.apiSlug === "bus-route-variants"}
                         adminAreaTownshipOnly={config.apiSlug === "streets"}
                         extraFilters={config.extensions?.renderExtraFilters?.({
                             draft: list.draft,

@@ -174,18 +174,6 @@ export class CoreReviewLifecycleService {
                 return getCoreReviewPlaceDetail(this.placesRepo, id, { anyStatus: true });
             case "streets":
                 return getCoreReviewStreetDetail(this.streetsRepo, id, { anyStatus: true });
-            case "bus-stops": {
-                const row = await this.entitiesRepo.getBusStopByPublicId(id, { anyStatus: true });
-                return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
-            }
-            case "bus-routes": {
-                const row = await this.entitiesRepo.getBusRouteById(id, { anyStatus: true });
-                return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
-            }
-            case "bus-route-variants": {
-                const row = await this.entitiesRepo.getBusRouteVariantById(id, { anyStatus: true });
-                return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
-            }
             case "landuse":
                 return getCoreReviewLanduseDetail(this.landuseRepo, id, { anyStatus: true });
             case "water-lines": {

@@ -9,9 +9,6 @@ export type CoreEntityKey =
     | "buildings"
     | "places"
     | "streets"
-    | "bus-stops"
-    | "bus-routes"
-    | "bus-route-variants"
     | "landuse"
     | "water-lines"
     | "water-polygons"
@@ -39,7 +36,6 @@ export type CoreRefSourceKind =
     | "admin-areas"
     | "reference-options:source_types"
     | "reference-options:admin_levels"
-    | "core-review:bus-routes"
     | "streets"
     | "landuse-classes";
 

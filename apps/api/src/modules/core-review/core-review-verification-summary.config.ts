@@ -1,6 +1,6 @@
 import type { VerificationSummaryEntityConfig } from "../../lib/verification-summary/verification-summary.types.js";
 
-/** Core Review overview verification counts — core schema + core_transport. */
+/** Core Review overview verification counts — core schema. */
 export const CORE_REVIEW_VERIFICATION_SUMMARY_CONFIGS: readonly VerificationSummaryEntityConfig[] = [
     {
         family: "buildings",
@@ -22,30 +22,6 @@ export const CORE_REVIEW_VERIFICATION_SUMMARY_CONFIGS: readonly VerificationSumm
         table: "core.core_streets",
         path: "roads",
         idColumns: ["id"],
-    },
-    {
-        family: "bus_stops",
-        label: "Bus stops",
-        table: "core_transport.stops",
-        path: "bus-stops",
-        idColumns: ["id"],
-        sourceLabel: "core_transport",
-    },
-    {
-        family: "bus_routes",
-        label: "Bus routes",
-        table: "core_transport.routes",
-        path: "bus-routes",
-        idColumns: ["id"],
-        sourceLabel: "core_transport",
-    },
-    {
-        family: "bus_route_variants",
-        label: "Bus route variants",
-        table: "core_transport.route_variants",
-        path: "bus-route-variants",
-        idColumns: ["id"],
-        sourceLabel: "core_transport",
     },
     {
         family: "landuse",

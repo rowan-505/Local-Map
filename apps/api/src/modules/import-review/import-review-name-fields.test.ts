@@ -144,7 +144,7 @@ describe("import-review-name-fields", () => {
     it("derives child name candidates by language_code", () => {
         const { name_mm, name_en } = deriveImportReviewNames({
             normalized_data: {
-                bus_stop_name_candidates: [
+                place_name_candidates: [
                     { language_code: "my", name: "မှတ်တိုင်" },
                     { language_code: "en", name: "Stop A" },
                 ],

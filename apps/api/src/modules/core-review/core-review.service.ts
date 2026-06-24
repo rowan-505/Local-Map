@@ -189,39 +189,6 @@ export class CoreReviewService {
                 return listCoreReviewPlaces(this.placesRepo, def, query);
             case "streets":
                 return listCoreReviewStreets(this.streetsRepo, def, query);
-            case "bus-stops": {
-                const p = toListParams(def, query);
-                return listGeneric(
-                    this.entitiesRepo,
-                    def.slug,
-                    p,
-                    query,
-                    (x) => this.entitiesRepo.listBusStops(x),
-                    (x) => this.entitiesRepo.countBusStops(x)
-                );
-            }
-            case "bus-routes": {
-                const p = toListParams(def, query);
-                return listGeneric(
-                    this.entitiesRepo,
-                    def.slug,
-                    p,
-                    query,
-                    (x) => this.entitiesRepo.listBusRoutes(x),
-                    (x) => this.entitiesRepo.countBusRoutes(x)
-                );
-            }
-            case "bus-route-variants": {
-                const p = toListParams(def, query);
-                return listGeneric(
-                    this.entitiesRepo,
-                    def.slug,
-                    p,
-                    query,
-                    (x) => this.entitiesRepo.listBusRouteVariants(x),
-                    (x) => this.entitiesRepo.countBusRouteVariants(x)
-                );
-            }
             case "landuse":
                 return listCoreReviewLanduse(this.landuseRepo, def, query);
             case "water-lines": {
@@ -283,18 +250,6 @@ export class CoreReviewService {
                 return getCoreReviewPlaceDetail(this.placesRepo, id);
             case "streets":
                 return getCoreReviewStreetDetail(this.streetsRepo, id);
-            case "bus-stops": {
-                const row = await this.entitiesRepo.getBusStopByPublicId(id);
-                return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
-            }
-            case "bus-routes": {
-                const row = await this.entitiesRepo.getBusRouteById(id);
-                return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
-            }
-            case "bus-route-variants": {
-                const row = await this.entitiesRepo.getBusRouteVariantById(id);
-                return row ? buildDetailResponse(serializeGenericCoreRow(row)) : null;
-            }
             case "landuse":
                 return getCoreReviewLanduseDetail(this.landuseRepo, id);
             case "water-lines": {

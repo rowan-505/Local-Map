@@ -9,11 +9,6 @@
  */
 
 import { getImportReviewEntityConfig } from "./import-review-config.js";
-import {
-    DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES,
-    type DisabledImportReviewPromotionFamily,
-} from "./import-review-promotion-config.js";
-import { ImportReviewTransportPromotionDeprecatedError } from "./import-review-promotion.errors.js";
 
 /** PostGIS geometry types allowed for promotion (contract SRID 4326). */
 export type PromotionGeometryType =
@@ -124,7 +119,6 @@ function cfg(
 
 /**
  * Single registry — one entry per promotable import-review family.
- * Bus/transit families are intentionally excluded (see {@link DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES}).
  */
 export const IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY: Record<
     ImportReviewSimplePromotionFamily,
@@ -449,12 +443,6 @@ export function isImportReviewSimplePromotionFamily(
     return (IMPORT_REVIEW_SIMPLE_PROMOTION_FAMILIES as readonly string[]).includes(family);
 }
 
-export function isDisabledSimplePromotionFamily(
-    family: string
-): family is DisabledImportReviewPromotionFamily {
-    return (DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES as readonly string[]).includes(family);
-}
-
 export function listPromotableFamilies(): ImportReviewSimplePromotionFamily[] {
     return [...IMPORT_REVIEW_SIMPLE_PROMOTION_FAMILIES];
 }
@@ -469,9 +457,6 @@ export function getPromotionFamilyConfig(
 }
 
 export function assertPromotableFamily(family: string): asserts family is ImportReviewSimplePromotionFamily {
-    if (isDisabledSimplePromotionFamily(family)) {
-        throw new ImportReviewTransportPromotionDeprecatedError([family]);
-    }
     if (!isImportReviewSimplePromotionFamily(family)) {
         throw new Error(`Import review promotion is not allowed for entity family: ${family}`);
     }
@@ -507,10 +492,4 @@ if (
     routingBarrierCfg.targetTable !== "routing_barriers"
 ) {
     throw new Error("routing_barriers must target routing.routing_barriers");
-}
-
-for (const busFamily of DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES) {
-    if (isImportReviewSimplePromotionFamily(busFamily)) {
-        throw new Error(`Bus family ${busFamily} must not appear in simple promotion registry`);
-    }
 }

@@ -6,7 +6,7 @@
     "service": {
       "drain_seconds": 28,
       "interrupt": "ipc:///tmp/interrupt",
-      "listen": "0.0.0.0:8002",
+      "listen": "tcp://0.0.0.0:8002",
       "loopback": "ipc:///tmp/loopback",
       "shutdown_seconds": 1,
       "timeout_seconds": -1

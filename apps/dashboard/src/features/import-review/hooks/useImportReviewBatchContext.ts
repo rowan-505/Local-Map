@@ -13,7 +13,6 @@ import {
     type ReplaceImportReviewSearchParamsMeta,
 } from "@/src/features/import-review/navigation/replaceImportReviewSearchParams";
 import type { ImportReviewBatchChoice } from "@/src/lib/api";
-import { IMPORT_TRANSPORT_PATH } from "@/src/lib/dashboardPaths";
 import {
     applyImportReviewScopeSearchParams,
     importReviewScopeQueryForApi,
@@ -73,10 +72,7 @@ export function useImportReviewBatchContext(
     const pathname = usePathname();
     const searchParams = useSearchParams();
 
-    const onImportTransportRoute =
-        (pathname ?? "") === IMPORT_TRANSPORT_PATH ||
-        (pathname ?? "").startsWith(`${IMPORT_TRANSPORT_PATH}/`);
-    const enabled = options.enabled !== false && !onImportTransportRoute;
+    const enabled = options.enabled !== false;
 
     const [isLoadingBatchContext, setIsLoadingBatchContext] = useState(false);
     const [error, setError] = useState("");

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-    DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES,
     HIGH_RISK_PROMOTION_FAMILIES,
     IMPORT_REVIEW_PROMOTION_ALLOWED_FAMILIES,
     IMPORT_REVIEW_PROMOTION_TARGETS,
@@ -14,7 +13,6 @@ import {
     isImportReviewPromotionAllowedFamily,
     isValidatablePublishFamily,
 } from "./import-review-promotion-config.js";
-import { ImportReviewTransportPromotionDeprecatedError } from "./import-review-promotion.errors.js";
 
 describe("import-review-promotion-config", () => {
     it("maps routing_barriers to routing.routing_barriers", () => {
@@ -38,24 +36,10 @@ describe("import-review-promotion-config", () => {
         }
     });
 
-    it("disables bus families from promotion", () => {
-        for (const family of DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES) {
-            assert.equal(isImportReviewPromotionAllowedFamily(family), false);
-            assert.throws(
-                () => assertImportReviewPromotionFamilyAllowed(family),
-                (err: unknown) => {
-                    assert.ok(err instanceof ImportReviewTransportPromotionDeprecatedError);
-                    return true;
-                }
-            );
-        }
-    });
-
     it("detects high-risk families", () => {
         assert.equal(isHighRiskPromotionFamily("roads"), true);
         assert.equal(isHighRiskPromotionFamily("routing_barriers"), true);
         assert.equal(isHighRiskPromotionFamily("buildings"), false);
-        assert.equal(isHighRiskPromotionFamily("bus_stops"), false);
     });
 
     it("allows normal families", () => {
@@ -63,13 +47,10 @@ describe("import-review-promotion-config", () => {
         assert.equal(isImportReviewPromotionAllowedFamily("water_polygons"), true);
     });
 
-    it("validates all allowed promotion families except bus", () => {
+    it("validates all allowed promotion families", () => {
         assert.deepEqual(VALIDATABLE_PUBLISH_FAMILIES, IMPORT_REVIEW_PROMOTION_ALLOWED_FAMILIES);
         assert.equal(isValidatablePublishFamily("roads"), true);
         assert.equal(isValidatablePublishFamily("addresses"), true);
-        for (const family of DISABLED_IMPORT_REVIEW_PROMOTION_FAMILIES) {
-            assert.equal(isValidatablePublishFamily(family), false);
-        }
     });
 
     it("includes addresses in promotable publish families", () => {

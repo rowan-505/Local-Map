@@ -1,5 +1,40 @@
 erDiagram
-  %% Inspected schemas (21): app_auth, auth, core, core_transport, extensions, graphql, graphql_public, gtfs_export, import_review, import_transport, pgbouncer, public, realtime, ref, routing, search, storage, supabase_migrations, system, tiles, vault
+  %% Inspected schemas (21): admin_qa, app_auth, auth, core, extensions, graphql, graphql_public, import_review, pgbouncer, public, realtime, ref, routing, search, storage, supabase_migrations, system, tiles, transit_export, transport, vault
+  admin_qa_corrected_township_gap5_invalid_points {
+    bigint fid
+    bigint core_id
+    bigint gap_id
+    character_varying fix_type
+    character_varying name
+    bigint parent_id
+    character_varying invalid_reason
+    geometry geom
+  }
+  admin_qa_corrected_township_geometries_gap5 {
+    integer id PK
+    geometry geom
+    bigint fid
+    bigint core_id
+    bigint gap_id
+    character_varying fix_type
+    character_varying name
+    bigint parent_id
+    character_varying source
+    character_varying ref_note
+    character_varying note
+    geometry geom_fixed
+  }
+  admin_qa_inserted_admin_area_ids_gap5 {
+    bigint staging_fid PK
+    text name
+    bigint new_core_id
+    timestamp_with_time_zone created_at
+  }
+  admin_qa_township_gap_polygons_qgis {
+    bigint gap_id PK
+    numeric area_km2
+    geometry geom
+  }
   app_auth_auth_roles {
     bigint id PK
     text code
@@ -403,94 +438,12 @@ erDiagram
     numeric boundary_confidence_score
     text address_usage
     text boundary_note
-  }
-  core_core_bus_route_names {
-    bigint id PK
-    bigint route_id FK
-    text name
-    text language_code
-    text name_type
-    boolean is_primary
-  }
-  core_core_bus_route_stops {
-    bigint route_variant_id PK, FK
-    bigint stop_id PK, FK
-    integer stop_sequence PK
-    numeric distance_from_start_m
-    boolean is_timing_point
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone verified_at
-    bigint verified_by
-    text verification_note
-  }
-  core_core_bus_route_variants {
-    bigint id PK
-    bigint route_id FK
-    text variant_code
-    text direction_name
-    text origin_name
-    text destination_name
-    geometry geom
-    numeric distance_m
-    boolean is_active
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone verified_at
-    bigint verified_by
-    text verification_note
-    timestamp_with_time_zone deleted_at
-  }
-  core_core_bus_routes {
-    bigint id PK
-    text route_code
-    text public_name
-    text operator_name
-    text route_type
-    text directionality
-    boolean is_active
-    bigint source_type_id FK
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    text external_id
-    jsonb source_refs
-    jsonb normalized_data
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone verified_at
-    bigint verified_by
-    text verification_note
-    timestamp_with_time_zone deleted_at
-  }
-  core_core_bus_stop_names {
-    bigint id PK
-    bigint stop_id FK
-    text name
-    text language_code
-    text name_type
-    boolean is_primary
-  }
-  core_core_bus_stops {
-    bigint id PK
-    uuid public_id
-    text name
-    text name_local
-    text stop_code
-    geometry geom
-    bigint admin_area_id FK
-    bigint source_type_id FK
-    boolean is_active
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    text external_id
-    jsonb source_refs
-    jsonb normalized_data
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone verified_at
-    bigint verified_by
-    text verification_note
-    timestamp_with_time_zone deleted_at
+    bigint admin_area_type_id FK
+    text geometry_source
+    text reference_source
+    text source_license_status
+    boolean is_public_usable
+    integer address_confidence_score
   }
   core_core_map_building_names {
     bigint id PK
@@ -778,343 +731,6 @@ erDiagram
     bigint verified_by
     text verification_note
   }
-  core_transport_fares {
-    bigint id PK
-    bigint operator_id FK
-    bigint route_id FK
-    text fare_product_code
-    text fare_product_name
-    numeric amount
-    text currency_code
-    boolean is_verified
-    text verification_note
-    numeric confidence_score
-    jsonb source_refs
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone deleted_at
-  }
-  core_transport_frequencies {
-    bigint id PK
-    bigint route_variant_id FK
-    bigint service_calendar_id FK
-    text trip_code
-    integer start_time_seconds
-    integer end_time_seconds
-    integer headway_seconds
-    boolean exact_times
-    boolean is_active
-    jsonb source_refs
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  core_transport_operators {
-    bigint id PK
-    uuid public_id
-    text operator_code
-    text name
-    text name_local
-    text primary_route_type
-    text timezone
-    text website_url
-    text phone
-    text gtfs_agency_id
-    bigint source_type_id FK
-    text external_id
-    numeric confidence_score
-    boolean is_active
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone verified_at
-    bigint verified_by
-    text verification_note
-    jsonb source_refs
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone deleted_at
-  }
-  core_transport_route_names {
-    bigint id PK
-    bigint route_id FK
-    text name
-    text language_code
-    text script_code
-    text name_type
-    boolean is_primary
-    integer search_weight
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  core_transport_route_paths {
-    bigint id PK
-    bigint route_variant_id FK
-    text path_kind
-    geometry geom
-    numeric distance_m
-    boolean is_active
-    jsonb source_refs
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone deleted_at
-  }
-  core_transport_route_sources {
-    bigint id PK
-    bigint route_id FK
-    text source_kind
-    text source_dataset_code
-    text source_entity_id
-    bigint import_transport_batch_id FK
-    boolean is_primary
-    numeric confidence_score
-    jsonb source_refs
-    timestamp_with_time_zone created_at
-  }
-  core_transport_route_stops {
-    bigint id PK
-    bigint route_variant_id FK
-    bigint stop_id FK
-    integer stop_sequence
-    numeric distance_from_start_m
-    smallint pickup_type
-    smallint drop_off_type
-    integer arrival_offset_seconds
-    integer departure_offset_seconds
-    boolean is_timing_point
-    jsonb source_refs
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  core_transport_route_variants {
-    bigint id PK
-    uuid public_id
-    bigint route_id FK
-    text variant_code
-    text direction_name
-    smallint gtfs_direction_id
-    text headsign
-    text origin_name
-    text destination_name
-    geometry geom
-    numeric distance_m
-    numeric confidence_score
-    boolean is_active
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone verified_at
-    bigint verified_by
-    text verification_note
-    jsonb source_refs
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone deleted_at
-  }
-  core_transport_route_versions {
-    bigint id PK
-    bigint route_id FK
-    integer version_number
-    text change_summary
-    timestamp_with_time_zone effective_from
-    timestamp_with_time_zone effective_to
-    jsonb snapshot
-    bigint created_by
-    timestamp_with_time_zone created_at
-  }
-  core_transport_routes {
-    bigint id PK
-    uuid public_id
-    bigint operator_id FK
-    text route_code
-    text public_name
-    text route_type
-    text directionality
-    smallint gtfs_route_type
-    text description
-    bigint source_type_id FK
-    text external_id
-    numeric confidence_score
-    boolean is_active
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone verified_at
-    bigint verified_by
-    text verification_note
-    jsonb source_refs
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone deleted_at
-  }
-  core_transport_service_calendars {
-    bigint id PK
-    bigint operator_id FK
-    bigint route_id FK
-    text service_code
-    text name
-    boolean monday
-    boolean tuesday
-    boolean wednesday
-    boolean thursday
-    boolean friday
-    boolean saturday
-    boolean sunday
-    date start_date
-    date end_date
-    boolean is_active
-    jsonb source_refs
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone deleted_at
-  }
-  core_transport_stop_names {
-    bigint id PK
-    bigint stop_id FK
-    text name
-    text language_code
-    text script_code
-    text name_type
-    boolean is_primary
-    integer search_weight
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  core_transport_stops {
-    bigint id PK
-    uuid public_id
-    text stop_code
-    text name
-    text name_local
-    text stop_type
-    smallint location_type
-    bigint parent_stop_id FK
-    geometry geom
-    bigint admin_area_id FK
-    text zone_id
-    bigint source_type_id FK
-    text external_id
-    numeric confidence_score
-    boolean is_active
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone verified_at
-    bigint verified_by
-    text verification_note
-    jsonb source_refs
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone deleted_at
-  }
-  core_transport_terminals {
-    bigint id PK
-    uuid public_id
-    bigint operator_id FK
-    bigint linked_stop_id FK
-    text terminal_code
-    text name
-    text name_local
-    text route_type
-    text terminal_role
-    geometry geom
-    bigint admin_area_id FK
-    bigint source_type_id FK
-    text external_id
-    numeric confidence_score
-    boolean is_active
-    boolean is_verified
-    text verification_status
-    timestamp_with_time_zone verified_at
-    bigint verified_by
-    text verification_note
-    jsonb source_refs
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    timestamp_with_time_zone deleted_at
-  }
-  gtfs_export_export_builds {
-    bigint id PK
-    text build_code
-    text scope
-    text status
-    text output_path
-    bigint file_size_bytes
-    text checksum
-    integer route_count
-    integer variant_count
-    integer stop_count
-    integer service_count
-    integer warning_count
-    integer error_count
-    timestamp_with_time_zone started_at
-    timestamp_with_time_zone finished_at
-    timestamp_with_time_zone created_at
-    text notes
-  }
-  gtfs_export_export_files {
-    bigint id PK
-    bigint export_build_id FK
-    text file_name
-    text file_path
-    bigint row_count
-    text checksum
-    timestamp_with_time_zone created_at
-  }
-  gtfs_export_otp_graph_builds {
-    bigint id PK
-    uuid public_id
-    bigint export_build_id FK
-    text build_code
-    text scope
-    text otp_version
-    text graph_artifact_path
-    text gtfs_input_path
-    text build_status
-    integer node_count
-    integer edge_count
-    bigint file_size_bytes
-    text checksum
-    text error_message
-    jsonb metadata
-    timestamp_with_time_zone started_at
-    timestamp_with_time_zone finished_at
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  gtfs_export_validation_issues {
-    bigint id PK
-    bigint export_build_id FK
-    text gtfs_file
-    text row_ref
-    text issue_code
-    text severity
-    text message
-    jsonb issue_data
-    boolean is_resolved
-    timestamp_with_time_zone created_at
-  }
-  gtfs_export_validation_reports {
-    bigint id PK
-    bigint export_build_id FK
-    text validator_name
-    text validator_version
-    text report_status
-    integer error_count
-    integer warning_count
-    integer info_count
-    text report_summary
-    jsonb report_payload
-    text artifact_path
-    timestamp_with_time_zone started_at
-    timestamp_with_time_zone finished_at
-    timestamp_with_time_zone created_at
-  }
   import_review_address_candidates {
     bigint id PK
     uuid public_id
@@ -1140,7 +756,6 @@ erDiagram
     timestamp_with_time_zone lock_expires_at
     jsonb normalized_data
     jsonb source_refs
-    jsonb review_overrides
     bigint matched_core_id
     text matched_core_table
     jsonb matched_core_data
@@ -1248,7 +863,6 @@ erDiagram
     timestamp_with_time_zone lock_expires_at
     jsonb normalized_data
     jsonb source_refs
-    jsonb review_overrides
     bigint matched_core_id
     text matched_core_table
     jsonb matched_core_data
@@ -1296,7 +910,6 @@ erDiagram
     timestamp_with_time_zone lock_expires_at
     jsonb normalized_data
     jsonb source_refs
-    jsonb review_overrides
     bigint matched_core_id
     text matched_core_table
     jsonb matched_core_data
@@ -1319,195 +932,6 @@ erDiagram
     numeric area_m2
     geometry geom
     geometry centroid
-    jsonb review_overrides_archive
-    text name_mm
-    text name_en
-  }
-  import_review_bus_route_candidates {
-    bigint id PK
-    uuid public_id
-    bigint review_batch_id FK
-    text source_snapshot_version
-    bigint source_snapshot_id_local
-    bigint local_staging_id
-    text entity_family
-    text external_id
-    text canonical_name
-    text class_code
-    numeric confidence_score
-    text match_status
-    text auto_action
-    text review_status
-    text review_decision
-    text review_note
-    bigint reviewed_by FK
-    timestamp_with_time_zone reviewed_at
-    bigint assigned_to FK
-    bigint locked_by FK
-    timestamp_with_time_zone locked_at
-    timestamp_with_time_zone lock_expires_at
-    jsonb normalized_data
-    jsonb source_refs
-    jsonb review_overrides
-    bigint matched_core_id
-    text matched_core_table
-    jsonb matched_core_data
-    jsonb f1_comparison
-    jsonb f2_comparison
-    jsonb validation_warnings
-    jsonb validation_errors
-    text promotion_status
-    bigint promoted_core_id
-    timestamp_with_time_zone promoted_at
-    bigint promoted_by FK
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    text route_code
-    text public_name
-    text operator_name
-    text route_type
-    text directionality
-    jsonb review_overrides_archive
-    text name_mm
-    text name_en
-  }
-  import_review_bus_route_stop_candidates {
-    bigint id PK
-    uuid public_id
-    bigint review_batch_id FK
-    text source_snapshot_version
-    bigint source_snapshot_id_local
-    bigint local_staging_id
-    text entity_family
-    text external_id
-    text canonical_name
-    text class_code
-    numeric confidence_score
-    text match_status
-    text auto_action
-    text review_status
-    text review_decision
-    text review_note
-    bigint reviewed_by FK
-    timestamp_with_time_zone reviewed_at
-    bigint assigned_to FK
-    bigint locked_by FK
-    timestamp_with_time_zone locked_at
-    timestamp_with_time_zone lock_expires_at
-    jsonb normalized_data
-    jsonb source_refs
-    jsonb review_overrides
-    bigint matched_core_id
-    text matched_core_table
-    jsonb matched_core_data
-    jsonb f1_comparison
-    jsonb f2_comparison
-    jsonb validation_warnings
-    jsonb validation_errors
-    text promotion_status
-    bigint promoted_core_id
-    timestamp_with_time_zone promoted_at
-    bigint promoted_by FK
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    bigint route_variant_id
-    bigint stop_id
-    integer stop_sequence
-    numeric distance_from_start_m
-    boolean is_timing_point
-    jsonb review_overrides_archive
-  }
-  import_review_bus_route_variant_candidates {
-    bigint id PK
-    uuid public_id
-    bigint review_batch_id FK
-    text source_snapshot_version
-    bigint source_snapshot_id_local
-    bigint local_staging_id
-    text entity_family
-    text external_id
-    text canonical_name
-    text class_code
-    numeric confidence_score
-    text match_status
-    text auto_action
-    text review_status
-    text review_decision
-    text review_note
-    bigint reviewed_by FK
-    timestamp_with_time_zone reviewed_at
-    bigint assigned_to FK
-    bigint locked_by FK
-    timestamp_with_time_zone locked_at
-    timestamp_with_time_zone lock_expires_at
-    jsonb normalized_data
-    jsonb source_refs
-    jsonb review_overrides
-    bigint matched_core_id
-    text matched_core_table
-    jsonb matched_core_data
-    jsonb f1_comparison
-    jsonb f2_comparison
-    jsonb validation_warnings
-    jsonb validation_errors
-    text promotion_status
-    bigint promoted_core_id
-    timestamp_with_time_zone promoted_at
-    bigint promoted_by FK
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    bigint route_id
-    text route_code
-    text variant_code
-    text direction_name
-    text origin_name
-    text destination_name
-    geometry geom
-    numeric distance_m
-    jsonb review_overrides_archive
-  }
-  import_review_bus_stop_candidates {
-    bigint id PK
-    uuid public_id
-    bigint review_batch_id FK
-    text source_snapshot_version
-    bigint source_snapshot_id_local
-    bigint local_staging_id
-    text entity_family
-    text external_id
-    text canonical_name
-    text class_code
-    numeric confidence_score
-    text match_status
-    text auto_action
-    text review_status
-    text review_decision
-    text review_note
-    bigint reviewed_by FK
-    timestamp_with_time_zone reviewed_at
-    bigint assigned_to FK
-    bigint locked_by FK
-    timestamp_with_time_zone locked_at
-    timestamp_with_time_zone lock_expires_at
-    jsonb normalized_data
-    jsonb source_refs
-    jsonb review_overrides
-    bigint matched_core_id
-    text matched_core_table
-    jsonb matched_core_data
-    jsonb f1_comparison
-    jsonb f2_comparison
-    jsonb validation_warnings
-    jsonb validation_errors
-    text promotion_status
-    bigint promoted_core_id
-    timestamp_with_time_zone promoted_at
-    bigint promoted_by FK
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    text stop_code
-    bigint admin_area_id FK
-    geometry geom
     jsonb review_overrides_archive
     text name_mm
     text name_en
@@ -1537,7 +961,6 @@ erDiagram
     timestamp_with_time_zone lock_expires_at
     jsonb normalized_data
     jsonb source_refs
-    jsonb review_overrides
     bigint matched_core_id
     text matched_core_table
     jsonb matched_core_data
@@ -1614,7 +1037,6 @@ erDiagram
     timestamp_with_time_zone lock_expires_at
     jsonb normalized_data
     jsonb source_refs
-    jsonb review_overrides
     bigint matched_core_id
     text matched_core_table
     jsonb matched_core_data
@@ -1730,7 +1152,6 @@ erDiagram
     timestamp_with_time_zone lock_expires_at
     jsonb normalized_data
     jsonb source_refs
-    jsonb review_overrides
     bigint matched_core_id
     text matched_core_table
     jsonb matched_core_data
@@ -1785,7 +1206,6 @@ erDiagram
     timestamp_with_time_zone lock_expires_at
     jsonb normalized_data
     jsonb source_refs
-    jsonb review_overrides
     bigint matched_core_id
     text matched_core_table
     jsonb matched_core_data
@@ -1828,7 +1248,6 @@ erDiagram
     timestamp_with_time_zone lock_expires_at
     jsonb normalized_data
     jsonb source_refs
-    jsonb review_overrides
     bigint matched_core_id
     text matched_core_table
     jsonb matched_core_data
@@ -1874,7 +1293,6 @@ erDiagram
     timestamp_with_time_zone lock_expires_at
     jsonb normalized_data
     jsonb source_refs
-    jsonb review_overrides
     bigint matched_core_id
     text matched_core_table
     jsonb matched_core_data
@@ -1919,7 +1337,6 @@ erDiagram
     timestamp_with_time_zone lock_expires_at
     jsonb normalized_data
     jsonb source_refs
-    jsonb review_overrides
     bigint matched_core_id
     text matched_core_table
     jsonb matched_core_data
@@ -1940,300 +1357,6 @@ erDiagram
     text name_mm
     text name_en
   }
-  import_transport_import_batches {
-    bigint id PK
-    uuid public_id
-    bigint source_dataset_id FK
-    text batch_name
-    text import_status
-    text validation_status
-    text source_file_name
-    text source_file_checksum
-    text source_snapshot_version
-    jsonb record_counts
-    jsonb summary
-    text error_message
-    bigint imported_by
-    timestamp_with_time_zone imported_at
-    timestamp_with_time_zone validated_at
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  import_transport_promotion_batches {
-    bigint id PK
-    uuid public_id
-    bigint import_batch_id FK
-    text batch_name
-    text target_schema
-    text promotion_status
-    text validation_status
-    jsonb item_counts
-    jsonb summary
-    text error_message
-    bigint created_by
-    timestamp_with_time_zone promoted_at
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    boolean can_promote
-    integer validation_total
-    integer validation_done
-    numeric validation_percent
-    timestamp_with_time_zone validated_at
-  }
-  import_transport_promotion_items {
-    bigint id PK
-    bigint promotion_batch_id FK
-    text entity_kind
-    bigint raw_entity_id
-    text promotion_status
-    text match_status
-    text promoted_target_schema
-    text promoted_target_table
-    bigint promoted_target_id
-    text error_message
-    jsonb details
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    text item_validation_status
-  }
-  import_transport_promotion_stage_logs {
-    bigint id PK
-    bigint promotion_batch_id FK
-    text stage_key
-    text stage_label
-    text stage_status
-    text message
-    numeric progress_percent
-    jsonb details
-    timestamp_with_time_zone started_at
-    timestamp_with_time_zone finished_at
-  }
-  import_transport_raw_fares {
-    bigint id PK
-    bigint import_batch_id FK
-    bigint raw_route_id FK
-    bigint raw_operator_id FK
-    text source_fare_id
-    text source_route_id
-    text fare_product_name
-    numeric amount
-    text currency_code
-    text match_status
-    text validation_status
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  import_transport_raw_operators {
-    bigint id PK
-    bigint import_batch_id FK
-    text source_operator_id
-    text operator_code
-    text operator_name
-    text transport_mode
-    text match_status
-    text validation_status
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    jsonb source_refs
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  import_transport_raw_route_paths {
-    bigint id PK
-    bigint import_batch_id FK
-    bigint raw_route_variant_id FK
-    bigint raw_route_id FK
-    text source_path_id
-    text source_variant_id
-    text path_kind
-    geometry geom
-    numeric distance_m
-    text match_status
-    text validation_status
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  import_transport_raw_route_stops {
-    bigint id PK
-    bigint import_batch_id FK
-    bigint raw_route_variant_id FK
-    bigint raw_stop_id FK
-    text source_route_stop_id
-    text source_variant_id
-    text source_stop_id
-    integer stop_sequence
-    numeric distance_from_start_m
-    boolean is_timing_point
-    text match_status
-    text validation_status
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    text external_id
-    text review_status
-    text review_decision
-    text promotion_status
-    text review_note
-    jsonb source_refs
-    bigint promoted_core_id
-  }
-  import_transport_raw_route_variants {
-    bigint id PK
-    bigint import_batch_id FK
-    bigint raw_route_id FK
-    text source_variant_id
-    text source_route_id
-    text variant_code
-    text direction_name
-    text origin_name
-    text destination_name
-    geometry geom
-    numeric distance_m
-    text match_status
-    text validation_status
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    jsonb source_refs
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    text external_id
-    text review_status
-    text review_decision
-    text promotion_status
-    text review_note
-    bigint promoted_core_id
-  }
-  import_transport_raw_routes {
-    bigint id PK
-    bigint import_batch_id FK
-    bigint raw_operator_id FK
-    text source_route_id
-    text source_operator_id
-    text route_code
-    text route_name
-    text public_name
-    text transport_mode
-    text route_type
-    text directionality
-    text match_status
-    text validation_status
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    jsonb source_refs
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    text external_id
-    text review_status
-    text review_decision
-    text promotion_status
-    text review_note
-    bigint promoted_core_id
-  }
-  import_transport_raw_service_notes {
-    bigint id PK
-    bigint import_batch_id FK
-    text entity_kind
-    text entity_source_id
-    bigint raw_route_id FK
-    bigint raw_stop_id FK
-    bigint raw_terminal_id FK
-    text note_type
-    text note_text
-    text language_code
-    boolean is_verified
-    text match_status
-    text validation_status
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  import_transport_raw_stops {
-    bigint id PK
-    bigint import_batch_id FK
-    text source_stop_id
-    text stop_code
-    text stop_name
-    text stop_name_local
-    text location_type
-    geometry geom
-    text admin_area_code
-    text match_status
-    text validation_status
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    jsonb source_refs
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-    text external_id
-    text review_status
-    text review_decision
-    text promotion_status
-    text review_note
-    bigint promoted_core_id
-  }
-  import_transport_raw_terminals {
-    bigint id PK
-    bigint import_batch_id FK
-    bigint raw_operator_id FK
-    text source_terminal_id
-    text terminal_code
-    text terminal_name
-    text terminal_type
-    text transport_mode
-    geometry geom
-    text match_status
-    text validation_status
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    jsonb source_refs
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  import_transport_source_datasets {
-    bigint id PK
-    text code
-    text name
-    text description
-    text transport_mode
-    text source_format
-    text source_uri
-    text provider_name
-    text region_code
-    text timezone
-    boolean is_active
-    jsonb metadata
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  import_transport_validation_issues {
-    bigint id PK
-    bigint import_batch_id FK
-    text entity_kind
-    bigint entity_id
-    text entity_source_id
-    text issue_code
-    text severity
-    text issue_status
-    text message
-    jsonb details
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone resolved_at
-  }
   public_spatial_ref_sys {
     integer srid PK
     character_varying auth_name
@@ -2250,6 +1373,7 @@ erDiagram
     timestamp_without_time_zone updated_at
     timestamp_without_time_zone inserted_at PK
     uuid id PK
+    bytea binary_payload
   }
   realtime_schema_migrations {
     bigint version PK
@@ -2264,6 +1388,7 @@ erDiagram
     regrole claims_role
     timestamp_without_time_zone created_at
     text action_filter
+    text[] selected_columns
   }
   ref_ref_address_component_types {
     bigint id PK
@@ -2288,6 +1413,18 @@ erDiagram
     boolean is_active
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+  }
+  ref_ref_admin_area_types {
+    bigint id PK
+    text code
+    text name
+    text parent_type_code
+    text description
+    boolean is_boundary
+    boolean is_required_for_address
+    boolean is_search_usable
+    integer sort_order
+    timestamp_with_time_zone created_at
   }
   ref_ref_admin_levels {
     bigint id PK
@@ -2822,6 +1959,8 @@ erDiagram
     jsonb summary
     timestamp_with_time_zone validated_at
     timestamp_with_time_zone promoted_at
+    timestamp_with_time_zone validation_cancel_requested_at
+    timestamp_with_time_zone validation_heartbeat_at
   }
   system_system_publish_items {
     bigint id PK
@@ -2904,6 +2043,349 @@ erDiagram
     timestamp_with_time_zone created_at
     jsonb metadata
   }
+  transit_export_gtfs_builds {
+    bigint id PK
+    uuid public_id
+    text build_code
+    text build_scope
+    text status
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    text gtfs_zip_path
+    jsonb source_summary
+    bigint route_count
+    bigint stop_count
+    bigint trip_count
+    bigint shape_count
+    text error_message
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  transit_export_gtfs_files {
+    bigint id PK
+    bigint gtfs_build_id FK
+    text file_name
+    bigint row_count
+    text file_path
+    text checksum
+    timestamp_with_time_zone created_at
+  }
+  transit_export_gtfs_validation_issues {
+    bigint id PK
+    bigint validation_report_id FK
+    text severity
+    text issue_code
+    text file_name
+    bigint row_number
+    text field_name
+    text message
+    jsonb raw_payload
+    timestamp_with_time_zone created_at
+  }
+  transit_export_gtfs_validation_reports {
+    bigint id PK
+    bigint gtfs_build_id FK
+    text validator_name
+    text validator_version
+    text status
+    bigint error_count
+    bigint warning_count
+    bigint info_count
+    text report_path
+    jsonb summary
+    timestamp_with_time_zone created_at
+  }
+  transit_export_otp_graph_builds {
+    bigint id PK
+    uuid public_id
+    bigint gtfs_build_id FK
+    text graph_code
+    text region
+    text status
+    text osm_pbf_path
+    text gtfs_zip_path
+    text graph_artifact_path
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    text otp_version
+    integer memory_mb
+    text build_log_path
+    text error_message
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  transit_export_otp_service_health {
+    bigint id PK
+    text service_name
+    text region
+    text status
+    text endpoint_url
+    timestamp_with_time_zone checked_at
+    integer response_ms
+    jsonb details
+  }
+  transport_fares {
+    bigint id PK
+    bigint route_id FK
+    bigint route_variant_id FK
+    bigint operator_id FK
+    text fare_type
+    numeric amount_min
+    numeric amount_max
+    text currency_code
+    text note
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text review_status
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  transport_import_batches {
+    bigint id PK
+    uuid public_id
+    text source_name
+    text source_kind
+    text import_scope
+    text import_mode
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    text status
+    bigint inserted_count
+    bigint updated_count
+    bigint skipped_count
+    bigint error_count
+    text source_file_path
+    text source_url
+    text notes
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  transport_import_errors {
+    bigint id PK
+    bigint import_batch_id FK
+    text entity_type
+    text external_id
+    text error_code
+    text error_message
+    jsonb raw_payload
+    timestamp_with_time_zone created_at
+  }
+  transport_infrastructure_lines {
+    bigint id PK
+    uuid public_id
+    text mode
+    text line_type
+    text name
+    text name_mm
+    text name_en
+    geometry geom
+    bigint admin_area_id FK
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text review_status
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  transport_operators {
+    bigint id PK
+    uuid public_id
+    text operator_code
+    text name
+    text name_mm
+    text name_en
+    text operator_type
+    text primary_mode
+    text website_url
+    text phone
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text review_status
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  transport_route_names {
+    bigint id PK
+    bigint route_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  transport_route_paths {
+    bigint id PK
+    bigint route_variant_id FK
+    text path_kind
+    geometry geom
+    numeric distance_m
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text review_status
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  transport_route_stops {
+    bigint id PK
+    bigint route_variant_id FK
+    bigint stop_id FK
+    integer stop_sequence
+    numeric distance_from_start_m
+    smallint pickup_type
+    smallint drop_off_type
+    integer arrival_offset_seconds
+    integer departure_offset_seconds
+    boolean is_timing_point
+    jsonb source_refs
+    jsonb normalized_data
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  transport_route_variants {
+    bigint id PK
+    uuid public_id
+    bigint route_id FK
+    text variant_code
+    text direction_name
+    smallint direction_id
+    text headsign
+    bigint origin_stop_id FK
+    bigint destination_stop_id FK
+    text origin_name
+    text destination_name
+    numeric distance_m
+    integer estimated_duration_min
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text review_status
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  transport_routes {
+    bigint id PK
+    uuid public_id
+    bigint operator_id FK
+    text route_code
+    text public_name
+    text mode
+    text route_kind
+    text origin_name
+    text destination_name
+    bigint origin_admin_area_id FK
+    bigint destination_admin_area_id FK
+    text description
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text review_status
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  transport_service_notes {
+    bigint id PK
+    bigint route_id FK
+    bigint route_variant_id FK
+    text service_type
+    text days_text
+    text first_departure_text
+    text last_departure_text
+    text frequency_text
+    text note
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text review_status
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  transport_source_links {
+    bigint id PK
+    text entity_type
+    bigint entity_id
+    text source_name
+    text source_kind
+    text external_id
+    text source_url
+    jsonb source_payload
+    bigint import_batch_id FK
+    numeric confidence_score
+    boolean is_primary
+    timestamp_with_time_zone created_at
+  }
+  transport_stop_names {
+    bigint id PK
+    bigint stop_id FK
+    text name
+    text language_code
+    text script_code
+    text name_type
+    boolean is_primary
+    integer search_weight
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+  }
+  transport_stops {
+    bigint id PK
+    uuid public_id
+    text stop_code
+    text name
+    text name_mm
+    text name_en
+    text mode
+    text stop_type
+    geometry geom
+    bigint admin_area_id FK
+    bigint parent_stop_id FK
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text review_status
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
+  transport_terminals {
+    bigint id PK
+    uuid public_id
+    bigint linked_stop_id FK
+    bigint operator_id FK
+    text terminal_code
+    text name
+    text name_mm
+    text name_en
+    text mode
+    text terminal_role
+    geometry geom
+    bigint admin_area_id FK
+    jsonb source_refs
+    jsonb normalized_data
+    numeric confidence_score
+    text review_status
+    boolean is_active
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
+    timestamp_with_time_zone deleted_at
+  }
   vault_secrets {
     uuid id PK
     text name
@@ -2915,78 +2397,27 @@ erDiagram
     timestamp_with_time_zone updated_at
   }
   %% VIEWS
-  core_transport_v_duplicate_route_stop_sequences {
-    bigint route_variant_id
-    text variant_code
-    bigint route_id
-    text route_code
-    integer stop_sequence
-    integer duplicate_count
-    int8[] route_stop_ids
+  admin_qa_v_township_gap_parts {
+    bigint gap_id
+    numeric area_km2
+    geometry label_point
+    geometry geom
   }
-  core_transport_v_gtfs_readiness_summary {
-    bigint active_routes
-    bigint active_variants
-    bigint active_stops
-    bigint variants_too_few_stops
-    bigint duplicate_sequences
-    bigint stops_without_names
-    bigint variants_without_frequency
-    bigint variants_without_path
+  admin_qa_v_township_gap_points_qgis {
+    bigint gap_id
+    numeric area_km2
+    geometry geom
   }
-  core_transport_v_route_paths_missing {
-    bigint route_variant_id
-    uuid route_variant_public_id
-    bigint route_id
-    text route_code
-    text route_public_name
-    text variant_code
-    boolean has_variant_geom
-    bigint primary_shape_path_id
+  admin_qa_v_township_gap_polygons_qgis {
+    bigint gap_id
+    numeric area_km2
+    geometry geom
   }
-  core_transport_v_route_stops_missing_timing {
-    bigint route_stop_id
-    bigint route_variant_id
-    text variant_code
-    bigint route_id
-    text route_code
-    bigint stop_id
-    text stop_code
-    integer stop_sequence
-    boolean is_timing_point
-  }
-  core_transport_v_route_variants_with_too_few_stops {
-    bigint route_variant_id
-    uuid route_variant_public_id
-    bigint route_id
-    text route_code
-    text route_public_name
-    text variant_code
-    integer stop_count
-  }
-  core_transport_v_routes_without_variants {
-    bigint route_id
-    uuid route_public_id
-    text route_code
-    text public_name
-    text route_type
-    bigint operator_id
-  }
-  core_transport_v_stops_without_names {
-    bigint stop_id
-    uuid stop_public_id
-    text stop_code
-    text canonical_name
-    text name_local
-    text stop_type
-  }
-  core_transport_v_variants_without_frequency {
-    bigint route_variant_id
-    uuid route_variant_public_id
-    bigint route_id
-    text route_code
-    text route_public_name
-    text variant_code
+  admin_qa_v_township_gap_summary {
+    bigint gap_count
+    numeric total_gap_area_km2
+    numeric largest_gap_area_km2
+    numeric avg_gap_area_km2
   }
   extensions_pg_stat_statements {
     oid userid
@@ -3043,25 +2474,6 @@ erDiagram
     bigint dealloc
     timestamp_with_time_zone stats_reset
   }
-  gtfs_export_export_batches {
-    bigint id
-    text build_code
-    text scope
-    text status
-    text output_path
-    bigint file_size_bytes
-    text checksum
-    integer route_count
-    integer variant_count
-    integer stop_count
-    integer service_count
-    integer warning_count
-    integer error_count
-    timestamp_with_time_zone started_at
-    timestamp_with_time_zone finished_at
-    timestamp_with_time_zone created_at
-    text notes
-  }
   import_review_v_building_review_queue {
     bigint candidate_id
     uuid candidate_public_id
@@ -3094,38 +2506,6 @@ erDiagram
     bigint assigned_to
     timestamp_with_time_zone updated_at
   }
-  import_review_v_ready_for_publish_summary {
-    bigint review_batch_id
-    uuid batch_public_id
-    text batch_name
-    bigint rows_ready_or_batched_or_approved
-    bigint rows_promotion_status_promoted
-  }
-  import_review_v_review_batch_summary {
-    bigint review_batch_id
-    uuid batch_public_id
-    text batch_name
-    text source_snapshot_version
-    text region_code
-    text batch_status
-    timestamp_with_time_zone uploaded_at
-    bigint building_count
-    bigint place_count
-    bigint road_count
-    bigint address_count
-    bigint admin_area_count
-    bigint bus_stop_count
-    bigint bus_route_count
-    bigint bus_route_variant_count
-    bigint bus_route_stop_count
-    bigint landuse_count
-    bigint water_line_count
-    bigint water_polygon_count
-    bigint routing_barrier_count
-    bigint routing_turn_restriction_count
-    bigint pending_or_needs_review_total
-    bigint ready_for_publish_rows
-  }
   import_review_v_road_review_queue {
     bigint candidate_id
     uuid candidate_public_id
@@ -3140,105 +2520,6 @@ erDiagram
     text auto_action
     text promotion_status
     bigint assigned_to
-    timestamp_with_time_zone updated_at
-  }
-  import_transport_route_candidates {
-    bigint id
-    bigint import_batch_id
-    text external_id
-    text source_route_id
-    text route_code
-    text route_name
-    text public_name
-    text mode_type
-    text route_type
-    text directionality
-    text match_status
-    text validation_status
-    text review_status
-    text review_decision
-    text promotion_status
-    text review_note
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    jsonb source_refs
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  import_transport_route_stop_candidates {
-    bigint id
-    bigint import_batch_id
-    bigint raw_route_variant_id
-    bigint raw_stop_id
-    text external_id
-    text source_route_stop_id
-    text source_variant_id
-    text source_stop_id
-    integer stop_sequence
-    numeric distance_from_start_m
-    boolean is_timing_point
-    text match_status
-    text validation_status
-    text review_status
-    text review_decision
-    text promotion_status
-    text review_note
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    jsonb source_refs
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  import_transport_route_variant_candidates {
-    bigint id
-    bigint import_batch_id
-    bigint raw_route_id
-    text external_id
-    text source_variant_id
-    text source_route_id
-    text variant_code
-    text direction_name
-    text origin_name
-    text destination_name
-    geometry geom
-    numeric distance_m
-    text match_status
-    text validation_status
-    text review_status
-    text review_decision
-    text promotion_status
-    text review_note
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    jsonb source_refs
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
-  }
-  import_transport_stop_candidates {
-    bigint id
-    bigint import_batch_id
-    text external_id
-    text source_stop_id
-    text stop_code
-    text stop_name
-    text stop_name_local
-    text location_type
-    geometry geom
-    text admin_area_code
-    text match_status
-    text validation_status
-    text review_status
-    text review_decision
-    text promotion_status
-    text review_note
-    numeric confidence_score
-    jsonb raw_payload
-    jsonb normalized_data
-    jsonb source_refs
-    timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
   public_geography_columns {
@@ -3314,31 +2595,6 @@ erDiagram
     geometry geom
     bigint admin_area_id
     text admin_area_name
-  }
-  tiles_tiles_bus_routes_v {
-    bigint id
-    bigint route_id
-    text route_code
-    text public_name
-    text variant_code
-    geometry geom
-    text name_mm
-    text name_en
-  }
-  tiles_tiles_bus_stops_v {
-    bigint id
-    uuid public_id
-    text name
-    text stop_code
-    geometry geom
-    text name_mm
-    text name_en
-    text name_local
-    bigint admin_area_id
-    bigint source_type_id
-    boolean is_active
-    timestamp_with_time_zone created_at
-    timestamp_with_time_zone updated_at
   }
   tiles_tiles_landuse_v {
     bigint id
@@ -3419,6 +2675,64 @@ erDiagram
     text water_class
     geometry geom
   }
+  tiles_transport_infrastructure_lines_v {
+    bigint id
+    uuid public_id
+    text name
+    text name_mm
+    text name_en
+    text mode
+    text line_type
+    bigint admin_area_id
+    numeric confidence_score
+    text review_status
+    geometry geom
+  }
+  tiles_transport_route_paths_v {
+    bigint id
+    bigint route_variant_id
+    bigint route_id
+    uuid route_public_id
+    uuid route_variant_public_id
+    text route_code
+    text public_name
+    text mode
+    text route_kind
+    text variant_code
+    text direction_name
+    text headsign
+    text path_kind
+    numeric distance_m
+    numeric confidence_score
+    text review_status
+    geometry geom
+  }
+  tiles_transport_stops_v {
+    bigint id
+    uuid public_id
+    text name
+    text name_mm
+    text name_en
+    text mode
+    text stop_type
+    bigint admin_area_id
+    numeric confidence_score
+    text review_status
+    geometry geom
+  }
+  tiles_transport_terminals_v {
+    bigint id
+    uuid public_id
+    text name
+    text name_mm
+    text name_en
+    text mode
+    text terminal_role
+    bigint admin_area_id
+    numeric confidence_score
+    text review_status
+    geometry geom
+  }
   vault_decrypted_secrets {
     uuid id
     text name
@@ -3433,48 +2747,16 @@ erDiagram
   %% RELATIONSHIPS
   app_auth_auth_roles ||--o{ app_auth_auth_user_roles : "role_id"
   app_auth_auth_users ||--o{ app_auth_auth_user_roles : "user_id"
-  core_transport_operators ||--o{ core_transport_fares : "operator_id"
-  core_transport_routes ||--o{ core_transport_fares : "route_id"
-  core_transport_route_variants ||--o{ core_transport_frequencies : "route_variant_id"
-  core_transport_service_calendars ||--o{ core_transport_frequencies : "service_calendar_id"
-  ref_ref_source_types ||--o{ core_transport_operators : "source_type_id"
-  core_transport_routes ||--o{ core_transport_route_names : "route_id"
-  core_transport_route_variants ||--o{ core_transport_route_paths : "route_variant_id"
-  import_transport_import_batches ||--o{ core_transport_route_sources : "import_transport_batch_id"
-  core_transport_routes ||--o{ core_transport_route_sources : "route_id"
-  core_transport_route_variants ||--o{ core_transport_route_stops : "route_variant_id"
-  core_transport_stops ||--o{ core_transport_route_stops : "stop_id"
-  core_transport_routes ||--o{ core_transport_route_variants : "route_id"
-  core_transport_routes ||--o{ core_transport_route_versions : "route_id"
-  core_transport_operators ||--o{ core_transport_routes : "operator_id"
-  ref_ref_source_types ||--o{ core_transport_routes : "source_type_id"
-  core_transport_operators ||--o{ core_transport_service_calendars : "operator_id"
-  core_transport_routes ||--o{ core_transport_service_calendars : "route_id"
-  core_transport_stops ||--o{ core_transport_stop_names : "stop_id"
-  core_core_admin_areas ||--o{ core_transport_stops : "admin_area_id"
-  core_transport_stops ||--o{ core_transport_stops : "parent_stop_id"
-  ref_ref_source_types ||--o{ core_transport_stops : "source_type_id"
-  core_core_admin_areas ||--o{ core_transport_terminals : "admin_area_id"
-  core_transport_stops ||--o{ core_transport_terminals : "linked_stop_id"
-  core_transport_operators ||--o{ core_transport_terminals : "operator_id"
-  ref_ref_source_types ||--o{ core_transport_terminals : "source_type_id"
   core_core_addresses ||--o{ core_core_address_components : "address_id"
   ref_ref_address_component_types ||--o{ core_core_address_components : "component_type_id"
   core_core_admin_areas ||--o{ core_core_addresses : "admin_area_id"
   ref_ref_source_types ||--o{ core_core_addresses : "source_type_id"
   core_core_streets ||--o{ core_core_addresses : "street_id"
   core_core_admin_areas ||--o{ core_core_admin_area_names : "admin_area_id"
+  ref_ref_admin_area_types ||--o{ core_core_admin_areas : "admin_area_type_id"
   ref_ref_admin_levels ||--o{ core_core_admin_areas : "admin_level_id"
   core_core_admin_areas ||--o{ core_core_admin_areas : "parent_id"
   ref_ref_source_types ||--o{ core_core_admin_areas : "source_type_id"
-  core_core_bus_routes ||--o{ core_core_bus_route_names : "route_id"
-  core_core_bus_route_variants ||--o{ core_core_bus_route_stops : "route_variant_id"
-  core_core_bus_stops ||--o{ core_core_bus_route_stops : "stop_id"
-  core_core_bus_routes ||--o{ core_core_bus_route_variants : "route_id"
-  ref_ref_source_types ||--o{ core_core_bus_routes : "source_type_id"
-  core_core_bus_stops ||--o{ core_core_bus_stop_names : "stop_id"
-  core_core_admin_areas ||--o{ core_core_bus_stops : "admin_area_id"
-  ref_ref_source_types ||--o{ core_core_bus_stops : "source_type_id"
   core_core_map_buildings ||--o{ core_core_map_building_names : "building_id"
   core_core_admin_areas ||--o{ core_core_map_buildings : "admin_area_id"
   ref_ref_building_types ||--o{ core_core_map_buildings : "building_type_id"
@@ -3504,17 +2786,9 @@ erDiagram
   ref_ref_road_classes ||--o{ core_core_streets : "road_class_id"
   ref_ref_source_types ||--o{ core_core_streets : "source_type_id"
   core_core_admin_areas ||--o{ core_core_map_buildings : "admin_area_id"
-  gtfs_export_export_builds ||--o{ gtfs_export_export_files : "export_build_id"
-  gtfs_export_export_builds ||--o{ gtfs_export_otp_graph_builds : "export_build_id"
-  gtfs_export_export_builds ||--o{ gtfs_export_validation_issues : "export_build_id"
-  gtfs_export_export_builds ||--o{ gtfs_export_validation_reports : "export_build_id"
   import_review_review_batches ||--o{ import_review_address_candidates : "review_batch_id"
   import_review_review_batches ||--o{ import_review_admin_area_candidates : "review_batch_id"
   import_review_review_batches ||--o{ import_review_building_candidates : "review_batch_id"
-  import_review_review_batches ||--o{ import_review_bus_route_candidates : "review_batch_id"
-  import_review_review_batches ||--o{ import_review_bus_route_stop_candidates : "review_batch_id"
-  import_review_review_batches ||--o{ import_review_bus_route_variant_candidates : "review_batch_id"
-  import_review_review_batches ||--o{ import_review_bus_stop_candidates : "review_batch_id"
   import_review_address_candidates ||--o{ import_review_address_components : "address_candidate_id"
   ref_ref_address_component_types ||--o{ import_review_address_components : "component_type_id"
   core_core_admin_areas ||--o{ import_review_address_components : "source_admin_area_id"
@@ -3541,23 +2815,6 @@ erDiagram
   app_auth_auth_users ||--o{ import_review_building_candidates : "locked_by"
   app_auth_auth_users ||--o{ import_review_building_candidates : "promoted_by"
   app_auth_auth_users ||--o{ import_review_building_candidates : "reviewed_by"
-  app_auth_auth_users ||--o{ import_review_bus_route_candidates : "assigned_to"
-  app_auth_auth_users ||--o{ import_review_bus_route_candidates : "locked_by"
-  app_auth_auth_users ||--o{ import_review_bus_route_candidates : "promoted_by"
-  app_auth_auth_users ||--o{ import_review_bus_route_candidates : "reviewed_by"
-  app_auth_auth_users ||--o{ import_review_bus_route_stop_candidates : "assigned_to"
-  app_auth_auth_users ||--o{ import_review_bus_route_stop_candidates : "locked_by"
-  app_auth_auth_users ||--o{ import_review_bus_route_stop_candidates : "promoted_by"
-  app_auth_auth_users ||--o{ import_review_bus_route_stop_candidates : "reviewed_by"
-  app_auth_auth_users ||--o{ import_review_bus_route_variant_candidates : "assigned_to"
-  app_auth_auth_users ||--o{ import_review_bus_route_variant_candidates : "locked_by"
-  app_auth_auth_users ||--o{ import_review_bus_route_variant_candidates : "promoted_by"
-  app_auth_auth_users ||--o{ import_review_bus_route_variant_candidates : "reviewed_by"
-  core_core_admin_areas ||--o{ import_review_bus_stop_candidates : "admin_area_id"
-  app_auth_auth_users ||--o{ import_review_bus_stop_candidates : "assigned_to"
-  app_auth_auth_users ||--o{ import_review_bus_stop_candidates : "locked_by"
-  app_auth_auth_users ||--o{ import_review_bus_stop_candidates : "promoted_by"
-  app_auth_auth_users ||--o{ import_review_bus_stop_candidates : "reviewed_by"
   app_auth_auth_users ||--o{ import_review_landuse_candidates : "assigned_to"
   ref_ref_landuse_classes ||--o{ import_review_landuse_candidates : "landuse_class_id"
   app_auth_auth_users ||--o{ import_review_landuse_candidates : "locked_by"
@@ -3610,32 +2867,6 @@ erDiagram
   import_review_review_batches ||--o{ import_review_routing_turn_restriction_candidates : "review_batch_id"
   import_review_review_batches ||--o{ import_review_water_line_candidates : "review_batch_id"
   import_review_review_batches ||--o{ import_review_water_polygon_candidates : "review_batch_id"
-  import_transport_source_datasets ||--o{ import_transport_import_batches : "source_dataset_id"
-  import_transport_import_batches ||--o{ import_transport_promotion_batches : "import_batch_id"
-  import_transport_promotion_batches ||--o{ import_transport_promotion_items : "promotion_batch_id"
-  import_transport_promotion_batches ||--o{ import_transport_promotion_stage_logs : "promotion_batch_id"
-  import_transport_import_batches ||--o{ import_transport_raw_fares : "import_batch_id"
-  import_transport_raw_operators ||--o{ import_transport_raw_fares : "raw_operator_id"
-  import_transport_raw_routes ||--o{ import_transport_raw_fares : "raw_route_id"
-  import_transport_import_batches ||--o{ import_transport_raw_operators : "import_batch_id"
-  import_transport_import_batches ||--o{ import_transport_raw_route_paths : "import_batch_id"
-  import_transport_raw_routes ||--o{ import_transport_raw_route_paths : "raw_route_id"
-  import_transport_raw_route_variants ||--o{ import_transport_raw_route_paths : "raw_route_variant_id"
-  import_transport_import_batches ||--o{ import_transport_raw_route_stops : "import_batch_id"
-  import_transport_raw_route_variants ||--o{ import_transport_raw_route_stops : "raw_route_variant_id"
-  import_transport_raw_stops ||--o{ import_transport_raw_route_stops : "raw_stop_id"
-  import_transport_import_batches ||--o{ import_transport_raw_route_variants : "import_batch_id"
-  import_transport_raw_routes ||--o{ import_transport_raw_route_variants : "raw_route_id"
-  import_transport_import_batches ||--o{ import_transport_raw_routes : "import_batch_id"
-  import_transport_raw_operators ||--o{ import_transport_raw_routes : "raw_operator_id"
-  import_transport_import_batches ||--o{ import_transport_raw_service_notes : "import_batch_id"
-  import_transport_raw_routes ||--o{ import_transport_raw_service_notes : "raw_route_id"
-  import_transport_raw_stops ||--o{ import_transport_raw_service_notes : "raw_stop_id"
-  import_transport_raw_terminals ||--o{ import_transport_raw_service_notes : "raw_terminal_id"
-  import_transport_import_batches ||--o{ import_transport_raw_stops : "import_batch_id"
-  import_transport_import_batches ||--o{ import_transport_raw_terminals : "import_batch_id"
-  import_transport_raw_operators ||--o{ import_transport_raw_terminals : "raw_operator_id"
-  import_transport_import_batches ||--o{ import_transport_validation_issues : "import_batch_id"
   ref_ref_address_usage_types ||--o{ ref_ref_boundary_statuses : "default_address_usage_code"
   ref_ref_building_types ||--o{ ref_ref_building_types : "parent_id"
   ref_ref_landuse_classes ||--o{ ref_ref_landuse_classes : "parent_id"
@@ -3676,6 +2907,34 @@ erDiagram
   ref_ref_source_types ||--o{ system_system_source_registry : "source_type_id"
   system_system_import_batches ||--o{ system_system_source_snapshots : "import_batch_id"
   system_system_source_registry ||--o{ system_system_source_snapshots : "source_registry_id"
+  transit_export_gtfs_builds ||--o{ transit_export_gtfs_files : "gtfs_build_id"
+  transit_export_gtfs_validation_reports ||--o{ transit_export_gtfs_validation_issues : "validation_report_id"
+  transit_export_gtfs_builds ||--o{ transit_export_gtfs_validation_reports : "gtfs_build_id"
+  transit_export_gtfs_builds ||--o{ transit_export_otp_graph_builds : "gtfs_build_id"
+  transport_operators ||--o{ transport_fares : "operator_id"
+  transport_routes ||--o{ transport_fares : "route_id"
+  transport_route_variants ||--o{ transport_fares : "route_variant_id"
+  transport_import_batches ||--o{ transport_import_errors : "import_batch_id"
+  core_core_admin_areas ||--o{ transport_infrastructure_lines : "admin_area_id"
+  transport_routes ||--o{ transport_route_names : "route_id"
+  transport_route_variants ||--o{ transport_route_paths : "route_variant_id"
+  transport_route_variants ||--o{ transport_route_stops : "route_variant_id"
+  transport_stops ||--o{ transport_route_stops : "stop_id"
+  transport_stops ||--o{ transport_route_variants : "destination_stop_id"
+  transport_stops ||--o{ transport_route_variants : "origin_stop_id"
+  transport_routes ||--o{ transport_route_variants : "route_id"
+  core_core_admin_areas ||--o{ transport_routes : "destination_admin_area_id"
+  transport_operators ||--o{ transport_routes : "operator_id"
+  core_core_admin_areas ||--o{ transport_routes : "origin_admin_area_id"
+  transport_routes ||--o{ transport_service_notes : "route_id"
+  transport_route_variants ||--o{ transport_service_notes : "route_variant_id"
+  transport_import_batches ||--o{ transport_source_links : "import_batch_id"
+  transport_stops ||--o{ transport_stop_names : "stop_id"
+  core_core_admin_areas ||--o{ transport_stops : "admin_area_id"
+  transport_stops ||--o{ transport_stops : "parent_stop_id"
+  core_core_admin_areas ||--o{ transport_terminals : "admin_area_id"
+  transport_stops ||--o{ transport_terminals : "linked_stop_id"
+  transport_operators ||--o{ transport_terminals : "operator_id"
   %% ENUM TYPES
   %% auth.aal_level { aal1, aal2, aal3 }
   %% auth.code_challenge_method { s256, plain }
@@ -3696,13 +2955,38 @@ erDiagram
   %% function: role() -> text
   %% function: uid() -> uuid
   %% [core]
+  %% function: admin_area_hierarchy_is_protected(p_is_verified boolean) -> boolean
+  %% function: admin_area_level_code_is_ward_like(p_code text) -> boolean
+  %% function: admin_area_matches_assignment_target(p_admin_level_id bigint, p_level_code text, p_level_name text, p_target_admin_level_code text) -> boolean
+  %% function: admin_area_rep_point(p_geom geometry, p_centroid geometry) -> geometry
+  %% function: admin_area_row_matches_target(p_admin_level_id bigint, p_level_code text, p_level_name text, p_target_admin_level_code text) -> boolean
+  %% function: admin_level_matches_target(p_level_code text, p_level_name text, p_target_admin_level_code text) -> boolean
+  %% function: build_admin_area_repair_metadata(p_previous_admin_area_id bigint, p_calculated_admin_area_id bigint, p_repair_method text) -> jsonb
+  %% function: entity_admin_assignment_is_protected(p_manual_override boolean, p_is_verified boolean) -> boolean
+  %% function: entity_admin_assignment_is_protected(p_manual_override boolean, p_is_verified boolean, p_verification_status text) -> boolean
+  %% function: entity_rep_point_for_admin_lookup(p_geom geometry) -> geometry
+  %% function: entity_row_is_verified_protected(p_is_verified boolean, p_verification_status text) -> boolean
+  %% function: find_admin_area_for_line(p_geom geometry, target_admin_level_code text) -> bigint
+  %% function: find_admin_area_for_point(p_geom geometry, target_admin_level_code text) -> bigint
+  %% function: find_admin_area_for_polygon(p_geom geometry, target_admin_level_code text) -> bigint
   %% function: get_initial_publish_status_id() -> bigint
   %% function: get_source_type_id_from_snapshot(p_source_snapshot_id bigint) -> bigint
+  %% function: inferred_parent_admin_area_id(p_child_admin_area_id bigint) -> bigint
+  %% function: is_admin_area_id_valid_for_line(p_admin_area_id bigint, p_line_geom geometry) -> boolean
+  %% function: is_admin_area_id_valid_for_point(p_admin_area_id bigint, p_point geometry) -> boolean
   %% function: is_promotable_match_status(p_match_status text) -> boolean
+  %% function: lookup_admin_area_id_for_point(p_point geometry, p_prefer_level_code text) -> bigint
   %% function: make_slug(p_value text) -> text
+  %% function: merge_admin_area_repair_normalized_data(p_normalized_data jsonb, p_repair jsonb) -> jsonb
+  %% function: normalize_admin_lookup_geom(p_geom geometry) -> geometry
+  %% function: normalized_data_admin_area_repair_is_current(p_normalized_data jsonb, p_previous_admin_area_id bigint, p_calculated_admin_area_id bigint, p_repair_method text) -> boolean
+  %% function: normalized_data_needs_admin_area_repair_update(p_normalized_data jsonb, p_previous_admin_area_id bigint, p_calculated_admin_area_id bigint, p_repair_method text) -> boolean
+  %% function: pick_admin_area_for_line_overlap(p_line_geom geometry, p_target_admin_level_code text) -> bigint
+  %% function: pipeline_dry_run_enabled() -> boolean
+  %% function: pipeline_force_manual_override() -> boolean
+  %% function: pipeline_force_recalculate_verified() -> boolean
+  %% function: pipeline_truthy_setting(p_value text) -> boolean
   %% function: promote_admin_area_candidate(p_candidate_id bigint) -> bigint
-  %% function: promote_bus_route_candidate(p_candidate_id bigint) -> bigint
-  %% function: promote_bus_stop_candidate(p_candidate_id bigint) -> bigint
   %% function: promote_place_candidate(p_candidate_id bigint) -> bigint
   %% function: promote_road_candidate(p_candidate_id bigint) -> bigint
   %% function: sync_is_verified_from_verification_status() -> trigger
@@ -4526,9 +3810,11 @@ erDiagram
   %% function: list_changes(publication name, slot_name name, max_changes integer, max_record_bytes integer) -> record
   %% function: quote_wal2json(entity regclass) -> text
   %% function: send(payload jsonb, event text, topic text, private boolean) -> void
+  %% function: send_binary(payload bytea, event text, topic text, private boolean) -> void
   %% function: subscription_check_filters() -> trigger
   %% function: to_regrole(role_name text) -> regrole
   %% function: topic() -> text
+  %% function: wal2json_escape_identifier(name text) -> text
   %% [search]
   %% function: address_component_type_rank(p_code text) -> integer
   %% function: build_address_search_line(p_address_id bigint, p_language_code text) -> text
@@ -4561,6 +3847,8 @@ erDiagram
   %% function: get_admin_areas_tile(z integer, x integer, y integer) -> bytea
   %% function: get_places_tile(z integer, x integer, y integer) -> bytea
   %% function: get_streets_tile(z integer, x integer, y integer) -> bytea
+  %% [transport]
+  %% function: set_updated_at() -> trigger
   %% [vault]
   %% function: _crypto_aead_det_decrypt(message bytea, additional bytea, key_id bigint, context bytea, nonce bytea) -> bytea
   %% function: _crypto_aead_det_encrypt(message bytea, additional bytea, key_id bigint, context bytea, nonce bytea) -> bytea

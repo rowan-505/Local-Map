@@ -10,7 +10,4 @@ test("family route OpenAPI param enum matches IMPORT_REVIEW_ENTITY_FAMILIES", ()
     };
     const enumValues = [...(params?.properties?.family?.enum ?? [])];
     assert.deepEqual([...enumValues].sort(), [...IMPORT_REVIEW_ENTITY_FAMILIES].sort());
-    assert.ok(enumValues.includes("bus_route_variants"));
-    assert.ok(enumValues.includes("bus_route_stops"));
-    assert.ok(enumValues.includes("bus_routes"));
 });

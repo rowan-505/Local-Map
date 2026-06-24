@@ -40,27 +40,6 @@ const LIFECYCLE_BY_SLUG: Record<CoreReviewEntitySlug, CoreReviewLifecycleConfig>
         ],
         restoreExtraSets: [Prisma.sql`routing_status = 'needs_rebuild'`],
     },
-    "bus-stops": {
-        table: "core_transport.stops",
-        idKind: "public_id",
-        hasDeletedAt: true,
-        hasIsActive: true,
-        supportsSoftDelete: true,
-    },
-    "bus-routes": {
-        table: "core_transport.routes",
-        idKind: "numeric_id",
-        hasDeletedAt: true,
-        hasIsActive: true,
-        supportsSoftDelete: true,
-    },
-    "bus-route-variants": {
-        table: "core_transport.route_variants",
-        idKind: "numeric_id",
-        hasDeletedAt: true,
-        hasIsActive: true,
-        supportsSoftDelete: true,
-    },
     landuse: {
         table: "core.core_map_landuse",
         idKind: "public_id",

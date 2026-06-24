@@ -161,7 +161,6 @@ Stage J also writes **redundant mirrors** into each item **`payload`** JSON for 
 | Buildings | `staging.staging_building_candidates` | `_items` (`buildings`) | `import_review.building_candidates` | `core.core_map_buildings` |
 | Places | `staging.staging_place_candidates` | `_items` (`places`) | `import_review.place_candidates` | `core.core_places` (+ child names in `normalized_data`) |
 | Roads | `staging.staging_road_candidates` | `_items` (`roads`) | `import_review.road_candidates` | `core.core_streets` |
-| Bus stops | `staging.staging_bus_stop_candidates` | `_items` (`bus_stops`) | `import_review.bus_stop_candidates` | `core.core_bus_stops` |
 | Landuse | `staging.staging_landuse_candidates` | `_items` (`landuse`) | `import_review.landuse_candidates` | `core.core_map_landuse` |
 | Water lines | `staging.staging_water_line_candidates` | `_items` (`water_lines`) | `import_review.water_line_candidates` | `core.core_map_water_lines` |
 | Water polygons | `staging.staging_water_polygon_candidates` | `_items` (`water_polygons`) | `import_review.water_polygon_candidates` | `core.core_map_water_polygons` |
@@ -169,7 +168,7 @@ Stage J also writes **redundant mirrors** into each item **`payload`** JSON for 
 | Admin areas | `staging.staging_admin_area_candidates` | `_items` (`admin_areas`) | `import_review.admin_area_candidates` | `core.core_admin_areas` (+ `names` in `normalized_data`) |
 | Routing barriers | `staging.staging_routing_barrier_candidates` | `_items` (`routing_barriers`) | `import_review.routing_barrier_candidates` | (no core DDL yet) |
 
-**Not in this phase:** `bus_routes`, `bus_route_variants`, `bus_route_stops` (deferred — graph/sequence risk).
+**Not in this pipeline:** transport families (bus stops/routes). Transport data now lives in `transport.*` and is loaded by a separate direct-upsert path, not via OSM staging/import-review.
 
 Stage K upload entity mapping: `remote-review-entity-config.ts`.
 

@@ -230,22 +230,22 @@ export default function StatsPage() {
                         <StatsCard
                             title="Bus routes"
                             value={transit.bus_routes}
-                            description="core.core_bus_routes"
+                            description="Transit routes"
                         />
                         <StatsCard
                             title="Route variants"
                             value={transit.bus_route_variants}
-                            description="core.core_bus_route_variants"
+                            description="Transit route variants"
                         />
                         <StatsCard
                             title="Bus stops"
                             value={transit.bus_stops}
-                            description="core.core_bus_stops"
+                            description="Transit stops"
                         />
                         <StatsCard
                             title="Route stops"
                             value={transit.bus_route_stops}
-                            description="core.core_bus_route_stops"
+                            description="Transit route stops"
                         />
                     </div>
                 </section>

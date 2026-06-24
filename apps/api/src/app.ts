@@ -19,11 +19,11 @@ import buildingsRoutes from "./modules/buildings/buildings.routes.js";
 import placeBuildingRoutes from "./modules/place-buildings/place-buildings.routes.js";
 import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
 import importReviewRoutes from "./modules/import-review/import-review.routes.js";
-import importTransportRoutes from "./modules/import-transport/import-transport.routes.js";
 import coreVerificationCompatRoutes from "./modules/core-verification-compat/core-verification-compat.routes.js";
 import coreReviewRoutes from "./modules/core-review/core-review.routes.js";
 import routingRoutes from "./modules/routing/routing.routes.js";
 import routingAdminRoutes from "./modules/routing/routing-admin.routes.js";
+import transportRoutes from "./modules/transport/transport.routes.js";
 import refRoutes from "./modules/ref/ref.routes.js";
 import addressesRoutes from "./modules/addresses/addresses.routes.js";
 import { IMPORT_REVIEW_ADMIN_TOKEN_HEADER } from "./modules/import-review/import-review-admin.guard.js";
@@ -91,10 +91,10 @@ export async function buildApp() {
     await app.register(placeBuildingRoutes);
     await app.register(dashboardRoutes);
     await app.register(importReviewRoutes, { prefix: "/api/import-review" });
-    await app.register(importTransportRoutes, { prefix: "/api/import-transport" });
     await app.register(coreVerificationCompatRoutes, { prefix: "/api/core-verification" });
     await app.register(routingRoutes, { prefix: "/api/routing" });
     await app.register(routingAdminRoutes, { prefix: "/admin/routing" });
+    await app.register(transportRoutes, { prefix: "/transport" });
     await app.register(refRoutes, { prefix: "/admin/ref" });
     await app.register(coreReviewRoutes, { prefix: "/core-review" });
 
@@ -145,7 +145,7 @@ function registerPublicErrorHandler(app: FastifyInstance) {
         });
 
         const url = request.url.split("?")[0] ?? request.url;
-        if (url.startsWith("/api/import-review") || url.startsWith("/api/import-transport")) {
+        if (url.startsWith("/api/import-review")) {
             const fastifyValidation = fastifyErr.validation;
             const errorCode =
                 statusCode === 400

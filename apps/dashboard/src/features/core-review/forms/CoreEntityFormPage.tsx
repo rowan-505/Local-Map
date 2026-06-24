@@ -50,10 +50,6 @@ import CoreFormActions from "./CoreFormActions";
 import { isTownshipAdminEntity } from "@/src/lib/core-review/townshipAdminPolicy";
 import { townshipAdminSaveBlockMessage } from "./EntityTownshipAdminField";
 import CoreReviewEntityFormLifecycleActions from "../lifecycle/CoreReviewEntityFormLifecycleActions";
-import CoreReviewTransportSourceBadge, {
-    CORE_REVIEW_TRANSPORT_DATA_SOURCE,
-    isCoreReviewTransportEntityKey,
-} from "../transport/CoreReviewTransportSourceBadge";
 import { isCoreReviewRowDeleted } from "../lifecycle/coreReviewLifecycleUtils";
 import type { StreetSplitMapProps } from "./StreetEditExtras";
 import { collectRefSources, useCoreEntityRefs } from "./useCoreEntityRefs";
@@ -358,11 +354,6 @@ export default function CoreEntityFormPage({ entityKey, mode, id }: CoreEntityFo
             mode={mode}
             title={title}
             description={description}
-            badge={
-                isCoreReviewTransportEntityKey(entityKey) ? (
-                    <CoreReviewTransportSourceBadge source={CORE_REVIEW_TRANSPORT_DATA_SOURCE} />
-                ) : undefined
-            }
             backHref={config.listRoute}
             backLabel={`Back to ${config.labelPlural.toLowerCase()}`}
             onSubmit={config.writeApiAvailable ? onSubmit : undefined}

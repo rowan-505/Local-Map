@@ -368,8 +368,6 @@ describe("promotion repo source has no nested $transaction", () => {
             "import-review-promotion-promote-map.repo.ts",
             "import-review-promotion-promote-routing-barriers.repo.ts",
             "import-review-promotion-promote-addresses.repo.ts",
-            "import-review-promotion-promote-bus-stops.repo.ts",
-            "import-review-promotion-promote-bus-routes.repo.ts",
         ]) {
             const src = readFileSync(join(dir, file), "utf8");
             assert.doesNotMatch(src, /\$transaction\s*\(/);

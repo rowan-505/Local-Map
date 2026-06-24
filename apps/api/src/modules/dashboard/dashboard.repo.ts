@@ -20,11 +20,15 @@ const CORE_STATS_TABLE_ALLOWLIST_SQL = `
   'core_place_contacts',
   'core_place_sources',
   'core_place_media',
-  'core_place_versions',
-  'core_bus_routes',
-  'core_bus_route_variants',
-  'core_bus_stops',
-  'core_bus_route_stops'
+  'core_place_versions'
+`;
+
+/** Production transit base tables under schema `transport` (unquoted lowercase). Allowlist only. */
+const TRANSPORT_STATS_TABLE_ALLOWLIST_SQL = `
+  'routes',
+  'route_variants',
+  'stops',
+  'route_stops'
 `;
 
 /**
@@ -43,10 +47,10 @@ type CatalogFlagRow = {
     t_core_place_sources: boolean;
     t_core_place_media: boolean;
     t_core_place_versions: boolean;
-    t_core_bus_routes: boolean;
-    t_core_bus_route_variants: boolean;
-    t_core_bus_stops: boolean;
-    t_core_bus_route_stops: boolean;
+    t_transport_routes: boolean;
+    t_transport_route_variants: boolean;
+    t_transport_stops: boolean;
+    t_transport_route_stops: boolean;
     c_core_places_deleted_at: boolean;
     c_core_places_is_verified: boolean;
     c_core_map_buildings_deleted_at: boolean;
@@ -96,6 +100,14 @@ WITH present AS (
     AND t.table_schema = 'core'
     AND t.table_type = 'BASE TABLE'
     AND t.table_name IN (${Prisma.raw(CORE_STATS_TABLE_ALLOWLIST_SQL)})
+),
+present_transport AS (
+  SELECT table_name
+  FROM information_schema.tables t
+  WHERE t.table_catalog = current_database()
+    AND t.table_schema = 'transport'
+    AND t.table_type = 'BASE TABLE'
+    AND t.table_name IN (${Prisma.raw(TRANSPORT_STATS_TABLE_ALLOWLIST_SQL)})
 )
 SELECT
   EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_places') AS t_core_places,
@@ -110,10 +122,10 @@ SELECT
   EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_place_sources') AS t_core_place_sources,
   EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_place_media') AS t_core_place_media,
   EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_place_versions') AS t_core_place_versions,
-  EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_bus_routes') AS t_core_bus_routes,
-  EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_bus_route_variants') AS t_core_bus_route_variants,
-  EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_bus_stops') AS t_core_bus_stops,
-  EXISTS (SELECT 1 FROM present p WHERE p.table_name = 'core_bus_route_stops') AS t_core_bus_route_stops,
+  EXISTS (SELECT 1 FROM present_transport p WHERE p.table_name = 'routes') AS t_transport_routes,
+  EXISTS (SELECT 1 FROM present_transport p WHERE p.table_name = 'route_variants') AS t_transport_route_variants,
+  EXISTS (SELECT 1 FROM present_transport p WHERE p.table_name = 'stops') AS t_transport_stops,
+  EXISTS (SELECT 1 FROM present_transport p WHERE p.table_name = 'route_stops') AS t_transport_route_stops,
   EXISTS (
       SELECT 1
       FROM information_schema.columns col
@@ -209,10 +221,10 @@ function buildSnapshotQuery(f: CatalogFlagRow): Prisma.Sql {
         countFrom("place_sources", "core.core_place_sources", f.t_core_place_sources),
         countFrom("place_media", "core.core_place_media", f.t_core_place_media),
         countFrom("place_versions", "core.core_place_versions", f.t_core_place_versions),
-        countFrom("bus_routes", "core.core_bus_routes", f.t_core_bus_routes),
-        countFrom("bus_route_variants", "core.core_bus_route_variants", f.t_core_bus_route_variants),
-        countFrom("bus_stops", "core.core_bus_stops", f.t_core_bus_stops),
-        countFrom("bus_route_stops", "core.core_bus_route_stops", f.t_core_bus_route_stops),
+        countFrom("bus_routes", "transport.routes", f.t_transport_routes),
+        countFrom("bus_route_variants", "transport.route_variants", f.t_transport_route_variants),
+        countFrom("bus_stops", "transport.stops", f.t_transport_stops),
+        countFrom("bus_route_stops", "transport.route_stops", f.t_transport_route_stops),
         healthPlaces("places_active", "deleted_at IS NULL", f, false),
         healthPlaces("places_deleted", "deleted_at IS NOT NULL", f, false),
         healthPlaces("places_verified", "deleted_at IS NULL AND is_verified IS TRUE", f, true),

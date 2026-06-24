@@ -9,7 +9,6 @@ import type { FamilyEligibilityCountDb } from "./import-review-promotion-eligibi
 import {
     getImportReviewPublishFamilyConfig,
     IMPORT_REVIEW_PUBLISH_FAMILY_CONFIG,
-    isDisabledImportReviewPromotionFamily,
     type ImportReviewPromotionAllowedFamily,
     type ImportReviewPublishFamilyConfig,
 } from "./import-review-promotion-config.js";
@@ -18,10 +17,7 @@ import {
     importReviewPromotionFamilyRiskLevel,
     importReviewPromotionFamilyTarget,
 } from "./import-review-promotion-family-meta.js";
-import {
-    ImportReviewPromotionUnknownFamilyError,
-    ImportReviewTransportPromotionDeprecatedError,
-} from "./import-review-promotion.errors.js";
+import { ImportReviewPromotionUnknownFamilyError } from "./import-review-promotion.errors.js";
 
 export type ImportReviewPromotionEligibilityCountError = {
     ok: false;
@@ -83,9 +79,6 @@ export function parsePromotionEligibilityFamiliesParam(
 
     const configs: ImportReviewPublishFamilyConfig[] = [];
     for (const family of unique) {
-        if (isDisabledImportReviewPromotionFamily(family)) {
-            throw new ImportReviewTransportPromotionDeprecatedError([family]);
-        }
         if (!isImportReviewEntityFamily(family)) {
             throw new ImportReviewPromotionUnknownFamilyError(family);
         }

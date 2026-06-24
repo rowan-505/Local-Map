@@ -23,21 +23,9 @@ describe("core-review verification summary", () => {
         assert.ok(entityIndex > summaryIndex);
     });
 
-    it("includes core schema and core_transport overview families", () => {
+    it("includes core schema overview families", () => {
         const families = CORE_REVIEW_VERIFICATION_SUMMARY_CONFIGS.map((item) => item.family);
         assert.ok(families.includes("addresses"));
-        assert.ok(families.includes("bus_stops"));
-        assert.ok(families.includes("bus_routes"));
-        assert.ok(families.includes("bus_route_variants"));
-        assert.doesNotMatch(CORE_REVIEW_VERIFICATION_SUMMARY_CONFIGS.map((item) => item.table).join("\n"), /core\.core_bus_/);
-    });
-
-    it("marks transport families with core_transport source label", () => {
-        for (const family of ["bus_stops", "bus_routes", "bus_route_variants"] as const) {
-            const config = CORE_REVIEW_VERIFICATION_SUMMARY_CONFIGS.find((item) => item.family === family);
-            assert.equal(config?.sourceLabel, "core_transport");
-            assert.match(config?.table ?? "", /^core_transport\./);
-        }
     });
 
     it("does not use isVerifiedOnly summary mode for addresses", () => {

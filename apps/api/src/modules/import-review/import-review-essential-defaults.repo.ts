@@ -49,7 +49,6 @@ function essentialSelectColumns(family: ImportReviewEntityFamilySlug, alias: str
     const primaryNameCol = family === "places" ? "primary_name" : null;
     const displayNameCol = family === "places" ? "display_name" : null;
     const adminAreaCol =
-        family === "bus_stops" ||
         family === "buildings" ||
         family === "places" ||
         family === "roads"
@@ -60,9 +59,7 @@ function essentialSelectColumns(family: ImportReviewEntityFamilySlug, alias: str
         family === "places" ||
         family === "buildings" ||
         family === "admin_areas" ||
-        family.startsWith("water") ||
-        family === "bus_stops" ||
-        family === "bus_routes"
+        family.startsWith("water")
             ? "name_mm"
             : null;
     const nameEnCol =
@@ -70,9 +67,7 @@ function essentialSelectColumns(family: ImportReviewEntityFamilySlug, alias: str
         family === "places" ||
         family === "buildings" ||
         family === "admin_areas" ||
-        family.startsWith("water") ||
-        family === "bus_stops" ||
-        family === "bus_routes"
+        family.startsWith("water")
             ? "name_en"
             : null;
     const buildingTypeIdCol = family === "buildings" ? "building_type_id" : null;
@@ -86,11 +81,10 @@ function essentialSelectColumns(family: ImportReviewEntityFamilySlug, alias: str
         family === "places" ||
         family === "landuse" ||
         family.startsWith("water") ||
-        family === "roads" ||
-        family === "bus_stops"
+        family === "roads"
             ? "class_code"
             : null;
-    const stopCodeCol = family === "bus_stops" ? "stop_code" : null;
+    const stopCodeCol = null;
 
     return Prisma.sql`
         ${optionalColumn(alias, nameCol, "text")} AS name,
