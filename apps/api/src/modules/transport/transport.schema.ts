@@ -34,6 +34,21 @@ export const transportModeEnum = z.enum([
     "other",
 ]);
 
+/**
+ * Allowed `transport.infrastructure_lines.line_type` values. There is no DB CHECK
+ * for this column, so this app-level allowlist is the only guard. The values cover
+ * every line_type currently present in the live table, so existing rows stay valid.
+ */
+export const infrastructureLineTypeEnum = z.enum([
+    "ferry",
+    "rail",
+    "abandoned",
+    "disused",
+    "construction",
+    "narrow_gauge",
+    "tram",
+]);
+
 /** limit (hard-capped at 100) + offset. */
 export const transportPaginationQuerySchema = z.object({
     limit: z.coerce
@@ -87,6 +102,38 @@ export const listTransportStopsQuerySchema = transportListQuerySchema.extend({
 });
 
 export type ListTransportStopsQuery = z.infer<typeof listTransportStopsQuerySchema>;
+
+/**
+ * GET /transport/stops/search query — a lightweight stop picker for inserting an
+ * existing stop into a route variant. Text search hits Myanmar/English/raw name
+ * and stop_code; an optional near point (nearLng/nearLat, both-or-neither) adds a
+ * PostGIS radius filter + distance ranking. Hard-capped at 50 results, no offset.
+ * `excludeRouteVariantPublicId` drops stops already in that variant.
+ */
+export const STOP_SEARCH_MAX_LIMIT = 50;
+export const STOP_SEARCH_DEFAULT_LIMIT = 20;
+export const STOP_SEARCH_DEFAULT_RADIUS_M = 1000;
+export const STOP_SEARCH_MAX_RADIUS_M = 50000;
+
+export const searchTransportStopsQuerySchema = z
+    .object({
+        search: z.string().trim().min(1).max(120).optional(),
+        mode: transportModeEnum.optional(),
+        nearLng: z.coerce.number().min(-180).max(180).optional(),
+        nearLat: z.coerce.number().min(-90).max(90).optional(),
+        radiusMeters: z.coerce
+            .number()
+            .min(1)
+            .max(STOP_SEARCH_MAX_RADIUS_M)
+            .default(STOP_SEARCH_DEFAULT_RADIUS_M),
+        limit: z.coerce.number().int().min(1).max(STOP_SEARCH_MAX_LIMIT).default(STOP_SEARCH_DEFAULT_LIMIT),
+        excludeRouteVariantPublicId: z.string().uuid().optional(),
+    })
+    .refine((q) => (q.nearLng === undefined) === (q.nearLat === undefined), {
+        message: "nearLng and nearLat must be provided together.",
+    });
+
+export type SearchTransportStopsQuery = z.infer<typeof searchTransportStopsQuerySchema>;
 
 /**
  * GET /transport/terminals query. Extends the shared list base with terminal-specific
@@ -380,7 +427,7 @@ export const updateInfrastructureLineBodySchema = z
         name_mm: nullableText(255),
         name_en: nullableText(255),
         mode: transportModeEnum.optional(),
-        line_type: z.string().trim().min(1).max(50).optional(),
+        line_type: infrastructureLineTypeEnum.optional(),
         admin_area_id: z.number().int().min(1).nullable().optional(),
         review_status: transportReviewStatusEnum.optional(),
         confidence_score: confidenceScoreField,
@@ -424,6 +471,85 @@ export const moveRouteStopBodySchema = z.object({
 });
 
 export type MoveRouteStopInput = z.infer<typeof moveRouteStopBodySchema>;
+
+/**
+ * POST /transport/route-variants/:publicId/stops/insert-existing body.
+ *
+ * Inserts an EXISTING stop into the variant's ordered pattern. The backend owns
+ * stop_sequence: the client never sends a final sequence, only a relative
+ * `position` (and an anchor route_stop id for before/after). Exactly one of
+ * `stopPublicId` / `stopId` identifies the stop to insert. `.strict()` blocks
+ * `stop_sequence` and any source_refs / normalized_data.
+ *
+ * pickup_type / drop_off_type follow GTFS semantics (0–3); all three membership
+ * flags default to the route_stops column defaults (0 / 0 / false).
+ */
+export const insertExistingRouteStopBodySchema = z
+    .object({
+        stopPublicId: z.string().uuid().optional(),
+        stopId: z.coerce.number().int().min(1).optional(),
+        position: z.enum(["start", "end", "before", "after"]),
+        anchorRouteStopId: z
+            .string()
+            .regex(/^\d+$/, "anchorRouteStopId must be a positive integer")
+            .optional(),
+        pickup_type: z.number().int().min(0).max(3).default(0),
+        drop_off_type: z.number().int().min(0).max(3).default(0),
+        is_timing_point: z.boolean().default(false),
+    })
+    .strict()
+    .refine((body) => body.stopPublicId !== undefined || body.stopId !== undefined, {
+        message: "Either stopPublicId or stopId is required.",
+    })
+    .refine(
+        (body) =>
+            (body.position !== "before" && body.position !== "after") ||
+            body.anchorRouteStopId !== undefined,
+        { message: "anchorRouteStopId is required when position is 'before' or 'after'." }
+    );
+
+export type InsertExistingRouteStopInput = z.infer<typeof insertExistingRouteStopBodySchema>;
+
+/**
+ * POST /transport/route-variants/:publicId/stops/create-and-insert body.
+ *
+ * Secondary "quick create" path for the Insert Stop modal: creates a new stop
+ * (minimal fields only) and inserts it into this variant in one transaction.
+ * The backend owns stop_sequence and resequences the variant to 1..N.
+ *
+ * At least one of `name_mm` / `name_en` is required. `.strict()` blocks any
+ * attempt to set full stop metadata here (admin_area, stop_code, review fields,
+ * source_refs, etc.) — full editing stays on the Stop Detail page.
+ */
+export const createAndInsertRouteStopBodySchema = z
+    .object({
+        name_mm: z.string().trim().min(1).max(255).optional(),
+        name_en: z.string().trim().min(1).max(255).optional(),
+        mode: transportModeEnum,
+        stop_type: z.string().trim().min(1).max(50),
+        longitude: z.number().min(-180).max(180),
+        latitude: z.number().min(-90).max(90),
+        position: z.enum(["start", "end", "before", "after"]),
+        anchorRouteStopId: z
+            .string()
+            .regex(/^\d+$/, "anchorRouteStopId must be a positive integer")
+            .optional(),
+        pickup_type: z.number().int().min(0).max(3).default(0),
+        drop_off_type: z.number().int().min(0).max(3).default(0),
+        is_timing_point: z.boolean().default(false),
+    })
+    .strict()
+    .refine((body) => body.name_mm !== undefined || body.name_en !== undefined, {
+        message: "At least one of name_mm or name_en is required.",
+    })
+    .refine(
+        (body) =>
+            (body.position !== "before" && body.position !== "after") ||
+            body.anchorRouteStopId !== undefined,
+        { message: "anchorRouteStopId is required when position is 'before' or 'after'." }
+    );
+
+export type CreateAndInsertRouteStopInput = z.infer<typeof createAndInsertRouteStopBodySchema>;
 
 /**
  * DELETE /transport/route-stops/:id body. Optional free-text reason recorded in

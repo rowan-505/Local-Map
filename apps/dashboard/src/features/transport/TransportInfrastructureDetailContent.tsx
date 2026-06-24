@@ -10,6 +10,7 @@ import {
     updateTransportInfrastructureLine,
 } from "./api";
 import {
+    TRANSPORT_LINE_TYPE_OPTIONS,
     TRANSPORT_MODE_OPTIONS,
     TRANSPORT_REVIEW_STATUS_OPTIONS,
     transportInfrastructureLineDisplayName,
@@ -422,13 +423,26 @@ export default function TransportInfrastructureDetailContent({
                                     </div>
                                     <div>
                                         <label className={LABEL_CLASS}>Line type</label>
-                                        <input
+                                        <select
                                             className={INPUT_CLASS}
                                             value={form.line_type}
                                             onChange={(e) =>
                                                 setField("line_type", e.target.value)
                                             }
-                                        />
+                                        >
+                                            {!TRANSPORT_LINE_TYPE_OPTIONS.some(
+                                                (o) => o.value === form.line_type
+                                            ) && form.line_type !== "" ? (
+                                                <option value={form.line_type}>
+                                                    {form.line_type} (legacy)
+                                                </option>
+                                            ) : null}
+                                            {TRANSPORT_LINE_TYPE_OPTIONS.map((o) => (
+                                                <option key={o.value} value={o.value}>
+                                                    {o.label}
+                                                </option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">

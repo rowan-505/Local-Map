@@ -22,6 +22,15 @@ const countsByKeySchema = {
 } as const;
 
 const TRANSPORT_MODES = ["bus", "express_bus", "train", "ferry", "air", "other"] as const;
+const INFRASTRUCTURE_LINE_TYPES = [
+    "ferry",
+    "rail",
+    "abandoned",
+    "disused",
+    "construction",
+    "narrow_gauge",
+    "tram",
+] as const;
 const TRANSPORT_REVIEW_STATUSES = [
     "imported_unreviewed",
     "needs_review",
@@ -175,6 +184,68 @@ export const getTransportStopsSchema = {
                 total: { type: "integer", minimum: 0 },
                 limit: { type: "integer", minimum: 1 },
                 offset: { type: "integer", minimum: 0 },
+            },
+        },
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+    },
+} satisfies FastifySchema;
+
+const stopSearchItemSchema = {
+    type: "object",
+    required: [
+        "public_id",
+        "display_name",
+        "mode",
+        "stop_type",
+        "review_status",
+        "route_count",
+    ],
+    properties: {
+        public_id: { type: "string", format: "uuid" },
+        display_name: { type: "string" },
+        name_mm: { type: "string", nullable: true },
+        name_en: { type: "string", nullable: true },
+        mode: { type: "string" },
+        stop_type: { type: "string" },
+        review_status: { type: "string" },
+        confidence_score: { type: "number", nullable: true },
+        lon: { type: "number", nullable: true },
+        lat: { type: "number", nullable: true },
+        distance_m: { type: "number", nullable: true },
+        route_count: { type: "integer", minimum: 0 },
+    },
+} as const;
+
+export const searchTransportStopsSchema = {
+    tags: [Tags.Transport],
+    summary: "Search stops for route insertion (admin)",
+    description:
+        "Lightweight stop picker for inserting an existing stop into a route variant. Returns existing active stops only " +
+        "(never source_refs / normalized_data, never the full list of routes using the stop). Text search matches " +
+        "Myanmar/English/raw name and stop_code; supplying nearLng+nearLat adds a PostGIS radius filter and ranks by distance. " +
+        "Pass excludeRouteVariantPublicId to drop stops already in that variant. Hard-capped at 50 results.",
+    security: [...bearerAuth],
+    querystring: {
+        type: "object",
+        properties: {
+            search: { type: "string", minLength: 1, maxLength: 120 },
+            mode: { type: "string", enum: [...TRANSPORT_MODES] },
+            nearLng: { type: "number", minimum: -180, maximum: 180 },
+            nearLat: { type: "number", minimum: -90, maximum: 90 },
+            radiusMeters: { type: "number", minimum: 1, maximum: 50000, default: 1000 },
+            limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+            excludeRouteVariantPublicId: { type: "string", format: "uuid" },
+        },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["items", "limit"],
+            properties: {
+                items: { type: "array", items: stopSearchItemSchema },
+                limit: { type: "integer", minimum: 1 },
             },
         },
         400: badRequestSchema,
@@ -370,7 +441,7 @@ const updateInfrastructureLineBodySchema = {
         name_mm: { type: "string", nullable: true, maxLength: 255 },
         name_en: { type: "string", nullable: true, maxLength: 255 },
         mode: { type: "string", enum: [...TRANSPORT_MODES] },
-        line_type: { type: "string", minLength: 1, maxLength: 50 },
+        line_type: { type: "string", enum: [...INFRASTRUCTURE_LINE_TYPES] },
         admin_area_id: { type: "integer", nullable: true, minimum: 1 },
         review_status: { type: "string", enum: [...TRANSPORT_REVIEW_STATUSES] },
         confidence_score: { type: "number", minimum: 0, maximum: 100 },
@@ -982,6 +1053,27 @@ const routeStopItemSchema = {
     },
 } as const;
 
+/** Shared 200 body for variant ordered-stops (GET list + insert-existing). */
+const variantStopsResponseSchema = {
+    type: "object",
+    required: ["items", "total", "limit", "offset", "path"],
+    properties: {
+        items: { type: "array", items: routeStopItemSchema },
+        total: { type: "integer", minimum: 0 },
+        limit: { type: "integer", minimum: 1 },
+        offset: { type: "integer", minimum: 0 },
+        path: {
+            type: "object",
+            nullable: true,
+            properties: {
+                path_kind: { type: "string" },
+                distance_m: { type: "number", nullable: true },
+                geometry: { ...geoJsonGeometrySchema, nullable: true },
+            },
+        },
+    },
+} as const;
+
 export const getTransportVariantStopsSchema = {
     tags: [Tags.Transport],
     summary: "List ordered stops for a route variant (admin)",
@@ -998,29 +1090,85 @@ export const getTransportVariantStopsSchema = {
         },
     },
     response: {
-        200: {
-            type: "object",
-            required: ["items", "total", "limit", "offset", "path"],
-            properties: {
-                items: { type: "array", items: routeStopItemSchema },
-                total: { type: "integer", minimum: 0 },
-                limit: { type: "integer", minimum: 1 },
-                offset: { type: "integer", minimum: 0 },
-                path: {
-                    type: "object",
-                    nullable: true,
-                    properties: {
-                        path_kind: { type: "string" },
-                        distance_m: { type: "number", nullable: true },
-                        geometry: { ...geoJsonGeometrySchema, nullable: true },
-                    },
-                },
-            },
-        },
+        200: variantStopsResponseSchema,
         400: badRequestSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+export const insertExistingRouteStopSchema = {
+    tags: [Tags.Transport],
+    summary: "Insert an existing stop into a route variant (admin)",
+    description:
+        "Inserts an existing stop into this variant's ordered pattern at start/end or before/after an anchor route_stop. " +
+        "The backend owns stop_sequence and resequences all route_stops for the variant to 1..N (the client never sends a final sequence). " +
+        "Rejects a stop already present in the variant (409). Does not create a new stop. Returns the updated ordered stops list (same shape as GET variant stops).",
+    security: [...bearerAuth],
+    params: publicIdParamSchema,
+    body: {
+        type: "object",
+        required: ["position"],
+        additionalProperties: false,
+        properties: {
+            stopPublicId: { type: "string", format: "uuid" },
+            stopId: { type: "integer", minimum: 1 },
+            position: { type: "string", enum: ["start", "end", "before", "after"] },
+            anchorRouteStopId: { type: "string", pattern: "^\\d+$" },
+            pickup_type: { type: "integer", minimum: 0, maximum: 3, default: 0 },
+            drop_off_type: { type: "integer", minimum: 0, maximum: 3, default: 0 },
+            is_timing_point: { type: "boolean", default: false },
+        },
+    },
+    response: {
+        200: variantStopsResponseSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+        409: badRequestSchema,
+    },
+} satisfies FastifySchema;
+
+export const createAndInsertRouteStopSchema = {
+    tags: [Tags.Transport],
+    summary: "Create a new stop and insert it into a route variant (admin)",
+    description:
+        "Secondary quick-create path for the Insert Stop modal. Creates a new stop (minimal fields: localized names, " +
+        "mode, stop_type, location) and inserts it into this variant in one transaction. At least one of name_mm / " +
+        "name_en is required. The backend owns stop_sequence and resequences all route_stops for the variant to 1..N. " +
+        "Full stop metadata editing stays on the Stop Detail page. Returns the updated ordered stops list (same shape as GET variant stops).",
+    security: [...bearerAuth],
+    params: publicIdParamSchema,
+    body: {
+        type: "object",
+        required: ["mode", "stop_type", "longitude", "latitude", "position"],
+        additionalProperties: false,
+        properties: {
+            name_mm: { type: "string", minLength: 1, maxLength: 255 },
+            name_en: { type: "string", minLength: 1, maxLength: 255 },
+            mode: {
+                type: "string",
+                enum: ["bus", "express_bus", "train", "ferry", "air", "other"],
+            },
+            stop_type: { type: "string", minLength: 1, maxLength: 50 },
+            longitude: { type: "number", minimum: -180, maximum: 180 },
+            latitude: { type: "number", minimum: -90, maximum: 90 },
+            position: { type: "string", enum: ["start", "end", "before", "after"] },
+            anchorRouteStopId: { type: "string", pattern: "^\\d+$" },
+            pickup_type: { type: "integer", minimum: 0, maximum: 3, default: 0 },
+            drop_off_type: { type: "integer", minimum: 0, maximum: 3, default: 0 },
+            is_timing_point: { type: "boolean", default: false },
+        },
+    },
+    response: {
+        200: variantStopsResponseSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+        409: badRequestSchema,
     },
 } satisfies FastifySchema;
 
@@ -1089,14 +1237,18 @@ export const deleteRouteStopSchema = {
     tags: [Tags.Transport],
     summary: "Remove a stop from a route variant (admin)",
     description:
-        "Deletes the route_stops membership row only. The stop record itself is never deleted. Accepts an optional JSON body `{ reason }` recorded in the removal audit log.",
+        "Deletes the route_stops membership row only. The stop record itself is never deleted. " +
+        "After removal the remaining route_stops are resequenced to a gap-free 1..N. " +
+        "Accepts an optional JSON body `{ reason }` recorded in the removal audit log. " +
+        "Returns the updated ordered stops list (same shape as GET variant stops) plus backward-compatible `deleted` / `variantPublicId` fields.",
     security: [...bearerAuth],
     params: routeStopIdParamSchema,
     response: {
         200: {
             type: "object",
-            required: ["deleted"],
+            required: [...variantStopsResponseSchema.required, "deleted"],
             properties: {
+                ...variantStopsResponseSchema.properties,
                 deleted: { type: "boolean" },
                 variantPublicId: { type: "string", nullable: true },
             },

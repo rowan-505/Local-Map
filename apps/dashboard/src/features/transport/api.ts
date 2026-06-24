@@ -12,6 +12,9 @@ import type {
     TransportStopDetail,
     TransportStopListItem,
     TransportStopRouteUsage,
+    TransportStopSearchResponse,
+    InsertExistingRouteStopBody,
+    CreateAndInsertRouteStopBody,
     TransportInfrastructureLineDetail,
     TransportInfrastructureLineListItem,
     TransportTerminalDetail,
@@ -20,6 +23,7 @@ import type {
     TransportVariantStopsResponse,
     TransportVariantSummary,
     RouteStopMutationResult,
+    RemoveRouteStopResult,
     UpdateRouteStopBody,
     UpdateTransportRouteBody,
     UpdateTransportInfrastructureLineBody,
@@ -351,6 +355,69 @@ export function getTransportStopRoutes(
     );
 }
 
+export type TransportStopSearchParams = {
+    search?: string;
+    mode?: string;
+    nearLng?: number;
+    nearLat?: number;
+    radiusMeters?: number;
+    limit?: number;
+    excludeRouteVariantPublicId?: string;
+};
+
+export function searchTransportStops(
+    params: TransportStopSearchParams = {},
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const search = new URLSearchParams();
+    if (params.search) search.set("search", params.search);
+    if (params.mode) search.set("mode", params.mode);
+    if (params.nearLng !== undefined) search.set("nearLng", String(params.nearLng));
+    if (params.nearLat !== undefined) search.set("nearLat", String(params.nearLat));
+    if (params.radiusMeters !== undefined) search.set("radiusMeters", String(params.radiusMeters));
+    if (params.limit !== undefined) search.set("limit", String(params.limit));
+    if (params.excludeRouteVariantPublicId)
+        search.set("excludeRouteVariantPublicId", params.excludeRouteVariantPublicId);
+
+    const qs = search.toString();
+    return apiFetch<TransportStopSearchResponse>(
+        `/transport/stops/search${qs ? `?${qs}` : ""}`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export function insertExistingRouteStop(
+    variantPublicId: string,
+    body: InsertExistingRouteStopBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportVariantStopsResponse>(
+        `/transport/route-variants/${encodeURIComponent(variantPublicId)}/stops/insert-existing`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function createAndInsertRouteStop(
+    variantPublicId: string,
+    body: CreateAndInsertRouteStopBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportVariantStopsResponse>(
+        `/transport/route-variants/${encodeURIComponent(variantPublicId)}/stops/create-and-insert`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
 export function updateTransportStop(
     publicId: string,
     body: UpdateTransportStopBody,
@@ -474,7 +541,7 @@ export function removeTransportRouteStop(
     fetchInit?: Pick<RequestInit, "signal">
 ) {
     const trimmedReason = reason?.trim();
-    return apiFetch<RouteStopMutationResult>(
+    return apiFetch<RemoveRouteStopResult>(
         `/transport/route-stops/${encodeURIComponent(id)}`,
         {
             method: "DELETE",

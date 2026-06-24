@@ -16,6 +16,17 @@ export const TRANSPORT_REVIEW_STATUS_OPTIONS = [
     { value: "manual_protected", label: "Manual (protected)" },
 ] as const;
 
+// Mirrors the API `infrastructureLineTypeEnum` allowlist (no DB CHECK exists).
+export const TRANSPORT_LINE_TYPE_OPTIONS = [
+    { value: "ferry", label: "Ferry" },
+    { value: "rail", label: "Rail" },
+    { value: "abandoned", label: "Abandoned" },
+    { value: "disused", label: "Disused" },
+    { value: "construction", label: "Construction" },
+    { value: "narrow_gauge", label: "Narrow gauge" },
+    { value: "tram", label: "Tram" },
+] as const;
+
 export const TRANSPORT_STOP_TYPE_OPTIONS = [
     { value: "stop", label: "Stop" },
     { value: "terminal", label: "Terminal" },

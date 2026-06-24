@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
@@ -9,12 +9,15 @@ import {
     getTransportRouteDetail,
     getTransportRouteVariants,
     getTransportVariantStops,
-    moveTransportRouteStop,
     removeTransportRouteStop,
     updateTransportRouteStop,
 } from "./api";
 import { transportModeLabel, transportReviewStatusLabel } from "./constants";
 import { getTransportDisplayNameFromNames } from "./naming";
+import InsertRouteStopDialog, {
+    type InsertStopContext,
+    type InsertStopLngLat,
+} from "./InsertRouteStopDialog";
 import RemoveRouteStopDialog from "./RemoveRouteStopDialog";
 import TransportPreviewMap, { type TransportPreviewStop } from "./TransportPreviewMap";
 import { TransportRouteEditForm, TransportVariantEditForm } from "./transportEditForms";
@@ -81,6 +84,60 @@ function formatDistance(meters: number | null): string {
     return `${Math.round(meters)} m`;
 }
 
+/** Compact stop reference stored in the insert context (no geometry/flags). */
+function stopRef(item: TransportRouteStopItem) {
+    return { id: item.id, name: item.stop.name, stop_sequence: item.stop_sequence };
+}
+
+/** Extracts a [lng, lat] point from a stop's GeoJSON, or null when unavailable. */
+function pointOf(item: TransportRouteStopItem): { lng: number; lat: number } | null {
+    const g = item.stop.geometry;
+    if (!g || g.type !== "Point" || !Array.isArray(g.coordinates)) {
+        return null;
+    }
+    const lng = Number(g.coordinates[0]);
+    const lat = Number(g.coordinates[1]);
+    return Number.isFinite(lng) && Number.isFinite(lat) ? { lng, lat } : null;
+}
+
+/** Midpoint of two points; falls back to whichever single point is available. */
+function midpoint(
+    a: { lng: number; lat: number } | null,
+    b: { lng: number; lat: number } | null
+): { lng: number; lat: number } | null {
+    if (a && b) {
+        return { lng: (a.lng + b.lng) / 2, lat: (a.lat + b.lat) / 2 };
+    }
+    return a ?? b ?? null;
+}
+
+/**
+ * Low-noise, full-width dashed button used between/around ordered stops to start
+ * an insert. Styling stays muted until hover so the list does not feel cluttered.
+ */
+function InsertStopButton({
+    label,
+    onClick,
+    disabled,
+}: {
+    readonly label: string;
+    readonly onClick: () => void;
+    readonly disabled?: boolean;
+}) {
+    return (
+        <div className="px-3 py-1">
+            <button
+                type="button"
+                disabled={disabled}
+                onClick={onClick}
+                className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-400 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+                {label}
+            </button>
+        </div>
+    );
+}
+
 export type TransportRouteDetailContentProps = {
     readonly publicId: string;
     /**
@@ -131,6 +188,11 @@ export default function TransportRouteDetailContent({
     const [removeTarget, setRemoveTarget] = useState<TransportRouteStopItem | null>(null);
     const [removeReason, setRemoveReason] = useState("");
 
+    const [insertContext, setInsertContext] = useState<InsertStopContext | null>(null);
+    // New-stop draft location (create-stop flow), shared with the map for click-to-place.
+    const [newStopPoint, setNewStopPoint] = useState<InsertStopLngLat | null>(null);
+    const [pickingLocation, setPickingLocation] = useState(false);
+
     // --- Load route detail + variants when publicId changes. -----------------
     useEffect(() => {
         const controller = new AbortController();
@@ -148,6 +210,9 @@ export default function TransportRouteDetailContent({
         setStopActionError("");
         setRemoveTarget(null);
         setRemoveReason("");
+        setInsertContext(null);
+        setNewStopPoint(null);
+        setPickingLocation(false);
 
         void (async () => {
             try {
@@ -212,6 +277,32 @@ export default function TransportRouteDetailContent({
         await loadStops(selectedVariantId, undefined, true);
     }, [selectedVariantId, loadStops]);
 
+    /**
+     * Soft re-fetch of route detail + variants so aggregate counts (route "Stops",
+     * per-variant stop_count) stay accurate after an insert/remove, without a full
+     * page reload or resetting the current selection. Failures are non-fatal.
+     */
+    const refreshRouteMeta = useCallback(async () => {
+        try {
+            const [detail, variantList] = await Promise.all([
+                getTransportRouteDetail(publicId),
+                getTransportRouteVariants(publicId),
+            ]);
+            setRoute(detail);
+            setVariants(variantList.items);
+        } catch (err) {
+            if (isAbortError(err)) return;
+            // Counts may be briefly stale; ordered stops + map already refreshed.
+        }
+    }, [publicId]);
+
+    /** After a successful insert: refresh ordered stops + map overlay + counts. */
+    const handleStopInserted = useCallback(async () => {
+        await refreshStops();
+        await refreshRouteMeta();
+        afterSave?.();
+    }, [refreshStops, refreshRouteMeta, afterSave]);
+
     /** Wraps a stop mutation: runs it, then silently refreshes the list + overlay. */
     const runStopMutation = useCallback(
         async (fn: () => Promise<unknown>) => {
@@ -252,6 +343,38 @@ export default function TransportRouteDetailContent({
     const selectedVariant = variants.find((v) => v.public_id === selectedVariantId) ?? null;
     const hasVerifiedPath = Boolean(path?.geometry);
 
+    // --- Lightweight, non-blocking stop-sequence quality warnings. -----------
+    // Pure read-only hints derived from the loaded stops + path; they never
+    // gate editing. Skipped while a variant is unselected or stops are loading.
+    const sequenceWarnings = useMemo<string[]>(() => {
+        if (!selectedVariantId || stopsLoading) {
+            return [];
+        }
+        const warnings: string[] = [];
+        if (stops.length === 0) {
+            warnings.push("No ordered stops yet.");
+            if (hasVerifiedPath) {
+                warnings.push("Route path exists but no ordered stops are linked.");
+            }
+            return warnings;
+        }
+        if (stops.length === 1) {
+            warnings.push("Only one stop in this sequence.");
+        }
+        const seen = new Set<string>();
+        for (const s of stops) {
+            if (seen.has(s.stop.public_id)) {
+                warnings.push("Duplicate stop appears in this sequence.");
+                break;
+            }
+            seen.add(s.stop.public_id);
+        }
+        if (!hasVerifiedPath) {
+            warnings.push("Stop sequence preview only — not verified route path.");
+        }
+        return warnings;
+    }, [selectedVariantId, stopsLoading, stops, hasVerifiedPath]);
+
     const selectVariant = useCallback((variantId: string) => {
         setSelectedVariantId(variantId);
         setEditingVariant(false);
@@ -259,13 +382,24 @@ export default function TransportRouteDetailContent({
         setStopActionError("");
         setRemoveTarget(null);
         setRemoveReason("");
+        setInsertContext(null);
+        setNewStopPoint(null);
+        setPickingLocation(false);
     }, []);
 
-    const moveStop = useCallback(
-        (stop: TransportRouteStopItem, direction: "up" | "down") =>
-            runStopMutation(() => moveTransportRouteStop(stop.id, direction)),
-        [runStopMutation],
-    );
+    const openInsert = useCallback((context: InsertStopContext) => {
+        setStopActionError("");
+        setNewStopPoint(null);
+        setPickingLocation(false);
+        setInsertContext(context);
+    }, []);
+
+    const cancelInsert = useCallback(() => {
+        if (stopMutating) return;
+        setInsertContext(null);
+        setNewStopPoint(null);
+        setPickingLocation(false);
+    }, [stopMutating]);
 
     const requestRemoveStop = useCallback((stop: TransportRouteStopItem) => {
         setRemoveReason("");
@@ -281,13 +415,34 @@ export default function TransportRouteDetailContent({
     const confirmRemoveStop = useCallback(() => {
         const stop = removeTarget;
         if (!stop) return;
-        void runStopMutation(async () => {
-            await removeTransportRouteStop(stop.id, removeReason);
-            setSelectedStopId((prev) => (prev === stop.id ? null : prev));
-            setRemoveTarget(null);
-            setRemoveReason("");
-        });
-    }, [removeTarget, removeReason, runStopMutation]);
+        void (async () => {
+            setStopMutating(true);
+            setStopActionError("");
+            try {
+                const result = await removeTransportRouteStop(stop.id, removeReason);
+                // Prefer the backend's resequenced (1..N) list to avoid an extra
+                // fetch; fall back to a refetch if an older backend omits it.
+                if (Array.isArray(result.items)) {
+                    setStops(result.items);
+                    setPath(result.path ?? null);
+                } else {
+                    await refreshStops();
+                }
+                setSelectedStopId((prev) => (prev === stop.id ? null : prev));
+                setRemoveTarget(null);
+                setRemoveReason("");
+                await refreshRouteMeta();
+                afterSave?.();
+            } catch (err) {
+                if (isAbortError(err)) return;
+                setStopActionError(
+                    err instanceof Error ? err.message : "Stop action failed.",
+                );
+            } finally {
+                setStopMutating(false);
+            }
+        })();
+    }, [removeTarget, removeReason, refreshStops, refreshRouteMeta, afterSave]);
 
     const updateStopFlag = useCallback(
         (
@@ -595,6 +750,15 @@ export default function TransportRouteDetailContent({
                         routeStops={routeStops}
                         autoFitKey={selectedVariantId}
                         initialZoom={MAP_DEFAULT_ZOOM}
+                        editablePoint={pickingLocation ? newStopPoint : null}
+                        editablePointColor="#16a34a"
+                        pointDraggable={pickingLocation}
+                        onPointChange={pickingLocation ? setNewStopPoint : undefined}
+                        editingHint={
+                            pickingLocation
+                                ? "Click the map to set the new stop location"
+                                : null
+                        }
                         emptyHint={
                             variants.length === 0
                                 ? "No variants to display on the map."
@@ -640,6 +804,19 @@ export default function TransportRouteDetailContent({
                         ) : null}
                     </div>
 
+                    {sequenceWarnings.length > 0 ? (
+                        <ul className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+                            {sequenceWarnings.map((warning) => (
+                                <li key={warning} className="flex items-start gap-1.5">
+                                    <span aria-hidden className="mt-px">
+                                        ⚠
+                                    </span>
+                                    <span>{warning}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : null}
+
                     {selectedVariantId && stops.length > 0 ? (
                         <p className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs text-amber-900">
                             Changing stop order affects this route variant only.
@@ -668,15 +845,48 @@ export default function TransportRouteDetailContent({
                             Select a variant to view its stops.
                         </p>
                     ) : stops.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-sm text-gray-500">
-                            This variant has no ordered stops.
-                        </p>
+                        <div className="px-1 py-4">
+                            <p className="px-3 pb-2 text-center text-sm text-gray-500">
+                                This variant has no ordered stops.
+                            </p>
+                            <InsertStopButton
+                                label="+ Add first stop"
+                                disabled={stopMutating}
+                                onClick={() =>
+                                    openInsert({
+                                        uiPosition: "first",
+                                        apiPosition: "start",
+                                        anchorRouteStopId: null,
+                                        previousStop: null,
+                                        nextStop: null,
+                                        near: null,
+                                    })
+                                }
+                            />
+                        </div>
                     ) : (
-                        <ol className="max-h-[60vh] overflow-y-auto">
-                            {stops.map((s, index) => {
+                        <div className="max-h-[60vh] overflow-y-auto">
+                            <InsertStopButton
+                                label="+ Insert stop at start"
+                                disabled={stopMutating}
+                                onClick={() =>
+                                    openInsert({
+                                        uiPosition: "start",
+                                        apiPosition: "start",
+                                        anchorRouteStopId: null,
+                                        previousStop: null,
+                                        nextStop: stopRef(stops[0]),
+                                        near: pointOf(stops[0]),
+                                    })
+                                }
+                            />
+                            {stops.map((s, i) => {
                                 const isSelected = s.id === selectedStopId;
+                                const nextStop = stops[i + 1] ?? null;
+                                const isLast = i === stops.length - 1;
                                 return (
-                                    <li key={s.id} className="border-b border-gray-100">
+                                    <Fragment key={s.id}>
+                                    <div className="border-b border-gray-100">
                                         <button
                                             type="button"
                                             onClick={() =>
@@ -703,25 +913,6 @@ export default function TransportRouteDetailContent({
                                         {isSelected ? (
                                             <div className="space-y-3 border-t border-gray-100 bg-gray-50/70 px-4 py-3">
                                                 <div className="flex flex-wrap gap-2">
-                                                    <button
-                                                        type="button"
-                                                        disabled={stopMutating || index === 0}
-                                                        onClick={() => moveStop(s, "up")}
-                                                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                                    >
-                                                        ↑ Move up
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        disabled={
-                                                            stopMutating ||
-                                                            index === stops.length - 1
-                                                        }
-                                                        onClick={() => moveStop(s, "down")}
-                                                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                                    >
-                                                        ↓ Move down
-                                                    </button>
                                                     <button
                                                         type="button"
                                                         disabled={stopMutating}
@@ -806,10 +997,48 @@ export default function TransportRouteDetailContent({
                                                 </Link>
                                             </div>
                                         ) : null}
-                                    </li>
+                                    </div>
+
+                                    {isLast ? (
+                                        <InsertStopButton
+                                            label="+ Add stop at end"
+                                            disabled={stopMutating}
+                                            onClick={() =>
+                                                openInsert({
+                                                    uiPosition: "end",
+                                                    apiPosition: "end",
+                                                    anchorRouteStopId: null,
+                                                    previousStop: stopRef(s),
+                                                    nextStop: null,
+                                                    near: pointOf(s),
+                                                })
+                                            }
+                                        />
+                                    ) : (
+                                        <InsertStopButton
+                                            label="+ Insert stop here"
+                                            disabled={stopMutating}
+                                            onClick={() =>
+                                                openInsert({
+                                                    uiPosition: "between",
+                                                    apiPosition: "after",
+                                                    anchorRouteStopId: s.id,
+                                                    previousStop: stopRef(s),
+                                                    nextStop: nextStop
+                                                        ? stopRef(nextStop)
+                                                        : null,
+                                                    near: midpoint(
+                                                        pointOf(s),
+                                                        nextStop ? pointOf(nextStop) : null,
+                                                    ),
+                                                })
+                                            }
+                                        />
+                                    )}
+                                    </Fragment>
                                 );
                             })}
-                        </ol>
+                        </div>
                     )}
                 </aside>
             </div>
@@ -822,6 +1051,46 @@ export default function TransportRouteDetailContent({
                 onReasonChange={setRemoveReason}
                 onConfirm={confirmRemoveStop}
                 onCancel={cancelRemoveStop}
+            />
+
+            {pickingLocation ? (
+                <div className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
+                    <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm shadow-lg">
+                        <span className="text-slate-700">
+                            {newStopPoint
+                                ? `Location set: ${newStopPoint.lng.toFixed(5)}, ${newStopPoint.lat.toFixed(5)}`
+                                : "Click the route map to set the new stop location"}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setPickingLocation(false)}
+                            disabled={!newStopPoint}
+                            className="rounded-full bg-blue-700 px-3 py-1 text-xs font-medium text-white hover:bg-blue-800 disabled:opacity-60"
+                        >
+                            Done
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setPickingLocation(false)}
+                            className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                            Back to form
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+
+            <InsertRouteStopDialog
+                open={insertContext !== null}
+                context={insertContext}
+                variantPublicId={selectedVariantId}
+                routeMode={route?.mode ?? null}
+                draftPoint={newStopPoint}
+                onDraftPointChange={setNewStopPoint}
+                picking={pickingLocation}
+                onStartPick={() => setPickingLocation(true)}
+                onCancel={cancelInsert}
+                onInserted={handleStopInserted}
             />
         </>
     );

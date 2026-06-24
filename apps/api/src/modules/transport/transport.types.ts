@@ -53,6 +53,32 @@ export type TransportStopListItem = {
 /** real = human name, generated = synthetic OSM name, missing = empty/whitespace. */
 export type TransportRawNameStatus = "real" | "generated" | "missing";
 
+/**
+ * Lightweight stop search hit for the route-insertion picker. Intentionally omits
+ * heavy/raw fields (source_refs, normalized_data) and the full list of routes that
+ * use the stop. `distance_m` is present only when a near point was supplied.
+ */
+export type TransportStopSearchItem = {
+    public_id: string;
+    display_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    mode: string;
+    stop_type: string;
+    review_status: string;
+    confidence_score: number | null;
+    lon: number | null;
+    lat: number | null;
+    distance_m: number | null;
+    route_count: number;
+};
+
+/** Response envelope for GET /transport/stops/search (hard-limited, no offset). */
+export type TransportStopSearchResponse = {
+    items: TransportStopSearchItem[];
+    limit: number;
+};
+
 export type TransportTerminalListItem = {
     public_id: string;
     terminal_code: string | null;

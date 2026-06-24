@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+    insertExistingRouteStopBodySchema,
+    createAndInsertRouteStopBodySchema,
+    searchTransportStopsQuerySchema,
     moveRouteStopBodySchema,
     routeStopIdParamSchema,
     updateInfrastructureLineBodySchema,
@@ -373,6 +376,30 @@ describe("updateInfrastructureLineBodySchema", () => {
         );
     });
 
+    it("rejects a line_type outside the allowlist", () => {
+        assert.equal(
+            updateInfrastructureLineBodySchema.safeParse({ line_type: "monorail" }).success,
+            false
+        );
+    });
+
+    it("accepts every allowed line_type", () => {
+        for (const value of [
+            "ferry",
+            "rail",
+            "abandoned",
+            "disused",
+            "construction",
+            "narrow_gauge",
+            "tram",
+        ]) {
+            assert.equal(
+                updateInfrastructureLineBodySchema.parse({ line_type: value }).line_type,
+                value
+            );
+        }
+    });
+
     it("accepts a valid update", () => {
         const parsed = updateInfrastructureLineBodySchema.parse({
             name: "  Yangon Circular Line  ",
@@ -395,6 +422,267 @@ describe("moveRouteStopBodySchema", () => {
     it("accepts up and down", () => {
         assert.equal(moveRouteStopBodySchema.parse({ direction: "up" }).direction, "up");
         assert.equal(moveRouteStopBodySchema.parse({ direction: "down" }).direction, "down");
+    });
+});
+
+describe("insertExistingRouteStopBodySchema", () => {
+    const STOP_UUID = "11111111-1111-4111-8111-111111111111";
+
+    it("requires a stop reference (stopPublicId or stopId)", () => {
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({ position: "end" }).success,
+            false
+        );
+    });
+
+    it("rejects an invalid position", () => {
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({ stopId: 1, position: "middle" }).success,
+            false
+        );
+    });
+
+    it("rejects stop_sequence and source_refs (strict)", () => {
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({
+                stopId: 1,
+                position: "end",
+                stop_sequence: 3,
+            }).success,
+            false
+        );
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({
+                stopId: 1,
+                position: "end",
+                source_refs: {},
+            }).success,
+            false
+        );
+    });
+
+    it("requires anchorRouteStopId for before/after", () => {
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({ stopId: 1, position: "before" }).success,
+            false
+        );
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({ stopId: 1, position: "after" }).success,
+            false
+        );
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({
+                stopId: 1,
+                position: "after",
+                anchorRouteStopId: "42",
+            }).success,
+            true
+        );
+    });
+
+    it("does not require anchorRouteStopId for start/end", () => {
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({ stopId: 1, position: "start" }).success,
+            true
+        );
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({
+                stopPublicId: STOP_UUID,
+                position: "end",
+            }).success,
+            true
+        );
+    });
+
+    it("rejects a non-numeric anchorRouteStopId", () => {
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({
+                stopId: 1,
+                position: "before",
+                anchorRouteStopId: "abc",
+            }).success,
+            false
+        );
+    });
+
+    it("rejects pickup_type / drop_off_type out of GTFS 0–3 range", () => {
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({
+                stopId: 1,
+                position: "end",
+                pickup_type: 4,
+            }).success,
+            false
+        );
+        assert.equal(
+            insertExistingRouteStopBodySchema.safeParse({
+                stopId: 1,
+                position: "end",
+                drop_off_type: -1,
+            }).success,
+            false
+        );
+    });
+
+    it("defaults the membership flags to GTFS column defaults", () => {
+        const parsed = insertExistingRouteStopBodySchema.parse({
+            stopPublicId: STOP_UUID,
+            position: "start",
+        });
+        assert.equal(parsed.pickup_type, 0);
+        assert.equal(parsed.drop_off_type, 0);
+        assert.equal(parsed.is_timing_point, false);
+    });
+
+    it("accepts a full valid before-insert body", () => {
+        const parsed = insertExistingRouteStopBodySchema.parse({
+            stopId: 7,
+            position: "before",
+            anchorRouteStopId: "100",
+            pickup_type: 2,
+            drop_off_type: 3,
+            is_timing_point: true,
+        });
+        assert.equal(parsed.stopId, 7);
+        assert.equal(parsed.position, "before");
+        assert.equal(parsed.anchorRouteStopId, "100");
+        assert.equal(parsed.is_timing_point, true);
+    });
+});
+
+describe("createAndInsertRouteStopBodySchema", () => {
+    const base = {
+        mode: "bus",
+        stop_type: "stop",
+        longitude: 96.1,
+        latitude: 16.8,
+        position: "end" as const,
+    };
+
+    it("requires at least one of name_mm / name_en", () => {
+        assert.equal(createAndInsertRouteStopBodySchema.safeParse(base).success, false);
+        assert.equal(
+            createAndInsertRouteStopBodySchema.safeParse({ ...base, name_mm: " မြန်မာ" }).success,
+            true
+        );
+        assert.equal(
+            createAndInsertRouteStopBodySchema.safeParse({ ...base, name_en: "English" }).success,
+            true
+        );
+    });
+
+    it("requires mode / stop_type / coordinates", () => {
+        const { mode: _mode, ...noMode } = base;
+        assert.equal(
+            createAndInsertRouteStopBodySchema.safeParse({ ...noMode, name_en: "x" }).success,
+            false
+        );
+        assert.equal(
+            createAndInsertRouteStopBodySchema.safeParse({
+                ...base,
+                name_en: "x",
+                longitude: 200,
+            }).success,
+            false
+        );
+    });
+
+    it("rejects an invalid mode", () => {
+        assert.equal(
+            createAndInsertRouteStopBodySchema.safeParse({
+                ...base,
+                name_en: "x",
+                mode: "spaceship",
+            }).success,
+            false
+        );
+    });
+
+    it("requires anchorRouteStopId for before/after", () => {
+        assert.equal(
+            createAndInsertRouteStopBodySchema.safeParse({
+                ...base,
+                name_en: "x",
+                position: "before",
+            }).success,
+            false
+        );
+        assert.equal(
+            createAndInsertRouteStopBodySchema.safeParse({
+                ...base,
+                name_en: "x",
+                position: "before",
+                anchorRouteStopId: "12",
+            }).success,
+            true
+        );
+    });
+
+    it("rejects unknown fields (strict) and trims names", () => {
+        assert.equal(
+            createAndInsertRouteStopBodySchema.safeParse({
+                ...base,
+                name_en: "x",
+                stop_code: "ABC",
+            }).success,
+            false
+        );
+        const parsed = createAndInsertRouteStopBodySchema.parse({
+            ...base,
+            name_en: "  Downtown  ",
+        });
+        assert.equal(parsed.name_en, "Downtown");
+        assert.equal(parsed.pickup_type, 0);
+        assert.equal(parsed.is_timing_point, false);
+    });
+});
+
+describe("searchTransportStopsQuerySchema", () => {
+    it("accepts an empty query and applies defaults", () => {
+        const parsed = searchTransportStopsQuerySchema.parse({});
+        assert.equal(parsed.limit, 20);
+        assert.equal(parsed.radiusMeters, 1000);
+        assert.equal(parsed.search, undefined);
+    });
+
+    it("coerces numeric query strings", () => {
+        const parsed = searchTransportStopsQuerySchema.parse({
+            nearLng: "96.16",
+            nearLat: "16.77",
+            radiusMeters: "500",
+            limit: "10",
+        });
+        assert.equal(parsed.nearLng, 96.16);
+        assert.equal(parsed.nearLat, 16.77);
+        assert.equal(parsed.radiusMeters, 500);
+        assert.equal(parsed.limit, 10);
+    });
+
+    it("requires nearLng and nearLat together", () => {
+        assert.equal(searchTransportStopsQuerySchema.safeParse({ nearLng: 96.16 }).success, false);
+        assert.equal(searchTransportStopsQuerySchema.safeParse({ nearLat: 16.77 }).success, false);
+        assert.equal(
+            searchTransportStopsQuerySchema.safeParse({ nearLng: 96.16, nearLat: 16.77 }).success,
+            true
+        );
+    });
+
+    it("caps the limit at 50 and rejects out-of-range coordinates/radius", () => {
+        assert.equal(searchTransportStopsQuerySchema.safeParse({ limit: 51 }).success, false);
+        assert.equal(searchTransportStopsQuerySchema.safeParse({ radiusMeters: 50001 }).success, false);
+        assert.equal(
+            searchTransportStopsQuerySchema.safeParse({ nearLng: 200, nearLat: 0 }).success,
+            false
+        );
+    });
+
+    it("rejects an invalid mode and a non-uuid excludeRouteVariantPublicId", () => {
+        assert.equal(searchTransportStopsQuerySchema.safeParse({ mode: "rocket" }).success, false);
+        assert.equal(
+            searchTransportStopsQuerySchema.safeParse({ excludeRouteVariantPublicId: "nope" })
+                .success,
+            false
+        );
     });
 });
 

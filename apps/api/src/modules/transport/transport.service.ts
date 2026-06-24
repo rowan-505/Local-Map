@@ -18,6 +18,9 @@ import type {
     ListTransportTerminalsQuery,
     UpdateInfrastructureLineInput,
     ListVariantStopsQuery,
+    InsertExistingRouteStopInput,
+    CreateAndInsertRouteStopInput,
+    SearchTransportStopsQuery,
     StopRoutesQuery,
     UpdateRouteInput,
     UpdateRouteStopInput,
@@ -38,6 +41,7 @@ import type {
     TransportStopDetail,
     TransportStopListItem,
     TransportStopRouteUsage,
+    TransportStopSearchResponse,
     TransportTerminalDetail,
     TransportInfrastructureLineDetail,
     TransportInfrastructureLineListItem,
@@ -266,6 +270,22 @@ export class TransportService {
         }
     }
 
+    /** Lightweight stop search for the route-insertion picker (empty when schema missing). */
+    async searchStops(query: SearchTransportStopsQuery): Promise<TransportStopSearchResponse> {
+        try {
+            return await getTransportCached(
+                transportCacheKey("transport:stops:search", { ...query }),
+                CACHE_TTL.list,
+                () => this.repo.searchStops(query)
+            );
+        } catch (error) {
+            if (error instanceof TransportSchemaUnavailableError) {
+                return { items: [], limit: query.limit };
+            }
+            throw error;
+        }
+    }
+
     /** Returns an empty page when transport tables are missing, otherwise the filtered list. */
     async listTerminals(
         query: ListTransportTerminalsQuery
@@ -414,8 +434,28 @@ export class TransportService {
         id: bigint,
         audit?: TransportAuditContext,
         reason?: string
-    ): Promise<{ deleted: boolean; variantPublicId: string | null }> {
+    ): Promise<TransportVariantStopsResponse & { deleted: boolean; variantPublicId: string | null }> {
         const result = await this.repo.removeRouteStop(id, audit, reason);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    async insertExistingRouteStop(
+        variantPublicId: string,
+        input: InsertExistingRouteStopInput,
+        audit?: TransportAuditContext
+    ): Promise<TransportVariantStopsResponse> {
+        const result = await this.repo.insertExistingRouteStop(variantPublicId, input, audit);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    async createAndInsertRouteStop(
+        variantPublicId: string,
+        input: CreateAndInsertRouteStopInput,
+        audit?: TransportAuditContext
+    ): Promise<TransportVariantStopsResponse> {
+        const result = await this.repo.createAndInsertRouteStop(variantPublicId, input, audit);
         this.invalidateAggregateCaches();
         return result;
     }

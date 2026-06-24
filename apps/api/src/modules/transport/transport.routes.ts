@@ -5,6 +5,7 @@ import {
     TransportInvalidReferenceError,
     TransportNameRequiredError,
     TransportNotFoundError,
+    TransportRouteStopDuplicateError,
     TransportSchemaUnavailableError,
 } from "./transport.errors.js";
 import {
@@ -25,6 +26,9 @@ import {
     getTransportInfrastructureLinesSchema,
     getTransportTerminalsSchema,
     getTransportVariantStopsSchema,
+    searchTransportStopsSchema,
+    insertExistingRouteStopSchema,
+    createAndInsertRouteStopSchema,
     moveRouteStopSchema,
     patchRouteStopSchema,
     patchTransportInfrastructureLineSchema,
@@ -43,6 +47,9 @@ import {
     listTransportTerminalsQuerySchema,
     updateInfrastructureLineBodySchema,
     listVariantStopsQuerySchema,
+    searchTransportStopsQuerySchema,
+    insertExistingRouteStopBodySchema,
+    createAndInsertRouteStopBodySchema,
     moveRouteStopBodySchema,
     removeRouteStopBodySchema,
     routeStopIdParamSchema,
@@ -84,6 +91,9 @@ function sendTransportError(reply: FastifyReply, error: unknown): FastifyReply |
     }
     if (error instanceof TransportInvalidReferenceError) {
         return reply.code(400).send({ message: error.message });
+    }
+    if (error instanceof TransportRouteStopDuplicateError) {
+        return reply.code(409).send({ message: error.message });
     }
     if (error instanceof TransportNameRequiredError) {
         return reply.code(400).send({ message: error.message });
@@ -331,6 +341,22 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         }
     );
 
+    app.get("/stops/search", { schema: searchTransportStopsSchema }, async (request, reply) => {
+        let query;
+        try {
+            query = searchTransportStopsQuerySchema.parse(request.query);
+        } catch (error) {
+            if (error instanceof ZodError) {
+                return reply
+                    .code(400)
+                    .send({ message: "Invalid query parameters", issues: error.flatten() });
+            }
+            throw error;
+        }
+        const result = await service.searchStops(query);
+        return reply.send(result);
+    });
+
     app.get("/stops/:publicId", { schema: getTransportStopDetailSchema }, async (request, reply) => {
         try {
             const { publicId } = transportPublicIdParamSchema.parse(request.params);
@@ -448,6 +474,56 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                 request.log.info(
                     { publicId, fields: Object.keys(body) },
                     "transport route variant updated"
+                );
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/route-variants/:publicId/stops/insert-existing",
+        { schema: insertExistingRouteStopSchema },
+        async (request, reply) => {
+            try {
+                const { publicId } = transportPublicIdParamSchema.parse(request.params);
+                const body = insertExistingRouteStopBodySchema.parse(request.body ?? {});
+                const result = await service.insertExistingRouteStop(
+                    publicId,
+                    body,
+                    auditContextFrom(request)
+                );
+                request.log.info(
+                    { publicId, position: body.position, stops: result.total },
+                    "transport route stop inserted into variant"
+                );
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        }
+    );
+
+    app.post(
+        "/route-variants/:publicId/stops/create-and-insert",
+        { schema: createAndInsertRouteStopSchema },
+        async (request, reply) => {
+            try {
+                const { publicId } = transportPublicIdParamSchema.parse(request.params);
+                const body = createAndInsertRouteStopBodySchema.parse(request.body ?? {});
+                const result = await service.createAndInsertRouteStop(
+                    publicId,
+                    body,
+                    auditContextFrom(request)
+                );
+                request.log.info(
+                    { publicId, position: body.position, stops: result.total },
+                    "transport route stop created and inserted into variant"
                 );
                 return reply.send(result);
             } catch (error) {

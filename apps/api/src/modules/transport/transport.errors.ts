@@ -37,3 +37,15 @@ export class TransportNameRequiredError extends Error {
         this.name = "TransportNameRequiredError";
     }
 }
+
+/**
+ * Thrown when inserting a stop into a route variant that already contains it.
+ * route_stops has a UNIQUE (route_variant_id, stop_id) constraint, so the same
+ * stop may appear at most once per variant.
+ */
+export class TransportRouteStopDuplicateError extends Error {
+    constructor(public readonly stopRef: string) {
+        super(`Stop is already in this route variant: ${stopRef}`);
+        this.name = "TransportRouteStopDuplicateError";
+    }
+}

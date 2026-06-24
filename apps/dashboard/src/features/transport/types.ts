@@ -418,6 +418,16 @@ export type RouteStopMutationResult = {
     variantPublicId: string | null;
 };
 
+/**
+ * Remove response: the backend deletes the membership row, resequences the
+ * remaining stops to 1..N, and returns the updated ordered list (same shape as
+ * GET variant stops) plus backward-compatible deleted / variantPublicId fields.
+ */
+export type RemoveRouteStopResult = TransportVariantStopsResponse & {
+    deleted: boolean;
+    variantPublicId: string | null;
+};
+
 export type UpdateTransportVariantBody = {
     variant_code?: string;
     direction_name?: string | null;
@@ -437,6 +447,61 @@ export type TransportVariantStopsResponse = {
     limit: number;
     offset: number;
     path: TransportRoutePath | null;
+};
+
+/** One hit from GET /transport/stops/search (lightweight stop picker). */
+export type TransportStopSearchItem = {
+    public_id: string;
+    display_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    mode: string;
+    stop_type: string;
+    review_status: string;
+    confidence_score: number | null;
+    lon: number | null;
+    lat: number | null;
+    distance_m: number | null;
+    route_count: number;
+};
+
+export type TransportStopSearchResponse = {
+    items: TransportStopSearchItem[];
+    limit: number;
+};
+
+/**
+ * Body for POST /transport/route-variants/:publicId/stops/insert-existing.
+ * The backend owns stop_sequence — callers send only a relative position
+ * (and an anchor route_stop id for before/after).
+ */
+export type InsertExistingRouteStopBody = {
+    stopPublicId?: string;
+    stopId?: number;
+    position: "start" | "end" | "before" | "after";
+    anchorRouteStopId?: string;
+    pickup_type?: number;
+    drop_off_type?: number;
+    is_timing_point?: boolean;
+};
+
+/**
+ * Body for POST /transport/route-variants/:publicId/stops/create-and-insert
+ * (secondary quick-create path in the Insert Stop modal). At least one of
+ * name_mm / name_en must be present. The backend owns stop_sequence.
+ */
+export type CreateAndInsertRouteStopBody = {
+    name_mm?: string;
+    name_en?: string;
+    mode: string;
+    stop_type: string;
+    longitude: number;
+    latitude: number;
+    position: "start" | "end" | "before" | "after";
+    anchorRouteStopId?: string;
+    pickup_type?: number;
+    drop_off_type?: number;
+    is_timing_point?: boolean;
 };
 
 /** Top import-issue categories derived from transport.import_errors.error_code. */
