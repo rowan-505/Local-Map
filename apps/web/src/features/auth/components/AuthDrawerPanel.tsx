@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { RegionCombobox } from '@/features/regions/components/RegionCombobox';
 import { ApiError } from '../api/http';
 import { useAuth } from '../state/useAuth';
 import type { AuthModalView } from '../state/useAuth';
@@ -20,6 +21,8 @@ export function AuthDrawerPanel({
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [preferredLanguage, setPreferredLanguage] = useState<PreferredLanguage>('my');
+  const [regionId, setRegionId] = useState<string | null>(null);
+  const [regionLabel, setRegionLabel] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,6 +40,7 @@ export function AuthDrawerPanel({
           displayName: displayName.trim(),
           password,
           preferredLanguage,
+          primaryRegionId: regionId === null ? null : Number.parseInt(regionId, 10),
         });
       } else {
         await login({ email: email.trim(), password });
@@ -124,9 +128,18 @@ export function AuthDrawerPanel({
                 <option value="my">မြန်မာ (Myanmar)</option>
                 <option value="en">English</option>
               </select>
-              {/* TODO: add optional primary region/township and phone fields once the
-                  API + region picker support them; do not block signup on them. */}
             </label>
+          ) : null}
+          {isSignup ? (
+            <RegionCombobox
+              label="Primary region (optional)"
+              value={regionId}
+              selectedLabel={regionLabel}
+              onChange={(id, displayName) => {
+                setRegionId(id);
+                setRegionLabel(displayName);
+              }}
+            />
           ) : null}
 
           {error ? (

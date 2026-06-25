@@ -2,15 +2,20 @@ import type { FastifyPluginAsync } from "fastify";
 
 import { ReverseSearchRepository } from "../addresses/reverse-search.repo.js";
 import { ReverseSearchService } from "../addresses/reverse-search.service.js";
+import { AdminAreasRepository } from "../admin-areas/admin-areas.repo.js";
 import { PublicMapRepository } from "./public-map.repo.js";
 import { PublicMapService, PublicPlaceNotFoundError } from "./public-map.service.js";
 import {
+    publicAdminAreaIdParamsSchema,
+    publicAdminAreaSearchQuerySchema,
     publicPlaceIdParamsSchema,
     publicMapPlacesQuerySchema,
     publicPlacesQuerySchema,
     publicSearchQuerySchema,
 } from "./public-map.schema.js";
 import {
+    getPublicAdminAreaByIdSchema,
+    getPublicAdminAreasSearchSchema,
     getPublicCategoriesSchema,
     getPublicGeoAdminAreasSchema,
     getPublicGeoBusRoutesSchema,
@@ -25,7 +30,12 @@ import {
 const publicMapRoutes: FastifyPluginAsync = async (app) => {
     const publicMapRepo = new PublicMapRepository(app.prisma);
     const reverseSearchService = new ReverseSearchService(new ReverseSearchRepository(app.prisma));
-    const publicMapService = new PublicMapService(publicMapRepo, reverseSearchService);
+    const adminAreasRepo = new AdminAreasRepository(app.prisma);
+    const publicMapService = new PublicMapService(
+        publicMapRepo,
+        reverseSearchService,
+        adminAreasRepo,
+    );
 
     app.get("/public/places", { schema: getPublicPlacesSchema }, async (request, reply) => {
         const parsed = publicPlacesQuerySchema.safeParse(request.query);
@@ -103,6 +113,48 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
         const results = await publicMapService.search(parsed.data);
         return reply.send(results);
     });
+
+    app.get(
+        "/public/admin-areas/search",
+        { schema: getPublicAdminAreasSearchSchema },
+        async (request, reply) => {
+            const parsed = publicAdminAreaSearchQuerySchema.safeParse(request.query);
+
+            if (!parsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid admin area search query",
+                    issues: parsed.error.flatten(),
+                });
+            }
+
+            const results = await publicMapService.searchAdminAreas({
+                q: parsed.data.q,
+                limit: parsed.data.limit,
+            });
+            return reply.send(results);
+        },
+    );
+
+    app.get(
+        "/public/admin-areas/:id",
+        { schema: getPublicAdminAreaByIdSchema },
+        async (request, reply) => {
+            const parsed = publicAdminAreaIdParamsSchema.safeParse(request.params);
+
+            if (!parsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid admin area id",
+                    issues: parsed.error.flatten(),
+                });
+            }
+
+            const area = await publicMapService.getAdminAreaById(BigInt(parsed.data.id));
+            if (!area) {
+                return reply.code(404).send({ message: "Admin area not found" });
+            }
+            return reply.send(area);
+        },
+    );
 
     app.get("/public/map/geo/streets", { schema: getPublicGeoStreetsSchema }, async (_request, reply) => {
         const collection = await publicMapService.geoJsonStreets();

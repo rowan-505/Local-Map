@@ -112,6 +112,7 @@ const authRoutes: FastifyPluginAsync = async (app) => {
                 displayName: parsed.data.displayName,
                 password: parsed.data.password,
                 preferredLanguage: parsed.data.preferredLanguage,
+                primaryRegionId: parsed.data.primaryRegionId,
             });
 
             return reply.code(201).send(

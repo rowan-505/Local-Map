@@ -5,7 +5,9 @@ import {
     TransportNameRequiredError,
     TransportNotFoundError,
     TransportRouteStopDuplicateError,
+    TransportRouteStopTransactionTimeoutError,
     TransportSchemaUnavailableError,
+    TransportStopInUseError,
 } from "./transport.errors.js";
 import {
     appendPointDiff,
@@ -50,6 +52,7 @@ import type {
     TransportRouteDetail,
     TransportRouteListItem,
     TransportRouteStopItem,
+    TransportStopArchiveResult,
     TransportStopDetail,
     TransportStopListItem,
     TransportStopRouteUsage,
@@ -477,6 +480,22 @@ function isMissingTransportSchemaError(error: unknown): boolean {
 function num(value: bigint | number | null | undefined): number {
     return value === null || value === undefined ? 0 : Number(value);
 }
+
+/**
+ * True for Prisma P2028 ("Transaction not found … refers to an old closed
+ * transaction"), raised when an interactive transaction outlives Prisma's
+ * timeout window. Callers map this to a clear domain error.
+ */
+function isPrismaTransactionTimeout(error: unknown): boolean {
+    return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2028";
+}
+
+/**
+ * Explicit interactive-transaction window for route-stop mutations. The default
+ * 5s timeout is too tight for large variants; bulk SQL keeps the work small, and
+ * these bounds give comfortable headroom without holding locks indefinitely.
+ */
+const ROUTE_STOP_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 /**
  * TEMPORARY dev-only performance instrumentation for Transport list endpoints.
@@ -3667,7 +3686,9 @@ export class TransportRepository {
 
         const trimmedReason = typeof reason === "string" ? reason.trim() : "";
 
-        const variantPublicId = await this.prisma.$transaction(async (tx) => {
+        let variantPublicId: string | null;
+        try {
+            variantPublicId = await this.prisma.$transaction(async (tx) => {
             // Snapshot the full (small) row before deletion: the row is gone afterward.
             const beforeRows = await tx.$queryRaw<RouteStopRemoveAuditRow[]>`
                 SELECT id, route_variant_id, stop_id, stop_sequence,
@@ -3686,11 +3707,14 @@ export class TransportRepository {
                 DELETE FROM transport.route_stops WHERE id = ${id}
             `;
 
-            // Resequence the remaining membership rows to a gap-free 1..N. Assigning
-            // in ascending order is conflict-free: each new sequence is <= the row's
-            // current sequence and lower targets are vacated first, so the UNIQUE
-            // (route_variant_id, stop_sequence) constraint and the stop_sequence > 0
-            // CHECK always hold. Only rows whose sequence actually changes are written.
+            // Resequence the remaining membership rows to a gap-free 1..N. This uses
+            // TWO bulk statements (temp slots strictly above the current max, then
+            // the final positions) instead of a per-row UPDATE loop, so the query
+            // count stays constant regardless of variant size (avoids the Prisma
+            // transaction timeout / P2028 on large variants). The disjoint temp
+            // range guarantees the non-deferrable UNIQUE(variant, sequence) and the
+            // stop_sequence > 0 CHECK never transiently conflict. Only rows whose
+            // sequence actually changes are written.
             const remaining = await tx.$queryRaw<
                 { id: bigint; stop_id: bigint; stop_sequence: number }[]
             >`
@@ -3700,15 +3724,30 @@ export class TransportRepository {
                 ORDER BY stop_sequence ASC
                 FOR UPDATE
             `;
-            for (let i = 0; i < remaining.length; i += 1) {
-                const seq = i + 1;
-                if (remaining[i].stop_sequence !== seq) {
-                    await tx.$executeRaw`
-                        UPDATE transport.route_stops
-                        SET stop_sequence = ${seq}, updated_at = now()
-                        WHERE id = ${remaining[i].id}
-                    `;
-                }
+            const changed = remaining
+                .map((r, idx) => ({ id: r.id, target: idx + 1, current: r.stop_sequence }))
+                .filter((r) => r.current !== r.target);
+            if (changed.length > 0) {
+                // remaining is ordered ascending, so the last row holds the max.
+                const tempBase = remaining[remaining.length - 1].stop_sequence + 1;
+                const tempRows = changed.map(
+                    (r, i) => Prisma.sql`(${r.id}::bigint, ${tempBase + i}::int)`
+                );
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE transport.route_stops rs
+                    SET stop_sequence = v.temp_sequence, updated_at = now()
+                    FROM (VALUES ${Prisma.join(tempRows)}) AS v(id, temp_sequence)
+                    WHERE rs.id = v.id
+                `);
+                const finalRows = changed.map(
+                    (r) => Prisma.sql`(${r.id}::bigint, ${r.target}::int)`
+                );
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE transport.route_stops rs
+                    SET stop_sequence = v.final_sequence, updated_at = now()
+                    FROM (VALUES ${Prisma.join(finalRows)}) AS v(id, final_sequence)
+                    WHERE rs.id = v.id
+                `);
             }
 
             const variantRows = await tx.$queryRaw<{ public_id: string }[]>`
@@ -3753,7 +3792,13 @@ export class TransportRepository {
             });
 
             return variantPublicId;
-        });
+            }, ROUTE_STOP_TX_OPTIONS);
+        } catch (error) {
+            if (isPrismaTransactionTimeout(error)) {
+                throw new TransportRouteStopTransactionTimeoutError();
+            }
+            throw error;
+        }
 
         // Re-read the committed ordered list with path (same shape as GET variant
         // stops), plus the backward-compatible deleted / variantPublicId fields.
@@ -3774,6 +3819,160 @@ export class TransportRepository {
             includePath: true,
         });
         return { ...stops, deleted: true, variantPublicId };
+    }
+
+    /**
+     * Archive (soft-delete) an actual stop record. This is the only stop-deletion
+     * path and is intentionally conservative:
+     *
+     *   - Never hard-deletes: sets `deleted_at = now()` and `is_active = false`.
+     *   - Never touches route_stops. A stop still used by any route (counted as
+     *     distinct routes via non-deleted variants — the same figure shown in the
+     *     list/detail route_count) is rejected with {@link TransportStopInUseError}
+     *     (HTTP 409); the admin must remove it from all routes first.
+     *   - stop_names and source_links are preserved (no cascade delete here).
+     *   - Any terminal linked to this stop (terminals.linked_stop_id, not already
+     *     archived) is archived in the SAME transaction, since the stop owns the
+     *     terminal's display name + location and an orphaned active terminal would
+     *     be invalid.
+     *   - Writes a `transport.stop.archive` audit row (and a
+     *     `transport.terminal.archive` row per archived terminal) inside the
+     *     transaction, so a rolled-back archive never leaves an audit trail.
+     *
+     * Returns the archived stop's public_id plus the archived terminals' public_ids.
+     * Throws {@link TransportNotFoundError} when the stop does not exist or is
+     * already archived.
+     */
+    async archiveStopByPublicId(
+        publicId: string,
+        audit?: TransportAuditContext,
+        reason?: string
+    ): Promise<TransportStopArchiveResult> {
+        await this.assertSchemaAvailable();
+
+        const trimmedReason = typeof reason === "string" ? reason.trim() : "";
+
+        return this.prisma.$transaction(async (tx) => {
+            // Lock the live stop row. Already-archived / missing both surface as 404.
+            const stopRows = await tx.$queryRaw<
+                {
+                    id: bigint;
+                    public_id: string;
+                    name: string | null;
+                    mode: string | null;
+                    stop_type: string | null;
+                    is_active: boolean;
+                }[]
+            >`
+                SELECT id, public_id::text AS public_id, name, mode, stop_type, is_active
+                FROM transport.stops
+                WHERE public_id = ${publicId}::uuid AND deleted_at IS NULL
+                FOR UPDATE
+            `;
+            const stop = stopRows[0];
+            if (!stop) {
+                throw new TransportNotFoundError("stop", publicId);
+            }
+
+            // Usage guard: distinct routes reached via non-deleted variants. This
+            // matches the route_count shown in the list/detail, so "remove it from
+            // all routes" is consistent with what the admin sees. route_stops rows
+            // are never deleted by this endpoint.
+            const countRows = await tx.$queryRaw<{ route_count: bigint }[]>`
+                SELECT count(DISTINCT v.route_id)::bigint AS route_count
+                FROM transport.route_stops rs
+                JOIN transport.route_variants v
+                    ON v.id = rs.route_variant_id AND v.deleted_at IS NULL
+                WHERE rs.stop_id = ${stop.id}
+            `;
+            const routeCount = num(countRows[0]?.route_count);
+            if (routeCount > 0) {
+                throw new TransportStopInUseError(routeCount);
+            }
+
+            // Archive every live terminal linked to this stop (usually 0 or 1).
+            const terminalRows = await tx.$queryRaw<
+                {
+                    id: bigint;
+                    public_id: string;
+                    terminal_code: string | null;
+                    terminal_role: string | null;
+                    name: string | null;
+                    is_active: boolean;
+                }[]
+            >`
+                SELECT id, public_id::text AS public_id, terminal_code, terminal_role, name, is_active
+                FROM transport.terminals
+                WHERE linked_stop_id = ${stop.id} AND deleted_at IS NULL
+                FOR UPDATE
+            `;
+
+            const archivedTerminals: string[] = [];
+            for (const terminal of terminalRows) {
+                await tx.$executeRaw`
+                    UPDATE transport.terminals
+                    SET deleted_at = now(), is_active = false, updated_at = now()
+                    WHERE id = ${terminal.id}
+                `;
+                archivedTerminals.push(terminal.public_id);
+                await insertTransportAuditLog(tx, {
+                    action: "transport.terminal.archive",
+                    entityType: "transport_terminal",
+                    entityId: terminal.id,
+                    entityPublicId: terminal.public_id,
+                    changedFields: ["deleted_at", "is_active"],
+                    oldValues: {
+                        name: terminal.name,
+                        terminal_code: terminal.terminal_code,
+                        terminal_role: terminal.terminal_role,
+                        is_active: terminal.is_active,
+                    },
+                    newValues: { deleted_at: "now()", is_active: false },
+                    metadata: {
+                        archived_via: "stop_archive",
+                        stop_public_id: stop.public_id,
+                        ...(trimmedReason ? { reason: trimmedReason } : {}),
+                    },
+                    context: audit,
+                });
+            }
+
+            // Soft-delete the stop itself.
+            await tx.$executeRaw`
+                UPDATE transport.stops
+                SET deleted_at = now(), is_active = false, updated_at = now()
+                WHERE id = ${stop.id}
+            `;
+
+            await insertTransportAuditLog(tx, {
+                action: "transport.stop.archive",
+                entityType: "transport_stop",
+                entityId: stop.id,
+                entityPublicId: stop.public_id,
+                changedFields: ["deleted_at", "is_active"],
+                oldValues: {
+                    name: stop.name,
+                    mode: stop.mode,
+                    stop_type: stop.stop_type,
+                    is_active: stop.is_active,
+                    route_count: routeCount,
+                    linked_terminals: archivedTerminals,
+                },
+                newValues: { deleted_at: "now()", is_active: false },
+                metadata: {
+                    ...(trimmedReason ? { reason: trimmedReason } : {}),
+                    archived_terminal_public_ids: archivedTerminals,
+                },
+                context: audit,
+            });
+
+            return {
+                archived: true,
+                public_id: stop.public_id,
+                route_count: routeCount,
+                archived_terminals: archivedTerminals,
+            };
+        });
     }
 
     /**
@@ -3803,7 +4002,8 @@ export class TransportRepository {
     ): Promise<TransportVariantStopsResponse> {
         await this.assertSchemaAvailable();
 
-        await this.prisma.$transaction(async (tx) => {
+        try {
+            await this.prisma.$transaction(async (tx) => {
             const variant = await this.resolveVariantForInsert(tx, variantPublicId);
 
             // Resolve the stop to insert (by internal id or public id). Never created here.
@@ -3841,9 +4041,17 @@ export class TransportRepository {
                 is_timing_point: input.is_timing_point,
                 audit,
             });
-        });
+            }, ROUTE_STOP_TX_OPTIONS);
+        } catch (error) {
+            if (isPrismaTransactionTimeout(error)) {
+                throw new TransportRouteStopTransactionTimeoutError();
+            }
+            throw error;
+        }
 
-        // Re-read the committed ordered list with path (same shape as GET variant stops).
+        // Re-read the committed ordered list with path (same shape as GET variant
+        // stops) OUTSIDE the transaction, so the heavy read never counts against
+        // the interactive-transaction window.
         return this.listStopsForVariant(variantPublicId, {
             limit: STOPS_LIST_MAX_LIMIT,
             offset: 0,
@@ -3865,7 +4073,8 @@ export class TransportRepository {
     ): Promise<TransportVariantStopsResponse> {
         await this.assertSchemaAvailable();
 
-        await this.prisma.$transaction(async (tx) => {
+        try {
+            await this.prisma.$transaction(async (tx) => {
             const variant = await this.resolveVariantForInsert(tx, variantPublicId);
 
             const nameMm = input.name_mm ?? null;
@@ -3929,8 +4138,15 @@ export class TransportRepository {
                 audit,
                 extraMetadata: { created_stop: true, created_stop_public_id: stopPublicId },
             });
-        });
+            }, ROUTE_STOP_TX_OPTIONS);
+        } catch (error) {
+            if (isPrismaTransactionTimeout(error)) {
+                throw new TransportRouteStopTransactionTimeoutError();
+            }
+            throw error;
+        }
 
+        // Heavy ordered re-read runs OUTSIDE the transaction (see insertExisting).
         return this.listStopsForVariant(variantPublicId, {
             limit: STOPS_LIST_MAX_LIMIT,
             offset: 0,
@@ -4042,48 +4258,75 @@ export class TransportRepository {
             }
         }
 
-        // Phase 1: bump existing rows to positive out-of-range temp slots so the
-        // 1..N space is free and the UNIQUE (variant, sequence) / sequence>0 hold.
+        // Resequencing uses TWO bulk statements instead of per-row UPDATEs so the
+        // interactive transaction stays small (constant query count) and never
+        // trips the Prisma transaction timeout, even for variants with many stops.
         const maxRows = await tx.$queryRaw<{ m: number | null }[]>`
             SELECT max(stop_sequence) AS m
             FROM transport.route_stops
             WHERE route_variant_id = ${variantId}
         `;
-        const tempBase = num(maxRows[0]?.m) + 1;
-        for (let i = 0; i < current.length; i += 1) {
-            await tx.$executeRaw`
-                UPDATE transport.route_stops
-                SET stop_sequence = ${tempBase + i}, updated_at = now()
-                WHERE id = ${current[i].id}
-            `;
+
+        // Temp slots must sit strictly above BOTH the current max sequence (so the
+        // Phase 1 bulk UPDATE never lands on an as-yet-unmoved row's sequence) and
+        // the final max sequence N+1 (so the Phase 2 bulk UPDATE never lands on a
+        // temp slot). With fully disjoint source/target ranges, a single multi-row
+        // UPDATE is safe despite the non-deferrable UNIQUE(variant, sequence)
+        // constraint, and we never write a zero/negative sequence.
+        const tempBase = Math.max(num(maxRows[0]?.m) + 1, current.length + 2);
+
+        // Phase 1: bump all existing rows to disjoint temp slots in one statement.
+        if (current.length > 0) {
+            const tempRows = current.map(
+                (row, i) => Prisma.sql`(${row.id}::bigint, ${tempBase + i}::int)`
+            );
+            await tx.$executeRaw(Prisma.sql`
+                UPDATE transport.route_stops rs
+                SET stop_sequence = v.temp_sequence, updated_at = now()
+                FROM (VALUES ${Prisma.join(tempRows)}) AS v(id, temp_sequence)
+                WHERE rs.id = v.id
+            `);
         }
 
-        // Phase 2: write the final 1..N order (UPDATE existing, INSERT the new row).
-        let insertedId: bigint | null = null;
-        for (let p = 0; p < finalOrder.length; p += 1) {
-            const seq = p + 1;
-            const entry = finalOrder[p];
+        // Resolve the final 1..N order: existing rows get their slot, the new row
+        // takes the gap left for it.
+        let newSeq = -1;
+        const existingFinal: Array<{ id: bigint; seq: number }> = [];
+        finalOrder.forEach((entry, idx) => {
+            const seq = idx + 1;
             if (entry.kind === "existing") {
-                await tx.$executeRaw`
-                    UPDATE transport.route_stops
-                    SET stop_sequence = ${seq}, updated_at = now()
-                    WHERE id = ${entry.id}
-                `;
+                existingFinal.push({ id: entry.id, seq });
             } else {
-                const inserted = await tx.$queryRaw<{ id: bigint }[]>`
-                    INSERT INTO transport.route_stops (
-                        route_variant_id, stop_id, stop_sequence,
-                        pickup_type, drop_off_type, is_timing_point
-                    )
-                    VALUES (
-                        ${variantId}, ${stopId}, ${seq},
-                        ${pickup_type}, ${drop_off_type}, ${is_timing_point}
-                    )
-                    RETURNING id
-                `;
-                insertedId = inserted[0].id;
+                newSeq = seq;
             }
+        });
+
+        // Phase 2: write every existing row's final sequence in one statement.
+        if (existingFinal.length > 0) {
+            const finalRows = existingFinal.map(
+                (row) => Prisma.sql`(${row.id}::bigint, ${row.seq}::int)`
+            );
+            await tx.$executeRaw(Prisma.sql`
+                UPDATE transport.route_stops rs
+                SET stop_sequence = v.final_sequence, updated_at = now()
+                FROM (VALUES ${Prisma.join(finalRows)}) AS v(id, final_sequence)
+                WHERE rs.id = v.id
+            `);
         }
+
+        // Insert the new membership row into its now-free final slot.
+        const inserted = await tx.$queryRaw<{ id: bigint }[]>`
+            INSERT INTO transport.route_stops (
+                route_variant_id, stop_id, stop_sequence,
+                pickup_type, drop_off_type, is_timing_point
+            )
+            VALUES (
+                ${variantId}, ${stopId}, ${newSeq},
+                ${pickup_type}, ${drop_off_type}, ${is_timing_point}
+            )
+            RETURNING id
+        `;
+        const insertedId: bigint = inserted[0].id;
 
         // Compact old/new sequence summaries for the audit log.
         const oldSequence = current.map((r) => ({
@@ -4102,7 +4345,7 @@ export class TransportRepository {
                 };
             }
             return {
-                route_stop_id: insertedId === null ? null : String(insertedId),
+                route_stop_id: String(insertedId),
                 stop_id: String(stopId),
                 stop_sequence,
                 inserted: true,
@@ -4112,7 +4355,7 @@ export class TransportRepository {
         await insertTransportAuditLog(tx, {
             action: "transport.route_stop.insert",
             entityType: "transport_route_stop",
-            entityId: insertedId as bigint,
+            entityId: insertedId,
             entityPublicId: null,
             changedFields: ["stop_sequence"],
             oldValues: { sequence: oldSequence },
@@ -4121,7 +4364,7 @@ export class TransportRepository {
                 variant_public_id: variantPublicId,
                 route_variant_id: String(variantId),
                 inserted_stop_id: String(stopId),
-                inserted_route_stop_id: insertedId === null ? null : String(insertedId),
+                inserted_route_stop_id: String(insertedId),
                 position,
                 anchor_route_stop_id: anchorRouteStopId ?? null,
                 ...(extraMetadata ?? {}),
@@ -4129,6 +4372,6 @@ export class TransportRepository {
             context: audit,
         });
 
-        return insertedId as bigint;
+        return insertedId;
     }
 }

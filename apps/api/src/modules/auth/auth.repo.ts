@@ -138,6 +138,7 @@ export class AuthRepository {
         displayName: string;
         passwordHash: string;
         preferredLanguage?: "my" | "en";
+        primaryRegionId?: bigint | null;
     }): Promise<AuthUserProfile> {
         const user = await this.prisma.$transaction(async (tx) => {
             const role = await tx.authRole.findUnique({
@@ -157,6 +158,9 @@ export class AuthRepository {
                     // Omit when undefined so the DB default ("my") applies.
                     ...(input.preferredLanguage
                         ? { preferredLanguage: input.preferredLanguage }
+                        : {}),
+                    ...(input.primaryRegionId != null
+                        ? { primaryRegionId: input.primaryRegionId }
                         : {}),
                 },
             });

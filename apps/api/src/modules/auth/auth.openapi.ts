@@ -79,6 +79,7 @@ export const postAuthRegisterSchema = {
             displayName: { type: "string", minLength: 2, maxLength: 120 },
             password: { type: "string", minLength: 8, maxLength: 200 },
             preferredLanguage: { type: "string", enum: ["my", "en"] },
+            primaryRegionId: { type: "integer", minimum: 1 },
         },
         additionalProperties: false,
     },

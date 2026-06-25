@@ -845,6 +845,46 @@ export const patchTransportStopSchema = {
     },
 } satisfies FastifySchema;
 
+export const deleteTransportStopSchema = {
+    tags: [Tags.Transport],
+    summary: "Archive (soft-delete) a transport stop (admin)",
+    description:
+        "Soft-deletes the stop (sets deleted_at + is_active = false). Never hard-deletes and never " +
+        "deletes route_stops. Rejected with 409 when the stop is still used by routes — remove it from " +
+        "all routes first. Any terminal linked to the stop is archived in the same transaction. " +
+        "stop_names and source_links are preserved. Accepts an optional JSON body `{ reason }` recorded " +
+        "in the archive audit log.",
+    security: [...bearerAuth],
+    params: publicIdParamSchema,
+    body: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+            reason: { type: "string", maxLength: 500 },
+        },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["archived", "public_id", "route_count", "archived_terminals"],
+            properties: {
+                archived: { type: "boolean" },
+                public_id: { type: "string", format: "uuid" },
+                route_count: { type: "integer", minimum: 0 },
+                archived_terminals: {
+                    type: "array",
+                    items: { type: "string", format: "uuid" },
+                },
+            },
+        },
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+        409: badRequestSchema,
+    },
+} satisfies FastifySchema;
+
 const routeDetailSchema = {
     type: "object",
     required: [

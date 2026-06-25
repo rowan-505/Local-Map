@@ -560,3 +560,15 @@ export const removeRouteStopBodySchema = z.object({
 });
 
 export type RemoveRouteStopInput = z.infer<typeof removeRouteStopBodySchema>;
+
+/**
+ * DELETE /transport/stops/:publicId body. Optional free-text reason recorded in
+ * the archive audit log metadata. The body itself is optional (no body = no reason).
+ * Archiving only soft-deletes the stop (and any linked terminals); it never
+ * deletes route_stops and is rejected when the stop is still used by routes.
+ */
+export const archiveStopBodySchema = z.object({
+    reason: z.string().trim().max(500).optional(),
+});
+
+export type ArchiveStopInput = z.infer<typeof archiveStopBodySchema>;

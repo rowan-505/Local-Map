@@ -1,5 +1,6 @@
 import { generatePlusCode } from "../../lib/geo/plus-code.js";
 import type { ReverseSearchService } from "../addresses/reverse-search.service.js";
+import type { AdminAreaOptionRow, AdminAreasRepository } from "../admin-areas/admin-areas.repo.js";
 import {
     effectiveImportanceThresholdForZoom,
     PublicMapRepository,
@@ -71,12 +72,46 @@ export class PublicPlaceNotFoundError extends Error {
     }
 }
 
+/** Public admin-area option for the profile region picker (no internal fields). */
+export type PublicAdminAreaResult = {
+    readonly id: string;
+    readonly name: string;
+    readonly name_my: string | null;
+    readonly name_en: string | null;
+    readonly admin_level: string | null;
+    readonly admin_level_code: string | null;
+    readonly parent_name: string | null;
+    readonly display_name: string;
+};
+
 export class PublicMapService {
     constructor(
         private readonly publicMapRepo: PublicMapRepository,
         /** Optional: enriches single-place detail with address_line. List paths never use it. */
         private readonly reverseSearch?: ReverseSearchService,
+        /** Optional: powers the public admin-area (region) search used by the profile picker. */
+        private readonly adminAreasRepo?: AdminAreasRepository,
     ) {}
+
+    async searchAdminAreas(input: {
+        q?: string | undefined;
+        limit: number;
+    }): Promise<PublicAdminAreaResult[]> {
+        if (!this.adminAreasRepo) return [];
+        // Reuses the indexed, active-only admin-area options query.
+        // TODO: rank township-like levels above region/state for nicer ordering.
+        const rows = await this.adminAreasRepo.listAdminAreaOptions({
+            limit: input.limit,
+            q: input.q,
+        });
+        return rows.map(toPublicAdminArea);
+    }
+
+    async getAdminAreaById(id: bigint): Promise<PublicAdminAreaResult | null> {
+        if (!this.adminAreasRepo) return null;
+        const row = await this.adminAreasRepo.getActiveAdminAreaById(id);
+        return row ? toPublicAdminArea(row) : null;
+    }
 
     async listPlaces(input: {
         q?: string;
@@ -367,5 +402,32 @@ function serializeSearchResult(result: PublicSearchRow) {
         lat: result.lat,
         lng: result.lng,
         cameraTarget,
+    };
+}
+
+function toPublicAdminArea(row: AdminAreaOptionRow): PublicAdminAreaResult {
+    const nameMy = normalizeName(row.name_mm);
+    const nameEn = normalizeName(row.name_en);
+    const adminLevel = normalizeName(row.admin_level_name);
+    const parentName = normalizeName(row.parent_label);
+    const base = nameEn ?? nameMy ?? row.canonical_name;
+
+    // Build "Kyauktan Township, <parent>" when columns are available.
+    // TODO: prefer the region/state ancestor (not just the immediate parent) for parent_name.
+    const labelWithLevel =
+        adminLevel && !base.toLowerCase().includes(adminLevel.toLowerCase())
+            ? `${base} ${adminLevel}`
+            : base;
+    const displayName = parentName ? `${labelWithLevel}, ${parentName}` : labelWithLevel;
+
+    return {
+        id: row.id.toString(),
+        name: base,
+        name_my: nameMy,
+        name_en: nameEn,
+        admin_level: adminLevel,
+        admin_level_code: normalizeName(row.admin_level_code),
+        parent_name: parentName,
+        display_name: displayName,
     };
 }

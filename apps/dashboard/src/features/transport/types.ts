@@ -419,6 +419,19 @@ export type RouteStopMutationResult = {
 };
 
 /**
+ * Archive (soft-delete) response for a stop. The stop and any linked terminals
+ * have deleted_at set + is_active = false; route_stops and source records are
+ * never touched. `route_count` is always 0 on success (archiving is rejected
+ * with 409 while the stop is still used by routes).
+ */
+export type TransportStopArchiveResult = {
+    archived: boolean;
+    public_id: string;
+    route_count: number;
+    archived_terminals: string[];
+};
+
+/**
  * Remove response: the backend deletes the membership row, resequences the
  * remaining stops to 1..N, and returns the updated ordered list (same shape as
  * GET variant stops) plus backward-compatible deleted / variantPublicId fields.

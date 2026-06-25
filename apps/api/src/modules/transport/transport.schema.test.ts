@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+    archiveStopBodySchema,
     insertExistingRouteStopBodySchema,
     createAndInsertRouteStopBodySchema,
     searchTransportStopsQuerySchema,
@@ -681,6 +682,25 @@ describe("searchTransportStopsQuerySchema", () => {
         assert.equal(
             searchTransportStopsQuerySchema.safeParse({ excludeRouteVariantPublicId: "nope" })
                 .success,
+            false
+        );
+    });
+});
+
+describe("archiveStopBodySchema", () => {
+    it("accepts an empty body (no reason)", () => {
+        const parsed = archiveStopBodySchema.parse({});
+        assert.equal(parsed.reason, undefined);
+    });
+
+    it("trims a provided reason", () => {
+        const parsed = archiveStopBodySchema.parse({ reason: "  duplicate stop  " });
+        assert.equal(parsed.reason, "duplicate stop");
+    });
+
+    it("rejects a reason longer than 500 characters", () => {
+        assert.equal(
+            archiveStopBodySchema.safeParse({ reason: "x".repeat(501) }).success,
             false
         );
     });

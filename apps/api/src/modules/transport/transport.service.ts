@@ -38,6 +38,7 @@ import type {
     TransportRouteDetail,
     TransportRouteListItem,
     TransportRouteStopItem,
+    TransportStopArchiveResult,
     TransportStopDetail,
     TransportStopListItem,
     TransportStopRouteUsage,
@@ -371,6 +372,21 @@ export class TransportService {
         audit?: TransportAuditContext
     ): Promise<TransportStopDetail> {
         const result = await this.repo.updateStopByPublicId(publicId, input, audit);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    /**
+     * Archive (soft-delete) a stop. Rejected when the stop is still used by routes;
+     * any linked terminal is archived in the same transaction. Never hard-deletes
+     * and never touches route_stops. Invalidates aggregate caches on success.
+     */
+    async archiveStop(
+        publicId: string,
+        audit?: TransportAuditContext,
+        reason?: string
+    ): Promise<TransportStopArchiveResult> {
+        const result = await this.repo.archiveStopByPublicId(publicId, audit, reason);
         this.invalidateAggregateCaches();
         return result;
     }

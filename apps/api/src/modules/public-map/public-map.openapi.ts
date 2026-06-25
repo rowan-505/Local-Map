@@ -321,6 +321,69 @@ export const getPublicSearchSchema = {
     },
 } satisfies FastifySchema;
 
+const publicAdminAreaSchema = {
+    type: "object",
+    required: [
+        "id",
+        "name",
+        "name_my",
+        "name_en",
+        "admin_level",
+        "admin_level_code",
+        "parent_name",
+        "display_name",
+    ],
+    properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        name_my: { type: "string", nullable: true },
+        name_en: { type: "string", nullable: true },
+        admin_level: { type: "string", nullable: true },
+        admin_level_code: { type: "string", nullable: true },
+        parent_name: { type: "string", nullable: true },
+        display_name: { type: "string" },
+    },
+    additionalProperties: false,
+} as const;
+
+export const getPublicAdminAreasSearchSchema = {
+    tags: [Tags.AdminAreas],
+    summary: "Search admin areas (public)",
+    description:
+        "Public, read-only search over active admin areas for the profile region picker. Matches Myanmar/English names, canonical name, and slug.",
+    querystring: {
+        type: "object",
+        properties: {
+            q: { type: "string", minLength: 1 },
+            limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: { type: "array", items: publicAdminAreaSchema },
+        400: badRequestSchema,
+    },
+} satisfies FastifySchema;
+
+export const getPublicAdminAreaByIdSchema = {
+    tags: [Tags.AdminAreas],
+    summary: "Get one admin area (public)",
+    description: "Public, read-only lookup of a single active admin area by id (region picker prefill).",
+    params: {
+        type: "object",
+        required: ["id"],
+        properties: {
+            id: { type: "string", pattern: "^\\d+$" },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: publicAdminAreaSchema,
+        400: badRequestSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
 export const getPublicGeoStreetsSchema = {
     tags: [Tags.Streets],
     summary: "Street centerlines GeoJSON",

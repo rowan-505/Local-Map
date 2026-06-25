@@ -6,10 +6,13 @@ import {
     TransportNameRequiredError,
     TransportNotFoundError,
     TransportRouteStopDuplicateError,
+    TransportRouteStopTransactionTimeoutError,
     TransportSchemaUnavailableError,
+    TransportStopInUseError,
 } from "./transport.errors.js";
 import {
     deleteRouteStopSchema,
+    deleteTransportStopSchema,
     getTransportDataQualityQueuesSchema,
     getTransportImportBatchesSchema,
     getTransportImportErrorsSchema,
@@ -46,6 +49,7 @@ import {
     listTransportInfrastructureLinesQuerySchema,
     listTransportTerminalsQuerySchema,
     updateInfrastructureLineBodySchema,
+    archiveStopBodySchema,
     listVariantStopsQuerySchema,
     searchTransportStopsQuerySchema,
     insertExistingRouteStopBodySchema,
@@ -95,10 +99,16 @@ function sendTransportError(reply: FastifyReply, error: unknown): FastifyReply |
     if (error instanceof TransportRouteStopDuplicateError) {
         return reply.code(409).send({ message: error.message });
     }
+    if (error instanceof TransportStopInUseError) {
+        return reply.code(409).send({ message: error.message });
+    }
     if (error instanceof TransportNameRequiredError) {
         return reply.code(400).send({ message: error.message });
     }
     if (error instanceof TransportSchemaUnavailableError) {
+        return reply.code(503).send({ message: error.message });
+    }
+    if (error instanceof TransportRouteStopTransactionTimeoutError) {
         return reply.code(503).send({ message: error.message });
     }
     return undefined;
@@ -400,6 +410,27 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         }
     });
 
+    app.delete("/stops/:publicId", { schema: deleteTransportStopSchema }, async (request, reply) => {
+        try {
+            const { publicId } = transportPublicIdParamSchema.parse(request.params);
+            const { reason } = archiveStopBodySchema.parse(request.body ?? {});
+            const result = await service.archiveStop(
+                publicId,
+                auditContextFrom(request),
+                reason
+            );
+            request.log.info(
+                { publicId, archivedTerminals: result.archived_terminals.length },
+                "transport stop archived"
+            );
+            return reply.send(result);
+        } catch (error) {
+            const handled = sendTransportError(reply, error);
+            if (handled) return handled;
+            throw error;
+        }
+    });
+
     app.get("/routes/:publicId", { schema: getTransportRouteDetailSchema }, async (request, reply) => {
         try {
             const { publicId } = transportPublicIdParamSchema.parse(request.params);
@@ -502,6 +533,12 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                 );
                 return reply.send(result);
             } catch (error) {
+                if (error instanceof TransportRouteStopTransactionTimeoutError) {
+                    request.log.error(
+                        { err: error, publicId: (request.params as { publicId?: string }).publicId },
+                        "Transport route stop transaction timed out"
+                    );
+                }
                 const handled = sendTransportError(reply, error);
                 if (handled) return handled;
                 throw error;
@@ -527,6 +564,12 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                 );
                 return reply.send(result);
             } catch (error) {
+                if (error instanceof TransportRouteStopTransactionTimeoutError) {
+                    request.log.error(
+                        { err: error, publicId: (request.params as { publicId?: string }).publicId },
+                        "Transport route stop transaction timed out"
+                    );
+                }
                 const handled = sendTransportError(reply, error);
                 if (handled) return handled;
                 throw error;

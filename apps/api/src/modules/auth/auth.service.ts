@@ -75,6 +75,7 @@ export class AuthService {
         displayName: string;
         password: string;
         preferredLanguage?: "my" | "en";
+        primaryRegionId?: number | null;
     }): Promise<AuthUserProfile> {
         const email = normalizeEmail(input.email);
         const displayName = input.displayName.trim();
@@ -82,6 +83,15 @@ export class AuthService {
         const existing = await this.authRepo.findUserByEmail(email);
         if (existing) {
             throw new AuthError("Email already registered", 409);
+        }
+
+        let primaryRegionId: bigint | undefined;
+        if (input.primaryRegionId !== undefined && input.primaryRegionId !== null) {
+            primaryRegionId = BigInt(input.primaryRegionId);
+            const exists = await this.authRepo.adminAreaExists(primaryRegionId);
+            if (!exists) {
+                throw new AuthError("primaryRegionId does not reference a known region", 400);
+            }
         }
 
         const passwordHash = await hashPassword(input.password);
@@ -92,6 +102,7 @@ export class AuthService {
                 displayName,
                 passwordHash,
                 preferredLanguage: input.preferredLanguage,
+                primaryRegionId,
             });
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
+import ArchiveStopDialog from "./ArchiveStopDialog";
 import TransportPreviewMap from "./TransportPreviewMap";
 import {
+    archiveTransportStop,
     getTransportStopDetail,
     getTransportStopRoutes,
     updateTransportStop,
@@ -180,6 +183,13 @@ export default function TransportStopDetailContent({
     const [termSaving, setTermSaving] = useState(false);
     const [termError, setTermError] = useState("");
 
+    const router = useRouter();
+    const [archiveOpen, setArchiveOpen] = useState(false);
+    const [archiveReason, setArchiveReason] = useState("");
+    const [archiving, setArchiving] = useState(false);
+    const [archiveError, setArchiveError] = useState("");
+    const [archived, setArchived] = useState(false);
+
     // --- Load stop detail when publicId changes. -----------------------------
     useEffect(() => {
         const controller = new AbortController();
@@ -192,6 +202,11 @@ export default function TransportStopDetailContent({
         setTermEditing(false);
         setTermForm(null);
         setTermError("");
+        setArchiveOpen(false);
+        setArchiveReason("");
+        setArchiving(false);
+        setArchiveError("");
+        setArchived(false);
         setRoutes([]);
         setRoutesTotal(0);
         setRoutesPage(1);
@@ -456,7 +471,30 @@ export default function TransportStopDetailContent({
         }
     }, [detail, termForm, publicId, afterSave]);
 
+    const confirmArchive = useCallback(async () => {
+        if (!detail) return;
+        setArchiving(true);
+        setArchiveError("");
+        try {
+            await archiveTransportStop(publicId, archiveReason);
+            setArchiveOpen(false);
+            setArchived(true);
+            // Refresh any host list (drawer) so the archived stop drops out, then
+            // redirect to the stops list as required.
+            afterSave?.();
+            router.push(transportPath("stops"));
+        } catch (err) {
+            if (isAbortError(err)) return;
+            // Surfaces the backend 409 message ("…Remove it from all routes…") verbatim.
+            setArchiveError(err instanceof Error ? err.message : "Failed to archive stop.");
+        } finally {
+            setArchiving(false);
+        }
+    }, [detail, publicId, archiveReason, afterSave, router]);
+
     const routesTotalPages = Math.max(1, Math.ceil(routesTotal / ROUTES_PAGE_SIZE));
+
+    const archiveBlockedByRoutes = (detail?.route_count ?? 0) > 0;
 
     // Edit / Save / Cancel controls — shown in the header (full page) or inline
     // at the top of the body (drawer, where the header is hidden).
@@ -1152,6 +1190,63 @@ export default function TransportStopDetailContent({
                     ) : null}
                 </aside>
             </div>
+
+            {/* Danger zone — archive (soft-delete) the actual stop record. */}
+            {detail ? (
+                <section className="rounded-lg border border-red-200 bg-red-50/40 p-4 shadow-sm">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-red-700">
+                        Danger zone
+                    </h2>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-900">Archive stop</p>
+                            <p className="mt-0.5 text-sm text-gray-600">
+                                {archiveBlockedByRoutes
+                                    ? "This stop is used by routes. Remove it from all routes before archiving."
+                                    : "Soft-deletes this stop. It will no longer appear as an active stop. Route history and source records are preserved."}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            disabled={archiveBlockedByRoutes || editing || archiving || archived}
+                            onClick={() => {
+                                setArchiveError("");
+                                setArchiveReason("");
+                                setArchiveOpen(true);
+                            }}
+                            className="flex-none rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Archive stop
+                        </button>
+                    </div>
+
+                    {archived ? (
+                        <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-800">
+                            Stop archived. Redirecting to the stops list…
+                        </div>
+                    ) : null}
+                    {archiveError && !archiveOpen ? (
+                        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-800">
+                            {archiveError}
+                        </div>
+                    ) : null}
+                </section>
+            ) : null}
+
+            <ArchiveStopDialog
+                open={archiveOpen}
+                stopName={stopDisplayName}
+                reason={archiveReason}
+                isBusy={archiving}
+                error={archiveError}
+                onReasonChange={setArchiveReason}
+                onConfirm={() => void confirmArchive()}
+                onCancel={() => {
+                    if (!archiving) {
+                        setArchiveOpen(false);
+                    }
+                }}
+            />
         </>
     );
 }

@@ -139,6 +139,20 @@ export type TransportStopDetail = {
     normalized_data: unknown;
 };
 
+/**
+ * Result of archiving (soft-deleting) a stop. The stop and any linked terminals
+ * have `deleted_at` set and `is_active = false`; no rows are hard-deleted and no
+ * route_stops memberships are touched (a stop in use cannot be archived).
+ */
+export type TransportStopArchiveResult = {
+    archived: boolean;
+    public_id: string;
+    /** Distinct routes (via non-deleted variants) that referenced the stop (always 0 on success). */
+    route_count: number;
+    /** Public ids of linked terminals archived in the same transaction. */
+    archived_terminals: string[];
+};
+
 /** Terminal metadata surfaced inside the linked stop's detail (no name/geometry). */
 export type TransportStopLinkedTerminal = {
     public_id: string;

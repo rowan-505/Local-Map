@@ -13,6 +13,7 @@ import {
 
 type LoginResponse = {
     accessToken: string;
+    refreshToken?: string;
     user?: {
         id: string;
         public_id: string;
@@ -190,6 +191,13 @@ export default function LoginPageClient() {
             window.localStorage.removeItem("authToken");
             window.localStorage.removeItem("jwt");
             window.localStorage.setItem("accessToken", data.accessToken);
+            // Persist the refresh token so apiFetch can silently refresh the
+            // short-lived access token instead of logging the admin out.
+            if (data.refreshToken) {
+                window.localStorage.setItem("refreshToken", data.refreshToken);
+            } else {
+                window.localStorage.removeItem("refreshToken");
+            }
             router.replace(resolvePostLoginPath(searchParams.get("next")));
         } catch (err) {
             if (err instanceof TypeError) {

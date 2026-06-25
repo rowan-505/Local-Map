@@ -41,7 +41,8 @@ export type RegisterInput = {
   readonly displayName: string;
   readonly password: string;
   readonly preferredLanguage?: PreferredLanguage;
-  // TODO: collect optional primaryRegionId / phone once the API + UI support them.
+  readonly primaryRegionId?: number | null;
+  // TODO: collect optional phone once the verification flow is designed.
 };
 
 export type LoginInput = {

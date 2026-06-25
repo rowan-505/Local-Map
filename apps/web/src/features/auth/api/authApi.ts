@@ -14,6 +14,7 @@ export async function registerAccount(input: RegisterInput): Promise<{ user: Aut
     displayName: input.displayName,
     password: input.password,
     ...(input.preferredLanguage ? { preferredLanguage: input.preferredLanguage } : {}),
+    ...(input.primaryRegionId != null ? { primaryRegionId: input.primaryRegionId } : {}),
   });
 }
 

@@ -5,9 +5,10 @@ export const registerBodySchema = z.object({
     displayName: z.string().trim().min(2).max(120),
     password: z.string().min(8).max(200),
     // Optional UI preference; column already exists with a DB default of "my".
-    // TODO: support optional primaryRegionId / phone on registration once the
-    // dashboard region picker and phone verification flows are designed.
     preferredLanguage: z.enum(["my", "en"]).optional(),
+    // Optional home region from the public region picker; validated against
+    // core.core_admin_areas before persistence. TODO: phone on registration.
+    primaryRegionId: z.number().int().positive().optional(),
 });
 
 export const loginBodySchema = z

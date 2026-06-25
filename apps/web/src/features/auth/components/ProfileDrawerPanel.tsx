@@ -1,5 +1,8 @@
 import { useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useSavedPlaces } from '@/features/saved-places/state/useSavedPlaces';
+import { RegionCombobox } from '@/features/regions/components/RegionCombobox';
+import { getRegionById } from '@/features/regions/api/regionsApi';
 import { ApiError } from '../api/http';
 import { useAuth } from '../state/useAuth';
 import type { PreferredLanguage } from '../types';
@@ -88,11 +91,7 @@ export function ProfileDrawerPanel({
       <div className="rounded-2xl border border-neutral-100 bg-white p-1.5 shadow-sm shadow-neutral-950/3">
         <InfoRow label="Phone" value={user.phone ?? 'Not set'} />
         <InfoRow label="Preferred language" value={languageLabel} />
-        {/* TODO: resolve primary region name from the API; show the id for now. */}
-        <InfoRow
-          label="Primary region"
-          value={user.primary_region_id ? `#${user.primary_region_id}` : 'Not set'}
-        />
+        <RegionInfoRow regionId={user.primary_region_id} />
         <InfoRow label="Total points" value={String(user.total_points)} />
         <InfoRow
           label="Saved places"
@@ -140,10 +139,26 @@ function ProfileEditForm({ onClose }: { readonly onClose: () => void }) {
   const [preferredLanguage, setPreferredLanguage] = useState<PreferredLanguage>(
     user?.preferred_language === 'en' ? 'en' : 'my',
   );
-  const [primaryRegionId, setPrimaryRegionId] = useState(user?.primary_region_id ?? '');
+  const initialRegionId = user?.primary_region_id ?? null;
+  const [regionId, setRegionId] = useState<string | null>(initialRegionId);
+  // Label chosen by the user during this edit (null until they pick one).
+  const [regionLabel, setRegionLabel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  // Resolve the display name for the user's current region (id known, name not).
+  const regionQuery = useQuery({
+    queryKey: ['region', initialRegionId],
+    queryFn: ({ signal }) =>
+      initialRegionId ? getRegionById(initialRegionId, signal) : Promise.resolve(null),
+    enabled: initialRegionId !== null,
+    staleTime: Infinity,
+  });
+
+  // Prefer a freshly chosen label; otherwise show the resolved initial region name.
+  const effectiveRegionLabel =
+    regionLabel ?? (regionId === initialRegionId ? (regionQuery.data?.display_name ?? null) : null);
 
   if (!user) return null;
 
@@ -154,11 +169,9 @@ function ProfileEditForm({ onClose }: { readonly onClose: () => void }) {
     setError(null);
     setSuccess(false);
 
-    const trimmedRegion = primaryRegionId.trim();
-    const regionValue =
-      trimmedRegion === '' ? null : Number.parseInt(trimmedRegion, 10);
+    const regionValue = regionId === null ? null : Number.parseInt(regionId, 10);
     if (regionValue !== null && (!Number.isFinite(regionValue) || regionValue <= 0)) {
-      setError('Primary region must be a positive number or empty.');
+      setError('Selected region is invalid. Clear it and search again.');
       setBusy(false);
       return;
     }
@@ -209,13 +222,14 @@ function ProfileEditForm({ onClose }: { readonly onClose: () => void }) {
               <option value="en">English</option>
             </select>
           </label>
-          {/* TODO: replace this numeric input with a proper region/township selector. */}
-          <TextField
-            label="Primary region id (optional)"
-            value={primaryRegionId}
-            onChange={setPrimaryRegionId}
-            inputMode="numeric"
-            placeholder="e.g. 12"
+          <RegionCombobox
+            label="Primary region (optional)"
+            value={regionId}
+            selectedLabel={effectiveRegionLabel}
+            onChange={(id, displayName) => {
+              setRegionId(id);
+              setRegionLabel(displayName);
+            }}
           />
 
           <div className="rounded-xl bg-neutral-50 px-3 py-2 text-[11px] leading-4 text-neutral-500">
@@ -295,6 +309,28 @@ function TextField({
 function toMessage(error: unknown): string {
   if (error instanceof ApiError && error.message) return error.message;
   return 'Could not update profile. Try again.';
+}
+
+/** Primary region row that resolves the admin-area id to a human-readable name. */
+function RegionInfoRow({ regionId }: { readonly regionId: string | null }) {
+  const region = useQuery({
+    queryKey: ['region', regionId],
+    queryFn: ({ signal }) => (regionId ? getRegionById(regionId, signal) : Promise.resolve(null)),
+    enabled: regionId !== null,
+    staleTime: Infinity,
+  });
+
+  let value: string;
+  if (regionId === null) {
+    value = 'Not set';
+  } else if (region.isLoading) {
+    value = '…';
+  } else {
+    // Never show "Not set" when an id exists; fall back to a generic label.
+    value = region.data?.display_name ?? 'Region selected';
+  }
+
+  return <InfoRow label="Primary region" value={value} />;
 }
 
 function InfoRow({ label, value }: { readonly label: string; readonly value: string }) {

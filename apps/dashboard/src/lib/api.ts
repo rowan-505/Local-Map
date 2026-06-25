@@ -1163,15 +1163,118 @@ function getAccessToken(): string | null {
     return window.localStorage.getItem("accessToken");
 }
 
+function getRefreshToken(): string | null {
+    if (typeof window === "undefined") {
+        return null;
+    }
+
+    return window.localStorage.getItem("refreshToken");
+}
+
+function setAuthTokens(accessToken: string, refreshToken: string) {
+    if (typeof window === "undefined") {
+        return;
+    }
+
+    window.localStorage.setItem("accessToken", accessToken);
+    window.localStorage.setItem("refreshToken", refreshToken);
+}
+
 function clearAuthTokens() {
     if (typeof window === "undefined") {
         return;
     }
 
     window.localStorage.removeItem("accessToken");
+    window.localStorage.removeItem("refreshToken");
     window.localStorage.removeItem("token");
     window.localStorage.removeItem("authToken");
     window.localStorage.removeItem("jwt");
+}
+
+/**
+ * Single in-flight refresh shared by all concurrent 401s so a burst of expired
+ * requests triggers exactly one POST /auth/refresh (refresh-token rotation means
+ * only the first call holds a valid token; the rest must reuse its result).
+ */
+let refreshInFlight: Promise<boolean> | null = null;
+
+/**
+ * Exchanges the stored refresh token for a new access + refresh token pair and
+ * persists both (rotation). Returns false when no/invalid refresh token exists.
+ * Uses a raw fetch so it never recurses through {@link apiFetch}.
+ */
+async function refreshSession(): Promise<boolean> {
+    if (typeof window === "undefined") {
+        return false;
+    }
+
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) {
+        return false;
+    }
+
+    if (!refreshInFlight) {
+        refreshInFlight = (async () => {
+            try {
+                const response = await fetch(`${getApiBaseUrl()}/auth/refresh`, {
+                    method: "POST",
+                    headers: {
+                        Accept: "application/json",
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ refreshToken }),
+                });
+
+                if (!response.ok) {
+                    return false;
+                }
+
+                const data = (await response.json()) as {
+                    accessToken?: string;
+                    refreshToken?: string;
+                };
+
+                if (!data.accessToken || !data.refreshToken) {
+                    return false;
+                }
+
+                setAuthTokens(data.accessToken, data.refreshToken);
+                return true;
+            } catch {
+                return false;
+            } finally {
+                refreshInFlight = null;
+            }
+        })();
+    }
+
+    return refreshInFlight;
+}
+
+/**
+ * Revokes the server session (best-effort) and clears both tokens, then sends the
+ * admin to the login page. Safe to call even if no refresh token is stored.
+ */
+export async function logout(): Promise<void> {
+    const refreshToken = getRefreshToken();
+    if (refreshToken) {
+        try {
+            await fetch(`${getApiBaseUrl()}/auth/logout`, {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ refreshToken }),
+            });
+        } catch {
+            // Best-effort server revoke; always clear locally below.
+        }
+    }
+
+    clearAuthTokens();
+    redirectToLogin("logout");
 }
 
 function redirectToLogin(reason: string) {
@@ -1350,6 +1453,17 @@ export async function apiFetch<T>(
     init: RequestInit = {},
     params?: Record<string, QueryValue>
 ): Promise<T> {
+    // `allowRefresh` guards against infinite loops: a 401 triggers at most one
+    // /auth/refresh + retry; the retried call passes `false`.
+    return apiFetchInternal<T>(path, init, params, true);
+}
+
+async function apiFetchInternal<T>(
+    path: string,
+    init: RequestInit = {},
+    params: Record<string, QueryValue> | undefined,
+    allowRefresh: boolean
+): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
 
@@ -1382,6 +1496,16 @@ export async function apiFetch<T>(
     });
 
     if (response.status === 401) {
+        // Access token likely expired (short-lived). Try one refresh + retry
+        // before clearing the session — only logout if refresh fails. Skipped for
+        // the import-review dev-admin-header path, which does not use a JWT.
+        if (allowRefresh && !importPipelineApiDevAuth && getRefreshToken()) {
+            const refreshed = await refreshSession();
+            if (refreshed) {
+                return apiFetchInternal<T>(path, init, params, false);
+            }
+        }
+
         if (isImportReviewApiPath(path)) {
             markImportReviewApiAuthFailed();
         }

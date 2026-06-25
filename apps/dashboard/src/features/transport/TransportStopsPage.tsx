@@ -181,6 +181,49 @@ export default function TransportStopsPage() {
         [filters, router]
     );
 
+    // True when any search/filter narrows the list (page alone does not count).
+    const hasActiveFilters = useMemo(
+        () =>
+            Boolean(
+                filters.search ||
+                    filters.mode ||
+                    filters.stopType ||
+                    filters.reviewStatus ||
+                    filters.generatedName ||
+                    filters.hasRoutes ||
+                    filters.hasTerminal ||
+                    filters.adminAreaId.trim() ||
+                    filters.isActive
+            ),
+        [filters]
+    );
+
+    const clearFilters = useCallback(() => {
+        setSearchInput("");
+        setAdminAreaInput("");
+        router.replace(transportPath("stops"));
+    }, [router]);
+
+    // QA helper: one-click preset that surfaces likely accidental test stops
+    // (search "test", no routes, active) so each can be archived individually
+    // from Stop Detail. This is intentionally just a filter shortcut — there is
+    // no bulk delete/archive (see cleanup notes).
+    const applyTestStopPreset = useCallback(() => {
+        setSearchInput("test");
+        setAdminAreaInput("");
+        applyFilters({
+            search: "test",
+            hasRoutes: "false",
+            isActive: "true",
+            mode: "",
+            stopType: "",
+            reviewStatus: "",
+            generatedName: "",
+            hasTerminal: "",
+            adminAreaId: "",
+        });
+    }, [applyFilters]);
+
     // After a save in the drawer, refetch the current stops query in the
     // background. keepPreviousData keeps rows visible and the URL is unchanged,
     // so filters/page/scroll are preserved.
@@ -257,11 +300,15 @@ export default function TransportStopsPage() {
                             </button>
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setSearchInput("");
-                                    setAdminAreaInput("");
-                                    router.replace(transportPath("stops"));
-                                }}
+                                onClick={applyTestStopPreset}
+                                title={'Filter to active, unused stops named "test" so each can be archived individually from Stop Detail.'}
+                                className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
+                            >
+                                Find test stops
+                            </button>
+                            <button
+                                type="button"
+                                onClick={clearFilters}
                                 className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                             >
                                 Reset
@@ -400,8 +447,28 @@ export default function TransportStopsPage() {
                                 </tr>
                             ) : items.length === 0 ? (
                                 <tr>
-                                    <td colSpan={9} className="px-3 py-8 text-center text-gray-500">
-                                        No stops match the current filters.
+                                    <td colSpan={9} className="px-3 py-12">
+                                        <div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-center">
+                                            <p className="text-sm font-medium text-gray-900">
+                                                {hasActiveFilters
+                                                    ? "No stops match these filters"
+                                                    : "No stops yet"}
+                                            </p>
+                                            <p className="text-sm text-gray-500">
+                                                {hasActiveFilters
+                                                    ? "Try adjusting or clearing the search and filters above."
+                                                    : "Stops will appear here once transport data has been imported."}
+                                            </p>
+                                            {hasActiveFilters ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={clearFilters}
+                                                    className="mt-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                                >
+                                                    Clear filters
+                                                </button>
+                                            ) : null}
+                                        </div>
                                     </td>
                                 </tr>
                             ) : (

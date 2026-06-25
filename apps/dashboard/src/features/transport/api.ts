@@ -9,6 +9,7 @@ import type {
     TransportRouteDetail,
     TransportRouteListItem,
     TransportRouteStopItem,
+    TransportStopArchiveResult,
     TransportStopDetail,
     TransportStopListItem,
     TransportStopRouteUsage,
@@ -429,6 +430,28 @@ export function updateTransportStop(
         body: JSON.stringify(body),
         ...fetchInit,
     });
+}
+
+/**
+ * Archive (soft-delete) a stop. The backend rejects with 409 when the stop is
+ * still used by routes; on success the stop (and any linked terminal) is
+ * soft-deleted. Never hard-deletes and never removes route_stops / source links.
+ */
+export function archiveTransportStop(
+    publicId: string,
+    reason?: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const trimmedReason = reason?.trim();
+    return apiFetch<TransportStopArchiveResult>(
+        `/transport/stops/${encodeURIComponent(publicId)}`,
+        {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            ...(trimmedReason ? { body: JSON.stringify({ reason: trimmedReason }) } : {}),
+            ...fetchInit,
+        }
+    );
 }
 
 export function getTransportRouteDetail(

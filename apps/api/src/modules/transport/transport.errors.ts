@@ -49,3 +49,29 @@ export class TransportRouteStopDuplicateError extends Error {
         this.name = "TransportRouteStopDuplicateError";
     }
 }
+
+/**
+ * Thrown when an interactive route-stop transaction is closed by Prisma before
+ * all of its queries finish (Prisma error P2028). Surfaced as a clear, retryable
+ * error instead of leaking the raw Prisma transaction-not-found message.
+ */
+export class TransportRouteStopTransactionTimeoutError extends Error {
+    constructor() {
+        super("Transport route stop transaction timed out");
+        this.name = "TransportRouteStopTransactionTimeoutError";
+    }
+}
+
+/**
+ * Thrown when archiving a stop that is still referenced by one or more routes
+ * (counted as distinct routes via non-deleted variants). The stop must be
+ * removed from all routes first; archiving never deletes route_stops rows.
+ */
+export class TransportStopInUseError extends Error {
+    constructor(public readonly routeCount: number) {
+        super(
+            "This stop is still used by routes. Remove it from all routes before deleting."
+        );
+        this.name = "TransportStopInUseError";
+    }
+}
