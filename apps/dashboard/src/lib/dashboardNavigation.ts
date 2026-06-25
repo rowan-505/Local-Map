@@ -2,9 +2,12 @@ import {
     BarChart3,
     Bus,
     ClipboardList,
+    Coins,
     Library,
+    LineChart,
     Route,
     ScanSearch,
+    Users,
     type LucideIcon,
 } from "lucide-react";
 
@@ -13,24 +16,33 @@ import { listImportReviewNavEntityConfigs } from "@/src/features/import-review/c
 import {
     coreReviewPath,
     importReviewPath,
+    pointManagementPath,
     referencesPath,
     routingAdminPath,
     statsPath,
     transportPath,
+    userAnalyticsPath,
+    usersPath,
 } from "@/src/lib/dashboardPaths";
 
 export {
     CORE_REVIEW_PATH,
     DASHBOARD_PATH,
     IMPORT_REVIEW_PATH,
+    POINT_MANAGEMENT_PATH,
     REFERENCES_PATH,
     STATS_PATH,
     TRANSPORT_PATH,
+    USERS_PATH,
+    USER_ANALYTICS_PATH,
     coreReviewPath,
     importReviewPath,
+    pointManagementPath,
     referencesPath,
     statsPath,
     transportPath,
+    userAnalyticsPath,
+    usersPath,
 } from "@/src/lib/dashboardPaths";
 
 export type DashboardSidebarModuleKey =
@@ -39,7 +51,10 @@ export type DashboardSidebarModuleKey =
     | "references"
     | "routing"
     | "stats"
-    | "transport";
+    | "transport"
+    | "users"
+    | "user-analytics"
+    | "point-management";
 
 export type FamilyNavTab = {
     label: string;
@@ -66,7 +81,10 @@ export function sidebarModuleFromPathname(pathname: string): DashboardSidebarMod
         key === "references" ||
         key === "routing" ||
         key === "stats" ||
-        key === "transport"
+        key === "transport" ||
+        key === "users" ||
+        key === "user-analytics" ||
+        key === "point-management"
     ) {
         return key;
     }
@@ -109,6 +127,28 @@ export const dashboardSidebarItems: readonly DashboardSidebarItem[] = [
         href: transportPath(),
         label: "Transport",
         Icon: Bus,
+    },
+];
+
+/** "User Management" sidebar section (auth users, analytics, manual points). */
+export const userManagementSidebarItems: readonly DashboardSidebarItem[] = [
+    {
+        moduleKey: "users",
+        href: usersPath(),
+        label: "Users",
+        Icon: Users,
+    },
+    {
+        moduleKey: "user-analytics",
+        href: userAnalyticsPath(),
+        label: "Analytics",
+        Icon: LineChart,
+    },
+    {
+        moduleKey: "point-management",
+        href: pointManagementPath(),
+        label: "Point Management",
+        Icon: Coins,
     },
 ];
 

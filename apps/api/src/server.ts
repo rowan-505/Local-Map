@@ -9,8 +9,10 @@ config({ path: resolve(repoRoot, ".env") });
 config({ path: resolve(apiRoot, ".env"), override: true });
 
 import { getApiEnv, loadApiEnv } from "./config/env.js";
+import { assertAuthBypassNotInProduction } from "./plugins/auth.js";
 
 loadApiEnv();
+assertAuthBypassNotInProduction();
 
 async function start() {
     const { buildApp } = await import("./app.js");

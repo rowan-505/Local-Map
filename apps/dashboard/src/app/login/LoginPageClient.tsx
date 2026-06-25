@@ -255,12 +255,6 @@ export default function LoginPageClient() {
                         set.
                     </p>
                 ) : null}
-
-                <p className="mt-4 text-center text-sm text-gray-600">
-                    <Link href="/signup" className="text-gray-900 underline">
-                        Create demo admin account
-                    </Link>
-                </p>
             </form>
         </main>
     );

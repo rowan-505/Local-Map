@@ -11,9 +11,15 @@ import {
   MapSidebar,
   MorePanelPlaceholder,
   type RouteDestination,
-  SavedPanelPlaceholder,
   type SidebarMode,
 } from '@/features/map/components/MapSidebar';
+import { AccountMenu } from '@/features/auth/components/AccountMenu';
+import { AccountPanel } from '@/features/auth/components/AccountPanel';
+import { useAuth } from '@/features/auth/state/useAuth';
+import {
+  SavedPlacesPanel,
+  type SavedLocationSelection,
+} from '@/features/saved-places/components/SavedPlacesPanel';
 import MapView from '@/features/map/components/MapView';
 import { RoutePlannerPanel } from '@/features/map/components/RoutePlannerPanel';
 import type { DirectionsMapOverlay } from '@/features/map/lib/maplibre/directionsRouteGeoJson';
@@ -52,6 +58,7 @@ export default function HomePage() {
   } = useCategoryFilter();
   const languageMode = useMapUiStore((s) => s.languageMode);
   const setLanguageMode = useMapUiStore((s) => s.setLanguageMode);
+  const { authModalView, closeAuthModal } = useAuth();
 
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null);
   const [selectedSearchResult, setSelectedSearchResult] =
@@ -215,6 +222,36 @@ export default function HomePage() {
     setIsSidebarOpen(true);
   }, []);
 
+  const openAccountDrawer = useCallback(() => {
+    setActiveSidebarMode('account');
+    setIsSidebarOpen(true);
+  }, []);
+
+  const openSavedDrawer = useCallback(() => {
+    setActiveSidebarMode('saved');
+    setIsSidebarOpen(true);
+  }, []);
+
+  const onSelectSavedLocation = useCallback((selection: SavedLocationSelection) => {
+    setSelectedPoiId(null);
+    setSelectedSearchResult(null);
+    setClickedLocation(null);
+    setCameraTarget({
+      type: 'point',
+      center: [selection.longitude, selection.latitude],
+      zoom: 16,
+      duration: 800,
+    });
+  }, []);
+
+  // Any surface can request sign-in via openAuthModal (e.g. the Save button).
+  // Instead of a centered modal, surface the auth form inside the left drawer.
+  useEffect(() => {
+    if (authModalView === null) return;
+    openAccountDrawer();
+    closeAuthModal();
+  }, [authModalView, closeAuthModal, openAccountDrawer]);
+
   const onRoutePlace = useCallback(
     (
       field: 'from' | 'to',
@@ -298,6 +335,12 @@ export default function HomePage() {
             setActiveSidebarMode(mode);
             setIsSidebarOpen(true);
           }}
+          accountSlot={
+            <AccountMenu
+              onOpen={openAccountDrawer}
+              active={activeSidebarMode === 'account'}
+            />
+          }
         />
       }
       map={
@@ -378,8 +421,9 @@ export default function HomePage() {
             />
           }
           busPanel={<BusPanelPlaceholder />}
-          savedPanel={<SavedPanelPlaceholder />}
+          savedPanel={<SavedPlacesPanel onSelectLocation={onSelectSavedLocation} />}
           morePanel={<MorePanelPlaceholder />}
+          accountPanel={<AccountPanel onOpenSaved={openSavedDrawer} />}
         />
       }
       floatingControls={

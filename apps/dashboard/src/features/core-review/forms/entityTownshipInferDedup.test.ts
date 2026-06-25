@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import assert from "node:assert/strict";
+import { afterEach, describe, it, mock } from "node:test";
 
 import {
     abortInferDedupKey,
@@ -9,10 +10,13 @@ import {
     stableInferGeometryKey,
 } from "./entityTownshipInferDedup";
 
+// Real timers with a tiny debounce keep these async/abort flows deterministic
+// without depending on fake-timer microtask semantics.
+const DEBOUNCE_MS = 5;
+
 describe("entityTownshipInferDedup", () => {
     afterEach(() => {
         resetInferDedupStateForTests();
-        vi.useRealTimers();
     });
 
     it("builds stable dedup keys for equivalent geometry coordinates", () => {
@@ -41,40 +45,40 @@ describe("entityTownshipInferDedup", () => {
             null,
         );
 
-        expect(geometryKey).toBe(geometryKeyRounded);
-        expect(
+        assert.equal(geometryKey, geometryKeyRounded);
+        assert.equal(
             buildInferDedupKey({
                 kind: "street",
                 entityPublicId: "b9a8902c-d202-46b6-8e89-0a3bab75a648",
                 currentAdminAreaId: "42",
                 geometryKey,
             }),
-        ).toBe(
             "street|b9a8902c-d202-46b6-8e89-0a3bab75a648|42|" + geometryKey,
         );
     });
 
     it("dedupes concurrent schedules for the same key", async () => {
-        vi.useFakeTimers();
+        const run = mock.fn(async () => ({
+            admin_area_id: "1",
+            canonical_name: "Township",
+            admin_level_code: null,
+            name_mm: null,
+            name_en: null,
+            geometry_contains: false,
+        }));
 
-        const run = vi.fn(async () => ({ admin_area_id: "1", canonical_name: "Township" }));
-
-        const first = scheduleInferDeduped("street|road|1|geom", 500, run);
-        const second = scheduleInferDeduped("street|road|1|geom", 500, run);
-
-        await vi.advanceTimersByTimeAsync(500);
+        const first = scheduleInferDeduped("street|road|1|geom", DEBOUNCE_MS, run);
+        const second = scheduleInferDeduped("street|road|1|geom", DEBOUNCE_MS, run);
 
         const [resultA, resultB] = await Promise.all([first, second]);
 
-        expect(run).toHaveBeenCalledTimes(1);
-        expect(resultA).toEqual(resultB);
+        assert.equal(run.mock.callCount(), 1);
+        assert.deepEqual(resultA, resultB);
     });
 
     it("aborts stale in-flight requests when the key changes", async () => {
-        vi.useFakeTimers();
-
         let aborted = false;
-        const firstRun = vi.fn(
+        const firstRun = mock.fn(
             (_signal: AbortSignal) =>
                 new Promise<never>((_resolve, reject) => {
                     _signal.addEventListener("abort", () => {
@@ -83,60 +87,83 @@ describe("entityTownshipInferDedup", () => {
                     });
                 }),
         );
-        const secondRun = vi.fn(async () => ({ admin_area_id: "2", canonical_name: "Other" }));
-
-        const firstPromise = scheduleInferDeduped("street|road|1|geom-a", 500, firstRun);
-        await vi.advanceTimersByTimeAsync(500);
-        const firstSettled = firstPromise.catch((error: unknown) => error);
-
-        abortInferDedupKey("street|road|1|geom-a");
-
-        const secondPromise = scheduleInferDeduped("street|road|1|geom-b", 500, secondRun);
-        await vi.advanceTimersByTimeAsync(500);
-
-        await expect(firstSettled).resolves.toBeTruthy();
-        await expect(secondPromise).resolves.toEqual({
+        const secondRun = mock.fn(async () => ({
             admin_area_id: "2",
             canonical_name: "Other",
+            admin_level_code: null,
+            name_mm: null,
+            name_en: null,
+            geometry_contains: false,
+        }));
+
+        const firstPromise = scheduleInferDeduped("street|road|1|geom-a", DEBOUNCE_MS, firstRun);
+        const firstSettled = firstPromise.catch((error: unknown) => error);
+
+        // Let the debounce fire and the in-flight run start before aborting.
+        await delay(DEBOUNCE_MS * 4);
+        abortInferDedupKey("street|road|1|geom-a");
+
+        const secondPromise = scheduleInferDeduped("street|road|1|geom-b", DEBOUNCE_MS, secondRun);
+
+        assert.ok(await firstSettled);
+        assert.deepEqual(await secondPromise, {
+            admin_area_id: "2",
+            canonical_name: "Other",
+            admin_level_code: null,
+            name_mm: null,
+            name_en: null,
+            geometry_contains: false,
         });
-        expect(aborted).toBe(true);
-        expect(secondRun).toHaveBeenCalledTimes(1);
+        assert.equal(aborted, true);
+        assert.equal(secondRun.mock.callCount(), 1);
     });
 
     it("does not reuse cached query_error infer results", async () => {
-        vi.useFakeTimers();
-
         const key = "street|road|1|geom";
         const queryErrorResult = {
             admin_area_id: null,
             canonical_name: null,
+            admin_level_code: null,
+            name_mm: null,
+            name_en: null,
+            geometry_contains: false,
             status: "no_match" as const,
             debugReason: "query_error" as const,
             message: "Township recommendation failed due to a query error (query_error).",
         };
 
-        const run = vi.fn(async () => ({
+        const run = mock.fn(async () => ({
             admin_area_id: "42",
             canonical_name: "Kyauktan",
+            admin_level_code: null,
+            name_mm: null,
+            name_en: null,
+            geometry_contains: true,
             status: "recommendation_found" as const,
             debugReason: null,
         }));
 
-        const first = scheduleInferDeduped(key, 500, async () => queryErrorResult);
-        await vi.advanceTimersByTimeAsync(500);
+        const first = scheduleInferDeduped(key, DEBOUNCE_MS, async () => queryErrorResult);
         await first;
-        expect(peekCompletedInferResult(key)).toBeUndefined();
+        assert.equal(peekCompletedInferResult(key), undefined);
 
-        const second = scheduleInferDeduped(key, 500, run);
-        await vi.advanceTimersByTimeAsync(500);
+        const second = scheduleInferDeduped(key, DEBOUNCE_MS, run);
         const result = await second;
 
-        expect(run).toHaveBeenCalledTimes(1);
-        expect(result).toEqual({
+        assert.equal(run.mock.callCount(), 1);
+        assert.deepEqual(result, {
             admin_area_id: "42",
             canonical_name: "Kyauktan",
+            admin_level_code: null,
+            name_mm: null,
+            name_en: null,
+            geometry_contains: true,
             status: "recommendation_found",
             debugReason: null,
         });
     });
 });
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}

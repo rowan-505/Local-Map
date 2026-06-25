@@ -6,6 +6,8 @@ type RailMode = Extract<SidebarMode, 'search' | 'route' | 'saved' | 'more'>;
 type MapLeftRailProps = {
   readonly activeMode: SidebarMode;
   readonly onModeChange: (mode: RailMode) => void;
+  /** Account control (sign-in / profile). Pinned to the end of the rail. */
+  readonly accountSlot?: ReactNode;
 };
 
 const RAIL_ITEMS: readonly {
@@ -20,7 +22,7 @@ const RAIL_ITEMS: readonly {
   { mode: 'more', label: 'More', icon: <MoreIcon /> },
 ];
 
-export function MapLeftRail({ activeMode, onModeChange }: MapLeftRailProps) {
+export function MapLeftRail({ activeMode, onModeChange, accountSlot }: MapLeftRailProps) {
   return (
     <nav
       className="pointer-events-auto absolute left-3 top-3 z-40 flex w-auto scale-90 gap-1 rounded-3xl border border-white/80 bg-white/95 p-1 shadow-xl shadow-neutral-950/15 backdrop-blur-xl origin-top-left lg:bottom-4 lg:left-4 lg:top-4 lg:w-16 lg:scale-100 lg:flex-col lg:items-center lg:p-1.5"
@@ -52,6 +54,11 @@ export function MapLeftRail({ activeMode, onModeChange }: MapLeftRailProps) {
           );
         })}
       </div>
+      {accountSlot ? (
+        <div className="flex items-center lg:mt-2 lg:flex-col lg:border-t lg:border-neutral-200/70 lg:pt-2">
+          {accountSlot}
+        </div>
+      ) : null}
     </nav>
   );
 }

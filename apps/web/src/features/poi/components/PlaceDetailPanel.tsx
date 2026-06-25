@@ -2,6 +2,7 @@ import { memo } from 'react';
 import type { ReactNode } from 'react';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import { useReverseAddress } from '@/features/map/api/useReverseAddress';
+import { SaveButton } from '@/features/saved-places/components/SaveButton';
 import type { PlaceLanguageMode, PublicSearchResult } from '@/features/poi/api/publicMapApi';
 import type { Poi } from '@/types';
 import { getLocalizedName } from '@local-map/localized-name';
@@ -133,6 +134,10 @@ function PlaceDetailPanelInner({
           >
             Coords
           </PrimaryActionButton>
+        </div>
+
+        <div className="mt-2">
+          <SaveButton placeApiId={selectedPoi?.apiId} />
         </div>
       </div>
 

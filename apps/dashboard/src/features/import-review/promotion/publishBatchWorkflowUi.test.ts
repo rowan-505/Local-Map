@@ -39,6 +39,13 @@ const passedValidation: ImportReviewPublishBatchValidationResultSummary = {
     blocked_count: 0,
     total_count: 5,
     can_promote: true,
+    requires_warning_confirmation: false,
+    warning_count: 0,
+    skipped_count: 0,
+    total_items: 5,
+    by_publish_action: { insert: 5, update: 0, merge: 0 },
+    by_entity: {},
+    promotable_entity_families: [],
 };
 
 function workflowArgs(overrides: {

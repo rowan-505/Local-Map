@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import { Prisma } from "@prisma/client";
 
 import { disconnectImportReviewPrisma } from "./db/import-review-prisma.js";
@@ -11,6 +12,9 @@ import { swaggerCorePlugin, swaggerUiPlugin } from "./plugins/swagger.js";
 import adminAreasRoutes from "./modules/admin-areas/admin-areas.routes.js";
 import entityAdminAreaRoutes from "./modules/entity-admin-area/entity-admin-area.routes.js";
 import authRoutes from "./modules/auth/auth.routes.js";
+import savedPlacesRoutes from "./modules/saved-places/saved-places.routes.js";
+import pointsRoutes from "./modules/points/points.routes.js";
+import adminUsersRoutes from "./modules/admin-users/admin-users.routes.js";
 import categoriesRoutes from "./modules/categories/categories.routes.js";
 import placesRoutes from "./modules/places/places.routes.js";
 import publicMapRoutes from "./modules/public-map/public-map.routes.js";
@@ -33,8 +37,23 @@ import { healthGetSchema } from "./lib/openapi/health.openapi.js";
 const LOCAL_DASHBOARD_ORIGIN = "http://localhost:3000";
 const LOCAL_WEB_ORIGIN = "http://localhost:5173";
 
+function isProductionEnv() {
+    return process.env.NODE_ENV === "production";
+}
+
+/**
+ * Allowed CORS origins. In production ONLY the explicit `CORS_ORIGIN` allowlist is
+ * trusted; localhost dev origins are never added. Outside production the localhost
+ * dashboard/web origins are included for convenience.
+ */
 function getCorsOrigins() {
-    const origins = new Set([LOCAL_DASHBOARD_ORIGIN, LOCAL_WEB_ORIGIN]);
+    const origins = new Set<string>();
+
+    if (!isProductionEnv()) {
+        origins.add(LOCAL_DASHBOARD_ORIGIN);
+        origins.add(LOCAL_WEB_ORIGIN);
+    }
+
     const configuredOrigins = process.env.CORS_ORIGIN?.split(",") ?? [];
 
     for (const origin of configuredOrigins) {
@@ -57,11 +76,33 @@ export async function buildApp() {
 
     registerPublicErrorHandler(app);
 
+    const corsOrigins = getCorsOrigins();
+    if (isProductionEnv() && corsOrigins.length === 0) {
+        app.log.warn(
+            "CORS_ORIGIN is empty in production: all cross-origin requests will be blocked. Set CORS_ORIGIN to the dashboard/web origins."
+        );
+    }
+
     await app.register(cors, {
-        origin: getCorsOrigins(),
+        origin: corsOrigins,
         credentials: true,
         methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allowedHeaders: ["Content-Type", "Authorization", IMPORT_REVIEW_ADMIN_TOKEN_HEADER],
+    });
+
+    // Opt-in only (global: false): routes enable limits via `config.rateLimit`.
+    // In-memory store — no Redis. Sensitive auth routes opt in (see auth.routes.ts).
+    await app.register(rateLimit, {
+        global: false,
+        // The plugin throws this; returning an Error with statusCode lets the global
+        // error handler emit a sanitized 429 (never leaks limits/IPs/retry internals).
+        errorResponseBuilder: (_request, context) => {
+            const error = new Error(
+                "Too many requests. Please slow down and try again shortly."
+            ) as Error & { statusCode: number };
+            error.statusCode = context.statusCode;
+            return error;
+        },
     });
 
     await app.register(prismaPlugin);
@@ -80,6 +121,9 @@ export async function buildApp() {
     });
 
     await app.register(authRoutes);
+    await app.register(savedPlacesRoutes);
+    await app.register(pointsRoutes);
+    await app.register(adminUsersRoutes);
     await app.register(categoriesRoutes);
     await app.register(adminAreasRoutes);
     await app.register(entityAdminAreaRoutes);

@@ -42,6 +42,7 @@ function baseProgress(
             total_items: 756,
             by_publish_action: { insert: 756, update: 0, merge: 0 },
             by_entity: {},
+            promotable_entity_families: [],
         },
         validation_logs_summary: null,
         promotion_result: null,

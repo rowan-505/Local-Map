@@ -33,6 +33,16 @@ const apiEnvSchema = z
         VALHALLA_BASE_URL: z.string().url().default("http://localhost:8002"),
         ROUTING_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(8000),
         ROUTING_PUBLIC_PROFILES: z.string().default("walk,car,motorcycle"),
+        RESEND_API_KEY: z.string().optional(),
+        EMAIL_FROM: z.string().optional(),
+        EMAIL_OTP_SECRET: z.string().optional(),
+        EMAIL_OTP_TTL_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+        EMAIL_OTP_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+        // Per-IP auth rate limiting. WINDOW is the shared time window (ms) applied to
+        // all auth limits; MAX is the strict cap for POST /auth/login. The other auth
+        // routes use fixed sensible multiples of these (see authRateLimit below).
+        AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(10_000).default(10),
+        AUTH_RATE_LIMIT_WINDOW: z.coerce.number().int().min(1_000).max(3_600_000).default(60_000),
     })
     .transform((raw) => {
         const publicProfiles = parseCsvList(raw.ROUTING_PUBLIC_PROFILES);
@@ -62,6 +72,20 @@ const apiEnvSchema = z
                 requestTimeoutMs: raw.ROUTING_REQUEST_TIMEOUT_MS,
                 publicProfiles: publicProfiles as (typeof ROUTING_PUBLIC_PROFILE_ALLOWLIST)[number][],
             },
+            email: {
+                resendApiKey: raw.RESEND_API_KEY?.trim() || null,
+                from: raw.EMAIL_FROM?.trim() || null,
+                otpSecret: raw.EMAIL_OTP_SECRET?.trim() || null,
+                otpTtlMinutes: raw.EMAIL_OTP_TTL_MINUTES,
+                otpMaxAttempts: raw.EMAIL_OTP_MAX_ATTEMPTS,
+            },
+            authRateLimit: {
+                windowMs: raw.AUTH_RATE_LIMIT_WINDOW,
+                login: raw.AUTH_RATE_LIMIT_MAX,
+                register: 5,
+                sendOtp: 3,
+                refresh: 30,
+            },
         };
     })
     .superRefine((config, ctx) => {
@@ -79,6 +103,8 @@ const apiEnvSchema = z
 
 export type ApiEnv = z.infer<typeof apiEnvSchema>;
 export type RoutingEnvConfig = ApiEnv["routing"];
+export type EmailEnvConfig = ApiEnv["email"];
+export type AuthRateLimitConfig = ApiEnv["authRateLimit"];
 
 let cachedEnv: ApiEnv | null = null;
 
@@ -124,6 +150,14 @@ export function getApiEnv(): ApiEnv {
 
 export function getRoutingEnv(): RoutingEnvConfig {
     return getApiEnv().routing;
+}
+
+export function getEmailEnv(): EmailEnvConfig {
+    return getApiEnv().email;
+}
+
+export function getAuthRateLimitEnv(): AuthRateLimitConfig {
+    return getApiEnv().authRateLimit;
 }
 
 export function isRoutingEnabled(): boolean {

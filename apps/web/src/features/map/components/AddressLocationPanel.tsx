@@ -1,6 +1,8 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { MapClickedLocation } from '@/features/map/types';
 import { useReverseAddress } from '@/features/map/api/useReverseAddress';
+import { useAuth } from '@/features/auth/state/useAuth';
+import { useSavedPlaces } from '@/features/saved-places/state/useSavedPlaces';
 import type { RoutePoint } from '@/features/routing/lib/routePoint';
 
 type AddressLocationPanelProps = {
@@ -68,6 +70,13 @@ export function AddressLocationPanel({
             To
           </ActionButton>
         </div>
+
+        <SaveLocationControl
+          latitude={lat}
+          longitude={lng}
+          addressLine={reverse.data?.address_line ?? null}
+          plusCode={reverse.data?.plus_code ?? null}
+        />
       </div>
 
       <InfoSection title="Address">
@@ -93,6 +102,88 @@ export function AddressLocationPanel({
         <InfoRow label="Longitude" value={lng.toFixed(6)} mono />
       </InfoSection>
     </section>
+  );
+}
+
+/**
+ * "Save location" control for the inspected map point. Only visible to signed-in
+ * users (guests get a subtle prompt that opens the drawer auth panel). Saves via
+ * /me/saved-places with entityType='map_point'. Saved state resets when the
+ * inspected coordinates change.
+ */
+function SaveLocationControl({
+  latitude,
+  longitude,
+  addressLine,
+  plusCode,
+}: {
+  readonly latitude: number;
+  readonly longitude: number;
+  readonly addressLine: string | null;
+  readonly plusCode: string | null;
+}) {
+  const { isAuthenticated, openAuthModal } = useAuth();
+  const { saveMapPoint } = useSavedPlaces();
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset saved/error state whenever a new point is inspected.
+  useEffect(() => {
+    setSaved(false);
+    setError(null);
+  }, [latitude, longitude]);
+
+  if (!isAuthenticated) {
+    return (
+      <button
+        type="button"
+        className="mt-3 text-xs font-semibold text-sky-600 transition-colors hover:text-sky-700"
+        onClick={() => openAuthModal('login')}
+      >
+        Sign in to save this location
+      </button>
+    );
+  }
+
+  const onSave = async () => {
+    if (busy || saved) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await saveMapPoint({
+        latitude,
+        longitude,
+        ...(addressLine ? { addressLine } : {}),
+        ...(plusCode ? { plusCode } : {}),
+      });
+      setSaved(true);
+    } catch {
+      setError('Could not save. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        className={`inline-flex min-h-9 items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors disabled:opacity-60 ${
+          saved
+            ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
+            : 'bg-sky-600 text-white hover:bg-sky-700'
+        }`}
+        disabled={busy || saved}
+        onClick={() => void onSave()}
+      >
+        <span className="grid h-4 w-4 place-items-center">
+          {saved ? <CheckIcon /> : <BookmarkIcon />}
+        </span>
+        {saved ? 'Saved' : busy ? 'Saving…' : 'Save location'}
+      </button>
+      {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
+    </div>
   );
 }
 
@@ -147,6 +238,27 @@ function ActionButton({
       <span className="grid h-4 w-4 place-items-center text-neutral-500">{icon}</span>
       {children}
     </button>
+  );
+}
+
+function BookmarkIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M4 3.5A1.5 1.5 0 0 1 5.5 2h5A1.5 1.5 0 0 1 12 3.5V14l-4-2.8L4 14V3.5Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="m3.5 8.5 3 3 6-7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 

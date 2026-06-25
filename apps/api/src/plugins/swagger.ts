@@ -53,7 +53,7 @@ export const swaggerCorePlugin = fp(
                 servers: buildOpenApiServers(),
                 tags: [
                     { name: "Health", description: "Service liveness and readiness-style checks." },
-                    { name: "Auth", description: "Login, signup, and token issuance." },
+                    { name: "Auth", description: "Login, registration, and token issuance." },
                     { name: "User", description: "Authenticated user profile (`/me`)." },
                     { name: "Categories", description: "Place category reference data (public and internal)." },
                     { name: "Admin Areas", description: "Administrative boundaries and GeoJSON layers." },

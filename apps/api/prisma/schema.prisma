@@ -5,33 +5,49 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["app_auth", "core", "ref"]
+  schemas  = ["app", "app_auth", "contrib", "core", "ref", "system"]
 }
 
 model AuthUser {
-  id           BigInt        @id @default(autoincrement())
-  publicId     String        @unique @default(dbgenerated("gen_random_uuid()")) @map("public_id") @db.Uuid
-  email        String        @unique @db.Text
-  passwordHash String        @map("password_hash") @db.Text
-  displayName  String        @map("display_name") @db.Text
-  isActive     Boolean       @default(true) @map("is_active")
-  lastLoginAt  DateTime?     @map("last_login_at") @db.Timestamptz(6)
-  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
-  userRoles    AuthUserRole[]
+  id                BigInt    @id @default(autoincrement())
+  publicId          String    @unique @default(dbgenerated("gen_random_uuid()")) @map("public_id") @db.Uuid
+  email             String    @unique @db.Text
+  passwordHash      String    @map("password_hash") @db.Text
+  displayName       String    @map("display_name") @db.Text
+  isActive          Boolean   @default(true) @map("is_active")
+  lastLoginAt       DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  phone             String?   @db.Text
+  emailVerified     Boolean   @default(false) @map("email_verified")
+  accountStatus     String    @default("active") @map("account_status") @db.Text
+  primaryRegionId   BigInt?   @map("primary_region_id")
+  preferredLanguage String    @default("my") @map("preferred_language") @db.Text
+  lastSeenAt        DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+  adminNote         String?   @map("admin_note") @db.Text
+
+  userRoles             AuthUserRole[]
+  sessions              AuthSession[]
+  emailVerificationOtps EmailVerificationOtp[]
+  savedPlaces           UserSavedPlace[]
+  pointLedgerEntries    PointLedger[]          @relation("PointLedgerUser")
+  pointLedgerCreated    PointLedger[]          @relation("PointLedgerCreatedBy")
+  pointSummary          UserPointSummary?
+  auditLogs             AuditLog[]
 
   @@map("auth_users")
   @@schema("app_auth")
 }
 
 model AuthRole {
-  id          BigInt        @id @default(autoincrement())
-  code        String        @unique @db.Text
-  name        String        @unique @db.Text
-  description String?       @db.Text
-  isSystem    Boolean       @default(true) @map("is_system")
-  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+  id          BigInt         @id @default(autoincrement())
+  code        String         @unique @db.Text
+  name        String         @unique @db.Text
+  description String?        @db.Text
+  isSystem    Boolean        @default(true) @map("is_system")
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
   userRoles   AuthUserRole[]
 
   @@map("auth_roles")
@@ -39,28 +55,132 @@ model AuthRole {
 }
 
 model AuthUserRole {
-  id        BigInt    @id @default(autoincrement())
-  userId    BigInt    @map("user_id")
-  roleId    BigInt    @map("role_id")
+  id         BigInt   @id @default(autoincrement())
+  userId     BigInt   @map("user_id")
+  roleId     BigInt   @map("role_id")
   assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  user      AuthUser  @relation(fields: [userId], references: [id])
-  role      AuthRole  @relation(fields: [roleId], references: [id])
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user       AuthUser @relation(fields: [userId], references: [id])
+  role       AuthRole @relation(fields: [roleId], references: [id])
 
   @@unique([userId, roleId], map: "auth_user_roles_user_id_role_id_key")
   @@map("auth_user_roles")
   @@schema("app_auth")
 }
 
+model AuthSession {
+  id               BigInt    @id @default(autoincrement())
+  publicId         String    @unique @default(dbgenerated("gen_random_uuid()")) @map("public_id") @db.Uuid
+  userId           BigInt    @map("user_id")
+  refreshTokenHash String    @map("refresh_token_hash") @db.Text
+  userAgent        String?   @map("user_agent") @db.Text
+  ipAddress        String?   @map("ip_address") @db.Text
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt       DateTime? @map("last_used_at") @db.Timestamptz(6)
+  user             AuthUser  @relation(fields: [userId], references: [id])
+
+  @@map("auth_sessions")
+  @@schema("app_auth")
+}
+
+model EmailVerificationOtp {
+  id            BigInt    @id @default(autoincrement())
+  userId        BigInt    @map("user_id")
+  email         String    @db.Text
+  otpHash       String    @map("otp_hash") @db.Text
+  purpose       String    @default("email_verification") @db.Text
+  attemptsCount Int       @default(0) @map("attempts_count")
+  maxAttempts   Int       @default(5) @map("max_attempts")
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt    DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user          AuthUser  @relation(fields: [userId], references: [id])
+
+  @@map("email_verification_otps")
+  @@schema("app_auth")
+}
+
+model UserSavedPlace {
+  id          BigInt   @id @default(autoincrement())
+  userId      BigInt   @map("user_id")
+  entityType  String   @map("entity_type") @db.Text
+  // Required for entity_type='place'; NULL for 'map_point' (DB CHECK enforces this).
+  entityId    BigInt?  @map("entity_id")
+  customName  String?  @map("custom_name") @db.Text
+  note        String?  @db.Text
+  adminAreaId BigInt?  @map("admin_area_id")
+  // Map-point saves store their own coordinates / address. geom is set via raw SQL
+  // (ST_MakePoint) and is intentionally not modelled here (PostGIS type).
+  latitude    Float?   @db.DoublePrecision
+  longitude   Float?   @db.DoublePrecision
+  addressLine String?  @map("address_line") @db.Text
+  plusCode    String?  @map("plus_code") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user        AuthUser @relation(fields: [userId], references: [id])
+
+  // Partial unique (user_id, entity_id) WHERE entity_type='place' is enforced in SQL
+  // (migration 111); Prisma still surfaces the violation as P2002 on insert.
+  @@map("user_saved_places")
+  @@schema("app")
+}
+
+model PointLedger {
+  id                BigInt    @id @default(autoincrement())
+  userId            BigInt    @map("user_id")
+  pointsDelta       Int       @map("points_delta")
+  reasonCode        String    @map("reason_code") @db.Text
+  relatedEntityType String?   @map("related_entity_type") @db.Text
+  relatedEntityId   BigInt?   @map("related_entity_id")
+  note              String?   @db.Text
+  createdBy         BigInt?   @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user              AuthUser  @relation("PointLedgerUser", fields: [userId], references: [id])
+  creator           AuthUser? @relation("PointLedgerCreatedBy", fields: [createdBy], references: [id])
+
+  @@map("point_ledger")
+  @@schema("contrib")
+}
+
+model UserPointSummary {
+  userId                BigInt   @id @map("user_id")
+  totalPoints           Int      @default(0) @map("total_points")
+  lifetimePointsEarned  Int      @default(0) @map("lifetime_points_earned")
+  lifetimePointsRemoved Int      @default(0) @map("lifetime_points_removed")
+  updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  user                  AuthUser @relation(fields: [userId], references: [id])
+
+  @@map("user_point_summary")
+  @@schema("contrib")
+}
+
+model AuditLog {
+  id             BigInt    @id @default(autoincrement())
+  actorUserId    BigInt?   @map("actor_user_id")
+  actionType     String    @map("action_type") @db.Text
+  entityType     String    @map("entity_type") @db.Text
+  entityId       BigInt?   @map("entity_id")
+  beforeSnapshot Json?     @map("before_snapshot") @db.JsonB
+  afterSnapshot  Json?     @map("after_snapshot") @db.JsonB
+  ipAddress      String?   @map("ip_address") @db.Text
+  userAgent      String?   @map("user_agent") @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  actor          AuthUser? @relation(fields: [actorUserId], references: [id])
+
+  @@map("audit_logs")
+  @@schema("system")
+}
+
 model RefPoiCategory {
-  id           BigInt    @id @default(autoincrement())
-  parentId     BigInt?   @map("parent_id")
-  code         String    @unique @db.Text
-  name         String    @unique @db.Text
-  sortOrder    Int       @map("sort_order")
-  isSearchable Boolean   @default(true) @map("is_searchable")
-  isPublic     Boolean   @default(true) @map("is_public")
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id           BigInt   @id @default(autoincrement())
+  parentId     BigInt?  @map("parent_id")
+  code         String   @unique @db.Text
+  name         String   @unique @db.Text
+  sortOrder    Int      @map("sort_order")
+  isSearchable Boolean  @default(true) @map("is_searchable")
+  isPublic     Boolean  @default(true) @map("is_public")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("ref_poi_categories")
   @@schema("ref")

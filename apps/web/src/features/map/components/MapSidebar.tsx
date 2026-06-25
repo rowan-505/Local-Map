@@ -12,7 +12,8 @@ export type SidebarMode =
   | 'route'
   | 'bus'
   | 'saved'
-  | 'more';
+  | 'more'
+  | 'account';
 
 type MapSidebarProps = {
   readonly isOpen: boolean;
@@ -28,6 +29,7 @@ type MapSidebarProps = {
   readonly busPanel?: ReactNode;
   readonly savedPanel?: ReactNode;
   readonly morePanel?: ReactNode;
+  readonly accountPanel?: ReactNode;
 };
 
 export type BottomSheetState = 'collapsed' | 'half' | 'expanded';
@@ -46,6 +48,7 @@ export function MapSidebar({
   busPanel = <BusPanelPlaceholder />,
   savedPanel = <SavedPanelPlaceholder />,
   morePanel = <MorePanelPlaceholder />,
+  accountPanel = null,
 }: MapSidebarProps) {
   const meta = sidebarModeMeta(activeMode);
 
@@ -95,6 +98,7 @@ export function MapSidebar({
             busPanel={busPanel}
             savedPanel={savedPanel}
             morePanel={morePanel}
+            accountPanel={accountPanel}
           />
         </div>
       </aside>
@@ -246,6 +250,7 @@ export function SidebarModeContent({
   busPanel,
   savedPanel,
   morePanel,
+  accountPanel,
 }: {
   readonly activeMode: SidebarMode;
   readonly searchPanel: ReactNode;
@@ -255,6 +260,7 @@ export function SidebarModeContent({
   readonly busPanel: ReactNode;
   readonly savedPanel: ReactNode;
   readonly morePanel: ReactNode;
+  readonly accountPanel: ReactNode;
 }) {
   if (activeMode === 'placeDetail') return placeDetailPanel;
   if (activeMode === 'address') return addressPanel;
@@ -262,6 +268,7 @@ export function SidebarModeContent({
   if (activeMode === 'bus') return busPanel;
   if (activeMode === 'saved') return savedPanel;
   if (activeMode === 'more') return morePanel;
+  if (activeMode === 'account') return accountPanel;
   return searchPanel;
 }
 
@@ -282,6 +289,8 @@ function sidebarModeMeta(mode: SidebarMode): {
       return { eyebrow: 'Saved', title: 'Saved places' };
     case 'more':
       return { eyebrow: 'More', title: 'More tools' };
+    case 'account':
+      return { eyebrow: 'Account', title: 'Your account' };
     case 'search':
     default:
       return { eyebrow: 'Local Map', title: 'Kyauktan' };
