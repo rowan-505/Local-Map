@@ -29,6 +29,7 @@ import {
     getTransportInfrastructureLinesSchema,
     getTransportTerminalsSchema,
     getTransportVariantStopsSchema,
+    getTransportVariantOrderedStopsSchema,
     searchTransportStopsSchema,
     insertExistingRouteStopSchema,
     createAndInsertRouteStopSchema,
@@ -460,6 +461,22 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
     );
 
     app.get(
+        "/route-variants/:publicId/ordered-stops",
+        { schema: getTransportVariantOrderedStopsSchema },
+        async (request, reply) => {
+            try {
+                const { publicId } = transportPublicIdParamSchema.parse(request.params);
+                const result = await service.getOrderedStops(publicId);
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        }
+    );
+
+    app.get(
         "/route-variants/:publicId/stops",
         { schema: getTransportVariantStopsSchema },
         async (request, reply) => {
@@ -528,7 +545,7 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                     auditContextFrom(request)
                 );
                 request.log.info(
-                    { publicId, position: body.position, stops: result.total },
+                    { publicId, position: body.position, stops: result.route_stop_count },
                     "transport route stop inserted into variant"
                 );
                 return reply.send(result);
@@ -550,16 +567,34 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         "/route-variants/:publicId/stops/create-and-insert",
         { schema: createAndInsertRouteStopSchema },
         async (request, reply) => {
+            // TEMP perf: gated by TRANSPORT_PERF_LOG=1 (no-op otherwise).
+            const perfOn = process.env.TRANSPORT_PERF_LOG === "1";
+            const t0 = perfOn ? performance.now() : 0;
             try {
                 const { publicId } = transportPublicIdParamSchema.parse(request.params);
                 const body = createAndInsertRouteStopBodySchema.parse(request.body ?? {});
+                if (perfOn) {
+                    request.log.info(
+                        { ms: Number((performance.now() - t0).toFixed(1)) },
+                        "[transport.perf] create-and-insert | validate payload done"
+                    );
+                }
                 const result = await service.createAndInsertRouteStop(
                     publicId,
                     body,
                     auditContextFrom(request)
                 );
+                if (perfOn) {
+                    request.log.info(
+                        {
+                            ms: Number((performance.now() - t0).toFixed(1)),
+                            stops: result.route_stop_count,
+                        },
+                        "[transport.perf] create-and-insert | handler done (response ready)"
+                    );
+                }
                 request.log.info(
-                    { publicId, position: body.position, stops: result.total },
+                    { publicId, position: body.position, stops: result.route_stop_count },
                     "transport route stop created and inserted into variant"
                 );
                 return reply.send(result);
@@ -614,6 +649,9 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
     });
 
     app.delete("/route-stops/:id", { schema: deleteRouteStopSchema }, async (request, reply) => {
+        // TEMP perf: gated by TRANSPORT_PERF_LOG=1 (no-op otherwise).
+        const perfOn = process.env.TRANSPORT_PERF_LOG === "1";
+        const t0 = perfOn ? performance.now() : 0;
         try {
             const { id } = routeStopIdParamSchema.parse(request.params);
             const { reason } = removeRouteStopBodySchema.parse(request.body ?? {});
@@ -622,6 +660,15 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                 auditContextFrom(request),
                 reason
             );
+            if (perfOn) {
+                request.log.info(
+                    {
+                        ms: Number((performance.now() - t0).toFixed(1)),
+                        stops: result.route_stop_count,
+                    },
+                    "[transport.perf] remove-route-stop | handler done (response ready)"
+                );
+            }
             request.log.info({ id }, "transport route stop removed from variant");
             return reply.send(result);
         } catch (error) {

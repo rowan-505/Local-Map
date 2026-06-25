@@ -27,8 +27,10 @@ const LANGUAGE_LABELS: Record<string, string> = {
  */
 export function ProfileDrawerPanel({
   onOpenSaved,
+  onOpenReports,
 }: {
   readonly onOpenSaved?: () => void;
+  readonly onOpenReports?: () => void;
 }) {
   const { user, logout } = useAuth();
   const { items, loading: savedLoading } = useSavedPlaces();
@@ -113,6 +115,15 @@ export function ProfileDrawerPanel({
         onClick={onOpenSaved}
       >
         <span>View saved places</span>
+        <span className="text-neutral-400">›</span>
+      </button>
+
+      <button
+        type="button"
+        className="flex w-full items-center justify-between rounded-2xl border border-neutral-100 bg-white px-4 py-3 text-sm font-semibold text-neutral-800 shadow-sm shadow-neutral-950/3 transition-colors hover:bg-neutral-50"
+        onClick={onOpenReports}
+      >
+        <span>My reports</span>
         <span className="text-neutral-400">›</span>
       </button>
 

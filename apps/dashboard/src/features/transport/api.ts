@@ -24,7 +24,7 @@ import type {
     TransportVariantStopsResponse,
     TransportVariantSummary,
     RouteStopMutationResult,
-    RemoveRouteStopResult,
+    TransportRouteStopMutationResult,
     UpdateRouteStopBody,
     UpdateTransportRouteBody,
     UpdateTransportInfrastructureLineBody,
@@ -392,7 +392,7 @@ export function insertExistingRouteStop(
     body: InsertExistingRouteStopBody,
     fetchInit?: Pick<RequestInit, "signal">
 ) {
-    return apiFetch<TransportVariantStopsResponse>(
+    return apiFetch<TransportRouteStopMutationResult>(
         `/transport/route-variants/${encodeURIComponent(variantPublicId)}/stops/insert-existing`,
         {
             method: "POST",
@@ -408,7 +408,7 @@ export function createAndInsertRouteStop(
     body: CreateAndInsertRouteStopBody,
     fetchInit?: Pick<RequestInit, "signal">
 ) {
-    return apiFetch<TransportVariantStopsResponse>(
+    return apiFetch<TransportRouteStopMutationResult>(
         `/transport/route-variants/${encodeURIComponent(variantPublicId)}/stops/create-and-insert`,
         {
             method: "POST",
@@ -443,12 +443,17 @@ export function archiveTransportStop(
     fetchInit?: Pick<RequestInit, "signal">
 ) {
     const trimmedReason = reason?.trim();
+    // Always send a valid JSON body. The request sets Content-Type:
+    // application/json, and Fastify rejects an empty body for that content type
+    // ("Body cannot be empty..."). When there is no reason we send `{}` (the
+    // backend schema treats reason as optional); a reason is sent as `{ reason }`.
+    const body = trimmedReason ? { reason: trimmedReason } : {};
     return apiFetch<TransportStopArchiveResult>(
         `/transport/stops/${encodeURIComponent(publicId)}`,
         {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
-            ...(trimmedReason ? { body: JSON.stringify({ reason: trimmedReason }) } : {}),
+            body: JSON.stringify(body),
             ...fetchInit,
         }
     );
@@ -479,6 +484,20 @@ export type TransportVariantStopsParams = {
     limit?: number;
     offset?: number;
 };
+
+/**
+ * Lightweight ordered stops for the Route Detail panel + map markers. No path
+ * geometry (fetch that separately only when needed), no heavy stop fields.
+ */
+export function getTransportVariantOrderedStops(
+    variantPublicId: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportRouteStopMutationResult>(
+        `/transport/route-variants/${encodeURIComponent(variantPublicId)}/ordered-stops`,
+        { method: "GET", ...fetchInit }
+    );
+}
 
 export function getTransportVariantStops(
     variantPublicId: string,
@@ -564,7 +583,7 @@ export function removeTransportRouteStop(
     fetchInit?: Pick<RequestInit, "signal">
 ) {
     const trimmedReason = reason?.trim();
-    return apiFetch<RemoveRouteStopResult>(
+    return apiFetch<TransportRouteStopMutationResult>(
         `/transport/route-stops/${encodeURIComponent(id)}`,
         {
             method: "DELETE",

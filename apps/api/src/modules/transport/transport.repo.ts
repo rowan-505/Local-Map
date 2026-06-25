@@ -52,6 +52,9 @@ import type {
     TransportRouteDetail,
     TransportRouteListItem,
     TransportRouteStopItem,
+    TransportCreatedStopLite,
+    TransportOrderedStopLite,
+    TransportRouteStopMutationResult,
     TransportStopArchiveResult,
     TransportStopDetail,
     TransportStopListItem,
@@ -533,6 +536,38 @@ function perfSync<T>(label: string, fn: () => T): T {
         // eslint-disable-next-line no-console
         console.log(`[transport.perf] ${label}: ${ms}ms`);
     }
+}
+
+type PerfTimer = { mark: (checkpoint: string) => void; done: () => void };
+
+/**
+ * TEMPORARY checkpoint timer for the route-stop insert/remove hot paths. Gated by
+ * the same `TRANSPORT_PERF_LOG=1` flag (no-op otherwise). Each `mark` logs the
+ * delta since the previous mark plus elapsed-since-start, so a single request
+ * prints a full per-phase breakdown. Remove once the insert/delete perf work lands.
+ */
+function startPerf(label: string): PerfTimer {
+    if (!TRANSPORT_PERF_LOG) {
+        return { mark: () => {}, done: () => {} };
+    }
+    const t0 = performance.now();
+    let last = t0;
+    return {
+        mark(checkpoint: string) {
+            const now = performance.now();
+            // eslint-disable-next-line no-console
+            console.log(
+                `[transport.perf] ${label} | ${checkpoint}: +${(now - last).toFixed(1)}ms ` +
+                    `(t=${(now - t0).toFixed(1)}ms)`
+            );
+            last = now;
+        },
+        done() {
+            const now = performance.now();
+            // eslint-disable-next-line no-console
+            console.log(`[transport.perf] ${label} | TOTAL ${(now - t0).toFixed(1)}ms`);
+        },
+    };
 }
 
 function mapRouteStopRow(row: RouteStopRow): TransportRouteStopItem {
@@ -3164,6 +3199,118 @@ export class TransportRepository {
     }
 
     /**
+     * Lightweight ordered-stops read for the route_stop mutation responses. Returns
+     * the full 1..N ordered membership in the flat {@link TransportOrderedStopLite}
+     * shape (lng/lat as plain numbers via ST_X/ST_Y — no GeoJSON parse), the row
+     * count, and a cheap `has_verified_path` flag. No path geometry and no heavy
+     * stop fields, so the dashboard can update its panel/map/count from one cheap
+     * response instead of refetching the heavy includePath list. One variant lookup
+     * + one stops query (count derived from the rows, no separate COUNT(*)).
+     */
+    private async listOrderedStopsLite(variantPublicId: string): Promise<{
+        ordered_stops: TransportOrderedStopLite[];
+        route_stop_count: number;
+        has_verified_path: boolean;
+    }> {
+        const variantRows = await this.prisma.$queryRaw<{ id: bigint; has_path: boolean }[]>`
+            SELECT rv.id,
+                   EXISTS (
+                       SELECT 1 FROM transport.route_paths rp
+                       WHERE rp.route_variant_id = rv.id AND rp.deleted_at IS NULL
+                   ) AS has_path
+            FROM transport.route_variants rv
+            WHERE rv.public_id = ${variantPublicId}::uuid
+            LIMIT 1
+        `;
+        const variant = variantRows[0];
+        if (!variant) {
+            throw new TransportNotFoundError("route variant", variantPublicId);
+        }
+
+        // Timed (TRANSPORT_PERF_LOG=1) ordered-stops query. Joins only route_stops
+        // + stops, filters route_variant_id and non-deleted stops, orders by
+        // stop_sequence (uses the route_stops(route_variant_id, stop_sequence)
+        // index). ST_X/ST_Y return plain numbers — no GeoJSON serialization.
+        const rows = await perf("listOrderedStopsLite ordered-stops query", () =>
+            this.prisma.$queryRaw<
+                {
+                    route_stop_id: string;
+                    stop_public_id: string;
+                    stop_sequence: number;
+                    display_name: string;
+                    name_mm: string | null;
+                    name_en: string | null;
+                    mode: string;
+                    stop_type: string;
+                    longitude: number | null;
+                    latitude: number | null;
+                    pickup_type: number;
+                    drop_off_type: number;
+                    is_timing_point: boolean;
+                }[]
+            >`
+                SELECT
+                    rs.id::text AS route_stop_id,
+                    s.public_id::text AS stop_public_id,
+                    rs.stop_sequence,
+                    s.name AS display_name,
+                    s.name_mm,
+                    s.name_en,
+                    s.mode,
+                    s.stop_type,
+                    ST_X(s.geom)::float8 AS longitude,
+                    ST_Y(s.geom)::float8 AS latitude,
+                    rs.pickup_type,
+                    rs.drop_off_type,
+                    rs.is_timing_point
+                FROM transport.route_stops rs
+                JOIN transport.stops s ON s.id = rs.stop_id
+                WHERE rs.route_variant_id = ${variant.id}
+                  AND s.deleted_at IS NULL
+                ORDER BY rs.stop_sequence ASC
+            `
+        );
+
+        return {
+            ordered_stops: rows.map((r) => ({
+                route_stop_id: r.route_stop_id,
+                stop_public_id: r.stop_public_id,
+                stop_sequence: r.stop_sequence,
+                display_name: r.display_name,
+                name_mm: r.name_mm,
+                name_en: r.name_en,
+                mode: r.mode,
+                stop_type: r.stop_type,
+                longitude: r.longitude,
+                latitude: r.latitude,
+                pickup_type: r.pickup_type,
+                drop_off_type: r.drop_off_type,
+                is_timing_point: r.is_timing_point,
+            })),
+            route_stop_count: rows.length,
+            has_verified_path: variant.has_path,
+        };
+    }
+
+    /**
+     * Public lightweight ordered-stops read for the Route Detail ordered-stop panel
+     * + map markers. Same flat shape the mutation endpoints return (no path
+     * geometry, no source_refs/normalized_data, no route detail/list) so the panel
+     * loads fast and never waits on path serialization. The verified path overlay
+     * is fetched separately by the client only when `has_verified_path` is true.
+     */
+    async getOrderedStops(variantPublicId: string): Promise<TransportRouteStopMutationResult> {
+        await this.assertSchemaAvailable();
+        const lite = await this.listOrderedStopsLite(variantPublicId);
+        return {
+            variant_public_id: variantPublicId,
+            ordered_stops: lite.ordered_stops,
+            route_stop_count: lite.route_stop_count,
+            has_verified_path: lite.has_verified_path,
+        };
+    }
+
+    /**
      * Upserts a single localized route name row (`language_code` my/en) as the
      * editable source of truth. There is no unique constraint on
      * `(route_id, language_code)` yet, so this updates the FIRST existing row for
@@ -3681,10 +3828,12 @@ export class TransportRepository {
         id: bigint,
         audit?: TransportAuditContext,
         reason?: string
-    ): Promise<TransportVariantStopsResponse & { deleted: boolean; variantPublicId: string | null }> {
+    ): Promise<TransportRouteStopMutationResult> {
         await this.assertSchemaAvailable();
 
         const trimmedReason = typeof reason === "string" ? reason.trim() : "";
+
+        const perf = startPerf("remove-route-stop");
 
         let variantPublicId: string | null;
         try {
@@ -3702,10 +3851,12 @@ export class TransportRepository {
             if (!before) {
                 throw new TransportNotFoundError("route stop", String(id));
             }
+            perf.mark("route_stop loaded");
 
             await tx.$executeRaw`
                 DELETE FROM transport.route_stops WHERE id = ${id}
             `;
+            perf.mark("delete done");
 
             // Resequence the remaining membership rows to a gap-free 1..N. This uses
             // TWO bulk statements (temp slots strictly above the current max, then
@@ -3749,6 +3900,7 @@ export class TransportRepository {
                     WHERE rs.id = v.id
                 `);
             }
+            perf.mark(`resequence done (${changed.length} rows changed)`);
 
             const variantRows = await tx.$queryRaw<{ public_id: string }[]>`
                 SELECT public_id::text AS public_id
@@ -3790,6 +3942,7 @@ export class TransportRepository {
                 },
                 context: audit,
             });
+            perf.mark("audit written");
 
             return variantPublicId;
             }, ROUTE_STOP_TX_OPTIONS);
@@ -3799,26 +3952,31 @@ export class TransportRepository {
             }
             throw error;
         }
+        perf.mark("transaction committed");
 
-        // Re-read the committed ordered list with path (same shape as GET variant
-        // stops), plus the backward-compatible deleted / variantPublicId fields.
+        // Lightweight ordered re-read so the dashboard can update locally without a
+        // heavy includePath refetch. No path geometry (it does not change on a
+        // membership edit).
         if (variantPublicId === null) {
+            perf.done();
             return {
-                items: [],
-                total: 0,
-                limit: STOPS_LIST_MAX_LIMIT,
-                offset: 0,
-                path: null,
+                variant_public_id: null,
+                ordered_stops: [],
+                route_stop_count: 0,
+                has_verified_path: false,
                 deleted: true,
-                variantPublicId: null,
             };
         }
-        const stops = await this.listStopsForVariant(variantPublicId, {
-            limit: STOPS_LIST_MAX_LIMIT,
-            offset: 0,
-            includePath: true,
-        });
-        return { ...stops, deleted: true, variantPublicId };
+        const lite = await this.listOrderedStopsLite(variantPublicId);
+        perf.mark("response built (re-read stops, lite)");
+        perf.done();
+        return {
+            variant_public_id: variantPublicId,
+            ordered_stops: lite.ordered_stops,
+            route_stop_count: lite.route_stop_count,
+            has_verified_path: lite.has_verified_path,
+            deleted: true,
+        };
     }
 
     /**
@@ -3999,7 +4157,7 @@ export class TransportRepository {
         variantPublicId: string,
         input: InsertExistingRouteStopInput,
         audit?: TransportAuditContext
-    ): Promise<TransportVariantStopsResponse> {
+    ): Promise<TransportRouteStopMutationResult> {
         await this.assertSchemaAvailable();
 
         try {
@@ -4049,14 +4207,15 @@ export class TransportRepository {
             throw error;
         }
 
-        // Re-read the committed ordered list with path (same shape as GET variant
-        // stops) OUTSIDE the transaction, so the heavy read never counts against
-        // the interactive-transaction window.
-        return this.listStopsForVariant(variantPublicId, {
-            limit: STOPS_LIST_MAX_LIMIT,
-            offset: 0,
-            includePath: true,
-        });
+        // Lightweight ordered re-read OUTSIDE the transaction (no path geometry), so
+        // the dashboard can update locally without a heavy includePath refetch.
+        const lite = await this.listOrderedStopsLite(variantPublicId);
+        return {
+            variant_public_id: variantPublicId,
+            ordered_stops: lite.ordered_stops,
+            route_stop_count: lite.route_stop_count,
+            has_verified_path: lite.has_verified_path,
+        };
     }
 
     /**
@@ -4070,18 +4229,27 @@ export class TransportRepository {
         variantPublicId: string,
         input: CreateAndInsertRouteStopInput,
         audit?: TransportAuditContext
-    ): Promise<TransportVariantStopsResponse> {
+    ): Promise<TransportRouteStopMutationResult> {
         await this.assertSchemaAvailable();
 
-        try {
-            await this.prisma.$transaction(async (tx) => {
-            const variant = await this.resolveVariantForInsert(tx, variantPublicId);
+        const perf = startPerf("create-and-insert");
 
-            const nameMm = input.name_mm ?? null;
-            const nameEn = input.name_en ?? null;
-            // Display-name cache mirrors updateStop: prefer Myanmar, fall back to English.
-            // At least one is guaranteed present by the schema refine.
-            const derivedName = (nameMm ?? nameEn) as string;
+        const nameMm = input.name_mm ?? null;
+        const nameEn = input.name_en ?? null;
+        // Display-name cache mirrors updateStop: prefer Myanmar, fall back to English.
+        // At least one is guaranteed present by the schema refine. Pure from input,
+        // so computed outside the transaction.
+        const derivedName = (nameMm ?? nameEn) as string;
+
+        let txResult: {
+            new_stop_id: bigint;
+            stop_public_id: string;
+            route_stop_id: bigint;
+            variant_id: bigint;
+        };
+        try {
+            txResult = await this.prisma.$transaction(async (tx) => {
+            const variant = await this.resolveVariantForInsert(tx, variantPublicId);
 
             const insertedStopRows = await tx.$queryRaw<{ id: bigint; public_id: string }[]>`
                 INSERT INTO transport.stops (name, name_mm, name_en, mode, stop_type, geom)
@@ -4093,6 +4261,7 @@ export class TransportRepository {
             `;
             const stopId = insertedStopRows[0].id;
             const stopPublicId = insertedStopRows[0].public_id;
+            perf.mark("stop created");
 
             // transport.stop_names is the source of truth for localized names.
             if (nameMm !== null) {
@@ -4101,6 +4270,7 @@ export class TransportRepository {
             if (nameEn !== null) {
                 await this.upsertLocalizedStopName(tx, stopId, "en", nameEn);
             }
+            perf.mark("stop_names written");
 
             await insertTransportAuditLog(tx, {
                 action: "transport.stop.create",
@@ -4124,8 +4294,9 @@ export class TransportRepository {
                 },
                 context: audit,
             });
+            perf.mark("stop.create audit written");
 
-            await this.insertStopIntoVariantTx(tx, {
+            const insertedRouteStopId = await this.insertStopIntoVariantTx(tx, {
                 variantId: variant.id,
                 variantPublicId,
                 stopId,
@@ -4137,7 +4308,17 @@ export class TransportRepository {
                 is_timing_point: input.is_timing_point,
                 audit,
                 extraMetadata: { created_stop: true, created_stop_public_id: stopPublicId },
+                perf,
             });
+
+            // Return only the minimal identifiers from inside the transaction; the
+            // response (created_stop summary + ordered list) is built after commit.
+            return {
+                new_stop_id: stopId,
+                stop_public_id: stopPublicId,
+                route_stop_id: insertedRouteStopId,
+                variant_id: variant.id,
+            };
             }, ROUTE_STOP_TX_OPTIONS);
         } catch (error) {
             if (isPrismaTransactionTimeout(error)) {
@@ -4145,13 +4326,31 @@ export class TransportRepository {
             }
             throw error;
         }
+        perf.mark("transaction committed");
 
-        // Heavy ordered re-read runs OUTSIDE the transaction (see insertExisting).
-        return this.listStopsForVariant(variantPublicId, {
-            limit: STOPS_LIST_MAX_LIMIT,
-            offset: 0,
-            includePath: true,
-        });
+        const createdStop: TransportCreatedStopLite = {
+            route_stop_id: String(txResult.route_stop_id),
+            public_id: txResult.stop_public_id,
+            display_name: derivedName,
+            name_mm: nameMm,
+            name_en: nameEn,
+            mode: input.mode,
+            stop_type: input.stop_type,
+            longitude: input.longitude,
+            latitude: input.latitude,
+        };
+
+        // Lightweight ordered re-read OUTSIDE the transaction (no path geometry).
+        const lite = await this.listOrderedStopsLite(variantPublicId);
+        perf.mark("response built (re-read stops, lite)");
+        perf.done();
+        return {
+            variant_public_id: variantPublicId,
+            ordered_stops: lite.ordered_stops,
+            route_stop_count: lite.route_stop_count,
+            has_verified_path: lite.has_verified_path,
+            created_stop: createdStop,
+        };
     }
 
     /** Resolve a route variant by public id (locked rows are taken later by the insert). */
@@ -4189,6 +4388,7 @@ export class TransportRepository {
             is_timing_point: boolean;
             audit?: TransportAuditContext;
             extraMetadata?: Record<string, unknown>;
+            perf?: PerfTimer;
         }
     ): Promise<bigint> {
         const {
@@ -4203,6 +4403,7 @@ export class TransportRepository {
             is_timing_point,
             audit,
             extraMetadata,
+            perf,
         } = args;
 
         // Serialize all inserts for this variant on the parent row. The membership
@@ -4215,6 +4416,7 @@ export class TransportRepository {
         await tx.$queryRaw`
             SELECT id FROM transport.route_variants WHERE id = ${variantId} FOR UPDATE
         `;
+        perf?.mark("route_variant lock acquired");
 
         // Lock the current ordered membership rows for this variant.
         const current = await tx.$queryRaw<
@@ -4226,6 +4428,7 @@ export class TransportRepository {
             ORDER BY stop_sequence ASC
             FOR UPDATE
         `;
+        perf?.mark(`route_stops loaded (${current.length} rows)`);
 
         // Reject duplicates (a stop may appear at most once per variant).
         if (current.some((r) => String(r.stop_id) === String(stopId))) {
@@ -4287,6 +4490,7 @@ export class TransportRepository {
                 WHERE rs.id = v.id
             `);
         }
+        perf?.mark("phase A temp resequence done");
 
         // Resolve the final 1..N order: existing rows get their slot, the new row
         // takes the gap left for it.
@@ -4313,6 +4517,7 @@ export class TransportRepository {
                 WHERE rs.id = v.id
             `);
         }
+        perf?.mark("phase B final resequence done");
 
         // Insert the new membership row into its now-free final slot.
         const inserted = await tx.$queryRaw<{ id: bigint }[]>`
@@ -4327,6 +4532,7 @@ export class TransportRepository {
             RETURNING id
         `;
         const insertedId: bigint = inserted[0].id;
+        perf?.mark("new route_stop inserted");
 
         // Compact old/new sequence summaries for the audit log.
         const oldSequence = current.map((r) => ({
@@ -4371,6 +4577,7 @@ export class TransportRepository {
             },
             context: audit,
         });
+        perf?.mark("route_stop.insert audit written");
 
         return insertedId;
     }

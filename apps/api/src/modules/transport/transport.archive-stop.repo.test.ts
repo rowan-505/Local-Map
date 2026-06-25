@@ -125,6 +125,37 @@ describe("TransportRepository.archiveStopByPublicId", () => {
         );
     });
 
+    it("archives an unused stop with a reason (soft-delete + audit)", async () => {
+        const executed: string[] = [];
+        const prisma = createMockPrisma({
+            stopRows: [makeStopRow()],
+            routeCount: 0,
+            terminalRows: [],
+            executed,
+        });
+        const repo = new TransportRepository(prisma);
+
+        const result = await repo.archiveStopByPublicId(
+            STOP_PUBLIC_ID,
+            undefined,
+            "test cleanup"
+        );
+
+        assert.equal(result.archived, true);
+        assert.equal(result.route_count, 0);
+        assert.deepEqual(result.archived_terminals, []);
+        // A reason must not change the soft-delete behaviour: deleted_at + is_active
+        // and the archive audit row are still written.
+        assert.ok(
+            executed.some((s) => s.includes("UPDATE transport.stops") && s.includes("deleted_at")),
+            "expected a soft-delete UPDATE on transport.stops"
+        );
+        assert.ok(
+            executed.some((s) => s.includes("transport_audit_logs")),
+            "expected an archive audit row"
+        );
+    });
+
     it("archives the linked terminal in the same transaction", async () => {
         const executed: string[] = [];
         const prisma = createMockPrisma({

@@ -49,7 +49,9 @@ function createMockPrisma(initial: RouteStopRow[]) {
     const queryRaw = async (arg: unknown, ...rest: unknown[]): Promise<unknown> => {
         const sql = extractSql(arg);
         if (sql.includes("route_variants")) {
-            return [{ id: VARIANT_ID, public_id: VARIANT_PUBLIC_ID }];
+            // Covers both the in-tx variant public_id lookup and the post-commit
+            // listOrderedStopsLite variant lookup (id + has_path EXISTS).
+            return [{ id: VARIANT_ID, public_id: VARIANT_PUBLIC_ID, has_path: false }];
         }
         if (sql.includes("count(*)")) {
             return [{ count: BigInt(rows.length) }];
@@ -58,23 +60,23 @@ function createMockPrisma(initial: RouteStopRow[]) {
             return [];
         }
         if (sql.includes("JOIN transport.stops")) {
-            // listStopsForVariant read after commit.
+            // listOrderedStopsLite read after commit (flat lightweight shape).
             return [...rows]
                 .sort((a, b) => a.stop_sequence - b.stop_sequence)
                 .map((r) => ({
-                    id: r.id,
+                    route_stop_id: String(r.id),
+                    stop_public_id: `00000000-0000-4000-8000-${String(r.stop_id).padStart(12, "0")}`,
                     stop_sequence: r.stop_sequence,
+                    display_name: `Stop ${r.stop_id}`,
+                    name_mm: null,
+                    name_en: `Stop ${r.stop_id}`,
+                    mode: "bus",
+                    stop_type: "stop",
+                    longitude: null,
+                    latitude: null,
                     pickup_type: 0,
                     drop_off_type: 0,
                     is_timing_point: false,
-                    distance_from_start_m: null,
-                    stop_public_id: `00000000-0000-4000-8000-${String(r.stop_id).padStart(12, "0")}`,
-                    stop_name: `Stop ${r.stop_id}`,
-                    stop_name_mm: null,
-                    stop_name_en: `Stop ${r.stop_id}`,
-                    stop_mode: "bus",
-                    stop_type: "stop",
-                    geometry: null,
                 }));
         }
         if (sql.includes("ORDER BY stop_sequence ASC")) {
@@ -139,10 +141,11 @@ describe("TransportRepository.removeRouteStop (resequencing)", () => {
         const result = await repo.removeRouteStop(100n); // route_stop id 100 == sequence 1
 
         assert.equal(result.deleted, true);
-        assert.equal(result.variantPublicId, VARIANT_PUBLIC_ID);
+        assert.equal(result.variant_public_id, VARIANT_PUBLIC_ID);
+        assert.equal(result.route_stop_count, 59);
         assert.equal(rows.length, 59);
 
-        const sequences = result.items.map((i) => i.stop_sequence);
+        const sequences = result.ordered_stops.map((i) => i.stop_sequence);
         assert.deepEqual(
             sequences,
             Array.from({ length: 59 }, (_, i) => i + 1),
@@ -159,7 +162,7 @@ describe("TransportRepository.removeRouteStop (resequencing)", () => {
         const result = await repo.removeRouteStop(130n); // sequence 31
 
         assert.equal(rows.length, 59);
-        const sequences = result.items.map((i) => i.stop_sequence);
+        const sequences = result.ordered_stops.map((i) => i.stop_sequence);
         assert.deepEqual(
             sequences,
             Array.from({ length: 59 }, (_, i) => i + 1)
@@ -173,7 +176,7 @@ describe("TransportRepository.removeRouteStop (resequencing)", () => {
         const result = await repo.removeRouteStop(159n); // sequence 60
 
         assert.equal(rows.length, 59);
-        const sequences = result.items.map((i) => i.stop_sequence);
+        const sequences = result.ordered_stops.map((i) => i.stop_sequence);
         assert.deepEqual(
             sequences,
             Array.from({ length: 59 }, (_, i) => i + 1)

@@ -432,13 +432,55 @@ export type TransportStopArchiveResult = {
 };
 
 /**
- * Remove response: the backend deletes the membership row, resequences the
- * remaining stops to 1..N, and returns the updated ordered list (same shape as
- * GET variant stops) plus backward-compatible deleted / variantPublicId fields.
+ * Flat lightweight ordered-stop row returned by the route_stop mutation
+ * endpoints (insert-existing / create-and-insert / remove). Small by design so
+ * the Route Detail page can update its panel + map markers locally without a
+ * heavy includePath refetch. No path geometry, no source_refs/normalized_data.
  */
-export type RemoveRouteStopResult = TransportVariantStopsResponse & {
-    deleted: boolean;
-    variantPublicId: string | null;
+export type TransportOrderedStopLite = {
+    route_stop_id: string;
+    stop_public_id: string;
+    stop_sequence: number;
+    display_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    mode: string;
+    stop_type: string;
+    longitude: number | null;
+    latitude: number | null;
+    pickup_type: number;
+    drop_off_type: number;
+    is_timing_point: boolean;
+};
+
+/** Created-stop summary returned by create-and-insert. */
+export type TransportCreatedStopLite = {
+    route_stop_id: string;
+    public_id: string;
+    display_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    mode: string;
+    stop_type: string;
+    longitude: number | null;
+    latitude: number | null;
+};
+
+/**
+ * Compact response for route_stop insert/remove mutations. Carries the full
+ * updated 1..N ordered membership plus the new count and a cheap path-existence
+ * flag, so the dashboard updates the ordered-stop panel, map overlay, and count
+ * from this single response (no follow-up detail/variants/stops refetch).
+ */
+export type TransportRouteStopMutationResult = {
+    variant_public_id: string | null;
+    ordered_stops: TransportOrderedStopLite[];
+    route_stop_count: number;
+    has_verified_path: boolean;
+    /** Present only for create-and-insert. */
+    created_stop?: TransportCreatedStopLite;
+    /** Present only for remove (always true there). */
+    deleted?: boolean;
 };
 
 export type UpdateTransportVariantBody = {

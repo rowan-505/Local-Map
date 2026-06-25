@@ -9,8 +9,10 @@ import { ProfileDrawerPanel } from './ProfileDrawerPanel';
  */
 export function AccountPanel({
   onOpenSaved,
+  onOpenReports,
 }: {
   readonly onOpenSaved?: () => void;
+  readonly onOpenReports?: () => void;
 }) {
   const { isAuthenticated, initializing } = useAuth();
 
@@ -26,5 +28,5 @@ export function AccountPanel({
     return <AuthDrawerPanel initialView="login" />;
   }
 
-  return <ProfileDrawerPanel onOpenSaved={onOpenSaved} />;
+  return <ProfileDrawerPanel onOpenSaved={onOpenSaved} onOpenReports={onOpenReports} />;
 }

@@ -3,6 +3,7 @@ import type { MapClickedLocation } from '@/features/map/types';
 import { useReverseAddress } from '@/features/map/api/useReverseAddress';
 import { useAuth } from '@/features/auth/state/useAuth';
 import { useSavedPlaces } from '@/features/saved-places/state/useSavedPlaces';
+import { ReportEntryButton } from '@/features/reports/components/ReportEntryButton';
 import type { RoutePoint } from '@/features/routing/lib/routePoint';
 
 type AddressLocationPanelProps = {
@@ -71,12 +72,23 @@ export function AddressLocationPanel({
           </ActionButton>
         </div>
 
-        <SaveLocationControl
-          latitude={lat}
-          longitude={lng}
-          addressLine={reverse.data?.address_line ?? null}
-          plusCode={reverse.data?.plus_code ?? null}
-        />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <SaveLocationControl
+            latitude={lat}
+            longitude={lng}
+            addressLine={reverse.data?.address_line ?? null}
+            plusCode={reverse.data?.plus_code ?? null}
+          />
+          <ReportEntryButton
+            target={{
+              targetEntityType: 'map_point',
+              latitude: lat,
+              longitude: lng,
+              contextLabel: `Map point (${coordinates})`,
+            }}
+            label="Report here"
+          />
+        </div>
       </div>
 
       <InfoSection title="Address">

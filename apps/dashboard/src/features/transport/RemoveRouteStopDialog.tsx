@@ -15,6 +15,7 @@ export default function RemoveRouteStopDialog({
     stopName,
     reason,
     isBusy,
+    error,
     onReasonChange,
     onConfirm,
     onCancel,
@@ -23,6 +24,8 @@ export default function RemoveRouteStopDialog({
     readonly stopName: string;
     readonly reason: string;
     readonly isBusy?: boolean;
+    /** API error from a failed remove; shown in-dialog so the form stays open. */
+    readonly error?: string;
     readonly onReasonChange: (value: string) => void;
     readonly onConfirm: () => void;
     readonly onCancel: () => void;
@@ -86,6 +89,14 @@ export default function RemoveRouteStopDialog({
                         onChange={(e) => onReasonChange(e.target.value)}
                     />
                 </label>
+                {error ? (
+                    <div
+                        role="alert"
+                        className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+                    >
+                        {error}
+                    </div>
+                ) : null}
                 <div className="mt-5 flex flex-wrap justify-end gap-2">
                     <button
                         ref={cancelRef}
@@ -102,7 +113,7 @@ export default function RemoveRouteStopDialog({
                         onClick={onConfirm}
                         className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-60"
                     >
-                        {isBusy ? "Removing…" : "Remove stop"}
+                        {isBusy ? "Removing stop…" : "Remove stop"}
                     </button>
                 </div>
             </div>

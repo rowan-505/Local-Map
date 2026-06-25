@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import { useReverseAddress } from '@/features/map/api/useReverseAddress';
 import { SaveButton } from '@/features/saved-places/components/SaveButton';
+import { ReportEntryButton } from '@/features/reports/components/ReportEntryButton';
+import type { ReportTarget } from '@/features/reports/api/reportsApi';
 import type { PlaceLanguageMode, PublicSearchResult } from '@/features/poi/api/publicMapApi';
 import type { Poi } from '@/types';
 import { getLocalizedName } from '@local-map/localized-name';
@@ -75,6 +77,7 @@ function PlaceDetailPanelInner({
 
   const addressLine = detail.addressLine ?? reverse.data?.address_line ?? null;
   const plusCode = detail.plusCode ?? reverse.data?.plus_code ?? null;
+  const reportTarget = buildReportTarget(selectedPoi, detail);
 
   return (
     <section className="space-y-3 p-3.5" aria-label="Selected place details">
@@ -136,8 +139,11 @@ function PlaceDetailPanelInner({
           </PrimaryActionButton>
         </div>
 
-        <div className="mt-2">
+        <div className="mt-2 flex items-center gap-2">
           <SaveButton placeApiId={selectedPoi?.apiId} />
+          {reportTarget ? (
+            <ReportEntryButton target={reportTarget} label="Report issue" />
+          ) : null}
         </div>
       </div>
 
@@ -327,6 +333,40 @@ function buildPlaceDetail({
     placeId,
     verified: false,
   };
+}
+
+/**
+ * Builds the report target for the detail card. Prefers a 'place' target (with
+ * the core place id) when this is a real POI; otherwise falls back to a
+ * 'map_point' target using the available coordinate. Returns null when there is
+ * nothing locatable to report.
+ */
+function buildReportTarget(poi: Poi | undefined, detail: PlaceDetail): ReportTarget | null {
+  const latitude = detail.coordinates ? detail.coordinates[1] : undefined;
+  const longitude = detail.coordinates ? detail.coordinates[0] : undefined;
+
+  const placeApiId = poi?.apiId ? Number(poi.apiId) : null;
+  if (placeApiId !== null && Number.isFinite(placeApiId)) {
+    return {
+      targetEntityType: 'place',
+      targetEntityId: placeApiId,
+      ...(poi?.publicId ? { targetPublicId: poi.publicId } : {}),
+      ...(latitude !== undefined ? { latitude } : {}),
+      ...(longitude !== undefined ? { longitude } : {}),
+      contextLabel: detail.title,
+    };
+  }
+
+  if (latitude !== undefined && longitude !== undefined) {
+    return {
+      targetEntityType: 'map_point',
+      latitude,
+      longitude,
+      contextLabel: detail.title,
+    };
+  }
+
+  return null;
 }
 
 function getSearchResultCenter(result: PublicSearchResult): readonly [number, number] | null {

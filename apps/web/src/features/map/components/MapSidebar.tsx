@@ -12,6 +12,7 @@ export type SidebarMode =
   | 'route'
   | 'bus'
   | 'saved'
+  | 'reports'
   | 'more'
   | 'account';
 
@@ -28,6 +29,7 @@ type MapSidebarProps = {
   readonly routeDestination?: RouteDestination | null;
   readonly busPanel?: ReactNode;
   readonly savedPanel?: ReactNode;
+  readonly reportsPanel?: ReactNode;
   readonly morePanel?: ReactNode;
   readonly accountPanel?: ReactNode;
 };
@@ -47,6 +49,7 @@ export function MapSidebar({
   routeDestination = null,
   busPanel = <BusPanelPlaceholder />,
   savedPanel = <SavedPanelPlaceholder />,
+  reportsPanel = null,
   morePanel = <MorePanelPlaceholder />,
   accountPanel = null,
 }: MapSidebarProps) {
@@ -97,6 +100,7 @@ export function MapSidebar({
             routePanel={routePanel ?? <RoutePanelPlaceholder destination={routeDestination} />}
             busPanel={busPanel}
             savedPanel={savedPanel}
+            reportsPanel={reportsPanel}
             morePanel={morePanel}
             accountPanel={accountPanel}
           />
@@ -249,6 +253,7 @@ export function SidebarModeContent({
   routePanel,
   busPanel,
   savedPanel,
+  reportsPanel,
   morePanel,
   accountPanel,
 }: {
@@ -259,6 +264,7 @@ export function SidebarModeContent({
   readonly routePanel: ReactNode;
   readonly busPanel: ReactNode;
   readonly savedPanel: ReactNode;
+  readonly reportsPanel: ReactNode;
   readonly morePanel: ReactNode;
   readonly accountPanel: ReactNode;
 }) {
@@ -267,6 +273,7 @@ export function SidebarModeContent({
   if (activeMode === 'route') return routePanel;
   if (activeMode === 'bus') return busPanel;
   if (activeMode === 'saved') return savedPanel;
+  if (activeMode === 'reports') return reportsPanel;
   if (activeMode === 'more') return morePanel;
   if (activeMode === 'account') return accountPanel;
   return searchPanel;
@@ -287,6 +294,8 @@ function sidebarModeMeta(mode: SidebarMode): {
       return { eyebrow: 'Bus', title: 'Bus and transit' };
     case 'saved':
       return { eyebrow: 'Saved', title: 'Saved places' };
+    case 'reports':
+      return { eyebrow: 'Reports', title: 'My reports' };
     case 'more':
       return { eyebrow: 'More', title: 'More tools' };
     case 'account':

@@ -65,6 +65,11 @@ export const swaggerCorePlugin = fp(
                     { name: "Transit", description: "Bus stops and routes (GeoJSON)." },
                     { name: "Search", description: "Public text search for the map client." },
                     {
+                        name: "Reports",
+                        description:
+                            "User report / contribution flow (signed-in and anonymous), admin review, status lifecycle, follow-ups, and manual point rewards.",
+                    },
+                    {
                         name: "Import Review",
                         description:
                             "Admin-only Supabase `import_review` workspace. **`AUTH_BYPASS` is ignored.** Configure `IMPORT_REVIEW_ADMIN_TOKEN` to require header `x-import-review-admin-token` (401 missing, 403 mismatch; Bearer not required). Omit that env to require Bearer JWT whose payload includes `\"roles\": [\"admin\"]`."

@@ -20,6 +20,7 @@ import {
   SavedPlacesPanel,
   type SavedLocationSelection,
 } from '@/features/saved-places/components/SavedPlacesPanel';
+import { MyReportsPanel } from '@/features/reports/components/MyReportsPanel';
 import MapView from '@/features/map/components/MapView';
 import { RoutePlannerPanel } from '@/features/map/components/RoutePlannerPanel';
 import type { DirectionsMapOverlay } from '@/features/map/lib/maplibre/directionsRouteGeoJson';
@@ -232,6 +233,11 @@ export default function HomePage() {
     setIsSidebarOpen(true);
   }, []);
 
+  const openReportsDrawer = useCallback(() => {
+    setActiveSidebarMode('reports');
+    setIsSidebarOpen(true);
+  }, []);
+
   const onSelectSavedLocation = useCallback((selection: SavedLocationSelection) => {
     setSelectedPoiId(null);
     setSelectedSearchResult(null);
@@ -422,8 +428,11 @@ export default function HomePage() {
           }
           busPanel={<BusPanelPlaceholder />}
           savedPanel={<SavedPlacesPanel onSelectLocation={onSelectSavedLocation} />}
+          reportsPanel={<MyReportsPanel />}
           morePanel={<MorePanelPlaceholder />}
-          accountPanel={<AccountPanel onOpenSaved={openSavedDrawer} />}
+          accountPanel={
+            <AccountPanel onOpenSaved={openSavedDrawer} onOpenReports={openReportsDrawer} />
+          }
         />
       }
       floatingControls={

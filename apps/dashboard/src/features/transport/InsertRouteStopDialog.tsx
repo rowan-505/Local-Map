@@ -17,6 +17,7 @@ import {
 import type {
     CreateAndInsertRouteStopBody,
     InsertExistingRouteStopBody,
+    TransportRouteStopMutationResult,
     TransportStopSearchItem,
 } from "./types";
 
@@ -130,8 +131,11 @@ export default function InsertRouteStopDialog({
     /** Ask the parent to enter map click-to-place mode. */
     readonly onStartPick: () => void;
     readonly onCancel: () => void;
-    /** Called after a successful insert so the host can refresh stops/map/counts. */
-    readonly onInserted: () => void | Promise<void>;
+    /**
+     * Called after a successful insert with the mutation response, so the host can
+     * update ordered stops / map overlay / counts locally without a refetch.
+     */
+    readonly onInserted: (result: TransportRouteStopMutationResult) => void | Promise<void>;
 }) {
     const titleId = useId();
     const searchInputRef = useRef<HTMLInputElement>(null);
@@ -317,8 +321,8 @@ export default function InsertRouteStopDialog({
                     ? { anchorRouteStopId: context.anchorRouteStopId }
                     : {}),
             };
-            await insertExistingRouteStop(variantPublicId, body);
-            await onInserted();
+            const result = await insertExistingRouteStop(variantPublicId, body);
+            await onInserted(result);
             onCancel();
         } catch (err) {
             if (isAbortError(err)) return;
@@ -353,8 +357,8 @@ export default function InsertRouteStopDialog({
                     ? { anchorRouteStopId: context.anchorRouteStopId }
                     : {}),
             };
-            await createAndInsertRouteStop(variantPublicId, body);
-            await onInserted();
+            const result = await createAndInsertRouteStop(variantPublicId, body);
+            await onInserted(result);
             onCancel();
         } catch (err) {
             if (isAbortError(err)) return;
@@ -489,7 +493,7 @@ export default function InsertRouteStopDialog({
                                 onClick={() => void confirmInsertExisting()}
                                 className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-60"
                             >
-                                {submitting ? "Inserting…" : "Insert stop"}
+                                {submitting ? "Inserting stop…" : "Insert stop"}
                             </button>
                         </div>
                     </div>
@@ -755,7 +759,7 @@ export default function InsertRouteStopDialog({
                                 onClick={() => void confirmCreate()}
                                 className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-60"
                             >
-                                {submitting ? "Creating…" : "Create & insert stop"}
+                                {submitting ? "Creating stop…" : "Create & insert stop"}
                             </button>
                         </div>
                     </div>

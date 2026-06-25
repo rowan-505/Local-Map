@@ -16,6 +16,7 @@ export const Tags = {
     Ref: "Reference Data",
     Routing: "Routing",
     Transport: "Transport",
+    Reports: "Reports",
 } as const;
 
 export const bearerAuth = [{ bearerAuth: [] }] as const;

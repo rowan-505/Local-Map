@@ -3,6 +3,7 @@ import {
     Bus,
     ClipboardList,
     Coins,
+    Flag,
     Library,
     LineChart,
     Route,
@@ -18,6 +19,7 @@ import {
     importReviewPath,
     pointManagementPath,
     referencesPath,
+    reportsPath,
     routingAdminPath,
     statsPath,
     transportPath,
@@ -31,6 +33,7 @@ export {
     IMPORT_REVIEW_PATH,
     POINT_MANAGEMENT_PATH,
     REFERENCES_PATH,
+    REPORTS_PATH,
     STATS_PATH,
     TRANSPORT_PATH,
     USERS_PATH,
@@ -39,6 +42,7 @@ export {
     importReviewPath,
     pointManagementPath,
     referencesPath,
+    reportsPath,
     statsPath,
     transportPath,
     userAnalyticsPath,
@@ -52,6 +56,7 @@ export type DashboardSidebarModuleKey =
     | "routing"
     | "stats"
     | "transport"
+    | "reports"
     | "users"
     | "user-analytics"
     | "point-management";
@@ -82,6 +87,7 @@ export function sidebarModuleFromPathname(pathname: string): DashboardSidebarMod
         key === "routing" ||
         key === "stats" ||
         key === "transport" ||
+        key === "reports" ||
         key === "users" ||
         key === "user-analytics" ||
         key === "point-management"
@@ -127,6 +133,12 @@ export const dashboardSidebarItems: readonly DashboardSidebarItem[] = [
         href: transportPath(),
         label: "Transport",
         Icon: Bus,
+    },
+    {
+        moduleKey: "reports",
+        href: reportsPath(),
+        label: "Reports",
+        Icon: Flag,
     },
 ];
 

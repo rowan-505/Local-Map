@@ -8,6 +8,7 @@ import { transportPath } from "@/src/lib/dashboardNavigation";
 import {
     getTransportRouteDetail,
     getTransportRouteVariants,
+    getTransportVariantOrderedStops,
     getTransportVariantStops,
     removeTransportRouteStop,
     updateTransportRouteStop,
@@ -22,14 +23,45 @@ import RemoveRouteStopDialog from "./RemoveRouteStopDialog";
 import TransportPreviewMap, { type TransportPreviewStop } from "./TransportPreviewMap";
 import { TransportRouteEditForm, TransportVariantEditForm } from "./transportEditForms";
 import type {
+    TransportOrderedStopLite,
     TransportRouteDetail,
     TransportRouteStopItem,
+    TransportRouteStopMutationResult,
     TransportRoutePath,
     TransportVariantSummary,
 } from "./types";
 
-const STOPS_LIMIT = 1000;
 const MAP_DEFAULT_ZOOM = 11;
+
+/**
+ * Map a lightweight mutation-response stop into the richer ordered-stop item the
+ * panel + map already render, so a mutation can update local state without a
+ * heavy refetch. The mutation response intentionally omits distance_from_start_m
+ * (not displayed here) and path geometry (unchanged by a membership edit).
+ */
+function orderedStopLiteToItem(s: TransportOrderedStopLite): TransportRouteStopItem {
+    const geometry =
+        s.longitude !== null && s.latitude !== null
+            ? { type: "Point" as const, coordinates: [s.longitude, s.latitude] }
+            : null;
+    return {
+        id: s.route_stop_id,
+        stop_sequence: s.stop_sequence,
+        pickup_type: s.pickup_type,
+        drop_off_type: s.drop_off_type,
+        is_timing_point: s.is_timing_point,
+        distance_from_start_m: null,
+        stop: {
+            public_id: s.stop_public_id,
+            name: s.display_name,
+            name_mm: s.name_mm,
+            name_en: s.name_en,
+            mode: s.mode,
+            stop_type: s.stop_type,
+            geometry,
+        },
+    };
+}
 
 const PICKUP_DROP_OPTIONS = [
     { value: 0, label: "0 · Regular" },
@@ -234,20 +266,47 @@ export default function TransportRouteDetailContent({
         return () => controller.abort();
     }, [publicId]);
 
-    // --- Load ordered stops (+ path). `silent` skips the skeleton for in-place
-    //     refreshes after a stop mutation so the list does not flash. ----------
+    // --- Load the verified route path overlay (solid line + distance). Secondary
+    //     to the ordered-stop panel: fetched separately and only when a path
+    //     exists, so the panel never waits on path geometry serialization. A
+    //     failure here is non-fatal (stops stay rendered). The tiny limit keeps
+    //     the stops side of this read trivial — we only consume `.path`. --------
+    const loadVariantPath = useCallback(
+        async (variantId: string, signal: AbortSignal | undefined) => {
+            try {
+                const result = await getTransportVariantStops(
+                    variantId,
+                    { includePath: true, limit: 1 },
+                    signal ? { signal } : undefined,
+                );
+                setPath(result.path ?? null);
+            } catch (err) {
+                if (isAbortError(err)) return;
+                // Path overlay is optional; leave the loaded stops intact.
+            }
+        },
+        [],
+    );
+
+    // --- Load ordered stops via the lightweight endpoint (no path geometry).
+    //     `silent` skips the skeleton for in-place refreshes after a stop
+    //     mutation so the list does not flash. The verified path overlay is
+    //     loaded separately, only when the variant actually has one. ----------
     const loadStops = useCallback(
         async (variantId: string, signal: AbortSignal | undefined, silent: boolean) => {
             if (!silent) setStopsLoading(true);
             setStopsError("");
             try {
-                const result = await getTransportVariantStops(
+                const result = await getTransportVariantOrderedStops(
                     variantId,
-                    { includePath: true, limit: STOPS_LIMIT },
                     signal ? { signal } : undefined,
                 );
-                setStops(result.items);
-                setPath(result.path);
+                setStops(result.ordered_stops.map(orderedStopLiteToItem));
+                if (result.has_verified_path) {
+                    void loadVariantPath(variantId, signal);
+                } else {
+                    setPath(null);
+                }
             } catch (err) {
                 if (isAbortError(err)) return;
                 setStops([]);
@@ -257,7 +316,7 @@ export default function TransportRouteDetailContent({
                 if (!silent) setStopsLoading(false);
             }
         },
-        [],
+        [loadVariantPath],
     );
 
     useEffect(() => {
@@ -278,49 +337,66 @@ export default function TransportRouteDetailContent({
     }, [selectedVariantId, loadStops]);
 
     /**
-     * Soft re-fetch of route detail + variants so aggregate counts (route "Stops",
-     * per-variant stop_count) stay accurate after an insert/remove, without a full
-     * page reload or resetting the current selection. Failures are non-fatal.
+     * Apply a route_stop mutation response locally: replace the ordered stops (so
+     * the panel + map overlay update from the returned 1..N list) and adjust the
+     * displayed counts (selected variant stop_count + route total) by the delta.
+     * No detail/variants/stops refetch — the response carries everything needed.
+     * Path geometry is left untouched (a membership edit never changes it).
      */
-    const refreshRouteMeta = useCallback(async () => {
-        try {
-            const [detail, variantList] = await Promise.all([
-                getTransportRouteDetail(publicId),
-                getTransportRouteVariants(publicId),
-            ]);
-            setRoute(detail);
-            setVariants(variantList.items);
-        } catch (err) {
-            if (isAbortError(err)) return;
-            // Counts may be briefly stale; ordered stops + map already refreshed.
-        }
-    }, [publicId]);
+    const applyMutationResult = useCallback(
+        (result: TransportRouteStopMutationResult) => {
+            // Safe fallback: if the backend response is missing the updated ordered
+            // stops, refetch ONLY the selected variant's ordered stops (no detail /
+            // variants / routes-list refetch).
+            if (!Array.isArray(result.ordered_stops)) {
+                void refreshStops();
+                return;
+            }
 
-    /** After a successful insert: refresh ordered stops + map overlay + counts. */
-    const handleStopInserted = useCallback(async () => {
-        await refreshStops();
-        await refreshRouteMeta();
-        afterSave?.();
-    }, [refreshStops, refreshRouteMeta, afterSave]);
+            setStops(result.ordered_stops.map(orderedStopLiteToItem));
 
-    /** Wraps a stop mutation: runs it, then silently refreshes the list + overlay. */
-    const runStopMutation = useCallback(
-        async (fn: () => Promise<unknown>) => {
-            setStopMutating(true);
-            setStopActionError("");
-            try {
-                await fn();
-                await refreshStops();
-                afterSave?.();
-            } catch (err) {
-                if (isAbortError(err)) return;
-                setStopActionError(err instanceof Error ? err.message : "Stop action failed.");
-            } finally {
-                setStopMutating(false);
+            const variantId = result.variant_public_id ?? selectedVariantId;
+            if (!variantId) return;
+            const current = variants.find((v) => v.public_id === variantId);
+            const delta = current ? result.route_stop_count - current.stop_count : 0;
+            setVariants((prev) =>
+                prev.map((v) =>
+                    v.public_id === variantId
+                        ? { ...v, stop_count: result.route_stop_count }
+                        : v,
+                ),
+            );
+            if (delta !== 0) {
+                setRoute((r) =>
+                    r
+                        ? {
+                              ...r,
+                              counts: {
+                                  ...r.counts,
+                                  stops: Math.max(0, r.counts.stops + delta),
+                              },
+                          }
+                        : r,
+                );
             }
         },
-        [refreshStops, afterSave],
+        [selectedVariantId, variants, refreshStops],
     );
+
+    /** After a successful insert: update ordered stops + map overlay + counts locally. */
+    const handleStopInserted = useCallback(
+        (result: TransportRouteStopMutationResult) => {
+            // Close the insert dialog/picker first. These are full-screen overlays
+            // stacked above the route drawer, so they must never linger if applying
+            // the result below throws (otherwise the drawer can't be closed).
+            setInsertContext(null);
+            setPickingLocation(false);
+            setNewStopPoint(null);
+            applyMutationResult(result);
+        },
+        [applyMutationResult],
+    );
+
 
     // --- Ordered stops as preview points (lng/lat + sequence + name). --------
     const routeStops = useMemo<TransportPreviewStop[]>(() => {
@@ -402,6 +478,7 @@ export default function TransportRouteDetailContent({
     }, [stopMutating]);
 
     const requestRemoveStop = useCallback((stop: TransportRouteStopItem) => {
+        setStopActionError("");
         setRemoveReason("");
         setRemoveTarget(stop);
     }, []);
@@ -410,6 +487,7 @@ export default function TransportRouteDetailContent({
         if (stopMutating) return;
         setRemoveTarget(null);
         setRemoveReason("");
+        setStopActionError("");
     }, [stopMutating]);
 
     const confirmRemoveStop = useCallback(() => {
@@ -420,19 +498,15 @@ export default function TransportRouteDetailContent({
             setStopActionError("");
             try {
                 const result = await removeTransportRouteStop(stop.id, removeReason);
-                // Prefer the backend's resequenced (1..N) list to avoid an extra
-                // fetch; fall back to a refetch if an older backend omits it.
-                if (Array.isArray(result.items)) {
-                    setStops(result.items);
-                    setPath(result.path ?? null);
-                } else {
-                    await refreshStops();
-                }
+                // Close the dialog first. It is a full-screen overlay stacked above
+                // the route drawer, so it must never linger if applying the result
+                // below throws (otherwise the drawer can't be closed).
                 setSelectedStopId((prev) => (prev === stop.id ? null : prev));
                 setRemoveTarget(null);
                 setRemoveReason("");
-                await refreshRouteMeta();
-                afterSave?.();
+                // Update ordered stops + map overlay + counts from the response; no
+                // detail/variants/stops refetch.
+                applyMutationResult(result);
             } catch (err) {
                 if (isAbortError(err)) return;
                 setStopActionError(
@@ -442,14 +516,46 @@ export default function TransportRouteDetailContent({
                 setStopMutating(false);
             }
         })();
-    }, [removeTarget, removeReason, refreshStops, refreshRouteMeta, afterSave]);
+    }, [removeTarget, removeReason, applyMutationResult]);
 
+    /**
+     * Update a single route_stop's flags. PATCH returns the updated row, so we
+     * patch just that stop in local state (flags only — geometry/name/sequence are
+     * unchanged) instead of refetching the whole ordered list or the routes list.
+     */
     const updateStopFlag = useCallback(
         (
             stop: TransportRouteStopItem,
             body: { pickup_type?: number; drop_off_type?: number; is_timing_point?: boolean },
-        ) => runStopMutation(() => updateTransportRouteStop(stop.id, body)),
-        [runStopMutation],
+        ) => {
+            void (async () => {
+                setStopMutating(true);
+                setStopActionError("");
+                try {
+                    const updated = await updateTransportRouteStop(stop.id, body);
+                    setStops((prev) =>
+                        prev.map((s) =>
+                            s.id === stop.id
+                                ? {
+                                      ...s,
+                                      pickup_type: updated.pickup_type,
+                                      drop_off_type: updated.drop_off_type,
+                                      is_timing_point: updated.is_timing_point,
+                                  }
+                                : s,
+                        ),
+                    );
+                } catch (err) {
+                    if (isAbortError(err)) return;
+                    setStopActionError(
+                        err instanceof Error ? err.message : "Stop action failed.",
+                    );
+                } finally {
+                    setStopMutating(false);
+                }
+            })();
+        },
+        [],
     );
 
     const handleRouteSaved = useCallback(
@@ -828,7 +934,7 @@ export default function TransportRouteDetailContent({
                             {stopsError}
                         </div>
                     ) : null}
-                    {stopActionError ? (
+                    {stopActionError && removeTarget === null ? (
                         <div className="m-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
                             {stopActionError}
                         </div>
@@ -1048,6 +1154,7 @@ export default function TransportRouteDetailContent({
                 stopName={removeTarget?.stop.name ?? ""}
                 reason={removeReason}
                 isBusy={stopMutating}
+                error={stopActionError}
                 onReasonChange={setRemoveReason}
                 onConfirm={confirmRemoveStop}
                 onCancel={cancelRemoveStop}

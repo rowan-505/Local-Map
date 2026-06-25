@@ -412,6 +412,60 @@ export type TransportVariantStopsResponse = {
     path: TransportRoutePath | null;
 };
 
+/**
+ * Lightweight ordered-stop row returned by the route_stop mutation endpoints
+ * (insert-existing / create-and-insert / remove). Intentionally flat and small:
+ * just what the Route Detail ordered-stop panel + map markers need, so the
+ * dashboard can update locally without a heavy refetch. Excludes source_refs,
+ * normalized_data, and GeoJSON path geometry by design.
+ */
+export type TransportOrderedStopLite = {
+    route_stop_id: string;
+    stop_public_id: string;
+    stop_sequence: number;
+    display_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    mode: string;
+    stop_type: string;
+    longitude: number | null;
+    latitude: number | null;
+    pickup_type: number;
+    drop_off_type: number;
+    is_timing_point: boolean;
+};
+
+/** Created-stop summary returned by create-and-insert (omitted otherwise). */
+export type TransportCreatedStopLite = {
+    route_stop_id: string;
+    public_id: string;
+    display_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    mode: string;
+    stop_type: string;
+    longitude: number | null;
+    latitude: number | null;
+};
+
+/**
+ * Compact response for route_stop insert/remove mutations. Returns the full
+ * updated 1..N ordered membership for the variant plus the new count and a cheap
+ * path-existence flag, so the dashboard can refresh the panel/map/count from this
+ * single response. No route path geometry (it does not change on a membership
+ * edit) and no heavy stop fields.
+ */
+export type TransportRouteStopMutationResult = {
+    variant_public_id: string | null;
+    ordered_stops: TransportOrderedStopLite[];
+    route_stop_count: number;
+    has_verified_path: boolean;
+    /** Present only for create-and-insert. */
+    created_stop?: TransportCreatedStopLite;
+    /** Present only for remove (always true there). */
+    deleted?: boolean;
+};
+
 /** Top import-issue categories derived from transport.import_errors.error_code. */
 export type TransportImportIssueBreakdown = {
     missingNameMm: number;

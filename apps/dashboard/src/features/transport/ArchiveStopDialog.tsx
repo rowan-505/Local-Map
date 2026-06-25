@@ -33,12 +33,24 @@ export default function ArchiveStopDialog({
     const titleId = useId();
     const cancelRef = useRef<HTMLButtonElement>(null);
 
+    // Default focus to Cancel (destructive action), but ONLY when the dialog
+    // opens. This must not depend on isBusy/onCancel: the reason textarea is
+    // controlled by parent state, so every keystroke re-renders this component
+    // with a new inline onCancel — re-running focus here would steal focus back
+    // to Cancel after a single character.
     useEffect(() => {
         if (!open) {
             return;
         }
-        // Default focus to Cancel: this is a destructive action.
         cancelRef.current?.focus();
+    }, [open]);
+
+    // Escape-to-close, kept separate so it can track the latest isBusy/onCancel
+    // without re-triggering the focus effect above.
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape" && !isBusy) {
                 onCancel();

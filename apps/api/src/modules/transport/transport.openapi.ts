@@ -1114,6 +1114,104 @@ const variantStopsResponseSchema = {
     },
 } as const;
 
+/** Flat lightweight ordered-stop row returned by route_stop mutations. */
+const orderedStopLiteSchema = {
+    type: "object",
+    required: [
+        "route_stop_id",
+        "stop_public_id",
+        "stop_sequence",
+        "display_name",
+        "name_mm",
+        "name_en",
+        "mode",
+        "stop_type",
+        "longitude",
+        "latitude",
+        "pickup_type",
+        "drop_off_type",
+        "is_timing_point",
+    ],
+    properties: {
+        route_stop_id: { type: "string" },
+        stop_public_id: { type: "string", format: "uuid" },
+        stop_sequence: { type: "integer" },
+        display_name: { type: "string" },
+        name_mm: { type: "string", nullable: true },
+        name_en: { type: "string", nullable: true },
+        mode: { type: "string" },
+        stop_type: { type: "string" },
+        longitude: { type: "number", nullable: true },
+        latitude: { type: "number", nullable: true },
+        pickup_type: { type: "integer" },
+        drop_off_type: { type: "integer" },
+        is_timing_point: { type: "boolean" },
+    },
+} as const;
+
+/**
+ * Shared compact 200 body for route_stop mutations (insert-existing /
+ * create-and-insert / remove). Returns the full updated ordered membership plus
+ * count and a cheap path-existence flag — no route path geometry, no heavy stop
+ * fields — so the dashboard updates locally without a heavy refetch.
+ */
+const routeStopMutationResponseSchema = {
+    type: "object",
+    required: ["variant_public_id", "ordered_stops", "route_stop_count", "has_verified_path"],
+    properties: {
+        variant_public_id: { type: "string", nullable: true },
+        ordered_stops: { type: "array", items: orderedStopLiteSchema },
+        route_stop_count: { type: "integer", minimum: 0 },
+        has_verified_path: { type: "boolean" },
+        created_stop: {
+            type: "object",
+            nullable: true,
+            required: [
+                "route_stop_id",
+                "public_id",
+                "display_name",
+                "name_mm",
+                "name_en",
+                "mode",
+                "stop_type",
+                "longitude",
+                "latitude",
+            ],
+            properties: {
+                route_stop_id: { type: "string" },
+                public_id: { type: "string", format: "uuid" },
+                display_name: { type: "string" },
+                name_mm: { type: "string", nullable: true },
+                name_en: { type: "string", nullable: true },
+                mode: { type: "string" },
+                stop_type: { type: "string" },
+                longitude: { type: "number", nullable: true },
+                latitude: { type: "number", nullable: true },
+            },
+        },
+        deleted: { type: "boolean" },
+    },
+} as const;
+
+export const getTransportVariantOrderedStopsSchema = {
+    tags: [Tags.Transport],
+    summary: "List lightweight ordered stops for a route variant (admin)",
+    description:
+        "Lightweight ordered-stops read for the Route Detail ordered-stop panel + map markers. " +
+        "Joins only route_stops + stops, filters route_variant_id and non-deleted stops, orders by stop_sequence. " +
+        "Returns the flat stop shape (no path geometry, no source_refs/normalized_data, no route detail/list) plus " +
+        "route_stop_count and has_verified_path. Fetch the verified path overlay separately only when has_verified_path is true.",
+    security: [...bearerAuth],
+    params: publicIdParamSchema,
+    response: {
+        200: routeStopMutationResponseSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
 export const getTransportVariantStopsSchema = {
     tags: [Tags.Transport],
     summary: "List ordered stops for a route variant (admin)",
@@ -1144,7 +1242,7 @@ export const insertExistingRouteStopSchema = {
     description:
         "Inserts an existing stop into this variant's ordered pattern at start/end or before/after an anchor route_stop. " +
         "The backend owns stop_sequence and resequences all route_stops for the variant to 1..N (the client never sends a final sequence). " +
-        "Rejects a stop already present in the variant (409). Does not create a new stop. Returns the updated ordered stops list (same shape as GET variant stops).",
+        "Rejects a stop already present in the variant (409). Does not create a new stop. Returns the updated ordered stops (lightweight shape) plus route_stop_count and has_verified_path so the client can update locally without a refetch.",
     security: [...bearerAuth],
     params: publicIdParamSchema,
     body: {
@@ -1162,7 +1260,7 @@ export const insertExistingRouteStopSchema = {
         },
     },
     response: {
-        200: variantStopsResponseSchema,
+        200: routeStopMutationResponseSchema,
         400: badRequestSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
@@ -1178,7 +1276,7 @@ export const createAndInsertRouteStopSchema = {
         "Secondary quick-create path for the Insert Stop modal. Creates a new stop (minimal fields: localized names, " +
         "mode, stop_type, location) and inserts it into this variant in one transaction. At least one of name_mm / " +
         "name_en is required. The backend owns stop_sequence and resequences all route_stops for the variant to 1..N. " +
-        "Full stop metadata editing stays on the Stop Detail page. Returns the updated ordered stops list (same shape as GET variant stops).",
+        "Full stop metadata editing stays on the Stop Detail page. Returns the updated ordered stops (lightweight shape) plus route_stop_count, has_verified_path, and the created_stop summary so the client can update locally without a refetch.",
     security: [...bearerAuth],
     params: publicIdParamSchema,
     body: {
@@ -1203,7 +1301,7 @@ export const createAndInsertRouteStopSchema = {
         },
     },
     response: {
-        200: variantStopsResponseSchema,
+        200: routeStopMutationResponseSchema,
         400: badRequestSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
@@ -1280,19 +1378,11 @@ export const deleteRouteStopSchema = {
         "Deletes the route_stops membership row only. The stop record itself is never deleted. " +
         "After removal the remaining route_stops are resequenced to a gap-free 1..N. " +
         "Accepts an optional JSON body `{ reason }` recorded in the removal audit log. " +
-        "Returns the updated ordered stops list (same shape as GET variant stops) plus backward-compatible `deleted` / `variantPublicId` fields.",
+        "Returns the updated ordered stops (lightweight shape) plus route_stop_count, has_verified_path, and deleted=true so the client can update locally without a refetch.",
     security: [...bearerAuth],
     params: routeStopIdParamSchema,
     response: {
-        200: {
-            type: "object",
-            required: [...variantStopsResponseSchema.required, "deleted"],
-            properties: {
-                ...variantStopsResponseSchema.properties,
-                deleted: { type: "boolean" },
-                variantPublicId: { type: "string", nullable: true },
-            },
-        },
+        200: routeStopMutationResponseSchema,
         400: badRequestSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,

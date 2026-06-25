@@ -47,6 +47,7 @@ import type {
     TransportInfrastructureLineDetail,
     TransportInfrastructureLineListItem,
     TransportTerminalListItem,
+    TransportRouteStopMutationResult,
     TransportVariantStopsResponse,
     TransportVariantSummary,
 } from "./transport.types.js";
@@ -406,6 +407,11 @@ export class TransportService {
         return this.repo.listStopsForVariant(variantPublicId, query);
     }
 
+    /** Lightweight ordered stops for the Route Detail panel (no path geometry). */
+    getOrderedStops(variantPublicId: string): Promise<TransportRouteStopMutationResult> {
+        return this.repo.getOrderedStops(variantPublicId);
+    }
+
     async updateRoute(
         publicId: string,
         input: UpdateRouteInput,
@@ -450,7 +456,7 @@ export class TransportService {
         id: bigint,
         audit?: TransportAuditContext,
         reason?: string
-    ): Promise<TransportVariantStopsResponse & { deleted: boolean; variantPublicId: string | null }> {
+    ): Promise<TransportRouteStopMutationResult> {
         const result = await this.repo.removeRouteStop(id, audit, reason);
         this.invalidateAggregateCaches();
         return result;
@@ -460,7 +466,7 @@ export class TransportService {
         variantPublicId: string,
         input: InsertExistingRouteStopInput,
         audit?: TransportAuditContext
-    ): Promise<TransportVariantStopsResponse> {
+    ): Promise<TransportRouteStopMutationResult> {
         const result = await this.repo.insertExistingRouteStop(variantPublicId, input, audit);
         this.invalidateAggregateCaches();
         return result;
@@ -470,7 +476,7 @@ export class TransportService {
         variantPublicId: string,
         input: CreateAndInsertRouteStopInput,
         audit?: TransportAuditContext
-    ): Promise<TransportVariantStopsResponse> {
+    ): Promise<TransportRouteStopMutationResult> {
         const result = await this.repo.createAndInsertRouteStop(variantPublicId, input, audit);
         this.invalidateAggregateCaches();
         return result;

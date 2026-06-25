@@ -16,6 +16,7 @@ import adminAreasRoutes from "./modules/admin-areas/admin-areas.routes.js";
 import entityAdminAreaRoutes from "./modules/entity-admin-area/entity-admin-area.routes.js";
 import authRoutes from "./modules/auth/auth.routes.js";
 import savedPlacesRoutes from "./modules/saved-places/saved-places.routes.js";
+import reportsRoutes from "./modules/reports/reports.routes.js";
 import pointsRoutes from "./modules/points/points.routes.js";
 import adminUsersRoutes from "./modules/admin-users/admin-users.routes.js";
 import categoriesRoutes from "./modules/categories/categories.routes.js";
@@ -93,7 +94,13 @@ export async function buildApp() {
         origin: corsOrigins,
         credentials: true,
         methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization", IMPORT_REVIEW_ADMIN_TOKEN_HEADER],
+        allowedHeaders: [
+            "Content-Type",
+            "Authorization",
+            IMPORT_REVIEW_ADMIN_TOKEN_HEADER,
+            // Guests submit reports with a persisted anonymous id via this header.
+            "x-anonymous-id",
+        ],
     });
 
     // Opt-in only (global: false): routes enable limits via `config.rateLimit`.
@@ -153,6 +160,7 @@ export async function buildApp() {
 
     await app.register(authRoutes);
     await app.register(savedPlacesRoutes);
+    await app.register(reportsRoutes);
     await app.register(pointsRoutes);
     await app.register(adminUsersRoutes);
     await app.register(categoriesRoutes);
