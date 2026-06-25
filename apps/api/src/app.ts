@@ -5,7 +5,10 @@ import { Prisma } from "@prisma/client";
 
 import { disconnectImportReviewPrisma } from "./db/import-review-prisma.js";
 import { prisma } from "./db/prisma.js";
-import { bootstrapImportReviewDatabase } from "./modules/import-review/import-review-bootstrap.js";
+import {
+    getImportReviewReadiness,
+    getImportReviewReadinessSnapshot,
+} from "./modules/import-review/import-review-readiness.js";
 import authPlugin from "./plugins/auth.js";
 import prismaPlugin from "./plugins/prisma.js";
 import { swaggerCorePlugin, swaggerUiPlugin } from "./plugins/swagger.js";
@@ -72,7 +75,10 @@ export async function buildApp() {
         logger: true,
     });
 
-    await bootstrapImportReviewDatabase(app.log);
+    // NOTE: the import-review DB bootstrap (a Supabase round-trip) intentionally does
+    // NOT run here. buildApp() must only build/register routes + plugins and return
+    // fast so app.listen() binds the port immediately (Render port scan). The
+    // bootstrap runs non-blockingly AFTER listen in server.ts.
 
     registerPublicErrorHandler(app);
 
@@ -114,10 +120,35 @@ export async function buildApp() {
 
     await app.register(swaggerCorePlugin);
 
+    // Liveness probe — DB-FREE on purpose. Must respond instantly (used by Render's
+    // port scan / health checks); never queries Supabase.
     app.get("/health", { schema: healthGetSchema }, async () => {
         return {
             ok: true,
         };
+    });
+
+    // Optional readiness/DB probe — separate from /health so a slow or down database
+    // never makes the liveness check fail. Returns 503 when the DB is unreachable.
+    app.get("/health/db", async (_request, reply) => {
+        try {
+            await app.prisma.$queryRaw`SELECT 1`;
+            return { ok: true, importReview: getImportReviewReadiness() };
+        } catch (error) {
+            app.log.error({ err: error }, "[api] /health/db check failed");
+            return reply.code(503).send({ ok: false, importReview: getImportReviewReadiness() });
+        }
+    });
+
+    // Observability for the (time-boxed, after-listen) import-review DB bootstrap.
+    // DB-free: reports the in-memory status only — never queries Supabase. Returns
+    // 503 while pending/failed so external probes can distinguish readiness.
+    app.get("/health/import-review", async (_request, reply) => {
+        const snapshot = getImportReviewReadinessSnapshot();
+        if (snapshot.status !== "ready") {
+            return reply.code(503).send(snapshot);
+        }
+        return snapshot;
     });
 
     await app.register(authRoutes);

@@ -84,6 +84,7 @@ import {
     isImportReviewHeaderTokenGuardEnabled,
     requireImportReviewAdmin,
 } from "./import-review-admin.guard.js";
+import { isImportReviewReady } from "./import-review-readiness.js";
 import { createImportReviewDataRepository } from "./import-review-repository.factory.js";
 import { sendImportReviewError } from "./import-review-error-handler.js";
 import {
@@ -437,6 +438,18 @@ const importReviewRoutes: FastifyPluginAsync = async (app) => {
 
     registerImportReviewPluginErrorHandler(app);
     registerImportReviewRequestLogging(app);
+
+    // Readiness guard: the import-review DB bootstrap now runs AFTER app.listen()
+    // (so the HTTP port binds fast for Render). Until it has verified the Supabase
+    // import_review schema, these routes return 503 instead of hitting an unverified
+    // database. This never blocks server startup or any other module.
+    app.addHook("onRequest", async (_request, reply) => {
+        if (!isImportReviewReady()) {
+            return reply
+                .code(503)
+                .send({ message: "Import review database is not ready" });
+        }
+    });
 
     app.addHook("onRequest", async (request, reply) => {
         await authenticateImportReview(request, reply);

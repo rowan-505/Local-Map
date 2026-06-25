@@ -38,13 +38,36 @@ async function start() {
         assertAuthBypassNotInProduction();
 
         const { buildApp } = await import("./app.js");
+        // Startup checkpoints. buildApp() must NOT do external DB work, so the gap
+        // between "before buildApp" and "before listen" stays tiny and the port binds
+        // quickly. The import-review DB bootstrap runs only AFTER "listening".
+        // eslint-disable-next-line no-console
+        console.log("[api] before buildApp");
         const app = await buildApp();
+        // eslint-disable-next-line no-console
+        console.log("[api] after buildApp");
 
+        // eslint-disable-next-line no-console
+        console.log("[api] before listen");
         await app.listen({ port, host });
+        // eslint-disable-next-line no-console
+        console.log("[api] listening");
         app.log.info({ port, host, nodeEnv }, `[api] listening on http://${host}:${port}`);
+
+        // Import-review DB bootstrap runs AFTER the port is bound, non-blocking and
+        // time-boxed. A slow/unreachable Supabase connection can no longer delay the
+        // HTTP bind (the Render "no open ports" failure) nor hang forever. Failures
+        // flip import-review into a "failed" readiness state (its routes return 503)
+        // and trigger a slow retry, but never crash the process or affect other modules.
+        void (async () => {
+            const { startImportReviewBootstrap } = await import(
+                "./modules/import-review/import-review-bootstrap.js"
+            );
+            startImportReviewBootstrap(app.log);
+        })();
     } catch (error) {
         // eslint-disable-next-line no-console -- ensure the failure is visible even if the logger never started
-        console.error("[api] failed to start", error);
+        console.error("[api] startup failed", error);
         process.exit(1);
     }
 }
