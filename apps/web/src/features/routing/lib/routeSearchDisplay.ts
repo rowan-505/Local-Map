@@ -26,6 +26,7 @@ export function searchResultDisplayName(
 export function searchResultTypeLabel(type: PublicSearchResult['type']): string {
   switch (type) {
     case 'street':
+    case 'street_group':
       return 'Street';
     case 'admin_area':
       return 'Area';

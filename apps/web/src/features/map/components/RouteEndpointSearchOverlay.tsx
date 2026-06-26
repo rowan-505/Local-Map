@@ -173,7 +173,7 @@ function RouteSearchResultRow({
 
 function SearchTypeBadge({ type }: { readonly type: PublicSearchResult['type'] }) {
   const meta =
-    type === 'street'
+    type === 'street' || type === 'street_group'
       ? { badge: 'St', className: 'bg-orange-50 text-orange-700' }
       : type === 'admin_area'
         ? { badge: 'V', className: 'bg-violet-50 text-violet-800' }

@@ -4,6 +4,7 @@ import {
     Tags,
     badRequestSchema,
     geoJsonFeatureCollectionSchema,
+    geoJsonGeometrySchema,
     notFoundSchema,
 } from "../../lib/openapi/common.js";
 
@@ -170,11 +171,12 @@ const cameraTargetPointSchema = {
 
 const cameraTargetBoundsSchema = {
     type: "object",
-    required: ["type", "center", "zoom", "bbox", "padding"],
+    // A bounds target carries bbox + padding; `center` is optional (only present
+    // when the row has a centroid) and there is no `zoom` (the map fits the bbox).
+    required: ["type", "bbox", "padding"],
     properties: {
         type: { type: "string", enum: ["bounds"] },
         center: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
-        zoom: { type: "number" },
         bbox: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4 },
         padding: { type: "number" },
     },
@@ -183,37 +185,59 @@ const cameraTargetBoundsSchema = {
 
 const searchHitSchema = {
     type: "object",
-    required: [
-        "id",
-        "type",
-        "myanmar_name",
-        "english_name",
-        "name_mm",
-        "name_en",
-        "display_name",
-        "primary_name",
-        "canonical_name",
-        "subtitle",
-        "categoryName",
-        "lat",
-        "lng",
-        "cameraTarget",
-    ],
+    required: ["id", "type"],
     properties: {
         id: { type: "string" },
-        type: { type: "string", description: "Result kind from server (e.g. place, street)" },
+        // Unified entity type (e.g. place, street_group, admin_area, bus_stop, plus_code).
+        entityType: { type: "string" },
+        type: { type: "string", description: "Alias of entityType (backward compat)" },
+        entityId: { type: "string", nullable: true },
+        publicId: { type: "string", nullable: true },
         myanmar_name: { type: "string", nullable: true },
         english_name: { type: "string", nullable: true },
         name_mm: { type: "string", nullable: true },
         name_en: { type: "string", nullable: true },
         display_name: { type: "string", nullable: true },
+        displayName: { type: "string", nullable: true },
         primary_name: { type: "string", nullable: true },
         canonical_name: { type: "string", nullable: true },
         subtitle: { type: "string", nullable: true },
+        matchedName: { type: "string", nullable: true },
         categoryName: { type: "string", nullable: true },
+        categoryCode: { type: "string", nullable: true },
+        adminAreaNameMy: { type: "string", nullable: true },
+        adminAreaNameEn: { type: "string", nullable: true },
         lat: { type: "number", nullable: true },
         lng: { type: "number", nullable: true },
+        center: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2, nullable: true },
+        bbox: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, nullable: true },
+        geometryType: { type: "string", nullable: true },
+        hasGeometry: { type: "boolean" },
+        isVerified: { type: "boolean" },
+        confidenceScore: { type: "number", nullable: true },
+        boundaryConfidenceScore: { type: "number", nullable: true },
+        score: { type: "number" },
         cameraTarget: { oneOf: [cameraTargetPointSchema, cameraTargetBoundsSchema] },
+        // Plus Code result fields (present only when type = 'plus_code').
+        plus_code: { type: "string" },
+        outsideServiceArea: { type: "boolean" },
+        referenceRequired: { type: "boolean" },
+        reason: { type: "string" },
+        reverse: {
+            type: "object",
+            nullable: true,
+            properties: {
+                nearbyName: { type: "string", nullable: true },
+                nearbyType: { type: "string", nullable: true },
+                nearbyDistanceM: { type: "number", nullable: true },
+                township: { type: "string", nullable: true },
+                district: { type: "string", nullable: true },
+                regionState: { type: "string", nullable: true },
+                country: { type: "string", nullable: true },
+                confidence: { type: "string", nullable: true },
+            },
+            additionalProperties: false,
+        },
     },
     additionalProperties: false,
 } as const;
@@ -306,18 +330,117 @@ export const getPublicCategoriesSchema = {
 export const getPublicSearchSchema = {
     tags: [Tags.Search],
     summary: "Public search",
+    description:
+        "Unified public search over the search index (search.search_documents). " +
+        "Matches places, grouped streets (street_group), admin areas, addresses, " +
+        "bus stops/routes, buildings, water and landuse. Streets are returned as one " +
+        "logical road per result, not per segment. A Plus Code query is decoded to a " +
+        "point; a short Plus Code requires lat/lng (map center or user location) to " +
+        "expand, otherwise referenceRequired is returned.",
     querystring: {
         type: "object",
         required: ["q"],
         properties: {
             q: { type: "string", minLength: 1 },
             limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+            lat: { type: "number", minimum: -90, maximum: 90 },
+            lng: { type: "number", minimum: -180, maximum: 180 },
+            types: {
+                type: "string",
+                description:
+                    "Optional comma-separated entity-type filter, e.g. " +
+                    "'place,street_group,admin_area'. Unknown values are ignored.",
+            },
         },
         additionalProperties: false,
     },
     response: {
         200: { type: "array", items: searchHitSchema },
         400: badRequestSchema,
+    },
+} satisfies FastifySchema;
+
+const searchGeometryFeatureSchema = {
+    type: "object",
+    required: ["type", "geometry", "properties"],
+    properties: {
+        type: { type: "string", enum: ["Feature"] },
+        geometry: geoJsonGeometrySchema,
+        properties: {
+            type: "object",
+            required: ["entityType", "entityId"],
+            properties: {
+                entityType: { type: "string" },
+                entityId: { type: "string" },
+            },
+            additionalProperties: false,
+        },
+    },
+    additionalProperties: false,
+} as const;
+
+const searchGeometrySchema = {
+    type: "object",
+    required: ["entityType", "entityId", "geometryType", "bbox", "feature"],
+    properties: {
+        entityType: { type: "string" },
+        entityId: { type: "string" },
+        geometryType: { type: "string", nullable: true },
+        bbox: {
+            type: "array",
+            items: { type: "number" },
+            minItems: 4,
+            maxItems: 4,
+            description: "[minLng, minLat, maxLng, maxLat]",
+        },
+        feature: searchGeometryFeatureSchema,
+    },
+    additionalProperties: false,
+} as const;
+
+export const getPublicSearchGeometrySchema = {
+    tags: [Tags.Search],
+    summary: "Selected search-result geometry",
+    description:
+        "Returns the full GeoJSON geometry for a single search result, fetched on click " +
+        "(the search list only carries centroid/bbox). Large line/polygon geometries are " +
+        "optionally simplified via ?zoom=. Points are never simplified.",
+    params: {
+        type: "object",
+        required: ["entityType", "entityId"],
+        properties: {
+            entityType: {
+                type: "string",
+                enum: [
+                    "place",
+                    "address",
+                    "bus_stop",
+                    "admin_area",
+                    "street",
+                    "street_group",
+                    "bus_route",
+                    "bus_route_variant",
+                    "building",
+                    "water_line",
+                    "water_polygon",
+                    "landuse",
+                ],
+            },
+            entityId: { type: "string", description: "Internal numeric id or uuid public_id" },
+        },
+        additionalProperties: false,
+    },
+    querystring: {
+        type: "object",
+        properties: {
+            zoom: { type: "number", minimum: 0, maximum: 24 },
+        },
+        additionalProperties: false,
+    },
+    response: {
+        200: searchGeometrySchema,
+        400: badRequestSchema,
+        404: notFoundSchema,
     },
 } satisfies FastifySchema;
 

@@ -32,10 +32,13 @@ import { poisToFeatureCollection } from '../lib/poisToGeoJSON';
 import {
   applyMapOverlayStackOrder,
   bindPoiLayerInteractions,
+  clearSearchHighlight,
   createMapEngine,
   ensureClickedLocationLayer,
   ensureDirectionsRouteLayers,
   ensurePlacesLayer,
+  ensureSearchHighlightLayers,
+  fitSearchResult,
   setClickedLocation,
   setDirectionsRouteOverlay,
   setPlacesGeoJSON,
@@ -70,6 +73,8 @@ function MapViewInner({
   selectedPoiId,
   selectedPoi,
   cameraTarget,
+  searchHighlight = null,
+  onSearchHighlightLoadingChange,
   cameraLayout,
   clickedLocation,
   directionsOverlay = null,
@@ -94,8 +99,13 @@ function MapViewInner({
   const languageModeRef = useRef(languageMode);
   const mapModeRef = useRef(mapMode);
   const cameraLayoutRef = useRef(cameraLayout ?? DEFAULT_MAP_CAMERA_LAYOUT);
+  const searchHighlightLoadingRef = useRef(onSearchHighlightLoadingChange);
   /** After manual pan/zoom, startup/sidebar auto-fit must not recenter the camera. */
   const hasUserInteractedRef = useRef(false);
+
+  useEffect(() => {
+    searchHighlightLoadingRef.current = onSearchHighlightLoadingChange;
+  }, [onSearchHighlightLoadingChange]);
 
   useEffect(() => {
     languageModeRef.current = languageMode;
@@ -195,6 +205,7 @@ function MapViewInner({
           ensurePlacesLayer(map, geojsonRef.current, selectedRef.current, languageModeRef.current);
           ensureDirectionsRouteLayers(map);
           setDirectionsRouteOverlay(map, directionsOverlayRef.current ?? null);
+          ensureSearchHighlightLayers(map);
           ensureClickedLocationLayer(map, clickedLocationRef.current);
           applyMapOverlayStackOrder(map);
           applyAllLocalizedMapLabels(map, languageModeRef.current);
@@ -288,6 +299,9 @@ function MapViewInner({
     const map = mapRef.current;
     if (!map) return;
     setTransportOverlayVisible(map, transportOverlayVisible);
+    // Re-stack when enabling: regional PMTiles may have loaded (above the overlay) while it was
+    // hidden, so lift transport back above the basemap whenever it is shown.
+    if (transportOverlayVisible) applyMapOverlayStackOrder(map);
   }, [mapReady, transportOverlayVisible]);
 
   /** Dev-only: log Martin transport tile errors (no-op in production). */
@@ -382,8 +396,37 @@ function MapViewInner({
     };
   }, [directionsOverlay, mapReady]);
 
+  /** Search highlight owns the camera while a result is selected. */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (!searchHighlight) {
+      clearSearchHighlight(map);
+      searchHighlightLoadingRef.current?.(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    void fitSearchResult(map, searchHighlight, {
+      padding: visibleMapCameraPadding(cameraLayoutRef.current, containerRef.current),
+      signal: controller.signal,
+      onGeometryLoadingChange: (loading) => searchHighlightLoadingRef.current?.(loading),
+    }).finally(() => {
+      applyMapOverlayStackOrder(map);
+    });
+
+    return () => {
+      controller.abort();
+      // A superseded/aborted fetch must not leave the overlay stuck "loading".
+      searchHighlightLoadingRef.current?.(false);
+    };
+  }, [mapReady, searchHighlight]);
+
   useEffect(() => {
     if (cameraTarget) return;
+    if (searchHighlight) return;
     if (!mapReady || !selectedPoi) return;
     const map = mapRef.current;
     if (!map) return;
@@ -398,7 +441,7 @@ function MapViewInner({
       padding: visibleMapCameraPadding(cameraLayoutRef.current, containerRef.current),
       essential: true,
     });
-  }, [cameraTarget, mapReady, selectedPoi]);
+  }, [cameraTarget, mapReady, selectedPoi, searchHighlight]);
 
   useEffect(() => {
     if (!mapReady || !cameraTarget) return;

@@ -1,11 +1,15 @@
 import { createBrowserRouter } from 'react-router-dom';
 import RootLayout from './layouts/RootLayout';
 import HomePage from '../pages/HomePage';
+import ShareResolver from '@/features/share/components/ShareResolver';
 
 export const router = createBrowserRouter([
   {
     path: '/',
     element: <RootLayout />,
-    children: [{ index: true, element: <HomePage /> }],
+    children: [
+      { index: true, element: <HomePage /> },
+      { path: 's/:code', element: <ShareResolver /> },
+    ],
   },
 ]);

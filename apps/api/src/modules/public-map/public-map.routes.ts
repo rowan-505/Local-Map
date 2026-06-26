@@ -11,6 +11,8 @@ import {
     publicPlaceIdParamsSchema,
     publicMapPlacesQuerySchema,
     publicPlacesQuerySchema,
+    publicSearchGeometryParamsSchema,
+    publicSearchGeometryQuerySchema,
     publicSearchQuerySchema,
 } from "./public-map.schema.js";
 import {
@@ -24,6 +26,7 @@ import {
     getPublicGeoStreetsSchema,
     getPublicPlaceByIdSchema,
     getPublicPlacesSchema,
+    getPublicSearchGeometrySchema,
     getPublicSearchSchema,
 } from "./public-map.openapi.js";
 
@@ -110,9 +113,54 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
             });
         }
 
-        const results = await publicMapService.search(parsed.data);
+        const results = await publicMapService.search(
+            {
+                q: parsed.data.q,
+                limit: parsed.data.limit,
+                lat: parsed.data.lat,
+                lng: parsed.data.lng,
+                types: parsed.data.types,
+            },
+            request.log,
+        );
         return reply.send(results);
     });
+
+    app.get(
+        "/public/search/:entityType/:entityId/geometry",
+        { schema: getPublicSearchGeometrySchema },
+        async (request, reply) => {
+            const parsedParams = publicSearchGeometryParamsSchema.safeParse(request.params);
+            if (!parsedParams.success) {
+                return reply.code(400).send({
+                    message: "Invalid search geometry request",
+                    issues: parsedParams.error.flatten(),
+                });
+            }
+
+            const parsedQuery = publicSearchGeometryQuerySchema.safeParse(request.query);
+            if (!parsedQuery.success) {
+                return reply.code(400).send({
+                    message: "Invalid search geometry query",
+                    issues: parsedQuery.error.flatten(),
+                });
+            }
+
+            const result = await publicMapService.getEntityGeometry(
+                {
+                    entityType: parsedParams.data.entityType,
+                    entityId: parsedParams.data.entityId,
+                    zoom: parsedQuery.data.zoom,
+                },
+                request.log,
+            );
+
+            if (!result) {
+                return reply.code(404).send({ message: "Geometry not found" });
+            }
+            return reply.send(result);
+        },
+    );
 
     app.get(
         "/public/admin-areas/search",

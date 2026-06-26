@@ -31,6 +31,13 @@ export {
   ROUTE_START_POINT_LAYER_ID,
   type DirectionsMapOverlay,
 } from './maplibre/directionsRouteOnMap';
+export {
+  clearSearchHighlight,
+  ensureSearchHighlightLayers,
+  fitSearchResult,
+  setSearchHighlight,
+  type FitSearchResultOptions,
+} from './maplibre/searchHighlightOnMap';
 export { bindPoiLayerInteractions } from './maplibre/poiMapInteractions';
 export { applyMapOverlayStackOrder } from './maplibre/mapStackOrder';
 export { syncCountryMinZoom } from './maplibre/mapCountryMinZoom';

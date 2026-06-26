@@ -66,6 +66,20 @@ async function parseError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, message);
 }
 
+/** Plain (no bearer) JSON GET for public endpoints (e.g. share link resolve). */
+export async function publicGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+    method: 'GET',
+    signal,
+  });
+
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 /** Plain (no bearer) JSON POST used by auth endpoints that issue/replace tokens. */
 export async function publicJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${getApiBaseUrl()}${path}`, {

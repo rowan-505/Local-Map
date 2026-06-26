@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { SearchPanel } from '@/features/filters/components/SearchPanel';
 import { useDebouncedValue } from '@/features/filters/useDebouncedValue';
 import { useCategoryFilter } from '@/features/filters/useCategoryFilter';
@@ -39,6 +40,7 @@ import {
   usePublicMapPlaces,
   usePublicPlace,
   usePublicSearch,
+  type SearchCenter,
 } from '@/features/poi/api/usePublicMapData';
 import type {
   PublicMapPlacesResult,
@@ -46,6 +48,7 @@ import type {
   SearchCameraTarget,
 } from '@/features/poi/api/publicMapApi';
 import { PlaceDetailPanel } from '@/features/poi/components/PlaceDetailPanel';
+import { readShareNavState } from '@/features/share/shareNavigation';
 import type { Poi } from '@/types';
 import { MapShell, MapViewport } from './HomePageLayout';
 
@@ -61,17 +64,45 @@ export default function HomePage() {
   const setLanguageMode = useMapUiStore((s) => s.setLanguageMode);
   const { authModalView, closeAuthModal } = useAuth();
 
-  const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null);
+  // A resolved share link (from /s/:code) hands its target here via router state.
+  // It seeds the initial map/panel state so the shared location opens immediately.
+  const initialShare = readShareNavState(useLocation().state);
+
+  const [selectedPoiId, setSelectedPoiId] = useState<string | null>(
+    initialShare?.kind === 'place' ? initialShare.placePublicId : null,
+  );
   const [selectedSearchResult, setSelectedSearchResult] =
     useState<PublicSearchResult | null>(null);
-  const [cameraTarget, setCameraTarget] = useState<SearchCameraTarget | undefined>();
+  /** Loading flag for the geometry overlay fetch only (line/polygon results). */
+  const [searchHighlightLoading, setSearchHighlightLoading] = useState(false);
+  const [cameraTarget, setCameraTarget] = useState<SearchCameraTarget | undefined>(
+    initialShare
+      ? {
+          type: 'point',
+          center: [initialShare.lng, initialShare.lat],
+          zoom: initialShare.kind === 'point' ? (initialShare.zoom ?? 17) : 17,
+          duration: 800,
+        }
+      : undefined,
+  );
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [activeSidebarMode, setActiveSidebarMode] = useState<SidebarMode>('search');
+  const [activeSidebarMode, setActiveSidebarMode] = useState<SidebarMode>(
+    initialShare ? (initialShare.kind === 'place' ? 'placeDetail' : 'address') : 'search',
+  );
   const [bottomSheetState, setBottomSheetState] = useState<BottomSheetState>('half');
   const [mapViewport, setMapViewport] = useState<MapViewportState | null>(null);
   const [routeDestination, setRouteDestination] = useState<RouteDestination | null>(null);
   const route = useRouteState('motorcycle');
-  const [clickedLocation, setClickedLocation] = useState<MapClickedLocation | null>(null);
+  const [clickedLocation, setClickedLocation] = useState<MapClickedLocation | null>(
+    initialShare?.kind === 'point'
+      ? {
+          label: initialShare.addressLine ?? 'Shared location',
+          coordinates: [initialShare.lng, initialShare.lat],
+          addressLine: initialShare.addressLine,
+          plusCode: initialShare.plusCode,
+        }
+      : null,
+  );
   const debouncedSearchQuery = useDebouncedValue(filterState.searchQuery, 300);
   const debouncedMapViewport = useDebouncedValue(mapViewport, 250);
 
@@ -91,7 +122,27 @@ export default function HomePage() {
     [debouncedMapViewport, filterState.categoryCode, viewportPlaceLimit],
   );
   const placesQuery = usePublicMapPlaces(mapPlacesParams);
-  const searchResultsQuery = usePublicSearch(debouncedSearchQuery);
+  /**
+   * Live map center for search (nearby ranking + short Plus Code expansion).
+   * Held in a ref — NOT in search state or the query key — so map movement and the
+   * `flyTo` from selecting a result never re-key or refetch the search. The center
+   * is captured only when a search request actually starts (`getSearchCenter`).
+   */
+  const mapCenterRef = useRef<SearchCenter | undefined>(undefined);
+  useEffect(() => {
+    if (!mapViewport) {
+      mapCenterRef.current = undefined;
+      return;
+    }
+    const [minLng, minLat, maxLng, maxLat] = mapViewport.bbox;
+    const round = (v: number) => Math.round(v * 1000) / 1000;
+    mapCenterRef.current = {
+      lat: round((minLat + maxLat) / 2),
+      lng: round((minLng + maxLng) / 2),
+    };
+  }, [mapViewport]);
+  const getSearchCenter = useCallback(() => mapCenterRef.current, []);
+  const searchResultsQuery = usePublicSearch(debouncedSearchQuery, getSearchCenter);
 
   const places = useMemo(
     () =>
@@ -181,34 +232,39 @@ export default function HomePage() {
   }, [places]);
 
   const onSelectSearchResult = useCallback((result: PublicSearchResult) => {
+    // Selecting a result ONLY updates the selection + map overlay. It must not
+    // touch searchQuery/searchResults, switch the active panel, or refetch the
+    // list — so the results stay visible and stable while clicking through.
     setSelectedSearchResult(result);
     setClickedLocation(null);
+    setSelectedPoiId(result.type === 'place' ? (result.publicId ?? result.id) : null);
 
-    if (result.type === 'place') {
-      setSelectedPoiId(result.publicId ?? result.id);
-    } else {
-      setSelectedPoiId(null);
-    }
+    // Camera + map highlight are owned by the search-highlight overlay (MapView
+    // reads `searchHighlight`), so clear any prior cameraTarget to avoid double moves.
+    setCameraTarget(undefined);
+    setIsSidebarOpen(true);
+  }, []);
 
-    const searchCameraTarget = cameraTargetForSearchResult(result);
-    const selectedPlace =
-      result.type === 'place'
-        ? places.find((place) => place.id === (result.publicId ?? result.id))
-        : undefined;
-    setCameraTarget(
-      searchCameraTarget ??
-        (selectedPlace
-          ? {
-              type: 'point',
-              center: [selectedPlace.longitude, selectedPlace.latitude],
-              zoom: 16,
-              duration: 700,
-            }
-          : undefined),
-    );
+  /** Dismiss the selected-result card (and its map highlight) without losing the list. */
+  const onClearSelectedSearchResult = useCallback(() => {
+    setSelectedSearchResult(null);
+    setSelectedPoiId(null);
+  }, []);
+
+  /** Open the full place detail panel on demand (from the mini card). */
+  const onViewSelectedResultDetails = useCallback(() => {
     setActiveSidebarMode('placeDetail');
     setIsSidebarOpen(true);
-  }, [places]);
+  }, []);
+
+  /** Editing the query starts a new search and clears any prior result highlight. */
+  const onSearchQueryChange = useCallback(
+    (value: string) => {
+      setSearchQuery(value);
+      setSelectedSearchResult(null);
+    },
+    [setSearchQuery],
+  );
 
   const onClearSearch = useCallback(() => {
     setSearchQuery('');
@@ -219,6 +275,7 @@ export default function HomePage() {
   }, [setSearchQuery]);
 
   const onBackToSearch = useCallback(() => {
+    setSelectedSearchResult(null);
     setActiveSidebarMode('search');
     setIsSidebarOpen(true);
   }, []);
@@ -356,6 +413,8 @@ export default function HomePage() {
             selectedPoiId={selectedPoiIdForMap}
             selectedPoi={selectedPoi}
             cameraTarget={cameraTarget}
+            searchHighlight={selectedSearchResult}
+            onSearchHighlightLoadingChange={setSearchHighlightLoading}
             cameraLayout={mapCameraLayout}
             clickedLocation={clickedLocation}
             directionsOverlay={directionsOverlay}
@@ -379,11 +438,16 @@ export default function HomePage() {
               selectedCategoryCode={categoryCode}
               onSelectCategory={selectCategory}
               searchQuery={searchQuery}
-              onSearchQueryChange={setSearchQuery}
+              onSearchQueryChange={onSearchQueryChange}
               searchResults={searchResultsQuery.data ?? []}
               selectedSearchResultId={selectedSearchResult?.id ?? null}
+              selectedSearchResult={selectedSearchResult}
+              selectedResultLoading={searchHighlightLoading}
               onSelectSearchResult={onSelectSearchResult}
+              onClearSelectedSearchResult={onClearSelectedSearchResult}
+              onViewSelectedResultDetails={onViewSelectedResultDetails}
               onClearSearch={onClearSearch}
+              referenceCoordinates={searchReferenceCoordinates}
               pois={places}
               placesCount={visiblePlacesCount}
               selectedPoiId={selectedPoiIdForMap}
@@ -415,6 +479,7 @@ export default function HomePage() {
           addressPanel={
             <AddressLocationPanel
               location={clickedLocation}
+              zoom={mapViewport?.zoom}
               onUseAsRouteStart={(point) => onUseAddressAsRoutePoint('from', point)}
               onUseAsRouteDestination={(point) => onUseAddressAsRoutePoint('to', point)}
             />
@@ -447,60 +512,6 @@ export default function HomePage() {
   );
 }
 
-function cameraTargetForSearchResult(result: PublicSearchResult): SearchCameraTarget | undefined {
-  if (result.cameraTarget?.type === 'point') {
-    return {
-      type: 'point',
-      center: result.cameraTarget.center,
-      zoom: result.cameraTarget.zoom ?? 16,
-      duration: 900,
-    };
-  }
-
-  if (result.cameraTarget?.type === 'bounds' && result.cameraTarget.bbox) {
-    return {
-      type: 'bounds',
-      bbox: result.cameraTarget.bbox,
-      padding: result.cameraTarget.padding ?? 80,
-      duration: 900,
-    };
-  }
-
-  if (typeof result.lng === 'number' && typeof result.lat === 'number') {
-    return {
-      type: 'point',
-      center: [result.lng, result.lat],
-      zoom: searchResultPointZoom(result.type),
-      duration: 900,
-    };
-  }
-
-  if (result.center) {
-    return {
-      type: 'point',
-      center: result.center,
-      zoom: searchResultPointZoom(result.type),
-      duration: 900,
-    };
-  }
-
-  if (result.bbox) {
-    return {
-      type: 'bounds',
-      bbox: result.bbox,
-      padding: 80,
-      duration: 900,
-    };
-  }
-
-  return undefined;
-}
-
-function searchResultPointZoom(type: PublicSearchResult['type']): number {
-  if (type === 'admin_area') return 14;
-  if (type === 'street') return 15;
-  return 16;
-}
 
 function combineUniqueViewportPlaces(
   pages: readonly PublicMapPlacesResult[] | undefined,

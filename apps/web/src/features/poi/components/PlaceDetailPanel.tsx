@@ -1,9 +1,11 @@
-import { memo } from 'react';
-import type { ReactNode } from 'react';
+import { memo, useState } from 'react';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import { useReverseAddress } from '@/features/map/api/useReverseAddress';
 import { SaveButton } from '@/features/saved-places/components/SaveButton';
 import { ReportEntryButton } from '@/features/reports/components/ReportEntryButton';
+import { ShareCard, type ShareCardTarget } from '@/features/share/components/ShareCard';
+import { ActionButton, MetadataList, MetadataRow } from '@/components/ui/sidebarUi';
+import { mutedLabel, sidebarCard } from '@/components/ui/sidebarTokens';
 import type { ReportTarget } from '@/features/reports/api/reportsApi';
 import type { PlaceLanguageMode, PublicSearchResult } from '@/features/poi/api/publicMapApi';
 import type { Poi } from '@/types';
@@ -25,6 +27,10 @@ export type PlaceDetailPanelProps = {
   readonly onRoutePlace: (field: 'from' | 'to', place: RoutePlacePayload) => void;
 };
 
+/** Neutral, full-width report button styling so it matches SaveButton in the action row. */
+const REPORT_BUTTON_CLASS =
+  'flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50';
+
 function PlaceDetailPanelInner({
   selectedPoi,
   detailLoading = false,
@@ -34,6 +40,7 @@ function PlaceDetailPanelInner({
   onRoutePlace,
 }: PlaceDetailPanelProps) {
   const languageMode = useMapUiStore((s) => s.languageMode);
+  const [showShare, setShowShare] = useState(false);
   const detail = buildPlaceDetail({
     poi: selectedPoi,
     searchResult: selectedSearchResult,
@@ -46,28 +53,32 @@ function PlaceDetailPanelInner({
 
   if (detailLoading && !detail) {
     return (
-      <section className="p-4" aria-label="Selected place details">
-        <DetailTopBar onBack={onBack} />
-        <StateCard title="Loading details..." body="Getting the selected place information." />
-      </section>
+      <StateView
+        onBack={onBack}
+        title="Loading details…"
+        body="Getting the selected place information."
+      />
     );
   }
 
   if (detailError && !detail) {
     return (
-      <section className="p-4" aria-label="Selected place details">
-        <DetailTopBar onBack={onBack} />
-        <StateCard title="Could not load details." body="Return to search and try again." tone="error" />
-      </section>
+      <StateView
+        onBack={onBack}
+        title="Could not load details."
+        body="Return to search and try again."
+        tone="error"
+      />
     );
   }
 
   if (!detail) {
     return (
-      <section className="p-4" aria-label="Selected place details">
-        <DetailTopBar onBack={onBack} />
-        <StateCard title="Select a place" body="Choose a result from the map or sidebar list." />
-      </section>
+      <StateView
+        onBack={onBack}
+        title="Select a place"
+        body="Choose a result from the map or sidebar list."
+      />
     );
   }
 
@@ -78,206 +89,176 @@ function PlaceDetailPanelInner({
   const addressLine = detail.addressLine ?? reverse.data?.address_line ?? null;
   const plusCode = detail.plusCode ?? reverse.data?.plus_code ?? null;
   const reportTarget = buildReportTarget(selectedPoi, detail);
+  const shareTarget = buildShareTarget(detail, addressLine, plusCode);
 
   return (
-    <section className="space-y-3 p-3.5" aria-label="Selected place details">
-      <DetailTopBar onBack={onBack} />
+    <section className="p-3" aria-label="Selected place details">
+      <article className={sidebarCard}>
+        <div className="px-4 pb-3.5 pt-3">
+          <div className="mb-2 flex items-center gap-2">
+            <BackButton onBack={onBack} />
+            <span className={mutedLabel}>Place</span>
+          </div>
 
-      <div className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm shadow-neutral-950/3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="mb-1 text-xs font-medium text-neutral-500">{detail.category}</p>
-            <h2 className="text-xl font-semibold leading-7 text-neutral-950">{detail.title}</h2>
-            {detail.area ? (
-              <p className="mt-1 truncate text-xs text-neutral-500">{detail.area}</p>
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="min-w-0 wrap-break-word text-base font-semibold leading-6 text-neutral-900">
+              {detail.title}
+            </h2>
+            {detail.verified ? <VerifiedBadge /> : null}
+          </div>
+          {detail.area ? (
+            <p className="mt-0.5 truncate text-xs text-neutral-500">{detail.area}</p>
+          ) : null}
+
+          <div className="mt-3 grid grid-cols-4 gap-1.5">
+            <ActionButton
+              primary
+              disabled={!detail.coordinates}
+              onClick={() => {
+                if (detail.coordinates) {
+                  onRoutePlace('from', {
+                    label: detail.title,
+                    coordinates: detail.coordinates,
+                    placeId: detail.placeId,
+                  });
+                }
+              }}
+            >
+              From
+            </ActionButton>
+            <ActionButton
+              primary
+              disabled={!detail.coordinates}
+              onClick={() => {
+                if (detail.coordinates) {
+                  onRoutePlace('to', {
+                    label: detail.title,
+                    coordinates: detail.coordinates,
+                    placeId: detail.placeId,
+                  });
+                }
+              }}
+            >
+              To
+            </ActionButton>
+            <ActionButton
+              disabled={!shareTarget}
+              onClick={() => setShowShare((open) => !open)}
+            >
+              Share
+            </ActionButton>
+            <ActionButton
+              disabled={!coordinatesText}
+              onClick={() => {
+                if (coordinatesText) copyText(coordinatesText);
+              }}
+            >
+              Coords
+            </ActionButton>
+          </div>
+
+          <div
+            className={`mt-1.5 grid gap-1.5 ${reportTarget ? 'grid-cols-2' : 'grid-cols-1'}`}
+          >
+            <SaveButton placeApiId={selectedPoi?.apiId} />
+            {reportTarget ? (
+              <ReportEntryButton
+                target={reportTarget}
+                label="Report"
+                className={REPORT_BUTTON_CLASS}
+              />
             ) : null}
           </div>
-          {detail.verified ? (
-            <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
-              Verified
-            </span>
+        </div>
+
+        <MetadataList>
+          <MetadataRow label="Area">{detail.area ?? 'Kyauktan Township'}</MetadataRow>
+          <MetadataRow label="Type">{detail.category}</MetadataRow>
+          <MetadataRow label="Coordinates" mono>
+            {coordinatesText ?? 'No coordinate available'}
+          </MetadataRow>
+          {addressLine ? (
+            <MetadataRow label="Address" stacked>
+              {addressLine}
+            </MetadataRow>
+          ) : reverse.loading ? (
+            <MetadataRow label="Address" stacked muted>
+              Loading address…
+            </MetadataRow>
           ) : null}
-        </div>
-
-        <div className="mt-4 grid grid-cols-4 gap-2">
-          <PrimaryActionButton
-            disabled={!detail.coordinates}
-            onClick={() => {
-              if (detail.coordinates) {
-                onRoutePlace('from', {
-                  label: detail.title,
-                  coordinates: detail.coordinates,
-                  placeId: detail.placeId,
-                });
-              }
-            }}
-          >
-            From
-          </PrimaryActionButton>
-          <PrimaryActionButton
-            disabled={!detail.coordinates}
-            onClick={() => {
-              if (detail.coordinates) {
-                onRoutePlace('to', {
-                  label: detail.title,
-                  coordinates: detail.coordinates,
-                  placeId: detail.placeId,
-                });
-              }
-            }}
-          >
-            To
-          </PrimaryActionButton>
-          <PrimaryActionButton onClick={() => sharePlace(detail)}>Share</PrimaryActionButton>
-          <PrimaryActionButton
-            disabled={!coordinatesText}
-            onClick={() => {
-              if (coordinatesText) copyText(coordinatesText);
-            }}
-          >
-            Coords
-          </PrimaryActionButton>
-        </div>
-
-        <div className="mt-2 flex items-center gap-2">
-          <SaveButton placeApiId={selectedPoi?.apiId} />
-          {reportTarget ? (
-            <ReportEntryButton target={reportTarget} label="Report issue" />
+          {plusCode ? (
+            <MetadataRow label="Plus Code" mono>
+              {plusCode}
+            </MetadataRow>
           ) : null}
+          <MetadataRow label="Status">
+            {detail.verified
+              ? 'Verified place data'
+              : 'Community data, pending verification'}
+          </MetadataRow>
+        </MetadataList>
+      </article>
+
+      {showShare && shareTarget ? (
+        <div className="mt-3">
+          <ShareCard target={shareTarget} />
         </div>
-      </div>
-
-      <InfoSection title="Location">
-        <InfoRow label="Area" value={detail.area ?? 'Kyauktan Township'} />
-        <InfoRow label="Type" value={detail.category} />
-      </InfoSection>
-
-      <InfoSection title="Coordinates">
-        <InfoRow label="Lat, lng" value={coordinatesText ?? 'No coordinate available'} mono />
-      </InfoSection>
-
-      {addressLine ? (
-        <InfoSection title="Address">
-          <p className="text-sm leading-6 text-neutral-800">{addressLine}</p>
-        </InfoSection>
-      ) : reverse.loading ? (
-        <InfoSection title="Address">
-          <p className="text-sm leading-6 text-neutral-400">Loading address…</p>
-        </InfoSection>
       ) : null}
-
-      {plusCode ? (
-        <InfoSection title="Plus Code">
-          <p className="font-mono text-sm leading-6 text-neutral-800">{plusCode}</p>
-        </InfoSection>
-      ) : null}
-
-      <InfoSection title="Data status">
-        <InfoRow
-          label="Status"
-          value={detail.verified ? 'Verified place data' : 'Community data, pending verification'}
-        />
-      </InfoSection>
     </section>
   );
 }
 
-function DetailTopBar({ onBack }: { readonly onBack: () => void }) {
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        className="grid h-8 w-8 place-items-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-sm transition-colors hover:bg-neutral-50 hover:text-neutral-950"
-        aria-label="Back to search results"
-        onClick={onBack}
-      >
-        <BackIcon />
-      </button>
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-400">
-          Place detail
-        </p>
-        <p className="text-xs text-neutral-500">Search and nearby places remain one tap away.</p>
-      </div>
-    </div>
-  );
-}
-
-function PrimaryActionButton({
-  children,
-  disabled = false,
-  onClick,
-}: {
-  readonly children: ReactNode;
-  readonly disabled?: boolean;
-  readonly onClick: () => void;
-}) {
+function BackButton({ onBack }: { readonly onBack: () => void }) {
   return (
     <button
       type="button"
-      className="rounded-xl border border-neutral-200 bg-white px-2 py-2 text-xs font-semibold text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-45"
-      disabled={disabled}
-      onClick={onClick}
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
+      aria-label="Back to search results"
+      onClick={onBack}
     >
-      {children}
+      <BackIcon />
     </button>
   );
 }
 
-function InfoSection({ title, children }: { readonly title: string; readonly children: ReactNode }) {
+function VerifiedBadge() {
   return (
-    <section className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-sm shadow-neutral-950/3">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-neutral-400">
-        {title}
-      </h3>
-      <div className="space-y-2">{children}</div>
-    </section>
+    <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-100">
+      Verified
+    </span>
   );
 }
 
-function InfoRow({
-  label,
-  value,
-  mono = false,
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly mono?: boolean;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 text-sm">
-      <span className="shrink-0 text-xs text-neutral-500">{label}</span>
-      <span
-        className={`text-right text-xs leading-5 text-neutral-800 ${
-          mono ? 'font-mono' : ''
-        }`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function StateCard({
+function StateView({
+  onBack,
   title,
   body,
   tone = 'neutral',
 }: {
+  readonly onBack: () => void;
   readonly title: string;
   readonly body: string;
   readonly tone?: 'neutral' | 'error';
 }) {
   return (
-    <div
-      className={`mt-3 rounded-2xl border p-4 text-sm ${
-        tone === 'error'
-          ? 'border-red-100 bg-red-50 text-red-700'
-          : 'border-neutral-100 bg-white text-neutral-600'
-      }`}
-    >
-      <p className="font-medium">{title}</p>
-      <p className="mt-1 text-xs leading-5">{body}</p>
-    </div>
+    <section className="p-3" aria-label="Selected place details">
+      <article className={sidebarCard}>
+        <div className="px-4 pb-4 pt-3">
+          <div className="mb-2 flex items-center gap-2">
+            <BackButton onBack={onBack} />
+            <span className={mutedLabel}>Place</span>
+          </div>
+          <p
+            className={`text-sm font-medium ${
+              tone === 'error' ? 'text-red-700' : 'text-neutral-800'
+            }`}
+          >
+            {title}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-neutral-500">{body}</p>
+        </div>
+      </article>
+    </section>
   );
 }
 
@@ -397,27 +378,42 @@ function copyText(text: string): void {
   void navigator.clipboard?.writeText(text);
 }
 
-function sharePlace(detail: PlaceDetail): void {
-  const url = createMapUrl(detail);
-  void navigator.clipboard?.writeText(url);
-}
+/**
+ * Builds the share target for the detail card. Real places (with a public id)
+ * share as a 'place'; everything else with a coordinate (streets, admin areas,
+ * search hits) falls back to a 'point' share. Returns null when nothing is
+ * locatable.
+ */
+function buildShareTarget(
+  detail: PlaceDetail,
+  addressLine: string | null,
+  plusCode: string | null,
+): ShareCardTarget | null {
+  if (detail.placeId) {
+    return {
+      kind: 'place',
+      placePublicId: detail.placeId,
+      name: detail.title,
+      addressLine,
+      plusCode,
+    };
+  }
 
-function createMapUrl(detail: PlaceDetail): string {
-  const params = new URLSearchParams({ q: detail.title });
   if (detail.coordinates) {
-    params.set('lng', String(detail.coordinates[0]));
-    params.set('lat', String(detail.coordinates[1]));
+    return {
+      kind: 'point',
+      lat: detail.coordinates[1],
+      lng: detail.coordinates[0],
+      addressLine,
+      plusCode,
+    };
   }
 
-  if (typeof window === 'undefined') {
-    return `/?${params.toString()}`;
-  }
-
-  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+  return null;
 }
 
 function searchResultTypeLabel(type: PublicSearchResult['type']): string {
-  if (type === 'street') return 'Street';
+  if (type === 'street' || type === 'street_group') return 'Street';
   if (type === 'admin_area') return 'Village';
   return 'Place';
 }

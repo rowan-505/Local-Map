@@ -5,6 +5,9 @@ const ROUTING_PUBLIC_PROFILE_ALLOWLIST = ["walk", "car", "motorcycle"] as const;
 
 const routingEngineSchema = z.enum(["valhalla", "otp", "external"]);
 
+/** Local web (Vite) dev origin — used only as a non-production fallback. */
+const LOCAL_WEB_APP_URL = "http://localhost:5173";
+
 const envBoolean = (defaultValue: boolean) =>
     z.preprocess(
         (value) => {
@@ -27,6 +30,11 @@ function parseCsvList(raw: string): string[] {
 
 const apiEnvSchema = z
     .object({
+        NODE_ENV: z.string().optional(),
+        // Public web app base URL used to build absolute /s/:code share links.
+        // Optional in non-production (falls back to the local web dev origin);
+        // required in production (enforced below — never falls back to localhost).
+        PUBLIC_APP_URL: z.string().url().optional(),
         PORT: z.coerce.number().int().min(1).max(65535).default(3001),
         ROUTING_ENABLED: envBoolean(false),
         ROUTING_DEFAULT_ENGINE: routingEngineSchema.default("valhalla"),
@@ -63,8 +71,22 @@ const apiEnvSchema = z
 
         const valhallaBaseUrl = raw.VALHALLA_BASE_URL.replace(/\/+$/, "");
 
+        // Resolve the public web base URL. Explicit env always wins (trailing
+        // slashes trimmed). Outside production we fall back to the local web dev
+        // origin; in production we leave it null so the refine below fails fast
+        // rather than ever serving a localhost URL.
+        const isProduction = raw.NODE_ENV === "production";
+        const explicitPublicAppUrl = raw.PUBLIC_APP_URL?.replace(/\/+$/, "");
+        const publicAppUrl =
+            explicitPublicAppUrl && explicitPublicAppUrl.length > 0
+                ? explicitPublicAppUrl
+                : isProduction
+                  ? null
+                  : LOCAL_WEB_APP_URL;
+
         return {
             port: raw.PORT,
+            publicAppUrl,
             routing: {
                 enabled: raw.ROUTING_ENABLED,
                 defaultEngine: raw.ROUTING_DEFAULT_ENGINE,
@@ -89,6 +111,16 @@ const apiEnvSchema = z
         };
     })
     .superRefine((config, ctx) => {
+        if (config.publicAppUrl === null) {
+            ctx.addIssue({
+                code: "custom",
+                message:
+                    "PUBLIC_APP_URL is required in production (e.g. https://coremapmm.com). " +
+                    "It has no localhost fallback outside development.",
+                path: ["PUBLIC_APP_URL"],
+            });
+        }
+
         if (!config.routing.enabled) {
             return;
         }
@@ -158,6 +190,20 @@ export function getEmailEnv(): EmailEnvConfig {
 
 export function getAuthRateLimitEnv(): AuthRateLimitConfig {
     return getApiEnv().authRateLimit;
+}
+
+/**
+ * Public web app base URL (no trailing slash), used to build absolute share
+ * links such as `${getPublicAppUrl()}/s/<code>`. Guaranteed non-null after
+ * env validation (production requires PUBLIC_APP_URL; dev falls back to the
+ * local web origin).
+ */
+export function getPublicAppUrl(): string {
+    const url = getApiEnv().publicAppUrl;
+    if (!url) {
+        throw new Error("PUBLIC_APP_URL is not configured.");
+    }
+    return url;
 }
 
 export function isRoutingEnabled(): boolean {

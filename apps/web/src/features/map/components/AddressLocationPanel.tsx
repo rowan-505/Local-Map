@@ -4,20 +4,24 @@ import { useReverseAddress } from '@/features/map/api/useReverseAddress';
 import { useAuth } from '@/features/auth/state/useAuth';
 import { useSavedPlaces } from '@/features/saved-places/state/useSavedPlaces';
 import { ReportEntryButton } from '@/features/reports/components/ReportEntryButton';
+import { ShareCard } from '@/features/share/components/ShareCard';
 import type { RoutePoint } from '@/features/routing/lib/routePoint';
 
 type AddressLocationPanelProps = {
   readonly location: MapClickedLocation | null;
+  readonly zoom?: number;
   readonly onUseAsRouteStart: (point: RoutePoint) => void;
   readonly onUseAsRouteDestination: (point: RoutePoint) => void;
 };
 
 export function AddressLocationPanel({
   location,
+  zoom,
   onUseAsRouteStart,
   onUseAsRouteDestination,
 }: AddressLocationPanelProps) {
   const reverse = useReverseAddress(location?.coordinates ?? null);
+  const [showShare, setShowShare] = useState(false);
 
   if (!location) {
     return (
@@ -42,6 +46,12 @@ export function AddressLocationPanel({
     coordinates: location.coordinates,
   };
 
+  // Prefer the live reverse-geocode result once it arrives (background refresh),
+  // otherwise fall back to any stored snapshot (e.g. from a resolved share link)
+  // so shared data shows immediately without waiting for the network.
+  const addressLine = reverse.data?.address_line ?? location.addressLine ?? null;
+  const plusCode = reverse.data?.plus_code ?? location.plusCode ?? null;
+
   return (
     <section className="space-y-3 p-3.5" aria-label="Inspect map location">
       <div className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm shadow-neutral-950/3">
@@ -61,7 +71,7 @@ export function AddressLocationPanel({
           <ActionButton icon={<CopyIcon />} label="Copy coordinates" onClick={() => copyText(coordinates)}>
             Copy
           </ActionButton>
-          <ActionButton icon={<ShareIcon />} label="Copy share link" onClick={() => copyText(createShareLink(location))}>
+          <ActionButton icon={<ShareIcon />} label="Share location" onClick={() => setShowShare((open) => !open)}>
             Share
           </ActionButton>
           <ActionButton icon={<StartIcon />} label="Route start" onClick={() => onUseAsRouteStart(routePoint)}>
@@ -76,8 +86,8 @@ export function AddressLocationPanel({
           <SaveLocationControl
             latitude={lat}
             longitude={lng}
-            addressLine={reverse.data?.address_line ?? null}
-            plusCode={reverse.data?.plus_code ?? null}
+            addressLine={addressLine}
+            plusCode={plusCode}
           />
           <ReportEntryButton
             target={{
@@ -91,21 +101,32 @@ export function AddressLocationPanel({
         </div>
       </div>
 
+      {showShare ? (
+        <ShareCard
+          target={{
+            kind: 'point',
+            lat,
+            lng,
+            ...(zoom !== undefined ? { zoom } : {}),
+            addressLine,
+            plusCode,
+          }}
+        />
+      ) : null}
+
       <InfoSection title="Address">
-        {reverse.loading ? (
+        {addressLine ? (
+          <p className="text-sm leading-6 text-neutral-800">{addressLine}</p>
+        ) : reverse.loading ? (
           <p className="text-sm leading-6 text-neutral-400">Loading address…</p>
-        ) : reverse.error ? (
-          <p className="text-sm leading-6 text-neutral-500">Address unavailable</p>
         ) : (
-          <p className="text-sm leading-6 text-neutral-800">
-            {reverse.data?.address_line ?? 'Address unavailable'}
-          </p>
+          <p className="text-sm leading-6 text-neutral-500">Address unavailable</p>
         )}
       </InfoSection>
 
-      {!reverse.loading && !reverse.error && reverse.data?.plus_code ? (
+      {plusCode ? (
         <InfoSection title="Plus Code">
-          <p className="font-mono text-sm leading-6 text-neutral-800">{reverse.data.plus_code}</p>
+          <p className="font-mono text-sm leading-6 text-neutral-800">{plusCode}</p>
         </InfoSection>
       ) : null}
 
@@ -314,15 +335,4 @@ function formatCoordinates(lng: number, lat: number): string {
 
 function copyText(text: string): void {
   void navigator.clipboard?.writeText(text);
-}
-
-function createShareLink(location: MapClickedLocation): string {
-  const [lng, lat] = location.coordinates;
-  const params = new URLSearchParams({
-    lat: String(lat),
-    lng: String(lng),
-  });
-
-  if (typeof window === 'undefined') return `/?${params.toString()}`;
-  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
 }

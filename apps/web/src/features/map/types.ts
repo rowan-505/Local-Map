@@ -2,13 +2,16 @@
  * Public props for the map UI — stable surface if the underlying map SDK changes.
  */
 import type { Poi } from '@/types';
-import type { SearchCameraTarget } from '@/features/poi/api/publicMapApi';
+import type { PublicSearchResult, SearchCameraTarget } from '@/features/poi/api/publicMapApi';
 import type { DirectionsMapOverlay } from './lib/maplibre/directionsRouteGeoJson';
 import type { MapCameraLayout } from './lib/mapCameraPadding';
 
 export type MapClickedLocation = {
   readonly label: string;
   readonly coordinates: readonly [number, number];
+  /** Optional snapshot (e.g. from a resolved share link) shown before reverse geocode. */
+  readonly addressLine?: string | null;
+  readonly plusCode?: string | null;
 };
 
 export type MapViewportState = {
@@ -21,6 +24,10 @@ export type MapViewProps = {
   readonly selectedPoiId: string | null;
   readonly selectedPoi?: Poi;
   readonly cameraTarget?: SearchCameraTarget;
+  /** Selected search result to highlight + frame on the map (null clears it). */
+  readonly searchHighlight?: PublicSearchResult | null;
+  /** Loading state for the geometry overlay fetch only (line/polygon results). */
+  readonly onSearchHighlightLoadingChange?: (loading: boolean) => void;
   readonly cameraLayout: MapCameraLayout;
   readonly clickedLocation?: MapClickedLocation | null;
   readonly directionsOverlay?: DirectionsMapOverlay | null;

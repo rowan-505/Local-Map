@@ -11,11 +11,18 @@
     "test:entity-names": "node --import tsx --test src/lib/entity-names/entity-names.test.ts",
     "test:address-composer": "node --import tsx --test src/modules/addresses/address-composer.test.ts",
     "test:plus-code": "node --import tsx --test src/lib/geo/plus-code.test.ts",
+    "test:unified-search": "node --import tsx --test src/modules/public-map/unified-search.test.ts",
+    "test:plus-code-search": "node --import tsx --test src/modules/public-map/plus-code-search.test.ts",
     "test:minimal-address-composer": "node --import tsx --test src/modules/addresses/minimal-address-composer.test.ts",
+    "test:share": "node --import tsx --test src/modules/share/share.schema.test.ts src/modules/share/share.service.test.ts",
     "check:streets-names": "tsx scripts/check-street-name-normalization.ts",
+    "rebuild:search-index": "tsx src/scripts/rebuild-search-index.ts --preset full",
+    "rebuild:search-index:light": "tsx src/scripts/rebuild-search-index.ts --preset light",
+    "rebuild:search-index:street-groups": "tsx src/scripts/rebuild-search-index.ts --preset street-groups",
     "build:routing-graph": "tsx src/scripts/build-routing-graph.ts",
     "docs:api": "tsx scripts/generate-api-docs.ts",
     "curl-examples:import-review-auth": "bash scripts/import-review-admin-curl-examples.sh",
+    "curl-examples:share": "bash scripts/share-links-curl-examples.sh",
     "prisma:generate": "prisma generate"
   },
   "dependencies": {

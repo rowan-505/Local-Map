@@ -24,6 +24,8 @@ export const TRANSPORT_MAJOR_TERMINALS_LAYER_ID = 'transport-major-terminals';
 export const TRANSPORT_FERRY_LANDINGS_LAYER_ID = 'transport-ferry-landings';
 export const TRANSPORT_STOPS_LAYER_ID = 'transport-stops';
 export const TRANSPORT_STOP_LABELS_LAYER_ID = 'transport-stop-labels';
+/** Major/station-class stop labels — shown earlier (and sparser) than normal stop labels. */
+export const TRANSPORT_MAJOR_STOP_LABELS_LAYER_ID = 'transport-major-stop-labels';
 /** Terminal labels are split to match the marker split and their distinct zoom thresholds. */
 export const TRANSPORT_MAJOR_TERMINAL_LABELS_LAYER_ID = 'transport-major-terminal-labels';
 export const TRANSPORT_FERRY_LANDING_LABELS_LAYER_ID = 'transport-ferry-landing-labels';
@@ -47,6 +49,29 @@ export const TRANSPORT_OVERLAY_LAYER_IDS = [
   TRANSPORT_ROUTE_LABELS_LAYER_ID,
   TRANSPORT_MAJOR_TERMINAL_LABELS_LAYER_ID,
   TRANSPORT_FERRY_LANDING_LABELS_LAYER_ID,
+  TRANSPORT_MAJOR_STOP_LABELS_LAYER_ID,
+  TRANSPORT_STOP_LABELS_LAYER_ID,
+] as const;
+
+/**
+ * Bottom-to-top render order of the transport overlay (lines → casing equiv → circles → labels).
+ * Mirrors the `addTransportLayers` insertion order so the move-to-top helper restacks transport
+ * exactly as it was first added. `moveLayer(id)` with no `beforeId` pushes each layer to the top,
+ * so the LAST id here ends up topmost. Keep this in sync with `addTransportLayers`.
+ */
+const TRANSPORT_RENDER_ORDER = [
+  // Supporting infrastructure line acts as the route casing (drawn under route paths).
+  TRANSPORT_INFRASTRUCTURE_LINES_LAYER_ID,
+  TRANSPORT_ROUTE_PATHS_LAYER_ID,
+  // Stop/terminal circles.
+  TRANSPORT_FERRY_LANDINGS_LAYER_ID,
+  TRANSPORT_MAJOR_TERMINALS_LAYER_ID,
+  TRANSPORT_STOPS_LAYER_ID,
+  // Transport labels last so they sit above all transport geometry (and the basemap).
+  TRANSPORT_ROUTE_LABELS_LAYER_ID,
+  TRANSPORT_MAJOR_TERMINAL_LABELS_LAYER_ID,
+  TRANSPORT_FERRY_LANDING_LABELS_LAYER_ID,
+  TRANSPORT_MAJOR_STOP_LABELS_LAYER_ID,
   TRANSPORT_STOP_LABELS_LAYER_ID,
 ] as const;
 
@@ -157,6 +182,39 @@ const TRANSPORT_FERRY_LANDING_STROKE = '#1d4ed8'; // blue-700 — crisp ring for
 const TRANSPORT_STOP_STROKE = '#0e3a5f'; // dark navy outline for contrast on light basemap
 const TRANSPORT_STOP_LABEL_COLOR = '#155e75'; // cyan-800 — readable transit label
 
+// Label placement priority. MapLibre places/draws features with the LOWER symbol-sort-key first,
+// so the most important transport labels get the smallest values and win collisions against the
+// less important ones (and over basemap labels, which carry no transport sort-key). Labels are
+// collision-managed (no forced overlap) for a clean, professional look.
+const TRANSPORT_MAJOR_LABEL_SORT_KEY = 1; // terminals + major/station-class stops
+const TRANSPORT_ROUTE_LABEL_SORT_KEY = 5; // route names along the line
+const TRANSPORT_STOP_LABEL_SORT_KEY = 10; // ordinary stop names (lowest priority)
+
+/** Station/terminal-class stop types — the "major" stops surfaced earlier than ordinary stops. */
+const MAJOR_STOP_TYPES = ['bus_station', 'terminal', 'rail_station', 'ferry_terminal', 'airport'];
+
+/**
+ * Major stop = station/terminal-class `stop_type`. The Martin stop tiles carry no
+ * `importance_score`, so `stop_type` is the deterministic "major" signal (ordinary `bus_stop`s
+ * are the normal tier). Used to split stop labels into an early, sparse major tier and a
+ * high-zoom-only ordinary tier.
+ */
+const MAJOR_STOP_FILTER: ExpressionSpecification = [
+  'in',
+  ['coalesce', ['get', 'stop_type'], 'bus_stop'],
+  ['literal', MAJOR_STOP_TYPES],
+];
+
+/** Zoom-based label text-size ramp (compact at low zoom, comfortable when zoomed in). */
+function labelTextSize(small: number, large: number): ExpressionSpecification {
+  return ['interpolate', ['linear'], ['zoom'], 12, small, 16, large, 18, large + 1];
+}
+
+/** Zoom-based label opacity — fades labels in rather than popping them at minzoom. */
+function labelTextOpacity(minZoom: number): ExpressionSpecification {
+  return ['interpolate', ['linear'], ['zoom'], minZoom, 0, minZoom + 1.5, 1];
+}
+
 // Transport overlay layer — supporting infrastructure (rail/ferry/etc.), not basemap roads.
 // Kept visually secondary to route paths: thinner, dashed, lower opacity, muted slate.
 function infrastructureLinesLayer(): LineLayerSpecification {
@@ -176,9 +234,10 @@ function infrastructureLinesLayer(): LineLayerSpecification {
   };
 }
 
-// Transport overlay layer — transit route paths. Intentionally bolder than basemap roads
-// (wider with zoom) so riders can trace a route over the base streets. Color is mode-driven
-// (bus=violet, rail=teal, ferry=blue, other=slate) via `transportModeColorExpression`.
+// Transport overlay layer — transit route paths. Color is mode-driven (bus=violet, rail=teal,
+// ferry=blue, other=slate) via `transportModeColorExpression`. Deliberately restrained: thin and
+// translucent at low zoom so routes read as a faint network over the roads, growing to a clear
+// (but still not overpowering) line when zoomed in.
 function routePathsLayer(): LineLayerSpecification {
   return {
     id: TRANSPORT_ROUTE_PATHS_LAYER_ID,
@@ -189,8 +248,10 @@ function routePathsLayer(): LineLayerSpecification {
     layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
     paint: {
       'line-color': transportModeColorExpression(),
-      'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 14, 4, 18, 7],
-      'line-opacity': 0.85,
+      // Thinner at low zoom than before; only grows substantial once zoomed into a city.
+      'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 13, 1.4, 16, 3, 18, 4.5],
+      // Faint when zoomed out so it never dominates roads; firmer (but <1) up close.
+      'line-opacity': ['interpolate', ['linear'], ['zoom'], 10, 0.35, 13, 0.55, 16, 0.75],
     },
   };
 }
@@ -260,40 +321,91 @@ function stopsLayer(): CircleLayerSpecification {
     minzoom: 13,
     layout: { visibility: 'none' },
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 15, 5, 18, 7],
+      // Small dots at low zoom; major/station-class stops get a slightly larger radius so they
+      // read as more important than ordinary bus stops. Grows gently with zoom.
+      'circle-radius': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        13,
+        ['case', MAJOR_STOP_FILTER, 2.6, 1.8],
+        15,
+        ['case', MAJOR_STOP_FILTER, 4.2, 3.2],
+        18,
+        ['case', MAJOR_STOP_FILTER, 7, 6],
+      ],
       'circle-color': transportModeColorExpression(),
       'circle-stroke-color': TRANSPORT_STOP_STROKE,
-      'circle-stroke-width': 1.5,
-      'circle-opacity': 0.9,
+      // Hairline outline at low zoom so dense fields stay clean; firmer when zoomed in.
+      'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 13, 0.4, 15, 1, 18, 1.5],
+      // Fade dots in with zoom instead of a hard pop at minzoom.
+      'circle-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0.45, 15, 0.8, 18, 0.9],
     },
   };
 }
 
-// Transport overlay layer — stop labels (z15+). Transit-tinted text with a white halo,
-// distinct from POI/place label color, anchored below the stop circle. Filtered to real
-// (non-generated, non-blank) names, and the text-field resolves only to a real name, so
-// generated OSM fallback names (e.g. `bus_stop osm:...`) never render as stop labels.
+// Transport overlay layer — MAJOR stop labels (z12+). Only station/terminal-class stops, which
+// are sparse, so they can appear earlier without clutter. Collision-managed (no forced overlap)
+// and high placement priority via a low sort-key, so they win over ordinary stop/route labels.
+function majorStopLabelsLayer(): SymbolLayerSpecification {
+  return {
+    id: TRANSPORT_MAJOR_STOP_LABELS_LAYER_ID,
+    type: 'symbol',
+    source: 'transport-stops-source',
+    'source-layer': 'transport_stops_v',
+    minzoom: 12,
+    filter: ['all', HAS_REAL_TRANSPORT_NAME, MAJOR_STOP_FILTER],
+    layout: {
+      visibility: 'none',
+      'text-field': REAL_TRANSPORT_NAME_TEXT_FIELD,
+      'text-font': [...MAP_SYMBOL_TEXT_FONT],
+      'text-size': labelTextSize(11, 12.5),
+      'text-offset': [0, 1.1],
+      'text-anchor': 'top',
+      'text-allow-overlap': false,
+      'text-ignore-placement': false,
+      'text-optional': true,
+      'symbol-sort-key': TRANSPORT_MAJOR_LABEL_SORT_KEY,
+    },
+    paint: {
+      'text-color': TRANSPORT_STOP_LABEL_COLOR,
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 1.4,
+      'text-opacity': labelTextOpacity(12),
+    },
+  };
+}
+
+// Transport overlay layer — ordinary stop labels (z15.5+ only, to avoid a dense label cluster at
+// city zoom). Excludes major/station-class stops (handled by the major-stop label layer above).
+// Transit-tinted text with a white halo; collision-managed (no forced overlap) for a clean map.
+// The text-field resolves only to a real name, so generated OSM fallbacks never render.
 function stopLabelsLayer(): SymbolLayerSpecification {
   return {
     id: TRANSPORT_STOP_LABELS_LAYER_ID,
     type: 'symbol',
     source: 'transport-stops-source',
     'source-layer': 'transport_stops_v',
-    minzoom: 15,
-    filter: HAS_REAL_TRANSPORT_NAME,
+    minzoom: 15.5,
+    filter: ['all', HAS_REAL_TRANSPORT_NAME, ['!', MAJOR_STOP_FILTER]],
     layout: {
       visibility: 'none',
       'text-field': REAL_TRANSPORT_NAME_TEXT_FIELD,
       'text-font': [...MAP_SYMBOL_TEXT_FONT],
-      'text-size': 11,
+      'text-size': labelTextSize(10.5, 11.5),
       'text-offset': [0, 1.1],
       'text-anchor': 'top',
+      // Collision-managed: ordinary stop labels yield to each other and to higher-priority labels.
+      'text-allow-overlap': false,
+      'text-ignore-placement': false,
       'text-optional': true,
+      'symbol-sort-key': TRANSPORT_STOP_LABEL_SORT_KEY,
     },
     paint: {
       'text-color': TRANSPORT_STOP_LABEL_COLOR,
       'text-halo-color': '#ffffff',
       'text-halo-width': 1.4,
+      'text-opacity': labelTextOpacity(15.5),
     },
   };
 }
@@ -314,17 +426,20 @@ function majorTerminalLabelsLayer(): SymbolLayerSpecification {
       visibility: 'none',
       'text-field': REAL_TRANSPORT_NAME_TEXT_FIELD,
       'text-font': [...MAP_SYMBOL_TEXT_FONT],
-      'text-size': 12,
+      'text-size': labelTextSize(11.5, 13),
       'text-offset': [0, 1.2],
       'text-anchor': 'top',
+      // Collision-managed; prioritized over stops/routes via a low sort-key.
       'text-allow-overlap': false,
       'text-ignore-placement': false,
       'text-optional': true,
+      'symbol-sort-key': TRANSPORT_MAJOR_LABEL_SORT_KEY,
     },
     paint: {
       'text-color': TRANSPORT_STOP_LABEL_COLOR,
       'text-halo-color': '#ffffff',
       'text-halo-width': 1.5,
+      'text-opacity': labelTextOpacity(12),
     },
   };
 }
@@ -345,17 +460,19 @@ function ferryLandingLabelsLayer(): SymbolLayerSpecification {
       visibility: 'none',
       'text-field': REAL_TRANSPORT_NAME_TEXT_FIELD,
       'text-font': [...MAP_SYMBOL_TEXT_FONT],
-      'text-size': 11,
+      'text-size': labelTextSize(10.5, 11.5),
       'text-offset': [0, 1.0],
       'text-anchor': 'top',
       'text-allow-overlap': false,
       'text-ignore-placement': false,
       'text-optional': true,
+      'symbol-sort-key': TRANSPORT_STOP_LABEL_SORT_KEY,
     },
     paint: {
       'text-color': TRANSPORT_STOP_LABEL_COLOR,
       'text-halo-color': '#ffffff',
       'text-halo-width': 1.4,
+      'text-opacity': labelTextOpacity(15),
     },
   };
 }
@@ -369,31 +486,35 @@ function routeLabelsLayer(): SymbolLayerSpecification {
     type: 'symbol',
     source: 'transport-route-paths-source',
     'source-layer': 'transport_route_paths_v',
-    minzoom: 12,
+    minzoom: 13,
     filter: TRANSPORT_ROUTE_LABEL_FILTER,
     layout: {
       visibility: 'none',
       'symbol-placement': 'line',
-      'symbol-spacing': 300,
+      // Wider spacing so route names repeat sparsely along the line instead of crowding it.
+      'symbol-spacing': 450,
       'text-field': TRANSPORT_ROUTE_LABEL_TEXT_FIELD,
       'text-font': [...MAP_SYMBOL_TEXT_FONT],
-      'text-size': 11,
+      'text-size': labelTextSize(10.5, 11.5),
       'text-max-angle': 35,
       'text-padding': 6,
+      // Collision-managed: route labels defer to basemap and higher-priority transport labels.
       'text-allow-overlap': false,
       'text-ignore-placement': false,
       'text-optional': true,
+      'symbol-sort-key': TRANSPORT_ROUTE_LABEL_SORT_KEY,
     },
     paint: {
       'text-color': '#5b21b6',
       'text-halo-color': '#ffffff',
       'text-halo-width': 1.5,
+      'text-opacity': labelTextOpacity(13),
     },
   };
 }
 
 /**
- * Adds the five transport overlay layers, all hidden (`visibility: 'none'`).
+ * Adds every transport overlay layer, all hidden (`visibility: 'none'`).
  * Idempotent: layers that already exist (after a style reload or re-render) are skipped,
  * so it is safe to call from every `load` handler. Sources must be added first.
  */
@@ -409,6 +530,7 @@ export function addTransportLayers(map: MapEngine): void {
     routeLabelsLayer(),
     majorTerminalLabelsLayer(),
     ferryLandingLabelsLayer(),
+    majorStopLabelsLayer(),
     stopLabelsLayer(),
   ];
 
@@ -427,5 +549,21 @@ export function setTransportOverlayVisible(map: MapEngine, visible: boolean): vo
   for (const layerId of TRANSPORT_OVERLAY_LAYER_IDS) {
     if (!map.getLayer(layerId)) continue;
     map.setLayoutProperty(layerId, 'visibility', visibility);
+  }
+}
+
+/**
+ * Restacks the transport overlay above the basemap. Each existing transport layer is moved to
+ * the top (no `beforeId`) in {@link TRANSPORT_RENDER_ORDER} (lines → casing → circles → labels),
+ * so transport always renders above PMTiles streets, road labels, and basemap labels.
+ *
+ * Idempotent and safe to call repeatedly: after `addTransportLayers`, and after the dynamic
+ * regional PMTiles loader adds/removes/reloads basemap layers (newly added PMTiles layers are
+ * appended on top and would otherwise cover the transport overlay). Missing layers are skipped.
+ */
+export function moveTransportLayersToTop(map: MapEngine): void {
+  for (const layerId of TRANSPORT_RENDER_ORDER) {
+    if (!map.getLayer(layerId)) continue;
+    map.moveLayer(layerId);
   }
 }

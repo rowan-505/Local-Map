@@ -7,10 +7,24 @@ type ListPublicPlacesParams = {
     limit: number;
 };
 
+/**
+ * `prefix` mode matches `q%` only (index-friendly, no `%q%` trigram scan) and is
+ * used for short (2-char) queries. `full` mode uses `%q%` contains matching.
+ */
+export type SearchPublicMapMode = "prefix" | "full";
+
 type SearchPublicMapParams = {
     q: string;
     limit: number;
+    mode?: SearchPublicMapMode;
 };
+
+/**
+ * Statement timeout (ms) for the public text search query. Keeps a pathological
+ * query (or missing index) from holding a connection; on timeout the service
+ * returns an empty result instead of a 500.
+ */
+export const PUBLIC_SEARCH_STATEMENT_TIMEOUT_MS = 2000;
 
 export type ViewportPublicPlacesParams = {
     bbox: [number, number, number, number];
@@ -86,6 +100,76 @@ export type PublicSearchRow = {
     min_lat: number | null;
     max_lng: number | null;
     max_lat: number | null;
+};
+
+export type UnifiedSearchParams = {
+    q: string;
+    lat?: number | undefined;
+    lng?: number | undefined;
+    lang?: "my" | "en" | "und" | undefined;
+    types?: string[] | undefined;
+    /**
+     * Match strategy from the query planner:
+     * - "prefix" (q length 2): exact code + name prefix only; no trigram fuzzy / FTS.
+     * - "full" (q length >= 3): exact + prefix + full-text + trigram fuzzy.
+     * Defaults to "full" for backward compatibility.
+     */
+    mode?: SearchPublicMapMode | undefined;
+    limit: number;
+};
+
+/**
+ * Split a normalized query into non-empty whitespace tokens. Used to drive the
+ * multi-token AND match (each token must appear in trigram_text), which fixes
+ * multi-word Myanmar queries that Postgres FTS misses because Myanmar terms are
+ * glued together in stored strings (e.g. "ဘုရင့်နောင်လမ်း", "အင်းစိန်ခရိုင်").
+ */
+export function splitSearchTokens(qNorm: string): string[] {
+    return qNorm.trim().split(/\s+/).filter((t) => t.length > 0);
+}
+
+/** Escape LIKE/ILIKE metacharacters so query tokens can't inject wildcards. */
+export function escapeLikeToken(token: string): string {
+    return token.replace(/([\\%_])/g, "\\$1");
+}
+
+/** Raw row from search.search_documents (no heavy core joins, no full geometry). */
+export type UnifiedSearchRow = {
+    entity_type: string;
+    entity_id: string;
+    public_id: string | null;
+    display_name: string | null;
+    subtitle: string | null;
+    primary_name_my: string | null;
+    primary_name_en: string | null;
+    matched_name: string | null;
+    geometry_type: string | null;
+    lng: number | null;
+    lat: number | null;
+    min_lng: number | null;
+    min_lat: number | null;
+    max_lng: number | null;
+    max_lat: number | null;
+    has_geometry: boolean;
+    category_code: string | null;
+    category_name_my: string | null;
+    category_name_en: string | null;
+    admin_area_name_my: string | null;
+    admin_area_name_en: string | null;
+    score: number;
+    is_verified: boolean;
+    confidence_score: number;
+    boundary_confidence_score: number;
+};
+
+export type FailedSearchLogInput = {
+    q: string;
+    normalizedQuery: string;
+    lang?: string | null;
+    lat?: number | null;
+    lng?: number | null;
+    types?: string[] | null;
+    resultCount: number;
 };
 
 export class PublicMapRepository {
@@ -338,7 +422,14 @@ export class PublicMapRepository {
             ? buildSearchWithStreetNamesQuery(params)
             : buildSearchWithoutStreetNamesQuery(params);
 
-        return this.prisma.$queryRaw<PublicSearchRow[]>(query);
+        // Run inside a transaction so SET LOCAL statement_timeout applies only to
+        // this query and the connection is reset afterwards.
+        return this.prisma.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(
+                `SET LOCAL statement_timeout = ${PUBLIC_SEARCH_STATEMENT_TIMEOUT_MS}`,
+            );
+            return tx.$queryRaw<PublicSearchRow[]>(query);
+        });
     }
 
     private async hasStreetNamesTable() {
@@ -654,7 +745,574 @@ export class PublicMapRepository {
             LIMIT 500
         `);
     }
+
+    /**
+     * Unified runtime search over search.search_documents only.
+     * No heavy core joins, no full geometry: center comes from ST_X/ST_Y(centroid)
+     * and bbox from the stored envelope. Scoring blends exact code/name, prefix,
+     * full-text, trigram similarity, an optional nearby bonus, and quality boosts.
+     */
+    async searchUnifiedDocuments(params: UnifiedSearchParams): Promise<UnifiedSearchRow[]> {
+        const qNorm = params.q.trim().toLowerCase();
+        const prefix = `${qNorm}%`;
+        const isPrefixMode = params.mode === "prefix";
+        const hasRef =
+            params.lat !== undefined &&
+            params.lng !== undefined &&
+            Number.isFinite(params.lat) &&
+            Number.isFinite(params.lng);
+
+        // Nearby bonus: exponential decay (~20 at the point, ~7 at 5km, ~0 by 20km).
+        const nearbyScore = hasRef
+            ? Prisma.sql`CASE WHEN d.centroid IS NOT NULL THEN 20.0 * exp(
+                  - ST_Distance(
+                        d.centroid::geography,
+                        ST_SetSRID(ST_MakePoint(${params.lng}, ${params.lat}), 4326)::geography
+                    ) / 5000.0
+              ) ELSE 0 END`
+            : Prisma.sql`0`;
+
+        const typeFilter =
+            params.types && params.types.length > 0
+                ? Prisma.sql`AND d.entity_type IN (${Prisma.join(params.types)})`
+                : Prisma.empty;
+
+        const langPref = params.lang ?? null;
+
+        // Multi-token AND match (full mode only). Myanmar terms are glued in stored
+        // strings (e.g. "ဘုရင့်နောင်လမ်း", "အင်းစိန်ခရိုင်"), so Postgres FTS, which
+        // needs exact lexeme tokens, fails on multi-word queries like
+        // "အင်းစိန် ဘုရင့်နောင်". Instead we split the query on whitespace and require
+        // EVERY token to appear somewhere in trigram_text via ILIKE '%token%'
+        // (ANDed). trigram_text is already lowercased + includes admin hierarchy.
+        const tokens = isPrefixMode ? [] : splitSearchTokens(qNorm);
+        const isMultiToken = tokens.length >= 2;
+        const multiTokenMatch = isMultiToken
+            ? Prisma.join(
+                  tokens.map(
+                      (t) => Prisma.sql`d.trigram_text ILIKE ${`%${escapeLikeToken(t)}%`}`,
+                  ),
+                  " AND ",
+              )
+            : null;
+
+        // Candidate filter:
+        // - Prefix mode (q length 2): exact code + name prefix only -- index-friendly,
+        //   no global trigram fuzzy / FTS, so short broad queries stay fast.
+        // - Multi-token (q length >= 3, >= 2 tokens): require EVERY token in
+        //   trigram_text (AND). This is precise AND uses the gin_trgm index on
+        //   trigram_text (BitmapAnd, sub-ms), unlike a big OR which forces a full
+        //   filtered scan. It also fixes Myanmar glued-token queries that FTS misses.
+        // - Single-token full: exact code + substring + full-text + trigram fuzzy.
+        //   Every branch here is index-backed -- lower(code) -> functional btree,
+        //   trigram_text ILIKE '%q%' / % q -> gin_trgm, search_vector @@ -> gin --
+        //   so the planner builds a BitmapOr instead of a full heap scan. The old
+        //   `lower(display_name) LIKE 'q%'` branch had no index and forced a seq scan
+        //   over every row (the single-token latency bug). display_name tokens are
+        //   already inside trigram_text, so the substring ILIKE preserves recall, and
+        //   prefix ranking is still applied via the score expression below.
+        const candidateMatch = isPrefixMode
+            ? Prisma.sql`(
+                  lower(d.code) = ${qNorm}
+                  OR lower(d.display_name) LIKE ${prefix}
+                  OR d.trigram_text LIKE ${prefix}
+              )`
+            : multiTokenMatch
+              ? Prisma.sql`(${multiTokenMatch})`
+              : Prisma.sql`(
+                  lower(d.code) = ${qNorm}
+                  OR d.trigram_text ILIKE ${`%${escapeLikeToken(qNorm)}%`}
+                  OR d.trigram_text % ${qNorm}
+                  OR d.search_vector @@ plainto_tsquery('simple', ${qNorm})
+              )`;
+
+        // Bonus when ALL query tokens match (ranks multi-term hits high, above a
+        // single fuzzy trigram match). Only in full mode with >= 2 tokens.
+        const multiTokenScore = multiTokenMatch
+            ? Prisma.sql`+ (CASE WHEN (${multiTokenMatch}) THEN 60 ELSE 0 END)`
+            : Prisma.empty;
+
+        // Fuzzy/full-text score contributions are dropped in prefix mode.
+        const fuzzyScore = isPrefixMode
+            ? Prisma.empty
+            : Prisma.sql`
+                  + (CASE WHEN d.search_vector @@ plainto_tsquery('simple', ${qNorm}) THEN 30 ELSE 0 END)
+                  + (similarity(coalesce(d.trigram_text, ''), ${qNorm}) * 25.0)
+                  ${multiTokenScore}`;
+
+        // Matched-name lateral: skip the `%` trigram operator in prefix mode.
+        const nameMatch = isPrefixMode
+            ? Prisma.sql`(
+                  lower(n.normalized_name) = ${qNorm}
+                  OR n.normalized_name LIKE ${prefix}
+              )`
+            : Prisma.sql`(
+                  lower(n.normalized_name) = ${qNorm}
+                  OR n.normalized_name LIKE ${prefix}
+                  OR n.normalized_name % ${qNorm}
+              )`;
+
+        const query = Prisma.sql`
+            SELECT
+                d.entity_type,
+                d.entity_id::text AS entity_id,
+                d.public_id,
+                d.display_name,
+                d.subtitle,
+                d.primary_name_my,
+                d.primary_name_en,
+                mn.name AS matched_name,
+                d.geometry_type,
+                ST_X(d.centroid)::double precision AS lng,
+                ST_Y(d.centroid)::double precision AS lat,
+                ST_XMin(d.bbox)::double precision AS min_lng,
+                ST_YMin(d.bbox)::double precision AS min_lat,
+                ST_XMax(d.bbox)::double precision AS max_lng,
+                ST_YMax(d.bbox)::double precision AS max_lat,
+                d.has_geometry,
+                d.category_code,
+                d.category_name_my,
+                d.category_name_en,
+                d.admin_area_name_my,
+                d.admin_area_name_en,
+                d.is_verified,
+                d.confidence_score::double precision AS confidence_score,
+                d.boundary_confidence_score::double precision AS boundary_confidence_score,
+                (
+                    (CASE WHEN lower(d.code) = ${qNorm} THEN 100 ELSE 0 END)
+                  + (CASE WHEN lower(d.display_name) = ${qNorm}
+                          OR lower(d.primary_name_my) = ${qNorm}
+                          OR lower(d.primary_name_en) = ${qNorm}
+                          OR lower(d.primary_name_und) = ${qNorm} THEN 80 ELSE 0 END)
+                  + (CASE WHEN lower(d.display_name) LIKE ${prefix}
+                          OR d.trigram_text LIKE ${prefix} THEN 40 ELSE 0 END)
+                  ${fuzzyScore}
+                  + ${nearbyScore}
+                  + (COALESCE(d.importance_score, 0) * 0.15)
+                  + (COALESCE(d.confidence_score, 0) * 0.05)
+                  + (CASE WHEN d.is_verified THEN 8 ELSE 0 END)
+                )::double precision AS score
+            FROM search.search_documents d
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM search.search_document_names n
+                WHERE n.search_document_id = d.id
+                  AND ${nameMatch}
+                ORDER BY
+                    CASE WHEN lower(n.normalized_name) = ${qNorm} THEN 1
+                         WHEN n.normalized_name LIKE ${prefix} THEN 2
+                         ELSE 3 END,
+                    CASE WHEN ${langPref}::text IS NOT NULL
+                              AND n.language_code = ${langPref}::text THEN 0 ELSE 1 END,
+                    n.is_primary DESC,
+                    similarity(coalesce(n.normalized_name, ''), ${qNorm}) DESC
+                LIMIT 1
+            ) mn ON true
+            WHERE d.is_public = true
+              AND d.is_active = true
+              ${typeFilter}
+              AND ${candidateMatch}
+            ORDER BY score DESC, COALESCE(d.importance_score, 0) DESC, d.display_name ASC
+            LIMIT ${params.limit}
+        `;
+
+        // SET LOCAL statement_timeout bounds runtime; on timeout Postgres raises
+        // 57014, which the service maps to a graceful empty result (never a 500).
+        return this.prisma.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(
+                `SET LOCAL statement_timeout = ${PUBLIC_SEARCH_STATEMENT_TIMEOUT_MS}`,
+            );
+            return tx.$queryRaw<UnifiedSearchRow[]>(query);
+        });
+    }
+
+    /** Append a zero-result (or otherwise failed) search to telemetry. */
+    async logFailedSearch(input: FailedSearchLogInput): Promise<void> {
+        const typesSql =
+            input.types && input.types.length > 0
+                ? Prisma.sql`ARRAY[${Prisma.join(input.types)}]::text[]`
+                : Prisma.sql`NULL::text[]`;
+
+        await this.prisma.$executeRaw(Prisma.sql`
+            INSERT INTO search.failed_search_logs
+                (query, normalized_query, lang, lat, lng, types, result_count)
+            VALUES (
+                ${input.q},
+                ${input.normalizedQuery},
+                ${input.lang ?? null},
+                ${input.lat ?? null},
+                ${input.lng ?? null},
+                ${typesSql},
+                ${input.resultCount}
+            )
+        `);
+    }
+
+    /**
+     * Full GeoJSON geometry for a single entity, looked up on search-result click.
+     * Returns null when the entity is missing, not public/active, soft-deleted,
+     * or has no usable geometry (caller maps null -> 404).
+     */
+    async getEntityGeometry(
+        entityType: GeometryEntityType,
+        entityId: string,
+        simplifyToleranceDeg: number,
+    ): Promise<EntityGeometryRow | null> {
+        // Grouped streets span many rows -> dedicated collect+cap path.
+        if (entityType === "street_group") {
+            return this.getStreetGroupGeometry(entityId, simplifyToleranceDeg);
+        }
+        // A parent bus_route's geometry lives in its variants' paths -> collect+cap.
+        if (entityType === "bus_route") {
+            return this.getBusRouteGeometry(entityId, simplifyToleranceDeg);
+        }
+
+        const source = GEOMETRY_SOURCES[entityType];
+        const isNumericId = /^\d+$/.test(entityId);
+
+        let idCondition: Prisma.Sql;
+        if (isNumericId) {
+            idCondition = Prisma.sql`${Prisma.raw(source.idColumn)} = ${BigInt(entityId)}`;
+        } else if (source.publicIdColumn) {
+            idCondition = Prisma.sql`${Prisma.raw(source.publicIdColumn)} = ${entityId}::uuid`;
+        } else {
+            // uuid requested for an entity that only has a numeric id.
+            return null;
+        }
+
+        // Points are never simplified; for everything else use the resolved tolerance.
+        const tolerance = source.pointLike ? 0 : simplifyToleranceDeg;
+
+        const rows = await this.prisma.$queryRaw<EntityGeometryRow[]>(Prisma.sql`
+            WITH src AS (
+                SELECT ${Prisma.raw(source.geomExpr)} AS g
+                FROM ${Prisma.raw(source.from)}
+                WHERE ${idCondition}
+                  AND ${Prisma.raw(source.activeCondition)}
+                LIMIT 1
+            )
+            SELECT
+                ST_AsGeoJSON(
+                    CASE
+                        WHEN ${tolerance}::double precision > 0
+                            THEN ST_SimplifyPreserveTopology(g, ${tolerance}::double precision)
+                        ELSE g
+                    END
+                )::json AS geometry,
+                ST_XMin(g)::double precision AS min_lng,
+                ST_YMin(g)::double precision AS min_lat,
+                ST_XMax(g)::double precision AS max_lng,
+                ST_YMax(g)::double precision AS max_lat
+            FROM src
+            WHERE g IS NOT NULL
+              AND NOT ST_IsEmpty(g)
+        `);
+
+        return rows[0] ?? null;
+    }
+
+    /**
+     * Full geometry for a clicked grouped street (entity_type = 'street_group').
+     * Resolves the clicked representative segment to its group key
+     * (search.norm_street_name(name) + admin_area_id + road_class) -- the SAME key
+     * the search index groups by -- then ST_Collects the members into one
+     * MultiLineString. ST_Collect (not ST_Union): we only need a highlight + bbox.
+     *
+     * Safety: if a group has more than STREET_GROUP_SEGMENT_CAP segments, only the
+     * longest CAP segments are collected (the bbox still covers ALL members), and
+     * `capped` is set so the caller can log a warning. Large geometries are further
+     * thinned by the ?zoom= simplification tolerance.
+     */
+    async getStreetGroupGeometry(
+        entityId: string,
+        simplifyToleranceDeg: number,
+    ): Promise<StreetGroupGeometryRow | null> {
+        const isNumericId = /^\d+$/.test(entityId);
+        const idCondition = isNumericId
+            ? Prisma.sql`s.id = ${BigInt(entityId)}`
+            : Prisma.sql`s.public_id = ${entityId}::uuid`;
+        const tolerance = simplifyToleranceDeg;
+
+        const rows = await this.prisma.$queryRaw<StreetGroupGeometryRow[]>(Prisma.sql`
+            WITH rep AS (
+                SELECT search.norm_street_name(s.canonical_name) AS nn,
+                       s.admin_area_id,
+                       s.road_class
+                FROM core.core_streets s
+                WHERE ${idCondition}
+                  AND s.is_active = true
+                  AND s.deleted_at IS NULL
+                LIMIT 1
+            ),
+            members AS (
+                SELECT m.geom
+                FROM core.core_streets m
+                JOIN rep ON true
+                WHERE m.is_active = true
+                  AND m.deleted_at IS NULL
+                  AND m.geom IS NOT NULL
+                  AND NOT ST_IsEmpty(m.geom)
+                  AND search.norm_street_name(m.canonical_name) = rep.nn
+                  AND m.admin_area_id IS NOT DISTINCT FROM rep.admin_area_id
+                  AND COALESCE(m.road_class, '') = COALESCE(rep.road_class, '')
+            ),
+            counted AS (SELECT count(*)::int AS n FROM members),
+            capped AS (
+                SELECT geom FROM members
+                ORDER BY ST_Length(geom) DESC
+                LIMIT ${STREET_GROUP_SEGMENT_CAP}
+            ),
+            collected AS (SELECT ST_Multi(ST_Collect(geom)) AS g FROM capped),
+            bounds AS (SELECT ST_Extent(geom) AS e FROM members)
+            SELECT
+                ST_AsGeoJSON(
+                    CASE
+                        WHEN ${tolerance}::double precision > 0
+                            THEN ST_SimplifyPreserveTopology(c.g, ${tolerance}::double precision)
+                        ELSE c.g
+                    END
+                )::json AS geometry,
+                ST_XMin(b.e)::double precision AS min_lng,
+                ST_YMin(b.e)::double precision AS min_lat,
+                ST_XMax(b.e)::double precision AS max_lng,
+                ST_YMax(b.e)::double precision AS max_lat,
+                (SELECT n FROM counted) AS segment_count,
+                ((SELECT n FROM counted) > ${STREET_GROUP_SEGMENT_CAP}) AS capped
+            FROM collected c, bounds b
+            WHERE c.g IS NOT NULL
+              AND NOT ST_IsEmpty(c.g)
+        `);
+
+        return rows[0] ?? null;
+    }
+
+    /**
+     * Full geometry for a clicked parent bus route (entity_type = 'bus_route').
+     * The route itself has no geometry; its shape lives in the active route_paths
+     * of its active route_variants (both directions). We ST_Collect them into one
+     * MultiLineString + bbox for highlighting.
+     *
+     * Accepts the route's numeric id (as returned by unified search) or its uuid
+     * public_id. Returns null when the route has no usable path geometry (many
+     * YBS routes have no digitized path yet).
+     *
+     * Safety: caps at BUS_ROUTE_PATH_CAP longest paths (bbox still covers all);
+     * `capped` lets the caller log a warning. ?zoom= further thins large geometry.
+     */
+    async getBusRouteGeometry(
+        entityId: string,
+        simplifyToleranceDeg: number,
+    ): Promise<CollectedGeometryRow | null> {
+        const isNumericId = /^\d+$/.test(entityId);
+        const routeMatch = isNumericId
+            ? Prisma.sql`v.route_id = ${BigInt(entityId)}`
+            : Prisma.sql`v.route_id = (
+                  SELECT r.id FROM transport.routes r
+                  WHERE r.public_id = ${entityId}::uuid
+                    AND r.is_active = true AND r.deleted_at IS NULL
+              )`;
+        const tolerance = simplifyToleranceDeg;
+
+        const rows = await this.prisma.$queryRaw<CollectedGeometryRow[]>(Prisma.sql`
+            WITH paths AS (
+                SELECT rp.geom
+                FROM transport.route_variants v
+                JOIN transport.route_paths rp
+                  ON rp.route_variant_id = v.id
+                 AND rp.is_active = true
+                 AND rp.deleted_at IS NULL
+                WHERE ${routeMatch}
+                  AND v.is_active = true
+                  AND v.deleted_at IS NULL
+                  AND rp.geom IS NOT NULL
+                  AND NOT ST_IsEmpty(rp.geom)
+            ),
+            counted AS (SELECT count(*)::int AS n FROM paths),
+            capped AS (
+                SELECT geom FROM paths
+                ORDER BY ST_Length(geom) DESC
+                LIMIT ${BUS_ROUTE_PATH_CAP}
+            ),
+            collected AS (SELECT ST_Multi(ST_Collect(geom)) AS g FROM capped),
+            bounds AS (SELECT ST_Extent(geom) AS e FROM paths)
+            SELECT
+                ST_AsGeoJSON(
+                    CASE
+                        WHEN ${tolerance}::double precision > 0
+                            THEN ST_SimplifyPreserveTopology(c.g, ${tolerance}::double precision)
+                        ELSE c.g
+                    END
+                )::json AS geometry,
+                ST_XMin(b.e)::double precision AS min_lng,
+                ST_YMin(b.e)::double precision AS min_lat,
+                ST_XMax(b.e)::double precision AS max_lng,
+                ST_YMax(b.e)::double precision AS max_lat,
+                (SELECT n FROM counted) AS segment_count,
+                ((SELECT n FROM counted) > ${BUS_ROUTE_PATH_CAP}) AS capped
+            FROM collected c, bounds b
+            WHERE c.g IS NOT NULL
+              AND NOT ST_IsEmpty(c.g)
+        `);
+
+        return rows[0] ?? null;
+    }
 }
+
+/** Max segments collected into one street_group highlight before capping + warning. */
+export const STREET_GROUP_SEGMENT_CAP = 2000;
+
+/** Max route paths collected into one bus_route highlight before capping + warning. */
+export const BUS_ROUTE_PATH_CAP = 500;
+
+export type GeometryEntityType =
+    | "place"
+    | "address"
+    | "bus_stop"
+    | "admin_area"
+    | "street"
+    | "street_group"
+    | "bus_route"
+    | "bus_route_variant"
+    | "building"
+    | "water_line"
+    | "water_polygon"
+    | "landuse";
+
+/**
+ * Geometry of an entity assembled by collecting many underlying rows (a grouped
+ * street's segments, or a bus route's variant paths) into one MultiLine + bbox.
+ */
+export type CollectedGeometryRow = EntityGeometryRow & {
+    /** Total matching members (before any cap). */
+    segment_count: number;
+    /** True when segment_count exceeded the cap (geometry capped, bbox still full). */
+    capped: boolean;
+};
+
+/** @deprecated Use {@link CollectedGeometryRow}. Kept for existing imports. */
+export type StreetGroupGeometryRow = CollectedGeometryRow;
+
+export type EntityGeometryRow = {
+    geometry: { type: string; coordinates: unknown } | null;
+    min_lng: number;
+    min_lat: number;
+    max_lng: number;
+    max_lat: number;
+};
+
+type GeometrySource = {
+    /** FROM clause incl. alias, e.g. "core.core_places p". Static (not user input). */
+    from: string;
+    /** Geometry expression (4326) referencing the alias. */
+    geomExpr: string;
+    /** Public/active/not-deleted filter referencing the alias. */
+    activeCondition: string;
+    /** Internal id column for numeric lookups. */
+    idColumn: string;
+    /** Public uuid column, or null if the table has none (water lines/polygons). */
+    publicIdColumn: string | null;
+    /** Point-like entities are never simplified. */
+    pointLike: boolean;
+};
+
+/**
+ * Per-entity geometry sources. Bus stops/route variants live in the transport
+ * schema; route-variant geometry comes from the primary route_path. Water
+ * lines/polygons have no public_id, so only numeric ids resolve them.
+ */
+const GEOMETRY_SOURCES: Record<
+    Exclude<GeometryEntityType, "street_group" | "bus_route">,
+    GeometrySource
+> = {
+    place: {
+        from: "core.core_places p",
+        geomExpr: "COALESCE(p.point_geom, ST_SetSRID(ST_MakePoint(p.lng, p.lat), 4326))",
+        activeCondition: "p.is_public = true AND p.deleted_at IS NULL",
+        idColumn: "p.id",
+        publicIdColumn: "p.public_id",
+        pointLike: true,
+    },
+    address: {
+        from: "core.core_addresses a",
+        geomExpr: "COALESCE(a.entrance_geom, a.point_geom, a.geom)",
+        activeCondition: "a.is_public = true AND a.deleted_at IS NULL",
+        idColumn: "a.id",
+        publicIdColumn: "a.public_id",
+        pointLike: true,
+    },
+    bus_stop: {
+        from: "transport.stops s",
+        geomExpr: "s.geom",
+        activeCondition: "s.is_active = true AND s.deleted_at IS NULL",
+        idColumn: "s.id",
+        publicIdColumn: "s.public_id",
+        pointLike: true,
+    },
+    admin_area: {
+        from: "core.core_admin_areas a",
+        geomExpr: "a.geom",
+        activeCondition: "a.is_active = true AND a.deleted_at IS NULL",
+        idColumn: "a.id",
+        publicIdColumn: "a.public_id",
+        pointLike: false,
+    },
+    street: {
+        from: "core.core_streets s",
+        geomExpr: "s.geom",
+        activeCondition: "s.is_active = true AND s.deleted_at IS NULL",
+        idColumn: "s.id",
+        publicIdColumn: "s.public_id",
+        pointLike: false,
+    },
+    // NOTE: street_group and bus_route are intentionally NOT in this static map.
+    // Each spans many rows (street segments / route-variant paths), so their
+    // geometry is resolved by dedicated collect+cap helpers (getStreetGroupGeometry,
+    // getBusRouteGeometry), not this single-row template. bus_route_variant (one
+    // variant = one path) stays here.
+    bus_route_variant: {
+        from: "transport.route_variants v",
+        geomExpr:
+            "(SELECT rp.geom FROM transport.route_paths rp " +
+            "WHERE rp.route_variant_id = v.id AND rp.is_active = true AND rp.deleted_at IS NULL " +
+            "ORDER BY CASE WHEN rp.path_kind = 'primary' THEN 0 ELSE 1 END, rp.id ASC LIMIT 1)",
+        activeCondition: "v.is_active = true AND v.deleted_at IS NULL",
+        idColumn: "v.id",
+        publicIdColumn: "v.public_id",
+        pointLike: false,
+    },
+    building: {
+        from: "core.core_map_buildings b",
+        geomExpr: "b.geom",
+        activeCondition: "b.is_active = true AND b.deleted_at IS NULL",
+        idColumn: "b.id",
+        publicIdColumn: "b.public_id",
+        pointLike: false,
+    },
+    water_line: {
+        from: "core.core_map_water_lines w",
+        geomExpr: "w.geom",
+        activeCondition: "w.is_active = true AND w.deleted_at IS NULL",
+        idColumn: "w.id",
+        publicIdColumn: null,
+        pointLike: false,
+    },
+    water_polygon: {
+        from: "core.core_map_water_polygons w",
+        geomExpr: "w.geom",
+        activeCondition: "w.is_active = true AND w.deleted_at IS NULL",
+        idColumn: "w.id",
+        publicIdColumn: null,
+        pointLike: false,
+    },
+    landuse: {
+        from: "core.core_map_landuse lu",
+        geomExpr: "lu.geom",
+        activeCondition: "lu.is_active = true AND lu.deleted_at IS NULL",
+        idColumn: "lu.id",
+        publicIdColumn: "lu.public_id",
+        pointLike: false,
+    },
+};
 
 function buildPublicPlaceConditions(params: ListPublicPlacesParams) {
     const conditions: Prisma.Sql[] = [
@@ -768,7 +1426,7 @@ function buildSearchWithStreetNamesQuery(params: SearchPublicMapParams) {
                 FROM core.core_street_names AS n
                 WHERE n.street_id = s.id
                   AND lower(trim(coalesce(n.name_type, ''))) <> 'generated'
-                  AND n.name ILIKE ${partialSearchTerm(params.q)}
+                  AND n.name ILIKE ${matchSearchTerm(params)}
                 ORDER BY
                     CASE
                         WHEN lower(n.name) = ${normalizedSearchTerm(params.q)} THEN 1
@@ -812,7 +1470,8 @@ function buildSearchQuery(
 ) {
     const normalizedTerm = normalizedSearchTerm(params.q);
     const prefixTerm = prefixSearchTerm(params.q);
-    const partialTerm = partialSearchTerm(params.q);
+    // `prefix` mode (short queries) restricts matching to `q%`; `full` keeps `%q%`.
+    const partialTerm = matchSearchTerm(params);
 
     return Prisma.sql`
         WITH place_results AS (
@@ -1169,4 +1828,14 @@ function prefixSearchTerm(term: string) {
 
 function partialSearchTerm(term: string) {
     return `%${term.trim()}%`;
+}
+
+/**
+ * Matching term for the WHERE/ILIKE filters. `prefix` mode (short queries) uses
+ * `q%` to avoid the expensive `%q%` contains scan; `full` mode uses `%q%`.
+ */
+function matchSearchTerm(params: SearchPublicMapParams) {
+    return params.mode === "prefix"
+        ? prefixSearchTerm(params.q)
+        : partialSearchTerm(params.q);
 }

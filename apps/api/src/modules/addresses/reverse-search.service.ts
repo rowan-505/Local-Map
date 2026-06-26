@@ -1,6 +1,6 @@
 import { generatePlusCode } from "../../lib/geo/plus-code.js";
 import { composeMinimalAddressLine } from "./minimal-address-composer.js";
-import type { ReverseSearchRepository } from "./reverse-search.repo.js";
+import type { MinimalReverseAddressRow, ReverseSearchRepository } from "./reverse-search.repo.js";
 
 export const REVERSE_SEARCH_CONFIDENCES = [
     "exact_nearby",
@@ -27,6 +27,14 @@ function normalizeConfidence(raw: string | null): ReverseSearchConfidence {
 
 export class ReverseSearchService {
     constructor(private readonly repo: ReverseSearchRepository) {}
+
+    /**
+     * Structured reverse-lookup row (nearby name/type/distance + admin hierarchy).
+     * Used by callers that need the individual fields rather than a composed line.
+     */
+    async reverseDetails(lat: number, lng: number): Promise<MinimalReverseAddressRow | null> {
+        return this.repo.reverseAddressMinimal(lat, lng);
+    }
 
     async reverse(lat: number, lng: number): Promise<ReverseSearchResult> {
         const row = await this.repo.reverseAddressMinimal(lat, lng);

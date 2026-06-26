@@ -22,6 +22,7 @@ import adminUsersRoutes from "./modules/admin-users/admin-users.routes.js";
 import categoriesRoutes from "./modules/categories/categories.routes.js";
 import placesRoutes from "./modules/places/places.routes.js";
 import publicMapRoutes from "./modules/public-map/public-map.routes.js";
+import shareRoutes from "./modules/share/share.routes.js";
 import streetsRoutes from "./modules/streets/streets.routes.js";
 import buildingsRoutes from "./modules/buildings/buildings.routes.js";
 import placeBuildingRoutes from "./modules/place-buildings/place-buildings.routes.js";
@@ -168,6 +169,7 @@ export async function buildApp() {
     await app.register(entityAdminAreaRoutes);
     await app.register(placesRoutes);
     await app.register(publicMapRoutes);
+    await app.register(shareRoutes);
     await app.register(addressesRoutes);
     await app.register(streetsRoutes);
     await app.register(buildingsRoutes);
