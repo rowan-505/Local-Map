@@ -83,6 +83,17 @@ export type TransportPreviewMapProps = {
     /** In-map hint shown while editing. */
     editingHint?: string | null;
 
+    /**
+     * Draft LineString being drawn (ordered [lng, lat] positions). Rendered as a
+     * dashed magenta line (≥ 2 points) plus numbered vertex dots, above all other
+     * overlays. Lightweight + MapLibre-native — no drawing library.
+     */
+    draftPath?: ReadonlyArray<[number, number]> | null;
+    /** When true, map clicks append a point via {@link onDraftPathAddPoint}. */
+    pathDrawing?: boolean;
+    /** Called with the clicked position while {@link pathDrawing} is true. */
+    onDraftPathAddPoint?: (coords: TransportPreviewLngLat) => void;
+
     /** A one-time auto-fit runs whenever this key changes (e.g. publicId / variant id). */
     autoFitKey?: string | null;
 };
@@ -99,6 +110,8 @@ const SRC_GEOM_POINT = "transport-preview-geom-point";
 const SRC_STOPS = "transport-preview-stops";
 const SRC_LINKED = "transport-preview-linked";
 const SRC_VERTICES = "transport-preview-vertices";
+const SRC_DRAFT_PATH = "transport-preview-draft-path";
+const SRC_DRAFT_VERTICES = "transport-preview-draft-vertices";
 
 const LYR_PATH = "transport-preview-path-line";
 const LYR_STOP_PREVIEW = "transport-preview-stop-dashed";
@@ -108,6 +121,8 @@ const LYR_STOPS_CIRCLE = "transport-preview-stops-circle";
 const LYR_STOPS_LABEL = "transport-preview-stops-label";
 const LYR_LINKED = "transport-preview-linked-circle";
 const LYR_VERTICES = "transport-preview-vertices-circle";
+const LYR_DRAFT_PATH = "transport-preview-draft-path-line";
+const LYR_DRAFT_VERTICES = "transport-preview-draft-vertices-circle";
 
 const ORDERED_LAYER_IDS = [
     LYR_PATH,
@@ -118,6 +133,8 @@ const ORDERED_LAYER_IDS = [
     LYR_LINKED,
     LYR_VERTICES,
     LYR_STOPS_LABEL,
+    LYR_DRAFT_PATH,
+    LYR_DRAFT_VERTICES,
 ] as const;
 
 function emptyFc(): FeatureCollection<Geometry> {
@@ -299,6 +316,8 @@ function ensureLayers(map: maplibregl.Map): void {
         SRC_STOPS,
         SRC_LINKED,
         SRC_VERTICES,
+        SRC_DRAFT_PATH,
+        SRC_DRAFT_VERTICES,
     ]) {
         if (!map.getSource(id)) {
             map.addSource(id, { type: "geojson", data: emptyFc() });
@@ -427,6 +446,36 @@ function ensureLayers(map: maplibregl.Map): void {
         });
     }
 
+    if (!map.getLayer(LYR_DRAFT_PATH)) {
+        map.addLayer({
+            id: LYR_DRAFT_PATH,
+            type: "line",
+            source: SRC_DRAFT_PATH,
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+                "line-color": "#db2777",
+                "line-width": 3,
+                "line-opacity": 0.95,
+                "line-dasharray": [1.5, 1.2],
+            },
+        });
+    }
+
+    if (!map.getLayer(LYR_DRAFT_VERTICES)) {
+        map.addLayer({
+            id: LYR_DRAFT_VERTICES,
+            type: "circle",
+            source: SRC_DRAFT_VERTICES,
+            paint: {
+                "circle-radius": 4.5,
+                "circle-color": "#db2777",
+                "circle-opacity": 1,
+                "circle-stroke-width": 2,
+                "circle-stroke-color": "#ffffff",
+            },
+        });
+    }
+
     for (const id of ORDERED_LAYER_IDS) {
         if (map.getLayer(id)) {
             map.moveLayer(id);
@@ -452,6 +501,9 @@ export default function TransportPreviewMap({
     pointDraggable = false,
     onPointChange,
     editingHint = null,
+    draftPath = null,
+    pathDrawing = false,
+    onDraftPathAddPoint,
     autoFitKey = null,
 }: TransportPreviewMapProps) {
     const clientMounted = useClientMounted();
@@ -460,6 +512,7 @@ export default function TransportPreviewMap({
     const markerRef = useRef<maplibregl.Marker | null>(null);
     const lastFitKeyRef = useRef<string | null>(null);
     const onPointChangeRef = useRef<typeof onPointChange>(onPointChange);
+    const onDraftPathAddPointRef = useRef<typeof onDraftPathAddPoint>(onDraftPathAddPoint);
 
     const [mapReady, setMapReady] = useState(false);
     const [mapError, setMapError] = useState<string | null>(null);
@@ -470,6 +523,10 @@ export default function TransportPreviewMap({
     useEffect(() => {
         onPointChangeRef.current = onPointChange;
     }, [onPointChange]);
+
+    useEffect(() => {
+        onDraftPathAddPointRef.current = onDraftPathAddPoint;
+    }, [onDraftPathAddPoint]);
 
     const stops = useMemo(() => routeStops ?? [], [routeStops]);
 
@@ -820,6 +877,83 @@ export default function TransportPreviewMap({
             }
         };
     }, [mapReady, pointDraggable, onPointChange]);
+
+    // --- Draft path overlay (dashed line ≥2 pts + numbered vertices). --------
+    // Own effect so appending a point only updates these two sources — the
+    // basemap and the other overlays are untouched.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) {
+            return;
+        }
+        const apply = (): boolean => {
+            if (map !== mapRef.current || !map.isStyleLoaded()) {
+                return false;
+            }
+            ensureLayers(map);
+            const coords = (draftPath ?? []).filter(
+                (c) => Number.isFinite(c[0]) && Number.isFinite(c[1]),
+            ) as Position[];
+            setSourceData(
+                map,
+                SRC_DRAFT_PATH,
+                coords.length >= 2
+                    ? {
+                          type: "FeatureCollection",
+                          features: [
+                              {
+                                  type: "Feature",
+                                  properties: {},
+                                  geometry: { type: "LineString", coordinates: coords },
+                              },
+                          ],
+                      }
+                    : emptyFc(),
+            );
+            setSourceData(map, SRC_DRAFT_VERTICES, {
+                type: "FeatureCollection",
+                features: coords.map((c, i) => ({
+                    type: "Feature",
+                    properties: { index: i + 1 },
+                    geometry: { type: "Point", coordinates: c },
+                })),
+            });
+            if (map.getLayer(LYR_DRAFT_PATH)) map.moveLayer(LYR_DRAFT_PATH);
+            if (map.getLayer(LYR_DRAFT_VERTICES)) map.moveLayer(LYR_DRAFT_VERTICES);
+            return true;
+        };
+        if (apply()) {
+            return;
+        }
+        const onIdle = () => {
+            if (apply()) {
+                map.off("idle", onIdle);
+            }
+        };
+        map.on("idle", onIdle);
+        return () => {
+            map.off("idle", onIdle);
+        };
+    }, [mapReady, draftPath]);
+
+    // --- Click-to-add while drawing a path. ----------------------------------
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !pathDrawing || !onDraftPathAddPoint) {
+            return;
+        }
+        const handler = (e: maplibregl.MapMouseEvent) => {
+            onDraftPathAddPointRef.current?.({ lng: e.lngLat.lng, lat: e.lngLat.lat });
+        };
+        map.on("click", handler);
+        map.getCanvas().style.cursor = "crosshair";
+        return () => {
+            map.off("click", handler);
+            if (mapRef.current) {
+                mapRef.current.getCanvas().style.cursor = "";
+            }
+        };
+    }, [mapReady, pathDrawing, onDraftPathAddPoint]);
 
     const handleFit = useCallback(() => {
         fitToContent(550);

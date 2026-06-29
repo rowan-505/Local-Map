@@ -5,6 +5,7 @@ import {
     TransportInvalidReferenceError,
     TransportNameRequiredError,
     TransportNotFoundError,
+    TransportRouteConflictError,
     TransportRouteStopDuplicateError,
     TransportRouteStopTransactionTimeoutError,
     TransportSchemaUnavailableError,
@@ -17,6 +18,7 @@ import {
     getTransportImportBatchesSchema,
     getTransportImportErrorsSchema,
     getTransportOverviewSchema,
+    getTransportQualitySummarySchema,
     getTransportSourceLinksSchema,
     getTransportRouteDetailSchema,
     getTransportRouteVariantsSchema,
@@ -29,6 +31,7 @@ import {
     getTransportInfrastructureLinesSchema,
     getTransportTerminalsSchema,
     getTransportVariantStopsSchema,
+    getTransportVariantStopQualitySchema,
     getTransportVariantOrderedStopsSchema,
     searchTransportStopsSchema,
     insertExistingRouteStopSchema,
@@ -36,10 +39,18 @@ import {
     moveRouteStopSchema,
     patchRouteStopSchema,
     patchTransportInfrastructureLineSchema,
+    postTransportRouteSchema,
     patchTransportRouteSchema,
     patchTransportStopSchema,
+    patchTransportStopLocationSchema,
+    getTransportStopNearbySchema,
     patchTransportTerminalSchema,
     patchTransportVariantSchema,
+    postRouteVariantSchema,
+    patchVariantSchema,
+    deleteVariantSchema,
+    putTransportVariantPathSchema,
+    deleteTransportVariantPathSchema,
 } from "./transport.openapi.js";
 import {
     listTransportRoutesQuerySchema,
@@ -53,16 +64,25 @@ import {
     archiveStopBodySchema,
     listVariantStopsQuerySchema,
     searchTransportStopsQuerySchema,
+    createRouteBodySchema,
+    createVariantBodySchema,
+    patchVariantBodySchema,
+    putVariantPathBodySchema,
+    routeVariantsParamSchema,
+    variantPublicIdParamSchema,
     insertExistingRouteStopBodySchema,
     createAndInsertRouteStopBodySchema,
     moveRouteStopBodySchema,
+    nearbyStopsQuerySchema,
     removeRouteStopBodySchema,
     routeStopIdParamSchema,
+    stopPublicIdParamSchema,
     stopRoutesQuerySchema,
     transportPublicIdParamSchema,
     updateRouteBodySchema,
     updateRouteStopBodySchema,
     updateStopBodySchema,
+    updateStopLocationBodySchema,
     updateTerminalBodySchema,
     updateVariantBodySchema,
 } from "./transport.schema.js";
@@ -98,6 +118,9 @@ function sendTransportError(reply: FastifyReply, error: unknown): FastifyReply |
         return reply.code(400).send({ message: error.message });
     }
     if (error instanceof TransportRouteStopDuplicateError) {
+        return reply.code(409).send({ message: error.message });
+    }
+    if (error instanceof TransportRouteConflictError) {
         return reply.code(409).send({ message: error.message });
     }
     if (error instanceof TransportStopInUseError) {
@@ -138,6 +161,15 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         { schema: getTransportDataQualityQueuesSchema },
         async (_request, reply) => {
             const result = await service.getDataQualityQueues();
+            return reply.send(result);
+        }
+    );
+
+    app.get(
+        "/quality-summary",
+        { schema: getTransportQualitySummarySchema },
+        async (_request, reply) => {
+            const result = await service.getQualitySummary();
             return reply.send(result);
         }
     );
@@ -411,6 +443,48 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         }
     });
 
+    app.patch(
+        "/stops/:stopPublicId/location",
+        { schema: patchTransportStopLocationSchema },
+        async (request, reply) => {
+            try {
+                const { stopPublicId } = stopPublicIdParamSchema.parse(request.params);
+                const body = updateStopLocationBodySchema.parse(request.body);
+                const result = await service.updateStopLocation(
+                    stopPublicId,
+                    body,
+                    auditContextFrom(request),
+                );
+                request.log.info(
+                    { stopPublicId, nearby: result.nearby_stops.length },
+                    "transport stop location updated",
+                );
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
+
+    app.get(
+        "/stops/:stopPublicId/nearby",
+        { schema: getTransportStopNearbySchema },
+        async (request, reply) => {
+            try {
+                const { stopPublicId } = stopPublicIdParamSchema.parse(request.params);
+                const query = nearbyStopsQuerySchema.parse(request.query);
+                const result = await service.getNearbyStops(stopPublicId, query);
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
+
     app.delete("/stops/:publicId", { schema: deleteTransportStopSchema }, async (request, reply) => {
         try {
             const { publicId } = transportPublicIdParamSchema.parse(request.params);
@@ -493,6 +567,43 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         }
     );
 
+    app.get(
+        "/variants/:variantPublicId/stop-quality",
+        { schema: getTransportVariantStopQualitySchema },
+        async (request, reply) => {
+            try {
+                const { variantPublicId } = variantPublicIdParamSchema.parse(request.params);
+                const result = await service.getVariantStopQuality(variantPublicId);
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        }
+    );
+
+    app.post("/routes", { schema: postTransportRouteSchema }, async (request, reply) => {
+        try {
+            const body = createRouteBodySchema.parse(request.body ?? {});
+            const result = await service.createRoute(body, auditContextFrom(request));
+            request.log.info(
+                {
+                    publicId: result.public_id,
+                    routeCode: body.route_code,
+                    mode: body.mode,
+                    variants: result.variants.length,
+                },
+                "transport route created"
+            );
+            return reply.code(201).send(result);
+        } catch (error) {
+            const handled = sendTransportError(reply, error);
+            if (handled) return handled;
+            throw error;
+        }
+    });
+
     app.patch("/routes/:publicId", { schema: patchTransportRouteSchema }, async (request, reply) => {
         try {
             const { publicId } = transportPublicIdParamSchema.parse(request.params);
@@ -530,6 +641,117 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                 throw error;
             }
         }
+    );
+
+    app.post(
+        "/routes/:routePublicId/variants",
+        { schema: postRouteVariantSchema },
+        async (request, reply) => {
+            try {
+                const { routePublicId } = routeVariantsParamSchema.parse(request.params);
+                const body = createVariantBodySchema.parse(request.body ?? {});
+                const result = await service.createVariant(
+                    routePublicId,
+                    body,
+                    auditContextFrom(request)
+                );
+                request.log.info(
+                    { routePublicId, variantCode: body.variant_code },
+                    "transport route variant created"
+                );
+                return reply.code(201).send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        }
+    );
+
+    app.patch("/variants/:variantPublicId", { schema: patchVariantSchema }, async (request, reply) => {
+        try {
+            const { variantPublicId } = variantPublicIdParamSchema.parse(request.params);
+            const body = patchVariantBodySchema.parse(request.body);
+            const result = await service.updateVariant(
+                variantPublicId,
+                body,
+                auditContextFrom(request)
+            );
+            request.log.info(
+                { variantPublicId, fields: Object.keys(body) },
+                "transport route variant updated"
+            );
+            return reply.send(result);
+        } catch (error) {
+            const handled = sendTransportError(reply, error);
+            if (handled) return handled;
+            throw error;
+        }
+    });
+
+    app.delete(
+        "/variants/:variantPublicId",
+        { schema: deleteVariantSchema },
+        async (request, reply) => {
+            try {
+                const { variantPublicId } = variantPublicIdParamSchema.parse(request.params);
+                const result = await service.softDeleteVariant(
+                    variantPublicId,
+                    auditContextFrom(request)
+                );
+                request.log.info({ variantPublicId }, "transport route variant soft-deleted");
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        }
+    );
+
+    app.put(
+        "/variants/:variantPublicId/path",
+        { schema: putTransportVariantPathSchema },
+        async (request, reply) => {
+            try {
+                const { variantPublicId } = variantPublicIdParamSchema.parse(request.params);
+                const body = putVariantPathBodySchema.parse(request.body ?? {});
+                const result = await service.upsertVariantPath(
+                    variantPublicId,
+                    body,
+                    auditContextFrom(request),
+                );
+                request.log.info(
+                    { variantPublicId, points: body.coordinates.length },
+                    "transport variant path upserted",
+                );
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
+
+    app.delete(
+        "/variants/:variantPublicId/path",
+        { schema: deleteTransportVariantPathSchema },
+        async (request, reply) => {
+            try {
+                const { variantPublicId } = variantPublicIdParamSchema.parse(request.params);
+                const result = await service.deleteVariantPath(
+                    variantPublicId,
+                    auditContextFrom(request),
+                );
+                request.log.info({ variantPublicId }, "transport variant path soft-deleted");
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
     );
 
     app.post(

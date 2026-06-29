@@ -7,12 +7,18 @@ import StatsCard, { type StatsCardStatusColor } from "@/src/components/dashboard
 import { Card, CardContent } from "@/src/components/ui/card";
 import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
-import { getTransportDataQualityQueues, getTransportOverview } from "./api";
+import {
+    getTransportDataQualityQueues,
+    getTransportOverview,
+    getTransportQualitySummary,
+} from "./api";
 import type {
     TransportCountsByKey,
     TransportDataQualityQueues,
     TransportImportIssueBreakdown,
     TransportOverview,
+    TransportQualitySummary,
+    TransportQualitySummaryRow,
 } from "./types";
 
 type CountCard = { title: string; value: number };
@@ -277,9 +283,111 @@ function ImportIssuesBreakdown({
     );
 }
 
+/** A count cell that highlights non-zero "needs fixing" values. */
+function IssueCell({ value }: { readonly value: number }) {
+    return (
+        <td className="px-3 py-2 text-right tabular-nums">
+            <span className={value > 0 ? "font-medium text-amber-700" : "text-gray-400"}>
+                {value.toLocaleString()}
+            </span>
+        </td>
+    );
+}
+
+/**
+ * Read-only per-mode triage table. No links or fix actions — it only tells the
+ * admin which modes have the most variants missing stops/path/direction.
+ */
+function QualitySummaryTable({ summary }: { readonly summary: TransportQualitySummary }) {
+    const rows = [...summary.items].sort((a, b) => b.routes - a.routes);
+
+    const totals: Omit<TransportQualitySummaryRow, "mode"> = rows.reduce(
+        (acc, r) => ({
+            routes: acc.routes + r.routes,
+            variants: acc.variants + r.variants,
+            variants_without_stops: acc.variants_without_stops + r.variants_without_stops,
+            variants_without_path: acc.variants_without_path + r.variants_without_path,
+            variants_unknown_direction:
+                acc.variants_unknown_direction + r.variants_unknown_direction,
+            routes_without_variants: acc.routes_without_variants + r.routes_without_variants,
+        }),
+        {
+            routes: 0,
+            variants: 0,
+            variants_without_stops: 0,
+            variants_without_path: 0,
+            variants_unknown_direction: 0,
+            routes_without_variants: 0,
+        },
+    );
+
+    return (
+        <Card>
+            <CardContent className="p-0">
+                {rows.length === 0 ? (
+                    <p className="p-5 text-sm text-gray-500">No routes to summarise.</p>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500">
+                                    <th className="px-3 py-2 text-left font-medium">Mode</th>
+                                    <th className="px-3 py-2 text-right font-medium">Routes</th>
+                                    <th className="px-3 py-2 text-right font-medium">Variants</th>
+                                    <th className="px-3 py-2 text-right font-medium">No stops</th>
+                                    <th className="px-3 py-2 text-right font-medium">No path</th>
+                                    <th className="px-3 py-2 text-right font-medium">
+                                        Unknown direction
+                                    </th>
+                                    <th className="px-3 py-2 text-right font-medium">No variants</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {rows.map((row) => (
+                                    <tr key={row.mode} className="text-gray-700">
+                                        <td className="px-3 py-2 font-medium text-gray-900">
+                                            {modeLabel(row.mode)}
+                                        </td>
+                                        <td className="px-3 py-2 text-right tabular-nums">
+                                            {row.routes.toLocaleString()}
+                                        </td>
+                                        <td className="px-3 py-2 text-right tabular-nums">
+                                            {row.variants.toLocaleString()}
+                                        </td>
+                                        <IssueCell value={row.variants_without_stops} />
+                                        <IssueCell value={row.variants_without_path} />
+                                        <IssueCell value={row.variants_unknown_direction} />
+                                        <IssueCell value={row.routes_without_variants} />
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot>
+                                <tr className="border-t border-gray-200 font-medium text-gray-900">
+                                    <td className="px-3 py-2">Total</td>
+                                    <td className="px-3 py-2 text-right tabular-nums">
+                                        {totals.routes.toLocaleString()}
+                                    </td>
+                                    <td className="px-3 py-2 text-right tabular-nums">
+                                        {totals.variants.toLocaleString()}
+                                    </td>
+                                    <IssueCell value={totals.variants_without_stops} />
+                                    <IssueCell value={totals.variants_without_path} />
+                                    <IssueCell value={totals.variants_unknown_direction} />
+                                    <IssueCell value={totals.routes_without_variants} />
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    );
+}
+
 export default function TransportOverviewPage() {
     const [data, setData] = useState<TransportOverview | null>(null);
     const [quality, setQuality] = useState<TransportDataQualityQueues | null>(null);
+    const [qualitySummary, setQualitySummary] = useState<TransportQualitySummary | null>(null);
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(true);
 
@@ -288,12 +396,14 @@ export default function TransportOverviewPage() {
         setError("");
         try {
             const init = signal ? { signal } : undefined;
-            const [overview, queues] = await Promise.all([
+            const [overview, queues, summary] = await Promise.all([
                 getTransportOverview(init),
                 getTransportDataQualityQueues(init),
+                getTransportQualitySummary(init),
             ]);
             setData(overview);
             setQuality(queues);
+            setQualitySummary(summary);
         } catch (err) {
             if (isAbortError(err)) return;
             setError(err instanceof Error ? err.message : "Failed to load transport overview.");
@@ -406,6 +516,21 @@ export default function TransportOverviewPage() {
                         />
                     </div>
                 </section>
+
+                {qualitySummary ? (
+                    <section className="space-y-3">
+                        <div>
+                            <h2 className="text-lg font-semibold text-gray-900">
+                                Quality summary by mode
+                            </h2>
+                            <p className="text-sm text-gray-600">
+                                Read-only triage. Highlighted counts show variants/routes that
+                                likely need attention — fix them in the route detail page.
+                            </p>
+                        </div>
+                        <QualitySummaryTable summary={qualitySummary} />
+                    </section>
+                ) : null}
 
                 {qualityGroups.map((group) => (
                     <QueueGroupSection key={group.heading} group={group} />

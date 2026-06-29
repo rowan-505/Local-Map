@@ -1,10 +1,12 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import type { MapClickedLocation } from '@/features/map/types';
 import { useReverseAddress } from '@/features/map/api/useReverseAddress';
 import { useAuth } from '@/features/auth/state/useAuth';
 import { useSavedPlaces } from '@/features/saved-places/state/useSavedPlaces';
 import { ReportEntryButton } from '@/features/reports/components/ReportEntryButton';
 import { ShareCard } from '@/features/share/components/ShareCard';
+import { ActionButton, MetadataList, MetadataRow } from '@/components/ui/sidebarUi';
+import { sidebarCard } from '@/components/ui/sidebarTokens';
 import type { RoutePoint } from '@/features/routing/lib/routePoint';
 
 type AddressLocationPanelProps = {
@@ -14,6 +16,10 @@ type AddressLocationPanelProps = {
   readonly onUseAsRouteDestination: (point: RoutePoint) => void;
 };
 
+/** Neutral, full-width report button styling so it matches Save in the action row (parity with the POI detail card). */
+const REPORT_BUTTON_CLASS =
+  'flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50';
+
 export function AddressLocationPanel({
   location,
   zoom,
@@ -21,20 +27,23 @@ export function AddressLocationPanel({
   onUseAsRouteDestination,
 }: AddressLocationPanelProps) {
   const reverse = useReverseAddress(location?.coordinates ?? null);
+  const { isAuthenticated, openAuthModal } = useAuth();
   const [showShare, setShowShare] = useState(false);
 
   if (!location) {
     return (
-      <section className="p-3.5" aria-label="Inspect map location">
-        <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 p-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-400">
-            Location
-          </p>
-          <h2 className="mt-3 text-lg font-semibold text-neutral-950">Click anywhere on the map</h2>
-          <p className="mt-2 text-sm leading-6 text-neutral-600">
-            Click anywhere on the map to inspect a location.
-          </p>
-        </div>
+      <section className="p-3" aria-label="Inspect map location">
+        <article className={sidebarCard}>
+          <div className="px-4 pb-4 pt-3">
+            <p className={locationLabelClass}>Location</p>
+            <h2 className="mt-1 text-base font-semibold leading-6 text-neutral-900">
+              Click anywhere on the map
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-neutral-500">
+              Click anywhere on the map to inspect a location.
+            </p>
+          </div>
+        </article>
       </section>
     );
   }
@@ -53,95 +62,121 @@ export function AddressLocationPanel({
   const plusCode = reverse.data?.plus_code ?? location.plusCode ?? null;
 
   return (
-    <section className="space-y-3 p-3.5" aria-label="Inspect map location">
-      <div className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm shadow-neutral-950/3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">
-              Location
-            </p>
-            <h2 className="mt-1 text-lg font-semibold text-neutral-950">Inspect location</h2>
+    <section className="p-3" aria-label="Inspect map location">
+      <article className={sidebarCard}>
+        <div className="px-4 pb-3.5 pt-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className={locationLabelClass}>Location</p>
+              <h2 className="mt-1 text-base font-semibold leading-6 text-neutral-900">
+                Inspect location
+              </h2>
+            </div>
+            <MapPointBadge />
           </div>
-          <span className="shrink-0 rounded-full bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-100">
-            Map point
-          </span>
+
+          <div className="mt-3 grid grid-cols-4 gap-1.5">
+            <ActionButton primary title="Route start" onClick={() => onUseAsRouteStart(routePoint)}>
+              Start
+            </ActionButton>
+            <ActionButton
+              primary
+              title="Route destination"
+              onClick={() => onUseAsRouteDestination(routePoint)}
+            >
+              To
+            </ActionButton>
+            <ActionButton title="Share location" onClick={() => setShowShare((open) => !open)}>
+              Share
+            </ActionButton>
+            <ActionButton title="Copy coordinates" onClick={() => copyText(coordinates)}>
+              Copy
+            </ActionButton>
+          </div>
+
+          <div className={`mt-1.5 grid gap-1.5 ${isAuthenticated ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {isAuthenticated ? (
+              <SaveLocationControl
+                latitude={lat}
+                longitude={lng}
+                addressLine={addressLine}
+                plusCode={plusCode}
+              />
+            ) : null}
+            <ReportEntryButton
+              target={{
+                targetEntityType: 'map_point',
+                latitude: lat,
+                longitude: lng,
+                contextLabel: `Map point (${coordinates})`,
+              }}
+              label="Report here"
+              className={REPORT_BUTTON_CLASS}
+            />
+          </div>
+
+          {!isAuthenticated ? (
+            <button
+              type="button"
+              className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-sky-600 transition-colors hover:text-sky-700"
+              onClick={() => openAuthModal('login')}
+            >
+              <span className="grid h-3.5 w-3.5 place-items-center">
+                <BookmarkIcon />
+              </span>
+              Sign in to save this location
+            </button>
+          ) : null}
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          <ActionButton icon={<CopyIcon />} label="Copy coordinates" onClick={() => copyText(coordinates)}>
-            Copy
-          </ActionButton>
-          <ActionButton icon={<ShareIcon />} label="Share location" onClick={() => setShowShare((open) => !open)}>
-            Share
-          </ActionButton>
-          <ActionButton icon={<StartIcon />} label="Route start" onClick={() => onUseAsRouteStart(routePoint)}>
-            Start
-          </ActionButton>
-          <ActionButton icon={<DestinationIcon />} label="Route destination" onClick={() => onUseAsRouteDestination(routePoint)}>
-            To
-          </ActionButton>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <SaveLocationControl
-            latitude={lat}
-            longitude={lng}
-            addressLine={addressLine}
-            plusCode={plusCode}
-          />
-          <ReportEntryButton
-            target={{
-              targetEntityType: 'map_point',
-              latitude: lat,
-              longitude: lng,
-              contextLabel: `Map point (${coordinates})`,
-            }}
-            label="Report here"
-          />
-        </div>
-      </div>
+        <MetadataList>
+          <MetadataRow label="Address" stacked muted={!addressLine}>
+            {addressLine ?? (reverse.loading ? 'Loading address…' : 'Address unavailable')}
+          </MetadataRow>
+          <MetadataRow label="Coordinates" mono>
+            {coordinates}
+          </MetadataRow>
+          {plusCode ? (
+            <MetadataRow label="Plus Code" mono>
+              {plusCode}
+            </MetadataRow>
+          ) : null}
+        </MetadataList>
+      </article>
 
       {showShare ? (
-        <ShareCard
-          target={{
-            kind: 'point',
-            lat,
-            lng,
-            ...(zoom !== undefined ? { zoom } : {}),
-            addressLine,
-            plusCode,
-          }}
-        />
+        <div className="mt-3">
+          <ShareCard
+            target={{
+              kind: 'point',
+              lat,
+              lng,
+              ...(zoom !== undefined ? { zoom } : {}),
+              addressLine,
+              plusCode,
+            }}
+          />
+        </div>
       ) : null}
-
-      <InfoSection title="Address">
-        {addressLine ? (
-          <p className="text-sm leading-6 text-neutral-800">{addressLine}</p>
-        ) : reverse.loading ? (
-          <p className="text-sm leading-6 text-neutral-400">Loading address…</p>
-        ) : (
-          <p className="text-sm leading-6 text-neutral-500">Address unavailable</p>
-        )}
-      </InfoSection>
-
-      {plusCode ? (
-        <InfoSection title="Plus Code">
-          <p className="font-mono text-sm leading-6 text-neutral-800">{plusCode}</p>
-        </InfoSection>
-      ) : null}
-
-      <InfoSection title="Coordinates">
-        <InfoRow label="Latitude" value={lat.toFixed(6)} mono />
-        <InfoRow label="Longitude" value={lng.toFixed(6)} mono />
-      </InfoSection>
     </section>
   );
 }
 
+/** Blue uppercase accent label, matching the POI card's muted label typography. */
+const locationLabelClass = 'text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-600';
+
+function MapPointBadge() {
+  return (
+    <span className="shrink-0 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 ring-1 ring-sky-100">
+      Map point
+    </span>
+  );
+}
+
 /**
- * "Save location" control for the inspected map point. Only visible to signed-in
- * users (guests get a subtle prompt that opens the drawer auth panel). Saves via
- * /me/saved-places with entityType='map_point'. Saved state resets when the
+ * "Save location" control for the inspected map point. Rendered only for
+ * signed-in users (guests get the subtle sign-in row below the actions). Saves
+ * via /me/saved-places with entityType='map_point'. Saved state resets when the
  * inspected coordinates change.
  */
 function SaveLocationControl({
@@ -155,7 +190,6 @@ function SaveLocationControl({
   readonly addressLine: string | null;
   readonly plusCode: string | null;
 }) {
-  const { isAuthenticated, openAuthModal } = useAuth();
   const { saveMapPoint } = useSavedPlaces();
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -166,18 +200,6 @@ function SaveLocationControl({
     setSaved(false);
     setError(null);
   }, [latitude, longitude]);
-
-  if (!isAuthenticated) {
-    return (
-      <button
-        type="button"
-        className="mt-3 text-xs font-semibold text-sky-600 transition-colors hover:text-sky-700"
-        onClick={() => openAuthModal('login')}
-      >
-        Sign in to save this location
-      </button>
-    );
-  }
 
   const onSave = async () => {
     if (busy || saved) return;
@@ -199,15 +221,16 @@ function SaveLocationControl({
   };
 
   return (
-    <div className="mt-3">
+    <div>
       <button
         type="button"
-        className={`inline-flex min-h-9 items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors disabled:opacity-60 ${
+        className={`flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
           saved
-            ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
-            : 'bg-sky-600 text-white hover:bg-sky-700'
+            ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
+            : 'border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'
         }`}
         disabled={busy || saved}
+        aria-pressed={saved}
         onClick={() => void onSave()}
       >
         <span className="grid h-4 w-4 place-items-center">
@@ -217,60 +240,6 @@ function SaveLocationControl({
       </button>
       {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
     </div>
-  );
-}
-
-function InfoSection({ title, children }: { readonly title: string; readonly children: ReactNode }) {
-  return (
-    <section className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-sm shadow-neutral-950/3">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-neutral-400">
-        {title}
-      </h3>
-      <div className="space-y-2">{children}</div>
-    </section>
-  );
-}
-
-function InfoRow({
-  label,
-  value,
-  mono = false,
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly mono?: boolean;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 text-sm">
-      <span className="shrink-0 text-xs text-neutral-500">{label}</span>
-      <span className={`text-right text-xs leading-5 text-neutral-800 ${mono ? 'font-mono' : ''}`}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function ActionButton({
-  children,
-  icon,
-  label,
-  onClick,
-}: {
-  readonly children: string;
-  readonly icon: ReactNode;
-  readonly label: string;
-  readonly onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
-      aria-label={label}
-      onClick={onClick}
-    >
-      <span className="grid h-4 w-4 place-items-center text-neutral-500">{icon}</span>
-      {children}
-    </button>
   );
 }
 
@@ -291,40 +260,6 @@ function CheckIcon() {
   return (
     <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="m3.5 8.5 3 3 6-7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function CopyIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M5.5 5.5h7v7h-7v-7Z" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M3.5 10.5h-1v-7h7v1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ShareIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M6.2 5.2 10 3M6.2 10.8 10 13M5.5 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM14.5 2.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM14.5 13.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function StartIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M8 14V2M8 2 4.5 5.5M8 2l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function DestinationIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M8 14s4-3.4 4-7a4 4 0 0 0-8 0c0 3.6 4 7 4 7Z" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M8 8.2a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8Z" stroke="currentColor" strokeWidth="1.4" />
     </svg>
   );
 }

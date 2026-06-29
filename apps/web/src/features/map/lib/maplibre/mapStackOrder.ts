@@ -1,7 +1,9 @@
 /**
- * Basemap roads → route overlay → basemap/API labels → POI markers → click pin (top).
+ * Basemap roads → route overlay → basemap/API labels → POI markers → click pin →
+ * own-user location dot (top).
  */
 import type { MapEngine } from '../mapEngineTypes';
+import { moveUserLocationLayersToTop } from '@/features/location/userLocationMapLayers';
 import { restorePublicMapLayersUnderPlaces } from './publicMapGeoLayers';
 import {
   PLACES_LABEL_LAYER_ID,
@@ -32,4 +34,7 @@ export function applyMapOverlayStackOrder(map: MapEngine): void {
   if (map.getLayer(PLACES_LABEL_LAYER_ID)) map.moveLayer(PLACES_LABEL_LAYER_ID);
   positionActiveRouteLayers(map);
   moveClickedLocationLayersToTop(map);
+  // Own-user location dot sits at the very top so it is never hidden by POI/route/
+  // click overlays or dynamically loaded regional PMTiles.
+  moveUserLocationLayersToTop(map);
 }

@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 import {
+    createTransportRouteVariant,
     updateTransportRoute,
     updateTransportRouteVariant,
 } from "./api";
@@ -13,6 +14,7 @@ import {
 } from "./constants";
 import { hasTransportManualName, normalizeTransportNameInput } from "./naming";
 import type {
+    CreateTransportVariantBody,
     TransportRouteDetail,
     TransportVariantSummary,
     UpdateTransportRouteBody,
@@ -265,27 +267,84 @@ export function TransportRouteEditForm({
     );
 }
 
-// ─── Variant edit form ───────────────────────────────────────────────────────
+// ─── Variant create / edit form ──────────────────────────────────────────────
 
-export function TransportVariantEditForm({
+/**
+ * Generic variant direction. direction_id is the GTFS-style code (0 outbound,
+ * 1 inbound, 2 loop/branch, null unknown); direction_name carries the human
+ * label so loop vs branch (both id 2) stay distinguishable. Labels are mode-
+ * neutral so the same form works for bus / train / ferry.
+ */
+const VARIANT_DIRECTION_OPTIONS = [
+    { value: "outbound", label: "Outbound", directionId: 0, directionName: "outbound" },
+    { value: "inbound", label: "Inbound", directionId: 1, directionName: "inbound" },
+    { value: "loop", label: "Loop", directionId: 2, directionName: "loop" },
+    { value: "branch", label: "Branch", directionId: 2, directionName: "branch" },
+    { value: "unknown", label: "Unknown", directionId: null, directionName: null },
+] as const;
+
+type DirectionKey = (typeof VARIANT_DIRECTION_OPTIONS)[number]["value"];
+
+/** Derive the select value from a variant's stored direction_id / direction_name. */
+function directionKeyOf(variant: TransportVariantSummary): DirectionKey {
+    if (variant.direction_id === 0) return "outbound";
+    if (variant.direction_id === 1) return "inbound";
+    if (variant.direction_id === 2) {
+        return (variant.direction_name ?? "").toLowerCase().includes("branch")
+            ? "branch"
+            : "loop";
+    }
+    return "unknown";
+}
+
+const DIRECTION_BY_KEY: Record<DirectionKey, (typeof VARIANT_DIRECTION_OPTIONS)[number]> =
+    Object.fromEntries(VARIANT_DIRECTION_OPTIONS.map((o) => [o.value, o])) as Record<
+        DirectionKey,
+        (typeof VARIANT_DIRECTION_OPTIONS)[number]
+    >;
+
+/** "" → null else trimmed value, for optional nullable text/uuid inputs. */
+function nullableTrim(value: string): string | null {
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * Variant form used for BOTH create (no `variant` prop) and edit (with `variant`).
+ * Edit sends only changed fields; create sends the full payload. Origin/destination
+ * stop are optional pointers entered as stop public IDs (UUID); leave blank to skip
+ * (create) or keep unchanged (edit). Schedule/timetable/fare fields are intentionally
+ * not included.
+ */
+export function TransportVariantForm({
+    routePublicId,
     variant,
     onCancel,
     onSaved,
 }: {
-    readonly variant: TransportVariantSummary;
+    /** Required for create; ignored for edit. */
+    readonly routePublicId?: string;
+    /** Provided for edit; omitted for create. */
+    readonly variant?: TransportVariantSummary;
     readonly onCancel: () => void;
-    readonly onSaved: (updated: TransportVariantSummary) => void;
+    readonly onSaved: (variant: TransportVariantSummary) => void;
 }) {
-    const [variantCode, setVariantCode] = useState(variant.variant_code);
-    const [directionName, setDirectionName] = useState(variant.direction_name ?? "");
-    const [directionId, setDirectionId] = useState(normNumber(variant.direction_id));
-    const [headsign, setHeadsign] = useState(variant.headsign ?? "");
-    const [originName, setOriginName] = useState(variant.origin_name ?? "");
-    const [destinationName, setDestinationName] = useState(variant.destination_name ?? "");
-    const [durationMin, setDurationMin] = useState(normNumber(variant.estimated_duration_min));
-    const [reviewStatus, setReviewStatus] = useState(variant.review_status);
-    const [confidence, setConfidence] = useState(normNumber(variant.confidence_score));
-    const [isActive, setIsActive] = useState(variant.is_active);
+    const isEdit = variant !== undefined;
+
+    const [variantCode, setVariantCode] = useState(variant?.variant_code ?? "");
+    const [direction, setDirection] = useState<DirectionKey>(
+        variant ? directionKeyOf(variant) : "outbound"
+    );
+    const [headsign, setHeadsign] = useState(variant?.headsign ?? "");
+    const [originName, setOriginName] = useState(variant?.origin_name ?? "");
+    const [destinationName, setDestinationName] = useState(variant?.destination_name ?? "");
+    const [originStopId, setOriginStopId] = useState("");
+    const [destinationStopId, setDestinationStopId] = useState("");
+    const [reviewStatus, setReviewStatus] = useState(variant?.review_status ?? "needs_review");
+    const [confidence, setConfidence] = useState(
+        variant ? normNumber(variant.confidence_score) : "60"
+    );
+    const [isActive, setIsActive] = useState(variant?.is_active ?? true);
 
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
@@ -298,33 +357,6 @@ export function TransportVariantEditForm({
             setError("Variant code is required.");
             return;
         }
-
-        const body: UpdateTransportVariantBody = {};
-        if (variantCode.trim() !== variant.variant_code) body.variant_code = variantCode.trim();
-        if (directionName.trim() !== (variant.direction_name ?? ""))
-            body.direction_name = directionName.trim();
-        if (headsign.trim() !== (variant.headsign ?? "")) body.headsign = headsign.trim();
-        if (originName.trim() !== (variant.origin_name ?? "")) body.origin_name = originName.trim();
-        if (destinationName.trim() !== (variant.destination_name ?? ""))
-            body.destination_name = destinationName.trim();
-        if (reviewStatus !== variant.review_status) body.review_status = reviewStatus;
-        if (isActive !== variant.is_active) body.is_active = isActive;
-
-        // Nullable integer fields: "" → null, otherwise parsed integer.
-        const dirIdParsed = directionId.trim() === "" ? null : Number(directionId);
-        if (dirIdParsed !== null && (!Number.isInteger(dirIdParsed) || dirIdParsed < 0)) {
-            setError("Direction id must be a non-negative whole number.");
-            return;
-        }
-        if (dirIdParsed !== variant.direction_id) body.direction_id = dirIdParsed;
-
-        const durParsed = durationMin.trim() === "" ? null : Number(durationMin);
-        if (durParsed !== null && (!Number.isInteger(durParsed) || durParsed < 0)) {
-            setError("Estimated duration must be a non-negative whole number of minutes.");
-            return;
-        }
-        if (durParsed !== variant.estimated_duration_min) body.estimated_duration_min = durParsed;
-
         if (confidence.trim() === "") {
             setError("Confidence score is required (0–100).");
             return;
@@ -334,17 +366,60 @@ export function TransportVariantEditForm({
             setError("Confidence score must be between 0 and 100.");
             return;
         }
-        if (conf !== variant.confidence_score) body.confidence_score = conf;
-
-        if (Object.keys(body).length === 0) {
-            onCancel();
-            return;
-        }
+        const dir = DIRECTION_BY_KEY[direction];
 
         setSaving(true);
         try {
-            const updated = await updateTransportRouteVariant(variant.public_id, body);
-            onSaved(updated);
+            if (isEdit && variant) {
+                // Edit: send only changed fields.
+                const body: UpdateTransportVariantBody = {};
+                if (variantCode.trim() !== variant.variant_code)
+                    body.variant_code = variantCode.trim();
+                if (dir.directionId !== variant.direction_id) body.direction_id = dir.directionId;
+                if ((dir.directionName ?? null) !== (variant.direction_name ?? null))
+                    body.direction_name = dir.directionName;
+                if (headsign.trim() !== (variant.headsign ?? ""))
+                    body.headsign = nullableTrim(headsign);
+                if (originName.trim() !== (variant.origin_name ?? ""))
+                    body.origin_name = nullableTrim(originName);
+                if (destinationName.trim() !== (variant.destination_name ?? ""))
+                    body.destination_name = nullableTrim(destinationName);
+                // Stop pointers: only sent when the field was touched (non-empty).
+                if (originStopId.trim() !== "") body.origin_stop_public_id = originStopId.trim();
+                if (destinationStopId.trim() !== "")
+                    body.destination_stop_public_id = destinationStopId.trim();
+                if (reviewStatus !== variant.review_status) body.review_status = reviewStatus;
+                if (conf !== variant.confidence_score) body.confidence_score = conf;
+                if (isActive !== variant.is_active) body.is_active = isActive;
+
+                if (Object.keys(body).length === 0) {
+                    onCancel();
+                    return;
+                }
+                const updated = await updateTransportRouteVariant(variant.public_id, body);
+                onSaved(updated);
+            } else {
+                if (!routePublicId) {
+                    setError("Missing route reference.");
+                    return;
+                }
+                const body: CreateTransportVariantBody = {
+                    variant_code: variantCode.trim(),
+                    direction_id: dir.directionId,
+                    direction_name: dir.directionName,
+                    headsign: nullableTrim(headsign),
+                    origin_name: nullableTrim(originName),
+                    destination_name: nullableTrim(destinationName),
+                    review_status: reviewStatus,
+                    confidence_score: conf,
+                    ...(originStopId.trim() ? { origin_stop_public_id: originStopId.trim() } : {}),
+                    ...(destinationStopId.trim()
+                        ? { destination_stop_public_id: destinationStopId.trim() }
+                        : {}),
+                };
+                const created = await createTransportRouteVariant(routePublicId, body);
+                onSaved(created);
+            }
         } catch (err) {
             if (isAbortError(err)) return;
             setError(err instanceof Error ? err.message : "Failed to save variant.");
@@ -363,25 +438,20 @@ export function TransportVariantEditForm({
                         onChange={(e) => setVariantCode(e.target.value)}
                     />
                 </Field>
-                <Field label="Direction id">
-                    <input
-                        type="number"
-                        min={0}
+                <Field label="Direction">
+                    <select
                         className={INPUT_CLASS}
-                        value={directionId}
-                        placeholder="—"
-                        onChange={(e) => setDirectionId(e.target.value)}
-                    />
+                        value={direction}
+                        onChange={(e) => setDirection(e.target.value as DirectionKey)}
+                    >
+                        {VARIANT_DIRECTION_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                                {o.label}
+                            </option>
+                        ))}
+                    </select>
                 </Field>
             </div>
-            <Field label="Direction name">
-                <input
-                    className={INPUT_CLASS}
-                    value={directionName}
-                    placeholder="—"
-                    onChange={(e) => setDirectionName(e.target.value)}
-                />
-            </Field>
             <Field label="Headsign">
                 <input
                     className={INPUT_CLASS}
@@ -406,16 +476,35 @@ export function TransportVariantEditForm({
                     onChange={(e) => setDestinationName(e.target.value)}
                 />
             </Field>
+            <Field label="Origin stop ID (optional)">
+                <input
+                    className={INPUT_CLASS}
+                    value={originStopId}
+                    placeholder={isEdit ? "Leave blank to keep unchanged" : "Stop public ID"}
+                    onChange={(e) => setOriginStopId(e.target.value)}
+                />
+            </Field>
+            <Field label="Destination stop ID (optional)">
+                <input
+                    className={INPUT_CLASS}
+                    value={destinationStopId}
+                    placeholder={isEdit ? "Leave blank to keep unchanged" : "Stop public ID"}
+                    onChange={(e) => setDestinationStopId(e.target.value)}
+                />
+            </Field>
             <div className="grid grid-cols-2 gap-2">
-                <Field label="Est. duration (min)">
-                    <input
-                        type="number"
-                        min={0}
+                <Field label="Review status">
+                    <select
                         className={INPUT_CLASS}
-                        value={durationMin}
-                        placeholder="—"
-                        onChange={(e) => setDurationMin(e.target.value)}
-                    />
+                        value={reviewStatus}
+                        onChange={(e) => setReviewStatus(e.target.value)}
+                    >
+                        {TRANSPORT_REVIEW_STATUS_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                                {o.label}
+                            </option>
+                        ))}
+                    </select>
                 </Field>
                 <Field label="Confidence (0–100)">
                     <input
@@ -428,19 +517,6 @@ export function TransportVariantEditForm({
                     />
                 </Field>
             </div>
-            <Field label="Review status">
-                <select
-                    className={INPUT_CLASS}
-                    value={reviewStatus}
-                    onChange={(e) => setReviewStatus(e.target.value)}
-                >
-                    {TRANSPORT_REVIEW_STATUS_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                            {o.label}
-                        </option>
-                    ))}
-                </select>
-            </Field>
             <label className="flex items-center gap-2 text-sm text-gray-700">
                 <input
                     type="checkbox"

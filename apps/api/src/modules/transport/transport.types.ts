@@ -79,6 +79,24 @@ export type TransportStopSearchResponse = {
     limit: number;
 };
 
+/** Compact nearby-stop hit for location-edit duplicate checks (within a radius). */
+export type TransportNearbyStop = {
+    stop_public_id: string;
+    name: string;
+    distance_m: number;
+    mode: string;
+    stop_type: string;
+};
+
+/**
+ * Result of a stop location edit: the refreshed stop detail plus the stops within
+ * the duplicate-check radius of the SAVED location (self excluded).
+ */
+export type TransportStopLocationUpdateResult = {
+    stop: TransportStopDetail;
+    nearby_stops: TransportNearbyStop[];
+};
+
 export type TransportTerminalListItem = {
     public_id: string;
     terminal_code: string | null;
@@ -227,6 +245,27 @@ export type TransportDataQualityQueues = {
     importErrors: number;
     /** "Low confidence" means confidence_score < this value (0–100 scale). */
     lowConfidenceThreshold: number;
+    schemaAvailable: boolean;
+};
+
+/** One mode's row in the transport quality summary (read-only counts). */
+export type TransportQualitySummaryRow = {
+    mode: string;
+    routes: number;
+    variants: number;
+    variants_without_stops: number;
+    variants_without_path: number;
+    variants_unknown_direction: number;
+    routes_without_variants: number;
+};
+
+/**
+ * Read-only quality summary: per-mode counts that help admins triage what to
+ * fix first (variants missing stops/path/direction, routes missing variants).
+ * No issue management or auto-fix — purely aggregate counts.
+ */
+export type TransportQualitySummary = {
+    items: TransportQualitySummaryRow[];
     schemaAvailable: boolean;
 };
 
@@ -379,6 +418,15 @@ export type TransportVariantSummary = {
     is_active: boolean;
 };
 
+/**
+ * Result of creating a route via POST /transport/routes: the full route detail
+ * plus the auto-generated variants (so the client does not need a follow-up
+ * variants fetch).
+ */
+export type TransportRouteCreateResult = TransportRouteDetail & {
+    variants: TransportVariantSummary[];
+};
+
 export type TransportRouteStopItem = {
     id: string;
     stop_sequence: number;
@@ -403,6 +451,16 @@ export type TransportRoutePath = {
     geometry: GeoJsonGeometry | null;
 };
 
+/**
+ * Result of a variant route-path mutation (PUT/DELETE): the active path geometry
+ * (null after delete) plus the refreshed variant summary so the caller can update
+ * path_status / path_count / distance without a follow-up fetch.
+ */
+export type TransportVariantPathResult = {
+    path: TransportRoutePath | null;
+    variant: TransportVariantSummary;
+};
+
 export type TransportVariantStopsResponse = {
     items: TransportRouteStopItem[];
     total: number;
@@ -410,6 +468,33 @@ export type TransportVariantStopsResponse = {
     offset: number;
     /** Present only when `includePath=true`; null when the variant has no active path. */
     path: TransportRoutePath | null;
+};
+
+/**
+ * One ordered stop in a variant with lightweight, read-only quality signals:
+ * gap from the previous stop, deviation from the active route path, and
+ * duplicate hints. Diagnostics only — no automatic fixes.
+ */
+export type TransportVariantStopQualityItem = {
+    route_stop_id: string;
+    stop_public_id: string;
+    stop_name: string | null;
+    stop_sequence: number;
+    lng: number | null;
+    lat: number | null;
+    /** Straight-line meters from the previous ordered stop; null for the first stop. */
+    distance_from_previous_m: number | null;
+    /** Meters from the stop to the active route path; null when no active path exists. */
+    distance_from_path_m: number | null;
+    /** Defensive: same stop_id appears more than once in this variant (DB unique-guarded). */
+    is_exact_duplicate_in_variant: boolean;
+    /** Count of other active stops (same mode) within ~30 m of this stop. */
+    nearby_duplicate_count: number;
+};
+
+export type TransportVariantStopQualityResponse = {
+    items: TransportVariantStopQualityItem[];
+    total: number;
 };
 
 /**

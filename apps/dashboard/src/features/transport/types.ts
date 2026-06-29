@@ -112,6 +112,22 @@ export type UpdateTransportTerminalBody = {
     point?: { longitude: number; latitude: number };
 };
 
+/** One mode's row in the read-only transport quality summary. */
+export type TransportQualitySummaryRow = {
+    mode: string;
+    routes: number;
+    variants: number;
+    variants_without_stops: number;
+    variants_without_path: number;
+    variants_unknown_direction: number;
+    routes_without_variants: number;
+};
+
+export type TransportQualitySummary = {
+    items: TransportQualitySummaryRow[];
+    schemaAvailable: boolean;
+};
+
 export type TransportDataQualityQueues = {
     generatedNameStops: number;
     generatedNameTerminals: number;
@@ -302,6 +318,28 @@ export type UpdateTransportStopBody = {
     point?: { longitude: number; latitude: number };
 };
 
+/** Body for PATCH /transport/stops/:stopPublicId/location (location-only edit). */
+export type UpdateTransportStopLocationBody = {
+    lng: number;
+    lat: number;
+    review_status?: string;
+    confidence_score?: number;
+};
+
+/** Compact nearby-stop hit for duplicate checks around a stop location. */
+export type TransportNearbyStop = {
+    stop_public_id: string;
+    name: string;
+    distance_m: number;
+    mode: string;
+    stop_type: string;
+};
+
+export type TransportStopLocationUpdateResult = {
+    stop: TransportStopDetail;
+    nearby_stops: TransportNearbyStop[];
+};
+
 export type TransportRouteName = {
     name: string;
     language_code: string;
@@ -387,9 +425,42 @@ export type TransportRoutePath = {
     geometry: GeoJsonGeometry | null;
 };
 
+/** Body for PUT /transport/variants/:variantPublicId/path (manual path upsert). */
+export type PutTransportVariantPathBody = {
+    coordinates: [number, number][];
+    path_kind?: "manual";
+};
+
+/** Result of a variant route-path mutation: active path (null after delete) + variant. */
+export type TransportVariantPathResult = {
+    path: TransportRoutePath | null;
+    variant: TransportVariantSummary;
+};
+
 export type TransportVariantsResponse = {
     items: TransportVariantSummary[];
     total: number;
+};
+
+/**
+ * POST /transport/routes body. Creates a route plus its default variants. The
+ * server derives route_kind from the mode and stamps review_status /
+ * confidence_score / source_refs, so they are not sent here.
+ */
+export type CreateTransportRouteBody = {
+    mode: "bus" | "train" | "ferry";
+    route_code: string;
+    public_name: string;
+    origin_name?: string | null;
+    destination_name?: string | null;
+    operator_id?: number | null;
+    create_return_variant?: boolean;
+    is_loop?: boolean;
+};
+
+/** Response of POST /transport/routes: the new route detail plus its variants. */
+export type TransportRouteCreateResult = TransportRouteDetail & {
+    variants: TransportVariantSummary[];
 };
 
 export type UpdateTransportRouteBody = {
@@ -490,10 +561,30 @@ export type UpdateTransportVariantBody = {
     headsign?: string | null;
     origin_name?: string | null;
     destination_name?: string | null;
+    origin_stop_public_id?: string | null;
+    destination_stop_public_id?: string | null;
     estimated_duration_min?: number | null;
     review_status?: string;
     confidence_score?: number;
     is_active?: boolean;
+};
+
+/**
+ * POST /transport/routes/:routePublicId/variants body. `variant_code` is required
+ * and unique per route. direction_id: 0 outbound, 1 inbound, 2 loop/branch, null
+ * unknown. review_status / confidence_score default server-side when omitted.
+ */
+export type CreateTransportVariantBody = {
+    variant_code: string;
+    direction_id?: number | null;
+    direction_name?: string | null;
+    headsign?: string | null;
+    origin_name?: string | null;
+    destination_name?: string | null;
+    origin_stop_public_id?: string | null;
+    destination_stop_public_id?: string | null;
+    review_status?: string;
+    confidence_score?: number;
 };
 
 export type TransportVariantStopsResponse = {
@@ -502,6 +593,25 @@ export type TransportVariantStopsResponse = {
     limit: number;
     offset: number;
     path: TransportRoutePath | null;
+};
+
+/** One ordered stop with read-only quality signals from the stop-quality endpoint. */
+export type TransportVariantStopQualityItem = {
+    route_stop_id: string;
+    stop_public_id: string;
+    stop_name: string | null;
+    stop_sequence: number;
+    lng: number | null;
+    lat: number | null;
+    distance_from_previous_m: number | null;
+    distance_from_path_m: number | null;
+    is_exact_duplicate_in_variant: boolean;
+    nearby_duplicate_count: number;
+};
+
+export type TransportVariantStopQualityResponse = {
+    items: TransportVariantStopQualityItem[];
+    total: number;
 };
 
 /** One hit from GET /transport/stops/search (lightweight stop picker). */

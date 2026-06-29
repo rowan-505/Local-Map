@@ -33,8 +33,15 @@ import {
 import { useRouteState } from '@/features/routing/useRouteState';
 import type { RoutePoint } from '@/features/routing/lib/routePoint';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
-import type { MapClickedLocation } from '@/features/map/types';
-import type { MapViewportState } from '@/features/map/types';
+import type {
+  LocationCameraCommand,
+  MapClickedLocation,
+  MapViewportState,
+} from '@/features/map/types';
+import { useUserLocation } from '@/features/location/useUserLocation';
+import { useLocationToast } from '@/features/location/useLocationToast';
+import { LocationControl } from '@/features/location/LocationControl';
+import { LocationToast } from '@/features/location/LocationToast';
 import {
   usePublicCategories,
   usePublicMapPlaces,
@@ -389,6 +396,104 @@ export default function HomePage() {
     [route],
   );
 
+  // Own-user location (client-side only): no API, no persistence, no sharing.
+  const userLocation = useUserLocation();
+  const locationToast = useLocationToast(userLocation);
+  const [locationCamera, setLocationCamera] = useState<LocationCameraCommand | null>(null);
+  const locationCommandIdRef = useRef(0);
+  const firstFixHandledRef = useRef(false);
+
+  const flyToUserLocation = useCallback(() => {
+    if (import.meta.env.DEV) {
+      console.debug('[location] camera target: user location');
+    }
+    locationCommandIdRef.current += 1;
+    setLocationCamera({ id: locationCommandIdRef.current, type: 'user' });
+  }, []);
+  const flyToYangonFocus = useCallback(() => {
+    if (import.meta.env.DEV) {
+      console.debug('[location] camera target: Yangon Region (default focus)');
+    }
+    locationCommandIdRef.current += 1;
+    setLocationCamera({ id: locationCommandIdRef.current, type: 'yangon' });
+  }, []);
+
+  const {
+    status: locationStatus,
+    fix: locationFix,
+    isInsideCoverage: locationInsideCoverage,
+    startTracking: startLocationTracking,
+    enableFollowing: enableLocationFollowing,
+    disableFollowing: disableLocationFollowing,
+  } = userLocation;
+
+  const onLocateClick = useCallback(() => {
+    if (import.meta.env.DEV) {
+      console.debug('[location] locate button clicked', { status: locationStatus });
+    }
+
+    // Already tracking with a fix → recenter (in coverage) or fall back to Yangon.
+    if (locationStatus === 'tracking' && locationFix) {
+      if (locationInsideCoverage) {
+        enableLocationFollowing();
+        flyToUserLocation();
+      } else {
+        disableLocationFollowing();
+        flyToYangonFocus();
+      }
+      return;
+    }
+
+    // Any other (non-tracking) state — idle, stopped, requesting, or an error
+    // (permission_denied / unavailable / timeout / unsupported) — (re)starts
+    // tracking, which re-requests permission from a clean watch.
+    firstFixHandledRef.current = false;
+    startLocationTracking();
+  }, [
+    locationStatus,
+    locationFix,
+    locationInsideCoverage,
+    startLocationTracking,
+    enableLocationFollowing,
+    disableLocationFollowing,
+    flyToUserLocation,
+    flyToYangonFocus,
+  ]);
+
+  /** First valid fix after starting: frame the user (in coverage) or fall back to Yangon. */
+  useEffect(() => {
+    if (locationStatus !== 'tracking' || !locationFix) return;
+    if (firstFixHandledRef.current) return;
+    firstFixHandledRef.current = true;
+    if (locationInsideCoverage) {
+      enableLocationFollowing();
+      flyToUserLocation();
+    } else {
+      disableLocationFollowing();
+      flyToYangonFocus();
+    }
+  }, [
+    locationStatus,
+    locationFix,
+    locationInsideCoverage,
+    enableLocationFollowing,
+    disableLocationFollowing,
+    flyToUserLocation,
+    flyToYangonFocus,
+  ]);
+
+  /** Error fallback: keep the map on the Yangon default focus, never lost off-map. */
+  useEffect(() => {
+    if (
+      locationStatus === 'permission_denied' ||
+      locationStatus === 'unavailable' ||
+      locationStatus === 'timeout' ||
+      locationStatus === 'unsupported'
+    ) {
+      flyToYangonFocus();
+    }
+  }, [locationStatus, flyToYangonFocus]);
+
   return (
     <MapShell
       leftRail={
@@ -419,6 +524,11 @@ export default function HomePage() {
             clickedLocation={clickedLocation}
             directionsOverlay={directionsOverlay}
             routePickMode={route.pickMode}
+            userLocationFix={userLocation.fix}
+            userLocationFollowing={userLocation.isFollowing}
+            userLocationInsideCoverage={userLocation.isInsideCoverage}
+            locationCameraCommand={locationCamera}
+            onUserLocationFollowDisengage={userLocation.disableFollowing}
             onSelectPoiId={onSelectPoiId}
             onEmptyMapClick={onEmptyMapClick}
             onViewportChange={setMapViewport}
@@ -501,12 +611,27 @@ export default function HomePage() {
         />
       }
       floatingControls={
-        <MapFloatingControls
-          selectedLanguageMode={languageMode}
-          onSelectLanguageMode={setLanguageMode}
-          isSidebarOpen={isSidebarOpen}
-          bottomSheetState={bottomSheetState}
-        />
+        <>
+          <MapFloatingControls
+            selectedLanguageMode={languageMode}
+            onSelectLanguageMode={setLanguageMode}
+            isSidebarOpen={isSidebarOpen}
+            bottomSheetState={bottomSheetState}
+            locationSlot={
+              <LocationControl
+                status={userLocation.status}
+                fix={userLocation.fix}
+                quality={userLocation.quality}
+                isFollowing={userLocation.isFollowing}
+                isOutOfCoverage={userLocation.isOutOfCoverage}
+                message={userLocation.errorMessage}
+                onLocateClick={onLocateClick}
+                onStopClick={userLocation.stopTracking}
+              />
+            }
+          />
+          <LocationToast toast={locationToast} />
+        </>
       }
     />
   );

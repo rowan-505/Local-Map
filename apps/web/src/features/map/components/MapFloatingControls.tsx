@@ -9,6 +9,8 @@ type MapFloatingControlsProps = {
   readonly onSelectLanguageMode: (mode: PlaceLanguageMode) => void;
   readonly isSidebarOpen: boolean;
   readonly bottomSheetState: BottomSheetState;
+  /** Own-user location control, anchored bottom-right with bottom-sheet-aware offset. */
+  readonly locationSlot?: ReactNode;
 };
 
 type OpenControlsPanel = 'map' | 'language' | null;
@@ -61,6 +63,7 @@ export function MapFloatingControls({
   onSelectLanguageMode,
   isSidebarOpen,
   bottomSheetState,
+  locationSlot,
 }: MapFloatingControlsProps) {
   const [openPanel, setOpenPanel] = useState<OpenControlsPanel>(null);
   const controlsDockRef = useRef<HTMLDivElement | null>(null);
@@ -127,11 +130,16 @@ export function MapFloatingControls({
           onZoomOut={() => dispatchUtilityAction('zoomOut')}
         />
       </MapRightControls>
-      <LocateKyauktanButton
-        bottomSheetState={bottomSheetState}
-        isSidebarOpen={isSidebarOpen}
-        onClick={() => dispatchUtilityAction('centerKyauktan')}
-      />
+      {locationSlot ? (
+        <div
+          className={`pointer-events-none fixed right-3 z-20 transition-all duration-300 lg:bottom-8 lg:right-4 ${locateButtonMobilePositionClass(
+            isSidebarOpen,
+            bottomSheetState,
+          )}`}
+        >
+          {locationSlot}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -328,31 +336,6 @@ function ZoomControls({
   );
 }
 
-function LocateKyauktanButton({
-  bottomSheetState,
-  isSidebarOpen,
-  onClick,
-}: {
-  readonly bottomSheetState: BottomSheetState;
-  readonly isSidebarOpen: boolean;
-  readonly onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`pointer-events-auto fixed right-3 z-20 grid h-10 w-10 place-items-center rounded-2xl border border-white/80 bg-white/95 text-neutral-700 shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-all duration-300 hover:bg-neutral-100 lg:bottom-8 lg:right-4 lg:h-9 lg:w-9 ${locateButtonMobilePositionClass(
-        isSidebarOpen,
-        bottomSheetState,
-      )}`}
-      aria-label="Center on Kyauktan"
-      title="Center on Kyauktan"
-      onClick={onClick}
-    >
-      <TargetIcon />
-    </button>
-  );
-}
-
 function locateButtonMobilePositionClass(
   isSidebarOpen: boolean,
   bottomSheetState: BottomSheetState,
@@ -421,20 +404,6 @@ function UtilityButton({
 
 function Divider({ className = '' }: { readonly className?: string }) {
   return <span className={`mx-1 h-px bg-neutral-100 ${className}`} aria-hidden="true" />;
-}
-
-function TargetIcon() {
-  return (
-    <svg className="h-4.5 w-4.5 lg:h-4 lg:w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M8 13.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11ZM8 1v2M8 13v2M1 8h2M13 8h2"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <path d="M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  );
 }
 
 function MapIcon() {

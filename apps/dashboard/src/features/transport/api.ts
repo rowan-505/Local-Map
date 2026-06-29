@@ -1,6 +1,7 @@
 import { apiFetch } from "@/src/lib/api";
 import type {
     TransportDataQualityQueues,
+    TransportQualitySummary,
     TransportImportBatchListItem,
     TransportImportErrorListItem,
     TransportSourceLinkListItem,
@@ -12,8 +13,14 @@ import type {
     TransportStopArchiveResult,
     TransportStopDetail,
     TransportStopListItem,
+    TransportStopLocationUpdateResult,
     TransportStopRouteUsage,
     TransportStopSearchResponse,
+    TransportNearbyStop,
+    UpdateTransportStopLocationBody,
+    CreateTransportRouteBody,
+    CreateTransportVariantBody,
+    TransportRouteCreateResult,
     InsertExistingRouteStopBody,
     CreateAndInsertRouteStopBody,
     TransportInfrastructureLineDetail,
@@ -22,7 +29,10 @@ import type {
     TransportTerminalListItem,
     TransportVariantsResponse,
     TransportVariantStopsResponse,
+    TransportVariantStopQualityResponse,
     TransportVariantSummary,
+    TransportVariantPathResult,
+    PutTransportVariantPathBody,
     RouteStopMutationResult,
     TransportRouteStopMutationResult,
     UpdateRouteStopBody,
@@ -42,6 +52,13 @@ export function getTransportOverview(fetchInit?: Pick<RequestInit, "signal">) {
 
 export function getTransportDataQualityQueues(fetchInit?: Pick<RequestInit, "signal">) {
     return apiFetch<TransportDataQualityQueues>("/transport/data-quality/queues", {
+        method: "GET",
+        ...fetchInit,
+    });
+}
+
+export function getTransportQualitySummary(fetchInit?: Pick<RequestInit, "signal">) {
+    return apiFetch<TransportQualitySummary>("/transport/quality-summary", {
         method: "GET",
         ...fetchInit,
     });
@@ -432,6 +449,39 @@ export function updateTransportStop(
     });
 }
 
+/** Focused stop location edit; returns refreshed detail + nearby stops after save. */
+export function updateTransportStopLocation(
+    stopPublicId: string,
+    body: UpdateTransportStopLocationBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportStopLocationUpdateResult>(
+        `/transport/stops/${encodeURIComponent(stopPublicId)}/location`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+/** Preview nearby stops around a point (duplicate check before a location save). */
+export function getTransportStopNearby(
+    stopPublicId: string,
+    params: { lng: number; lat: number; radius_m?: number },
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const search = new URLSearchParams();
+    search.set("lng", String(params.lng));
+    search.set("lat", String(params.lat));
+    if (params.radius_m !== undefined) search.set("radius_m", String(params.radius_m));
+    return apiFetch<TransportNearbyStop[]>(
+        `/transport/stops/${encodeURIComponent(stopPublicId)}/nearby?${search.toString()}`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
 /**
  * Archive (soft-delete) a stop. The backend rejects with 409 when the stop is
  * still used by routes; on success the stop (and any linked terminal) is
@@ -516,6 +566,33 @@ export function getTransportVariantStops(
     );
 }
 
+/** Read-only stop-quality diagnostics (gaps, path deviation, duplicates) for a variant. */
+export function getTransportVariantStopQuality(
+    variantPublicId: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportVariantStopQualityResponse>(
+        `/transport/variants/${encodeURIComponent(variantPublicId)}/stop-quality`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+/**
+ * Create a route plus its auto-generated variants. Returns the created route
+ * detail including variants (201). Rejects with 409 on a duplicate route_code.
+ */
+export function createTransportRoute(
+    body: CreateTransportRouteBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportRouteCreateResult>("/transport/routes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        ...fetchInit,
+    });
+}
+
 export function updateTransportRoute(
     publicId: string,
     body: UpdateTransportRouteBody,
@@ -529,19 +606,78 @@ export function updateTransportRoute(
     });
 }
 
+/** Create a variant under a route. Returns the created variant summary. */
+export function createTransportRouteVariant(
+    routePublicId: string,
+    body: CreateTransportVariantBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportVariantSummary>(
+        `/transport/routes/${encodeURIComponent(routePublicId)}/variants`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
 export function updateTransportRouteVariant(
     publicId: string,
     body: UpdateTransportVariantBody,
     fetchInit?: Pick<RequestInit, "signal">
 ) {
     return apiFetch<TransportVariantSummary>(
-        `/transport/route-variants/${encodeURIComponent(publicId)}`,
+        `/transport/variants/${encodeURIComponent(publicId)}`,
         {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
             ...fetchInit,
         }
+    );
+}
+
+/**
+ * Soft-delete a variant (deleted_at = now(), is_active = false). Never hard-deletes
+ * and never removes route_stops / route_paths. Returns the parent route detail.
+ */
+export function deleteTransportRouteVariant(
+    publicId: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportRouteDetail>(
+        `/transport/variants/${encodeURIComponent(publicId)}`,
+        { method: "DELETE", ...fetchInit }
+    );
+}
+
+/** Create or replace a variant's single active manual route path. */
+export function putTransportVariantPath(
+    variantPublicId: string,
+    body: PutTransportVariantPathBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportVariantPathResult>(
+        `/transport/variants/${encodeURIComponent(variantPublicId)}/path`,
+        {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+/** Soft-delete a variant's active route path. */
+export function deleteTransportVariantPath(
+    variantPublicId: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportVariantPathResult>(
+        `/transport/variants/${encodeURIComponent(variantPublicId)}/path`,
+        { method: "DELETE", ...fetchInit }
     );
 }
 

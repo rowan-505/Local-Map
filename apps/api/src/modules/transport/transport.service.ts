@@ -18,18 +18,24 @@ import type {
     ListTransportTerminalsQuery,
     UpdateInfrastructureLineInput,
     ListVariantStopsQuery,
+    CreateRouteInput,
+    CreateVariantInput,
     InsertExistingRouteStopInput,
     CreateAndInsertRouteStopInput,
+    NearbyStopsQuery,
+    PutVariantPathInput,
     SearchTransportStopsQuery,
     StopRoutesQuery,
     UpdateRouteInput,
     UpdateRouteStopInput,
     UpdateStopInput,
+    UpdateStopLocationInput,
     UpdateTerminalInput,
     UpdateVariantInput,
 } from "./transport.schema.js";
 import type {
     TransportDataQualityQueues,
+    TransportQualitySummary,
     TransportImportBatchListItem,
     TransportImportErrorListItem,
     TransportSourceLinkListItem,
@@ -38,17 +44,22 @@ import type {
     TransportRouteDetail,
     TransportRouteListItem,
     TransportRouteStopItem,
+    TransportNearbyStop,
     TransportStopArchiveResult,
     TransportStopDetail,
     TransportStopListItem,
+    TransportStopLocationUpdateResult,
     TransportStopRouteUsage,
     TransportStopSearchResponse,
     TransportTerminalDetail,
     TransportInfrastructureLineDetail,
     TransportInfrastructureLineListItem,
     TransportTerminalListItem,
+    TransportRouteCreateResult,
     TransportRouteStopMutationResult,
+    TransportVariantStopQualityResponse,
     TransportVariantStopsResponse,
+    TransportVariantPathResult,
     TransportVariantSummary,
 } from "./transport.types.js";
 
@@ -232,6 +243,25 @@ export class TransportService {
         }
     }
 
+    /**
+     * Returns an empty summary (schemaAvailable=false) when transport tables are
+     * missing. Successful results are cached for {@link CACHE_TTL.dataQuality}.
+     */
+    async getQualitySummary(): Promise<TransportQualitySummary> {
+        try {
+            return await getTransportCached(
+                "transport:quality-summary",
+                CACHE_TTL.dataQuality,
+                () => this.repo.getQualitySummary()
+            );
+        } catch (error) {
+            if (error instanceof TransportSchemaUnavailableError) {
+                return { items: [], schemaAvailable: false };
+            }
+            throw error;
+        }
+    }
+
     /** Returns an empty page when transport tables are missing, otherwise the filtered list. */
     async listRoutes(
         query: ListTransportRoutesQuery
@@ -377,6 +407,22 @@ export class TransportService {
         return result;
     }
 
+    /** Read-only nearby-stop preview for a point (duplicate check before a save). */
+    getNearbyStops(publicId: string, query: NearbyStopsQuery): Promise<TransportNearbyStop[]> {
+        return this.repo.getNearbyStops(publicId, query);
+    }
+
+    /** Focused stop location edit; returns refreshed detail + nearby stops post-save. */
+    async updateStopLocation(
+        publicId: string,
+        input: UpdateStopLocationInput,
+        audit?: TransportAuditContext
+    ): Promise<TransportStopLocationUpdateResult> {
+        const result = await this.repo.updateStopLocation(publicId, input, audit);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
     /**
      * Archive (soft-delete) a stop. Rejected when the stop is still used by routes;
      * any linked terminal is archived in the same transaction. Never hard-deletes
@@ -396,6 +442,16 @@ export class TransportService {
         return this.repo.getRouteByPublicId(publicId);
     }
 
+    /** Creates a route plus its auto-generated variants, then clears the read cache. */
+    async createRoute(
+        input: CreateRouteInput,
+        audit?: TransportAuditContext
+    ): Promise<TransportRouteCreateResult> {
+        const result = await this.repo.createRoute(input, audit);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
     listVariantsForRoute(routePublicId: string): Promise<TransportVariantSummary[]> {
         return this.repo.listVariantsForRoute(routePublicId);
     }
@@ -412,6 +468,11 @@ export class TransportService {
         return this.repo.getOrderedStops(variantPublicId);
     }
 
+    /** Read-only stop-quality diagnostics for one variant (gaps, path deviation, duplicates). */
+    getVariantStopQuality(variantPublicId: string): Promise<TransportVariantStopQualityResponse> {
+        return this.repo.getVariantStopQuality(variantPublicId);
+    }
+
     async updateRoute(
         publicId: string,
         input: UpdateRouteInput,
@@ -422,12 +483,54 @@ export class TransportService {
         return result;
     }
 
+    /** Creates a variant under a route, then clears the read cache. */
+    async createVariant(
+        routePublicId: string,
+        input: CreateVariantInput,
+        audit?: TransportAuditContext
+    ): Promise<TransportVariantSummary> {
+        const result = await this.repo.createVariant(routePublicId, input, audit);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
     async updateVariant(
         variantPublicId: string,
         input: UpdateVariantInput,
         audit?: TransportAuditContext
     ): Promise<TransportVariantSummary> {
         const result = await this.repo.updateVariantByPublicId(variantPublicId, input, audit);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    /** Soft-deletes a variant and returns the refreshed parent route detail. */
+    async softDeleteVariant(
+        variantPublicId: string,
+        audit?: TransportAuditContext
+    ): Promise<TransportRouteDetail> {
+        const result = await this.repo.softDeleteVariant(variantPublicId, audit);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    /** Upsert a variant's single active manual route path. Invalidates caches. */
+    async upsertVariantPath(
+        variantPublicId: string,
+        input: PutVariantPathInput,
+        audit?: TransportAuditContext
+    ): Promise<TransportVariantPathResult> {
+        const result = await this.repo.upsertVariantPath(variantPublicId, input, audit);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    /** Soft-delete a variant's active route path. Invalidates caches. */
+    async deleteVariantPath(
+        variantPublicId: string,
+        audit?: TransportAuditContext
+    ): Promise<TransportVariantPathResult> {
+        const result = await this.repo.deleteVariantPath(variantPublicId, audit);
         this.invalidateAggregateCaches();
         return result;
     }

@@ -65,6 +65,12 @@ import {
   startRegionalPmtilesLoader,
   type RegionalPmtilesLoaderHandle,
 } from '@/lib/basemaps/regionLoader';
+import {
+  ensureUserLocationLayers,
+  updateUserLocationLayers,
+} from '@/features/location/userLocationMapLayers';
+import { getRecommendedLocationZoom } from '@/features/location/locationAccuracy';
+import { COREMAP_DEFAULT_FOCUS } from '@/features/location/locationCoverage';
 const KYAUKTAN_CENTER: [number, number] = [96.3168, 16.6590];
 const KYAUKTAN_CENTER_ZOOM = 14.5;
 
@@ -79,6 +85,11 @@ function MapViewInner({
   clickedLocation,
   directionsOverlay = null,
   routePickMode = null,
+  userLocationFix = null,
+  userLocationFollowing = false,
+  userLocationInsideCoverage = null,
+  locationCameraCommand = null,
+  onUserLocationFollowDisengage,
   onSelectPoiId,
   onEmptyMapClick,
   onViewportChange,
@@ -102,6 +113,13 @@ function MapViewInner({
   const searchHighlightLoadingRef = useRef(onSearchHighlightLoadingChange);
   /** After manual pan/zoom, startup/sidebar auto-fit must not recenter the camera. */
   const hasUserInteractedRef = useRef(false);
+  /**
+   * A camera target present at first mount means we arrived via a deep link that
+   * already knows where to go (e.g. a /s/:code share link). The startup overview
+   * fit must NOT run/re-run in that case, or it would snap the camera back to the
+   * national overview and fight the share flyTo. Captured once at mount.
+   */
+  const hasInitialCameraTargetRef = useRef(Boolean(cameraTarget));
 
   useEffect(() => {
     searchHighlightLoadingRef.current = onSearchHighlightLoadingChange;
@@ -128,6 +146,12 @@ function MapViewInner({
   const clickedLocationRef = useRef(clickedLocation ?? null);
   const directionsOverlayRef = useRef(directionsOverlay ?? null);
   const routePickModeRef = useRef(routePickMode);
+  const userLocationFixRef = useRef(userLocationFix ?? null);
+  const userLocationFollowingRef = useRef(userLocationFollowing);
+  const userLocationInsideCoverageRef = useRef(userLocationInsideCoverage);
+  const onFollowDisengageRef = useRef(onUserLocationFollowDisengage);
+  /** Last executed location camera command id — guards against re-running on re-render. */
+  const lastLocationCommandIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     geojsonRef.current = geojson;
@@ -142,6 +166,18 @@ function MapViewInner({
   useEffect(() => {
     routePickModeRef.current = routePickMode;
   }, [routePickMode]);
+  useEffect(() => {
+    userLocationFixRef.current = userLocationFix ?? null;
+  }, [userLocationFix]);
+  useEffect(() => {
+    userLocationFollowingRef.current = userLocationFollowing;
+  }, [userLocationFollowing]);
+  useEffect(() => {
+    userLocationInsideCoverageRef.current = userLocationInsideCoverage;
+  }, [userLocationInsideCoverage]);
+  useEffect(() => {
+    onFollowDisengageRef.current = onUserLocationFollowDisengage;
+  }, [onUserLocationFollowDisengage]);
 
   const onSelectRef = useRef(onSelectPoiId);
   const onEmptyMapClickRef = useRef(onEmptyMapClick);
@@ -161,6 +197,8 @@ function MapViewInner({
     const map = mapRef.current;
     const el = containerRef.current;
     if (!map || !el || !map.isStyleLoaded()) return;
+    // A share/deep-link camera target owns the camera — never override it with the overview fit.
+    if (hasInitialCameraTargetRef.current) return;
     if (hasUserInteractedRef.current || !shouldFitPublicMapOverviewOnLoad()) return;
     if (el.clientWidth < 1 || el.clientHeight < 1) return;
 
@@ -207,6 +245,8 @@ function MapViewInner({
           setDirectionsRouteOverlay(map, directionsOverlayRef.current ?? null);
           ensureSearchHighlightLayers(map);
           ensureClickedLocationLayer(map, clickedLocationRef.current);
+          ensureUserLocationLayers(map);
+          updateUserLocationLayers(map, userLocationFixRef.current);
           applyMapOverlayStackOrder(map);
           applyAllLocalizedMapLabels(map, languageModeRef.current);
           logAdminLabelLayersInDev(map);
@@ -375,6 +415,80 @@ function MapViewInner({
     applyMapOverlayStackOrder(map);
   }, [clickedLocation, mapReady]);
 
+  /** Own-user location dot + accuracy ring follow the latest fix (data-only). */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+    updateUserLocationLayers(map, userLocationFix ?? null);
+    applyMapOverlayStackOrder(map);
+  }, [mapReady, userLocationFix]);
+
+  /**
+   * While following, gently ease to each fresh in-coverage fix. Deps are limited to
+   * the fix so toggling `following` alone does not move the camera — the explicit
+   * locate command owns the initial jump; this only tracks subsequent updates.
+   */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+    if (!userLocationFix) return;
+    if (!userLocationFollowingRef.current) return;
+    if (userLocationInsideCoverageRef.current === false) return;
+    hasUserInteractedRef.current = true;
+    map.easeTo({
+      center: [userLocationFix.lng, userLocationFix.lat],
+      duration: 600,
+      essential: true,
+    });
+  }, [mapReady, userLocationFix]);
+
+  /**
+   * One-shot location camera command: fly to the user's fix (clamped, accuracy-based
+   * zoom) or to the Yangon default focus. We never auto-pan to the real position when
+   * it is outside coverage — the parent issues a `yangon` command instead.
+   */
+  useEffect(() => {
+    if (!mapReady || !locationCameraCommand) return;
+    if (lastLocationCommandIdRef.current === locationCameraCommand.id) return;
+    lastLocationCommandIdRef.current = locationCameraCommand.id;
+    const map = mapRef.current;
+    if (!map) return;
+
+    const padding = visibleMapCameraPadding(cameraLayoutRef.current, containerRef.current);
+    hasUserInteractedRef.current = true;
+
+    if (locationCameraCommand.type === 'user') {
+      const fix = userLocationFixRef.current;
+      if (!fix) return;
+      const fly = clampPublicMapFlyToTarget(
+        [fix.lng, fix.lat],
+        getRecommendedLocationZoom(fix.accuracyM),
+      );
+      map.flyTo({
+        center: fly.center,
+        zoom: fly.zoom,
+        duration: 900,
+        padding,
+        essential: true,
+      });
+      return;
+    }
+
+    const fly = clampPublicMapFlyToTarget(
+      COREMAP_DEFAULT_FOCUS.center,
+      COREMAP_DEFAULT_FOCUS.zoom,
+    );
+    map.flyTo({
+      center: fly.center,
+      zoom: fly.zoom,
+      duration: 900,
+      padding,
+      essential: true,
+    });
+  }, [mapReady, locationCameraCommand]);
+
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current;
@@ -430,6 +544,7 @@ function MapViewInner({
     if (!mapReady || !selectedPoi) return;
     const map = mapRef.current;
     if (!map) return;
+    if (!isFiniteLngLat([selectedPoi.longitude, selectedPoi.latitude])) return;
 
     const fly = clampPublicMapFlyToTarget(
       [selectedPoi.longitude, selectedPoi.latitude],
@@ -449,6 +564,7 @@ function MapViewInner({
     if (!map) return;
 
     if (cameraTarget.type === 'point') {
+      if (!isFiniteLngLat(cameraTarget.center)) return;
       const fly = clampPublicMapFlyToTarget(cameraTarget.center, cameraTarget.zoom ?? 16);
       map.flyTo({
         center: fly.center,
@@ -492,7 +608,8 @@ function MapViewInner({
       return;
     }
 
-    // TODO: Later replace this with browser geolocation using navigator.geolocation.
+    // Own-user geolocation lives in the location feature (useUserLocation + the
+    // LocationControl locate button); this Kyauktan shortcut stays a fixed-center jump.
     if (utilityCommand.action === 'centerKyauktan') {
       map.flyTo({
         center: KYAUKTAN_CENTER,
@@ -510,7 +627,11 @@ function MapViewInner({
     if (!map) return;
 
     map.resize();
-    if (!hasUserInteractedRef.current && shouldFitPublicMapOverviewOnLoad()) {
+    if (
+      !hasInitialCameraTargetRef.current &&
+      !hasUserInteractedRef.current &&
+      shouldFitPublicMapOverviewOnLoad()
+    ) {
       const layout = cameraLayout ?? DEFAULT_MAP_CAMERA_LAYOUT;
       fitPublicMapOverviewViewport(
         map,
@@ -526,11 +647,17 @@ function MapViewInner({
 
     const markUserInteracted = () => {
       hasUserInteractedRef.current = true;
+      // A genuine manual gesture ends follow mode. Programmatic location moves
+      // (flyTo/easeTo) have no `originalEvent`, so they never reach here.
+      if (userLocationFollowingRef.current) {
+        onFollowDisengageRef.current?.();
+      }
     };
     const onGestureStart = (e: { originalEvent?: Event }) => {
       if (e.originalEvent) markUserInteracted();
     };
 
+    // `dragstart` only fires from the user's drag-pan handler, never programmatically.
     map.on('dragstart', markUserInteracted);
     map.on('movestart', onGestureStart);
     map.on('zoomstart', onGestureStart);
@@ -645,6 +772,19 @@ function MapViewInner({
 export const MapView = memo(MapViewInner);
 
 export default MapView;
+
+/** Guard against NaN/Infinity coordinates so we never call flyTo with bad input. */
+function isFiniteLngLat(
+  center: readonly [number, number] | null | undefined,
+): center is [number, number] {
+  return (
+    !!center &&
+    typeof center[0] === 'number' &&
+    typeof center[1] === 'number' &&
+    Number.isFinite(center[0]) &&
+    Number.isFinite(center[1])
+  );
+}
 
 function emitViewportChange(
   map: MapEngine,

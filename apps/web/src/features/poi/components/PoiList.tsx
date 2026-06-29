@@ -6,6 +6,7 @@ import { resultTitleClass } from '@/components/ui/sidebarTokens';
 import type { Poi } from '@/types';
 import { getLocalizedName } from '@local-map/localized-name';
 import { poiCategoryLabel } from '../categoryLabel';
+import { getPlaceCategoryStyle } from '../placeCategoryStyle';
 
 export type PoiListProps = {
   readonly pois: readonly Poi[];
@@ -61,6 +62,7 @@ function PoiListInner({
           poi.categoryName,
           poi.categoryCode,
         );
+        const avatar = getPlaceCategoryStyle(poi.category, poi.categoryName, poi.categoryCode);
 
         return (
           <li key={poi.id}>
@@ -70,11 +72,9 @@ function PoiListInner({
               onClick={() => onSelectPoiId(poi.id)}
               leading={
                 <span
-                  className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg text-xs font-semibold ${
-                    selected ? 'bg-neutral-200 text-neutral-700' : 'bg-neutral-100 text-neutral-500'
-                  }`}
+                  className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border text-xs font-semibold ${avatar.className}`}
                 >
-                  {categoryInitial(categoryLabel)}
+                  {avatar.initial}
                 </span>
               }
               title={<span className={resultTitleClass(languageMode === 'both')}>{title}</span>}
@@ -99,9 +99,3 @@ function PoiListInner({
 }
 
 export const PoiList = memo(PoiListInner);
-
-function categoryInitial(label: string): string {
-  const trimmed = label.trim();
-  if (trimmed.length === 0) return 'P';
-  return trimmed.slice(0, 1).toUpperCase();
-}

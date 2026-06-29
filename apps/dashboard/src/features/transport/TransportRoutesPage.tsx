@@ -15,6 +15,7 @@ import {
 } from "./constants";
 import TransportDetailDrawer from "./TransportDetailDrawer";
 import TransportRouteDetailContent from "./TransportRouteDetailContent";
+import NewTransportRouteDialog from "./NewTransportRouteDialog";
 import type { TransportRouteListItem } from "./types";
 
 const PAGE_SIZE = 50;
@@ -108,6 +109,7 @@ export default function TransportRoutesPage() {
 
     const queryClient = useQueryClient();
     const [searchInput, setSearchInput] = useState(filters.search);
+    const [createOpen, setCreateOpen] = useState(false);
 
     // Map URL filters -> API params. This object is BOTH the request payload and
     // the cache key, so equivalent filters/pages reuse the same cached response.
@@ -193,6 +195,17 @@ export default function TransportRoutesPage() {
         });
     }, [router, searchParams]);
 
+    // After creating a route: close the dialog, refresh the list (the new route
+    // appears when it matches the current filters), and open its detail drawer.
+    const handleCreated = useCallback(
+        (publicId: string) => {
+            setCreateOpen(false);
+            reloadCurrentPage();
+            openRoute(publicId);
+        },
+        [reloadCurrentPage, openRoute]
+    );
+
     const selectedRow = useMemo(
         () => items.find((r) => r.public_id === routePublicId) ?? null,
         [items, routePublicId]
@@ -205,11 +218,20 @@ export default function TransportRoutesPage() {
     return (
         <main className="p-6">
             <div className="mx-auto max-w-7xl space-y-5">
-                <header className="border-b border-gray-200 pb-4">
-                    <h1 className="text-2xl font-bold text-gray-900">Routes</h1>
-                    <p className="mt-1 text-sm text-gray-600">
-                        Transport routes with variant, stop, and path coverage.
-                    </p>
+                <header className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 pb-4">
+                    <div>
+                        <h1 className="text-2xl font-bold text-gray-900">Routes</h1>
+                        <p className="mt-1 text-sm text-gray-600">
+                            Transport routes with variant, stop, and path coverage.
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setCreateOpen(true)}
+                        className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                    >
+                        + New route
+                    </button>
                 </header>
 
                 <div className="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
@@ -463,6 +485,13 @@ export default function TransportRoutesPage() {
                     </div>
                 ) : null}
             </TransportDetailDrawer>
+
+            {createOpen ? (
+                <NewTransportRouteDialog
+                    onClose={() => setCreateOpen(false)}
+                    onCreated={handleCreated}
+                />
+            ) : null}
         </main>
     );
 }

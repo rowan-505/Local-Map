@@ -6,10 +6,14 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
 import {
+    deleteTransportRouteVariant,
+    deleteTransportVariantPath,
     getTransportRouteDetail,
     getTransportRouteVariants,
     getTransportVariantOrderedStops,
     getTransportVariantStops,
+    getTransportVariantStopQuality,
+    putTransportVariantPath,
     removeTransportRouteStop,
     updateTransportRouteStop,
 } from "./api";
@@ -21,13 +25,14 @@ import InsertRouteStopDialog, {
 } from "./InsertRouteStopDialog";
 import RemoveRouteStopDialog from "./RemoveRouteStopDialog";
 import TransportPreviewMap, { type TransportPreviewStop } from "./TransportPreviewMap";
-import { TransportRouteEditForm, TransportVariantEditForm } from "./transportEditForms";
+import { TransportRouteEditForm, TransportVariantForm } from "./transportEditForms";
 import type {
     TransportOrderedStopLite,
     TransportRouteDetail,
     TransportRouteStopItem,
     TransportRouteStopMutationResult,
     TransportRoutePath,
+    TransportVariantStopQualityItem,
     TransportVariantSummary,
 } from "./types";
 
@@ -114,6 +119,68 @@ function formatDistance(meters: number | null): string {
         return `${(meters / 1000).toFixed(1)} km`;
     }
     return `${Math.round(meters)} m`;
+}
+
+/**
+ * Extract ordered [lng, lat] vertices from a stored path geometry so an existing
+ * path can seed the draft when editing. Handles LineString and MultiLineString
+ * (first segment); returns [] for anything else. No snapping/simplification.
+ */
+function lineStringDraftCoords(
+    geometry: { type: string; coordinates: unknown } | null,
+): Array<[number, number]> {
+    if (!geometry) return [];
+    const isPair = (p: unknown): p is [number, number] =>
+        Array.isArray(p) &&
+        p.length >= 2 &&
+        Number.isFinite(p[0]) &&
+        Number.isFinite(p[1]);
+    let raw: unknown = geometry.coordinates;
+    if (geometry.type === "MultiLineString" && Array.isArray(raw)) {
+        raw = raw[0];
+    }
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(isPair).map((p) => [p[0], p[1]] as [number, number]);
+}
+
+/** Compact distance for inline stop-quality text; null when not measurable. */
+function formatMetersShort(meters: number | null): string | null {
+    if (meters === null || !Number.isFinite(meters)) {
+        return null;
+    }
+    if (meters >= 1000) {
+        return `${(meters / 1000).toFixed(1)} km`;
+    }
+    return `${Math.round(meters)} m`;
+}
+
+/**
+ * Build the one-line stop-quality summary, e.g. "450 m from previous · 38 m from
+ * path" or "450 m from previous · no path". `variantHasPath` decides the path
+ * clause: when the variant has no active path we surface "no path"; otherwise we
+ * show the measured deviation (omitted when the stop itself has no location).
+ */
+function stopQualitySummary(
+    quality: TransportVariantStopQualityItem | undefined,
+    variantHasPath: boolean
+): string | null {
+    if (!quality) {
+        return null;
+    }
+    const parts: string[] = [];
+    const prev = formatMetersShort(quality.distance_from_previous_m);
+    if (prev) {
+        parts.push(`${prev} from previous`);
+    }
+    if (variantHasPath) {
+        const fromPath = formatMetersShort(quality.distance_from_path_m);
+        if (fromPath) {
+            parts.push(`${fromPath} from path`);
+        }
+    } else {
+        parts.push("no path");
+    }
+    return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 /** Compact stop reference stored in the insert context (no geometry/flags). */
@@ -209,9 +276,19 @@ export default function TransportRouteDetailContent({
     const [path, setPath] = useState<TransportRoutePath | null>(null);
     const [stopsLoading, setStopsLoading] = useState(false);
     const [stopsError, setStopsError] = useState("");
+    // Read-only stop-quality signals keyed by route_stop_id. Loaded separately and
+    // non-blocking: the ordered-stop list always renders even if this fails.
+    const [stopQuality, setStopQuality] = useState<
+        ReadonlyMap<string, TransportVariantStopQualityItem>
+    >(new Map());
+    const [stopQualityLoading, setStopQualityLoading] = useState(false);
 
     const [editingRoute, setEditingRoute] = useState(false);
     const [editingVariant, setEditingVariant] = useState(false);
+    const [addingVariant, setAddingVariant] = useState(false);
+    const [confirmDeleteVariant, setConfirmDeleteVariant] = useState(false);
+    const [variantMutating, setVariantMutating] = useState(false);
+    const [variantActionError, setVariantActionError] = useState("");
 
     const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
     const [stopMutating, setStopMutating] = useState(false);
@@ -224,6 +301,15 @@ export default function TransportRouteDetailContent({
     // New-stop draft location (create-stop flow), shared with the map for click-to-place.
     const [newStopPoint, setNewStopPoint] = useState<InsertStopLngLat | null>(null);
     const [pickingLocation, setPickingLocation] = useState(false);
+
+    // --- Route path drawing (selected variant). ------------------------------
+    // `pathMode` null = idle; "create"/"edit" = drawing. `draftPath` holds the
+    // ordered [lng, lat] vertices being placed via map clicks.
+    const [pathMode, setPathMode] = useState<"create" | "edit" | null>(null);
+    const [draftPath, setDraftPath] = useState<Array<[number, number]>>([]);
+    const [pathMutating, setPathMutating] = useState(false);
+    const [pathError, setPathError] = useState("");
+    const [confirmDeletePath, setConfirmDeletePath] = useState(false);
 
     // --- Load route detail + variants when publicId changes. -----------------
     useEffect(() => {
@@ -238,6 +324,9 @@ export default function TransportRouteDetailContent({
         setStopsError("");
         setEditingRoute(false);
         setEditingVariant(false);
+        setAddingVariant(false);
+        setConfirmDeleteVariant(false);
+        setVariantActionError("");
         setSelectedStopId(null);
         setStopActionError("");
         setRemoveTarget(null);
@@ -245,6 +334,10 @@ export default function TransportRouteDetailContent({
         setInsertContext(null);
         setNewStopPoint(null);
         setPickingLocation(false);
+        setPathMode(null);
+        setDraftPath([]);
+        setPathError("");
+        setConfirmDeletePath(false);
 
         void (async () => {
             try {
@@ -335,6 +428,50 @@ export default function TransportRouteDetailContent({
         if (!selectedVariantId) return;
         await loadStops(selectedVariantId, undefined, true);
     }, [selectedVariantId, loadStops]);
+
+    // --- Load read-only stop-quality signals for the current ordered stops.
+    //     Non-blocking and secondary to the ordered-stop list: a failure leaves
+    //     the list fully usable (the quality lines/warnings just don't show). ---
+    const loadStopQuality = useCallback(
+        async (variantId: string, signal: AbortSignal | undefined) => {
+            setStopQualityLoading(true);
+            try {
+                const result = await getTransportVariantStopQuality(
+                    variantId,
+                    signal ? { signal } : undefined,
+                );
+                const next = new Map<string, TransportVariantStopQualityItem>();
+                for (const item of result.items) {
+                    next.set(item.route_stop_id, item);
+                }
+                setStopQuality(next);
+            } catch (err) {
+                if (isAbortError(err)) return;
+                setStopQuality(new Map());
+            } finally {
+                setStopQualityLoading(false);
+            }
+        },
+        [],
+    );
+
+    // Signature of the current membership (ids + order) so quality reloads only
+    // when stops are actually added/removed/reordered, not on every render.
+    const stopsSignature = useMemo(
+        () => stops.map((s) => `${s.id}:${s.stop_sequence}`).join(","),
+        [stops],
+    );
+
+    useEffect(() => {
+        if (!selectedVariantId || stopsSignature === "") {
+            setStopQuality(new Map());
+            setStopQualityLoading(false);
+            return;
+        }
+        const controller = new AbortController();
+        void loadStopQuality(selectedVariantId, controller.signal);
+        return () => controller.abort();
+    }, [selectedVariantId, stopsSignature, loadStopQuality]);
 
     /**
      * Apply a route_stop mutation response locally: replace the ordered stops (so
@@ -454,6 +591,8 @@ export default function TransportRouteDetailContent({
     const selectVariant = useCallback((variantId: string) => {
         setSelectedVariantId(variantId);
         setEditingVariant(false);
+        setConfirmDeleteVariant(false);
+        setVariantActionError("");
         setSelectedStopId(null);
         setStopActionError("");
         setRemoveTarget(null);
@@ -461,14 +600,23 @@ export default function TransportRouteDetailContent({
         setInsertContext(null);
         setNewStopPoint(null);
         setPickingLocation(false);
+        setPathMode(null);
+        setDraftPath([]);
+        setPathError("");
+        setConfirmDeletePath(false);
     }, []);
 
-    const openInsert = useCallback((context: InsertStopContext) => {
-        setStopActionError("");
-        setNewStopPoint(null);
-        setPickingLocation(false);
-        setInsertContext(context);
-    }, []);
+    const openInsert = useCallback(
+        (context: InsertStopContext) => {
+            // Stop placement and path drawing both use map clicks — never both.
+            if (pathMode !== null) return;
+            setStopActionError("");
+            setNewStopPoint(null);
+            setPickingLocation(false);
+            setInsertContext(context);
+        },
+        [pathMode],
+    );
 
     const cancelInsert = useCallback(() => {
         if (stopMutating) return;
@@ -567,16 +715,159 @@ export default function TransportRouteDetailContent({
         [afterSave],
     );
 
-    const handleVariantSaved = useCallback(
-        (updated: TransportVariantSummary) => {
-            setVariants((prev) =>
-                prev.map((v) => (v.public_id === updated.public_id ? updated : v))
-            );
-            setEditingVariant(false);
+    /**
+     * Refresh route detail + variants after a variant create/update/delete, keeping
+     * the route open. `selectId` controls selection: a public_id selects it (new
+     * variant), `null` falls back to the first remaining variant (after delete),
+     * and `undefined` keeps the current selection when it still exists.
+     */
+    const reloadRouteAndVariants = useCallback(
+        async (selectId?: string | null) => {
+            const [detail, variantList] = await Promise.all([
+                getTransportRouteDetail(publicId),
+                getTransportRouteVariants(publicId),
+            ]);
+            setRoute(detail);
+            setVariants(variantList.items);
+            setSelectedVariantId((prev) => {
+                if (selectId !== undefined) {
+                    return selectId ?? variantList.items[0]?.public_id ?? null;
+                }
+                return variantList.items.some((v) => v.public_id === prev)
+                    ? prev
+                    : (variantList.items[0]?.public_id ?? null);
+            });
             afterSave?.();
         },
-        [afterSave],
+        [publicId, afterSave],
     );
+
+    const handleVariantCreated = useCallback(
+        (created: TransportVariantSummary) => {
+            setAddingVariant(false);
+            setVariantActionError("");
+            void reloadRouteAndVariants(created.public_id);
+        },
+        [reloadRouteAndVariants],
+    );
+
+    const handleVariantSaved = useCallback(
+        (updated: TransportVariantSummary) => {
+            setEditingVariant(false);
+            setVariantActionError("");
+            // Keep the edited variant selected; refresh detail + variants.
+            void reloadRouteAndVariants(updated.public_id);
+        },
+        [reloadRouteAndVariants],
+    );
+
+    const confirmDeleteSelectedVariant = useCallback(() => {
+        if (!selectedVariantId) return;
+        void (async () => {
+            setVariantMutating(true);
+            setVariantActionError("");
+            try {
+                await deleteTransportRouteVariant(selectedVariantId);
+                setConfirmDeleteVariant(false);
+                setEditingVariant(false);
+                // Variant is gone — fall back to the first remaining variant.
+                await reloadRouteAndVariants(null);
+            } catch (err) {
+                if (isAbortError(err)) return;
+                setVariantActionError(
+                    err instanceof Error ? err.message : "Failed to delete variant.",
+                );
+            } finally {
+                setVariantMutating(false);
+            }
+        })();
+    }, [selectedVariantId, reloadRouteAndVariants]);
+
+    // --- Route path drawing handlers. ----------------------------------------
+    const startCreatePath = useCallback(() => {
+        setPathError("");
+        setConfirmDeletePath(false);
+        setDraftPath([]);
+        setPathMode("create");
+    }, []);
+
+    const startEditPath = useCallback(() => {
+        setPathError("");
+        setConfirmDeletePath(false);
+        setDraftPath(lineStringDraftCoords(path?.geometry ?? null));
+        setPathMode("edit");
+    }, [path]);
+
+    const addDraftPoint = useCallback((coords: { lng: number; lat: number }) => {
+        setDraftPath((prev) => [...prev, [coords.lng, coords.lat]]);
+    }, []);
+
+    const undoDraftPoint = useCallback(() => {
+        setDraftPath((prev) => prev.slice(0, -1));
+    }, []);
+
+    const clearDraft = useCallback(() => {
+        setDraftPath([]);
+    }, []);
+
+    const cancelPathEdit = useCallback(() => {
+        if (pathMutating) return;
+        setPathMode(null);
+        setDraftPath([]);
+        setPathError("");
+    }, [pathMutating]);
+
+    const savePath = useCallback(() => {
+        if (!selectedVariantId) return;
+        if (draftPath.length < 2) {
+            setPathError("Add at least 2 points before saving.");
+            return;
+        }
+        void (async () => {
+            setPathMutating(true);
+            setPathError("");
+            try {
+                const result = await putTransportVariantPath(selectedVariantId, {
+                    coordinates: draftPath,
+                    path_kind: "manual",
+                });
+                setPathMode(null);
+                setDraftPath([]);
+                setPath(result.path);
+                await reloadRouteAndVariants(selectedVariantId);
+                void loadStopQuality(selectedVariantId, undefined);
+            } catch (err) {
+                if (isAbortError(err)) return;
+                setPathError(
+                    err instanceof Error ? err.message : "Failed to save route path.",
+                );
+            } finally {
+                setPathMutating(false);
+            }
+        })();
+    }, [selectedVariantId, draftPath, reloadRouteAndVariants, loadStopQuality]);
+
+    const confirmDeletePathNow = useCallback(() => {
+        if (!selectedVariantId) return;
+        void (async () => {
+            setPathMutating(true);
+            setPathError("");
+            try {
+                const result = await deleteTransportVariantPath(selectedVariantId);
+                setConfirmDeletePath(false);
+                setPath(result.path);
+                await reloadRouteAndVariants(selectedVariantId);
+                void loadStopQuality(selectedVariantId, undefined);
+            } catch (err) {
+                if (isAbortError(err)) return;
+                setPathError(
+                    err instanceof Error ? err.message : "Failed to delete route path.",
+                );
+            } finally {
+                setPathMutating(false);
+            }
+        })();
+    }, [selectedVariantId, reloadRouteAndVariants, loadStopQuality]);
 
     // Display title: Myanmar name → English name → route code. Never a raw/
     // generated/imported name (those stay in the Names / debug sections only).
@@ -719,9 +1010,35 @@ export default function TransportRouteDetailContent({
                     </section>
 
                     <section className="rounded-lg border border-gray-200 bg-white shadow-sm">
-                        <h2 className="border-b border-gray-100 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
-                            Variants {variants.length > 0 ? `(${variants.length})` : ""}
-                        </h2>
+                        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                                Variants {variants.length > 0 ? `(${variants.length})` : ""}
+                            </h2>
+                            {route && !addingVariant ? (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setVariantActionError("");
+                                        setAddingVariant(true);
+                                    }}
+                                    className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                >
+                                    + Add variant
+                                </button>
+                            ) : null}
+                        </div>
+                        {addingVariant ? (
+                            <div className="border-b border-gray-100 bg-gray-50/60 p-4">
+                                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+                                    New variant
+                                </p>
+                                <TransportVariantForm
+                                    routePublicId={publicId}
+                                    onCancel={() => setAddingVariant(false)}
+                                    onSaved={handleVariantCreated}
+                                />
+                            </div>
+                        ) : null}
                         {routeLoading ? (
                             <div className="space-y-2 p-4">
                                 {[0, 1].map((i) => (
@@ -781,17 +1098,68 @@ export default function TransportRouteDetailContent({
                                     Selected variant
                                 </h2>
                                 {!editingVariant ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => setEditingVariant(true)}
-                                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                                    >
-                                        Edit
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setVariantActionError("");
+                                                setConfirmDeleteVariant(false);
+                                                setEditingVariant(true);
+                                            }}
+                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                        >
+                                            Edit
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setVariantActionError("");
+                                                setConfirmDeleteVariant(true);
+                                            }}
+                                            className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
                                 ) : null}
                             </div>
+                            {variantActionError ? (
+                                <p className="mb-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
+                                    {variantActionError}
+                                </p>
+                            ) : null}
+                            {confirmDeleteVariant && !editingVariant ? (
+                                <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3">
+                                    <p className="text-sm text-red-800">
+                                        Soft-delete variant{" "}
+                                        <span className="font-medium">
+                                            {selectedVariant.variant_code}
+                                        </span>
+                                        ? It is hidden and marked inactive; ordered stops and
+                                        paths are kept.
+                                    </p>
+                                    <div className="mt-2 flex justify-end gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={variantMutating}
+                                            onClick={() => setConfirmDeleteVariant(false)}
+                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={variantMutating}
+                                            onClick={confirmDeleteSelectedVariant}
+                                            className="rounded-md bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
+                                        >
+                                            {variantMutating ? "Deleting…" : "Delete variant"}
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : null}
                             {editingVariant ? (
-                                <TransportVariantEditForm
+                                <TransportVariantForm
                                     key={selectedVariant.public_id}
                                     variant={selectedVariant}
                                     onCancel={() => setEditingVariant(false)}
@@ -860,10 +1228,15 @@ export default function TransportRouteDetailContent({
                         editablePointColor="#16a34a"
                         pointDraggable={pickingLocation}
                         onPointChange={pickingLocation ? setNewStopPoint : undefined}
+                        draftPath={pathMode ? draftPath : null}
+                        pathDrawing={pathMode !== null}
+                        onDraftPathAddPoint={pathMode ? addDraftPoint : undefined}
                         editingHint={
-                            pickingLocation
-                                ? "Click the map to set the new stop location"
-                                : null
+                            pathMode
+                                ? "Click the map to add path points"
+                                : pickingLocation
+                                  ? "Click the map to set the new stop location"
+                                  : null
                         }
                         emptyHint={
                             variants.length === 0
@@ -897,6 +1270,139 @@ export default function TransportRouteDetailContent({
                             <span className="text-gray-500">Loading stops…</span>
                         ) : null}
                     </div>
+
+                    {/* Route path editor (selected variant only). */}
+                    {selectedVariantId ? (
+                        <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
+                            <div className="flex items-center justify-between gap-2">
+                                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                    Route path
+                                </h3>
+                                {pathMode ? (
+                                    <span className="text-xs text-gray-500">
+                                        {draftPath.length} point
+                                        {draftPath.length === 1 ? "" : "s"}
+                                    </span>
+                                ) : null}
+                            </div>
+
+                            {pathError ? (
+                                <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
+                                    {pathError}
+                                </p>
+                            ) : null}
+
+                            {pathMode ? (
+                                <>
+                                    <p className="mt-2 text-xs text-gray-600">
+                                        Click the map to add points. Need at least 2
+                                        points to save. No road snapping — vertices are
+                                        saved exactly as placed.
+                                    </p>
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={undoDraftPoint}
+                                            disabled={pathMutating || draftPath.length === 0}
+                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            Undo last
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={clearDraft}
+                                            disabled={pathMutating || draftPath.length === 0}
+                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            Clear draft
+                                        </button>
+                                        <span className="flex-1" />
+                                        <button
+                                            type="button"
+                                            onClick={cancelPathEdit}
+                                            disabled={pathMutating}
+                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={savePath}
+                                            disabled={pathMutating || draftPath.length < 2}
+                                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            {pathMutating ? "Saving…" : "Save path"}
+                                        </button>
+                                    </div>
+                                </>
+                            ) : confirmDeletePath ? (
+                                <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-3">
+                                    <p className="text-xs text-red-800">
+                                        Delete this route path? The stop sequence and
+                                        stops are kept.
+                                    </p>
+                                    <div className="mt-2 flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setConfirmDeletePath(false)}
+                                            disabled={pathMutating}
+                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={confirmDeletePathNow}
+                                            disabled={pathMutating}
+                                            className="rounded-md bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
+                                        >
+                                            {pathMutating ? "Deleting…" : "Delete path"}
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    {hasVerifiedPath ? (
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={startEditPath}
+                                                disabled={pickingLocation}
+                                                className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                Edit path
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setPathError("");
+                                                    setConfirmDeletePath(true);
+                                                }}
+                                                disabled={pickingLocation}
+                                                className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                Delete path
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={startCreatePath}
+                                            disabled={pickingLocation}
+                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            Create path
+                                        </button>
+                                    )}
+                                    {pickingLocation ? (
+                                        <span className="text-xs text-gray-400">
+                                            Finish placing the stop first
+                                        </span>
+                                    ) : null}
+                                </div>
+                            )}
+                        </div>
+                    ) : null}
                 </section>
 
                 {/* Right: ordered stops list */}
@@ -906,7 +1412,12 @@ export default function TransportRouteDetailContent({
                             Ordered stops
                         </h2>
                         {selectedVariant ? (
-                            <span className="text-xs text-gray-400">{stops.length}</span>
+                            <span className="flex items-center gap-2 text-xs text-gray-400">
+                                {stopQualityLoading ? (
+                                    <span className="text-gray-400">checking…</span>
+                                ) : null}
+                                <span>{stops.length}</span>
+                            </span>
                         ) : null}
                     </div>
 
@@ -990,6 +1501,10 @@ export default function TransportRouteDetailContent({
                                 const isSelected = s.id === selectedStopId;
                                 const nextStop = stops[i + 1] ?? null;
                                 const isLast = i === stops.length - 1;
+                                const quality = stopQuality.get(s.id);
+                                const qualityLine = stopQualitySummary(quality, hasVerifiedPath);
+                                const nearbyDuplicates = quality?.nearby_duplicate_count ?? 0;
+                                const exactDuplicate = quality?.is_exact_duplicate_in_variant ?? false;
                                 return (
                                     <Fragment key={s.id}>
                                     <div className="border-b border-gray-100">
@@ -1000,8 +1515,8 @@ export default function TransportRouteDetailContent({
                                             }
                                             className={`flex w-full items-start gap-3 px-4 py-2.5 text-left text-sm hover:bg-gray-50 ${isSelected ? "bg-blue-50/60" : ""}`}
                                         >
-                                            <span className="mt-0.5 inline-flex h-6 w-6 flex-none items-center justify-center rounded-full bg-blue-100 text-xs font-semibold tabular-nums text-blue-800">
-                                                {s.stop_sequence}
+                                            <span className="mt-0.5 inline-flex h-6 min-w-9 flex-none items-center justify-center rounded-md bg-blue-100 px-1.5 text-xs font-semibold tabular-nums text-blue-800">
+                                                #{s.stop_sequence}
                                             </span>
                                             <div className="min-w-0 flex-1">
                                                 <p className="truncate font-medium text-gray-900">
@@ -1013,6 +1528,26 @@ export default function TransportRouteDetailContent({
                                                     {s.stop.geometry ? "" : " · no location"}
                                                     {s.is_timing_point ? " · timing point" : ""}
                                                 </p>
+                                                {qualityLine ? (
+                                                    <p className="truncate text-xs text-gray-500">
+                                                        {qualityLine}
+                                                    </p>
+                                                ) : null}
+                                                {nearbyDuplicates > 0 || exactDuplicate ? (
+                                                    <p className="mt-0.5 flex flex-wrap gap-1.5 text-[11px]">
+                                                        {exactDuplicate ? (
+                                                            <span className="inline-flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 font-medium text-red-700 ring-1 ring-red-100">
+                                                                ⚠ Duplicate in variant
+                                                            </span>
+                                                        ) : null}
+                                                        {nearbyDuplicates > 0 ? (
+                                                            <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-800 ring-1 ring-amber-100">
+                                                                ⚠ {nearbyDuplicates} nearby stop
+                                                                {nearbyDuplicates === 1 ? "" : "s"}
+                                                            </span>
+                                                        ) : null}
+                                                    </p>
+                                                ) : null}
                                             </div>
                                         </button>
 

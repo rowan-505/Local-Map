@@ -1,5 +1,5 @@
 erDiagram
-  %% Inspected schemas (21): admin_qa, app_auth, auth, core, extensions, graphql, graphql_public, import_review, pgbouncer, public, realtime, ref, routing, search, storage, supabase_migrations, system, tiles, transit_export, transport, vault
+  %% Inspected schemas (25): admin_qa, app, app_auth, auth, contrib, core, extensions, feedback, graphql, graphql_public, import_review, pgbouncer, public, realtime, ref, routing, search, share, storage, supabase_migrations, system, tiles, transit_export, transport, vault
   admin_qa_corrected_township_gap5_invalid_points {
     bigint fid
     bigint core_id
@@ -35,6 +35,21 @@ erDiagram
     numeric area_km2
     geometry geom
   }
+  app_user_saved_places {
+    bigint id PK
+    bigint user_id FK
+    text entity_type
+    bigint entity_id
+    text custom_name
+    text note
+    bigint admin_area_id FK
+    timestamp_with_time_zone created_at
+    double_precision latitude
+    double_precision longitude
+    text address_line
+    text plus_code
+    geometry geom
+  }
   app_auth_auth_roles {
     bigint id PK
     text code
@@ -43,6 +58,18 @@ erDiagram
     boolean is_system
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+  }
+  app_auth_auth_sessions {
+    bigint id PK
+    uuid public_id
+    bigint user_id FK
+    text refresh_token_hash
+    text user_agent
+    text ip_address
+    timestamp_with_time_zone expires_at
+    timestamp_with_time_zone revoked_at
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone last_used_at
   }
   app_auth_auth_user_roles {
     bigint id PK
@@ -61,6 +88,26 @@ erDiagram
     timestamp_with_time_zone last_login_at
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
+    text phone
+    boolean email_verified
+    text account_status
+    bigint primary_region_id FK
+    text preferred_language
+    timestamp_with_time_zone last_seen_at
+    timestamp_with_time_zone deleted_at
+    text admin_note
+  }
+  app_auth_email_verification_otps {
+    bigint id PK
+    bigint user_id FK
+    text email
+    text otp_hash
+    text purpose
+    integer attempts_count
+    integer max_attempts
+    timestamp_with_time_zone expires_at
+    timestamp_with_time_zone consumed_at
+    timestamp_with_time_zone created_at
   }
   auth_audit_log_entries {
     uuid instance_id
@@ -346,6 +393,24 @@ erDiagram
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
     timestamp_with_time_zone last_used_at
+  }
+  contrib_point_ledger {
+    bigint id PK
+    bigint user_id FK
+    integer points_delta
+    text reason_code
+    text related_entity_type
+    bigint related_entity_id
+    text note
+    bigint created_by FK
+    timestamp_with_time_zone created_at
+  }
+  contrib_user_point_summary {
+    bigint user_id PK, FK
+    integer total_points
+    integer lifetime_points_earned
+    integer lifetime_points_removed
+    timestamp_with_time_zone updated_at
   }
   core_core_address_components {
     bigint id PK
@@ -730,6 +795,50 @@ erDiagram
     timestamp_with_time_zone verified_at
     bigint verified_by
     text verification_note
+  }
+  feedback_report_followups {
+    bigint id PK
+    bigint report_id FK
+    bigint actor_user_id FK
+    text actor_type
+    text message
+    timestamp_with_time_zone created_at
+  }
+  feedback_report_status_events {
+    bigint id PK
+    bigint report_id FK
+    text old_status_code
+    text new_status_code FK
+    bigint actor_user_id FK
+    text note
+    timestamp_with_time_zone created_at
+  }
+  feedback_user_reports {
+    bigint id PK
+    uuid public_id
+    bigint created_by FK
+    text anonymous_id
+    boolean is_anonymous
+    boolean eligible_for_points
+    text report_type_code FK
+    text status_code FK
+    text reason_code
+    text target_entity_type
+    bigint target_entity_id
+    uuid target_public_id
+    text title
+    text description
+    geometry geom
+    bigint admin_area_id FK
+    text priority
+    integer confidence_score
+    bigint reviewed_by FK
+    timestamp_with_time_zone reviewed_at
+    text admin_note
+    bigint reward_ledger_id FK
+    timestamp_with_time_zone reward_granted_at
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone updated_at
   }
   import_review_address_candidates {
     bigint id PK
@@ -1755,6 +1864,17 @@ erDiagram
     numeric rank_score
     timestamp_with_time_zone updated_at
   }
+  search_failed_search_logs {
+    bigint id PK
+    text query
+    text normalized_query
+    text lang
+    double_precision lat
+    double_precision lng
+    text[] types
+    integer result_count
+    timestamp_with_time_zone created_at
+  }
   search_search_addresses {
     bigint id PK
     bigint address_id FK
@@ -1764,6 +1884,64 @@ erDiagram
     jsonb tokens
     geometry point_geom
     timestamp_with_time_zone updated_at
+  }
+  search_search_document_names {
+    bigint id PK
+    bigint search_document_id FK
+    text language_code
+    text script_code
+    text name
+    text normalized_name
+    text name_type
+    boolean is_primary
+    numeric search_weight
+  }
+  search_search_documents {
+    bigint id PK
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    tsvector search_vector
+    text trigram_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    timestamp_with_time_zone indexed_at
+  }
+  search_search_index_runs {
+    bigint id PK
+    text status
+    timestamp_with_time_zone started_at
+    timestamp_with_time_zone finished_at
+    jsonb entity_counts
+    text error_message
   }
   search_search_names {
     bigint id PK
@@ -1781,6 +1959,20 @@ erDiagram
     bigint admin_area_id
     jsonb source_refs
     timestamp_with_time_zone updated_at
+  }
+  share_share_links {
+    bigint id PK
+    text code
+    text target_type
+    uuid place_public_id
+    double_precision lat
+    double_precision lng
+    numeric zoom
+    text address_line
+    text plus_code
+    timestamp_with_time_zone created_at
+    timestamp_with_time_zone last_accessed_at
+    bigint access_count
   }
   storage_buckets {
     text id PK
@@ -1872,6 +2064,18 @@ erDiagram
     text created_by
     text idempotency_key
     text[] rollback
+  }
+  system_audit_logs {
+    bigint id PK
+    bigint actor_user_id FK
+    text action_type
+    text entity_type
+    bigint entity_id
+    jsonb before_snapshot
+    jsonb after_snapshot
+    text ip_address
+    text user_agent
+    timestamp_with_time_zone created_at
   }
   system_backup_core_map_buildings_before_building_type_simplification {
     timestamp_with_time_zone backed_up_at
@@ -2254,6 +2458,26 @@ erDiagram
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
   }
+  transport_route_unification_plan {
+    bigint id PK
+    text merge_key
+    text risk_level
+    text mode
+    text route_kind
+    text operator_network
+    text route_ref
+    text endpoint_a
+    text endpoint_b
+    bigint canonical_route_id
+    int8[] duplicate_route_ids
+    int8[] route_ids
+    int8[] variant_ids
+    text proposed_route_code
+    text proposed_public_name
+    jsonb proposed_variant_codes
+    timestamp_with_time_zone applied_at
+    timestamp_with_time_zone created_at
+  }
   transport_route_variants {
     bigint id PK
     uuid public_id
@@ -2385,6 +2609,20 @@ erDiagram
     timestamp_with_time_zone created_at
     timestamp_with_time_zone updated_at
     timestamp_with_time_zone deleted_at
+  }
+  transport_transport_audit_logs {
+    bigint id PK
+    text action
+    text entity_type
+    bigint entity_id
+    uuid entity_public_id
+    jsonb changed_fields
+    jsonb old_values
+    jsonb new_values
+    bigint actor_user_id
+    text request_id
+    jsonb metadata
+    timestamp_with_time_zone created_at
   }
   vault_secrets {
     uuid id PK
@@ -2539,6 +2777,366 @@ erDiagram
     integer coord_dimension
     integer srid
     character_varying type
+  }
+  search_v_search_addresses_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
+  }
+  search_v_search_admin_areas_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
+  }
+  search_v_search_buildings_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
+  }
+  search_v_search_bus_routes_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
+  }
+  search_v_search_bus_stops_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
+  }
+  search_v_search_landuse_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
+  }
+  search_v_search_places_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
+  }
+  search_v_search_street_groups_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
+  }
+  search_v_search_water_lines_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
+  }
+  search_v_search_water_polygons_source {
+    text entity_type
+    bigint entity_id
+    text public_id
+    text display_name
+    text subtitle
+    text primary_name_my
+    text primary_name_en
+    text primary_name_und
+    text code
+    text external_id
+    text category_code
+    text category_name_my
+    text category_name_en
+    bigint admin_area_id
+    text admin_area_name_my
+    text admin_area_name_en
+    jsonb admin_hierarchy
+    text address_text
+    jsonb address_parts
+    text geometry_type
+    geometry centroid
+    geometry bbox
+    boolean has_geometry
+    boolean supports_plus_code
+    text searchable_text
+    numeric importance_score
+    numeric popularity_score
+    numeric confidence_score
+    numeric boundary_confidence_score
+    boolean is_verified
+    boolean is_public
+    boolean is_active
+    timestamp_with_time_zone source_updated_at
+    jsonb names
   }
   tiles_tiles_admin_area_label_points_v {
     bigint id
@@ -2745,8 +3343,16 @@ erDiagram
     timestamp_with_time_zone updated_at
   }
   %% RELATIONSHIPS
+  app_auth_auth_users ||--o{ app_auth_auth_sessions : "user_id"
   app_auth_auth_roles ||--o{ app_auth_auth_user_roles : "role_id"
   app_auth_auth_users ||--o{ app_auth_auth_user_roles : "user_id"
+  core_core_admin_areas ||--o{ app_auth_auth_users : "primary_region_id"
+  app_auth_auth_users ||--o{ app_auth_email_verification_otps : "user_id"
+  core_core_admin_areas ||--o{ app_user_saved_places : "admin_area_id"
+  app_auth_auth_users ||--o{ app_user_saved_places : "user_id"
+  app_auth_auth_users ||--o{ contrib_point_ledger : "created_by"
+  app_auth_auth_users ||--o{ contrib_point_ledger : "user_id"
+  app_auth_auth_users ||--o{ contrib_user_point_summary : "user_id"
   core_core_addresses ||--o{ core_core_address_components : "address_id"
   ref_ref_address_component_types ||--o{ core_core_address_components : "component_type_id"
   core_core_admin_areas ||--o{ core_core_addresses : "admin_area_id"
@@ -2786,6 +3392,17 @@ erDiagram
   ref_ref_road_classes ||--o{ core_core_streets : "road_class_id"
   ref_ref_source_types ||--o{ core_core_streets : "source_type_id"
   core_core_admin_areas ||--o{ core_core_map_buildings : "admin_area_id"
+  app_auth_auth_users ||--o{ feedback_report_followups : "actor_user_id"
+  feedback_user_reports ||--o{ feedback_report_followups : "report_id"
+  app_auth_auth_users ||--o{ feedback_report_status_events : "actor_user_id"
+  ref_ref_report_statuses ||--o{ feedback_report_status_events : "new_status_code"
+  feedback_user_reports ||--o{ feedback_report_status_events : "report_id"
+  core_core_admin_areas ||--o{ feedback_user_reports : "admin_area_id"
+  app_auth_auth_users ||--o{ feedback_user_reports : "created_by"
+  ref_ref_report_types ||--o{ feedback_user_reports : "report_type_code"
+  app_auth_auth_users ||--o{ feedback_user_reports : "reviewed_by"
+  contrib_point_ledger ||--o{ feedback_user_reports : "reward_ledger_id"
+  ref_ref_report_statuses ||--o{ feedback_user_reports : "status_code"
   import_review_review_batches ||--o{ import_review_address_candidates : "review_batch_id"
   import_review_review_batches ||--o{ import_review_admin_area_candidates : "review_batch_id"
   import_review_review_batches ||--o{ import_review_building_candidates : "review_batch_id"
@@ -2892,6 +3509,8 @@ erDiagram
   core_core_admin_areas ||--o{ search_address_index : "admin_area_id"
   core_core_streets ||--o{ search_address_index : "street_id"
   core_core_addresses ||--o{ search_search_addresses : "address_id"
+  search_search_documents ||--o{ search_search_document_names : "search_document_id"
+  app_auth_auth_users ||--o{ system_audit_logs : "actor_user_id"
   system_system_diff_items ||--o{ system_system_conflict_queue : "diff_item_id"
   system_system_diff_runs ||--o{ system_system_diff_items : "diff_run_id"
   system_system_source_snapshots ||--o{ system_system_diff_runs : "current_snapshot_id"
@@ -2946,7 +3565,7 @@ erDiagram
   %% auth.oauth_response_type { code }
   %% auth.one_time_token_type { confirmation_token, reauthentication_token, recovery_token, email_change_token_new, email_change_token_current, phone_change_token }
   %% realtime.action { INSERT, UPDATE, DELETE, TRUNCATE, ERROR }
-  %% realtime.equality_op { eq, neq, lt, lte, gt, gte, in }
+  %% realtime.equality_op { eq, neq, lt, lte, gt, gte, in, like, ilike, is, match, imatch, isdistinct }
   %% storage.buckettype { STANDARD, ANALYTICS, VECTOR }
   %% FUNCTIONS
   %% [auth]
@@ -2989,6 +3608,7 @@ erDiagram
   %% function: promote_admin_area_candidate(p_candidate_id bigint) -> bigint
   %% function: promote_place_candidate(p_candidate_id bigint) -> bigint
   %% function: promote_road_candidate(p_candidate_id bigint) -> bigint
+  %% function: reverse_address_minimal(p_lat double precision, p_lng double precision) -> record
   %% function: sync_is_verified_from_verification_status() -> trigger
   %% function: trg_fn_core_streets_save_version_before_update() -> trigger
   %% [extensions]
@@ -3263,10 +3883,25 @@ erDiagram
   %% function: gettransactionid() -> xid
   %% function: gidx_in(cstring) -> gidx
   %% function: gidx_out(gidx) -> cstring
+  %% function: gin_extract_query_trgm(text, internal, smallint, internal, internal, internal, internal) -> internal
+  %% function: gin_extract_value_trgm(text, internal) -> internal
+  %% function: gin_trgm_consistent(internal, smallint, text, integer, internal, internal, internal, internal) -> boolean
+  %% function: gin_trgm_triconsistent(internal, smallint, text, integer, internal, internal, internal) ->  char
   %% function: gserialized_gist_joinsel_2d(internal, oid, internal, smallint) -> double precision
   %% function: gserialized_gist_joinsel_nd(internal, oid, internal, smallint) -> double precision
   %% function: gserialized_gist_sel_2d(internal, oid, internal, integer) -> double precision
   %% function: gserialized_gist_sel_nd(internal, oid, internal, integer) -> double precision
+  %% function: gtrgm_compress(internal) -> internal
+  %% function: gtrgm_consistent(internal, text, smallint, oid, internal) -> boolean
+  %% function: gtrgm_decompress(internal) -> internal
+  %% function: gtrgm_distance(internal, text, smallint, oid, internal) -> double precision
+  %% function: gtrgm_in(cstring) -> gtrgm
+  %% function: gtrgm_options(internal) -> void
+  %% function: gtrgm_out(gtrgm) -> cstring
+  %% function: gtrgm_penalty(internal, internal, internal) -> internal
+  %% function: gtrgm_picksplit(internal, internal) -> internal
+  %% function: gtrgm_same(gtrgm, gtrgm, internal) -> internal
+  %% function: gtrgm_union(internal, internal) -> gtrgm
   %% function: is_contained_2d(box2df, box2df) -> boolean
   %% function: is_contained_2d(box2df, geometry) -> boolean
   %% function: is_contained_2d(geometry, box2df) -> boolean
@@ -3354,6 +3989,12 @@ erDiagram
   %% function: postgis_typmod_type(integer) -> text
   %% function: postgis_version() -> text
   %% function: postgis_wagyu_version() -> text
+  %% function: set_limit(real) -> real
+  %% function: show_limit() -> real
+  %% function: show_trgm(text) -> text[]
+  %% function: similarity(text, text) -> real
+  %% function: similarity_dist(text, text) -> real
+  %% function: similarity_op(text, text) -> boolean
   %% function: spheroid_in(cstring) -> spheroid
   %% function: spheroid_out(spheroid) -> cstring
   %% function: st_3dclosestpoint(geom1 geometry, geom2 geometry) -> geometry
@@ -3795,11 +4436,21 @@ erDiagram
   %% function: st_zmax(box3d) -> double precision
   %% function: st_zmflag(geometry) -> smallint
   %% function: st_zmin(box3d) -> double precision
+  %% function: strict_word_similarity(text, text) -> real
+  %% function: strict_word_similarity_commutator_op(text, text) -> boolean
+  %% function: strict_word_similarity_dist_commutator_op(text, text) -> real
+  %% function: strict_word_similarity_dist_op(text, text) -> real
+  %% function: strict_word_similarity_op(text, text) -> boolean
   %% function: text(geometry) -> text
   %% function: unlockrows(text) -> integer
   %% function: updategeometrysrid(catalogn_name character varying, schema_name character varying, table_name character varying, column_name character varying, new_srid_in integer) -> text
   %% function: updategeometrysrid(character varying, character varying, character varying, integer) -> text
   %% function: updategeometrysrid(character varying, character varying, integer) -> text
+  %% function: word_similarity(text, text) -> real
+  %% function: word_similarity_commutator_op(text, text) -> boolean
+  %% function: word_similarity_dist_commutator_op(text, text) -> real
+  %% function: word_similarity_dist_op(text, text) -> real
+  %% function: word_similarity_op(text, text) -> boolean
   %% [realtime]
   %% function: apply_rls(wal jsonb, max_record_bytes integer) -> realtime.wal_rls
   %% function: broadcast_changes(topic_name text, event_name text, operation text, table_name text, table_schema text, new record, old record, level text) -> void
@@ -3817,13 +4468,20 @@ erDiagram
   %% function: wal2json_escape_identifier(name text) -> text
   %% [search]
   %% function: address_component_type_rank(p_code text) -> integer
+  %% function: admin_area_hierarchy(p_admin_area_id bigint) -> jsonb
+  %% function: admin_area_name(p_admin_area_id bigint, p_lang text) -> text
   %% function: build_address_search_line(p_address_id bigint, p_language_code text) -> text
+  %% function: hierarchy_text(p jsonb) -> text
   %% function: is_admin_address_component(p_code text) -> boolean
   %% function: is_neutral_address_component(p_code text) -> boolean
   %% function: is_street_address_component(p_code text) -> boolean
+  %% function: norm_street_name(p_name text) -> text
   %% function: pick_address_component_value(p_address_id bigint, p_type_code text, p_langs text[]) -> text
   %% function: pick_address_field_text(p_address_id bigint, p_language_code text, p_kind text) -> text
+  %% function: rebuild_search_documents(p_views text[]) -> jsonb
   %% function: refresh_address_index(p_address_ids bigint[]) -> bigint
+  %% function: safe_bbox(p_geom geometry) -> geometry
+  %% function: safe_centroid(p_geom geometry) -> geometry
   %% function: tokenize_search_text(p_text text) -> text[]
   %% [storage]
   %% function: allow_any_operation(expected_operations text[]) -> boolean

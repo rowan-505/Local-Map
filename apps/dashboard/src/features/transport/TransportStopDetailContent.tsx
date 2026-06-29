@@ -11,8 +11,10 @@ import TransportPreviewMap from "./TransportPreviewMap";
 import {
     archiveTransportStop,
     getTransportStopDetail,
+    getTransportStopNearby,
     getTransportStopRoutes,
     updateTransportStop,
+    updateTransportStopLocation,
     updateTransportTerminal,
 } from "./api";
 import {
@@ -30,6 +32,7 @@ import {
     normalizeTransportNameInput,
 } from "./naming";
 import type {
+    TransportNearbyStop,
     TransportStopDetail,
     TransportStopRouteUsage,
     UpdateTransportStopBody,
@@ -120,6 +123,37 @@ function InfoRow({ label, value }: { readonly label: string; readonly value: Rea
     );
 }
 
+/** Straight-line distance in metres between two lng/lat points (haversine). */
+function haversineMeters(
+    a: { lng: number; lat: number },
+    b: { lng: number; lat: number }
+): number {
+    const R = 6371000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const h =
+        Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** "lat, lng" to 6 dp, or a dash when missing. */
+function formatCoords(point: { lng: number; lat: number } | null): string {
+    if (!point || !Number.isFinite(point.lng) || !Number.isFinite(point.lat)) {
+        return "—";
+    }
+    return `${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}`;
+}
+
+/** Compact metres / km label for the moved-distance readout. */
+function formatMovedDistance(meters: number): string {
+    if (!Number.isFinite(meters)) return "—";
+    if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
+    return `${Math.round(meters)} m`;
+}
+
 /** Empty string -> null; trimmed otherwise. */
 function normNullable(value: string): string | null {
     const t = value.trim();
@@ -190,6 +224,16 @@ export default function TransportStopDetailContent({
     const [archiveError, setArchiveError] = useState("");
     const [archived, setArchived] = useState(false);
 
+    // --- Focused location-only edit (separate from the full Edit form). -------
+    // Uses PATCH /transport/stops/:stopPublicId/location and surfaces moved
+    // distance + nearby-duplicate warnings from the dedicated location API.
+    const [locEditing, setLocEditing] = useState(false);
+    const [locPoint, setLocPoint] = useState<{ lng: number; lat: number } | null>(null);
+    const [locSaving, setLocSaving] = useState(false);
+    const [locError, setLocError] = useState("");
+    const [locNearby, setLocNearby] = useState<readonly TransportNearbyStop[]>([]);
+    const [locNearbyLoading, setLocNearbyLoading] = useState(false);
+
     // --- Load stop detail when publicId changes. -----------------------------
     useEffect(() => {
         const controller = new AbortController();
@@ -207,6 +251,10 @@ export default function TransportStopDetailContent({
         setArchiving(false);
         setArchiveError("");
         setArchived(false);
+        setLocEditing(false);
+        setLocPoint(null);
+        setLocError("");
+        setLocNearby([]);
         setRoutes([]);
         setRoutesTotal(0);
         setRoutesPage(1);
@@ -250,29 +298,49 @@ export default function TransportStopDetailContent({
         return () => controller.abort();
     }, [publicId, detail, routesPage]);
 
-    // --- The point currently shown on the map (edit form value or detail). ---
+    // --- The stop's saved point (used as the "old" coords baseline). ---------
+    const originalPoint = useMemo<{ lng: number; lat: number } | null>(() => {
+        if (detail && detail.longitude !== null && detail.latitude !== null) {
+            return { lng: detail.longitude, lat: detail.latitude };
+        }
+        return null;
+    }, [detail]);
+
+    // --- The point currently shown on the map. Location edit takes priority,
+    //     then the full edit form, then the saved detail point. ---------------
     const activePoint = useMemo<{ lng: number; lat: number } | null>(() => {
+        if (locEditing) {
+            return locPoint;
+        }
         if (editing && form) {
             const lng = Number(form.longitude);
             const lat = Number(form.latitude);
             if (Number.isFinite(lng) && Number.isFinite(lat)) return { lng, lat };
             return null;
         }
-        if (detail && detail.longitude !== null && detail.latitude !== null) {
-            return { lng: detail.longitude, lat: detail.latitude };
-        }
-        return null;
-    }, [editing, form, detail]);
+        return originalPoint;
+    }, [locEditing, locPoint, editing, form, originalPoint]);
 
-    // --- Map drag / click → update the edit form's coordinates. --------------
+    const mapEditing = editing || locEditing;
+
+    // --- Map drag / click → update the active edit target's coordinates. -----
     const handlePointChange = useCallback(
         ({ lng, lat }: { lng: number; lat: number }) => {
+            if (locEditing) {
+                setLocPoint({ lng, lat });
+                return;
+            }
             setForm((prev) =>
                 prev ? { ...prev, longitude: String(lng), latitude: String(lat) } : prev
             );
         },
-        []
+        [locEditing]
     );
+
+    const movedDistanceM = useMemo<number | null>(() => {
+        if (!locEditing || !locPoint || !originalPoint) return null;
+        return haversineMeters(originalPoint, locPoint);
+    }, [locEditing, locPoint, originalPoint]);
 
     const startEdit = useCallback(() => {
         if (!detail) return;
@@ -286,6 +354,93 @@ export default function TransportStopDetailContent({
         setForm(null);
         setSaveError("");
     }, []);
+
+    const startLocEdit = useCallback(() => {
+        if (!detail) return;
+        setLocPoint(originalPoint);
+        setLocError("");
+        setLocNearby([]);
+        setLocEditing(true);
+    }, [detail, originalPoint]);
+
+    const cancelLocEdit = useCallback(() => {
+        setLocEditing(false);
+        setLocPoint(null);
+        setLocError("");
+        setLocNearby([]);
+    }, []);
+
+    const saveLocation = useCallback(async () => {
+        if (!detail) return;
+        if (!locPoint) {
+            setLocError("Click the map (or drag the marker) to choose a location first.");
+            return;
+        }
+        const { lng, lat } = locPoint;
+        if (
+            !Number.isFinite(lng) ||
+            !Number.isFinite(lat) ||
+            lng < -180 ||
+            lng > 180 ||
+            lat < -90 ||
+            lat > 90
+        ) {
+            setLocError("Longitude/latitude must be valid coordinates.");
+            return;
+        }
+
+        setLocSaving(true);
+        setLocError("");
+        try {
+            const result = await updateTransportStopLocation(publicId, { lng, lat });
+            setDetail(result.stop);
+            setLocEditing(false);
+            setLocPoint(null);
+            setLocNearby([]);
+            afterSave?.();
+        } catch (err) {
+            if (isAbortError(err)) return;
+            setLocError(err instanceof Error ? err.message : "Failed to save location.");
+        } finally {
+            setLocSaving(false);
+        }
+    }, [detail, locPoint, publicId, afterSave]);
+
+    // --- Live nearby-duplicate preview while editing the location. -----------
+    // Debounced GET so dragging/clicking does not spam the API. Non-blocking:
+    // a failure just clears the warning. The saved-location nearby check is the
+    // authoritative one returned by the PATCH response.
+    useEffect(() => {
+        if (!locEditing || !locPoint) {
+            setLocNearby([]);
+            setLocNearbyLoading(false);
+            return;
+        }
+        const controller = new AbortController();
+        const point = locPoint;
+        const timer = setTimeout(() => {
+            setLocNearbyLoading(true);
+            void (async () => {
+                try {
+                    const res = await getTransportStopNearby(
+                        publicId,
+                        { lng: point.lng, lat: point.lat, radius_m: 30 },
+                        { signal: controller.signal }
+                    );
+                    setLocNearby(res);
+                } catch (err) {
+                    if (isAbortError(err)) return;
+                    setLocNearby([]);
+                } finally {
+                    setLocNearbyLoading(false);
+                }
+            })();
+        }, 400);
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
+    }, [locEditing, locPoint, publicId]);
 
     const setField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
         setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -504,7 +659,8 @@ export default function TransportStopDetailContent({
                 <button
                     type="button"
                     onClick={startEdit}
-                    className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800"
+                    disabled={locEditing}
+                    className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                 >
                     Edit
                 </button>
@@ -1089,19 +1245,126 @@ export default function TransportStopDetailContent({
                     ) : null}
                 </aside>
 
-                {/* Center: map */}
-                <section className="flex flex-col">
+                {/* Center: map + focused location editor */}
+                <section className="flex flex-col gap-3">
+                    {detail ? (
+                        <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
+                            <div className="flex items-center justify-between gap-2">
+                                <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                                    Location
+                                </h2>
+                                {!locEditing ? (
+                                    <button
+                                        type="button"
+                                        onClick={startLocEdit}
+                                        disabled={editing}
+                                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        Edit location
+                                    </button>
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={cancelLocEdit}
+                                            disabled={locSaving}
+                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => void saveLocation()}
+                                            disabled={locSaving || !locPoint}
+                                            className="rounded-md bg-gray-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                                        >
+                                            {locSaving ? "Saving…" : "Save location"}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {locEditing ? (
+                                <div className="mt-3 space-y-2">
+                                    {locError ? (
+                                        <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800">
+                                            {locError}
+                                        </div>
+                                    ) : null}
+                                    <p className="text-[11px] text-gray-500">
+                                        Click the map or drag the marker to set this stop&apos;s
+                                        location.
+                                    </p>
+                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                        <div>
+                                            <span className={LABEL_CLASS}>Old location</span>
+                                            <p className="font-medium text-gray-700 tabular-nums">
+                                                {formatCoords(originalPoint)}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <span className={LABEL_CLASS}>New location</span>
+                                            <p className="font-medium text-gray-900 tabular-nums">
+                                                {locPoint
+                                                    ? formatCoords(locPoint)
+                                                    : "Click the map…"}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <p className="text-sm text-gray-700">
+                                        Moved:{" "}
+                                        <span className="font-medium tabular-nums">
+                                            {movedDistanceM === null
+                                                ? "—"
+                                                : formatMovedDistance(movedDistanceM)}
+                                        </span>
+                                    </p>
+                                    {locNearby.length > 0 ? (
+                                        <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                                            <p className="font-medium">
+                                                ⚠ {locNearby.length} stop
+                                                {locNearby.length === 1 ? "" : "s"} within 30 m of
+                                                this location:
+                                            </p>
+                                            <ul className="mt-1 space-y-0.5">
+                                                {locNearby.slice(0, 5).map((n) => (
+                                                    <li key={n.stop_public_id} className="truncate">
+                                                        {n.name} · {Math.round(n.distance_m)} m ·{" "}
+                                                        {transportModeLabel(n.mode)}
+                                                    </li>
+                                                ))}
+                                                {locNearby.length > 5 ? (
+                                                    <li className="text-amber-700">
+                                                        +{locNearby.length - 5} more…
+                                                    </li>
+                                                ) : null}
+                                            </ul>
+                                        </div>
+                                    ) : locNearbyLoading ? (
+                                        <p className="text-xs text-gray-400">
+                                            Checking nearby stops…
+                                        </p>
+                                    ) : locPoint ? (
+                                        <p className="text-xs text-emerald-700">
+                                            No other stops within 30 m.
+                                        </p>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
+
                     <TransportPreviewMap
                         title={detail ? stopDisplayName : "Stop"}
                         externalId={detail?.public_id ?? null}
                         editablePoint={activePoint}
                         editablePointColor="#1d4ed8"
-                        pointDraggable={editing}
+                        pointDraggable={mapEditing}
                         onPointChange={handlePointChange}
                         pointZoom={MAP_DEFAULT_ZOOM}
                         autoFitKey={publicId}
                         editingHint={
-                            editing
+                            mapEditing
                                 ? "Click the map or drag the marker to set this stop's location."
                                 : null
                         }
@@ -1208,7 +1471,13 @@ export default function TransportStopDetailContent({
                         </div>
                         <button
                             type="button"
-                            disabled={archiveBlockedByRoutes || editing || archiving || archived}
+                            disabled={
+                                archiveBlockedByRoutes ||
+                                editing ||
+                                locEditing ||
+                                archiving ||
+                                archived
+                            }
                             onClick={() => {
                                 setArchiveError("");
                                 setArchiveReason("");

@@ -4,11 +4,13 @@ import {
     TransportInvalidReferenceError,
     TransportNameRequiredError,
     TransportNotFoundError,
+    TransportRouteConflictError,
     TransportRouteStopDuplicateError,
     TransportRouteStopTransactionTimeoutError,
     TransportSchemaUnavailableError,
     TransportStopInUseError,
 } from "./transport.errors.js";
+import { getDefaultRouteKind } from "./transport-mode-config.js";
 import {
     appendPointDiff,
     diffScalarFields,
@@ -26,14 +28,19 @@ import type {
     ListSourceLinksQuery,
     ListTransportInfrastructureLinesQuery,
     ListVariantStopsQuery,
+    CreateRouteInput,
+    CreateVariantInput,
     InsertExistingRouteStopInput,
     CreateAndInsertRouteStopInput,
+    NearbyStopsQuery,
     SearchTransportStopsQuery,
     StopRoutesQuery,
     UpdateInfrastructureLineInput,
+    PutVariantPathInput,
     UpdateRouteInput,
     UpdateRouteStopInput,
     UpdateStopInput,
+    UpdateStopLocationInput,
     UpdateTerminalInput,
     UpdateVariantInput,
 } from "./transport.schema.js";
@@ -42,6 +49,7 @@ import type {
     GeoJsonGeometry,
     TransportCountsByKey,
     TransportDataQualityQueues,
+    TransportQualitySummary,
     TransportImportBatchListItem,
     TransportImportErrorListItem,
     TransportSourceLinkListItem,
@@ -49,22 +57,28 @@ import type {
     TransportOverview,
     TransportPaginated,
     TransportRawNameStatus,
+    TransportRouteCreateResult,
     TransportRouteDetail,
     TransportRouteListItem,
     TransportRouteStopItem,
     TransportCreatedStopLite,
     TransportOrderedStopLite,
     TransportRouteStopMutationResult,
+    TransportNearbyStop,
     TransportStopArchiveResult,
     TransportStopDetail,
     TransportStopListItem,
+    TransportStopLocationUpdateResult,
     TransportStopRouteUsage,
     TransportStopSearchItem,
     TransportStopSearchResponse,
     TransportInfrastructureLineDetail,
     TransportInfrastructureLineListItem,
+    TransportRoutePath,
     TransportTerminalDetail,
     TransportTerminalListItem,
+    TransportVariantPathResult,
+    TransportVariantStopQualityResponse,
     TransportVariantStopsResponse,
     TransportVariantSummary,
 } from "./transport.types.js";
@@ -469,6 +483,16 @@ type DataQualityQueueRow = {
     import_errors: bigint;
 };
 
+type QualitySummaryRow = {
+    mode: string | null;
+    routes: bigint;
+    variants: bigint;
+    variants_without_stops: bigint;
+    variants_without_path: bigint;
+    variants_unknown_direction: bigint;
+    routes_without_variants: bigint;
+};
+
 function isMissingTransportSchemaError(error: unknown): boolean {
     if (!(error instanceof Error)) {
         return false;
@@ -491,6 +515,81 @@ function num(value: bigint | number | null | undefined): number {
  */
 function isPrismaTransactionTimeout(error: unknown): boolean {
     return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2028";
+}
+
+/**
+ * True for a Postgres unique-constraint violation (SQLSTATE 23505), whether it
+ * surfaces as a typed Prisma error (P2002) or as a raw-query failure (P2010 with
+ * the underlying 23505 in meta/message). Used to map duplicate route_code /
+ * variant_code inserts to a clear 409 conflict.
+ */
+function isUniqueViolation(error: unknown): boolean {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === "P2002") {
+            return true;
+        }
+        const metaCode = (error.meta as { code?: unknown } | undefined)?.code;
+        if (metaCode === "23505") {
+            return true;
+        }
+    }
+    return error instanceof Error && /\b23505\b|duplicate key value|unique constraint/i.test(error.message);
+}
+
+/** A row to INSERT into transport.route_variants when auto-creating a route's variants. */
+type CreateRouteVariantSeed = {
+    variant_code: string;
+    direction_name: string;
+    direction_id: number;
+    origin_name: string | null;
+    destination_name: string | null;
+};
+
+/**
+ * Builds the auto-variant seeds for a new route from its create payload, applying
+ * the endpoint rules: loop → one LOOP variant; bus/train → outbound + inbound;
+ * ferry → outbound, plus inbound only when create_return_variant is set. Inbound
+ * variants swap the route origin/destination.
+ */
+function buildCreateRouteVariantSeeds(
+    input: CreateRouteInput,
+    originName: string | null,
+    destinationName: string | null
+): CreateRouteVariantSeed[] {
+    const code = input.route_code;
+
+    if (input.is_loop) {
+        return [
+            {
+                variant_code: `${code}-LOOP`,
+                direction_name: "loop",
+                direction_id: 2,
+                origin_name: originName,
+                destination_name: destinationName ?? originName,
+            },
+        ];
+    }
+
+    const outbound: CreateRouteVariantSeed = {
+        variant_code: `${code}-A`,
+        direction_name: "outbound",
+        direction_id: 0,
+        origin_name: originName,
+        destination_name: destinationName,
+    };
+    const inbound: CreateRouteVariantSeed = {
+        variant_code: `${code}-B`,
+        direction_name: "inbound",
+        direction_id: 1,
+        origin_name: destinationName,
+        destination_name: originName,
+    };
+
+    // Ferries are one-way by default; opt in to the return variant.
+    if (input.mode === "ferry") {
+        return input.create_return_variant ? [outbound, inbound] : [outbound];
+    }
+    return [outbound, inbound];
 }
 
 /**
@@ -1037,6 +1136,86 @@ export class TransportRepository {
             lowConfidenceRoutes: num(r?.low_conf_routes),
             importErrors: num(r?.import_errors),
             lowConfidenceThreshold: LOW_CONFIDENCE_THRESHOLD,
+            schemaAvailable: true,
+        };
+    }
+
+    /**
+     * Per-mode quality counts for the admin triage table. Variants inherit their
+     * route's mode. "Unknown direction" = direction_id IS NULL. All counts respect
+     * soft deletes (route_stops has no soft delete, matching the overview query).
+     */
+    async getQualitySummary(): Promise<TransportQualitySummary> {
+        await this.assertSchemaAvailable();
+
+        const rows = await this.prisma.$queryRaw<QualitySummaryRow[]>`
+            WITH route_modes AS (
+                SELECT r.id, r.mode
+                FROM transport.routes r
+                WHERE r.deleted_at IS NULL
+            ),
+            variant_data AS (
+                SELECT
+                    rm.mode,
+                    v.direction_id,
+                    EXISTS (
+                        SELECT 1 FROM transport.route_stops rs
+                        WHERE rs.route_variant_id = v.id
+                    ) AS has_stops,
+                    EXISTS (
+                        SELECT 1 FROM transport.route_paths p
+                        WHERE p.route_variant_id = v.id AND p.deleted_at IS NULL
+                    ) AS has_path
+                FROM transport.route_variants v
+                JOIN route_modes rm ON rm.id = v.route_id
+                WHERE v.deleted_at IS NULL
+            ),
+            route_counts AS (
+                SELECT
+                    rm.mode,
+                    count(*)::bigint AS routes,
+                    count(*) FILTER (
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM transport.route_variants v
+                            WHERE v.route_id = rm.id AND v.deleted_at IS NULL
+                        )
+                    )::bigint AS routes_without_variants
+                FROM route_modes rm
+                GROUP BY rm.mode
+            ),
+            variant_counts AS (
+                SELECT
+                    mode,
+                    count(*)::bigint AS variants,
+                    count(*) FILTER (WHERE NOT has_stops)::bigint AS variants_without_stops,
+                    count(*) FILTER (WHERE NOT has_path)::bigint AS variants_without_path,
+                    count(*) FILTER (WHERE direction_id IS NULL)::bigint AS variants_unknown_direction
+                FROM variant_data
+                GROUP BY mode
+            )
+            SELECT
+                rc.mode AS mode,
+                rc.routes AS routes,
+                COALESCE(vc.variants, 0)::bigint AS variants,
+                COALESCE(vc.variants_without_stops, 0)::bigint AS variants_without_stops,
+                COALESCE(vc.variants_without_path, 0)::bigint AS variants_without_path,
+                COALESCE(vc.variants_unknown_direction, 0)::bigint AS variants_unknown_direction,
+                rc.routes_without_variants AS routes_without_variants
+            FROM route_counts rc
+            LEFT JOIN variant_counts vc ON vc.mode = rc.mode
+            ORDER BY rc.mode
+        `;
+
+        return {
+            items: rows.map((r) => ({
+                mode: r.mode ?? "unknown",
+                routes: num(r.routes),
+                variants: num(r.variants),
+                variants_without_stops: num(r.variants_without_stops),
+                variants_without_path: num(r.variants_without_path),
+                variants_unknown_direction: num(r.variants_unknown_direction),
+                routes_without_variants: num(r.routes_without_variants),
+            })),
             schemaAvailable: true,
         };
     }
@@ -2532,6 +2711,184 @@ export class TransportRepository {
     }
 
     /**
+     * Active, non-deleted stops within `radiusM` of a point, nearest first, with
+     * the given stop excluded. GIST(geom) `&&` bbox prefilter (degrees) then exact
+     * geography ST_DWithin — the same indexed pattern as stop search. Hard-capped.
+     * No mode filter: cross-mode neighbours are useful when spotting a misplaced
+     * point, and the row carries `mode` so the caller can judge.
+     */
+    private async findNearbyStops(params: {
+        lng: number;
+        lat: number;
+        radiusM: number;
+        excludeStopId: bigint;
+    }): Promise<TransportNearbyStop[]> {
+        const radiusDeg = params.radiusM / 90000;
+        const rows = await this.prisma.$queryRaw<
+            {
+                stop_public_id: string;
+                name: string;
+                distance_m: number;
+                mode: string;
+                stop_type: string;
+            }[]
+        >(Prisma.sql`
+            SELECT
+                s.public_id::text AS stop_public_id,
+                COALESCE(
+                    NULLIF(btrim(s.name), ''),
+                    NULLIF(btrim(s.name_mm), ''),
+                    NULLIF(btrim(s.name_en), ''),
+                    'Unnamed ' || replace(s.stop_type, '_', ' ')
+                ) AS name,
+                ST_Distance(
+                    s.geom::geography,
+                    ST_SetSRID(ST_MakePoint(${params.lng}, ${params.lat}), 4326)::geography
+                )::float8 AS distance_m,
+                s.mode,
+                s.stop_type
+            FROM transport.stops s
+            WHERE s.deleted_at IS NULL
+              AND s.id <> ${params.excludeStopId}
+              AND s.geom && ST_Expand(
+                  ST_SetSRID(ST_MakePoint(${params.lng}, ${params.lat}), 4326),
+                  ${radiusDeg}::float8
+              )
+              AND ST_DWithin(
+                  s.geom::geography,
+                  ST_SetSRID(ST_MakePoint(${params.lng}, ${params.lat}), 4326)::geography,
+                  ${params.radiusM}::float8
+              )
+            ORDER BY distance_m ASC, s.id ASC
+            LIMIT 50
+        `);
+        return rows.map((row) => ({
+            stop_public_id: row.stop_public_id,
+            name: row.name,
+            distance_m: row.distance_m,
+            mode: row.mode,
+            stop_type: row.stop_type,
+        }));
+    }
+
+    /**
+     * Preview the stops within `radiusM` of an arbitrary point (self excluded),
+     * for duplicate checks before committing a location edit. Validates the stop
+     * exists (404) but does not write anything.
+     */
+    async getNearbyStops(
+        publicId: string,
+        query: NearbyStopsQuery
+    ): Promise<TransportNearbyStop[]> {
+        await this.assertSchemaAvailable();
+        const stopId = await this.getStopIdByPublicId(publicId);
+        return this.findNearbyStops({
+            lng: query.lng,
+            lat: query.lat,
+            radiusM: query.radius_m,
+            excludeStopId: stopId,
+        });
+    }
+
+    /**
+     * Focused stop location edit: moves the point and optionally updates
+     * review_status / confidence_score. Names, mode, stop_type, admin area, and
+     * parent are deliberately left unchanged. Stamps a minimal manual/admin marker
+     * into `source_refs` (merge, preserving existing keys), bumps `updated_at`,
+     * audits the point move (+ review/confidence diff), and keeps any linked
+     * terminals' point in sync. Returns refreshed detail plus the stops within the
+     * 30 m duplicate-check radius of the SAVED location.
+     */
+    async updateStopLocation(
+        publicId: string,
+        input: UpdateStopLocationInput,
+        audit?: TransportAuditContext
+    ): Promise<TransportStopLocationUpdateResult> {
+        await this.assertSchemaAvailable();
+
+        await this.prisma.$transaction(async (tx) => {
+            const beforeRows = await tx.$queryRaw<
+                {
+                    id: bigint;
+                    review_status: string;
+                    confidence_score: number | null;
+                    point_lng: number | null;
+                    point_lat: number | null;
+                }[]
+            >`
+                SELECT id, review_status, confidence_score::float8 AS confidence_score,
+                       ST_X(geom)::float8 AS point_lng, ST_Y(geom)::float8 AS point_lat
+                FROM transport.stops
+                WHERE public_id = ${publicId}::uuid AND deleted_at IS NULL
+                FOR UPDATE
+            `;
+            const before = beforeRows[0];
+            if (!before) {
+                throw new TransportNotFoundError("stop", publicId);
+            }
+
+            const sets: Prisma.Sql[] = [
+                Prisma.sql`geom = ST_SetSRID(ST_MakePoint(${input.lng}, ${input.lat}), 4326)`,
+                // Minimal manual/admin marker; merge so existing source_refs keys survive.
+                Prisma.sql`source_refs = COALESCE(source_refs, '{}'::jsonb) || jsonb_build_object('location_edited_via', 'manual', 'location_edited_by', 'admin_dashboard')`,
+            ];
+            if (input.review_status !== undefined) {
+                sets.push(Prisma.sql`review_status = ${input.review_status}`);
+            }
+            if (input.confidence_score !== undefined) {
+                sets.push(Prisma.sql`confidence_score = ${input.confidence_score}`);
+            }
+
+            await tx.$executeRaw(Prisma.sql`
+                UPDATE transport.stops
+                SET ${Prisma.join([...sets, Prisma.sql`updated_at = now()`], ", ")}
+                WHERE public_id = ${publicId}::uuid AND deleted_at IS NULL
+            `);
+
+            const diff = diffScalarFields(before, input, ["review_status", "confidence_score"]);
+            appendPointDiff(
+                diff,
+                { lat: before.point_lat, lng: before.point_lng },
+                { latitude: input.lat, longitude: input.lng }
+            );
+            if (diff.changedFields.length > 0) {
+                await insertTransportAuditLog(tx, {
+                    action: resolvePointAwareAction(
+                        "transport.stop.update",
+                        "transport.stop.point_move",
+                        diff.changedFields
+                    ),
+                    entityType: "transport_stop",
+                    entityId: before.id,
+                    entityPublicId: publicId,
+                    changedFields: diff.changedFields,
+                    oldValues: diff.oldValues,
+                    newValues: diff.newValues,
+                    metadata: null,
+                    context: audit,
+                });
+            }
+
+            await this.syncLinkedTerminalsFromStop(tx, {
+                stopId: before.id,
+                stopPublicId: publicId,
+                point: { longitude: input.lng, latitude: input.lat },
+                audit,
+            });
+        });
+
+        const stop = await this.getStopByPublicId(publicId);
+        const stopId = await this.getStopIdByPublicId(publicId);
+        const nearbyStops = await this.findNearbyStops({
+            lng: input.lng,
+            lat: input.lat,
+            radiusM: 30,
+            excludeStopId: stopId,
+        });
+        return { stop, nearby_stops: nearbyStops };
+    }
+
+    /**
      * Mirrors a stop's display fields onto every terminal linked to it
      * (`terminals.linked_stop_id = stopId`, soft-deletes excluded). Only the
      * provided display fields are written; terminal-specific metadata,
@@ -2937,6 +3294,175 @@ export class TransportRepository {
         return this.getTerminalByPublicId(publicId);
     }
 
+    /**
+     * Creates a route plus its default variants in a single transaction.
+     *
+     * The route is server-stamped (review_status = needs_review, confidence 60,
+     * is_active = true, manual/admin source_refs) and `route_kind` comes from the
+     * mode config. Variants are generated from `route_code` per the create rules:
+     *   - is_loop: one `${code}-LOOP` variant (direction_id 2)
+     *   - bus/train: `${code}-A` outbound (0) + `${code}-B` inbound (1)
+     *   - ferry: `${code}-A` outbound (0); `${code}-B` inbound (1) only when
+     *     create_return_variant is set
+     * A pre-check + unique-violation guard map duplicate route_code / variant_code
+     * to {@link TransportRouteConflictError}. No hard deletes; audit rows are
+     * written inside the transaction. Returns the new route detail + variants.
+     */
+    async createRoute(
+        input: CreateRouteInput,
+        audit?: TransportAuditContext
+    ): Promise<TransportRouteCreateResult> {
+        await this.assertSchemaAvailable();
+
+        const routeKind = getDefaultRouteKind(input.mode);
+        const originName = input.origin_name ?? null;
+        const destinationName = input.destination_name ?? null;
+        const operatorId = input.operator_id ?? null;
+        const sourceRefs = JSON.stringify({ created_via: "manual", created_by: "admin_dashboard" });
+
+        const variantSeeds = buildCreateRouteVariantSeeds(input, originName, destinationName);
+
+        const publicId = await this.prisma
+            .$transaction(async (tx) => {
+                const existing = await tx.$queryRaw<{ id: bigint }[]>`
+                    SELECT id
+                    FROM transport.routes
+                    WHERE route_code = ${input.route_code} AND deleted_at IS NULL
+                    LIMIT 1
+                `;
+                if (existing.length > 0) {
+                    throw new TransportRouteConflictError(
+                        `A route with code "${input.route_code}" already exists.`
+                    );
+                }
+
+                const inserted = await tx.$queryRaw<{ id: bigint; public_id: string }[]>`
+                    INSERT INTO transport.routes
+                        (operator_id, route_code, public_name, mode, route_kind,
+                         origin_name, destination_name, source_refs,
+                         confidence_score, review_status, is_active)
+                    VALUES
+                        (${operatorId}, ${input.route_code}, ${input.public_name}, ${input.mode},
+                         ${routeKind}, ${originName}, ${destinationName}, ${sourceRefs}::jsonb,
+                         60, 'needs_review', true)
+                    RETURNING id, public_id::text AS public_id
+                `;
+                const route = inserted[0];
+                if (!route) {
+                    throw new Error("Failed to create transport route");
+                }
+
+                if (operatorId !== null) {
+                    const operatorRows = await tx.$queryRaw<{ id: bigint }[]>`
+                        SELECT id FROM transport.operators WHERE id = ${operatorId} LIMIT 1
+                    `;
+                    if (operatorRows.length === 0) {
+                        throw new TransportInvalidReferenceError("operator_id");
+                    }
+                }
+
+                await insertTransportAuditLog(tx, {
+                    action: "transport.route.create",
+                    entityType: "transport_route",
+                    entityId: route.id,
+                    entityPublicId: route.public_id,
+                    changedFields: [
+                        "route_code",
+                        "public_name",
+                        "mode",
+                        "route_kind",
+                        "origin_name",
+                        "destination_name",
+                        "operator_id",
+                        "review_status",
+                        "confidence_score",
+                        "is_active",
+                    ],
+                    oldValues: null,
+                    newValues: {
+                        route_code: input.route_code,
+                        public_name: input.public_name,
+                        mode: input.mode,
+                        route_kind: routeKind,
+                        origin_name: originName,
+                        destination_name: destinationName,
+                        operator_id: operatorId === null ? null : Number(operatorId),
+                        review_status: "needs_review",
+                        confidence_score: 60,
+                        is_active: true,
+                    },
+                    metadata: null,
+                    context: audit,
+                });
+
+                for (const seed of variantSeeds) {
+                    const variantRows = await tx.$queryRaw<{ id: bigint; public_id: string }[]>`
+                        INSERT INTO transport.route_variants
+                            (route_id, variant_code, direction_name, direction_id,
+                             origin_name, destination_name, confidence_score,
+                             review_status, is_active)
+                        VALUES
+                            (${route.id}, ${seed.variant_code}, ${seed.direction_name},
+                             ${seed.direction_id}, ${seed.origin_name}, ${seed.destination_name},
+                             60, 'needs_review', true)
+                        RETURNING id, public_id::text AS public_id
+                    `;
+                    const variant = variantRows[0];
+                    if (!variant) {
+                        throw new Error("Failed to create transport route variant");
+                    }
+                    await insertTransportAuditLog(tx, {
+                        action: "transport.route_variant.create",
+                        entityType: "transport_route_variant",
+                        entityId: variant.id,
+                        entityPublicId: variant.public_id,
+                        changedFields: [
+                            "variant_code",
+                            "direction_name",
+                            "direction_id",
+                            "origin_name",
+                            "destination_name",
+                            "review_status",
+                            "confidence_score",
+                            "is_active",
+                        ],
+                        oldValues: null,
+                        newValues: {
+                            variant_code: seed.variant_code,
+                            direction_name: seed.direction_name,
+                            direction_id: seed.direction_id,
+                            origin_name: seed.origin_name,
+                            destination_name: seed.destination_name,
+                            review_status: "needs_review",
+                            confidence_score: 60,
+                            is_active: true,
+                        },
+                        metadata: { route_public_id: route.public_id },
+                        context: audit,
+                    });
+                }
+
+                return route.public_id;
+            })
+            .catch((error: unknown) => {
+                if (error instanceof TransportRouteConflictError) {
+                    throw error;
+                }
+                if (isUniqueViolation(error)) {
+                    throw new TransportRouteConflictError(
+                        `A route or variant code derived from "${input.route_code}" already exists.`
+                    );
+                }
+                throw error;
+            });
+
+        const [route, variants] = await Promise.all([
+            this.getRouteByPublicId(publicId),
+            this.listVariantsForRoute(publicId),
+        ]);
+        return { ...route, variants };
+    }
+
     async getRouteByPublicId(publicId: string): Promise<TransportRouteDetail> {
         await this.assertSchemaAvailable();
 
@@ -3195,6 +3721,129 @@ export class TransportRepository {
             limit,
             offset,
             path,
+        };
+    }
+
+    /**
+     * Read-only stop-quality diagnostics for one variant's ordered membership.
+     *
+     * Single query: one variant lookup (404 if missing) plus a CTE over
+     * transport.route_stops ordered by stop_sequence. Per stop it reports the
+     * straight-line gap from the previous stop (LAG + geography ST_Distance, null
+     * for the first stop), deviation from the variant's active route path
+     * (geography ST_Distance, null when no active path), a defensive
+     * exact-duplicate flag (same stop_id more than once — DB unique-guarded), and
+     * a count of other active same-mode stops within ~30 m. The nearby lookup
+     * prefilters with the GIST(geom) index via a `&&` bbox before the exact
+     * geography ST_DWithin, mirroring the stop-search path. Diagnostics only.
+     */
+    async getVariantStopQuality(
+        variantPublicId: string
+    ): Promise<TransportVariantStopQualityResponse> {
+        await this.assertSchemaAvailable();
+
+        const variantRows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id FROM transport.route_variants WHERE public_id = ${variantPublicId}::uuid LIMIT 1
+        `;
+        const variant = variantRows[0];
+        if (!variant) {
+            throw new TransportNotFoundError("route variant", variantPublicId);
+        }
+
+        const NEARBY_RADIUS_M = 30;
+        // Generous degree bbox (superset of the 30 m radius) so the GIST(geom)
+        // index can prefilter; the exact geography ST_DWithin trims the remainder.
+        const NEARBY_RADIUS_DEG = NEARBY_RADIUS_M / 90000;
+
+        const rows = await this.prisma.$queryRaw<
+            {
+                route_stop_id: bigint;
+                stop_public_id: string;
+                stop_name: string | null;
+                stop_sequence: number;
+                lng: number | null;
+                lat: number | null;
+                distance_from_previous_m: number | null;
+                distance_from_path_m: number | null;
+                is_exact_duplicate_in_variant: boolean;
+                nearby_duplicate_count: bigint;
+            }[]
+        >`
+            WITH active_path AS (
+                SELECT geom
+                FROM transport.route_paths
+                WHERE route_variant_id = ${variant.id} AND deleted_at IS NULL
+                ORDER BY id ASC
+                LIMIT 1
+            ),
+            ordered AS (
+                SELECT
+                    rs.id AS route_stop_id,
+                    rs.stop_sequence,
+                    rs.stop_id,
+                    s.public_id AS stop_public_id,
+                    s.name AS stop_name,
+                    s.mode AS stop_mode,
+                    s.geom AS geom,
+                    ST_X(s.geom)::float8 AS lng,
+                    ST_Y(s.geom)::float8 AS lat,
+                    LAG(s.geom) OVER (ORDER BY rs.stop_sequence ASC, rs.id ASC) AS prev_geom,
+                    count(*) OVER (PARTITION BY rs.stop_id) AS stop_id_count
+                FROM transport.route_stops rs
+                JOIN transport.stops s ON s.id = rs.stop_id
+                WHERE rs.route_variant_id = ${variant.id}
+            )
+            SELECT
+                o.route_stop_id,
+                o.stop_public_id::text AS stop_public_id,
+                o.stop_name,
+                o.stop_sequence,
+                o.lng,
+                o.lat,
+                CASE
+                    WHEN o.prev_geom IS NULL OR o.geom IS NULL THEN NULL
+                    ELSE ST_Distance(o.geom::geography, o.prev_geom::geography)
+                END::float8 AS distance_from_previous_m,
+                CASE
+                    WHEN ap.geom IS NULL OR o.geom IS NULL THEN NULL
+                    ELSE ST_Distance(o.geom::geography, ap.geom::geography)
+                END::float8 AS distance_from_path_m,
+                (o.stop_id_count > 1) AS is_exact_duplicate_in_variant,
+                CASE
+                    WHEN o.geom IS NULL THEN 0
+                    ELSE (
+                        SELECT count(*)
+                        FROM transport.stops s2
+                        WHERE s2.id <> o.stop_id
+                          AND s2.deleted_at IS NULL
+                          AND s2.mode = o.stop_mode
+                          AND s2.geom && ST_Expand(o.geom, ${NEARBY_RADIUS_DEG}::float8)
+                          AND ST_DWithin(
+                              s2.geom::geography,
+                              o.geom::geography,
+                              ${NEARBY_RADIUS_M}::float8
+                          )
+                    )
+                END::bigint AS nearby_duplicate_count
+            FROM ordered o
+            LEFT JOIN active_path ap ON true
+            ORDER BY o.stop_sequence ASC, o.route_stop_id ASC
+        `;
+
+        return {
+            items: rows.map((row) => ({
+                route_stop_id: String(row.route_stop_id),
+                stop_public_id: row.stop_public_id,
+                stop_name: row.stop_name,
+                stop_sequence: row.stop_sequence,
+                lng: row.lng,
+                lat: row.lat,
+                distance_from_previous_m: row.distance_from_previous_m,
+                distance_from_path_m: row.distance_from_path_m,
+                is_exact_duplicate_in_variant: row.is_exact_duplicate_in_variant,
+                nearby_duplicate_count: num(row.nearby_duplicate_count),
+            })),
+            total: rows.length,
         };
     }
 
@@ -3589,15 +4238,44 @@ export class TransportRepository {
             sets.push(Prisma.sql`confidence_score = ${input.confidence_score}`);
         if (input.is_active !== undefined) sets.push(Prisma.sql`is_active = ${input.is_active}`);
 
+        // Resolve optional endpoint stop pointers (public_id -> stops.id). undefined
+        // means "leave unchanged"; null clears the pointer. Resolved up front so a
+        // bad reference fails before opening the write transaction.
+        let originStopId: bigint | null | undefined;
+        let destinationStopId: bigint | null | undefined;
+        if (input.origin_stop_public_id !== undefined) {
+            originStopId =
+                input.origin_stop_public_id === null
+                    ? null
+                    : await this.resolveStopIdByPublicId(
+                          input.origin_stop_public_id,
+                          "origin_stop_public_id"
+                      );
+            sets.push(Prisma.sql`origin_stop_id = ${originStopId}`);
+        }
+        if (input.destination_stop_public_id !== undefined) {
+            destinationStopId =
+                input.destination_stop_public_id === null
+                    ? null
+                    : await this.resolveStopIdByPublicId(
+                          input.destination_stop_public_id,
+                          "destination_stop_public_id"
+                      );
+            sets.push(Prisma.sql`destination_stop_id = ${destinationStopId}`);
+        }
+
         if (sets.length === 0) {
             return this.getVariantSummaryByPublicId(variantPublicId);
         }
 
         await this.prisma.$transaction(async (tx) => {
-            const beforeRows = await tx.$queryRaw<VariantAuditRow[]>`
+            const beforeRows = await tx.$queryRaw<
+                (VariantAuditRow & { origin_stop_id: bigint | null; destination_stop_id: bigint | null })[]
+            >`
                 SELECT id, variant_code, direction_name, direction_id, headsign, origin_name,
                        destination_name, estimated_duration_min, review_status,
-                       confidence_score::float8 AS confidence_score, is_active
+                       confidence_score::float8 AS confidence_score, is_active,
+                       origin_stop_id, destination_stop_id
                 FROM transport.route_variants
                 WHERE public_id = ${variantPublicId}::uuid AND deleted_at IS NULL
                 FOR UPDATE
@@ -3614,6 +4292,23 @@ export class TransportRepository {
             `);
 
             const diff = diffScalarFields(before, input, VARIANT_AUDIT_FIELDS);
+            // Endpoint stop pointers are not scalar body fields; diff them manually.
+            if (originStopId !== undefined && before.origin_stop_id !== originStopId) {
+                diff.changedFields.push("origin_stop_id");
+                diff.oldValues.origin_stop_id =
+                    before.origin_stop_id === null ? null : Number(before.origin_stop_id);
+                diff.newValues.origin_stop_id = originStopId === null ? null : Number(originStopId);
+            }
+            if (
+                destinationStopId !== undefined &&
+                before.destination_stop_id !== destinationStopId
+            ) {
+                diff.changedFields.push("destination_stop_id");
+                diff.oldValues.destination_stop_id =
+                    before.destination_stop_id === null ? null : Number(before.destination_stop_id);
+                diff.newValues.destination_stop_id =
+                    destinationStopId === null ? null : Number(destinationStopId);
+            }
             if (diff.changedFields.length > 0) {
                 await insertTransportAuditLog(tx, {
                     action: "transport.route_variant.update",
@@ -3630,6 +4325,416 @@ export class TransportRepository {
         });
 
         return this.getVariantSummaryByPublicId(variantPublicId);
+    }
+
+    /**
+     * Resolves an active stop's internal id from its public_id. Throws
+     * {@link TransportInvalidReferenceError} (→ 400) when the stop is missing or
+     * soft-deleted. `field` is the request field name for a clear error message.
+     */
+    private async resolveStopIdByPublicId(publicId: string, field: string): Promise<bigint> {
+        const rows = await this.prisma.$queryRaw<{ id: bigint }[]>`
+            SELECT id FROM transport.stops
+            WHERE public_id = ${publicId}::uuid AND deleted_at IS NULL
+            LIMIT 1
+        `;
+        const row = rows[0];
+        if (!row) {
+            throw new TransportInvalidReferenceError(field);
+        }
+        return row.id;
+    }
+
+    /**
+     * Creates a route variant under an active route. `variant_code` is unique per
+     * route (route_id + variant_code) — a collision maps to
+     * {@link TransportRouteConflictError} (409). Optional origin/destination stop
+     * pointers are resolved from public_id. review_status defaults to
+     * "needs_review" and confidence_score to 60 when omitted; is_active = true.
+     * Returns the created variant summary via the shared mapper.
+     */
+    async createVariant(
+        routePublicId: string,
+        input: CreateVariantInput,
+        audit?: TransportAuditContext
+    ): Promise<TransportVariantSummary> {
+        await this.assertSchemaAvailable();
+
+        const originStopId =
+            input.origin_stop_public_id == null
+                ? null
+                : await this.resolveStopIdByPublicId(
+                      input.origin_stop_public_id,
+                      "origin_stop_public_id"
+                  );
+        const destinationStopId =
+            input.destination_stop_public_id == null
+                ? null
+                : await this.resolveStopIdByPublicId(
+                      input.destination_stop_public_id,
+                      "destination_stop_public_id"
+                  );
+
+        const directionName = input.direction_name ?? null;
+        const directionId = input.direction_id ?? null;
+        const headsign = input.headsign ?? null;
+        const originName = input.origin_name ?? null;
+        const destinationName = input.destination_name ?? null;
+        const reviewStatus = input.review_status ?? "needs_review";
+        const confidenceScore = input.confidence_score ?? 60;
+
+        const publicId = await this.prisma
+            .$transaction(async (tx) => {
+                const routeRows = await tx.$queryRaw<{ id: bigint }[]>`
+                    SELECT id FROM transport.routes
+                    WHERE public_id = ${routePublicId}::uuid AND deleted_at IS NULL
+                    LIMIT 1
+                `;
+                const route = routeRows[0];
+                if (!route) {
+                    throw new TransportNotFoundError("route", routePublicId);
+                }
+
+                const inserted = await tx.$queryRaw<{ id: bigint; public_id: string }[]>`
+                    INSERT INTO transport.route_variants
+                        (route_id, variant_code, direction_name, direction_id, headsign,
+                         origin_name, destination_name, origin_stop_id, destination_stop_id,
+                         confidence_score, review_status, is_active)
+                    VALUES
+                        (${route.id}, ${input.variant_code}, ${directionName}, ${directionId},
+                         ${headsign}, ${originName}, ${destinationName}, ${originStopId},
+                         ${destinationStopId}, ${confidenceScore}, ${reviewStatus}, true)
+                    RETURNING id, public_id::text AS public_id
+                `;
+                const variant = inserted[0];
+                if (!variant) {
+                    throw new Error("Failed to create transport route variant");
+                }
+
+                await insertTransportAuditLog(tx, {
+                    action: "transport.route_variant.create",
+                    entityType: "transport_route_variant",
+                    entityId: variant.id,
+                    entityPublicId: variant.public_id,
+                    changedFields: [
+                        "variant_code",
+                        "direction_name",
+                        "direction_id",
+                        "headsign",
+                        "origin_name",
+                        "destination_name",
+                        "origin_stop_id",
+                        "destination_stop_id",
+                        "review_status",
+                        "confidence_score",
+                        "is_active",
+                    ],
+                    oldValues: null,
+                    newValues: {
+                        variant_code: input.variant_code,
+                        direction_name: directionName,
+                        direction_id: directionId,
+                        headsign,
+                        origin_name: originName,
+                        destination_name: destinationName,
+                        origin_stop_id: originStopId === null ? null : Number(originStopId),
+                        destination_stop_id:
+                            destinationStopId === null ? null : Number(destinationStopId),
+                        review_status: reviewStatus,
+                        confidence_score: confidenceScore,
+                        is_active: true,
+                    },
+                    metadata: { route_public_id: routePublicId },
+                    context: audit,
+                });
+
+                return variant.public_id;
+            })
+            .catch((error: unknown) => {
+                if (isUniqueViolation(error)) {
+                    throw new TransportRouteConflictError(
+                        `Variant code "${input.variant_code}" already exists for this route.`
+                    );
+                }
+                throw error;
+            });
+
+        return this.getVariantSummaryByPublicId(publicId);
+    }
+
+    /**
+     * Soft-deletes a route variant: sets deleted_at = now() and is_active = false.
+     * Never hard-deletes the row and never touches route_stops / route_paths, so no
+     * FK cascade is triggered. Writes an audit row and returns the parent route
+     * detail (via the existing route mapper) so the caller can refresh counts.
+     */
+    async softDeleteVariant(
+        variantPublicId: string,
+        audit?: TransportAuditContext
+    ): Promise<TransportRouteDetail> {
+        await this.assertSchemaAvailable();
+
+        const routePublicId = await this.prisma.$transaction(async (tx) => {
+            const rows = await tx.$queryRaw<
+                { id: bigint; is_active: boolean | null; route_public_id: string }[]
+            >`
+                SELECT v.id, v.is_active, r.public_id::text AS route_public_id
+                FROM transport.route_variants v
+                JOIN transport.routes r ON r.id = v.route_id
+                WHERE v.public_id = ${variantPublicId}::uuid AND v.deleted_at IS NULL
+                FOR UPDATE OF v
+            `;
+            const before = rows[0];
+            if (!before) {
+                throw new TransportNotFoundError("route variant", variantPublicId);
+            }
+
+            const updated = await tx.$queryRaw<{ deleted_at: Date }[]>`
+                UPDATE transport.route_variants
+                SET deleted_at = now(), is_active = false, updated_at = now()
+                WHERE public_id = ${variantPublicId}::uuid AND deleted_at IS NULL
+                RETURNING deleted_at
+            `;
+
+            await insertTransportAuditLog(tx, {
+                action: "transport.route_variant.delete",
+                entityType: "transport_route_variant",
+                entityId: before.id,
+                entityPublicId: variantPublicId,
+                changedFields: ["is_active", "deleted_at"],
+                oldValues: { is_active: before.is_active, deleted_at: null },
+                newValues: { is_active: false, deleted_at: updated[0]?.deleted_at ?? null },
+                metadata: { route_public_id: before.route_public_id },
+                context: audit,
+            });
+
+            return before.route_public_id;
+        });
+
+        return this.getRouteByPublicId(routePublicId);
+    }
+
+    /**
+     * Builds the {@link TransportVariantPathResult}: the variant's single active
+     * route path (null when none) + the refreshed variant summary. Used as the
+     * shared return for the path upsert/delete endpoints.
+     */
+    private async getVariantPathResult(
+        variantPublicId: string
+    ): Promise<TransportVariantPathResult> {
+        const variant = await this.getVariantSummaryByPublicId(variantPublicId);
+        const pathRows = await this.prisma.$queryRaw<RoutePathRow[]>`
+            SELECT
+                p.path_kind,
+                p.distance_m::float8 AS distance_m,
+                ST_AsGeoJSON(p.geom)::jsonb AS geometry
+            FROM transport.route_paths p
+            JOIN transport.route_variants v ON v.id = p.route_variant_id
+            WHERE v.public_id = ${variantPublicId}::uuid AND p.deleted_at IS NULL
+            ORDER BY p.id ASC
+            LIMIT 1
+        `;
+        const p = pathRows[0];
+        const path: TransportRoutePath | null = p
+            ? { path_kind: p.path_kind, distance_m: p.distance_m, geometry: asGeometry(p.geometry) }
+            : null;
+        return { path, variant };
+    }
+
+    /**
+     * Upserts the variant's single active manual route path from an ordered
+     * LineString (≥ 2 positions, SRID 4326). If an active path exists it is
+     * updated in place; otherwise one is inserted. Always sets path_kind=manual,
+     * review_status=needs_review, confidence_score=70, is_active=true, and
+     * recomputes distance_m via PostGIS geography length. No snapping / Valhalla,
+     * and never creates a second active path. Returns the path + variant summary.
+     */
+    async upsertVariantPath(
+        variantPublicId: string,
+        input: PutVariantPathInput,
+        audit?: TransportAuditContext
+    ): Promise<TransportVariantPathResult> {
+        await this.assertSchemaAvailable();
+
+        const geojson = JSON.stringify({ type: "LineString", coordinates: input.coordinates });
+        const pathKind = input.path_kind ?? "manual";
+
+        await this.prisma.$transaction(async (tx) => {
+            const variantRows = await tx.$queryRaw<{ id: bigint }[]>`
+                SELECT id FROM transport.route_variants
+                WHERE public_id = ${variantPublicId}::uuid AND deleted_at IS NULL
+                LIMIT 1
+            `;
+            const variant = variantRows[0];
+            if (!variant) {
+                throw new TransportNotFoundError("route variant", variantPublicId);
+            }
+
+            const existingRows = await tx.$queryRaw<
+                {
+                    id: bigint;
+                    path_kind: string | null;
+                    distance_m: number | null;
+                    review_status: string | null;
+                    confidence_score: number | null;
+                }[]
+            >`
+                SELECT id, path_kind, distance_m::float8 AS distance_m,
+                       review_status, confidence_score::float8 AS confidence_score
+                FROM transport.route_paths
+                WHERE route_variant_id = ${variant.id} AND deleted_at IS NULL
+                ORDER BY id ASC
+                LIMIT 1
+                FOR UPDATE
+            `;
+            const existing = existingRows[0];
+
+            if (existing) {
+                const updated = await tx.$queryRaw<{ distance_m: number | null }[]>`
+                    UPDATE transport.route_paths
+                    SET geom = ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326),
+                        distance_m = ST_Length(
+                            ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326)::geography
+                        ),
+                        path_kind = ${pathKind},
+                        review_status = 'needs_review',
+                        confidence_score = 70,
+                        is_active = true,
+                        updated_at = now()
+                    WHERE id = ${existing.id}
+                    RETURNING distance_m::float8 AS distance_m
+                `;
+                await insertTransportAuditLog(tx, {
+                    action: "transport.route_path.update",
+                    entityType: "transport_route_path",
+                    entityId: existing.id,
+                    entityPublicId: null,
+                    changedFields: [
+                        "geom",
+                        "distance_m",
+                        "path_kind",
+                        "review_status",
+                        "confidence_score",
+                        "is_active",
+                    ],
+                    oldValues: {
+                        path_kind: existing.path_kind,
+                        distance_m: existing.distance_m,
+                        review_status: existing.review_status,
+                        confidence_score: existing.confidence_score,
+                    },
+                    newValues: {
+                        path_kind: pathKind,
+                        distance_m: updated[0]?.distance_m ?? null,
+                        review_status: "needs_review",
+                        confidence_score: 70,
+                        is_active: true,
+                    },
+                    metadata: {
+                        route_variant_public_id: variantPublicId,
+                        point_count: input.coordinates.length,
+                    },
+                    context: audit,
+                });
+            } else {
+                const sourceRefs = JSON.stringify({
+                    created_via: "manual",
+                    created_by: "admin_dashboard",
+                });
+                const inserted = await tx.$queryRaw<{ id: bigint; distance_m: number | null }[]>`
+                    INSERT INTO transport.route_paths
+                        (route_variant_id, path_kind, geom, distance_m, source_refs,
+                         confidence_score, review_status, is_active)
+                    VALUES
+                        (${variant.id}, ${pathKind},
+                         ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326),
+                         ST_Length(ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326)::geography),
+                         ${sourceRefs}::jsonb, 70, 'needs_review', true)
+                    RETURNING id, distance_m::float8 AS distance_m
+                `;
+                const created = inserted[0];
+                if (!created) {
+                    throw new Error("Failed to create route path");
+                }
+                await insertTransportAuditLog(tx, {
+                    action: "transport.route_path.create",
+                    entityType: "transport_route_path",
+                    entityId: created.id,
+                    entityPublicId: null,
+                    changedFields: [
+                        "geom",
+                        "distance_m",
+                        "path_kind",
+                        "review_status",
+                        "confidence_score",
+                        "is_active",
+                    ],
+                    oldValues: null,
+                    newValues: {
+                        path_kind: pathKind,
+                        distance_m: created.distance_m,
+                        review_status: "needs_review",
+                        confidence_score: 70,
+                        is_active: true,
+                    },
+                    metadata: {
+                        route_variant_public_id: variantPublicId,
+                        point_count: input.coordinates.length,
+                    },
+                    context: audit,
+                });
+            }
+        });
+
+        return this.getVariantPathResult(variantPublicId);
+    }
+
+    /**
+     * Soft-deletes the variant's active route path(s): deleted_at = now(),
+     * is_active = false. Never hard-deletes, never touches the variant or its
+     * stops. A no-op (still 200) when there is no active path. Returns the path
+     * (now null) + variant summary.
+     */
+    async deleteVariantPath(
+        variantPublicId: string,
+        audit?: TransportAuditContext
+    ): Promise<TransportVariantPathResult> {
+        await this.assertSchemaAvailable();
+
+        await this.prisma.$transaction(async (tx) => {
+            const variantRows = await tx.$queryRaw<{ id: bigint }[]>`
+                SELECT id FROM transport.route_variants
+                WHERE public_id = ${variantPublicId}::uuid AND deleted_at IS NULL
+                LIMIT 1
+            `;
+            const variant = variantRows[0];
+            if (!variant) {
+                throw new TransportNotFoundError("route variant", variantPublicId);
+            }
+
+            const deleted = await tx.$queryRaw<{ id: bigint }[]>`
+                UPDATE transport.route_paths
+                SET deleted_at = now(), is_active = false, updated_at = now()
+                WHERE route_variant_id = ${variant.id} AND deleted_at IS NULL
+                RETURNING id
+            `;
+
+            for (const row of deleted) {
+                await insertTransportAuditLog(tx, {
+                    action: "transport.route_path.delete",
+                    entityType: "transport_route_path",
+                    entityId: row.id,
+                    entityPublicId: null,
+                    changedFields: ["is_active", "deleted_at"],
+                    oldValues: { is_active: true, deleted_at: null },
+                    newValues: { is_active: false },
+                    metadata: { route_variant_public_id: variantPublicId },
+                    context: audit,
+                });
+            }
+        });
+
+        return this.getVariantPathResult(variantPublicId);
     }
 
     /** Single ordered-stop row (with its stop + GeoJSON geometry) by route_stops.id. */

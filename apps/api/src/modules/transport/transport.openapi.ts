@@ -845,6 +845,96 @@ export const patchTransportStopSchema = {
     },
 } satisfies FastifySchema;
 
+const stopPublicIdParamSchema = {
+    type: "object",
+    required: ["stopPublicId"],
+    properties: { stopPublicId: { type: "string", format: "uuid" } },
+} as const;
+
+const nearbyStopSchema = {
+    type: "object",
+    required: ["stop_public_id", "name", "distance_m", "mode", "stop_type"],
+    properties: {
+        stop_public_id: { type: "string", format: "uuid" },
+        name: { type: "string" },
+        distance_m: { type: "number" },
+        mode: { type: "string" },
+        stop_type: { type: "string" },
+    },
+} as const;
+
+const updateStopLocationBodySchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["lng", "lat"],
+    description:
+        "Location-only edit. Moves the stop point and optionally updates review_status / confidence_score. " +
+        "Names, mode, stop_type, admin area, and parent are not editable here — use PATCH /transport/stops/:publicId. " +
+        "Stamps a minimal manual/admin marker into source_refs. No hard delete.",
+    properties: {
+        lng: { type: "number", minimum: -180, maximum: 180 },
+        lat: { type: "number", minimum: -90, maximum: 90 },
+        review_status: { type: "string", enum: [...TRANSPORT_REVIEW_STATUSES] },
+        confidence_score: { type: "number", minimum: 0, maximum: 100 },
+    },
+} as const;
+
+const stopLocationUpdateResultSchema = {
+    type: "object",
+    required: ["stop", "nearby_stops"],
+    properties: {
+        stop: stopDetailSchema,
+        nearby_stops: { type: "array", items: nearbyStopSchema },
+    },
+} as const;
+
+export const patchTransportStopLocationSchema = {
+    tags: [Tags.Transport],
+    summary: "Update a transport stop's location (admin)",
+    description:
+        "Focused location edit: updates geom (SRID 4326) and optionally review_status / confidence_score, " +
+        "bumps updated_at, marks source_refs as a manual/admin location edit, and keeps any linked terminal " +
+        "point in sync. Returns the refreshed stop detail plus stops within 30 m of the saved location.",
+    security: [...bearerAuth],
+    params: stopPublicIdParamSchema,
+    body: updateStopLocationBodySchema,
+    response: {
+        200: stopLocationUpdateResultSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+export const getTransportStopNearbySchema = {
+    tags: [Tags.Transport],
+    summary: "Preview nearby stops around a point (admin)",
+    description:
+        "Read-only duplicate-check helper. Returns active stops within radius_m (default 30 m) of the given " +
+        "lng/lat, nearest first, excluding the stop itself. Intended for previewing duplicates before a " +
+        "location edit is committed.",
+    security: [...bearerAuth],
+    params: stopPublicIdParamSchema,
+    querystring: {
+        type: "object",
+        additionalProperties: false,
+        required: ["lng", "lat"],
+        properties: {
+            lng: { type: "number", minimum: -180, maximum: 180 },
+            lat: { type: "number", minimum: -90, maximum: 90 },
+            radius_m: { type: "number", minimum: 1, maximum: 500, default: 30 },
+        },
+    },
+    response: {
+        200: { type: "array", items: nearbyStopSchema },
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
 export const deleteTransportStopSchema = {
     tags: [Tags.Transport],
     summary: "Archive (soft-delete) a transport stop (admin)",
@@ -1034,6 +1124,52 @@ export const getTransportRouteVariantsSchema = {
     },
 } satisfies FastifySchema;
 
+const createRouteBodySchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["mode", "route_code", "public_name"],
+    properties: {
+        mode: { type: "string", enum: ["bus", "train", "ferry"] },
+        route_code: { type: "string", minLength: 1, maxLength: 50 },
+        public_name: { type: "string", minLength: 1, maxLength: 200 },
+        origin_name: { type: "string", nullable: true, maxLength: 200 },
+        destination_name: { type: "string", nullable: true, maxLength: 200 },
+        operator_id: { type: "integer", nullable: true, minimum: 1 },
+        create_return_variant: { type: "boolean" },
+        is_loop: { type: "boolean" },
+    },
+} as const;
+
+const routeWithVariantsSchema = {
+    ...routeDetailSchema,
+    required: [...routeDetailSchema.required, "variants"],
+    properties: {
+        ...routeDetailSchema.properties,
+        variants: { type: "array", items: variantSummarySchema },
+    },
+} as const;
+
+export const postTransportRouteSchema = {
+    tags: [Tags.Transport],
+    summary: "Create transport route with auto variants (admin)",
+    description:
+        "Creates a route and its default variants in one transaction. route_kind is " +
+        "derived from the mode config; review_status=needs_review, confidence_score=60, " +
+        "is_active=true, and manual/admin source_refs are set by the server. Variants: " +
+        "loop -> ${code}-LOOP; bus/train -> ${code}-A outbound + ${code}-B inbound; " +
+        "ferry -> ${code}-A outbound (+ ${code}-B inbound when create_return_variant). " +
+        "Returns the created route detail including variants. 409 on duplicate code.",
+    security: [...bearerAuth],
+    body: createRouteBodySchema,
+    response: {
+        201: routeWithVariantsSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        409: badRequestSchema,
+    },
+} satisfies FastifySchema;
+
 const updateVariantBodySchema = {
     type: "object",
     additionalProperties: false,
@@ -1062,6 +1198,190 @@ export const patchTransportVariantSchema = {
     body: updateVariantBodySchema,
     response: {
         200: variantSummarySchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+const routeVariantsParamSchema = {
+    type: "object",
+    required: ["routePublicId"],
+    properties: { routePublicId: { type: "string", format: "uuid" } },
+} as const;
+
+const variantPublicIdParamSchema = {
+    type: "object",
+    required: ["variantPublicId"],
+    properties: { variantPublicId: { type: "string", format: "uuid" } },
+} as const;
+
+const createVariantBodySchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["variant_code"],
+    properties: {
+        variant_code: { type: "string", minLength: 1, maxLength: 50 },
+        direction_id: { type: "integer", nullable: true, minimum: 0, maximum: 2 },
+        direction_name: { type: "string", nullable: true, maxLength: 100 },
+        headsign: { type: "string", nullable: true, maxLength: 200 },
+        origin_name: { type: "string", nullable: true, maxLength: 200 },
+        destination_name: { type: "string", nullable: true, maxLength: 200 },
+        origin_stop_public_id: { type: "string", format: "uuid", nullable: true },
+        destination_stop_public_id: { type: "string", format: "uuid", nullable: true },
+        review_status: { type: "string", enum: [...TRANSPORT_REVIEW_STATUSES] },
+        confidence_score: { type: "number", minimum: 0, maximum: 100 },
+    },
+} as const;
+
+const patchVariantBodySchema = {
+    type: "object",
+    additionalProperties: false,
+    minProperties: 1,
+    properties: {
+        variant_code: { type: "string", minLength: 1, maxLength: 50 },
+        direction_id: { type: "integer", nullable: true, minimum: 0, maximum: 2 },
+        direction_name: { type: "string", nullable: true, maxLength: 100 },
+        headsign: { type: "string", nullable: true, maxLength: 200 },
+        origin_name: { type: "string", nullable: true, maxLength: 200 },
+        destination_name: { type: "string", nullable: true, maxLength: 200 },
+        origin_stop_public_id: { type: "string", format: "uuid", nullable: true },
+        destination_stop_public_id: { type: "string", format: "uuid", nullable: true },
+        review_status: { type: "string", enum: [...TRANSPORT_REVIEW_STATUSES] },
+        confidence_score: { type: "number", minimum: 0, maximum: 100 },
+    },
+} as const;
+
+export const postRouteVariantSchema = {
+    tags: [Tags.Transport],
+    summary: "Create a route variant (admin)",
+    description:
+        "Creates a variant under an active route. variant_code is unique per route " +
+        "(route_id + variant_code); a collision returns 409. direction_id: 0 outbound, " +
+        "1 inbound, 2 loop/branch/special, null unknown. review_status defaults to " +
+        "needs_review and confidence_score to 60 when omitted. Returns the created variant.",
+    security: [...bearerAuth],
+    params: routeVariantsParamSchema,
+    body: createVariantBodySchema,
+    response: {
+        201: variantSummarySchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+        409: badRequestSchema,
+    },
+} satisfies FastifySchema;
+
+export const patchVariantSchema = {
+    tags: [Tags.Transport],
+    summary: "Update a route variant (admin)",
+    description:
+        "Partial update of editable variant fields, including origin/destination stop " +
+        "pointers (by stop public_id; null clears). Cannot edit source_refs or " +
+        "normalized_data. No hard delete. Returns the updated variant.",
+    security: [...bearerAuth],
+    params: variantPublicIdParamSchema,
+    body: patchVariantBodySchema,
+    response: {
+        200: variantSummarySchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+        409: badRequestSchema,
+    },
+} satisfies FastifySchema;
+
+export const deleteVariantSchema = {
+    tags: [Tags.Transport],
+    summary: "Soft-delete a route variant (admin)",
+    description:
+        "Soft-deletes the variant (deleted_at = now(), is_active = false). Never hard-deletes " +
+        "and never removes route_stops or route_paths. Returns the parent route detail.",
+    security: [...bearerAuth],
+    params: variantPublicIdParamSchema,
+    response: {
+        200: routeDetailSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+const variantPathResultSchema = {
+    type: "object",
+    required: ["path", "variant"],
+    properties: {
+        path: {
+            type: "object",
+            nullable: true,
+            required: ["path_kind", "distance_m", "geometry"],
+            properties: {
+                path_kind: { type: "string" },
+                distance_m: { type: "number", nullable: true },
+                geometry: { ...geoJsonGeometrySchema, nullable: true },
+            },
+        },
+        variant: variantSummarySchema,
+    },
+} as const;
+
+const putVariantPathBodySchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["coordinates"],
+    description:
+        "Upserts the variant's single active manual route path from an ordered LineString " +
+        "(≥ 2 [lng, lat] positions). path_kind is restricted to 'manual' (no snapping / Valhalla). " +
+        "Sets review_status=needs_review, confidence_score=70, is_active=true and recomputes distance_m.",
+    properties: {
+        coordinates: {
+            type: "array",
+            minItems: 2,
+            items: {
+                type: "array",
+                minItems: 2,
+                maxItems: 2,
+                items: { type: "number" },
+            },
+        },
+        path_kind: { type: "string", enum: ["manual"] },
+    },
+} as const;
+
+export const putTransportVariantPathSchema = {
+    tags: [Tags.Transport],
+    summary: "Create or replace a route variant's path (admin)",
+    description:
+        "Upserts the variant's single active manual route path. If an active path exists it is updated " +
+        "in place; otherwise one is inserted. No second active path is ever created. Returns the updated " +
+        "path geometry plus the refreshed variant summary.",
+    security: [...bearerAuth],
+    params: variantPublicIdParamSchema,
+    body: putVariantPathBodySchema,
+    response: {
+        200: variantPathResultSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+export const deleteTransportVariantPathSchema = {
+    tags: [Tags.Transport],
+    summary: "Soft-delete a route variant's path (admin)",
+    description:
+        "Soft-deletes the variant's active route path (deleted_at = now(), is_active = false). Never " +
+        "hard-deletes, and never touches the variant or its stops. A no-op when no active path exists. " +
+        "Returns the path (now null) plus the variant summary.",
+    security: [...bearerAuth],
+    params: variantPublicIdParamSchema,
+    response: {
+        200: variantPathResultSchema,
         400: badRequestSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
@@ -1229,6 +1549,62 @@ export const getTransportVariantStopsSchema = {
     },
     response: {
         200: variantStopsResponseSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+const variantStopQualityItemSchema = {
+    type: "object",
+    required: [
+        "route_stop_id",
+        "stop_public_id",
+        "stop_name",
+        "stop_sequence",
+        "lng",
+        "lat",
+        "distance_from_previous_m",
+        "distance_from_path_m",
+        "is_exact_duplicate_in_variant",
+        "nearby_duplicate_count",
+    ],
+    properties: {
+        route_stop_id: { type: "string" },
+        stop_public_id: { type: "string", format: "uuid" },
+        stop_name: { type: "string", nullable: true },
+        stop_sequence: { type: "integer" },
+        lng: { type: "number", nullable: true },
+        lat: { type: "number", nullable: true },
+        distance_from_previous_m: { type: "number", nullable: true },
+        distance_from_path_m: { type: "number", nullable: true },
+        is_exact_duplicate_in_variant: { type: "boolean" },
+        nearby_duplicate_count: { type: "integer", minimum: 0 },
+    },
+} as const;
+
+const variantStopQualityResponseSchema = {
+    type: "object",
+    required: ["items", "total"],
+    properties: {
+        items: { type: "array", items: variantStopQualityItemSchema },
+        total: { type: "integer", minimum: 0 },
+    },
+} as const;
+
+export const getTransportVariantStopQualitySchema = {
+    tags: [Tags.Transport],
+    summary: "Stop-quality diagnostics for a route variant (admin)",
+    description:
+        "Read-only diagnostics for one variant's ordered stops. Per stop: straight-line gap from the " +
+        "previous stop (null for the first), deviation from the active route path (null when no active " +
+        "path exists), a defensive exact-duplicate flag, and a count of other active same-mode stops " +
+        "within ~30 m. Diagnostics only — no automatic fixes.",
+    security: [...bearerAuth],
+    params: variantPublicIdParamSchema,
+    response: {
+        200: variantStopQualityResponseSchema,
         400: badRequestSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
@@ -1542,6 +1918,50 @@ export const getTransportDataQualityQueuesSchema = {
     security: [...bearerAuth],
     response: {
         200: dataQualityQueuesResponseSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+    },
+} satisfies FastifySchema;
+
+const qualitySummaryRowSchema = {
+    type: "object",
+    required: [
+        "mode",
+        "routes",
+        "variants",
+        "variants_without_stops",
+        "variants_without_path",
+        "variants_unknown_direction",
+        "routes_without_variants",
+    ],
+    properties: {
+        mode: { type: "string" },
+        routes: { type: "integer", minimum: 0 },
+        variants: { type: "integer", minimum: 0 },
+        variants_without_stops: { type: "integer", minimum: 0 },
+        variants_without_path: { type: "integer", minimum: 0 },
+        variants_unknown_direction: { type: "integer", minimum: 0 },
+        routes_without_variants: { type: "integer", minimum: 0 },
+    },
+} as const;
+
+const qualitySummaryResponseSchema = {
+    type: "object",
+    required: ["items", "schemaAvailable"],
+    properties: {
+        items: { type: "array", items: qualitySummaryRowSchema },
+        schemaAvailable: { type: "boolean" },
+    },
+} as const;
+
+export const getTransportQualitySummarySchema = {
+    tags: [Tags.Transport],
+    summary: "Transport quality summary by mode (admin)",
+    description:
+        "Read-only per-mode counts (routes, variants, variants missing stops/path/direction, routes missing variants) to help admins triage what to fix first. Admin only.",
+    security: [...bearerAuth],
+    response: {
+        200: qualitySummaryResponseSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
     },

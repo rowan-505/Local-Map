@@ -63,6 +63,18 @@ export class TransportRouteStopTransactionTimeoutError extends Error {
 }
 
 /**
+ * Thrown when creating a route (or its auto-generated variants) would collide
+ * with an existing unique value — e.g. a duplicate `route_code` or a
+ * `variant_code` already used by another route. Surfaced as a 409 conflict.
+ */
+export class TransportRouteConflictError extends Error {
+    constructor(public readonly conflict: string) {
+        super(conflict);
+        this.name = "TransportRouteConflictError";
+    }
+}
+
+/**
  * Thrown when archiving a stop that is still referenced by one or more routes
  * (counted as distinct routes via non-deleted variants). The stop must be
  * removed from all routes first; archiving never deletes route_stops rows.

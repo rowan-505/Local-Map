@@ -296,6 +296,36 @@ export const updateRouteBodySchema = z
 export type UpdateRouteInput = z.infer<typeof updateRouteBodySchema>;
 
 /**
+ * Modes the create-route endpoint supports. The `transport.routes.mode` column
+ * allows more values (express_bus/air/other), but route + auto-variant creation
+ * is only defined for bus/train/ferry today (see transport-mode-config.ts).
+ */
+export const createRouteModeEnum = z.enum(["bus", "train", "ferry"]);
+
+/**
+ * POST /transport/routes body. Creates a route plus its default variants in one
+ * transaction. `route_kind` is derived from the mode config (not accepted here),
+ * `public_name` is the display cache, and origin/destination feed both the route
+ * and the generated variants. `.strict()` rejects unknown keys — notably
+ * `route_kind`, `review_status`, `confidence_score`, `source_refs`, and
+ * `normalized_data`, which are all set by the server.
+ */
+export const createRouteBodySchema = z
+    .object({
+        mode: createRouteModeEnum,
+        route_code: z.string().trim().min(1).max(50),
+        public_name: z.string().trim().min(1).max(200),
+        origin_name: nullableText(200),
+        destination_name: nullableText(200),
+        operator_id: z.number().int().min(1).nullable().optional(),
+        create_return_variant: z.boolean().optional().default(false),
+        is_loop: z.boolean().optional().default(false),
+    })
+    .strict();
+
+export type CreateRouteInput = z.infer<typeof createRouteBodySchema>;
+
+/**
  * PATCH /transport/route-variants/:publicId body. Same conventions as the route
  * update schema. `.strict()` blocks `source_refs` / `normalized_data`.
  */
@@ -317,7 +347,104 @@ export const updateVariantBodySchema = z
         message: "At least one field must be provided.",
     });
 
-export type UpdateVariantInput = z.infer<typeof updateVariantBodySchema>;
+/**
+ * Variant `direction_id`: 0 = outbound, 1 = inbound, 2 = loop/branch/special,
+ * null = unknown. Narrower than the column's smallint range on purpose so the
+ * create/update endpoints only accept the meaningful values.
+ */
+const variantDirectionIdField = z.number().int().min(0).max(2).nullable().optional();
+
+/** Optional endpoint pointer (origin/destination stop) by stop public_id; null clears it. */
+const variantStopPublicIdField = z.string().uuid().nullable().optional();
+
+/**
+ * Repo-level variant write input. Extends the body-validated fields with the
+ * optional origin/destination stop pointers (resolved from public_id → stops.id
+ * in the repo). Both update body schemas produce values assignable to this.
+ */
+export type UpdateVariantInput = z.infer<typeof updateVariantBodySchema> & {
+    origin_stop_public_id?: string | null;
+    destination_stop_public_id?: string | null;
+};
+
+/**
+ * POST /transport/routes/:routePublicId/variants body. `variant_code` is required
+ * and unique per route (route_id + variant_code). `.strict()` rejects unknown
+ * keys — notably `source_refs` / `normalized_data` / `is_active` (server-set).
+ * review_status / confidence_score default in the repo when omitted.
+ */
+export const createVariantBodySchema = z
+    .object({
+        variant_code: z.string().trim().min(1).max(50),
+        direction_id: variantDirectionIdField,
+        direction_name: nullableText(100),
+        headsign: nullableText(200),
+        origin_name: nullableText(200),
+        destination_name: nullableText(200),
+        origin_stop_public_id: variantStopPublicIdField,
+        destination_stop_public_id: variantStopPublicIdField,
+        review_status: transportReviewStatusEnum.optional(),
+        confidence_score: confidenceScoreField,
+    })
+    .strict();
+
+export type CreateVariantInput = z.infer<typeof createVariantBodySchema>;
+
+/**
+ * PATCH /transport/variants/:variantPublicId body. Same fields as create, all
+ * optional, plus the endpoint stop pointers. `.strict()` blocks `source_refs` /
+ * `normalized_data`. At least one field required.
+ */
+export const patchVariantBodySchema = z
+    .object({
+        variant_code: requiredText(50),
+        direction_id: variantDirectionIdField,
+        direction_name: nullableText(100),
+        headsign: nullableText(200),
+        origin_name: nullableText(200),
+        destination_name: nullableText(200),
+        origin_stop_public_id: variantStopPublicIdField,
+        destination_stop_public_id: variantStopPublicIdField,
+        review_status: transportReviewStatusEnum.optional(),
+        confidence_score: confidenceScoreField,
+    })
+    .strict()
+    .refine((body) => Object.keys(body).length > 0, {
+        message: "At least one field must be provided.",
+    });
+
+export type PatchVariantInput = z.infer<typeof patchVariantBodySchema>;
+
+/** Path param for POST `/transport/routes/:routePublicId/variants`. */
+export const routeVariantsParamSchema = z.object({
+    routePublicId: z.string().uuid(),
+});
+
+/** Path param for `/transport/variants/:variantPublicId`. */
+export const variantPublicIdParamSchema = z.object({
+    variantPublicId: z.string().uuid(),
+});
+
+/** A single [lng, lat] position with WGS84 range checks. */
+const pathCoordinateSchema = z.tuple([
+    z.number().min(-180).max(180),
+    z.number().min(-90).max(90),
+]);
+
+/**
+ * PUT /transport/variants/:variantPublicId/path body. Upserts the variant's
+ * single active manual route path from an ordered LineString (≥ 2 positions).
+ * `path_kind` is restricted to "manual" (this endpoint only manages hand-drawn
+ * paths — no snapping / Valhalla). `.strict()` rejects any other key.
+ */
+export const putVariantPathBodySchema = z
+    .object({
+        coordinates: z.array(pathCoordinateSchema).min(2),
+        path_kind: z.literal("manual").optional(),
+    })
+    .strict();
+
+export type PutVariantPathInput = z.infer<typeof putVariantPathBodySchema>;
 
 /**
  * GET /transport/stops/:publicId/routes query — paginates the (potentially large)
@@ -385,6 +512,46 @@ export const updateStopBodySchema = z
     );
 
 export type UpdateStopInput = z.infer<typeof updateStopBodySchema>;
+
+/** Path param for the stop location/nearby endpoints. */
+export const stopPublicIdParamSchema = z.object({
+    stopPublicId: z.string().uuid(),
+});
+
+export type StopPublicIdParam = z.infer<typeof stopPublicIdParamSchema>;
+
+/**
+ * PATCH /transport/stops/:stopPublicId/location body. Focused location-only edit:
+ * moves the stop point and optionally updates review_status / confidence_score.
+ * Names, mode, stop_type, admin area, and parent are intentionally NOT editable
+ * here — use PATCH /transport/stops/:publicId for those. `.strict()` rejects any
+ * other key (notably `source_refs` / `normalized_data`).
+ */
+export const updateStopLocationBodySchema = z
+    .object({
+        lng: z.number().min(-180).max(180),
+        lat: z.number().min(-90).max(90),
+        review_status: transportReviewStatusEnum.optional(),
+        confidence_score: confidenceScoreField,
+    })
+    .strict();
+
+export type UpdateStopLocationInput = z.infer<typeof updateStopLocationBodySchema>;
+
+/**
+ * GET /transport/stops/:stopPublicId/nearby query — preview the stops within a
+ * radius of an arbitrary point (e.g. before committing a location edit). Defaults
+ * to the 30 m duplicate-check radius; capped to keep the lookup cheap.
+ */
+export const nearbyStopsQuerySchema = z
+    .object({
+        lng: z.coerce.number().min(-180).max(180),
+        lat: z.coerce.number().min(-90).max(90),
+        radius_m: z.coerce.number().min(1).max(500).default(30),
+    })
+    .strict();
+
+export type NearbyStopsQuery = z.infer<typeof nearbyStopsQuerySchema>;
 
 /**
  * PATCH /transport/terminals/:publicId body. Partial update; `.strict()` rejects
