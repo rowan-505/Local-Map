@@ -18,6 +18,18 @@ const MODERATE_MAX_M = 50;
 const LOW_MAX_M = 100;
 
 /**
+ * At/under this accuracy a fix is trustworthy enough to auto-center/follow at an
+ * accuracy-based zoom. Weaker fixes only center conservatively (and only after the
+ * GPS warm-up window), so users are not snapped to a wildly wrong early position.
+ */
+export const CENTER_WORTHY_ACCURACY_M = MODERATE_MAX_M;
+
+/** Whether a fix is accurate enough (<= 50m) to auto-center/follow on. */
+export function isCenterWorthyAccuracy(accuracyM: number | null | undefined): boolean {
+  return accuracyM != null && Number.isFinite(accuracyM) && accuracyM <= CENTER_WORTHY_ACCURACY_M;
+}
+
+/**
  * Bucket horizontal accuracy (meters) into a coarse quality grade.
  * Returns `null` when accuracy is missing or non-finite.
  */

@@ -42,6 +42,8 @@ import { useUserLocation } from '@/features/location/useUserLocation';
 import { useLocationToast } from '@/features/location/useLocationToast';
 import { LocationControl } from '@/features/location/LocationControl';
 import { LocationToast } from '@/features/location/LocationToast';
+import { useLocationDiagnostics } from '@/features/location/LocationDiagnostics';
+import { isCenterWorthyAccuracy } from '@/features/location/locationAccuracy';
 import {
   usePublicCategories,
   usePublicMapPlaces,
@@ -399,9 +401,23 @@ export default function HomePage() {
   // Own-user location (client-side only): no API, no persistence, no sharing.
   const userLocation = useUserLocation();
   const locationToast = useLocationToast(userLocation);
+  // Dev-only: console summary to diagnose GPS quality vs app logic. Renders nothing.
+  useLocationDiagnostics({
+    status: userLocation.status,
+    fix: userLocation.fix,
+    quality: userLocation.quality,
+    isInsideCoverage: userLocation.isInsideCoverage,
+    isOutOfCoverage: userLocation.isOutOfCoverage,
+    isWarmingUp: userLocation.isWarmingUp,
+  });
   const [locationCamera, setLocationCamera] = useState<LocationCameraCommand | null>(null);
   const locationCommandIdRef = useRef(0);
-  const firstFixHandledRef = useRef(false);
+  /** Outside-coverage Yangon fallback issued once per session. */
+  const outsideHandledRef = useRef(false);
+  /** Whether we have centered on a center-worthy (<=50m) fix yet this session. */
+  const hasGoodCenterRef = useRef(false);
+  /** Whether we have issued any inside-coverage center (good or conservative) yet. */
+  const hasAnyCenterRef = useRef(false);
 
   const flyToUserLocation = useCallback(() => {
     if (import.meta.env.DEV) {
@@ -422,6 +438,7 @@ export default function HomePage() {
     status: locationStatus,
     fix: locationFix,
     isInsideCoverage: locationInsideCoverage,
+    isWarmingUp: locationWarmingUp,
     startTracking: startLocationTracking,
     enableFollowing: enableLocationFollowing,
     disableFollowing: disableLocationFollowing,
@@ -447,7 +464,9 @@ export default function HomePage() {
     // Any other (non-tracking) state — idle, stopped, requesting, or an error
     // (permission_denied / unavailable / timeout / unsupported) — (re)starts
     // tracking, which re-requests permission from a clean watch.
-    firstFixHandledRef.current = false;
+    outsideHandledRef.current = false;
+    hasGoodCenterRef.current = false;
+    hasAnyCenterRef.current = false;
     startLocationTracking();
   }, [
     locationStatus,
@@ -460,22 +479,55 @@ export default function HomePage() {
     flyToYangonFocus,
   ]);
 
-  /** First valid fix after starting: frame the user (in coverage) or fall back to Yangon. */
+  /**
+   * Warm-up-aware camera while tracking:
+   * - Outside coverage → fall back to Yangon once (never fly off-map).
+   * - Inside + good fix (<=50m) → center + follow at accuracy-based zoom (once).
+   * - Inside + weak fix → wait out warm-up (just show the dot); after warm-up ends
+   *   with still-weak GPS, center once conservatively (no follow) at zoom 14/15.
+   * - A later improvement to a good fix re-centers + enables follow.
+   */
   useEffect(() => {
     if (locationStatus !== 'tracking' || !locationFix) return;
-    if (firstFixHandledRef.current) return;
-    firstFixHandledRef.current = true;
-    if (locationInsideCoverage) {
-      enableLocationFollowing();
+
+    if (locationInsideCoverage === false) {
+      if (!outsideHandledRef.current) {
+        outsideHandledRef.current = true;
+        disableLocationFollowing();
+        flyToYangonFocus();
+      }
+      return;
+    }
+
+    const goodFix = isCenterWorthyAccuracy(locationFix.accuracyM);
+    if (goodFix) {
+      if (!hasGoodCenterRef.current) {
+        hasGoodCenterRef.current = true;
+        hasAnyCenterRef.current = true;
+        if (import.meta.env.DEV) {
+          console.debug('[location] camera centered because good fix');
+        }
+        enableLocationFollowing();
+        flyToUserLocation();
+      }
+      return;
+    }
+
+    // Weak fix inside coverage: hold during warm-up, then center conservatively once.
+    if (!hasAnyCenterRef.current && !locationWarmingUp) {
+      hasAnyCenterRef.current = true;
+      if (import.meta.env.DEV) {
+        console.debug('[location] camera centered conservatively after warm-up (low accuracy)');
+      }
       flyToUserLocation();
-    } else {
-      disableLocationFollowing();
-      flyToYangonFocus();
+    } else if (import.meta.env.DEV && !hasAnyCenterRef.current) {
+      console.debug('[location] camera delayed because low accuracy (warming up)');
     }
   }, [
     locationStatus,
     locationFix,
     locationInsideCoverage,
+    locationWarmingUp,
     enableLocationFollowing,
     disableLocationFollowing,
     flyToUserLocation,
@@ -621,9 +673,9 @@ export default function HomePage() {
               <LocationControl
                 status={userLocation.status}
                 fix={userLocation.fix}
-                quality={userLocation.quality}
                 isFollowing={userLocation.isFollowing}
                 isOutOfCoverage={userLocation.isOutOfCoverage}
+                isWarmingUp={userLocation.isWarmingUp}
                 message={userLocation.errorMessage}
                 onLocateClick={onLocateClick}
                 onStopClick={userLocation.stopTracking}

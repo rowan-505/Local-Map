@@ -24,6 +24,9 @@ const WATCH_OPTIONS: PositionOptions = {
   maximumAge: 3000,
 };
 
+/** GPS warm-up window: keep improving the fix before committing to a close camera. */
+const WARM_UP_MS = 8000;
+
 const INITIAL_STATE: UserLocationState = {
   status: 'idle',
   fix: null,
@@ -32,6 +35,8 @@ const INITIAL_STATE: UserLocationState = {
   quality: null,
   isInsideCoverage: null,
   isOutOfCoverage: false,
+  isWarmingUp: false,
+  bestFix: null,
 };
 
 export type UseUserLocationResult = UserLocationState & {
@@ -50,6 +55,16 @@ export function useUserLocation(): UseUserLocationResult {
   const watchIdRef = useRef<number | null>(null);
   /** Last accepted fix, used to reject impossible jumps. Reset per tracking session. */
   const lastFixRef = useRef<UserLocationFix | null>(null);
+  /** Best (lowest-accuracy) fix seen this session, for warm-up decisions. */
+  const bestFixRef = useRef<UserLocationFix | null>(null);
+  const warmUpTimerRef = useRef<number | null>(null);
+
+  const clearWarmUpTimer = useCallback(() => {
+    if (warmUpTimerRef.current != null) {
+      window.clearTimeout(warmUpTimerRef.current);
+      warmUpTimerRef.current = null;
+    }
+  }, []);
 
   const clearWatch = useCallback(() => {
     if (watchIdRef.current != null && typeof navigator !== 'undefined') {
@@ -104,12 +119,31 @@ export function useUserLocation(): UseUserLocationResult {
     // error (denied/timeout/unavailable), so without this an error→re-click would
     // no-op and never re-request permission.
     clearWatch();
+    clearWarmUpTimer();
     lastFixRef.current = null;
+    bestFixRef.current = null;
+
+    // Enter GPS warm-up: accept fixes and show the dot, but the camera will avoid
+    // committing to a close zoom on an early low-accuracy fix until this ends.
+    if (import.meta.env.DEV) {
+      console.debug('[location] warm-up started', { warmUpMs: WARM_UP_MS });
+    }
+    warmUpTimerRef.current = window.setTimeout(() => {
+      warmUpTimerRef.current = null;
+      if (import.meta.env.DEV) {
+        console.debug('[location] warm-up ended', {
+          bestAccuracyM: bestFixRef.current ? Math.round(bestFixRef.current.accuracyM) : null,
+        });
+      }
+      setState((prev) => ({ ...prev, isWarmingUp: false }));
+    }, WARM_UP_MS);
 
     setState((prev) => ({
       ...prev,
       status: 'requesting_permission',
       errorMessage: null,
+      isWarmingUp: true,
+      bestFix: null,
     }));
 
     watchIdRef.current = navigator.geolocation.watchPosition(
@@ -135,21 +169,36 @@ export function useUserLocation(): UseUserLocationResult {
         // Outside-coverage fixes are kept as-is (real fix/accuracy/etc.); the
         // camera decides whether to fly to the user or fall back to Yangon.
         const insideCoverage = isInsideMyanmarApprox(fix.lat, fix.lng);
+        const quality = getLocationQuality(fix.accuracyM);
+
+        // Track the best (lowest-accuracy) fix of the session.
+        const prevBest = bestFixRef.current;
+        const isBetter = !prevBest || fix.accuracyM < prevBest.accuracyM;
+        if (isBetter) bestFixRef.current = fix;
+
         if (import.meta.env.DEV) {
-          // Accuracy + coverage only — never the exact coordinates.
+          // Accuracy + coverage/quality only — never the exact coordinates.
           console.debug('[location] watchPosition success', {
             accuracyM: Math.round(fix.accuracyM),
+            quality,
             insideCoverage,
           });
+          if (isBetter) {
+            console.debug('[location] best fix improved', {
+              accuracyM: Math.round(fix.accuracyM),
+            });
+          }
         }
+
         setState((prev) => ({
           ...prev,
           status: 'tracking',
           fix,
           errorMessage: null,
-          quality: getLocationQuality(fix.accuracyM),
+          quality,
           isInsideCoverage: insideCoverage,
           isOutOfCoverage: !insideCoverage,
+          bestFix: bestFixRef.current,
         }));
       },
       (error) => {
@@ -159,25 +208,29 @@ export function useUserLocation(): UseUserLocationResult {
             message: error.message,
           });
         }
+        clearWarmUpTimer();
         setState((prev) => ({
           ...prev,
           status: statusForGeolocationError(error),
           errorMessage: messageForGeolocationError(error),
           isFollowing: false,
+          isWarmingUp: false,
         }));
       },
       WATCH_OPTIONS,
     );
-  }, [clearWatch]);
+  }, [clearWatch, clearWarmUpTimer]);
 
   const stopTracking = useCallback(() => {
     clearWatch();
+    clearWarmUpTimer();
     setState((prev) => ({
       ...prev,
       status: 'stopped',
       isFollowing: false,
+      isWarmingUp: false,
     }));
-  }, [clearWatch]);
+  }, [clearWatch, clearWarmUpTimer]);
 
   const enableFollowing = useCallback(() => {
     setState((prev) => ({ ...prev, isFollowing: true }));
@@ -195,8 +248,9 @@ export function useUserLocation(): UseUserLocationResult {
   useEffect(() => {
     return () => {
       clearWatch();
+      clearWarmUpTimer();
     };
-  }, [clearWatch]);
+  }, [clearWatch, clearWarmUpTimer]);
 
   return {
     ...state,

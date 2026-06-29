@@ -63,4 +63,11 @@ export type UserLocationState = {
   readonly isInsideCoverage: boolean | null;
   /** True only when a valid fix exists and falls outside the coverage box. */
   readonly isOutOfCoverage: boolean;
+  /**
+   * GPS warm-up window after tracking starts: we keep accepting fixes and showing
+   * the dot, but avoid aggressively centering on an early low-accuracy fix.
+   */
+  readonly isWarmingUp: boolean;
+  /** Lowest-accuracy (best) fix seen this session — used for warm-up decisions. */
+  readonly bestFix: UserLocationFix | null;
 };

@@ -4,18 +4,15 @@
  * Client-side only: triggers tracking/recenter via callbacks and renders a small
  * status pill. No modal, no sharing, no backend, nothing persisted.
  */
-import type {
-  UserLocationFix,
-  UserLocationQuality,
-  UserLocationStatus,
-} from './userLocationTypes';
+import type { UserLocationFix, UserLocationStatus } from './userLocationTypes';
 
 type LocationControlProps = {
   readonly status: UserLocationStatus;
   readonly fix: UserLocationFix | null;
-  readonly quality: UserLocationQuality | null;
   readonly isFollowing: boolean;
   readonly isOutOfCoverage: boolean;
+  /** True during the GPS warm-up window before a usable fix arrives. */
+  readonly isWarmingUp: boolean;
   /** Optional hook error message; used to show the specific reason (e.g. HTTPS requirement). */
   readonly message?: string | null;
   /** Start tracking (when idle/stopped/error) or recenter + follow (when tracking). */
@@ -33,9 +30,9 @@ const ERROR_STATUSES: ReadonlySet<UserLocationStatus> = new Set([
 export function LocationControl({
   status,
   fix,
-  quality,
   isFollowing,
   isOutOfCoverage,
+  isWarmingUp,
   message,
   onLocateClick,
   onStopClick,
@@ -43,7 +40,7 @@ export function LocationControl({
   const isLocating = status === 'requesting_permission';
   const isTracking = status === 'tracking';
   const isError = ERROR_STATUSES.has(status);
-  const statusText = getStatusText({ status, fix, quality, isOutOfCoverage, message });
+  const statusText = getStatusText({ status, fix, isOutOfCoverage, isWarmingUp, message });
   const showStop = isTracking && Boolean(onStopClick);
 
   const active = isFollowing && isTracking;
@@ -98,19 +95,19 @@ export function LocationControl({
 function getStatusText({
   status,
   fix,
-  quality,
   isOutOfCoverage,
+  isWarmingUp,
   message,
 }: {
   status: UserLocationStatus;
   fix: UserLocationFix | null;
-  quality: UserLocationQuality | null;
   isOutOfCoverage: boolean;
+  isWarmingUp: boolean;
   message?: string | null;
 }): string | null {
   switch (status) {
     case 'requesting_permission':
-      return 'Locating…';
+      return 'Finding precise location…';
     case 'permission_denied':
       return 'Location denied · Showing Yangon';
     case 'unavailable':
@@ -122,10 +119,13 @@ function getStatusText({
       return message ?? 'Location unsupported · Showing Yangon';
     case 'tracking': {
       if (isOutOfCoverage) return 'Outside CoreMap coverage · Showing Yangon';
-      if (!fix) return 'Tracking';
+      // No usable fix yet during warm-up → reassure the user we are still improving.
+      if (!fix) return isWarmingUp ? 'Finding precise location…' : 'Tracking';
       const meters = Math.round(fix.accuracyM);
-      const lowAccuracy = quality === 'low' || quality === 'poor';
-      return lowAccuracy ? `Low accuracy ±${meters}m` : `Accuracy ±${meters}m`;
+      if (fix.accuracyM <= 20) return `Precise ±${meters}m`;
+      if (fix.accuracyM <= 50) return `Accuracy ±${meters}m`;
+      if (fix.accuracyM <= 100) return `Low accuracy ±${meters}m · Improving…`;
+      return `Poor accuracy ±${meters}m · Move outdoors if possible`;
     }
     default:
       return null;
