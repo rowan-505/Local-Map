@@ -70,6 +70,7 @@ import {
   updateUserLocationLayers,
 } from '@/features/location/userLocationMapLayers';
 import { getRecommendedLocationZoom } from '@/features/location/locationAccuracy';
+import { logLocationEvent } from '@/features/location/locationDebug';
 import { COREMAP_DEFAULT_FOCUS } from '@/features/location/locationCoverage';
 const KYAUKTAN_CENTER: [number, number] = [96.3168, 16.6590];
 const KYAUKTAN_CENTER_ZOOM = 14.5;
@@ -650,6 +651,7 @@ function MapViewInner({
       // A genuine manual gesture ends follow mode. Programmatic location moves
       // (flyTo/easeTo) have no `originalEvent`, so they never reach here.
       if (userLocationFollowingRef.current) {
+        logLocationEvent('follow_disabled', { reason: 'manual_map_move' });
         onFollowDisengageRef.current?.();
       }
     };

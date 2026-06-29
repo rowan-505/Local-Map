@@ -43,7 +43,7 @@ export function useLocationDiagnostics({
   // One-line console summary on every meaningful change (no coordinates).
   useEffect(() => {
     if (!import.meta.env.DEV) return;
-    console.debug('[location] diagnostics', {
+    console.log('%c[location]%c diagnostics', 'color:#0284c7;font-weight:600', 'color:inherit', {
       status,
       accuracyM,
       quality,

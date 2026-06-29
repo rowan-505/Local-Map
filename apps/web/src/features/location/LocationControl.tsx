@@ -107,9 +107,9 @@ function getStatusText({
 }): string | null {
   switch (status) {
     case 'requesting_permission':
-      return 'Finding precise location…';
+      return 'Requesting location…';
     case 'permission_denied':
-      return 'Location denied · Showing Yangon';
+      return 'Location denied';
     case 'unavailable':
       return 'Location unavailable · Showing Yangon';
     case 'timeout':
@@ -124,8 +124,13 @@ function getStatusText({
       const meters = Math.round(fix.accuracyM);
       if (fix.accuracyM <= 20) return `Precise ±${meters}m`;
       if (fix.accuracyM <= 50) return `Accuracy ±${meters}m`;
-      if (fix.accuracyM <= 100) return `Low accuracy ±${meters}m · Improving…`;
-      return `Poor accuracy ±${meters}m · Move outdoors if possible`;
+      if (fix.accuracyM <= 100) {
+        // Still warming up → keep hope; warm-up over → nudge to move outdoors.
+        return isWarmingUp
+          ? `Low accuracy ±${meters}m · Improving…`
+          : `Low accuracy ±${meters}m · Move outdoors`;
+      }
+      return `Poor accuracy ±${meters}m · Move outdoors`;
     }
     default:
       return null;

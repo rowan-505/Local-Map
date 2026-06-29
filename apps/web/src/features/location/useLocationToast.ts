@@ -8,6 +8,7 @@
  * reset the dedupe key so the next outcome announces again.
  */
 import { useEffect, useRef, useState } from 'react';
+import { logLocationEvent } from './locationDebug';
 import type { UserLocationState } from './userLocationTypes';
 
 export type LocationToastTone = 'success' | 'warn';
@@ -43,18 +44,22 @@ export function useLocationToast(state: LocationToastInput): LocationToast | nul
     }
     // Tier is part of the key so an inside-coverage fix improving low→good re-announces.
     const key = `${status}:${isOutOfCoverage}:${accuracyTier}`;
-    if (key === lastKeyRef.current) return;
+    if (key === lastKeyRef.current) {
+      logLocationEvent('toast_skipped', { reason: `dedupe:${next.reason}`, tone: next.tone });
+      return;
+    }
     lastKeyRef.current = key;
     idRef.current += 1;
-    if (import.meta.env.DEV) {
-      console.debug('[location] toast generated', { tone: next.tone, message: next.message });
-    }
+    logLocationEvent('toast_generated', { reason: next.reason, tone: next.tone });
     setToast({ id: idRef.current, message: next.message, tone: next.tone });
   }, [status, isOutOfCoverage, errorMessage, accuracyTier]);
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), AUTO_DISMISS_MS);
+    const timer = window.setTimeout(() => {
+      logLocationEvent('toast_dismissed', { reason: 'auto', tone: toast.tone });
+      setToast(null);
+    }, AUTO_DISMISS_MS);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
@@ -66,30 +71,32 @@ function deriveToast(
   isOutOfCoverage: boolean,
   errorMessage: string | null,
   accuracyTier: 'good' | 'low',
-): { message: string; tone: LocationToastTone } | null {
+): { message: string; tone: LocationToastTone; reason: string } | null {
   switch (status) {
     case 'tracking':
       if (isOutOfCoverage) {
         return {
           message: 'Outside CoreMap coverage — showing Yangon Region',
           tone: 'warn',
+          reason: 'outside_coverage',
         };
       }
       // Inside coverage: avoid implying a precise lock while accuracy is still poor.
       return accuracyTier === 'low'
-        ? { message: 'Low accuracy — improving location', tone: 'warn' }
-        : { message: 'Showing your location', tone: 'success' };
+        ? { message: 'Low accuracy — improving location', tone: 'warn', reason: 'inside_low_accuracy' }
+        : { message: 'Showing your location', tone: 'success', reason: 'inside_good_accuracy' };
     case 'permission_denied':
-      return { message: 'Location denied — showing Yangon Region', tone: 'warn' };
+      return { message: 'Location denied — showing Yangon Region', tone: 'warn', reason: 'permission_denied' };
     case 'unavailable':
-      return { message: 'Location unavailable — showing Yangon Region', tone: 'warn' };
+      return { message: 'Location unavailable — showing Yangon Region', tone: 'warn', reason: 'unavailable' };
     case 'timeout':
-      return { message: 'Location timeout — showing Yangon Region', tone: 'warn' };
+      return { message: 'Location timeout — showing Yangon Region', tone: 'warn', reason: 'timeout' };
     case 'unsupported':
       // Surface the specific reason (e.g. HTTPS requirement) when available.
       return {
         message: errorMessage ?? 'Location not available — showing Yangon Region',
         tone: 'warn',
+        reason: 'unsupported',
       };
     default:
       // idle, stopped, requesting_permission

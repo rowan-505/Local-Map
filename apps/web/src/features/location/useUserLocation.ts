@@ -12,20 +12,48 @@ import {
   shouldRejectImpossibleJump,
 } from './locationAccuracy';
 import { isInsideMyanmarApprox } from './locationCoverage';
+import { logLocationEvent, roundOrNull } from './locationDebug';
 import type {
   UserLocationFix,
+  UserLocationQuality,
   UserLocationState,
   UserLocationStatus,
 } from './userLocationTypes';
 
+/**
+ * Strongest practical geolocation options for initial acquisition + warm-up:
+ * - enableHighAccuracy: true  → use GPS/GNSS, not just coarse Wi-Fi/cell.
+ * - timeout: 30000            → give a cold GPS chip time to lock satellites.
+ * - maximumAge: 0             → never accept a cached fix; always a fresh sample,
+ *                               so a stale low-accuracy estimate is never trusted.
+ *
+ * A single long-lived watcher is used for the whole session (no per-render or
+ * per-fix recreation), which keeps the code simple and avoids duplicate watchers.
+ */
 const WATCH_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
-  timeout: 10000,
-  maximumAge: 3000,
+  timeout: 30000,
+  maximumAge: 0,
 };
 
-/** GPS warm-up window: keep improving the fix before committing to a close camera. */
-const WARM_UP_MS = 8000;
+/**
+ * Defensive freshness guard. With `maximumAge: 0` the browser should never hand
+ * back a cached sample, but if a device reports an unusually old timestamp we skip
+ * it so a stale fix is never displayed or treated as precise.
+ */
+const STALE_FIX_MAX_AGE_MS = 60000;
+
+/**
+ * GPS warm-up window: keep improving the fix before committing to a close camera.
+ * Longer window (20s) gives the GPS chip time to move from a coarse cell/Wi-Fi
+ * estimate (e.g. ±98m) to a real satellite fix before we trust precision.
+ */
+const WARM_UP_MS = 20000;
+
+/** A fix at/under this accuracy (m) is treated as precise enough to follow/zoom. */
+const PRECISION_READY_ACCURACY_M = 50;
+/** A fix at/under this accuracy (m) is high precision. */
+const HIGH_PRECISION_ACCURACY_M = 20;
 
 const INITIAL_STATE: UserLocationState = {
   status: 'idle',
@@ -42,6 +70,16 @@ const INITIAL_STATE: UserLocationState = {
 export type UseUserLocationResult = UserLocationState & {
   /** Bumped each time a recenter-on-user is requested (follow enable / recenter). */
   readonly recenterRequested: number;
+  /** True only when a valid inside-coverage fix is accurate enough (<=50m) to trust. */
+  readonly isPrecisionReady: boolean;
+  /** True only when accuracy is high (<=20m) inside coverage. */
+  readonly isHighPrecision: boolean;
+  /** True when a valid fix exists but accuracy is still weak (>50m). */
+  readonly isLowPrecision: boolean;
+  /** Best (lowest) accuracy seen this session, in meters. */
+  readonly bestAccuracyM: number | null;
+  /** Elapsed time (ms) since warm-up started, or null when not tracking. */
+  readonly precisionWaitElapsedMs: number | null;
   startTracking: () => void;
   stopTracking: () => void;
   enableFollowing: () => void;
@@ -58,6 +96,12 @@ export function useUserLocation(): UseUserLocationResult {
   /** Best (lowest-accuracy) fix seen this session, for warm-up decisions. */
   const bestFixRef = useRef<UserLocationFix | null>(null);
   const warmUpTimerRef = useRef<number | null>(null);
+  /** Epoch ms when the current warm-up window started (null when not tracking). */
+  const warmupStartedAtRef = useRef<number | null>(null);
+  /** Whether we've already logged `precision_ready` this session. */
+  const precisionReadyLoggedRef = useRef(false);
+  /** Last logged quality bucket, to emit `quality_changed` only on transitions. */
+  const lastQualityRef = useRef<UserLocationQuality | null>(null);
 
   const clearWarmUpTimer = useCallback(() => {
     if (warmUpTimerRef.current != null) {
@@ -74,13 +118,14 @@ export function useUserLocation(): UseUserLocationResult {
   }, []);
 
   const startTracking = useCallback(() => {
-    if (import.meta.env.DEV) {
-      console.debug('[location] startTracking called', {
-        secureContext: typeof window !== 'undefined' ? window.isSecureContext : undefined,
-      });
-    }
+    const isSecureContext = typeof window !== 'undefined' ? window.isSecureContext : null;
+    logLocationEvent('start_tracking', {
+      isSecureContext,
+      watchIdExists: watchIdRef.current != null,
+    });
 
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      logLocationEvent('watch_error', { reason: 'geolocation_unsupported', status: 'unsupported' });
       setState((prev) => ({
         ...prev,
         status: 'unsupported',
@@ -93,9 +138,7 @@ export function useUserLocation(): UseUserLocationResult {
     // origins (e.g. a LAN IP over HTTP) the browser refuses WITHOUT prompting, so we
     // surface a clear, actionable message instead of a silent Yangon fallback.
     if (typeof window !== 'undefined' && window.isSecureContext === false) {
-      if (import.meta.env.DEV) {
-        console.debug('[location] insecure context — geolocation blocked by browser');
-      }
+      logLocationEvent('watch_error', { reason: 'insecure_context', isSecureContext: false, status: 'unsupported' });
       setState((prev) => ({
         ...prev,
         status: 'unsupported',
@@ -108,7 +151,7 @@ export function useUserLocation(): UseUserLocationResult {
       navigator.permissions
         .query({ name: 'geolocation' as PermissionName })
         .then((result) => {
-          console.debug('[location] geolocation permission state:', result.state);
+          logLocationEvent('permission_state', { permissionState: result.state });
         })
         .catch(() => {
           /* permissions query unsupported — ignore */
@@ -122,18 +165,22 @@ export function useUserLocation(): UseUserLocationResult {
     clearWarmUpTimer();
     lastFixRef.current = null;
     bestFixRef.current = null;
+    lastQualityRef.current = null;
+    precisionReadyLoggedRef.current = false;
+    warmupStartedAtRef.current = Date.now();
 
     // Enter GPS warm-up: accept fixes and show the dot, but the camera will avoid
     // committing to a close zoom on an early low-accuracy fix until this ends.
-    if (import.meta.env.DEV) {
-      console.debug('[location] warm-up started', { warmUpMs: WARM_UP_MS });
-    }
+    logLocationEvent('warmup_started', { reason: `${WARM_UP_MS}ms`, isWarmingUp: true });
     warmUpTimerRef.current = window.setTimeout(() => {
       warmUpTimerRef.current = null;
-      if (import.meta.env.DEV) {
-        console.debug('[location] warm-up ended', {
-          bestAccuracyM: bestFixRef.current ? Math.round(bestFixRef.current.accuracyM) : null,
-        });
+      const bestAccuracyM = roundOrNull(bestFixRef.current?.accuracyM);
+      // Distinguish "warm-up finished with a good fix" from "still weak" so logs
+      // make clear whether the device GPS simply never improved.
+      if (bestAccuracyM != null && bestAccuracyM > PRECISION_READY_ACCURACY_M) {
+        logLocationEvent('warmup_ended_best_still_low', { bestAccuracyM, isWarmingUp: false });
+      } else {
+        logLocationEvent('warmup_ended', { bestAccuracyM, isWarmingUp: false });
       }
       setState((prev) => ({ ...prev, isWarmingUp: false }));
     }, WARM_UP_MS);
@@ -149,18 +196,39 @@ export function useUserLocation(): UseUserLocationResult {
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         const fix = toUserLocationFix(position);
+        const quality = getLocationQuality(fix.accuracyM);
+        const accuracyM = roundOrNull(fix.accuracyM);
+        const ageMs = roundOrNull(Date.now() - fix.timestamp);
+        const warmingUp = warmUpTimerRef.current != null;
+
+        // Raw browser callback — distinguishes "device GPS is weak" from app logic.
+        logLocationEvent('watch_success', {
+          accuracyM,
+          quality,
+          speedMps: fix.speedMps ?? null,
+          headingAvailable: fix.headingDeg != null && Number.isFinite(fix.headingDeg),
+          ageMs,
+          isWarmingUp: warmingUp,
+        });
+
         if (!shouldAcceptLocationFix(fix)) {
-          if (import.meta.env.DEV) {
-            console.warn('[location] ignoring out-of-range geolocation sample');
-          }
+          logLocationEvent('fix_rejected', { reason: 'out_of_range', accuracyM, quality });
+          return;
+        }
+        // Never let a stale cached sample be shown or treated as precise.
+        if (ageMs != null && ageMs > STALE_FIX_MAX_AGE_MS) {
+          logLocationEvent('fix_rejected', { reason: 'stale_cached', accuracyM, quality, ageMs });
           return;
         }
         // Drop physically impossible jumps (likely GPS error), keeping the last
         // good fix. Conservative: corroborated high speed is not rejected.
         if (shouldRejectImpossibleJump(lastFixRef.current, fix)) {
-          if (import.meta.env.DEV) {
-            console.warn('[location] ignoring implausible geolocation jump');
-          }
+          logLocationEvent('fix_rejected', {
+            reason: 'impossible_jump',
+            accuracyM,
+            quality,
+            previousAccuracyM: roundOrNull(lastFixRef.current?.accuracyM),
+          });
           return;
         }
         lastFixRef.current = fix;
@@ -169,25 +237,52 @@ export function useUserLocation(): UseUserLocationResult {
         // Outside-coverage fixes are kept as-is (real fix/accuracy/etc.); the
         // camera decides whether to fly to the user or fall back to Yangon.
         const insideCoverage = isInsideMyanmarApprox(fix.lat, fix.lng);
-        const quality = getLocationQuality(fix.accuracyM);
 
         // Track the best (lowest-accuracy) fix of the session.
         const prevBest = bestFixRef.current;
         const isBetter = !prevBest || fix.accuracyM < prevBest.accuracyM;
-        if (isBetter) bestFixRef.current = fix;
-
-        if (import.meta.env.DEV) {
-          // Accuracy + coverage/quality only — never the exact coordinates.
-          console.debug('[location] watchPosition success', {
-            accuracyM: Math.round(fix.accuracyM),
-            quality,
-            insideCoverage,
+        if (isBetter) {
+          logLocationEvent('best_fix_improved', {
+            previousAccuracyM: roundOrNull(prevBest?.accuracyM),
+            bestAccuracyM: accuracyM,
           });
-          if (isBetter) {
-            console.debug('[location] best fix improved', {
-              accuracyM: Math.round(fix.accuracyM),
-            });
-          }
+          bestFixRef.current = fix;
+        }
+
+        // Emit a quality transition only when the bucket actually changes.
+        if (lastQualityRef.current !== quality) {
+          logLocationEvent('quality_changed', {
+            quality,
+            accuracyM,
+            reason: `from_${lastQualityRef.current ?? 'none'}`,
+          });
+          lastQualityRef.current = quality;
+        }
+
+        logLocationEvent('fix_accepted', {
+          accuracyM,
+          quality,
+          isInsideCoverage: insideCoverage,
+          isOutOfCoverage: !insideCoverage,
+          isWarmingUp: warmingUp,
+          bestAccuracyM: roundOrNull(bestFixRef.current?.accuracyM),
+        });
+
+        // First time we reach trustworthy precision inside coverage this session.
+        if (
+          insideCoverage &&
+          fix.accuracyM <= PRECISION_READY_ACCURACY_M &&
+          !precisionReadyLoggedRef.current
+        ) {
+          precisionReadyLoggedRef.current = true;
+          logLocationEvent('precision_ready', {
+            accuracyM,
+            quality,
+            precisionWaitElapsedMs:
+              warmupStartedAtRef.current != null
+                ? roundOrNull(Date.now() - warmupStartedAtRef.current)
+                : null,
+          });
         }
 
         setState((prev) => ({
@@ -202,16 +297,12 @@ export function useUserLocation(): UseUserLocationResult {
         }));
       },
       (error) => {
-        if (import.meta.env.DEV) {
-          console.debug('[location] watchPosition error', {
-            code: error.code,
-            message: error.message,
-          });
-        }
+        const status = statusForGeolocationError(error);
+        logLocationEvent('watch_error', { reason: `code_${error.code}`, status });
         clearWarmUpTimer();
         setState((prev) => ({
           ...prev,
-          status: statusForGeolocationError(error),
+          status,
           errorMessage: messageForGeolocationError(error),
           isFollowing: false,
           isWarmingUp: false,
@@ -222,8 +313,10 @@ export function useUserLocation(): UseUserLocationResult {
   }, [clearWatch, clearWarmUpTimer]);
 
   const stopTracking = useCallback(() => {
+    logLocationEvent('stop_tracking', { watchIdExists: watchIdRef.current != null });
     clearWatch();
     clearWarmUpTimer();
+    warmupStartedAtRef.current = null;
     setState((prev) => ({
       ...prev,
       status: 'stopped',
@@ -252,9 +345,27 @@ export function useUserLocation(): UseUserLocationResult {
     };
   }, [clearWatch, clearWarmUpTimer]);
 
+  // Derived precision readiness (frontend-only; no faking — purely reflects the
+  // browser's reported accuracy). Inside-coverage gating mirrors the camera policy.
+  const fixAccuracyM = state.fix?.accuracyM ?? null;
+  const insideCoverage = state.isInsideCoverage === true;
+  const isHighPrecision =
+    insideCoverage && fixAccuracyM != null && fixAccuracyM <= HIGH_PRECISION_ACCURACY_M;
+  const isPrecisionReady =
+    insideCoverage && fixAccuracyM != null && fixAccuracyM <= PRECISION_READY_ACCURACY_M;
+  const isLowPrecision = fixAccuracyM != null && fixAccuracyM > PRECISION_READY_ACCURACY_M;
+  const bestAccuracyM = state.bestFix?.accuracyM ?? null;
+  const precisionWaitElapsedMs =
+    warmupStartedAtRef.current != null ? Date.now() - warmupStartedAtRef.current : null;
+
   return {
     ...state,
     recenterRequested,
+    isPrecisionReady,
+    isHighPrecision,
+    isLowPrecision,
+    bestAccuracyM,
+    precisionWaitElapsedMs,
     startTracking,
     stopTracking,
     enableFollowing,

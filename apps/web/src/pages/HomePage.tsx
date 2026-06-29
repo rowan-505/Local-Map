@@ -44,6 +44,7 @@ import { LocationControl } from '@/features/location/LocationControl';
 import { LocationToast } from '@/features/location/LocationToast';
 import { useLocationDiagnostics } from '@/features/location/LocationDiagnostics';
 import { isCenterWorthyAccuracy } from '@/features/location/locationAccuracy';
+import { logLocationEvent, roundOrNull } from '@/features/location/locationDebug';
 import {
   usePublicCategories,
   usePublicMapPlaces,
@@ -419,17 +420,13 @@ export default function HomePage() {
   /** Whether we have issued any inside-coverage center (good or conservative) yet. */
   const hasAnyCenterRef = useRef(false);
 
+  // Low-level camera command issuers. Callers log the reasoned camera_* event so
+  // logs read at the decision point (good fix / low accuracy / fallback).
   const flyToUserLocation = useCallback(() => {
-    if (import.meta.env.DEV) {
-      console.debug('[location] camera target: user location');
-    }
     locationCommandIdRef.current += 1;
     setLocationCamera({ id: locationCommandIdRef.current, type: 'user' });
   }, []);
   const flyToYangonFocus = useCallback(() => {
-    if (import.meta.env.DEV) {
-      console.debug('[location] camera target: Yangon Region (default focus)');
-    }
     locationCommandIdRef.current += 1;
     setLocationCamera({ id: locationCommandIdRef.current, type: 'yangon' });
   }, []);
@@ -445,16 +442,27 @@ export default function HomePage() {
   } = userLocation;
 
   const onLocateClick = useCallback(() => {
-    if (import.meta.env.DEV) {
-      console.debug('[location] locate button clicked', { status: locationStatus });
-    }
+    logLocationEvent('button_click', { status: locationStatus });
 
     // Already tracking with a fix → recenter (in coverage) or fall back to Yangon.
     if (locationStatus === 'tracking' && locationFix) {
       if (locationInsideCoverage) {
+        const accuracyM = roundOrNull(locationFix.accuracyM);
+        logLocationEvent('follow_enabled', { reason: 'recenter_click' });
+        logLocationEvent('camera_center_user', {
+          reason: isCenterWorthyAccuracy(locationFix.accuracyM)
+            ? 'inside_good_accuracy'
+            : 'inside_low_accuracy',
+          accuracyM,
+          cameraAction: 'flyTo_user',
+        });
         enableLocationFollowing();
         flyToUserLocation();
       } else {
+        logLocationEvent('camera_fallback_yangon', {
+          reason: 'outside_coverage',
+          cameraAction: 'flyTo_yangon',
+        });
         disableLocationFollowing();
         flyToYangonFocus();
       }
@@ -490,9 +498,16 @@ export default function HomePage() {
   useEffect(() => {
     if (locationStatus !== 'tracking' || !locationFix) return;
 
+    const accuracyM = roundOrNull(locationFix.accuracyM);
+
     if (locationInsideCoverage === false) {
       if (!outsideHandledRef.current) {
         outsideHandledRef.current = true;
+        logLocationEvent('camera_fallback_yangon', {
+          reason: 'outside_coverage',
+          accuracyM,
+          cameraAction: 'flyTo_yangon',
+        });
         disableLocationFollowing();
         flyToYangonFocus();
       }
@@ -504,9 +519,12 @@ export default function HomePage() {
       if (!hasGoodCenterRef.current) {
         hasGoodCenterRef.current = true;
         hasAnyCenterRef.current = true;
-        if (import.meta.env.DEV) {
-          console.debug('[location] camera centered because good fix');
-        }
+        logLocationEvent('follow_enabled', { reason: 'inside_good_accuracy' });
+        logLocationEvent('camera_center_user', {
+          reason: 'inside_good_accuracy',
+          accuracyM,
+          cameraAction: 'flyTo_user',
+        });
         enableLocationFollowing();
         flyToUserLocation();
       }
@@ -516,12 +534,19 @@ export default function HomePage() {
     // Weak fix inside coverage: hold during warm-up, then center conservatively once.
     if (!hasAnyCenterRef.current && !locationWarmingUp) {
       hasAnyCenterRef.current = true;
-      if (import.meta.env.DEV) {
-        console.debug('[location] camera centered conservatively after warm-up (low accuracy)');
-      }
+      logLocationEvent('camera_center_user', {
+        reason: 'inside_low_accuracy',
+        accuracyM,
+        isWarmingUp: false,
+        cameraAction: 'flyTo_user_conservative',
+      });
       flyToUserLocation();
-    } else if (import.meta.env.DEV && !hasAnyCenterRef.current) {
-      console.debug('[location] camera delayed because low accuracy (warming up)');
+    } else if (!hasAnyCenterRef.current) {
+      logLocationEvent('camera_delayed_low_accuracy', {
+        accuracyM,
+        isWarmingUp: locationWarmingUp,
+        reason: 'warmup_waiting_for_better_fix',
+      });
     }
   }, [
     locationStatus,
@@ -542,6 +567,11 @@ export default function HomePage() {
       locationStatus === 'timeout' ||
       locationStatus === 'unsupported'
     ) {
+      logLocationEvent('camera_fallback_yangon', {
+        reason: locationStatus,
+        status: locationStatus,
+        cameraAction: 'flyTo_yangon',
+      });
       flyToYangonFocus();
     }
   }, [locationStatus, flyToYangonFocus]);
