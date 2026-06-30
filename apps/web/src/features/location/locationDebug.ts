@@ -84,27 +84,70 @@ export type LocationDebugMeta = {
   lng?: number;
 };
 
-/** Whether the URL carries `?debugLocation=1` or `?debugLocation=true`. Read once. */
-function hasUrlDebugFlag(): boolean {
-  if (typeof window === 'undefined' || !window.location?.search) return false;
+declare global {
+  interface Window {
+    /** Runtime location-debug toggle (set by URL flag or `enableLocationDebug()`). */
+    __coremapDebugLocation?: boolean;
+    /** Console escape hatch to turn detailed location logs on for this session. */
+    enableLocationDebug?: () => void;
+    disableLocationDebug?: () => void;
+  }
+}
+
+/** Parse a URL fragment (search or hash) for the `debugLocation` opt-in. */
+function fragmentHasFlag(fragment: string | undefined | null): boolean {
+  if (!fragment) return false;
+  // Accept both `?debugLocation=1` and hash-router forms like `#/path?debugLocation=1`.
+  const query = fragment.includes('?')
+    ? fragment.slice(fragment.indexOf('?') + 1)
+    : fragment.replace(/^#/, '');
   try {
-    const value = new URLSearchParams(window.location.search).get('debugLocation');
-    return value === '1' || value === 'true';
+    const value = new URLSearchParams(query).get('debugLocation');
+    // Present (even bare `?debugLocation`) or truthy value enables it.
+    return value === '' || value === '1' || value === 'true' || value === 'yes' || value === 'on';
   } catch {
     return false;
   }
 }
 
-// Computed once per page load; the URL flag does not change mid-session for our SPA.
-const URL_DEBUG_FLAG = hasUrlDebugFlag();
+/** Whether the current URL (search or hash) opts into location debug logging. */
+function hasUrlDebugFlag(): boolean {
+  if (typeof window === 'undefined' || !window.location) return false;
+  return fragmentHasFlag(window.location.search) || fragmentHasFlag(window.location.hash);
+}
 
 /**
- * True when location debug logging should run: in local dev OR when the deployed
- * URL opts in via `?debugLocation=1` / `?debugLocation=true`. Console-only; nothing
- * is persisted, and no debug UI is shown.
+ * True when location debug logging should run:
+ *   - local dev (`import.meta.env.DEV`), OR
+ *   - the deployed URL opts in via `?debugLocation=1` (or `=true`/bare flag), OR
+ *   - a runtime toggle set via `window.enableLocationDebug()` (console escape hatch).
+ *
+ * Re-evaluated on every call (not cached) so it works even if the bundle loaded
+ * before the URL was final, on hash routes, or when toggled at runtime. Console
+ * only; nothing is persisted and no debug UI is shown.
  */
 export function isLocationDebugEnabled(): boolean {
-  return import.meta.env.DEV || URL_DEBUG_FLAG;
+  if (import.meta.env.DEV) return true;
+  if (typeof window !== 'undefined' && window.__coremapDebugLocation === true) return true;
+  if (hasUrlDebugFlag()) {
+    // Latch it so later calls (and the console hatch) stay consistent this session.
+    if (typeof window !== 'undefined') window.__coremapDebugLocation = true;
+    return true;
+  }
+  return false;
+}
+
+// Expose a console escape hatch so real deployed devices can enable logs without a
+// rebuild or even a reload: open DevTools and run `enableLocationDebug()`.
+if (typeof window !== 'undefined') {
+  window.enableLocationDebug = () => {
+    window.__coremapDebugLocation = true;
+    bannerLogged = false;
+    logLocationDebugBanner();
+  };
+  window.disableLocationDebug = () => {
+    window.__coremapDebugLocation = false;
+  };
 }
 
 let bannerLogged = false;
@@ -127,7 +170,7 @@ export function logLocationDebugBanner(): void {
   bannerLogged = true;
   emit('debug_enabled', {
     dev: import.meta.env.DEV,
-    urlFlag: URL_DEBUG_FLAG,
+    urlFlag: hasUrlDebugFlag(),
     isSecureContext: typeof window !== 'undefined' ? window.isSecureContext : null,
   });
 }
