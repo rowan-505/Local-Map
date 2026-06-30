@@ -27,8 +27,10 @@ export const LOCAL_DEBUG_LOCATION_COORDS = false;
 
 export type LocationDebugEvent =
   | 'debug_enabled'
+  | 'geolocation_options'
   | 'button_click'
   | 'start_tracking'
+  | 'acquisition_started'
   | 'permission_state'
   | 'permission_preblocked'
   | 'permission_denied_help'
@@ -36,15 +38,23 @@ export type LocationDebugEvent =
   | 'watch_error'
   | 'fix_received'
   | 'fix_rejected'
+  | 'fix_rejected_stale'
+  | 'fix_rejected_impossible_jump'
   | 'fix_accepted'
+  | 'fix_accepted_reliable'
+  | 'fix_accepted_approximate'
+  | 'last_reliable_fix_updated'
   | 'quality_changed'
   | 'best_fix_improved'
   | 'precision_ready'
   | 'warmup_started'
   | 'warmup_ended'
   | 'warmup_ended_best_still_low'
+  | 'acquisition_ended_best_still_low'
   | 'camera_delayed_low_accuracy'
+  | 'camera_skipped_low_accuracy'
   | 'camera_center_user'
+  | 'camera_center_user_manual_low_accuracy'
   | 'camera_fallback_yangon'
   | 'follow_enabled'
   | 'follow_disabled'
@@ -69,9 +79,15 @@ export type LocationDebugMeta = {
   precisionWaitElapsedMs?: number | null;
   reason?: string;
   permissionState?: string;
+  /** Coarse browser/environment category (UA-derived; no fingerprinting). */
+  browserCategory?: string;
+  /** True when the page is likely running inside an in-app browser/webview. */
+  isLikelyInAppBrowser?: boolean;
   /** Actionable guidance for permission-denied debugging (no coordinates). */
   resetHint?: string;
   browserHint?: string;
+  androidHint?: string;
+  inAppBrowserHint?: string;
   isSecureContext?: boolean | null;
   watchIdExists?: boolean;
   cameraAction?: string;

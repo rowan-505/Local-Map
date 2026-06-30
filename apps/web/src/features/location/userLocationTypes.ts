@@ -70,4 +70,11 @@ export type UserLocationState = {
   readonly isWarmingUp: boolean;
   /** Lowest-accuracy (best) fix seen this session — used for warm-up decisions. */
   readonly bestFix: UserLocationFix | null;
+  /**
+   * Last fix accurate enough (<=50m) to trust. The displayed dot stays anchored to
+   * this once it exists, so a later low-accuracy fix never makes the dot jump away.
+   */
+  readonly lastReliableFix: UserLocationFix | null;
+  /** True when the most recent sample was rejected as stale (waiting for fresh GPS). */
+  readonly isAwaitingFreshFix: boolean;
 };

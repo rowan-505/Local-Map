@@ -42,7 +42,9 @@ import { useUserLocation } from '@/features/location/useUserLocation';
 import { useLocationToast } from '@/features/location/useLocationToast';
 import { LocationControl } from '@/features/location/LocationControl';
 import { LocationToast } from '@/features/location/LocationToast';
+import { LocationDebugOverlay } from '@/features/location/LocationDebugOverlay';
 import { useLocationDiagnostics } from '@/features/location/LocationDiagnostics';
+import { detectLocationBrowserEnvironment } from '@/features/location/locationBrowserEnv';
 import { isCenterWorthyAccuracy } from '@/features/location/locationAccuracy';
 import {
   logLocationDebugBanner,
@@ -405,7 +407,11 @@ export default function HomePage() {
 
   // Own-user location (client-side only): no API, no persistence, no sharing.
   const userLocation = useUserLocation();
-  const locationToast = useLocationToast(userLocation);
+  // UA-derived browser/environment (stable per session) for permission diagnostics.
+  const locationBrowserEnv = useMemo(() => detectLocationBrowserEnvironment(), []);
+  const locationToast = useLocationToast(userLocation, {
+    isLikelyInAppBrowser: locationBrowserEnv.isLikelyInAppBrowser,
+  });
   // Announce debug mode once at load (local dev or ?debugLocation=1). Console-only.
   useEffect(() => {
     logLocationDebugBanner();
@@ -425,8 +431,10 @@ export default function HomePage() {
   const outsideHandledRef = useRef(false);
   /** Whether we have centered on a center-worthy (<=50m) fix yet this session. */
   const hasGoodCenterRef = useRef(false);
-  /** Whether we have issued any inside-coverage center (good or conservative) yet. */
-  const hasAnyCenterRef = useRef(false);
+  /** Whether the "holding during warm-up" log was already emitted this session. */
+  const delayedLoggedRef = useRef(false);
+  /** Whether the "skipped low-accuracy auto-center" log was already emitted. */
+  const skipLoggedRef = useRef(false);
 
   // Low-level camera command issuers. Callers log the reasoned camera_* event so
   // logs read at the decision point (good fix / low accuracy / fallback).
@@ -444,10 +452,30 @@ export default function HomePage() {
     fix: locationFix,
     isInsideCoverage: locationInsideCoverage,
     isWarmingUp: locationWarmingUp,
+    bestAccuracyM: locationBestAccuracyM,
     startTracking: startLocationTracking,
     enableFollowing: enableLocationFollowing,
     disableFollowing: disableLocationFollowing,
   } = userLocation;
+
+  /** Inside Myanmar, tracking, has a fix, but accuracy is too low (>50m) to trust. */
+  const isLowAccuracyInsideCoverage =
+    locationStatus === 'tracking' &&
+    locationFix != null &&
+    locationInsideCoverage === true &&
+    !isCenterWorthyAccuracy(locationFix.accuracyM);
+
+  /** Manual opt-in: conservatively center on the approximate (low-accuracy) fix. */
+  const onUseApproximateLocation = useCallback(() => {
+    if (locationStatus !== 'tracking' || !locationFix || locationInsideCoverage !== true) return;
+    logLocationEvent('camera_center_user_manual_low_accuracy', {
+      accuracyM: roundOrNull(locationFix.accuracyM),
+      cameraAction: 'flyTo_user_conservative',
+    });
+    // Intentionally do NOT enable follow — this is an approximate, opt-in center,
+    // never treated as a precise lock.
+    flyToUserLocation();
+  }, [locationStatus, locationFix, locationInsideCoverage, flyToUserLocation]);
 
   const onLocateClick = useCallback(() => {
     logLocationEvent('button_click', { status: locationStatus });
@@ -456,16 +484,24 @@ export default function HomePage() {
     if (locationStatus === 'tracking' && locationFix) {
       if (locationInsideCoverage) {
         const accuracyM = roundOrNull(locationFix.accuracyM);
-        logLocationEvent('follow_enabled', { reason: 'recenter_click' });
-        logLocationEvent('camera_center_user', {
-          reason: isCenterWorthyAccuracy(locationFix.accuracyM)
-            ? 'inside_good_accuracy'
-            : 'inside_low_accuracy',
-          accuracyM,
-          cameraAction: 'flyTo_user',
-        });
-        enableLocationFollowing();
-        flyToUserLocation();
+        // Only recenter/follow when the fix is precise enough (<=50m). For a weak
+        // fix we do NOT snap the camera; the "Use anyway" action is the explicit opt-in.
+        if (isCenterWorthyAccuracy(locationFix.accuracyM)) {
+          logLocationEvent('follow_enabled', { reason: 'recenter_click' });
+          logLocationEvent('camera_center_user', {
+            reason: 'inside_good_accuracy',
+            accuracyM,
+            cameraAction: 'flyTo_user',
+          });
+          enableLocationFollowing();
+          flyToUserLocation();
+        } else {
+          logLocationEvent('camera_skipped_low_accuracy', {
+            accuracyM,
+            bestAccuracyM: roundOrNull(locationBestAccuracyM),
+            reason: 'accuracy_above_precision_threshold',
+          });
+        }
       } else {
         logLocationEvent('camera_fallback_yangon', {
           reason: 'outside_coverage',
@@ -482,12 +518,14 @@ export default function HomePage() {
     // tracking, which re-requests permission from a clean watch.
     outsideHandledRef.current = false;
     hasGoodCenterRef.current = false;
-    hasAnyCenterRef.current = false;
+    delayedLoggedRef.current = false;
+    skipLoggedRef.current = false;
     startLocationTracking();
   }, [
     locationStatus,
     locationFix,
     locationInsideCoverage,
+    locationBestAccuracyM,
     startLocationTracking,
     enableLocationFollowing,
     disableLocationFollowing,
@@ -499,8 +537,9 @@ export default function HomePage() {
    * Warm-up-aware camera while tracking:
    * - Outside coverage → fall back to Yangon once (never fly off-map).
    * - Inside + good fix (<=50m) → center + follow at accuracy-based zoom (once).
-   * - Inside + weak fix → wait out warm-up (just show the dot); after warm-up ends
-   *   with still-weak GPS, center once conservatively (no follow) at zoom 14/15.
+   * - Inside + weak fix (>50m) → NEVER auto-center/follow (it would look wrong).
+   *   Keep showing the dot + accuracy circle. During warm-up we wait for a better
+   *   fix; after warm-up we just skip — the user can opt in via "Use anyway".
    * - A later improvement to a good fix re-centers + enables follow.
    */
   useEffect(() => {
@@ -526,7 +565,6 @@ export default function HomePage() {
     if (goodFix) {
       if (!hasGoodCenterRef.current) {
         hasGoodCenterRef.current = true;
-        hasAnyCenterRef.current = true;
         logLocationEvent('follow_enabled', { reason: 'inside_good_accuracy' });
         logLocationEvent('camera_center_user', {
           reason: 'inside_good_accuracy',
@@ -539,21 +577,23 @@ export default function HomePage() {
       return;
     }
 
-    // Weak fix inside coverage: hold during warm-up, then center conservatively once.
-    if (!hasAnyCenterRef.current && !locationWarmingUp) {
-      hasAnyCenterRef.current = true;
-      logLocationEvent('camera_center_user', {
-        reason: 'inside_low_accuracy',
+    // Weak fix inside coverage: do not auto-center, ever. Just show the dot/circle.
+    if (locationWarmingUp) {
+      if (!delayedLoggedRef.current) {
+        delayedLoggedRef.current = true;
+        logLocationEvent('camera_delayed_low_accuracy', {
+          accuracyM,
+          isWarmingUp: true,
+          reason: 'warmup_waiting_for_better_fix',
+        });
+      }
+    } else if (!skipLoggedRef.current) {
+      // Warm-up over and GPS is still weak → skip auto-center (no camera_center_user).
+      skipLoggedRef.current = true;
+      logLocationEvent('camera_skipped_low_accuracy', {
         accuracyM,
-        isWarmingUp: false,
-        cameraAction: 'flyTo_user_conservative',
-      });
-      flyToUserLocation();
-    } else if (!hasAnyCenterRef.current) {
-      logLocationEvent('camera_delayed_low_accuracy', {
-        accuracyM,
-        isWarmingUp: locationWarmingUp,
-        reason: 'warmup_waiting_for_better_fix',
+        bestAccuracyM: roundOrNull(locationBestAccuracyM),
+        reason: 'accuracy_above_precision_threshold',
       });
     }
   }, [
@@ -561,6 +601,7 @@ export default function HomePage() {
     locationFix,
     locationInsideCoverage,
     locationWarmingUp,
+    locationBestAccuracyM,
     enableLocationFollowing,
     disableLocationFollowing,
     flyToUserLocation,
@@ -714,13 +755,23 @@ export default function HomePage() {
                 isFollowing={userLocation.isFollowing}
                 isOutOfCoverage={userLocation.isOutOfCoverage}
                 isWarmingUp={userLocation.isWarmingUp}
+                isAwaitingFreshFix={userLocation.isAwaitingFreshFix}
+                isLikelyInAppBrowser={locationBrowserEnv.isLikelyInAppBrowser}
+                isAndroid={locationBrowserEnv.isAndroid}
                 message={userLocation.errorMessage}
+                canUseApproximate={isLowAccuracyInsideCoverage}
+                onUseApproximate={onUseApproximateLocation}
                 onLocateClick={onLocateClick}
                 onStopClick={userLocation.stopTracking}
               />
             }
           />
           <LocationToast toast={locationToast} />
+          <LocationDebugOverlay
+            status={userLocation.status}
+            accuracyM={userLocation.fix ? Math.round(userLocation.fix.accuracyM) : null}
+            isInsideCoverage={userLocation.isInsideCoverage}
+          />
         </>
       }
     />

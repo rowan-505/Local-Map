@@ -13,8 +13,21 @@ type LocationControlProps = {
   readonly isOutOfCoverage: boolean;
   /** True during the GPS warm-up window before a usable fix arrives. */
   readonly isWarmingUp: boolean;
+  /** True when the latest sample was rejected as stale (waiting for a fresh GPS fix). */
+  readonly isAwaitingFreshFix?: boolean;
+  /** Likely running inside an in-app browser/webview (Telegram/Facebook/etc.). */
+  readonly isLikelyInAppBrowser?: boolean;
+  /** Likely an Android device (tailors the permission-denied hint). */
+  readonly isAndroid?: boolean;
   /** Optional hook error message; used to show the specific reason (e.g. HTTPS requirement). */
   readonly message?: string | null;
+  /**
+   * True when inside Myanmar, tracking, with a fix whose accuracy is too low (>50m)
+   * to auto-center — surfaces a minimal "Use anyway" opt-in.
+   */
+  readonly canUseApproximate?: boolean;
+  /** Conservatively center on the approximate low-accuracy fix (no precise lock). */
+  readonly onUseApproximate?: () => void;
   /** Start tracking (when idle/stopped/error) or recenter + follow (when tracking). */
   readonly onLocateClick: () => void;
   readonly onStopClick?: () => void;
@@ -33,22 +46,64 @@ export function LocationControl({
   isFollowing,
   isOutOfCoverage,
   isWarmingUp,
+  isAwaitingFreshFix = false,
+  isLikelyInAppBrowser = false,
+  isAndroid = false,
   message,
+  canUseApproximate = false,
+  onUseApproximate,
   onLocateClick,
   onStopClick,
 }: LocationControlProps) {
   const isLocating = status === 'requesting_permission';
   const isTracking = status === 'tracking';
   const isError = ERROR_STATUSES.has(status);
-  const statusText = getStatusText({ status, fix, isOutOfCoverage, isWarmingUp, message });
+  const statusText = getStatusText({
+    status,
+    fix,
+    isOutOfCoverage,
+    isWarmingUp,
+    isAwaitingFreshFix,
+    isLikelyInAppBrowser,
+    isAndroid,
+    message,
+  });
   const showStop = isTracking && Boolean(onStopClick);
+  const showUseAnyway = canUseApproximate && Boolean(onUseApproximate);
+
+  // In-app browsers (Telegram/Facebook/etc.) usually can't grant precise location.
+  // Show a small, non-blocking hint ONLY after the user taps locate and it fails —
+  // i.e. once the status reaches a permission/unsupported error (never on load).
+  const showInAppHint =
+    isLikelyInAppBrowser && (status === 'permission_denied' || status === 'unsupported');
 
   const active = isFollowing && isTracking;
   const buttonLabel = isTracking ? 'Recenter on my location' : 'Show my location';
 
   return (
-    <div className="pointer-events-auto flex items-center gap-1.5">
-      {statusText ? (
+    <div className="pointer-events-auto flex flex-col items-end gap-1.5">
+      {showInAppHint ? (
+        <span
+          className="max-w-60 rounded-2xl border border-amber-200 bg-amber-50/95 px-3 py-1.5 text-xs font-medium text-amber-900 shadow-lg shadow-neutral-900/10 backdrop-blur-xl"
+          role="alert"
+        >
+          Open in Chrome/Safari to use precise location.
+        </span>
+      ) : null}
+
+      <div className="flex items-center gap-1.5">
+        {showUseAnyway ? (
+        <button
+          type="button"
+          className="rounded-2xl border border-amber-200 bg-amber-50/95 px-2.5 py-1 text-xs font-medium text-amber-900 shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-colors hover:bg-amber-100"
+          title="Center on your approximate (low-accuracy) location"
+          onClick={onUseApproximate}
+        >
+          Use anyway
+        </button>
+      ) : null}
+
+      {statusText && !showInAppHint ? (
         <span
           className={`max-w-48 truncate rounded-2xl border px-2.5 py-1 text-xs font-medium shadow-lg shadow-neutral-900/10 backdrop-blur-xl ${
             isError || isOutOfCoverage
@@ -56,6 +111,7 @@ export function LocationControl({
               : 'border-white/80 bg-white/95 text-neutral-700'
           }`}
           role={isError ? 'alert' : 'status'}
+          title={statusText}
         >
           {statusText}
         </span>
@@ -88,6 +144,7 @@ export function LocationControl({
           <StopIcon />
         </button>
       ) : null}
+      </div>
     </div>
   );
 }
@@ -97,19 +154,29 @@ function getStatusText({
   fix,
   isOutOfCoverage,
   isWarmingUp,
+  isAwaitingFreshFix,
+  isLikelyInAppBrowser,
+  isAndroid,
   message,
 }: {
   status: UserLocationStatus;
   fix: UserLocationFix | null;
   isOutOfCoverage: boolean;
   isWarmingUp: boolean;
+  isAwaitingFreshFix: boolean;
+  isLikelyInAppBrowser: boolean;
+  isAndroid: boolean;
   message?: string | null;
 }): string | null {
   switch (status) {
     case 'requesting_permission':
       return 'Requesting location…';
     case 'permission_denied':
-      return 'Location denied';
+      // In-app browsers usually can't grant precise location at all → tell the user
+      // to open real Chrome/Safari. Otherwise point at the site permission setting.
+      if (isLikelyInAppBrowser) return 'Open in Chrome to use location';
+      if (isAndroid) return 'Location denied · Allow Chrome site permission';
+      return 'Location denied · Allow site permission';
     case 'unavailable':
       return 'Location unavailable · Showing Yangon';
     case 'timeout':
@@ -119,6 +186,8 @@ function getStatusText({
       return message ?? 'Location unsupported · Showing Yangon';
     case 'tracking': {
       if (isOutOfCoverage) return 'Outside CoreMap coverage · Showing Yangon';
+      // A stale sample was just rejected → tell the user we are awaiting fresh GPS.
+      if (isAwaitingFreshFix) return 'Waiting for fresh GPS…';
       // No usable fix yet during warm-up → reassure the user we are still improving.
       if (!fix) return isWarmingUp ? 'Finding precise location…' : 'Tracking';
       const meters = Math.round(fix.accuracyM);

@@ -7,10 +7,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  distanceMeters,
   getLocationQuality,
   shouldAcceptLocationFix,
   shouldRejectImpossibleJump,
 } from './locationAccuracy';
+import { detectLocationBrowserEnvironment } from './locationBrowserEnv';
 import { isInsideMyanmarApprox } from './locationCoverage';
 import { isLocationDebugEnabled, logLocationEvent, roundOrNull } from './locationDebug';
 import type {
@@ -37,23 +39,31 @@ const WATCH_OPTIONS: PositionOptions = {
 };
 
 /**
- * Defensive freshness guard. With `maximumAge: 0` the browser should never hand
- * back a cached sample, but if a device reports an unusually old timestamp we skip
- * it so a stale fix is never displayed or treated as precise.
+ * Freshness guard. With `maximumAge: 0` the browser should not hand back a cached
+ * sample, but if a device reports a timestamp older than this we reject it as stale
+ * so it is never displayed, centered, or treated as precise.
  */
-const STALE_FIX_MAX_AGE_MS = 60000;
+const STALE_FIX_MAX_AGE_MS = 10000;
 
 /**
- * GPS warm-up window: keep improving the fix before committing to a close camera.
- * Longer window (20s) gives the GPS chip time to move from a coarse cell/Wi-Fi
- * estimate (e.g. ±98m) to a real satellite fix before we trust precision.
+ * GPS precision-acquisition window: keep collecting fixes (and improving the dot)
+ * before committing to a close camera. 30s gives a cold GPS chip time to move from
+ * a coarse cell/Wi-Fi estimate (e.g. ±98m) to a real satellite fix.
  */
-const WARM_UP_MS = 20000;
+const WARM_UP_MS = 30000;
 
-/** A fix at/under this accuracy (m) is treated as precise enough to follow/zoom. */
+/** A fix at/under this accuracy (m) is treated as reliable/precise (follow/zoom). */
 const PRECISION_READY_ACCURACY_M = 50;
 /** A fix at/under this accuracy (m) is high precision. */
 const HIGH_PRECISION_ACCURACY_M = 20;
+
+/** EMA weight for smoothing the displayed dot between nearby reliable fixes. */
+const RELIABLE_SMOOTHING_ALPHA = 0.5;
+/**
+ * Only smooth jitter: if two consecutive reliable fixes are farther apart than this
+ * (genuine movement), snap to the raw position instead of lagging behind it.
+ */
+const RELIABLE_SMOOTHING_MAX_JUMP_M = 30;
 
 const INITIAL_STATE: UserLocationState = {
   status: 'idle',
@@ -65,6 +75,8 @@ const INITIAL_STATE: UserLocationState = {
   isOutOfCoverage: false,
   isWarmingUp: false,
   bestFix: null,
+  lastReliableFix: null,
+  isAwaitingFreshFix: false,
 };
 
 export type UseUserLocationResult = UserLocationState & {
@@ -95,6 +107,10 @@ export function useUserLocation(): UseUserLocationResult {
   const lastFixRef = useRef<UserLocationFix | null>(null);
   /** Best (lowest-accuracy) fix seen this session, for warm-up decisions. */
   const bestFixRef = useRef<UserLocationFix | null>(null);
+  /** Last raw reliable (<=50m) fix — anchors the dot so low fixes can't move it. */
+  const lastReliableFixRef = useRef<UserLocationFix | null>(null);
+  /** Last DISPLAYED reliable fix (lightly smoothed), used as the EMA baseline. */
+  const lastReliableDisplayRef = useRef<UserLocationFix | null>(null);
   const warmUpTimerRef = useRef<number | null>(null);
   /** Epoch ms when the current warm-up window started (null when not tracking). */
   const warmupStartedAtRef = useRef<number | null>(null);
@@ -174,20 +190,25 @@ export function useUserLocation(): UseUserLocationResult {
     clearWarmUpTimer();
     lastFixRef.current = null;
     bestFixRef.current = null;
+    lastReliableFixRef.current = null;
+    lastReliableDisplayRef.current = null;
     lastQualityRef.current = null;
     precisionReadyLoggedRef.current = false;
     warmupStartedAtRef.current = Date.now();
 
-    // Enter GPS warm-up: accept fixes and show the dot, but the camera will avoid
-    // committing to a close zoom on an early low-accuracy fix until this ends.
-    logLocationEvent('warmup_started', { reason: `${WARM_UP_MS}ms`, isWarmingUp: true });
+    // Begin the precision-acquisition window: collect fixes and improve the dot, but
+    // the camera will not commit to a close zoom on an early low-accuracy fix yet.
+    logLocationEvent('geolocation_options', {
+      reason: 'enableHighAccuracy=true,maximumAge=0,timeout=30000',
+    });
+    logLocationEvent('acquisition_started', { reason: `${WARM_UP_MS}ms`, isWarmingUp: true });
     warmUpTimerRef.current = window.setTimeout(() => {
       warmUpTimerRef.current = null;
       const bestAccuracyM = roundOrNull(bestFixRef.current?.accuracyM);
-      // Distinguish "warm-up finished with a good fix" from "still weak" so logs
+      // Distinguish "acquisition finished with a good fix" from "still weak" so logs
       // make clear whether the device GPS simply never improved.
       if (bestAccuracyM != null && bestAccuracyM > PRECISION_READY_ACCURACY_M) {
-        logLocationEvent('warmup_ended_best_still_low', { bestAccuracyM, isWarmingUp: false });
+        logLocationEvent('acquisition_ended_best_still_low', { bestAccuracyM, isWarmingUp: false });
       } else {
         logLocationEvent('warmup_ended', { bestAccuracyM, isWarmingUp: false });
       }
@@ -200,6 +221,8 @@ export function useUserLocation(): UseUserLocationResult {
       errorMessage: null,
       isWarmingUp: true,
       bestFix: null,
+      lastReliableFix: null,
+      isAwaitingFreshFix: false,
     }));
 
     watchIdRef.current = navigator.geolocation.watchPosition(
@@ -224,28 +247,27 @@ export function useUserLocation(): UseUserLocationResult {
           logLocationEvent('fix_rejected', { reason: 'out_of_range', accuracyM, quality });
           return;
         }
-        // Never let a stale cached sample be shown or treated as precise.
+        // Stale samples are never displayed, centered, or treated as precise.
         if (ageMs != null && ageMs > STALE_FIX_MAX_AGE_MS) {
-          logLocationEvent('fix_rejected', { reason: 'stale_cached', accuracyM, quality, ageMs });
+          logLocationEvent('fix_rejected_stale', { accuracyM, quality, ageMs });
+          setState((prev) => ({ ...prev, isAwaitingFreshFix: true }));
           return;
         }
         // Drop physically impossible jumps (likely GPS error), keeping the last
         // good fix. Conservative: corroborated high speed is not rejected.
         if (shouldRejectImpossibleJump(lastFixRef.current, fix)) {
-          logLocationEvent('fix_rejected', {
-            reason: 'impossible_jump',
+          logLocationEvent('fix_rejected_impossible_jump', {
             accuracyM,
             quality,
             previousAccuracyM: roundOrNull(lastFixRef.current?.accuracyM),
           });
           return;
         }
-        lastFixRef.current = fix;
+
         // Future: an API publisher can consume this UserLocationFix here (V2 stays
         // client-side only — no network, no persistence, no sharing).
-        // Outside-coverage fixes are kept as-is (real fix/accuracy/etc.); the
-        // camera decides whether to fly to the user or fall back to Yangon.
         const insideCoverage = isInsideMyanmarApprox(fix.lat, fix.lng);
+        const reliable = fix.accuracyM <= PRECISION_READY_ACCURACY_M;
 
         // Track the best (lowest-accuracy) fix of the session.
         const prevBest = bestFixRef.current;
@@ -268,32 +290,72 @@ export function useUserLocation(): UseUserLocationResult {
           lastQualityRef.current = quality;
         }
 
-        logLocationEvent('fix_accepted', {
+        if (reliable) {
+          // Reliable (<=50m): this is the trusted dot. Light EMA smoothing removes
+          // jitter between nearby reliable fixes; the accuracy circle stays raw.
+          lastFixRef.current = fix;
+          const displayFix = smoothReliableDisplay(lastReliableDisplayRef.current, fix);
+          lastReliableDisplayRef.current = displayFix;
+          lastReliableFixRef.current = fix;
+
+          logLocationEvent('fix_accepted_reliable', {
+            accuracyM,
+            quality,
+            isInsideCoverage: insideCoverage,
+            isOutOfCoverage: !insideCoverage,
+          });
+          logLocationEvent('last_reliable_fix_updated', { accuracyM });
+
+          if (insideCoverage && !precisionReadyLoggedRef.current) {
+            precisionReadyLoggedRef.current = true;
+            logLocationEvent('precision_ready', {
+              accuracyM,
+              quality,
+              precisionWaitElapsedMs:
+                warmupStartedAtRef.current != null
+                  ? roundOrNull(Date.now() - warmupStartedAtRef.current)
+                  : null,
+            });
+          }
+
+          setState((prev) => ({
+            ...prev,
+            status: 'tracking',
+            fix: displayFix,
+            errorMessage: null,
+            quality,
+            isInsideCoverage: insideCoverage,
+            isOutOfCoverage: !insideCoverage,
+            bestFix: bestFixRef.current,
+            lastReliableFix: fix,
+            isAwaitingFreshFix: false,
+          }));
+          return;
+        }
+
+        // Approximate (>50m): display-only. Never auto-followed as precise.
+        logLocationEvent('fix_accepted_approximate', {
           accuracyM,
           quality,
           isInsideCoverage: insideCoverage,
           isOutOfCoverage: !insideCoverage,
-          isWarmingUp: warmingUp,
-          bestAccuracyM: roundOrNull(bestFixRef.current?.accuracyM),
         });
 
-        // First time we reach trustworthy precision inside coverage this session.
-        if (
-          insideCoverage &&
-          fix.accuracyM <= PRECISION_READY_ACCURACY_M &&
-          !precisionReadyLoggedRef.current
-        ) {
-          precisionReadyLoggedRef.current = true;
-          logLocationEvent('precision_ready', {
-            accuracyM,
-            quality,
-            precisionWaitElapsedMs:
-              warmupStartedAtRef.current != null
-                ? roundOrNull(Date.now() - warmupStartedAtRef.current)
-                : null,
-          });
+        if (lastReliableFixRef.current) {
+          // We already have a trusted dot — do NOT move it to this far/low fix.
+          // Keep the reliable position/quality; only clear the stale flag + best.
+          setState((prev) => ({
+            ...prev,
+            status: 'tracking',
+            bestFix: bestFixRef.current,
+            isAwaitingFreshFix: false,
+          }));
+          return;
         }
 
+        // No reliable fix yet → show the approximate fix as display-only (dot + large
+        // accuracy circle). The camera will not aggressively center on it.
+        lastFixRef.current = fix;
         setState((prev) => ({
           ...prev,
           status: 'tracking',
@@ -303,22 +365,44 @@ export function useUserLocation(): UseUserLocationResult {
           isInsideCoverage: insideCoverage,
           isOutOfCoverage: !insideCoverage,
           bestFix: bestFixRef.current,
+          lastReliableFix: null,
+          isAwaitingFreshFix: false,
         }));
       },
       (error) => {
         const status = statusForGeolocationError(error);
         logLocationEvent('watch_error', { reason: `code_${error.code}`, status });
         if (error.code === error.PERMISSION_DENIED) {
-          // Actionable guidance — esp. for Chrome's "dismissed too many times" block,
-          // which only clears via Page Info / Site Settings, not by re-clicking.
-          logLocationEvent('permission_denied_help', {
-            status,
-            reason: 'browser_permission_denied',
-            resetHint:
-              'Open site settings for this domain and set Location to Allow or Ask, then reload.',
-            browserHint:
-              'Chrome blocks repeated dismissed prompts until reset in Page Info / Site Settings.',
-          });
+          // Actionable, environment-aware guidance so a tester can tell apart:
+          // site permission vs OS permission vs Android precise-off vs in-app browser.
+          const env = detectLocationBrowserEnvironment();
+          const logHelp = (permissionState?: string) => {
+            logLocationEvent('permission_denied_help', {
+              status,
+              reason: 'browser_permission_denied',
+              permissionState,
+              isSecureContext: env.isSecureContext,
+              browserCategory: env.category,
+              isLikelyInAppBrowser: env.isLikelyInAppBrowser,
+              resetHint:
+                'Open site settings for map.coremapmm.com and set Location to Allow, then reload.',
+              androidHint:
+                'Android Settings → Apps → Chrome → Permissions → Location → Allow. Turn Precise location ON if available.',
+              inAppBrowserHint:
+                'Open the site in real Chrome/Safari, not Telegram/Facebook in-app browser.',
+              browserHint:
+                'Chrome blocks repeated dismissed prompts until reset in Page Info / Site Settings.',
+            });
+          };
+          // Best-effort: include the Permissions API state when available.
+          if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+            navigator.permissions
+              .query({ name: 'geolocation' as PermissionName })
+              .then((result) => logHelp(result.state))
+              .catch(() => logHelp());
+          } else {
+            logHelp('unsupported');
+          }
         }
         clearWarmUpTimer();
         setState((prev) => ({
@@ -338,11 +422,14 @@ export function useUserLocation(): UseUserLocationResult {
     clearWatch();
     clearWarmUpTimer();
     warmupStartedAtRef.current = null;
+    lastReliableFixRef.current = null;
+    lastReliableDisplayRef.current = null;
     setState((prev) => ({
       ...prev,
       status: 'stopped',
       isFollowing: false,
       isWarmingUp: false,
+      isAwaitingFreshFix: false,
     }));
   }, [clearWatch, clearWarmUpTimer]);
 
@@ -392,6 +479,27 @@ export function useUserLocation(): UseUserLocationResult {
     enableFollowing,
     disableFollowing,
     requestRecenter,
+  };
+}
+
+/**
+ * Light jitter smoothing for the DISPLAYED reliable dot. Returns the raw fix when
+ * there's no baseline or when the move is large (genuine travel → no lag). Only the
+ * position is eased; accuracy/heading/speed/timestamp stay raw so the accuracy circle
+ * reflects the true browser accuracy. Never used for low/poor (>50m) fixes.
+ */
+function smoothReliableDisplay(
+  previousDisplay: UserLocationFix | null,
+  raw: UserLocationFix,
+): UserLocationFix {
+  if (!previousDisplay) return raw;
+  const moved = distanceMeters(previousDisplay, raw);
+  if (!Number.isFinite(moved) || moved > RELIABLE_SMOOTHING_MAX_JUMP_M) return raw;
+  const a = RELIABLE_SMOOTHING_ALPHA;
+  return {
+    ...raw,
+    lat: previousDisplay.lat + a * (raw.lat - previousDisplay.lat),
+    lng: previousDisplay.lng + a * (raw.lng - previousDisplay.lng),
   };
 }
 

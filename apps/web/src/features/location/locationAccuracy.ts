@@ -116,14 +116,18 @@ export function shouldRejectImpossibleJump(
     return false;
   }
 
-  const distanceM = haversineMeters(previousFix, nextFix);
+  const distanceM = distanceMeters(previousFix, nextFix);
   if (!Number.isFinite(distanceM)) return false;
 
   const impliedSpeedMps = distanceM / dtSeconds;
   return impliedSpeedMps > IMPOSSIBLE_SPEED_MPS;
 }
 
-function haversineMeters(a: JumpFix, b: JumpFix): number {
+/** Great-circle distance (meters) between two lat/lng points. */
+export function distanceMeters(
+  a: { readonly lat: number; readonly lng: number },
+  b: { readonly lat: number; readonly lng: number },
+): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);
