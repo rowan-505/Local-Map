@@ -5,6 +5,11 @@
  * status pill. No modal, no sharing, no backend, nothing persisted.
  */
 import type { UserLocationFix, UserLocationStatus } from './userLocationTypes';
+import { getPermissionDeniedStatusText } from './locationPermissionHints';
+import {
+  isLikelyAndroidInAppBrowser,
+  openCurrentPageInChrome,
+} from './openInChromeHelper';
 
 type LocationControlProps = {
   readonly status: UserLocationStatus;
@@ -17,7 +22,7 @@ type LocationControlProps = {
   readonly isAwaitingFreshFix?: boolean;
   /** Likely running inside an in-app browser/webview (Telegram/Facebook/etc.). */
   readonly isLikelyInAppBrowser?: boolean;
-  /** Likely an Android device (tailors the permission-denied hint). */
+  /** Android device flag — combined with in-app for Chrome intent helper. */
   readonly isAndroid?: boolean;
   /** Optional hook error message; used to show the specific reason (e.g. HTTPS requirement). */
   readonly message?: string | null;
@@ -65,34 +70,20 @@ export function LocationControl({
     isWarmingUp,
     isAwaitingFreshFix,
     isLikelyInAppBrowser,
-    isAndroid,
     message,
   });
   const showStop = isTracking && Boolean(onStopClick);
   const showUseAnyway = canUseApproximate && Boolean(onUseApproximate);
-
-  // In-app browsers (Telegram/Facebook/etc.) usually can't grant precise location.
-  // Show a small, non-blocking hint ONLY after the user taps locate and it fails —
-  // i.e. once the status reaches a permission/unsupported error (never on load).
-  const showInAppHint =
-    isLikelyInAppBrowser && (status === 'permission_denied' || status === 'unsupported');
+  const showOpenInChrome =
+    isLikelyAndroidInAppBrowser(isAndroid, isLikelyInAppBrowser) &&
+    (status === 'permission_denied' || status === 'unsupported');
 
   const active = isFollowing && isTracking;
   const buttonLabel = isTracking ? 'Recenter on my location' : 'Show my location';
 
   return (
-    <div className="pointer-events-auto flex flex-col items-end gap-1.5">
-      {showInAppHint ? (
-        <span
-          className="max-w-60 rounded-2xl border border-amber-200 bg-amber-50/95 px-3 py-1.5 text-xs font-medium text-amber-900 shadow-lg shadow-neutral-900/10 backdrop-blur-xl"
-          role="alert"
-        >
-          Open in Chrome/Safari to use precise location.
-        </span>
-      ) : null}
-
-      <div className="flex items-center gap-1.5">
-        {showUseAnyway ? (
+    <div className="pointer-events-auto flex items-center gap-1.5">
+      {showUseAnyway ? (
         <button
           type="button"
           className="rounded-2xl border border-amber-200 bg-amber-50/95 px-2.5 py-1 text-xs font-medium text-amber-900 shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-colors hover:bg-amber-100"
@@ -103,9 +94,20 @@ export function LocationControl({
         </button>
       ) : null}
 
-      {statusText && !showInAppHint ? (
+      {showOpenInChrome ? (
+        <button
+          type="button"
+          className="rounded-2xl border border-sky-200 bg-sky-50/95 px-2.5 py-1 text-xs font-medium text-sky-900 shadow-lg shadow-neutral-900/10 backdrop-blur-xl transition-colors hover:bg-sky-100"
+          title="Open this page in Chrome for location access"
+          onClick={openCurrentPageInChrome}
+        >
+          Open in Chrome
+        </button>
+      ) : null}
+
+      {statusText ? (
         <span
-          className={`max-w-48 truncate rounded-2xl border px-2.5 py-1 text-xs font-medium shadow-lg shadow-neutral-900/10 backdrop-blur-xl ${
+          className={`max-w-52 truncate rounded-2xl border px-2.5 py-1 text-xs font-medium shadow-lg shadow-neutral-900/10 backdrop-blur-xl ${
             isError || isOutOfCoverage
               ? 'border-amber-200 bg-amber-50/95 text-amber-900'
               : 'border-white/80 bg-white/95 text-neutral-700'
@@ -144,7 +146,6 @@ export function LocationControl({
           <StopIcon />
         </button>
       ) : null}
-      </div>
     </div>
   );
 }
@@ -156,7 +157,6 @@ function getStatusText({
   isWarmingUp,
   isAwaitingFreshFix,
   isLikelyInAppBrowser,
-  isAndroid,
   message,
 }: {
   status: UserLocationStatus;
@@ -165,18 +165,13 @@ function getStatusText({
   isWarmingUp: boolean;
   isAwaitingFreshFix: boolean;
   isLikelyInAppBrowser: boolean;
-  isAndroid: boolean;
   message?: string | null;
 }): string | null {
   switch (status) {
     case 'requesting_permission':
       return 'Requesting location…';
     case 'permission_denied':
-      // In-app browsers usually can't grant precise location at all → tell the user
-      // to open real Chrome/Safari. Otherwise point at the site permission setting.
-      if (isLikelyInAppBrowser) return 'Open in Chrome to use location';
-      if (isAndroid) return 'Location denied · Allow Chrome site permission';
-      return 'Location denied · Allow site permission';
+      return getPermissionDeniedStatusText(isLikelyInAppBrowser);
     case 'unavailable':
       return 'Location unavailable · Showing Yangon';
     case 'timeout':

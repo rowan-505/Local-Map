@@ -18,6 +18,7 @@
  *   → [location] watch_success { accuracyM: 95, quality: 'low', isInsideCoverage: true }
  */
 import type { UserLocationQuality, UserLocationStatus } from './userLocationTypes';
+import { detectLocationBrowserEnvironment } from './locationBrowserEnvironment';
 
 /**
  * Opt-in to include exact lat/lng in dev logs. KEEP FALSE in committed code.
@@ -61,7 +62,15 @@ export type LocationDebugEvent =
   | 'toast_generated'
   | 'toast_skipped'
   | 'toast_dismissed'
-  | 'stop_tracking';
+  | 'stop_tracking'
+  | 'mobile_permission_audit'
+  | 'browser_environment'
+  | 'secure_context_check'
+  | 'geolocation_api_available'
+  | 'permission_state_before_watch'
+  | 'watch_created'
+  | 'watch_error_raw'
+  | 'permissions_policy_check';
 
 /** Safe, coordinate-free metadata fields. Exact lat/lng are stripped by default. */
 export type LocationDebugMeta = {
@@ -81,8 +90,17 @@ export type LocationDebugMeta = {
   permissionState?: string;
   /** Coarse browser/environment category (UA-derived; no fingerprinting). */
   browserCategory?: string;
+  /** Alias for browserCategory in permission audit logs. */
+  userAgentCategory?: string;
   /** True when the page is likely running inside an in-app browser/webview. */
   isLikelyInAppBrowser?: boolean;
+  isLikelyAndroidChrome?: boolean;
+  isLikelyIOS?: boolean;
+  hasNavigatorGeolocation?: boolean;
+  permissionsPolicyAllowsGeolocation?: boolean | null;
+  errorCode?: number;
+  errorMessage?: string | null;
+  origin?: string | null;
   /** Actionable guidance for permission-denied debugging (no coordinates). */
   resetHint?: string;
   browserHint?: string;
@@ -184,10 +202,20 @@ function emit(event: LocationDebugEvent, meta: LocationDebugMeta): void {
 export function logLocationDebugBanner(): void {
   if (!isLocationDebugEnabled() || bannerLogged) return;
   bannerLogged = true;
+  const env = detectLocationBrowserEnvironment();
   emit('debug_enabled', {
     dev: import.meta.env.DEV,
     urlFlag: hasUrlDebugFlag(),
-    isSecureContext: typeof window !== 'undefined' ? window.isSecureContext : null,
+    isSecureContext: env.isSecureContext,
+    hasNavigatorGeolocation: env.hasNavigatorGeolocation,
+  });
+  emit('browser_environment', {
+    userAgentCategory: env.userAgentCategory,
+    isLikelyInAppBrowser: env.isLikelyInAppBrowser,
+    isSecureContext: env.isSecureContext,
+    hasNavigatorGeolocation: env.hasNavigatorGeolocation,
+    isLikelyAndroidChrome: env.isAndroid && env.isLikelyChrome && !env.isLikelyInAppBrowser,
+    isLikelyIOS: env.isIOS,
   });
 }
 

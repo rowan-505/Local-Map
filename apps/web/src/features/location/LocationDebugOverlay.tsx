@@ -14,7 +14,9 @@ import { useEffect, useState } from 'react';
 import {
   detectLocationBrowserEnvironment,
   type LocationBrowserEnvironment,
-} from './locationBrowserEnv';
+} from './locationBrowserEnvironment';
+import { detectPermissionsPolicyAllowsGeolocation, getLocationAuditOrigin } from './locationPermissionAudit';
+import { getPermissionDeniedDebugHints } from './locationPermissionHints';
 import { isLocationDebugEnabled } from './locationDebug';
 import type { UserLocationStatus } from './userLocationTypes';
 
@@ -46,8 +48,13 @@ export function LocationDebugOverlay({
     ['status', status],
     ['permission', permission],
     ['secureContext', String(env.isSecureContext)],
-    ['browser', env.category],
+    ['origin', getLocationAuditOrigin() ?? '—'],
+    ['browser', env.userAgentCategory],
     ['inAppBrowser', String(env.isLikelyInAppBrowser)],
+    [
+      'policyGeo',
+      String(detectPermissionsPolicyAllowsGeolocation() ?? 'n/a'),
+    ],
     ['accuracyM', accuracyM == null ? '—' : `${accuracyM}`],
     ['inCoverage', isInsideCoverage == null ? '—' : String(isInsideCoverage)],
   ];
@@ -70,10 +77,10 @@ export function LocationDebugOverlay({
         </tbody>
       </table>
       {status === 'permission_denied' ? (
-        <div className="mt-1 max-w-[72vw] text-[10px] text-amber-700">
-          {env.isLikelyInAppBrowser
-            ? 'Open in real Chrome/Safari (not in-app browser).'
-            : 'Site settings → Location → Allow, then reload. On Android also enable Chrome OS Location + Precise.'}
+        <div className="mt-1 max-w-[72vw] space-y-0.5 text-[10px] text-amber-700">
+          {getPermissionDeniedDebugHints(env.isLikelyInAppBrowser).map((hint) => (
+            <div key={hint}>{hint}</div>
+          ))}
         </div>
       ) : null}
     </div>

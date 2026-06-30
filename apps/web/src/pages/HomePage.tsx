@@ -44,7 +44,7 @@ import { LocationControl } from '@/features/location/LocationControl';
 import { LocationToast } from '@/features/location/LocationToast';
 import { LocationDebugOverlay } from '@/features/location/LocationDebugOverlay';
 import { useLocationDiagnostics } from '@/features/location/LocationDiagnostics';
-import { detectLocationBrowserEnvironment } from '@/features/location/locationBrowserEnv';
+import { detectLocationBrowserEnvironment } from '@/features/location/locationBrowserEnvironment';
 import { isCenterWorthyAccuracy } from '@/features/location/locationAccuracy';
 import {
   logLocationDebugBanner,
@@ -409,8 +409,13 @@ export default function HomePage() {
   const userLocation = useUserLocation();
   // UA-derived browser/environment (stable per session) for permission diagnostics.
   const locationBrowserEnv = useMemo(() => detectLocationBrowserEnvironment(), []);
+  const isLikelyAndroidChrome =
+    locationBrowserEnv.isAndroid &&
+    locationBrowserEnv.isLikelyChrome &&
+    !locationBrowserEnv.isLikelyInAppBrowser;
   const locationToast = useLocationToast(userLocation, {
     isLikelyInAppBrowser: locationBrowserEnv.isLikelyInAppBrowser,
+    isLikelyAndroidChrome,
   });
   // Announce debug mode once at load (local dev or ?debugLocation=1). Console-only.
   useEffect(() => {

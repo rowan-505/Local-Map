@@ -12,9 +12,14 @@ import {
   shouldAcceptLocationFix,
   shouldRejectImpossibleJump,
 } from './locationAccuracy';
-import { detectLocationBrowserEnvironment } from './locationBrowserEnv';
+import {
+  logMobilePermissionAuditOnStart,
+  logPermissionDeniedHelp,
+  logWatchCreated,
+  logWatchErrorRaw,
+} from './locationPermissionAudit';
 import { isInsideMyanmarApprox } from './locationCoverage';
-import { isLocationDebugEnabled, logLocationEvent, roundOrNull } from './locationDebug';
+import { logLocationEvent, roundOrNull } from './locationDebug';
 import type {
   UserLocationFix,
   UserLocationQuality,
@@ -139,6 +144,7 @@ export function useUserLocation(): UseUserLocationResult {
       isSecureContext,
       watchIdExists: watchIdRef.current != null,
     });
+    logMobilePermissionAuditOnStart();
 
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
       logLocationEvent('watch_error', { reason: 'geolocation_unsupported', status: 'unsupported' });
@@ -161,26 +167,6 @@ export function useUserLocation(): UseUserLocationResult {
         errorMessage: 'Location requires HTTPS or localhost',
       }));
       return;
-    }
-
-    if (isLocationDebugEnabled() && navigator.permissions?.query) {
-      navigator.permissions
-        .query({ name: 'geolocation' as PermissionName })
-        .then((result) => {
-          // prompt / granted / denied — read before the watch resolves.
-          logLocationEvent('permission_state', { permissionState: result.state });
-          if (result.state === 'denied') {
-            // We still start the watch (unchanged behavior); the browser will fire
-            // PERMISSION_DENIED. This makes the pre-blocked state explicit in logs.
-            logLocationEvent('permission_preblocked', {
-              permissionState: 'denied',
-              reason: 'permission_denied_before_watch',
-            });
-          }
-        })
-        .catch(() => {
-          /* permissions query unsupported — ignore */
-        });
     }
 
     // Always (re)start from a clean watch. A prior watch id lingers even after an
@@ -225,7 +211,7 @@ export function useUserLocation(): UseUserLocationResult {
       isAwaitingFreshFix: false,
     }));
 
-    watchIdRef.current = navigator.geolocation.watchPosition(
+    const watchId = navigator.geolocation.watchPosition(
       (position) => {
         const fix = toUserLocationFix(position);
         const quality = getLocationQuality(fix.accuracyM);
@@ -371,38 +357,10 @@ export function useUserLocation(): UseUserLocationResult {
       },
       (error) => {
         const status = statusForGeolocationError(error);
-        logLocationEvent('watch_error', { reason: `code_${error.code}`, status });
+        logWatchErrorRaw(error);
+        logLocationEvent('watch_error', { reason: `code_${error.code}`, status, errorCode: error.code });
         if (error.code === error.PERMISSION_DENIED) {
-          // Actionable, environment-aware guidance so a tester can tell apart:
-          // site permission vs OS permission vs Android precise-off vs in-app browser.
-          const env = detectLocationBrowserEnvironment();
-          const logHelp = (permissionState?: string) => {
-            logLocationEvent('permission_denied_help', {
-              status,
-              reason: 'browser_permission_denied',
-              permissionState,
-              isSecureContext: env.isSecureContext,
-              browserCategory: env.category,
-              isLikelyInAppBrowser: env.isLikelyInAppBrowser,
-              resetHint:
-                'Open site settings for map.coremapmm.com and set Location to Allow, then reload.',
-              androidHint:
-                'Android Settings → Apps → Chrome → Permissions → Location → Allow. Turn Precise location ON if available.',
-              inAppBrowserHint:
-                'Open the site in real Chrome/Safari, not Telegram/Facebook in-app browser.',
-              browserHint:
-                'Chrome blocks repeated dismissed prompts until reset in Page Info / Site Settings.',
-            });
-          };
-          // Best-effort: include the Permissions API state when available.
-          if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
-            navigator.permissions
-              .query({ name: 'geolocation' as PermissionName })
-              .then((result) => logHelp(result.state))
-              .catch(() => logHelp());
-          } else {
-            logHelp('unsupported');
-          }
+          logPermissionDeniedHelp(error);
         }
         clearWarmUpTimer();
         setState((prev) => ({
@@ -415,6 +373,8 @@ export function useUserLocation(): UseUserLocationResult {
       },
       WATCH_OPTIONS,
     );
+    watchIdRef.current = watchId;
+    logWatchCreated(watchId);
   }, [clearWatch, clearWarmUpTimer]);
 
   const stopTracking = useCallback(() => {

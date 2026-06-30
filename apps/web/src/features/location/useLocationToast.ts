@@ -9,6 +9,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { logLocationEvent } from './locationDebug';
+import { getPermissionDeniedToastMessage } from './locationPermissionHints';
 import type { UserLocationState } from './userLocationTypes';
 
 export type LocationToastTone = 'success' | 'warn';
@@ -27,8 +28,8 @@ type LocationToastInput = Pick<
 >;
 
 type LocationToastOptions = {
-  /** When true, a permission-denied toast tells the user to open real Chrome/Safari. */
   readonly isLikelyInAppBrowser?: boolean;
+  readonly isLikelyAndroidChrome?: boolean;
 };
 
 export function useLocationToast(
@@ -36,7 +37,7 @@ export function useLocationToast(
   options: LocationToastOptions = {},
 ): LocationToast | null {
   const { status, isOutOfCoverage, errorMessage, quality } = state;
-  const { isLikelyInAppBrowser = false } = options;
+  const { isLikelyInAppBrowser = false, isLikelyAndroidChrome = false } = options;
   const [toast, setToast] = useState<LocationToast | null>(null);
   const idRef = useRef(0);
   const lastKeyRef = useRef<string | null>(null);
@@ -45,14 +46,21 @@ export function useLocationToast(
   const accuracyTier = quality === 'low' || quality === 'poor' || quality == null ? 'low' : 'good';
 
   useEffect(() => {
-    const next = deriveToast(status, isOutOfCoverage, errorMessage, accuracyTier, isLikelyInAppBrowser);
+    const next = deriveToast(
+      status,
+      isOutOfCoverage,
+      errorMessage,
+      accuracyTier,
+      isLikelyInAppBrowser,
+      isLikelyAndroidChrome,
+    );
     if (!next) {
       // Neutral/transient state — allow the next real outcome to re-announce.
       lastKeyRef.current = null;
       return;
     }
     // Tier is part of the key so an inside-coverage fix improving low→good re-announces.
-    const key = `${status}:${isOutOfCoverage}:${accuracyTier}`;
+    const key = `${status}:${isOutOfCoverage}:${accuracyTier}:${isLikelyInAppBrowser}:${isLikelyAndroidChrome}`;
     if (key === lastKeyRef.current) {
       logLocationEvent('toast_skipped', { reason: `dedupe:${next.reason}`, tone: next.tone });
       return;
@@ -61,7 +69,7 @@ export function useLocationToast(
     idRef.current += 1;
     logLocationEvent('toast_generated', { reason: next.reason, tone: next.tone });
     setToast({ id: idRef.current, message: next.message, tone: next.tone });
-  }, [status, isOutOfCoverage, errorMessage, accuracyTier, isLikelyInAppBrowser]);
+  }, [status, isOutOfCoverage, errorMessage, accuracyTier, isLikelyInAppBrowser, isLikelyAndroidChrome]);
 
   useEffect(() => {
     if (!toast) return;
@@ -81,6 +89,7 @@ function deriveToast(
   errorMessage: string | null,
   accuracyTier: 'good' | 'low',
   isLikelyInAppBrowser: boolean,
+  isLikelyAndroidChrome: boolean,
 ): { message: string; tone: LocationToastTone; reason: string } | null {
   switch (status) {
     case 'tracking':
@@ -99,18 +108,18 @@ function deriveToast(
             reason: 'inside_low_accuracy',
           }
         : { message: 'Showing your location', tone: 'success', reason: 'inside_good_accuracy' };
-    case 'permission_denied':
-      return isLikelyInAppBrowser
-        ? {
-            message: 'Open in Chrome to test precise location',
-            tone: 'warn',
-            reason: 'permission_denied_in_app_browser',
-          }
-        : {
-            message: 'Location denied — allow site location permission',
-            tone: 'warn',
-            reason: 'permission_denied',
-          };
+    case 'permission_denied': {
+      const message = getPermissionDeniedToastMessage(isLikelyInAppBrowser, isLikelyAndroidChrome);
+      return {
+        message,
+        tone: 'warn',
+        reason: isLikelyInAppBrowser
+          ? 'permission_denied_in_app_browser'
+          : isLikelyAndroidChrome
+            ? 'permission_denied_android_chrome'
+            : 'permission_denied',
+      };
+    }
     case 'unavailable':
       return { message: 'Location unavailable — showing Yangon Region', tone: 'warn', reason: 'unavailable' };
     case 'timeout':
