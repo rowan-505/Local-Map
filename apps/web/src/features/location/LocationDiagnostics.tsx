@@ -1,16 +1,17 @@
 /**
- * Dev-only own-user location diagnostics — CONSOLE ONLY.
+ * Own-user location diagnostics — CONSOLE ONLY.
  *
  * Helps tell whether a bad blue-dot position comes from CoreMap logic or from the
  * browser/device GPS itself. Logs a one-line summary to the DevTools console on
- * state changes; it renders NOTHING in the UI. All work is guarded by
- * `import.meta.env.DEV`, so it compiles away in production.
+ * state changes; it renders NOTHING in the UI. Logging is gated by
+ * `isLocationDebugEnabled()` (local dev OR `?debugLocation=1` on the deployed URL).
  *
  * Privacy: never logs exact coordinates — only accuracy/quality/coverage flags.
  * Client-side only: no API, no database, no storage, no sharing.
  */
 import { useEffect, useState } from 'react';
 import { isCenterWorthyAccuracy } from './locationAccuracy';
+import { isLocationDebugEnabled } from './locationDebug';
 import type { UserLocationState } from './userLocationTypes';
 
 type PermissionStateLike = 'granted' | 'denied' | 'prompt' | 'unsupported' | 'unknown';
@@ -42,7 +43,7 @@ export function useLocationDiagnostics({
 
   // One-line console summary on every meaningful change (no coordinates).
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    if (!isLocationDebugEnabled()) return;
     console.log('%c[location]%c diagnostics', 'color:#0284c7;font-weight:600', 'color:inherit', {
       status,
       accuracyM,
@@ -104,7 +105,7 @@ function useGeolocationPermission(): PermissionStateLike {
   const [state, setState] = useState<PermissionStateLike>('unknown');
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    if (!isLocationDebugEnabled()) return;
     if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
       setState('unsupported');
       return;

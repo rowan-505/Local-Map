@@ -81,7 +81,13 @@ INSERT INTO _vr VALUES
         (SELECT count(*) FROM local_transport_publish.route_variants v
          WHERE v.source_name = :'source_name'
            AND NOT EXISTS (SELECT 1 FROM local_transport_publish.routes r
-                           WHERE r.external_id = v.route_external_id)));
+                           WHERE r.external_id = v.route_external_id))),
+    -- Routes that share a canonical key with another route but were NOT
+    -- auto-merged (possible branch). These are the duplicate-review list.
+    ('route_possible_duplicate', 'WARN',
+        (SELECT count(*) FROM local_transport_publish.routes
+         WHERE source_name = :'source_name'
+           AND normalized_data->>'route_group_kind' = 'possible_duplicate'));
 
 -- -----------------------------------------------------------------------------
 -- Record warnings into import_errors (WARN_* error_code). Idempotent: clear this
@@ -142,6 +148,21 @@ FROM local_transport_publish.route_variants v
 WHERE v.source_name = :'source_name'
   AND NOT EXISTS (SELECT 1 FROM local_transport_publish.routes r
                   WHERE r.external_id = v.route_external_id);
+
+-- Duplicate-review list: routes sharing a canonical key but not safely merged
+-- (possible branches). Surfaced to transport.import_errors for manual review;
+-- never auto-merged.
+INSERT INTO local_transport_publish.import_errors
+    (external_id, entity_type, source_kind, source_name, import_batch_key,
+     error_code, error_message, raw_payload, source_refs, normalized_data, confidence_score, review_status)
+SELECT external_id, 'route', source_kind, source_name, import_batch_key,
+       'WARN_POSSIBLE_DUPLICATE_ROUTE',
+       format('route shares canonical key "%s" with another route but was not auto-merged (possible branch); review for duplicate/direction',
+              normalized_data->>'route_group_key'),
+       '{}'::jsonb, source_refs, normalized_data, confidence_score, 'imported_unreviewed'
+FROM local_transport_publish.routes
+WHERE source_name = :'source_name'
+  AND normalized_data->>'route_group_kind' = 'possible_duplicate';
 
 -- -----------------------------------------------------------------------------
 -- Summary (prints to the log before any hard-fail abort below).

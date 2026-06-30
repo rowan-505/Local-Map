@@ -51,6 +51,27 @@ CREATE SCHEMA IF NOT EXISTS local_transport_publish;
 COMMENT ON SCHEMA local_transport_publish IS
     'Local-only clean export buffer of normalized transport rows ready to publish to Supabase transport.*. Linked by external_id, not by Supabase ids.';
 
+-- -----------------------------------------------------------------------------
+-- Reusable route_code normalizer, shared by the canonical route grouping in
+-- stage 04. It trims, collapses whitespace AROUND hyphens ("YBS - 33" ->
+-- "YBS-33"), then collapses any remaining internal whitespace runs to a single
+-- space. It deliberately never drops tokens, so a genuine branch suffix such as
+-- "6 Thein Chaung" is preserved verbatim. Mode-agnostic (bus / express_bus /
+-- train / ferry). Returns NULL for NULL/empty input.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION local_transport_publish.normalize_route_code(p_code text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT NULLIF(
+        regexp_replace(
+            regexp_replace(btrim(p_code), '\s*-\s*', '-', 'g'),
+            '\s+', ' ', 'g'
+        ),
+    '');
+$$;
+
 -- stops -----------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS local_transport_publish.stops (
     id                      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

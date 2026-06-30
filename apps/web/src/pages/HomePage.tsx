@@ -44,7 +44,11 @@ import { LocationControl } from '@/features/location/LocationControl';
 import { LocationToast } from '@/features/location/LocationToast';
 import { useLocationDiagnostics } from '@/features/location/LocationDiagnostics';
 import { isCenterWorthyAccuracy } from '@/features/location/locationAccuracy';
-import { logLocationEvent, roundOrNull } from '@/features/location/locationDebug';
+import {
+  logLocationDebugBanner,
+  logLocationEvent,
+  roundOrNull,
+} from '@/features/location/locationDebug';
 import {
   usePublicCategories,
   usePublicMapPlaces,
@@ -402,7 +406,11 @@ export default function HomePage() {
   // Own-user location (client-side only): no API, no persistence, no sharing.
   const userLocation = useUserLocation();
   const locationToast = useLocationToast(userLocation);
-  // Dev-only: console summary to diagnose GPS quality vs app logic. Renders nothing.
+  // Announce debug mode once at load (local dev or ?debugLocation=1). Console-only.
+  useEffect(() => {
+    logLocationDebugBanner();
+  }, []);
+  // Console summary to diagnose GPS quality vs app logic. Renders nothing.
   useLocationDiagnostics({
     status: userLocation.status,
     fix: userLocation.fix,

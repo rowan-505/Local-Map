@@ -12,7 +12,7 @@ import {
   shouldRejectImpossibleJump,
 } from './locationAccuracy';
 import { isInsideMyanmarApprox } from './locationCoverage';
-import { logLocationEvent, roundOrNull } from './locationDebug';
+import { isLocationDebugEnabled, logLocationEvent, roundOrNull } from './locationDebug';
 import type {
   UserLocationFix,
   UserLocationQuality,
@@ -147,11 +147,20 @@ export function useUserLocation(): UseUserLocationResult {
       return;
     }
 
-    if (import.meta.env.DEV && navigator.permissions?.query) {
+    if (isLocationDebugEnabled() && navigator.permissions?.query) {
       navigator.permissions
         .query({ name: 'geolocation' as PermissionName })
         .then((result) => {
+          // prompt / granted / denied — read before the watch resolves.
           logLocationEvent('permission_state', { permissionState: result.state });
+          if (result.state === 'denied') {
+            // We still start the watch (unchanged behavior); the browser will fire
+            // PERMISSION_DENIED. This makes the pre-blocked state explicit in logs.
+            logLocationEvent('permission_preblocked', {
+              permissionState: 'denied',
+              reason: 'permission_denied_before_watch',
+            });
+          }
         })
         .catch(() => {
           /* permissions query unsupported — ignore */
@@ -299,6 +308,18 @@ export function useUserLocation(): UseUserLocationResult {
       (error) => {
         const status = statusForGeolocationError(error);
         logLocationEvent('watch_error', { reason: `code_${error.code}`, status });
+        if (error.code === error.PERMISSION_DENIED) {
+          // Actionable guidance — esp. for Chrome's "dismissed too many times" block,
+          // which only clears via Page Info / Site Settings, not by re-clicking.
+          logLocationEvent('permission_denied_help', {
+            status,
+            reason: 'browser_permission_denied',
+            resetHint:
+              'Open site settings for this domain and set Location to Allow or Ask, then reload.',
+            browserHint:
+              'Chrome blocks repeated dismissed prompts until reset in Page Info / Site Settings.',
+          });
+        }
         clearWarmUpTimer();
         setState((prev) => ({
           ...prev,
