@@ -1,8 +1,7 @@
 "use client";
 
 import type { LayerSpecification, StyleSpecification } from "maplibre-gl";
-import BaseMapStyle from "@local-map/map-style/base-map.json";
-import { createBasemapVectorSource } from "@local-map/map-style/basemapSource";
+import { createDashboardBasemapStyle } from "@local-map/map-style/dashboardBasemapSource";
 import { getDashboardBasemapCurrentJsonUrl } from "@/src/lib/dashboardBasemapCurrentJsonUrl";
 import { resolveDashboardBasemapPmtilesHttpUrl } from "@/src/config/map";
 import { PLACE_MAP_STYLE } from "./placeMapConfig";
@@ -29,9 +28,9 @@ const MARTIN_OVERLAY_LAYER_IDS = new Set([
 ]);
 
 /**
- * Layers from base-map.json that become redundant in the dashboard merged style because
+ * Layers from dashboard-map.json that become redundant in the dashboard merged style because
  * Martin vector overlays already provide the same data at a higher quality.
- * These basemap layers get `visibility: none` even when base-map.json makes them visible.
+ * These basemap layers get `visibility: none` even when dashboard-map.json makes them visible.
  */
 const BASEMAP_LAYERS_HIDDEN_IN_DASHBOARD = new Set([
   "basemap-road-labels-major",
@@ -99,7 +98,7 @@ function collectSourceIds(layers: readonly LayerSpecification[]): Set<string> {
 }
 
 /**
- * Merged dashboard map style: PMTiles basemap (base-map.json layers, `basemap-` prefixed) plus
+ * Merged dashboard map style: PMTiles basemap (dashboard-map.json layers, `basemap-` prefixed) plus
  * Martin vector overlays for live streets, buildings, places, road labels, and optionally bus.
  *
  * All symbol layers resolve glyphs from the self-hosted `/fonts/NotoSansMyanmar-Regular/` served
@@ -120,12 +119,12 @@ export async function fetchDashboardPlaceMapStyle(options: {
     signal: options.signal,
   });
 
-  // --- PMTiles basemap layers -------------------------------------------------
-  const basemap = cloneJson(BaseMapStyle);
+  // --- PMTiles basemap layers (dashboard-map.json via createDashboardBasemapStyle) ---
+  const basemapStyle = createDashboardBasemapStyle(httpUrl) as StyleSpecification;
 
   // Prefix all basemap layer ids so they never collide with Martin overlay ids.
   // Also hide any basemap layers superseded by Martin overlays.
-  const basemapLayers = remapDashboardSymbolLayerFonts((basemap.layers ?? []).map((layer) => {
+  const basemapLayers = remapDashboardSymbolLayerFonts((basemapStyle.layers ?? []).map((layer) => {
     const raw = layer as { id?: string; layout?: Record<string, unknown> };
     const newId = `basemap-${raw.id ?? ""}`;
     const overrideVisibility =
@@ -179,7 +178,7 @@ export async function fetchDashboardPlaceMapStyle(options: {
     glyphs: DASHBOARD_GLYPH_URL,
     sources: {
       ...martinSources,
-      "local-basemap": createBasemapVectorSource(httpUrl),
+      ...(basemapStyle.sources as StyleSpecification["sources"]),
     },
     layers: [...basemapLayers, ...martinLayers],
   };

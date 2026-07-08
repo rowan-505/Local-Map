@@ -9,17 +9,17 @@
  *   whole-country coverage — the dashboard preview previously rendered the regional
  *   archive (Yangon) only, so anything outside it was blank.
  *
- * Reuses the framework-agnostic shared builders from `@local-map/map-style`
- * (`createBasemapStyle`, `createOverviewStyle`, `createBasemapVectorSource`) so no
- * Vite-only `apps/web` code is imported and no public web behavior changes.
+ * Reuses dashboard style builders from `@local-map/map-style`
+ * (`createDashboardBasemapStyle`, `createBasemapVectorSource`) so no Vite-only `apps/web`
+ * code is imported and public web keeps `base-map.json`.
  */
 import type { LayerSpecification, StyleSpecification } from "maplibre-gl";
 
 import {
-    BASEMAP_VECTOR_SOURCE_ID,
-    createBasemapStyle,
+    DASHBOARD_BASEMAP_VECTOR_SOURCE_ID,
     createBasemapVectorSource,
-} from "@local-map/map-style/basemapSource";
+    createDashboardBasemapStyle,
+} from "@local-map/map-style/dashboardBasemapSource";
 
 /** Region archives published by the local tile server (mirrors the web QA manifest list). */
 export const DASHBOARD_LOCAL_REGION_PMTILES_ENTRIES = [
@@ -93,7 +93,7 @@ export function composeOverviewRegionalPreviewStyle(
 
 /**
  * DEV-ONLY: overview base (optional) + every regional archive from the local tile server.
- * Regional layer templates are cloned from the shared base style and retargeted per region
+ * Regional layer templates are cloned from `dashboard-map.json` and retargeted per region
  * source. Not for production — loads all packages at once (no viewport loading exists yet).
  */
 export function composeAllRegionPreviewStyle(args: {
@@ -105,17 +105,17 @@ export function composeAllRegionPreviewStyle(args: {
 
     // Seed regional layer templates from the shared base style (URL only seeds the source).
     const seedUrl = regionPmtilesLocalHttpUrl(regionBaseUrl, entries[0].region, entries[0].version);
-    const templateStyle = createBasemapStyle(seedUrl) as StyleSpecification;
+    const templateStyle = createDashboardBasemapStyle(seedUrl) as StyleSpecification;
     const background = findBackground(templateStyle);
     const regionalTemplate = ((templateStyle.layers ?? []) as LayerSpecification[]).filter(
-        (l) => l.id !== "background" && layerSource(l) === BASEMAP_VECTOR_SOURCE_ID,
+        (l) => l.id !== "background" && layerSource(l) === DASHBOARD_BASEMAP_VECTOR_SOURCE_ID,
     );
 
     const sources: NonNullable<StyleSpecification["sources"]> = {};
     const regionalLayers: LayerSpecification[] = [];
 
     for (const { region, version } of entries) {
-        const sourceId = `${BASEMAP_VECTOR_SOURCE_ID}-${region}-${version}`;
+        const sourceId = `${DASHBOARD_BASEMAP_VECTOR_SOURCE_ID}-${region}-${version}`;
         sources[sourceId] = createBasemapVectorSource(
             regionPmtilesLocalHttpUrl(regionBaseUrl, region, version),
         ) as NonNullable<StyleSpecification["sources"]>[string];

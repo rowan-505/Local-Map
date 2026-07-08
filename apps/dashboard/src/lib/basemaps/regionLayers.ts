@@ -2,7 +2,7 @@
  * Regional MapLibre layer factory for dynamic PMTiles regions in dashboard preview maps.
  *
  * Ported from the public web map (`apps/web/.../regionLayers.ts`): clones the committed regional
- * layer definitions from the shared `base-map.json` once per region, keeping each layer's paint /
+ * layer definitions from `dashboard-map.json` once per region, keeping each layer's paint /
  * layout / `source-layer`, with a region-unique id repointed at the region's source.
  *
  * Dashboard difference: symbol layers are remapped to the dashboard's self-hosted Myanmar glyph
@@ -11,15 +11,18 @@
  * Scope: layers only. Sources are added/removed by the caller (the viewport loader).
  */
 import type { LayerSpecification, Map as MaplibreMap, StyleSpecification } from "maplibre-gl";
-import BaseMapStyle from "@local-map/map-style/base-map.json";
-import { BASEMAP_VECTOR_SOURCE_ID } from "@local-map/map-style/basemapSource";
+import DashboardMapStyle from "@local-map/map-style/dashboard-map.json";
+import { DASHBOARD_BASEMAP_VECTOR_SOURCE_ID } from "@local-map/map-style/dashboardBasemapSource";
 
 import { remapDashboardSymbolLayerFonts } from "@/src/lib/map/dashboardMapFonts";
 
 /** Subset of the MapLibre map used by this factory. */
 export type RegionLayerMap = Pick<MaplibreMap, "getLayer" | "addLayer" | "removeLayer">;
 
-const BASE_STYLE = BaseMapStyle as unknown as StyleSpecification;
+const BASE_STYLE = DashboardMapStyle as unknown as StyleSpecification;
+
+/** MapLibre vector source id in dashboard-map.json (same id as public `local-basemap`). */
+const BASEMAP_VECTOR_SOURCE_ID = DASHBOARD_BASEMAP_VECTOR_SOURCE_ID;
 
 function cloneLayer(layer: LayerSpecification): LayerSpecification {
     return typeof structuredClone === "function"
@@ -33,7 +36,7 @@ export function regionLayerId(baseLayerId: string, regionId: string): string {
 }
 
 /**
- * Committed regional layers from `base-map.json`, in their existing bottom→top paint order.
+ * Regional layers from `dashboard-map.json`, in their existing bottom→top paint order.
  * Preserved as-is so cloned regions render identically to the production basemap.
  */
 function getRegionalTemplateLayers(): LayerSpecification[] {

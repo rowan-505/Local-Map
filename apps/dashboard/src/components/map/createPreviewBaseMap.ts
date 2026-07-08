@@ -16,10 +16,12 @@
 import type { StyleSpecification } from "maplibre-gl";
 import maplibregl from "maplibre-gl";
 
-import { createOverviewStyle } from "@local-map/map-style/overviewSource";
+import { createDashboardBasemapStyle } from "@local-map/map-style/dashboardBasemapSource";
+import { createDashboardOverviewStyle } from "@local-map/map-style/dashboardOverviewSource";
 import { ensurePmtilesProtocol } from "@local-map/map-style/registerPmtilesProtocol";
 import { loadDashboardBasemapManifest } from "@/src/lib/basemaps/manifest";
 import { validateDashboardBasemapEnv } from "@/src/lib/basemaps/basemapEnv";
+import { resolveDashboardBasemapPmtilesHttpUrl } from "@/src/config/map";
 import {
   startRegionalPmtilesLoader,
   type RegionalPmtilesLoaderHandle,
@@ -54,8 +56,9 @@ type CreatePreviewBaseMapOptions = {
  * structure as the public web map). Regional detail is added on top at runtime by the viewport
  * loader — this style intentionally contains only the overview base.
  *
- * Throws (with the failed manifest URL) when the manifest cannot be fetched/parsed, so preview
- * maps surface a clear error instead of silently falling back to a localhost tile server.
+ * Preferred: overview PMTiles from the basemap manifest + regional layers via the viewport loader.
+ * Fallback: single regional PMTiles from env / `current.json` when the manifest cannot be loaded
+ * (mirrors the public web map's manifest → regional fallback strategy).
  * Glyphs are served from `/fonts/{fontstack}/{range}.pbf` (self-hosted Myanmar font).
  */
 let cachedPmtilesOnlyStyle: Promise<StyleSpecification> | null = null;
@@ -78,17 +81,34 @@ export async function fetchDashboardPmtilesOnlyStyle(options?: {
       }
     }
 
-    const manifest = await loadDashboardBasemapManifest(options?.signal);
-    const overviewStyle = createOverviewStyle(manifest.overview.url) as StyleSpecification;
-    const style = applyDashboardLocalGlyphs(overviewStyle);
-    logDashboardMapFontConfig("map:preview-style-fonts");
-    if (IS_DEV) {
-      console.info(
-        "[dashboard] overview PMTiles base loaded from manifest:",
-        manifest.overview.url,
-      );
+    try {
+      const manifest = await loadDashboardBasemapManifest(options?.signal);
+      const overviewStyle = createDashboardOverviewStyle(manifest.overview.url) as StyleSpecification;
+      const style = applyDashboardLocalGlyphs(overviewStyle);
+      logDashboardMapFontConfig("map:preview-style-fonts");
+      if (IS_DEV) {
+        console.info(
+          "[dashboard] overview PMTiles base loaded from manifest:",
+          manifest.overview.url,
+        );
+      }
+      return style;
+    } catch (err) {
+      if (IS_DEV) {
+        console.warn(
+          "[dashboard] basemap manifest unavailable; using regional PMTiles fallback:",
+          err,
+        );
+      }
+      const httpUrl = await resolveDashboardBasemapPmtilesHttpUrl({ signal: options?.signal });
+      const regionalStyle = createDashboardBasemapStyle(httpUrl) as StyleSpecification;
+      const style = applyDashboardLocalGlyphs(regionalStyle);
+      logDashboardMapFontConfig("map:preview-style-fonts");
+      if (IS_DEV) {
+        console.info("[dashboard] regional PMTiles fallback active:", httpUrl);
+      }
+      return style;
     }
-    return style;
   };
 
   if (!options?.signal) {

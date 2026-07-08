@@ -37,6 +37,8 @@ import {
 } from "@/src/components/map/dataReviewBasemap";
 import { PLACE_MAP_DEFAULT_CENTER } from "@/src/components/map/placeMapConfig";
 import { extractVerticesFromGeometry } from "@/src/components/map/mapVertexPreview";
+import TransportMapLayerToggle from "./TransportMapLayerToggle";
+import { useTransportDashboardBasemapMode } from "./transportBasemapMode";
 import {
     coordsToLineStringGeometry,
     findPathSegmentForInsert,
@@ -124,8 +126,16 @@ export type TransportPreviewMapProps = {
     fitRequestMode?: "default" | "variant" | "stop";
     /** Route-stop id to center when {@link fitRequestMode} is `stop`. */
     fitRequestStopId?: string | null;
-    /** When true, omit the MapPreviewCard header — map fills the container. */
+    /** When false, omit the MapPreviewCard header — map fills the container. */
     chromeless?: boolean;
+    /**
+     * When false, hide the Map / Sat / Hyb control (parent toolbar provides it).
+     * Default: true for header maps, false for chromeless unless explicitly set.
+     */
+    showBasemapToggle?: boolean;
+    /** Controlled basemap mode (defaults to shared transport localStorage mode). */
+    basemapMode?: DataReviewBasemapMode;
+    onBasemapModeChange?: (mode: DataReviewBasemapMode) => void;
     /** When false, hide the dashed stop-sequence connector (stop markers still render). */
     showStopSequenceGuide?: boolean;
     /**
@@ -169,8 +179,16 @@ const SRC_DRAFT_VERTICES = "transport-preview-draft-vertices";
 const SRC_EDITABLE_POINT = "transport-preview-editable-point";
 
 const LYR_PATH = "transport-preview-path-line";
+const LYR_STOP_PREVIEW_CASING = "transport-preview-stop-dashed-casing";
 const LYR_STOP_PREVIEW = "transport-preview-stop-dashed";
 const LYR_STOP_PREVIEW_ARROWS = "transport-preview-stop-guide-arrows";
+
+/** Shared dash for stop-sequence guide casing + main line. */
+const STOP_SEQUENCE_GUIDE_DASH: [number, number] = [1.2, 2.4];
+const STOP_SEQUENCE_GUIDE_COLOR = "#F97316";
+
+/** Updated each render so module-level `ensureLayers` can style for the active basemap mode. */
+let transportPreviewBasemapMode: DataReviewBasemapMode = "map";
 const LYR_GEOM_LINE = "transport-preview-geom-line-line";
 const LYR_GEOM_POINT = "transport-preview-geom-point-circle";
 const LYR_STOPS_CIRCLE = "transport-preview-stops-circle";
@@ -184,6 +202,7 @@ const LYR_EDITABLE_POINT = "transport-preview-editable-point-circle";
 
 const ORDERED_LAYER_IDS = [
     LYR_PATH,
+    LYR_STOP_PREVIEW_CASING,
     LYR_STOP_PREVIEW,
     LYR_STOP_PREVIEW_ARROWS,
     LYR_GEOM_LINE,
@@ -647,6 +666,42 @@ function computeFitTarget(input: FitGeometryInput): FitTarget {
     return positionsToFitTarget(collectFitPositions(input));
 }
 
+function applyStopSequenceGuideLayerStyles(
+    map: maplibregl.Map,
+    basemapMode: DataReviewBasemapMode,
+): void {
+    const imageryOn = basemapMode !== "map";
+    const mainWidth = imageryOn
+        ? (["interpolate", ["linear"], ["zoom"], 9, 2, 14, 2.5, 18, 3] as const)
+        : (["interpolate", ["linear"], ["zoom"], 9, 1.5, 14, 2, 18, 2] as const);
+    const casingWidth = imageryOn
+        ? (["interpolate", ["linear"], ["zoom"], 9, 4.5, 14, 5, 18, 6] as const)
+        : (["interpolate", ["linear"], ["zoom"], 9, 3.5, 14, 4, 18, 5] as const);
+    const arrowTextSize = imageryOn
+        ? (["interpolate", ["linear"], ["zoom"], 11, 12, 14, 14, 18, 16] as const)
+        : (["interpolate", ["linear"], ["zoom"], 11, 10, 14, 12, 18, 14] as const);
+
+    if (map.getLayer(LYR_STOP_PREVIEW_CASING)) {
+        map.setPaintProperty(LYR_STOP_PREVIEW_CASING, "line-color", "#ffffff");
+        map.setPaintProperty(LYR_STOP_PREVIEW_CASING, "line-opacity", 0.85);
+        map.setPaintProperty(LYR_STOP_PREVIEW_CASING, "line-width", casingWidth);
+        map.setPaintProperty(LYR_STOP_PREVIEW_CASING, "line-dasharray", STOP_SEQUENCE_GUIDE_DASH);
+    }
+    if (map.getLayer(LYR_STOP_PREVIEW)) {
+        map.setPaintProperty(LYR_STOP_PREVIEW, "line-color", STOP_SEQUENCE_GUIDE_COLOR);
+        map.setPaintProperty(LYR_STOP_PREVIEW, "line-opacity", 0.95);
+        map.setPaintProperty(LYR_STOP_PREVIEW, "line-width", mainWidth);
+        map.setPaintProperty(LYR_STOP_PREVIEW, "line-dasharray", STOP_SEQUENCE_GUIDE_DASH);
+    }
+    if (map.getLayer(LYR_STOP_PREVIEW_ARROWS)) {
+        map.setPaintProperty(LYR_STOP_PREVIEW_ARROWS, "text-color", STOP_SEQUENCE_GUIDE_COLOR);
+        map.setPaintProperty(LYR_STOP_PREVIEW_ARROWS, "text-halo-color", "#ffffff");
+        map.setPaintProperty(LYR_STOP_PREVIEW_ARROWS, "text-halo-width", imageryOn ? 2 : 1.5);
+        map.setPaintProperty(LYR_STOP_PREVIEW_ARROWS, "text-opacity", 0.95);
+        map.setLayoutProperty(LYR_STOP_PREVIEW_ARROWS, "text-size", arrowTextSize);
+    }
+}
+
 function ensureLayers(map: maplibregl.Map): void {
     if (!map.isStyleLoaded()) {
         return;
@@ -704,6 +759,21 @@ function ensureLayers(map: maplibregl.Map): void {
         });
     }
 
+    if (!map.getLayer(LYR_STOP_PREVIEW_CASING)) {
+        map.addLayer({
+            id: LYR_STOP_PREVIEW_CASING,
+            type: "line",
+            source: SRC_STOP_PREVIEW,
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+                "line-color": "#ffffff",
+                "line-width": 4,
+                "line-opacity": 0.85,
+                "line-dasharray": STOP_SEQUENCE_GUIDE_DASH,
+            },
+        });
+    }
+
     if (!map.getLayer(LYR_STOP_PREVIEW)) {
         map.addLayer({
             id: LYR_STOP_PREVIEW,
@@ -711,10 +781,10 @@ function ensureLayers(map: maplibregl.Map): void {
             source: SRC_STOP_PREVIEW,
             layout: { "line-cap": "round", "line-join": "round" },
             paint: {
-                "line-color": "#b45309",
-                "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1.25, 14, 1.75, 18, 2.25],
-                "line-opacity": 0.85,
-                "line-dasharray": [1.2, 2.4],
+                "line-color": STOP_SEQUENCE_GUIDE_COLOR,
+                "line-width": 2,
+                "line-opacity": 0.95,
+                "line-dasharray": STOP_SEQUENCE_GUIDE_DASH,
             },
         });
     }
@@ -736,10 +806,10 @@ function ensureLayers(map: maplibregl.Map): void {
                 "text-ignore-placement": true,
             },
             paint: {
-                "text-color": "#b45309",
+                "text-color": STOP_SEQUENCE_GUIDE_COLOR,
                 "text-halo-color": "#ffffff",
-                "text-halo-width": 1.2,
-                "text-opacity": 0.9,
+                "text-halo-width": 1.5,
+                "text-opacity": 0.95,
             },
         });
     }
@@ -918,6 +988,8 @@ function ensureLayers(map: maplibregl.Map): void {
             map.moveLayer(id);
         }
     }
+
+    applyStopSequenceGuideLayerStyles(map, transportPreviewBasemapMode);
 }
 
 export default function TransportPreviewMap({
@@ -949,6 +1021,9 @@ export default function TransportPreviewMap({
     fitRequestMode = "default",
     fitRequestStopId = null,
     chromeless = false,
+    showBasemapToggle,
+    basemapMode: basemapModeProp,
+    onBasemapModeChange: onBasemapModeChangeProp,
     showStopSequenceGuide = true,
     allowStopSequenceGuideWithPath = false,
     selectedStopId = null,
@@ -962,6 +1037,12 @@ export default function TransportPreviewMap({
     pathEditHint = null,
 }: TransportPreviewMapProps) {
     const clientMounted = useClientMounted();
+    const transportBasemap = useTransportDashboardBasemapMode();
+    const basemapMode = basemapModeProp ?? transportBasemap.basemapMode;
+    transportPreviewBasemapMode = basemapMode;
+    const setBasemapMode = onBasemapModeChangeProp ?? transportBasemap.setBasemapMode;
+    const satelliteConfigured = transportBasemap.satelliteAvailable;
+    const showBasemapControl = showBasemapToggle ?? !chromeless;
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
     const markerRef = useRef<maplibregl.Marker | null>(null);
@@ -983,7 +1064,6 @@ export default function TransportPreviewMap({
 
     const [mapReady, setMapReady] = useState(false);
     const [mapError, setMapError] = useState<string | null>(null);
-    const [basemapMode, setBasemapMode] = useState<DataReviewBasemapMode>("map");
     const [showVertices, setShowVertices] = useState(false);
     const [satelliteUnavailable, setSatelliteUnavailable] = useState(false);
 
@@ -1099,7 +1179,7 @@ export default function TransportPreviewMap({
                         loaded.touchZoomRotate.disableRotation();
                         ensureDataReviewSatelliteLayer(loaded);
                         ensureLayers(loaded);
-                        applyPreviewCompositeBasemapMode(loaded, "map", {
+                        applyPreviewCompositeBasemapMode(loaded, basemapMode, {
                             overlayLayerIds: ORDERED_LAYER_IDS,
                         });
                         setMapReady(true);
@@ -1159,8 +1239,11 @@ export default function TransportPreviewMap({
         const applied = applyPreviewCompositeBasemapMode(map, basemapMode, {
             overlayLayerIds: ORDERED_LAYER_IDS,
         });
-        setSatelliteUnavailable(basemapMode !== "map" && !applied);
-    }, [mapReady, basemapMode]);
+        applyStopSequenceGuideLayerStyles(map, basemapMode);
+        setSatelliteUnavailable(
+            basemapMode !== "map" && (!applied || !satelliteConfigured),
+        );
+    }, [mapReady, basemapMode, satelliteConfigured]);
 
     const fitToContent = useCallback(
         (duration: number) => {
@@ -1933,7 +2016,19 @@ export default function TransportPreviewMap({
 
             {satelliteUnavailable ? (
                 <div className="pointer-events-none absolute right-4 top-4 z-10 rounded-md bg-amber-50/95 px-3 py-2 text-xs text-amber-800 shadow ring-1 ring-amber-200">
-                    Satellite imagery is unavailable. Showing the map basemap.
+                    {satelliteConfigured
+                        ? "Satellite imagery is unavailable. Showing the map basemap."
+                        : "Satellite tiles not configured. Showing the map basemap."}
+                </div>
+            ) : null}
+
+            {showBasemapControl && chromeless ? (
+                <div className="absolute right-3 top-3 z-20">
+                    <TransportMapLayerToggle
+                        value={basemapMode}
+                        onChange={setBasemapMode}
+                        satelliteAvailable={satelliteConfigured}
+                    />
                 </div>
             ) : null}
 
@@ -1971,6 +2066,7 @@ export default function TransportPreviewMap({
                 fitButtonLabel="Fit"
                 basemapMode={basemapMode}
                 onBasemapModeChange={setBasemapMode}
+                satelliteAvailable={satelliteConfigured}
                 showVerticesToggle={hasLineGeometry}
                 showVertices={showVertices}
                 onShowVerticesChange={setShowVertices}

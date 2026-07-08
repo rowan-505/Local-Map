@@ -12,7 +12,7 @@ import { DASHBOARD_GLYPH_URL, dashboardMyanmarTextFont } from "@/src/lib/map/das
 
 const TILE_SERVER_URL = "https://martin-lively-canyon-4077.fly.dev";
 
-/** Request Martin `tiles_buildings_v` from zoom 14 (matches `packages/map-style/base-map.json`). */
+/** Request Martin `tiles_buildings_v` from zoom 14 (matches `packages/map-style/dashboard-map.json`). */
 export const BUILDINGS_MARTIN_MIN_ZOOM = 14;
 
 const IS_DASHBOARD_DEV = process.env.NODE_ENV !== "production";

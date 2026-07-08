@@ -20,6 +20,15 @@ declare namespace NodeJS {
     /** Optional overview `current.json` URL (defaults to shared `DEFAULT_OVERVIEW_CURRENT_JSON_URL`). */
     NEXT_PUBLIC_OVERVIEW_CURRENT_JSON_URL?: string;
     /**
+     * Optional satellite raster tile URL template (`{z}/{x}/{y}`) for Map / Sat / Hyb preview maps.
+     * Defaults to Esri World Imagery when unset. Set to `off` to disable satellite/hybrid modes.
+     */
+    NEXT_PUBLIC_SATELLITE_TILE_URL?: string;
+    /** Legacy alias for {@link NEXT_PUBLIC_SATELLITE_TILE_URL}. */
+    NEXT_PUBLIC_SATELLITE_RASTER_TILES_URL?: string;
+    NEXT_PUBLIC_SATELLITE_RASTER_TILE_SIZE?: string;
+    NEXT_PUBLIC_SATELLITE_RASTER_ATTRIBUTION?: string;
+    /**
      * DEV ONLY flag ("true"/"1"). When enabled, preview maps load every regional `.pmtiles`
      * archive from the local tile server for full nationwide detail. Ignored in production.
      */

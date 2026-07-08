@@ -1,6 +1,7 @@
 "use client";
 
 import type { DataReviewBasemapMode } from "./dataReviewBasemap";
+import MapBasemapToggle from "./MapBasemapToggle";
 import {
     MAP_PREVIEW_CARD_HEADER_CLASS,
     MAP_PREVIEW_CARD_HEADER_CORE_CLASS,
@@ -18,6 +19,8 @@ export type DataReviewMapHeaderControlsProps = {
     fitButtonLabel?: string;
     basemapMode: DataReviewBasemapMode;
     onBasemapModeChange: (mode: DataReviewBasemapMode) => void;
+    /** When false, Satellite/Hybrid tabs are disabled with a tooltip. */
+    satelliteAvailable?: boolean;
     /** When false, hides the vertices checkbox (e.g. street editor has its own handles). */
     showVerticesToggle?: boolean;
     showVertices?: boolean;
@@ -34,6 +37,7 @@ export default function DataReviewMapHeaderControls({
     fitButtonLabel = "Fit",
     basemapMode,
     onBasemapModeChange,
+    satelliteAvailable = true,
     showVerticesToggle = false,
     showVertices = false,
     onShowVerticesChange,
@@ -52,13 +56,6 @@ export default function DataReviewMapHeaderControls({
     const fitDisabledClass = isCore
         ? "border-slate-200 bg-slate-50 text-slate-400"
         : "border-gray-200 bg-gray-50 text-gray-400";
-    const tabWrapClass = isCore
-        ? "border border-slate-200 bg-white"
-        : "border border-gray-200 bg-white";
-    const tabActiveClass = isCore ? "bg-slate-800 text-white" : "bg-gray-900 text-white";
-    const tabIdleClass = isCore
-        ? "text-slate-600 hover:bg-slate-50"
-        : "text-gray-600 hover:bg-gray-50";
     const checkboxClass = isCore ? "border-slate-300" : "border-gray-300";
     const labelClass = isCore ? "text-slate-600" : "text-gray-600";
 
@@ -102,26 +99,12 @@ export default function DataReviewMapHeaderControls({
                         Show vertices
                     </label>
                 ) : null}
-                <div className={`flex items-center rounded p-0.5 ${tabWrapClass}`}>
-                    {(
-                        [
-                            { id: "map" as const, label: "Map" },
-                            { id: "satellite" as const, label: "Sat" },
-                            { id: "hybrid" as const, label: "Hyb" },
-                        ] as const
-                    ).map((tab) => (
-                        <button
-                            key={tab.id}
-                            type="button"
-                            onClick={() => onBasemapModeChange(tab.id)}
-                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                                basemapMode === tab.id ? tabActiveClass : tabIdleClass
-                            }`}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
-                </div>
+                <MapBasemapToggle
+                    value={basemapMode}
+                    onChange={onBasemapModeChange}
+                    satelliteAvailable={satelliteAvailable}
+                    palette={palette}
+                />
             </div>
         </div>
     );

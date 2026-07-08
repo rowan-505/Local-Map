@@ -3,6 +3,8 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type UIEvent } from "react";
 
 import TransportPreviewMap, { type TransportPreviewStop } from "./TransportPreviewMap";
+import TransportMapLayerToggle from "./TransportMapLayerToggle";
+import { useTransportDashboardBasemapMode } from "./transportBasemapMode";
 import TransportReviewMapReviewActions from "./TransportReviewMapReviewActions";
 import { isReviewMapPathEditMode, type ReviewMapMode } from "./reviewMapMode";
 import type {
@@ -402,6 +404,7 @@ export default function TransportRouteReviewMapShell({
     centerStopRequest = null,
 }: TransportRouteReviewMapShellProps) {
     const titleId = useId();
+    const { basemapMode, setBasemapMode, satelliteAvailable } = useTransportDashboardBasemapMode();
     const stopListScrollRef = useRef<HTMLDivElement | null>(null);
     const [stopListScrollTop, setStopListScrollTop] = useState(0);
     const [stopListViewportHeight, setStopListViewportHeight] = useState(480);
@@ -814,6 +817,13 @@ export default function TransportRouteReviewMapShell({
                         Fit
                     </button>
 
+                    <TransportMapLayerToggle
+                        value={basemapMode}
+                        onChange={setBasemapMode}
+                        satelliteAvailable={satelliteAvailable}
+                        className="shrink-0"
+                    />
+
                     <div className="hidden items-center gap-3 lg:flex">
                         <ReviewMapLayerControls
                             showStopSequenceGuide={showStopSequenceGuide}
@@ -986,6 +996,9 @@ export default function TransportRouteReviewMapShell({
                 <div className="flex min-h-0 min-w-0 flex-1 flex-col p-3">
                     <TransportPreviewMap
                         chromeless
+                        showBasemapToggle={false}
+                        basemapMode={basemapMode}
+                        onBasemapModeChange={setBasemapMode}
                         className="h-full"
                         heightClassName="h-full min-h-[280px] w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100 lg:min-h-0"
                         externalId={selectedVariantId}

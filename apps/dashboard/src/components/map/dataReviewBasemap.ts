@@ -1,6 +1,7 @@
 import type { Geometry, LineString, MultiLineString, MultiPoint, Point, Polygon, MultiPolygon } from "geojson";
 import maplibregl from "maplibre-gl";
 
+import { getDashboardSatelliteRasterConfig } from "@/src/lib/basemaps/satelliteRasterConfig";
 import { PLACE_MAP_DEFAULT_CENTER } from "./placeMapConfig";
 
 export type DataReviewBasemapMode = "map" | "satellite" | "hybrid";
@@ -11,10 +12,6 @@ const LINE_MAX_ZOOM = 17;
 
 export const DATA_REVIEW_SATELLITE_SOURCE_ID = "data-review-satellite";
 export const DATA_REVIEW_SATELLITE_LAYER_ID = "data-review-satellite";
-
-const SATELLITE_TILES = [
-    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-] as const;
 
 const SATELLITE_RASTER_MAX_ZOOM = 19;
 
@@ -230,18 +227,22 @@ function satelliteInsertBeforeId(map: maplibregl.Map): string | undefined {
     return undefined;
 }
 
-export function ensureDataReviewSatelliteLayer(map: maplibregl.Map) {
+export function ensureDataReviewSatelliteLayer(map: maplibregl.Map): boolean {
+    const config = getDashboardSatelliteRasterConfig();
+    if (!config) {
+        return false;
+    }
+
     if (map.getSource(DATA_REVIEW_SATELLITE_SOURCE_ID)) {
-        return;
+        return true;
     }
 
     map.addSource(DATA_REVIEW_SATELLITE_SOURCE_ID, {
         type: "raster",
-        tiles: [...SATELLITE_TILES],
-        tileSize: 256,
+        tiles: [config.tilesUrl],
+        tileSize: config.tileSize,
         maxzoom: SATELLITE_RASTER_MAX_ZOOM,
-        attribution:
-            '<a href="https://www.esri.com/">© Esri</a> — Sources: Esri, Maxar, Earthstar Geographics',
+        attribution: config.attribution,
     });
 
     if (!map.getLayer(DATA_REVIEW_SATELLITE_LAYER_ID)) {
@@ -260,6 +261,7 @@ export function ensureDataReviewSatelliteLayer(map: maplibregl.Map) {
             beforeId,
         );
     }
+    return true;
 }
 
 function firstMultiPointCoord(g: MultiPoint): [number, number] | null {
