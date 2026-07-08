@@ -1,0 +1,37 @@
+---
+description: Client app rules — dashboard, web, and mobile use API only, no database
+alwaysApply: false
+globs: apps/dashboard/**/*,apps/web/**/*,apps/mobile/**/*
+---
+
+# Client apps (dashboard, web, mobile)
+
+## All clients
+
+- Call the API only. No direct PostgreSQL. No Prisma.
+- Keep business logic in the API, not in the client.
+- Do not duplicate API business logic in the client.
+- Show loading, error, and empty states on data screens.
+- Show readable errors when API calls fail.
+- Frontend hiding is not authorization — the API must enforce access.
+
+## Dashboard (`apps/dashboard`)
+
+- Internal admin tool. Function over polish.
+- Paginate large tables. Do not load MapLibre on pages without a map.
+- Reuse existing review and page-shell patterns before new one-off UIs.
+- Forms: React Hook Form + Zod where the app already does.
+- Centralize API calls (e.g. `src/lib/api.ts`).
+
+## Web (`apps/web`)
+
+- Public map: MapLibre GL JS + PMTiles basemap.
+- Tiles for rendering. API for search, details, routing, auth, and user data.
+- Do not load all regional PMTiles at once.
+- Keep MapLibre code separate from business rules.
+- Do not break existing Myanmar font and glyph support.
+- On mobile web, prefer top search + bottom sheet over wide sidebars.
+
+## Mobile (`apps/mobile`)
+
+- Same rules as web: API only, no database access.

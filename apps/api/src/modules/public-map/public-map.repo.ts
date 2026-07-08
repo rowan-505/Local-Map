@@ -672,6 +672,7 @@ export class PublicMapRepository {
             ) AS bn_en ON true
             WHERE b.is_active = true
               AND b.deleted_at IS NULL
+              AND b.review_status IN ('reviewed', 'verified')
               AND ST_Intersects(b.geom, ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL})
             ORDER BY b.name ASC
             LIMIT 2000
@@ -700,6 +701,7 @@ export class PublicMapRepository {
                 WHERE p.route_variant_id = v.id
                   AND p.is_active = true
                   AND p.deleted_at IS NULL
+                  AND p.review_status IN ('reviewed', 'verified')
                 ORDER BY
                     CASE WHEN p.path_kind = 'primary' THEN 0 ELSE 1 END,
                     p.id ASC
@@ -737,8 +739,10 @@ export class PublicMapRepository {
             ) AS rn_en ON true
             WHERE v.is_active = true
               AND v.deleted_at IS NULL
+              AND v.review_status IN ('reviewed', 'verified')
               AND r.is_active = true
               AND r.deleted_at IS NULL
+              AND r.review_status IN ('reviewed', 'verified')
               AND rp.geom IS NOT NULL
               AND ST_Intersects(rp.geom, ${PUBLIC_MAP_BOUNDS_ENVELOPE_SQL})
             ORDER BY r.route_code ASC, v.variant_code ASC
@@ -1105,11 +1109,20 @@ export class PublicMapRepository {
     ): Promise<CollectedGeometryRow | null> {
         const isNumericId = /^\d+$/.test(entityId);
         const routeMatch = isNumericId
-            ? Prisma.sql`v.route_id = ${BigInt(entityId)}`
+            ? Prisma.sql`v.route_id = ${BigInt(entityId)}
+                AND EXISTS (
+                    SELECT 1 FROM transport.routes r
+                    WHERE r.id = ${BigInt(entityId)}
+                      AND r.is_active = true
+                      AND r.deleted_at IS NULL
+                      AND r.review_status IN ('reviewed', 'verified')
+                )`
             : Prisma.sql`v.route_id = (
                   SELECT r.id FROM transport.routes r
                   WHERE r.public_id = ${entityId}::uuid
-                    AND r.is_active = true AND r.deleted_at IS NULL
+                    AND r.is_active = true
+                    AND r.deleted_at IS NULL
+                    AND r.review_status IN ('reviewed', 'verified')
               )`;
         const tolerance = simplifyToleranceDeg;
 
@@ -1121,9 +1134,11 @@ export class PublicMapRepository {
                   ON rp.route_variant_id = v.id
                  AND rp.is_active = true
                  AND rp.deleted_at IS NULL
+                 AND rp.review_status IN ('reviewed', 'verified')
                 WHERE ${routeMatch}
                   AND v.is_active = true
                   AND v.deleted_at IS NULL
+                  AND v.review_status IN ('reviewed', 'verified')
                   AND rp.geom IS NOT NULL
                   AND NOT ST_IsEmpty(rp.geom)
             ),
@@ -1243,7 +1258,8 @@ const GEOMETRY_SOURCES: Record<
     bus_stop: {
         from: "transport.stops s",
         geomExpr: "s.geom",
-        activeCondition: "s.is_active = true AND s.deleted_at IS NULL",
+        activeCondition:
+            "s.is_active = true AND s.deleted_at IS NULL AND s.review_status IN ('reviewed', 'verified')",
         idColumn: "s.id",
         publicIdColumn: "s.public_id",
         pointLike: true,
@@ -1274,8 +1290,10 @@ const GEOMETRY_SOURCES: Record<
         geomExpr:
             "(SELECT rp.geom FROM transport.route_paths rp " +
             "WHERE rp.route_variant_id = v.id AND rp.is_active = true AND rp.deleted_at IS NULL " +
+            "AND rp.review_status IN ('reviewed', 'verified') " +
             "ORDER BY CASE WHEN rp.path_kind = 'primary' THEN 0 ELSE 1 END, rp.id ASC LIMIT 1)",
-        activeCondition: "v.is_active = true AND v.deleted_at IS NULL",
+        activeCondition:
+            "v.is_active = true AND v.deleted_at IS NULL AND v.review_status IN ('reviewed', 'verified')",
         idColumn: "v.id",
         publicIdColumn: "v.public_id",
         pointLike: false,

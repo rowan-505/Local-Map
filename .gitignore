@@ -211,3 +211,11 @@ infrastructure/database/introspection/**/snapshots/
 
 /packages/admin_area_manual_fixes
 /packages/manual_fixes_gap1
+
+# ========================
+# Local scratch + transport import reports (never commit)
+# ========================
+# Covers tmp/transport-imports (raw JSON, DB reports, logs), ad-hoc scripts, etc.
+/tmp/**
+!/tmp/
+!/tmp/.gitkeep

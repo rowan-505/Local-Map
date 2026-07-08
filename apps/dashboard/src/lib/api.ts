@@ -1599,6 +1599,10 @@ async function apiFetchInternal<T>(
         throw new Error(message);
     }
 
+    if (response.status === 204) {
+        throw new Error("Server returned 204 No Content; expected JSON body.");
+    }
+
     return (await response.json()) as T;
 }
 

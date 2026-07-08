@@ -1,5 +1,26 @@
 {
   "mcpServers": {
+    "appium-mcp": {
+      "disabled": false,
+      "timeout": 100,
+      "type": "stdio",
+      "command": "npx",
+      "args": ["appium-mcp@latest"],
+      "env": {
+        "ANDROID_HOME": "/Users/nyihtet/Library/Android/sdk",
+        "NO_UI": "true",
+        "SCREENSHOTS_DIR": "tmp/transport-imports/appium-screenshots"
+      }
+    },
+
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    },
     "supabase": {
       "url": "https://mcp.supabase.com/mcp?read_only=true"
     }

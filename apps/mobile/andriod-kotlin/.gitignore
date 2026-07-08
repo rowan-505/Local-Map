@@ -1,15 +1,64 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# Gradle and Android build output
+# Keep tracked: gradlew, gradlew.bat, gradle/wrapper/*, build.gradle.kts, settings.gradle.kts, gradle/libs.versions.toml
+.gradle/
+build/
+*/build/
+captures/
+.externalNativeBuild/
+.cxx/
+kotlin-js-store/
+.kotlin/
+
+# Local SDK and machine-specific config
 local.properties
+
+# Android Studio / IntelliJ local files
+*.iml
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/dictionaries/
+.idea/shelf/
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Logs and diagnostics
+*.log
+*.hprof
+
+# Environment files and local secrets
+.env
+.env.*
+!.env.example
+secrets.properties
+apikey.properties
+google-services.json
+
+# Signing keys and certificates
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+*.mobileprovision
+debug.keystore
+release.keystore
+
+# Packaged/generated Android artifacts
+*.apk
+*.ap_
+*.aab
+*.dex
+app/release/

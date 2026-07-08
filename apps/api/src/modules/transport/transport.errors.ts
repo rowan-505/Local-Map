@@ -74,8 +74,30 @@ export class TransportRouteConflictError extends Error {
     }
 }
 
+/** Thrown when a review action or status transition is not allowed. */
+export class TransportReviewGuardError extends Error {
+    constructor(
+        public readonly code: string,
+        message: string,
+        public readonly blockers: string[] = [],
+    ) {
+        super(message);
+        this.name = "TransportReviewGuardError";
+    }
+}
+
 /**
- * Thrown when archiving a stop that is still referenced by one or more routes
+ * Thrown when a transport admin feature is declared in the API but not implemented yet.
+ * Surfaced as HTTP 501 so clients can show a stable "not implemented" state.
+ */
+export class TransportFeatureNotImplementedError extends Error {
+    constructor(public readonly feature: string) {
+        super(`Transport feature not implemented: ${feature}`);
+        this.name = "TransportFeatureNotImplementedError";
+    }
+}
+
+/** Thrown when archiving a stop that is still referenced by one or more routes
  * (counted as distinct routes via non-deleted variants). The stop must be
  * removed from all routes first; archiving never deletes route_stops rows.
  */

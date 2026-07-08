@@ -19,6 +19,11 @@ import {
     type TransportAuditContext,
 } from "./transport-audit.js";
 import { getTransportTypeFallbackLabel } from "./transport-naming.js";
+import {
+    derivePublicVisibility,
+    deriveRouteGeometryStatus,
+    deriveStopGeometryStatus,
+} from "./transport-review.js";
 import type {
     ListTransportRoutesQuery,
     ListTransportStopsQuery,
@@ -125,6 +130,9 @@ type RouteListRow = {
     variant_count: bigint;
     stop_count: bigint;
     path_count: bigint;
+    has_source_link: boolean;
+    has_estimate_path: boolean;
+    has_verified_path: boolean;
     updated_at: Date;
 };
 
@@ -146,6 +154,10 @@ type StopListRow = {
     review_status: string;
     confidence_score: number | null;
     is_active: boolean;
+    has_source_link: boolean;
+    has_geom: boolean;
+    has_nearby_duplicate: boolean;
+    normalized_data: Record<string, unknown> | null;
     updated_at: Date;
 };
 
@@ -396,10 +408,13 @@ type RouteStopRow = {
     stop_mode: string;
     stop_type: string;
     geometry: unknown;
+    has_review_geom?: boolean;
 };
 
 type RoutePathRow = {
+    id?: bigint;
     path_kind: string;
+    review_status: string | null;
     distance_m: number | null;
     geometry: unknown;
 };
@@ -1444,6 +1459,11 @@ export class TransportRepository {
         const isActive = query.isActive === undefined ? null : query.isActive;
         const hasStops = query.hasStops === undefined ? null : query.hasStops;
         const hasPath = query.hasPath === undefined ? null : query.hasPath;
+        const hasSourceLink = query.hasSourceLink === undefined ? null : query.hasSourceLink;
+        const geometryStatus = query.geometryStatus ?? null;
+        const publicVisibility = query.publicVisibility ?? null;
+        const sourceName = query.sourceName ?? null;
+        const sourceKind = query.sourceKind ?? null;
         const includeDeleted = query.includeDeleted === true;
         const searchLike = toLikeParam(query.search);
 
@@ -1476,6 +1496,24 @@ export class TransportRepository {
                 (SELECT count(*) FROM transport.route_variants v
                     JOIN transport.route_paths p ON p.route_variant_id = v.id
                     WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL)::bigint AS path_count,
+                EXISTS (
+                    SELECT 1 FROM transport.source_links sl
+                    WHERE sl.entity_type = 'route' AND sl.entity_id = r.id
+                      AND (${sourceName}::text IS NULL OR sl.source_name = ${sourceName})
+                      AND (${sourceKind}::text IS NULL OR sl.source_kind = ${sourceKind})
+                ) AS has_source_link,
+                EXISTS (
+                    SELECT 1 FROM transport.route_variants v
+                    JOIN transport.route_paths p ON p.route_variant_id = v.id
+                    WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL
+                      AND (p.path_kind = 'corridor_estimate' OR p.review_status = 'needs_review')
+                ) AS has_estimate_path,
+                EXISTS (
+                    SELECT 1 FROM transport.route_variants v
+                    JOIN transport.route_paths p ON p.route_variant_id = v.id
+                    WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL
+                      AND p.review_status = 'verified'
+                ) AS has_verified_path,
                 r.updated_at
             FROM transport.routes r
             LEFT JOIN LATERAL (
@@ -1528,6 +1566,47 @@ export class TransportRepository {
                     )
                 ) = ${hasPath}
               )
+              AND (
+                ${hasSourceLink}::boolean IS NULL OR (
+                    EXISTS (
+                        SELECT 1 FROM transport.source_links sl
+                        WHERE sl.entity_type = 'route' AND sl.entity_id = r.id
+                    )
+                ) = ${hasSourceLink}
+              )
+              AND (
+                ${publicVisibility}::text IS NULL OR (
+                    CASE
+                        WHEN r.review_status IN ('reviewed', 'verified') AND r.is_active AND r.deleted_at IS NULL
+                        THEN 'visible'
+                        ELSE 'hidden'
+                    END
+                ) = ${publicVisibility}
+              )
+              AND (
+                ${geometryStatus}::text IS NULL OR (
+                    CASE
+                        WHEN NOT EXISTS (
+                            SELECT 1 FROM transport.route_variants v
+                            JOIN transport.route_paths p ON p.route_variant_id = v.id
+                            WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL
+                        ) THEN 'no_path'
+                        WHEN EXISTS (
+                            SELECT 1 FROM transport.route_variants v
+                            JOIN transport.route_paths p ON p.route_variant_id = v.id
+                            WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL
+                              AND p.review_status = 'verified'
+                        ) THEN 'verified'
+                        WHEN EXISTS (
+                            SELECT 1 FROM transport.route_variants v
+                            JOIN transport.route_paths p ON p.route_variant_id = v.id
+                            WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL
+                              AND (p.path_kind = 'corridor_estimate' OR p.review_status = 'needs_review')
+                        ) THEN 'estimate'
+                        ELSE 'manual'
+                    END
+                ) = ${geometryStatus}
+              )
             ORDER BY r.updated_at DESC, r.id DESC
             LIMIT ${limit}
             OFFSET ${offset}
@@ -1572,29 +1651,93 @@ export class TransportRepository {
                     )
                 ) = ${hasPath}
               )
+              AND (
+                ${hasSourceLink}::boolean IS NULL OR (
+                    EXISTS (
+                        SELECT 1 FROM transport.source_links sl
+                        WHERE sl.entity_type = 'route' AND sl.entity_id = r.id
+                    )
+                ) = ${hasSourceLink}
+              )
+              AND (
+                ${publicVisibility}::text IS NULL OR (
+                    CASE
+                        WHEN r.review_status IN ('reviewed', 'verified') AND r.is_active AND r.deleted_at IS NULL
+                        THEN 'visible'
+                        ELSE 'hidden'
+                    END
+                ) = ${publicVisibility}
+              )
+              AND (
+                ${geometryStatus}::text IS NULL OR (
+                    CASE
+                        WHEN NOT EXISTS (
+                            SELECT 1 FROM transport.route_variants v
+                            JOIN transport.route_paths p ON p.route_variant_id = v.id
+                            WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL
+                        ) THEN 'no_path'
+                        WHEN EXISTS (
+                            SELECT 1 FROM transport.route_variants v
+                            JOIN transport.route_paths p ON p.route_variant_id = v.id
+                            WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL
+                              AND p.review_status = 'verified'
+                        ) THEN 'verified'
+                        WHEN EXISTS (
+                            SELECT 1 FROM transport.route_variants v
+                            JOIN transport.route_paths p ON p.route_variant_id = v.id
+                            WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL
+                              AND (p.path_kind = 'corridor_estimate' OR p.review_status = 'needs_review')
+                        ) THEN 'estimate'
+                        ELSE 'manual'
+                    END
+                ) = ${geometryStatus}
+              )
         `
         );
 
         return {
-            items: rows.map((row) => ({
-                public_id: row.public_id,
-                route_code: row.route_code,
-                public_name: row.public_name,
-                name_mm: row.name_mm,
-                name_en: row.name_en,
-                display_name: row.display_name,
-                mode: row.mode,
-                route_kind: row.route_kind,
-                origin_name: row.origin_name,
-                destination_name: row.destination_name,
-                review_status: row.review_status,
-                confidence_score: row.confidence_score,
-                is_active: row.is_active,
-                variant_count: num(row.variant_count),
-                stop_count: num(row.stop_count),
-                path_count: num(row.path_count),
-                updated_at: row.updated_at.toISOString(),
-            })),
+            items: rows.map((row) => {
+                const pathCount = num(row.path_count);
+                const stopCount = num(row.stop_count);
+                const geometry_status = deriveRouteGeometryStatus({
+                    path_count: pathCount,
+                    has_estimate_path: row.has_estimate_path,
+                    has_verified_path: row.has_verified_path,
+                });
+                const public_visibility = derivePublicVisibility({
+                    review_status: row.review_status,
+                    is_active: row.is_active,
+                });
+                let issue_count = 0;
+                if (pathCount === 0 && stopCount > 0) issue_count++;
+                if (!row.has_source_link) issue_count++;
+                if (row.review_status === "imported_unreviewed" || row.review_status === "needs_review") {
+                    issue_count++;
+                }
+                return {
+                    public_id: row.public_id,
+                    route_code: row.route_code,
+                    public_name: row.public_name,
+                    name_mm: row.name_mm,
+                    name_en: row.name_en,
+                    display_name: row.display_name,
+                    mode: row.mode,
+                    route_kind: row.route_kind,
+                    origin_name: row.origin_name,
+                    destination_name: row.destination_name,
+                    review_status: row.review_status,
+                    confidence_score: row.confidence_score,
+                    is_active: row.is_active,
+                    variant_count: num(row.variant_count),
+                    stop_count: stopCount,
+                    path_count: pathCount,
+                    has_source_link: row.has_source_link,
+                    geometry_status,
+                    public_visibility,
+                    issue_count,
+                    updated_at: row.updated_at.toISOString(),
+                };
+            }),
             total: num(countRows[0]?.count),
             limit,
             offset,
@@ -1616,6 +1759,9 @@ export class TransportRepository {
         const generatedName = query.generatedName === undefined ? null : query.generatedName;
         const hasRoutes = query.hasRoutes === undefined ? null : query.hasRoutes;
         const hasTerminal = query.hasTerminal === undefined ? null : query.hasTerminal;
+        const hasSourceLink = query.hasSourceLink === undefined ? null : query.hasSourceLink;
+        const geometryStatus = query.geometryStatus ?? null;
+        const duplicateStatus = query.duplicateStatus ?? null;
         const adminAreaId = query.adminAreaId ?? null;
         const includeDeleted = query.includeDeleted === true;
         const searchLike = toLikeParam(query.search);
@@ -1656,6 +1802,43 @@ export class TransportRepository {
                     )
                 ) = ${hasTerminal}
               )
+              AND (
+                ${hasSourceLink}::boolean IS NULL OR (
+                    EXISTS (
+                        SELECT 1 FROM transport.source_links sl
+                        WHERE sl.entity_type = 'stop' AND sl.entity_id = s.id
+                    )
+                ) = ${hasSourceLink}
+              )
+              AND (
+                ${geometryStatus}::text IS NULL OR (
+                    CASE
+                        WHEN s.geom IS NULL OR ST_IsEmpty(s.geom) THEN 'missing'
+                        WHEN s.review_status = 'verified' THEN 'verified'
+                        WHEN s.review_status = 'needs_review'
+                          OR coalesce(s.normalized_data->>'needs_geometry_review', 'false') = 'true'
+                          OR s.normalized_data->>'geom_source' = 'generated_route_sequence_estimate'
+                        THEN 'estimate'
+                        ELSE 'manual'
+                    END
+                ) = ${geometryStatus}
+              )
+              AND (
+                ${duplicateStatus}::text IS NULL OR (
+                    CASE
+                        WHEN EXISTS (
+                            SELECT 1 FROM transport.stops s2
+                            WHERE s2.id <> s.id
+                              AND s2.deleted_at IS NULL
+                              AND s2.is_active = true
+                              AND s.geom IS NOT NULL
+                              AND NOT ST_IsEmpty(s.geom)
+                              AND ST_DWithin(s.geom::geography, s2.geom::geography, 50)
+                        ) THEN 'nearby'
+                        ELSE 'none'
+                    END
+                ) = ${duplicateStatus}
+              )
         `;
 
         // Page-first strategy: filter + sort + paginate the base `stops` table
@@ -1679,6 +1862,8 @@ export class TransportRepository {
                     s.review_status,
                     s.confidence_score,
                     s.is_active,
+                    s.normalized_data,
+                    (s.geom IS NOT NULL AND NOT ST_IsEmpty(s.geom)) AS has_geom,
                     s.updated_at
                 FROM transport.stops s
                 ${where}
@@ -1726,6 +1911,25 @@ export class TransportRepository {
                 p.review_status,
                 p.confidence_score::float8 AS confidence_score,
                 p.is_active,
+                p.normalized_data,
+                p.has_geom,
+                EXISTS (
+                    SELECT 1 FROM transport.source_links sl
+                    WHERE sl.entity_type = 'stop' AND sl.entity_id = p.id
+                ) AS has_source_link,
+                EXISTS (
+                    SELECT 1
+                    FROM transport.stops base
+                    JOIN transport.stops s2 ON s2.id <> base.id
+                    WHERE base.id = p.id
+                      AND base.geom IS NOT NULL
+                      AND NOT ST_IsEmpty(base.geom)
+                      AND s2.deleted_at IS NULL
+                      AND s2.is_active = true
+                      AND s2.geom IS NOT NULL
+                      AND NOT ST_IsEmpty(s2.geom)
+                      AND ST_DWithin(base.geom::geography, s2.geom::geography, 50)
+                ) AS has_nearby_duplicate,
                 p.updated_at
             FROM page p
             LEFT JOIN core.core_admin_areas aa ON aa.id = p.admin_area_id
@@ -1745,26 +1949,37 @@ export class TransportRepository {
 
         return {
             items: perfSync("stops.list.serialize", () =>
-                rows.map((row) => ({
-                public_id: row.public_id,
-                stop_code: row.stop_code,
-                name: row.name,
-                name_mm: row.name_mm,
-                name_en: row.name_en,
-                display_name: row.display_name,
-                mode: row.mode,
-                stop_type: row.stop_type,
-                route_count: num(row.route_count),
-                has_terminal: row.has_terminal === true,
-                terminal_role: row.terminal_role,
-                terminal_code: row.terminal_code,
-                admin_area_id: row.admin_area_id === null ? null : Number(row.admin_area_id),
-                admin_area_name: row.admin_area_name,
-                review_status: row.review_status,
-                confidence_score: row.confidence_score,
-                is_active: row.is_active,
-                updated_at: row.updated_at.toISOString(),
-                }))
+                rows.map((row) => {
+                    const geometry_status = deriveStopGeometryStatus({
+                        has_geom: row.has_geom,
+                        review_status: row.review_status,
+                        normalized_data: row.normalized_data,
+                    });
+                    const duplicate_status = row.has_nearby_duplicate ? "nearby" : "none";
+                    return {
+                        public_id: row.public_id,
+                        stop_code: row.stop_code,
+                        name: row.name,
+                        name_mm: row.name_mm,
+                        name_en: row.name_en,
+                        display_name: row.display_name,
+                        mode: row.mode,
+                        stop_type: row.stop_type,
+                        route_count: num(row.route_count),
+                        has_terminal: row.has_terminal === true,
+                        terminal_role: row.terminal_role,
+                        terminal_code: row.terminal_code,
+                        admin_area_id: row.admin_area_id === null ? null : Number(row.admin_area_id),
+                        admin_area_name: row.admin_area_name,
+                        review_status: row.review_status,
+                        confidence_score: row.confidence_score,
+                        is_active: row.is_active,
+                        has_source_link: row.has_source_link,
+                        geometry_status,
+                        duplicate_status,
+                        updated_at: row.updated_at.toISOString(),
+                    };
+                })
             ),
             total: num(countRows[0]?.count),
             limit,
@@ -2845,6 +3060,14 @@ export class TransportRepository {
                 WHERE public_id = ${publicId}::uuid AND deleted_at IS NULL
             `);
 
+            // Manual location edits update the canonical stop point. Clear per-variant
+            // review_geom placeholders so reads prefer transport.stops.geom.
+            await tx.$executeRaw(Prisma.sql`
+                UPDATE transport.route_stops
+                SET review_geom = NULL, updated_at = now()
+                WHERE stop_id = ${before.id} AND review_geom IS NOT NULL
+            `);
+
             const diff = diffScalarFields(before, input, ["review_status", "confidence_score"]);
             appendPointDiff(
                 diff,
@@ -3666,7 +3889,7 @@ export class TransportRepository {
                 s.name_en AS stop_name_en,
                 s.mode AS stop_mode,
                 s.stop_type,
-                ST_AsGeoJSON(s.geom)::jsonb AS geometry
+                ST_AsGeoJSON(COALESCE(s.geom, rs.review_geom))::jsonb AS geometry
             FROM transport.route_stops rs
             JOIN transport.stops s ON s.id = rs.stop_id
             WHERE rs.route_variant_id = ${variant.id}
@@ -3685,17 +3908,25 @@ export class TransportRepository {
         if (query.includePath === true) {
             const pathRows = await this.prisma.$queryRaw<RoutePathRow[]>`
                 SELECT
-                    path_kind,
-                    distance_m::float8 AS distance_m,
-                    ST_AsGeoJSON(geom)::jsonb AS geometry
-                FROM transport.route_paths
-                WHERE route_variant_id = ${variant.id} AND deleted_at IS NULL
-                ORDER BY id ASC
+                    p.id,
+                    p.path_kind,
+                    p.review_status,
+                    p.distance_m::float8 AS distance_m,
+                    ST_AsGeoJSON(p.geom)::jsonb AS geometry
+                FROM transport.route_paths p
+                WHERE p.route_variant_id = ${variant.id} AND p.deleted_at IS NULL
+                ORDER BY p.id ASC
                 LIMIT 1
             `;
             const p = pathRows[0];
             path = p
-                ? { path_kind: p.path_kind, distance_m: p.distance_m, geometry: asGeometry(p.geometry) }
+                ? {
+                      id: String(p.id),
+                      path_kind: p.path_kind,
+                      review_status: p.review_status,
+                      distance_m: p.distance_m,
+                      geometry: asGeometry(p.geometry),
+                  }
                 : null;
         }
 
@@ -3784,10 +4015,10 @@ export class TransportRepository {
                     s.public_id AS stop_public_id,
                     s.name AS stop_name,
                     s.mode AS stop_mode,
-                    s.geom AS geom,
-                    ST_X(s.geom)::float8 AS lng,
-                    ST_Y(s.geom)::float8 AS lat,
-                    LAG(s.geom) OVER (ORDER BY rs.stop_sequence ASC, rs.id ASC) AS prev_geom,
+                    coalesce(rs.review_geom, s.geom) AS geom,
+                    ST_X(coalesce(rs.review_geom, s.geom))::float8 AS lng,
+                    ST_Y(coalesce(rs.review_geom, s.geom))::float8 AS lat,
+                    LAG(coalesce(rs.review_geom, s.geom)) OVER (ORDER BY rs.stop_sequence ASC, rs.id ASC) AS prev_geom,
                     count(*) OVER (PARTITION BY rs.stop_id) AS stop_id_count
                 FROM transport.route_stops rs
                 JOIN transport.stops s ON s.id = rs.stop_id
@@ -3860,13 +4091,29 @@ export class TransportRepository {
         ordered_stops: TransportOrderedStopLite[];
         route_stop_count: number;
         has_verified_path: boolean;
+        has_review_placeholder_path: boolean;
     }> {
-        const variantRows = await this.prisma.$queryRaw<{ id: bigint; has_path: boolean }[]>`
+        const variantRows = await this.prisma.$queryRaw<{
+            id: bigint;
+            has_verified_path: boolean;
+            has_review_placeholder_path: boolean;
+        }[]>`
             SELECT rv.id,
                    EXISTS (
                        SELECT 1 FROM transport.route_paths rp
-                       WHERE rp.route_variant_id = rv.id AND rp.deleted_at IS NULL
-                   ) AS has_path
+                       WHERE rp.route_variant_id = rv.id
+                         AND rp.deleted_at IS NULL
+                         AND rp.review_status = 'verified'
+                   ) AS has_verified_path,
+                   EXISTS (
+                       SELECT 1 FROM transport.route_paths rp
+                       WHERE rp.route_variant_id = rv.id
+                         AND rp.deleted_at IS NULL
+                         AND (
+                             rp.path_kind = 'corridor_estimate'
+                             OR rp.review_status = 'needs_review'
+                         )
+                   ) AS has_review_placeholder_path
             FROM transport.route_variants rv
             WHERE rv.public_id = ${variantPublicId}::uuid
             LIMIT 1
@@ -3893,9 +4140,13 @@ export class TransportRepository {
                     stop_type: string;
                     longitude: number | null;
                     latitude: number | null;
+                    actual_longitude: number | null;
+                    actual_latitude: number | null;
+                    geometry_source: "route_stop_review_geom" | "stop_geom";
                     pickup_type: number;
                     drop_off_type: number;
                     is_timing_point: boolean;
+                    review_status: string;
                 }[]
             >`
                 SELECT
@@ -3907,11 +4158,19 @@ export class TransportRepository {
                     s.name_en,
                     s.mode,
                     s.stop_type,
-                    ST_X(s.geom)::float8 AS longitude,
-                    ST_Y(s.geom)::float8 AS latitude,
+                    ST_X(COALESCE(s.geom, rs.review_geom))::float8 AS longitude,
+                    ST_Y(COALESCE(s.geom, rs.review_geom))::float8 AS latitude,
+                    ST_X(s.geom)::float8 AS actual_longitude,
+                    ST_Y(s.geom)::float8 AS actual_latitude,
+                    CASE
+                        WHEN s.geom IS NOT NULL THEN 'stop_geom'
+                        WHEN rs.review_geom IS NOT NULL THEN 'route_stop_review_geom'
+                        ELSE 'stop_geom'
+                    END AS geometry_source,
                     rs.pickup_type,
                     rs.drop_off_type,
-                    rs.is_timing_point
+                    rs.is_timing_point,
+                    s.review_status
                 FROM transport.route_stops rs
                 JOIN transport.stops s ON s.id = rs.stop_id
                 WHERE rs.route_variant_id = ${variant.id}
@@ -3932,12 +4191,17 @@ export class TransportRepository {
                 stop_type: r.stop_type,
                 longitude: r.longitude,
                 latitude: r.latitude,
+                actual_longitude: r.actual_longitude,
+                actual_latitude: r.actual_latitude,
+                geometry_source: r.geometry_source,
                 pickup_type: r.pickup_type,
                 drop_off_type: r.drop_off_type,
                 is_timing_point: r.is_timing_point,
+                review_status: r.review_status,
             })),
             route_stop_count: rows.length,
-            has_verified_path: variant.has_path,
+            has_verified_path: variant.has_verified_path,
+            has_review_placeholder_path: variant.has_review_placeholder_path,
         };
     }
 
@@ -3956,6 +4220,7 @@ export class TransportRepository {
             ordered_stops: lite.ordered_stops,
             route_stop_count: lite.route_stop_count,
             has_verified_path: lite.has_verified_path,
+            has_review_placeholder_path: lite.has_review_placeholder_path,
         };
     }
 
@@ -4525,7 +4790,9 @@ export class TransportRepository {
         const variant = await this.getVariantSummaryByPublicId(variantPublicId);
         const pathRows = await this.prisma.$queryRaw<RoutePathRow[]>`
             SELECT
+                p.id,
                 p.path_kind,
+                p.review_status,
                 p.distance_m::float8 AS distance_m,
                 ST_AsGeoJSON(p.geom)::jsonb AS geometry
             FROM transport.route_paths p
@@ -4536,7 +4803,13 @@ export class TransportRepository {
         `;
         const p = pathRows[0];
         const path: TransportRoutePath | null = p
-            ? { path_kind: p.path_kind, distance_m: p.distance_m, geometry: asGeometry(p.geometry) }
+            ? {
+                  id: String(p.id),
+                  path_kind: p.path_kind,
+                  review_status: p.review_status,
+                  distance_m: p.distance_m,
+                  geometry: asGeometry(p.geometry),
+              }
             : null;
         return { path, variant };
     }
@@ -4544,10 +4817,11 @@ export class TransportRepository {
     /**
      * Upserts the variant's single active manual route path from an ordered
      * LineString (≥ 2 positions, SRID 4326). If an active path exists it is
-     * updated in place; otherwise one is inserted. Always sets path_kind=manual,
-     * review_status=needs_review, confidence_score=70, is_active=true, and
-     * recomputes distance_m via PostGIS geography length. No snapping / Valhalla,
-     * and never creates a second active path. Returns the path + variant summary.
+     * updated in place; otherwise one is inserted. Sets path_kind from input
+     * (manual or manual_drawn), review_status=needs_review, confidence_score=70,
+     * is_active=true, and recomputes distance_m via PostGIS geography length.
+     * When manually adjusted, merges normalized_data.manually_adjusted=true.
+     * No snapping / Valhalla, and never creates a second active path.
      */
     async upsertVariantPath(
         variantPublicId: string,
@@ -4558,6 +4832,11 @@ export class TransportRepository {
 
         const geojson = JSON.stringify({ type: "LineString", coordinates: input.coordinates });
         const pathKind = input.path_kind ?? "manual";
+        const manuallyAdjusted =
+            input.manually_adjusted === true || pathKind === "manual_drawn";
+        const normalizedDataPatch = manuallyAdjusted
+            ? JSON.stringify({ manually_adjusted: true })
+            : null;
 
         await this.prisma.$transaction(async (tx) => {
             const variantRows = await tx.$queryRaw<{ id: bigint }[]>`
@@ -4577,10 +4856,12 @@ export class TransportRepository {
                     distance_m: number | null;
                     review_status: string | null;
                     confidence_score: number | null;
+                    normalized_data: unknown;
                 }[]
             >`
                 SELECT id, path_kind, distance_m::float8 AS distance_m,
-                       review_status, confidence_score::float8 AS confidence_score
+                       review_status, confidence_score::float8 AS confidence_score,
+                       normalized_data
                 FROM transport.route_paths
                 WHERE route_variant_id = ${variant.id} AND deleted_at IS NULL
                 ORDER BY id ASC
@@ -4600,6 +4881,11 @@ export class TransportRepository {
                         review_status = 'needs_review',
                         confidence_score = 70,
                         is_active = true,
+                        normalized_data = CASE
+                            WHEN ${manuallyAdjusted}
+                                THEN coalesce(normalized_data, '{}'::jsonb) || ${normalizedDataPatch}::jsonb
+                            ELSE normalized_data
+                        END,
                         updated_at = now()
                     WHERE id = ${existing.id}
                     RETURNING distance_m::float8 AS distance_m
@@ -4616,12 +4902,16 @@ export class TransportRepository {
                         "review_status",
                         "confidence_score",
                         "is_active",
+                        ...(manuallyAdjusted ? (["normalized_data"] as const) : []),
                     ],
                     oldValues: {
                         path_kind: existing.path_kind,
                         distance_m: existing.distance_m,
                         review_status: existing.review_status,
                         confidence_score: existing.confidence_score,
+                        ...(manuallyAdjusted
+                            ? { normalized_data: existing.normalized_data }
+                            : {}),
                     },
                     newValues: {
                         path_kind: pathKind,
@@ -4629,6 +4919,7 @@ export class TransportRepository {
                         review_status: "needs_review",
                         confidence_score: 70,
                         is_active: true,
+                        ...(manuallyAdjusted ? { normalized_data: { manually_adjusted: true } } : {}),
                     },
                     metadata: {
                         route_variant_public_id: variantPublicId,
@@ -4644,12 +4935,18 @@ export class TransportRepository {
                 const inserted = await tx.$queryRaw<{ id: bigint; distance_m: number | null }[]>`
                     INSERT INTO transport.route_paths
                         (route_variant_id, path_kind, geom, distance_m, source_refs,
-                         confidence_score, review_status, is_active)
+                         normalized_data, confidence_score, review_status, is_active)
                     VALUES
                         (${variant.id}, ${pathKind},
                          ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326),
                          ST_Length(ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326)::geography),
-                         ${sourceRefs}::jsonb, 70, 'needs_review', true)
+                         ${sourceRefs}::jsonb,
+                         CASE
+                            WHEN ${manuallyAdjusted}
+                                THEN ${normalizedDataPatch}::jsonb
+                            ELSE '{}'::jsonb
+                         END,
+                         70, 'needs_review', true)
                     RETURNING id, distance_m::float8 AS distance_m
                 `;
                 const created = inserted[0];
@@ -4668,6 +4965,7 @@ export class TransportRepository {
                         "review_status",
                         "confidence_score",
                         "is_active",
+                        ...(manuallyAdjusted ? (["normalized_data"] as const) : []),
                     ],
                     oldValues: null,
                     newValues: {
@@ -4676,6 +4974,7 @@ export class TransportRepository {
                         review_status: "needs_review",
                         confidence_score: 70,
                         is_active: true,
+                        ...(manuallyAdjusted ? { normalized_data: { manually_adjusted: true } } : {}),
                     },
                     metadata: {
                         route_variant_public_id: variantPublicId,
@@ -4753,7 +5052,8 @@ export class TransportRepository {
                 s.name_en AS stop_name_en,
                 s.mode AS stop_mode,
                 s.stop_type,
-                ST_AsGeoJSON(s.geom)::jsonb AS geometry
+                ST_AsGeoJSON(COALESCE(s.geom, rs.review_geom))::jsonb AS geometry,
+                (rs.review_geom IS NOT NULL) AS has_review_geom
             FROM transport.route_stops rs
             JOIN transport.stops s ON s.id = rs.stop_id
             WHERE rs.id = ${id}
@@ -5069,6 +5369,7 @@ export class TransportRepository {
                 ordered_stops: [],
                 route_stop_count: 0,
                 has_verified_path: false,
+                has_review_placeholder_path: false,
                 deleted: true,
             };
         }
@@ -5080,6 +5381,7 @@ export class TransportRepository {
             ordered_stops: lite.ordered_stops,
             route_stop_count: lite.route_stop_count,
             has_verified_path: lite.has_verified_path,
+            has_review_placeholder_path: lite.has_review_placeholder_path,
             deleted: true,
         };
     }
@@ -5320,6 +5622,7 @@ export class TransportRepository {
             ordered_stops: lite.ordered_stops,
             route_stop_count: lite.route_stop_count,
             has_verified_path: lite.has_verified_path,
+            has_review_placeholder_path: lite.has_review_placeholder_path,
         };
     }
 
@@ -5454,6 +5757,7 @@ export class TransportRepository {
             ordered_stops: lite.ordered_stops,
             route_stop_count: lite.route_stop_count,
             has_verified_path: lite.has_verified_path,
+            has_review_placeholder_path: lite.has_review_placeholder_path,
             created_stop: createdStop,
         };
     }

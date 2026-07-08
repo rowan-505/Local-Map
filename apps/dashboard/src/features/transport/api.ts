@@ -33,6 +33,7 @@ import type {
     TransportVariantSummary,
     TransportVariantPathResult,
     PutTransportVariantPathBody,
+    GeneratePathFromStopsResult,
     RouteStopMutationResult,
     TransportRouteStopMutationResult,
     UpdateRouteStopBody,
@@ -41,6 +42,12 @@ import type {
     UpdateTransportStopBody,
     UpdateTransportTerminalBody,
     UpdateTransportVariantBody,
+    RouteReviewReadiness,
+    TransportReviewAction,
+    TransportReviewStatusResult,
+    TransportRoutePathReviewResult,
+    ReplaceRouteStopResult,
+    MergeTransportStopResult,
 } from "./types";
 
 export function getTransportOverview(fetchInit?: Pick<RequestInit, "signal">) {
@@ -155,12 +162,34 @@ export type TransportRoutesParams = {
     reviewStatus?: string;
     hasStops?: boolean;
     hasPath?: boolean;
+    hasSourceLink?: boolean;
+    geometryStatus?: string;
+    publicVisibility?: string;
     isActive?: boolean;
     limit?: number;
     page?: number;
 };
 
-export function getTransportRoutes(
+/** Ensures list responses always have arrays and numeric totals (never undefined/204). */
+export function normalizeTransportPaginated<T>(
+    data: TransportPaginated<T> | null | undefined
+): TransportPaginated<T> {
+    const items = Array.isArray(data?.items) ? data.items : [];
+    const total =
+        typeof data?.total === "number" && Number.isFinite(data.total) ? data.total : 0;
+    const limit = typeof data?.limit === "number" && data.limit > 0 ? data.limit : items.length || 50;
+    const offset = typeof data?.offset === "number" && data.offset >= 0 ? data.offset : 0;
+    const page =
+        typeof data?.page === "number" && data.page >= 1
+            ? data.page
+            : Math.floor(offset / limit) + 1;
+    const hasNextPage =
+        typeof data?.hasNextPage === "boolean" ? data.hasNextPage : offset + items.length < total;
+
+    return { items, total, limit, offset, page, hasNextPage };
+}
+
+export async function getTransportRoutes(
     params: TransportRoutesParams = {},
     fetchInit?: Pick<RequestInit, "signal">
 ) {
@@ -170,15 +199,19 @@ export function getTransportRoutes(
     if (params.reviewStatus) search.set("reviewStatus", params.reviewStatus);
     if (params.hasStops !== undefined) search.set("hasStops", String(params.hasStops));
     if (params.hasPath !== undefined) search.set("hasPath", String(params.hasPath));
+    if (params.hasSourceLink !== undefined) search.set("hasSourceLink", String(params.hasSourceLink));
+    if (params.geometryStatus) search.set("geometryStatus", params.geometryStatus);
+    if (params.publicVisibility) search.set("publicVisibility", params.publicVisibility);
     if (params.isActive !== undefined) search.set("isActive", String(params.isActive));
     if (params.limit !== undefined) search.set("limit", String(params.limit));
     if (params.page !== undefined) search.set("page", String(params.page));
 
     const qs = search.toString();
-    return apiFetch<TransportPaginated<TransportRouteListItem>>(
+    const data = await apiFetch<TransportPaginated<TransportRouteListItem>>(
         `/transport/routes${qs ? `?${qs}` : ""}`,
         { method: "GET", ...fetchInit }
     );
+    return normalizeTransportPaginated(data);
 }
 
 export type TransportStopsParams = {
@@ -189,6 +222,9 @@ export type TransportStopsParams = {
     generatedName?: boolean;
     hasRoutes?: boolean;
     hasTerminal?: boolean;
+    hasSourceLink?: boolean;
+    geometryStatus?: string;
+    duplicateStatus?: string;
     adminAreaId?: number;
     isActive?: boolean;
     limit?: number;
@@ -207,6 +243,9 @@ export function getTransportStops(
     if (params.generatedName !== undefined) search.set("generatedName", String(params.generatedName));
     if (params.hasRoutes !== undefined) search.set("hasRoutes", String(params.hasRoutes));
     if (params.hasTerminal !== undefined) search.set("hasTerminal", String(params.hasTerminal));
+    if (params.hasSourceLink !== undefined) search.set("hasSourceLink", String(params.hasSourceLink));
+    if (params.geometryStatus) search.set("geometryStatus", params.geometryStatus);
+    if (params.duplicateStatus) search.set("duplicateStatus", params.duplicateStatus);
     if (params.adminAreaId !== undefined) search.set("adminAreaId", String(params.adminAreaId));
     if (params.isActive !== undefined) search.set("isActive", String(params.isActive));
     if (params.limit !== undefined) search.set("limit", String(params.limit));
@@ -681,6 +720,20 @@ export function deleteTransportVariantPath(
     );
 }
 
+/**
+ * Generate a road-following route path from the variant's ordered stop locations.
+ * Backend replaces the active path for this variant. Returns 501 until implemented.
+ */
+export function generateTransportVariantPathFromStops(
+    variantPublicId: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<GeneratePathFromStopsResult>(
+        `/transport/route-variants/${encodeURIComponent(variantPublicId)}/generate-path-from-stops`,
+        { method: "POST", ...fetchInit }
+    );
+}
+
 export function updateTransportRouteStop(
     id: string,
     body: UpdateRouteStopBody,
@@ -725,6 +778,120 @@ export function removeTransportRouteStop(
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
             ...(trimmedReason ? { body: JSON.stringify({ reason: trimmedReason }) } : {}),
+            ...fetchInit,
+        }
+    );
+}
+
+export function getTransportRouteReviewReadiness(
+    publicId: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<RouteReviewReadiness>(
+        `/transport/routes/${encodeURIComponent(publicId)}/review-readiness`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export function applyTransportRouteReviewAction(
+    publicId: string,
+    action: TransportReviewAction,
+    reason?: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const body: { action: TransportReviewAction; reason?: string } = { action };
+    const trimmed = reason?.trim();
+    if (trimmed) body.reason = trimmed;
+    return apiFetch<TransportReviewStatusResult>(
+        `/transport/routes/${encodeURIComponent(publicId)}/review-action`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function applyTransportStopReviewAction(
+    stopPublicId: string,
+    action: TransportReviewAction,
+    reason?: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const body: { action: TransportReviewAction; reason?: string } = { action };
+    const trimmed = reason?.trim();
+    if (trimmed) body.reason = trimmed;
+    return apiFetch<TransportReviewStatusResult>(
+        `/transport/stops/${encodeURIComponent(stopPublicId)}/review-action`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function applyTransportRoutePathReviewAction(
+    pathId: string,
+    action: TransportReviewAction,
+    reason?: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const body: { action: TransportReviewAction; reason?: string } = { action };
+    const trimmed = reason?.trim();
+    if (trimmed) body.reason = trimmed;
+    return apiFetch<TransportRoutePathReviewResult>(
+        `/transport/route-paths/${encodeURIComponent(pathId)}/review-action`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function replaceTransportRouteStop(
+    routeStopId: string,
+    stopPublicId: string,
+    reason?: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const body: { stop_public_id: string; reason?: string } = {
+        stop_public_id: stopPublicId,
+    };
+    const trimmed = reason?.trim();
+    if (trimmed) body.reason = trimmed;
+    return apiFetch<ReplaceRouteStopResult>(
+        `/transport/route-stops/${encodeURIComponent(routeStopId)}/replace-stop`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function mergeTransportStops(
+    sourceStopPublicId: string,
+    targetStopPublicId: string,
+    reason?: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const body: { target_stop_public_id: string; reason?: string } = {
+        target_stop_public_id: targetStopPublicId,
+    };
+    const trimmed = reason?.trim();
+    if (trimmed) body.reason = trimmed;
+    return apiFetch<MergeTransportStopResult>(
+        `/transport/stops/${encodeURIComponent(sourceStopPublicId)}/merge`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
             ...fetchInit,
         }
     );

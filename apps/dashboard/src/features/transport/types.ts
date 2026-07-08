@@ -6,12 +6,57 @@ export type TransportPaginated<T> = {
     total: number;
     limit: number;
     offset: number;
+    page?: number;
+    hasNextPage?: boolean;
+};
+
+export type RouteGeometryStatus = "no_path" | "estimate" | "manual" | "verified";
+export type PublicVisibility = "hidden" | "visible";
+export type StopGeometryStatus = "missing" | "estimate" | "manual" | "verified";
+export type DuplicateStatus = "none" | "nearby" | "duplicate_name";
+
+export type TransportReviewAction =
+    | "mark_reviewed"
+    | "mark_needs_review"
+    | "mark_verified"
+    | "reject";
+
+export type RouteReviewReadiness = {
+    can_verify: boolean;
+    can_mark_reviewed: boolean;
+    blockers: string[];
+    mark_reviewed_blockers: string[];
+    warnings: string[];
+};
+
+export type TransportReviewStatusResult = {
+    public_id: string;
+    review_status: string;
+};
+
+export type TransportRoutePathReviewResult = {
+    id: string;
+    review_status: string;
+};
+
+export type ReplaceRouteStopResult = {
+    route_stop_id: string;
+    stop_id: string;
+};
+
+export type MergeTransportStopResult = {
+    source_public_id: string;
+    target_public_id: string;
+    route_stops_updated: number;
 };
 
 export type TransportRouteListItem = {
     public_id: string;
     route_code: string;
     public_name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    display_name: string;
     mode: string;
     route_kind: string;
     origin_name: string | null;
@@ -22,6 +67,10 @@ export type TransportRouteListItem = {
     variant_count: number;
     stop_count: number;
     path_count: number;
+    has_source_link: boolean;
+    geometry_status: RouteGeometryStatus;
+    public_visibility: PublicVisibility;
+    issue_count: number;
     updated_at: string;
 };
 
@@ -43,6 +92,9 @@ export type TransportStopListItem = {
     review_status: string;
     confidence_score: number | null;
     is_active: boolean;
+    has_source_link: boolean;
+    geometry_status: StopGeometryStatus;
+    duplicate_status: DuplicateStatus;
     updated_at: string;
 };
 
@@ -408,6 +460,7 @@ export type TransportRouteStopItem = {
     drop_off_type: number;
     is_timing_point: boolean;
     distance_from_start_m: number | null;
+    geometry_source?: "route_stop_review_geom" | "stop_geom";
     stop: {
         public_id: string;
         name: string;
@@ -416,25 +469,44 @@ export type TransportRouteStopItem = {
         mode: string;
         stop_type: string;
         geometry: GeoJsonGeometry | null;
+        review_status?: string;
     };
 };
 
 export type TransportRoutePath = {
+    id?: string;
     path_kind: string;
+    review_status?: string | null;
     distance_m: number | null;
     geometry: GeoJsonGeometry | null;
+    /** Present on some API responses when path metadata is included. */
+    normalized_data?: Record<string, unknown> | null;
 };
 
 /** Body for PUT /transport/variants/:variantPublicId/path (manual path upsert). */
 export type PutTransportVariantPathBody = {
     coordinates: [number, number][];
-    path_kind?: "manual";
+    path_kind?: "manual" | "manual_drawn";
+    manually_adjusted?: boolean;
 };
 
 /** Result of a variant route-path mutation: active path (null after delete) + variant. */
 export type TransportVariantPathResult = {
     path: TransportRoutePath | null;
     variant: TransportVariantSummary;
+};
+
+/**
+ * POST /transport/route-variants/:variantPublicId/generate-path-from-stops
+ * Road-following path generated from ordered stop coordinates (backend/Valhalla).
+ */
+export type GeneratePathFromStopsResult = {
+    route_path_id: string;
+    path_kind: string;
+    review_status: string;
+    geometry: GeoJsonGeometry;
+    distance_m: number | null;
+    warnings: string[];
 };
 
 export type TransportVariantsResponse = {
@@ -519,9 +591,13 @@ export type TransportOrderedStopLite = {
     stop_type: string;
     longitude: number | null;
     latitude: number | null;
+    actual_longitude: number | null;
+    actual_latitude: number | null;
+    geometry_source: "route_stop_review_geom" | "stop_geom";
     pickup_type: number;
     drop_off_type: number;
     is_timing_point: boolean;
+    review_status: string;
 };
 
 /** Created-stop summary returned by create-and-insert. */
@@ -548,6 +624,7 @@ export type TransportRouteStopMutationResult = {
     ordered_stops: TransportOrderedStopLite[];
     route_stop_count: number;
     has_verified_path: boolean;
+    has_review_placeholder_path: boolean;
     /** Present only for create-and-insert. */
     created_stop?: TransportCreatedStopLite;
     /** Present only for remove (always true there). */

@@ -8,14 +8,17 @@ import { transportPath } from "@/src/lib/dashboardNavigation";
 import { getTransportStops } from "./api";
 import { transportListRootKey, useTransportListQuery } from "./transportListQuery";
 import {
+    TRANSPORT_DUPLICATE_STATUS_OPTIONS,
     TRANSPORT_MODE_OPTIONS,
     TRANSPORT_REVIEW_STATUS_OPTIONS,
+    TRANSPORT_STOP_GEOMETRY_STATUS_OPTIONS,
     TRANSPORT_STOP_TYPE_OPTIONS,
     transportModeLabel,
     transportReviewStatusLabel,
 } from "./constants";
 import TransportDetailDrawer from "./TransportDetailDrawer";
 import TransportStopDetailContent from "./TransportStopDetailContent";
+import { TransportStopListStatus } from "./transportReviewUi";
 import type { TransportStopListItem } from "./types";
 
 const PAGE_SIZE = 50;
@@ -30,6 +33,9 @@ type Filters = {
     generatedName: TriState;
     hasRoutes: TriState;
     hasTerminal: TriState;
+    hasSourceLink: TriState;
+    geometryStatus: string;
+    duplicateStatus: string;
     adminAreaId: string;
     isActive: TriState;
     page: number;
@@ -49,6 +55,9 @@ function readFilters(sp: URLSearchParams): Filters {
         generatedName: tri("generatedName"),
         hasRoutes: tri("hasRoutes"),
         hasTerminal: tri("hasTerminal"),
+        hasSourceLink: tri("hasSourceLink"),
+        geometryStatus: sp.get("geometryStatus") ?? "",
+        duplicateStatus: sp.get("duplicateStatus") ?? "",
         adminAreaId: sp.get("adminAreaId") ?? "",
         isActive: tri("isActive"),
         page: Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1,
@@ -64,6 +73,9 @@ function filtersToSearchParams(filters: Filters): string {
     if (filters.generatedName) sp.set("generatedName", filters.generatedName);
     if (filters.hasRoutes) sp.set("hasRoutes", filters.hasRoutes);
     if (filters.hasTerminal) sp.set("hasTerminal", filters.hasTerminal);
+    if (filters.hasSourceLink) sp.set("hasSourceLink", filters.hasSourceLink);
+    if (filters.geometryStatus) sp.set("geometryStatus", filters.geometryStatus);
+    if (filters.duplicateStatus) sp.set("duplicateStatus", filters.duplicateStatus);
     if (filters.adminAreaId.trim()) sp.set("adminAreaId", filters.adminAreaId.trim());
     if (filters.isActive) sp.set("isActive", filters.isActive);
     if (filters.page > 1) sp.set("page", String(filters.page));
@@ -133,6 +145,10 @@ export default function TransportStopsPage() {
                 filters.generatedName === "" ? undefined : filters.generatedName === "true",
             hasRoutes: filters.hasRoutes === "" ? undefined : filters.hasRoutes === "true",
             hasTerminal: filters.hasTerminal === "" ? undefined : filters.hasTerminal === "true",
+            hasSourceLink:
+                filters.hasSourceLink === "" ? undefined : filters.hasSourceLink === "true",
+            geometryStatus: filters.geometryStatus || undefined,
+            duplicateStatus: filters.duplicateStatus || undefined,
             adminAreaId:
                 filters.adminAreaId.trim() && Number.isFinite(adminAreaId) && adminAreaId >= 1
                     ? Math.floor(adminAreaId)
@@ -192,6 +208,9 @@ export default function TransportStopsPage() {
                     filters.generatedName ||
                     filters.hasRoutes ||
                     filters.hasTerminal ||
+                    filters.hasSourceLink ||
+                    filters.geometryStatus ||
+                    filters.duplicateStatus ||
                     filters.adminAreaId.trim() ||
                     filters.isActive
             ),
@@ -220,6 +239,9 @@ export default function TransportStopsPage() {
             reviewStatus: "",
             generatedName: "",
             hasTerminal: "",
+            hasSourceLink: "",
+            geometryStatus: "",
+            duplicateStatus: "",
             adminAreaId: "",
         });
     }, [applyFilters]);
@@ -258,12 +280,7 @@ export default function TransportStopsPage() {
         });
     }, [router, searchParams]);
 
-    const selectedRow = useMemo(
-        () => items.find((r) => r.public_id === stopPublicId) ?? null,
-        [items, stopPublicId]
-    );
-
-    const drawerTitle = selectedRow?.display_name || "Stop detail";
+    const showDuplicateDetails = Boolean(filters.duplicateStatus);
 
     return (
         <main className="p-6">
@@ -382,6 +399,48 @@ export default function TransportStopsPage() {
                             onChange={(v) => applyFilters({ hasTerminal: v })}
                         />
                         <TriSelect
+                            label="Has source link"
+                            value={filters.hasSourceLink}
+                            onChange={(v) => applyFilters({ hasSourceLink: v })}
+                        />
+
+                        <label className="flex flex-col gap-1">
+                            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                Geometry status
+                            </span>
+                            <select
+                                className={SELECT_CLASS}
+                                value={filters.geometryStatus}
+                                onChange={(e) => applyFilters({ geometryStatus: e.target.value })}
+                            >
+                                <option value="">All</option>
+                                {TRANSPORT_STOP_GEOMETRY_STATUS_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                        {o.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+
+                        <label className="flex flex-col gap-1">
+                            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                Duplicate status
+                            </span>
+                            <select
+                                className={SELECT_CLASS}
+                                value={filters.duplicateStatus}
+                                onChange={(e) => applyFilters({ duplicateStatus: e.target.value })}
+                            >
+                                <option value="">All</option>
+                                {TRANSPORT_DUPLICATE_STATUS_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                        {o.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+
+                        <TriSelect
                             label="Generated name"
                             value={filters.generatedName}
                             onChange={(v) => applyFilters({ generatedName: v })}
@@ -430,9 +489,8 @@ export default function TransportStopsPage() {
                                 <th className="px-3 py-2">Name</th>
                                 <th className="px-3 py-2">Mode</th>
                                 <th className="px-3 py-2">Stop type</th>
-                                <th className="px-3 py-2">Terminal</th>
                                 <th className="px-3 py-2 text-right">Routes</th>
-                                <th className="px-3 py-2">Admin area</th>
+                                <th className="px-3 py-2">Status</th>
                                 <th className="px-3 py-2">Review</th>
                                 <th className="px-3 py-2 text-right">Confidence</th>
                                 <th className="px-3 py-2">Active</th>
@@ -441,13 +499,13 @@ export default function TransportStopsPage() {
                         <tbody>
                             {loading ? (
                                 <tr>
-                                    <td colSpan={9} className="px-3 py-8 text-center text-gray-500">
+                                    <td colSpan={8} className="px-3 py-8 text-center text-gray-500">
                                         Loading stops…
                                     </td>
                                 </tr>
                             ) : items.length === 0 ? (
                                 <tr>
-                                    <td colSpan={9} className="px-3 py-12">
+                                    <td colSpan={8} className="px-3 py-12">
                                         <div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-center">
                                             <p className="text-sm font-medium text-gray-900">
                                                 {hasActiveFilters
@@ -499,21 +557,17 @@ export default function TransportStopsPage() {
                                                 {transportModeLabel(row.mode)}
                                             </td>
                                             <td className="px-3 py-2 text-gray-700">{row.stop_type}</td>
-                                            <td className="px-3 py-2 text-gray-700">
-                                                {row.has_terminal ? (
-                                                    <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800 ring-1 ring-indigo-100">
-                                                        {row.terminal_role ?? "terminal"}
-                                                        {row.terminal_code ? ` · ${row.terminal_code}` : ""}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-xs text-gray-400">—</span>
-                                                )}
-                                            </td>
                                             <td className="px-3 py-2 text-right tabular-nums text-gray-700">
                                                 {row.route_count}
                                             </td>
-                                            <td className="px-3 py-2 text-gray-700">
-                                                {row.admin_area_name ?? "—"}
+                                            <td className="px-3 py-2">
+                                                <TransportStopListStatus
+                                                    geometryStatus={row.geometry_status}
+                                                    routeCount={row.route_count}
+                                                    reviewStatus={row.review_status}
+                                                    duplicateStatus={row.duplicate_status}
+                                                    showDuplicateDetails={showDuplicateDetails}
+                                                />
                                             </td>
                                             <td className="px-3 py-2 text-gray-700">
                                                 {transportReviewStatusLabel(row.review_status)}
@@ -570,35 +624,18 @@ export default function TransportStopsPage() {
 
             <TransportDetailDrawer
                 open={Boolean(stopPublicId)}
-                title={drawerTitle}
-                meta={
-                    selectedRow ? (
-                        <>
-                            <span>
-                                {transportModeLabel(selectedRow.mode)} · {selectedRow.stop_type}
-                                {selectedRow.stop_code ? ` · #${selectedRow.stop_code}` : ""}
-                            </span>
-                            <span>{transportReviewStatusLabel(selectedRow.review_status)}</span>
-                            {selectedRow.is_active ? (
-                                <span className="text-emerald-700">Active</span>
-                            ) : (
-                                <span className="text-gray-400">Inactive</span>
-                            )}
-                        </>
-                    ) : undefined
-                }
+                title="Stop detail"
+                hideHeaderChrome
                 onClose={closeStop}
             >
                 {stopPublicId ? (
-                    <div className="p-5">
-                        <div className="space-y-4">
-                            <TransportStopDetailContent
-                                key={stopPublicId}
-                                publicId={stopPublicId}
-                                hideHeader
-                                afterSave={reloadCurrentPage}
-                            />
-                        </div>
+                    <div className="p-4">
+                        <TransportStopDetailContent
+                            key={stopPublicId}
+                            publicId={stopPublicId}
+                            onClose={closeStop}
+                            afterSave={reloadCurrentPage}
+                        />
                     </div>
                 ) : null}
             </TransportDetailDrawer>

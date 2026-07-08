@@ -1,0 +1,45 @@
+---
+description: Fastify API rules — validation, database access, and security
+alwaysApply: false
+globs: apps/api/**/*
+---
+
+# API backend (`apps/api`)
+
+## Role
+
+- Business logic and authorization
+- Request validation and JSON responses
+- Sole application layer with database access
+
+## Module rules
+
+- One domain per folder under `src/modules/`.
+- Flow: route → schema → service → repo.
+- Routes handle HTTP only. Services handle business logic. Repos handle database access.
+- Zod schemas for input and output where the project already uses them.
+- Prisma only where it is already used for simple CRUD.
+- Raw SQL (`pg`) for geospatial and heavy queries: `ST_DWithin`, `ST_Intersects`, search ranking.
+
+## Security
+
+- Check permissions on every protected route.
+- Do not trust frontend-only checks.
+- Rate-limit sensitive endpoints when patterns exist.
+- Audit admin and destructive actions.
+- Do not expose secrets to clients.
+- Add clear errors for invalid requests.
+- Update OpenAPI docs when endpoint behavior changes.
+
+## Forbidden
+
+- Generating map tiles or PMTiles in the API
+- UI or dashboard logic
+- Hidden schema assumptions — read migrations or schema first
+- Skipping validation on write endpoints
+- Large new abstractions without clear need
+
+## Performance
+
+- GIST indexes for geometry; GIN / pg_trgm for search where used
+- Filter by bounding box before expensive spatial work

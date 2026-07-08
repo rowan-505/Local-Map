@@ -1,0 +1,41 @@
+---
+description: CoreMap main rules — purpose, layer model, and non-negotiables
+alwaysApply: true
+---
+
+# CoreMap main rules
+
+CoreMap is a Myanmar map platform. V2 extends the existing system. Do not restart the architecture.
+
+## Layer model
+
+- PostgreSQL + PostGIS = source of truth
+- Fastify API = business logic and authorization
+- Dashboard, web, and mobile = API clients only
+- PMTiles + Martin + MapLibre = map rendering only
+
+## Hard rules
+
+- No direct database access from dashboard, web, or mobile.
+- No Prisma in dashboard, web, or mobile.
+- No business logic in MapLibre style files.
+- No important data stored only in tiles.
+- No duplicate business logic in frontend.
+- Sensitive admin actions need API authorization and audit.
+- Keep changes small, clear, and safe.
+
+## Rule index
+
+| File | Topic |
+|------|--------|
+| `01-coremap-architecture.mdc` | Architecture pointer |
+| `02-communication-b1-english.mdc` | How to write responses |
+| `03-code-structure-patterns.mdc` | Repo layout and modules |
+| `04-api-backend-rules.mdc` | `apps/api` |
+| `05-dashboard-web-rules.mdc` | `apps/dashboard`, `apps/web`, `apps/mobile` |
+| `06-database-tiles-rules.mdc` | Database and tiles |
+| `07-agent-workflow-safety.mdc` | Scope, safety, testing |
+| `08-agent-workflow.mdc` | Workflow pointer |
+| `09-supabase-cursor-setup.mdc` | Supabase MCP setup |
+
+Full detail: [`AGENTS.md`](../../AGENTS.md). V2 roadmap: [`docs/11-roadmap/v2-plan.md`](../../docs/11-roadmap/v2-plan.md).

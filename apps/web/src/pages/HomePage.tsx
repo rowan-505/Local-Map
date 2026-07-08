@@ -209,17 +209,19 @@ export default function HomePage() {
     return { from, to, geometry };
   }, [route.fromCoordinates, route.toCoordinates, route.routeResult?.geometry]);
 
-  useEffect(() => {
-    if (route.routeResult?.status !== 'ok' || !route.routeResult.geometry) return;
+  const mapCameraTarget = useMemo((): SearchCameraTarget | undefined => {
+    if (cameraTarget) return cameraTarget;
+    if (selectedSearchResult) return undefined;
+    if (route.routeResult?.status !== 'ok' || !route.routeResult.geometry) return undefined;
     const bbox = bboxFromRouteGeometry(route.routeResult.geometry);
-    if (!bbox) return;
-    setCameraTarget({
+    if (!bbox) return undefined;
+    return {
       type: 'bounds',
       bbox,
       padding: 72,
       duration: 900,
-    });
-  }, [route.routeResult]);
+    };
+  }, [cameraTarget, selectedSearchResult, route.routeResult]);
 
   const onSelectPoiId = useCallback((id: string | null) => {
     setSelectedPoiId(id);
@@ -327,7 +329,9 @@ export default function HomePage() {
   // Instead of a centered modal, surface the auth form inside the left drawer.
   useEffect(() => {
     if (authModalView === null) return;
-    openAccountDrawer();
+    setTimeout(() => {
+      openAccountDrawer();
+    }, 100);
     closeAuthModal();
   }, [authModalView, closeAuthModal, openAccountDrawer]);
 
@@ -653,7 +657,7 @@ export default function HomePage() {
             pois={mapPlaces}
             selectedPoiId={selectedPoiIdForMap}
             selectedPoi={selectedPoi}
-            cameraTarget={cameraTarget}
+            cameraTarget={mapCameraTarget}
             searchHighlight={selectedSearchResult}
             onSearchHighlightLoadingChange={setSearchHighlightLoading}
             cameraLayout={mapCameraLayout}

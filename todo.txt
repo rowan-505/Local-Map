@@ -21,3 +21,441 @@ firstly need to make sure successfully working locally
 make one tile with mimu data and use as background adn draw manually boundaries for all admin areas for address 
 use that admin areas for auto assigning roads and places
 https://chatgpt.com/g/g-p-69cb95449e4081918f18db18e334b678/c/6a22f0a0-2aa8-83a9-be0e-5fe10532804a
+
+
+---------------------------------------
+5. Why your PMTiles are 1GB even with only streets + admin labels
+
+Most likely reasons:
+
+1. Too many roads kept at too many zoom levels.
+2. Street geometries are not simplified enough per zoom.
+3. Small roads appear too early.
+4. Road labels are duplicated heavily.
+5. Admin boundaries/polygons are included at too many high zooms.
+6. Label points are duplicated across many zoom levels.
+7. Tile attributes are too large.
+8. You may be storing both geometry + label layers separately with similar data.
+9. Clipping/buffer settings may duplicate long lines across many tiles.
+10. Max zoom tile count explodes even if data seems simple.
+
+The biggest size killer is usually:
+
+small roads + high zoom + unsimplified line geometry + repeated labels
+
+Even without POIs/buildings, road networks can become huge if every residential/service/track path is included deeply and repeatedly.
+
+6. How to reduce size without reducing online visual quality
+
+You said: without reducing performance or zoom level.
+
+So don’t reduce max zoom first. Instead reduce unnecessary data per zoom.
+
+Keep max zoom, reduce feature density
+
+Bad:
+
+Every road appears from z7 to z17.
+Every label appears from z7 to z17.
+Every admin boundary appears at all zooms.
+
+Good:
+
+z0–6:
+  country/region labels only
+
+z7–9:
+  major roads + state/region/township labels
+
+z10–12:
+  main/secondary roads + township labels
+
+z13–14:
+  local roads start
+
+z15–17:
+  residential/service roads + detailed labels
+
+You keep high zoom. You just stop wasting bytes at lower zooms.
+
+7. Biggest size reductions you should do first
+1. Remove useless tile attributes
+
+For roads, tile attributes should be minimal:
+
+id/public_id
+name
+name_my
+name_en
+road_class
+layer_type
+sort_rank
+
+Do not include:
+
+source_refs
+normalized_data
+full OSM tags
+created_at
+updated_at
+verification_note
+all alternate names
+admin metadata
+long JSON
+
+Tiles are rendering only. Your project rules already say tiles are not data storage and API is for business logic/data access.
+
+2. Split road geometry and road labels
+
+Road rendering layer:
+
+roads geometry
+road_class
+sort_rank
+
+Road label layer:
+
+label geometry
+name
+name_my
+name_en
+road_class
+
+But do not create labels for every tiny road at low zoom.
+
+Use label priority:
+
+z7–10:
+  highway/primary/trunk only
+
+z11–13:
+  secondary/tertiary
+
+z14+:
+  residential/local roads
+
+z16+:
+  service/minor lanes if needed
+3. Simplify geometry per zoom
+
+This does not mean destroying high-zoom precision.
+
+It means:
+
+low zoom:
+  simplified geometry
+
+high zoom:
+  detailed geometry
+
+This is exactly how vector tiles should work.
+
+Your project vision already says payload should be minimized using MVT/vector tiles and geometry simplification, with zoom-level filtering and spatial queries.
+
+4. Do not include admin polygons at high zoom if only boundaries/labels are needed
+
+For admin areas:
+
+Low zoom:
+  state/region polygons or boundaries
+
+Medium zoom:
+  district/township boundaries
+
+High zoom:
+  thin boundary lines only, maybe no polygon fill
+
+Admin area labels should be:
+
+one label point per area
+not repeated polygon labels everywhere
+not duplicated at every zoom unnecessarily
+5. Use layer-specific minzoom
+
+Example logic:
+
+motorway/trunk:
+  start z6/z7
+
+primary:
+  start z8
+
+secondary:
+  start z10
+
+tertiary:
+  start z11/z12
+
+residential:
+  start z13/z14
+
+service/track/path:
+  start z15/z16
+
+This usually reduces size massively without reducing max zoom.
+
+8. Online vs offline should not use the same PMTiles
+
+This is the key mistake.
+
+Online package
+
+Can be large:
+
+yangon-online-full.pmtiles ≈ 1GB
+
+Because users do not download all 1GB. The map requests only needed tiles/ranges.
+
+Offline package
+
+Must be intentionally small:
+
+kyauktan-lite.pmtiles ≈ 20–80MB
+yangon-lite.pmtiles ≈ 150–400MB
+
+Because users download the whole file.
+
+So the correct rule:
+
+Online PMTiles can be full-detail.
+Offline PMTiles must be a separate optimized product.
+9. Township offline package design
+
+For each township, create two package profiles.
+
+Township Lite
+
+Purpose:
+
+cheap mobile-data download
+basic offline map
+
+Contains:
+
+township boundary
+main roads
+secondary roads
+important local roads
+admin labels
+water
+major landmarks
+important POIs only
+
+Excludes:
+
+all tiny service roads
+all road labels
+all POIs
+buildings
+dense landuse
+full admin polygons
+large metadata
+Township Detail
+
+Purpose:
+
+high precision local offline map
+Wi-Fi recommended
+
+Contains:
+
+all useful roads
+road labels at high zoom
+important buildings if needed
+local labels
+important POIs
+entry/landmark features if verified
+
+Still excludes:
+
+full POI details
+photos
+phone numbers
+opening hours
+raw source JSON
+admin audit data
+10. Should you generate all 350 township packages now?
+
+No.
+
+Generate metadata for all townships, but generate real packages in priority order.
+
+Recommended order:
+
+1. Kyauktan Lite
+2. Kyauktan Detail
+3. Thanlyin Lite
+4. Yangon East/South/North/West district Lite
+5. Yangon Region Lite
+6. Mandalay Lite
+7. Naypyitaw Lite
+8. Other high-use towns
+9. All remaining township Lite packages
+10. Detail packages only where you have good data
+
+Brutal truth:
+
+350 township packages are manageable technically.
+350 high-quality offline packages are not manageable operationally at your current stage.
+
+Start with the areas users actually need.
+
+11. How to manage 350 packages cleanly
+
+Use a package registry.
+
+Your V2 plan already includes a tiles.tile_packages registry with package code, type, version, PMTiles URL, min/max zoom, bounds, file size, checksum, active/public flags, and endpoints for active/visible packages.
+
+Extend the idea mentally like this:
+
+package_code:
+  township_kyauktan_lite_v1
+
+package_type:
+  township_lite
+
+admin_area_id:
+  Kyauktan township id
+
+parent_package:
+  yangon_lite or myanmar_overview_lite
+
+file_size:
+  shown before download
+
+checksum:
+  verify after download
+
+is_mobile_data_recommended:
+  true/false
+
+The user should see:
+
+Kyauktan Lite — 58 MB — recommended
+Kyauktan Detail — 180 MB — Wi-Fi recommended
+Yangon Lite — 320 MB — Wi-Fi recommended
+Yangon Full — 1.1 GB — Wi-Fi only
+12. Avoid duplicate storage explosion
+
+If you make 350 township packages naively, total size can become larger than your 15 region PMTiles because features near boundaries may be duplicated.
+
+To reduce duplication:
+
+Use overview package as common dependency.
+Do not include national/region overview data inside every township package.
+Do not include neighboring township data except small buffer.
+Use small boundary buffer only for visual continuity.
+Keep township package focused on that township.
+
+Recommended offline download dependency:
+
+Always installed/downloaded:
+  myanmar-overview-lite
+
+Optional:
+  township-lite
+  township-detail
+  district-lite
+
+So a user in Kyauktan might have:
+
+myanmar-overview-lite.pmtiles
++ kyauktan-lite.pmtiles
++ optional kyauktan-detail.pmtiles
+
+Not:
+
+one giant standalone package that repeats everything
+13. How to keep fast online loading with 1GB PMTiles
+
+For online, 1GB is not automatically fatal, but you must avoid loading too many sources.
+
+Use:
+
+z0–6:
+  overview only
+
+z7–10:
+  overview + visible region
+
+z11+:
+  visible region only or visible region + selected dynamic layers
+
+near border:
+  current region + adjacent region only if viewport touches border
+
+Do not load:
+
+all 15 regions
+all township packages
+all POIs
+all labels
+
+The project architecture supports this separation: PMTiles for static basemap, Martin/PostGIS for dynamic tiles, and API for search/details/actions.
+
+14. Exact recommendation for your current situation
+Keep your current 16 PMTiles
+
+Use them for:
+
+online regional basemap
+desktop/web
+normal browsing
+R2/CDN delivery
+Create new offline profiles
+
+Do not reuse the 1GB region files as default offline.
+
+Create:
+
+overview-lite
+region-lite
+district-lite
+township-lite
+township-detail
+region-full-wifi
+Reduce size by layer strategy, not max zoom
+
+Do:
+
+drop unused attributes
+zoom-filter small roads
+zoom-filter labels
+simplify geometry per zoom
+admin labels as points
+avoid repeated admin polygons
+remove raw JSON
+separate online full from offline lite
+
+Do not first:
+
+reduce max zoom
+delete all local roads
+make 350 full packages
+serve township packages online
+Final clean rule
+
+For CoreMap:
+
+Online:
+  1 overview + 15 region full PMTiles
+
+Offline:
+  overview-lite + selected township/district/region lite/detail packages
+
+Size reduction:
+  reduce attributes, duplication, low-zoom feature density, label repetition, and unsimplified geometry
+
+Do not:
+  reduce max zoom first
+  create 350 full-detail 1GB township downloads
+  use township PMTiles as the main online serving model
+
+The best long-term architecture is still:
+
+PMTiles = stable basemap/offline packages
+Martin = dynamic/large changing overlays
+API = search, detail, saved, reports, user actions
+
+That matches your own architecture and avoids overengineering while still supporting offline downloads for all townships later.
+

@@ -1,7 +1,9 @@
 import type { PrismaClient } from "@prisma/client";
 
 import { TransportRepository } from "./transport.repo.js";
-import { TransportSchemaUnavailableError } from "./transport.errors.js";
+import { TransportReviewOperations } from "./transport-review.repo.js";
+import type { RouteReviewReadiness, TransportReviewAction } from "./transport-review.js";
+import { TransportFeatureNotImplementedError, TransportSchemaUnavailableError } from "./transport.errors.js";
 import {
     clearTransportCache,
     getTransportCached,
@@ -61,6 +63,7 @@ import type {
     TransportVariantStopsResponse,
     TransportVariantPathResult,
     TransportVariantSummary,
+    GeneratePathFromStopsResult,
 } from "./transport.types.js";
 
 function emptyOverview(schemaAvailable: boolean): TransportOverview {
@@ -137,9 +140,11 @@ const CACHE_TTL = {
 
 export class TransportService {
     private readonly repo: TransportRepository;
+    private readonly reviewOps: TransportReviewOperations;
 
     constructor(prisma: PrismaClient) {
         this.repo = new TransportRepository(prisma);
+        this.reviewOps = new TransportReviewOperations(prisma);
     }
 
     /** Drops every cached Transport read result so the next read reflects a write. */
@@ -535,6 +540,18 @@ export class TransportService {
         return result;
     }
 
+    /**
+     * Generate a Valhalla-snapped path through ordered stop coordinates and replace
+     * the variant's active route_paths row. Reserved for Review Map — not implemented.
+     */
+    async generatePathFromStops(
+        variantPublicId: string,
+        _audit?: TransportAuditContext,
+    ): Promise<GeneratePathFromStopsResult> {
+        void variantPublicId;
+        throw new TransportFeatureNotImplementedError("generate-path-from-stops");
+    }
+
     async updateRouteStopFlags(
         id: bigint,
         input: UpdateRouteStopInput,
@@ -581,6 +598,90 @@ export class TransportService {
         audit?: TransportAuditContext
     ): Promise<TransportRouteStopMutationResult> {
         const result = await this.repo.createAndInsertRouteStop(variantPublicId, input, audit);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    getRouteReviewReadiness(routePublicId: string): Promise<RouteReviewReadiness> {
+        return this.reviewOps.getRouteReviewReadiness(routePublicId);
+    }
+
+    async applyRouteReviewAction(
+        routePublicId: string,
+        action: TransportReviewAction,
+        audit?: TransportAuditContext,
+        reason?: string,
+    ) {
+        const result = await this.reviewOps.applyRouteReviewAction(
+            routePublicId,
+            action,
+            audit ?? { actorUserId: null, requestId: null },
+            reason,
+        );
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    async applyStopReviewAction(
+        stopPublicId: string,
+        action: TransportReviewAction,
+        audit?: TransportAuditContext,
+        reason?: string,
+    ) {
+        const result = await this.reviewOps.applyStopReviewAction(
+            stopPublicId,
+            action,
+            audit ?? { actorUserId: null, requestId: null },
+            reason,
+        );
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    async applyRoutePathReviewAction(
+        pathId: bigint,
+        action: TransportReviewAction,
+        audit?: TransportAuditContext,
+        reason?: string,
+    ) {
+        const result = await this.reviewOps.applyRoutePathReviewAction(
+            pathId,
+            action,
+            audit ?? { actorUserId: null, requestId: null },
+            reason,
+        );
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    async replaceRouteStop(
+        routeStopId: bigint,
+        stopPublicId: string,
+        audit?: TransportAuditContext,
+        reason?: string,
+    ) {
+        const result = await this.reviewOps.replaceRouteStop(
+            routeStopId,
+            stopPublicId,
+            audit ?? { actorUserId: null, requestId: null },
+            reason,
+        );
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    async mergeStop(
+        sourceStopPublicId: string,
+        targetStopPublicId: string,
+        audit?: TransportAuditContext,
+        reason?: string,
+    ) {
+        const result = await this.reviewOps.mergeStop(
+            sourceStopPublicId,
+            targetStopPublicId,
+            audit ?? { actorUserId: null, requestId: null },
+            reason,
+        );
         this.invalidateAggregateCaches();
         return result;
     }

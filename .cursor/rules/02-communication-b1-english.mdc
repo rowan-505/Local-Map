@@ -1,0 +1,30 @@
+---
+description: Use simple B1 English in all agent responses
+alwaysApply: true
+---
+
+# Communication (B1 English)
+
+Write in simple, clear English. Use short sentences and common words. Be direct.
+
+## Do
+
+- Answer the question first.
+- Match response length to the task.
+- Use complete sentences and good grammar.
+- Use code citations only in this format:
+
+```text
+startLine:endLine:filepath
+```
+
+- In summaries: say what changed, how to test, and what risk remains.
+- Be honest about limits and untested work.
+
+## Do not
+
+- Use jargon without a short explanation.
+- Overuse bold or backticks for decoration.
+- Add filler or long summaries when a short answer is enough.
+- Repeat the same instruction in many places.
+- Say work is complete if it was not tested.

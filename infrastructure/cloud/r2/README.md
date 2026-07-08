@@ -57,11 +57,12 @@ You should see CORS-related response headers when the rule matches (for example 
 
 1. **`cors.json` contains concrete web origins** (localhost and known deploy previews). When you move to production on **`tiles.yourdomain.com`**, update **allowed origins** to match your real production and staging sites. Replace placeholder references like **`yourdomain.com`** with your actual domain wherever you configure DNS and CORS.
 
-2. **Do not overwrite versioned tile objects in place** for live traffic. Publish new paths (for example `…/v3/basemap.pmtiles`) and cut over intentionally. See `docs/tiles/pmtiles-r2-beginner-guide.md`.
+2. **Do not overwrite versioned tile objects in place** for live traffic. Publish new paths (for example `…/v3/basemap.pmtiles`) and cut over intentionally. See [`docs/06-tiles/r2-cdn.md`](../../../docs/06-tiles/r2-cdn.md) and archived [`docs/archive/old-docs/tiles/pmtiles-r2-beginner-guide.md`](../../../docs/archive/old-docs/tiles/pmtiles-r2-beginner-guide.md).
 
 ---
 
 ## Related documentation
 
-- Beginner hosting walkthrough: `docs/tiles/pmtiles-r2-beginner-guide.md`
+- [`docs/06-tiles/r2-cdn.md`](../../../docs/06-tiles/r2-cdn.md) — canonical R2 guide
+- Archived beginner walkthrough: [`docs/archive/old-docs/tiles/pmtiles-r2-beginner-guide.md`](../../../docs/archive/old-docs/tiles/pmtiles-r2-beginner-guide.md)
 - CORS rule file in this folder: `cors.json`

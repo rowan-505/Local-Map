@@ -1,0 +1,16 @@
+---
+description: Legacy pointer — architecture rules moved to numbered rule files
+alwaysApply: false
+---
+
+# Architecture (legacy pointer)
+
+Canonical architecture rules now live in:
+
+- `00-coremap-main-rules.mdc` — layer model and non-negotiables
+- `03-code-structure-patterns.mdc` — repo layout and modules
+- `04-api-backend-rules.mdc` — API boundaries
+- `05-dashboard-web-rules.mdc` — dashboard, web, and mobile boundaries
+- `06-database-tiles-rules.mdc` — PostGIS and tiles
+
+Full detail: [`AGENTS.md`](../../AGENTS.md).

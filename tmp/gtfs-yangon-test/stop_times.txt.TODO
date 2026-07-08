@@ -1,4 +1,0 @@
-# TODO: stop_times.txt
-
-Not implemented. Will be generated from core_transport when export-gtfs.ts is complete.
-See docs/transport/gtfs-export-plan.md

@@ -1,5 +1,7 @@
 # Database
 
+> **Documentation index:** [`docs/02-database/database-overview.md`](../../docs/02-database/database-overview.md) — canonical database docs live under `docs/02-database/`.
+
 PostgreSQL + PostGIS is the **source of truth** for map data. All schema and data changes are versioned in this folder and applied deliberately—never only via ad-hoc edits on production.
 
 Apps (`apps/api`, `apps/dashboard`, `apps/web`) use **`DATABASE_URL`** at runtime **only through the API**. They must not use `LOCAL_RAW_DATABASE_URL`. Dashboard and web must not connect to the database directly.
@@ -99,13 +101,13 @@ Separate from `snapshots/`—tooling for AI context and diagrams:
 | `npm run db:erd:local` | `introspection/local/erd/local-current-db.mmd` |
 | `npm run db:erd:supabase` | `introspection/supabase/erd/current.mmd` |
 
-See [`.cursor/rules/supabase_cursor_setup.mdc`](../../.cursor/rules/supabase_cursor_setup.mdc) and [`../.cursor/rules/DATABASE_RULES.mdc`](../.cursor/rules/DATABASE_RULES.mdc).
+See [`.cursor/rules/09-supabase-cursor-setup.mdc`](../../.cursor/rules/09-supabase-cursor-setup.mdc) and [`../.cursor/rules/DATABASE_RULES.mdc`](../.cursor/rules/DATABASE_RULES.mdc).
 
 ---
 
 ## Related docs
 
-- [`docs/database_pipeline_context.md`](docs/database_pipeline_context.md) — raw → staging → core → tiles
-- [`docs/database_rules.md`](docs/database_rules.md) — design rules for ref/system/raw/staging
-- [`docs/staging_to_core_mapping.md`](docs/staging_to_core_mapping.md)
-- [`docs/core_promotion_quality_rules.md`](docs/core_promotion_quality_rules.md)
+- [`docs/02-database/database-overview.md`](../../docs/02-database/database-overview.md) — canonical overview
+- [`docs/02-database/schemas-and-tables.md`](../../docs/02-database/schemas-and-tables.md) — pipeline layers and design rules
+- [`docs/07-data-pipeline/review-and-promotion.md`](../../docs/07-data-pipeline/review-and-promotion.md) — staging → core promotion
+- Local stubs in [`docs/`](docs/) point to canonical + archive copies

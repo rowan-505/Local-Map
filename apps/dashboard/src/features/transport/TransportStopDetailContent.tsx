@@ -9,6 +9,7 @@ import { transportPath } from "@/src/lib/dashboardNavigation";
 import ArchiveStopDialog from "./ArchiveStopDialog";
 import TransportPreviewMap from "./TransportPreviewMap";
 import {
+    applyTransportStopReviewAction,
     archiveTransportStop,
     getTransportStopDetail,
     getTransportStopNearby,
@@ -33,12 +34,19 @@ import {
 } from "./naming";
 import type {
     TransportNearbyStop,
+    TransportReviewAction,
     TransportStopDetail,
     TransportStopRouteUsage,
     UpdateTransportStopBody,
     UpdateTransportTerminalBody,
 } from "./types";
+import TransportStopMergePanel from "./TransportStopMergePanel";
+import { CollapsibleSection, CompactField, COMPACT_FIELD_GRID_2_CLASS } from "./TransportRouteDetailCards";
+import { STOP_CARD_CLASS, StopDetailHeader } from "./TransportStopDetailCards";
+import { TransportReviewActionBar } from "./transportReviewUi";
 
+const STOP_DETAIL_MAP_HEIGHT =
+    "h-[min(48vh,420px)] min-h-[240px] w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100";
 const MAP_DEFAULT_ZOOM = 15;
 const ROUTES_PAGE_SIZE = 25;
 const INPUT_CLASS =
@@ -95,32 +103,6 @@ function detailToForm(d: TransportStopDetail): FormState {
         longitude: d.longitude === null ? "" : String(d.longitude),
         latitude: d.latitude === null ? "" : String(d.latitude),
     };
-}
-
-function reviewStatusBadgeClass(status: string): string {
-    switch (status) {
-        case "verified":
-            return "bg-emerald-50 text-emerald-800 ring-emerald-100";
-        case "reviewed":
-            return "bg-blue-50 text-blue-800 ring-blue-100";
-        case "needs_review":
-            return "bg-amber-50 text-amber-900 ring-amber-100";
-        case "rejected":
-            return "bg-red-50 text-red-800 ring-red-100";
-        case "manual_protected":
-            return "bg-purple-50 text-purple-800 ring-purple-100";
-        default:
-            return "bg-gray-100 text-gray-700 ring-gray-200";
-    }
-}
-
-function InfoRow({ label, value }: { readonly label: string; readonly value: React.ReactNode }) {
-    return (
-        <div className="flex justify-between gap-3 py-1 text-sm">
-            <span className="text-gray-500">{label}</span>
-            <span className="min-w-0 wrap-break-word text-right font-medium text-gray-900">{value}</span>
-        </div>
-    );
 }
 
 /** Straight-line distance in metres between two lng/lat points (haversine). */
@@ -218,6 +200,29 @@ export default function TransportStopDetailContent({
     const [termError, setTermError] = useState("");
 
     const router = useRouter();
+
+    const handleStopReviewAction = useCallback(
+        async (action: TransportReviewAction) => {
+            if (!detail) return;
+            const result = await applyTransportStopReviewAction(detail.public_id, action);
+            setDetail({ ...detail, review_status: result.review_status });
+            afterSave?.();
+        },
+        [detail, afterSave]
+    );
+
+    const handleStopMerged = useCallback(
+        (targetPublicId: string) => {
+            afterSave?.();
+            if (onClose) {
+                onClose();
+                return;
+            }
+            router.push(transportPath(`stops/${targetPublicId}`));
+        },
+        [afterSave, onClose, router]
+    );
+
     const [archiveOpen, setArchiveOpen] = useState(false);
     const [archiveReason, setArchiveReason] = useState("");
     const [archiving, setArchiving] = useState(false);
@@ -233,6 +238,7 @@ export default function TransportStopDetailContent({
     const [locError, setLocError] = useState("");
     const [locNearby, setLocNearby] = useState<readonly TransportNearbyStop[]>([]);
     const [locNearbyLoading, setLocNearbyLoading] = useState(false);
+    const [advancedOpen, setAdvancedOpen] = useState(false);
 
     // --- Load stop detail when publicId changes. -----------------------------
     useEffect(() => {
@@ -258,6 +264,7 @@ export default function TransportStopDetailContent({
         setRoutes([]);
         setRoutesTotal(0);
         setRoutesPage(1);
+        setAdvancedOpen(false);
 
         void (async () => {
             try {
@@ -651,123 +658,50 @@ export default function TransportStopDetailContent({
 
     const archiveBlockedByRoutes = (detail?.route_count ?? 0) > 0;
 
-    // Edit / Save / Cancel controls — shown in the header (full page) or inline
-    // at the top of the body (drawer, where the header is hidden).
-    const editControls = (
-        <div className="flex items-center gap-2">
-            {detail && !editing ? (
-                <button
-                    type="button"
-                    onClick={startEdit}
-                    disabled={locEditing}
-                    className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-                >
-                    Edit
-                </button>
-            ) : null}
-            {editing ? (
-                <>
-                    <button
-                        type="button"
-                        onClick={cancelEdit}
-                        disabled={saving}
-                        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => void save()}
-                        disabled={saving}
-                        className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-                    >
-                        {saving ? "Saving…" : "Save changes"}
-                    </button>
-                </>
-            ) : null}
-        </div>
-    );
 
     return (
         <>
-            {/* Header */}
-            {!hideHeader ? (
-                <header className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-200 pb-4">
-                    <div className="min-w-0">
-                        {onClose ? (
-                            <button
-                                type="button"
-                                onClick={onClose}
-                                className="text-sm text-gray-500 hover:text-gray-900"
-                            >
-                                ← Back to stops
-                            </button>
-                        ) : (
-                            <Link
-                                href={transportPath("stops")}
-                                className="text-sm text-gray-500 hover:text-gray-900"
-                            >
-                                ← Back to stops
-                            </Link>
-                        )}
-                        {loading ? (
-                            <div className="mt-2 h-7 w-64 animate-pulse rounded bg-gray-200" />
-                        ) : detail ? (
-                            <div className="mt-1 flex flex-wrap items-center gap-3">
-                                <h1 className="text-2xl font-bold text-gray-900">
-                                    {stopDisplayName}
-                                </h1>
-                                <span
-                                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${reviewStatusBadgeClass(detail.review_status)}`}
-                                >
-                                    {transportReviewStatusLabel(detail.review_status)}
-                                </span>
-                                <span className="text-sm text-gray-500">
-                                    {transportModeLabel(detail.mode)} · {detail.stop_type}
-                                    {detail.stop_code ? ` · #${detail.stop_code}` : ""}
-                                </span>
-                                {detail.is_active ? (
-                                    <span className="text-sm text-emerald-700">Active</span>
-                                ) : (
-                                    <span className="text-sm text-gray-400">Inactive</span>
-                                )}
-                            </div>
-                        ) : null}
-                    </div>
-                    {editControls}
-                </header>
+            {!hideHeader && !onClose ? (
+                <div className="mb-3">
+                    <Link
+                        href={transportPath("stops")}
+                        className="text-sm text-gray-500 hover:text-gray-900"
+                    >
+                        ← Back to stops
+                    </Link>
+                </div>
             ) : null}
 
-            {/* Inline edit controls when the header is hidden (drawer mode). */}
-            {hideHeader && detail ? (
-                <div className="flex justify-end">{editControls}</div>
-            ) : null}
+            <StopDetailHeader
+                stopDisplayName={stopDisplayName}
+                detail={detail}
+                loading={loading}
+                editing={editing}
+                saving={saving}
+                locEditing={locEditing}
+                onEdit={startEdit}
+                onCancelEdit={cancelEdit}
+                onSaveEdit={() => void save()}
+                onClose={onClose}
+            />
 
             {error ? (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
                     {error}
                 </div>
             ) : null}
             {saveError ? (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
                     {saveError}
                 </div>
             ) : null}
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)_360px]">
-                {/* Left: info / edit form */}
-                <aside className="space-y-4">
-                    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+            {editing && form && detail ? (
+                <div className="mt-3 space-y-3">
+                    <section className={STOP_CARD_CLASS}>
                         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
-                            Stop info
+                            Edit stop
                         </h2>
-                        {loading ? (
-                            <div className="space-y-2">
-                                {[0, 1, 2, 3, 4].map((i) => (
-                                    <div key={i} className="h-4 animate-pulse rounded bg-gray-100" />
-                                ))}
-                            </div>
-                        ) : detail && editing && form ? (
                             <div className="space-y-3">
                                 <div className="space-y-2">
                                     <div>
@@ -936,79 +870,331 @@ export default function TransportStopDetailContent({
                                     </div>
                                 </div>
                             </div>
-                        ) : detail ? (
-                            <div className="divide-y divide-gray-100">
-                                <InfoRow label="Mode" value={transportModeLabel(detail.mode)} />
-                                <InfoRow label="Stop type" value={detail.stop_type} />
-                                <InfoRow label="Stop code" value={detail.stop_code ?? "—"} />
-                                <InfoRow
-                                    label="Confidence"
-                                    value={
-                                        detail.confidence_score === null
-                                            ? "—"
-                                            : Math.round(detail.confidence_score)
-                                    }
-                                />
-                                <InfoRow label="Routes" value={detail.route_count} />
-                                <InfoRow
-                                    label="Admin area"
-                                    value={
-                                        detail.admin_area_name ??
-                                        (detail.admin_area_id === null
-                                            ? "—"
-                                            : `#${detail.admin_area_id}`)
-                                    }
-                                />
-                                <InfoRow
-                                    label="Parent stop"
-                                    value={
-                                        detail.parent_stop ? (
-                                            <Link
-                                                href={transportPath(
-                                                    `stops/${detail.parent_stop.public_id}`
-                                                )}
-                                                className="text-blue-700 hover:underline"
+                    </section>
+                    <section className={STOP_CARD_CLASS}>
+                        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
+                            Location
+                        </h2>
+                        <TransportPreviewMap
+                            title={stopDisplayName}
+                            externalId={detail.public_id}
+                            editablePoint={activePoint}
+                            editablePointColor="#1d4ed8"
+                            pointDraggable={mapEditing}
+                            onPointChange={handlePointChange}
+                            pointZoom={MAP_DEFAULT_ZOOM}
+                            autoFitKey={publicId}
+                            editingHint="Click the map or drag the marker to set this stop's location."
+                            emptyHint="No geometry"
+                            heightClassName={STOP_DETAIL_MAP_HEIGHT}
+                        />
+                    </section>
+                </div>
+            ) : (
+                <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
+                        <div className="space-y-3">
+                            <section className={STOP_CARD_CLASS}>
+                                <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
+                                    Stop info
+                                </h2>
+                                {loading ? (
+                                    <div className={`${COMPACT_FIELD_GRID_2_CLASS}`}>
+                                        {[0, 1, 2, 3].map((i) => (
+                                            <div
+                                                key={i}
+                                                className="h-10 animate-pulse rounded bg-gray-100"
+                                            />
+                                        ))}
+                                    </div>
+                                ) : detail ? (
+                                    <dl className={COMPACT_FIELD_GRID_2_CLASS}>
+                                        <CompactField
+                                            label="Mode"
+                                            value={transportModeLabel(detail.mode)}
+                                        />
+                                        <CompactField label="Stop type" value={detail.stop_type} />
+                                        <CompactField
+                                            label="Coordinates"
+                                            value={
+                                                <span className="tabular-nums">
+                                                    {formatCoords(originalPoint)}
+                                                </span>
+                                            }
+                                        />
+                                        <CompactField label="Routes" value={detail.route_count} />
+                                        <CompactField
+                                            label="Review status"
+                                            value={transportReviewStatusLabel(detail.review_status)}
+                                        />
+                                        <CompactField
+                                            label="Confidence"
+                                            value={
+                                                detail.confidence_score === null
+                                                    ? "—"
+                                                    : Math.round(detail.confidence_score)
+                                            }
+                                        />
+                                    </dl>
+                                ) : null}
+                            </section>
+
+                            {detail ? (
+                                <section className={STOP_CARD_CLASS}>
+                                    <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
+                                        Names
+                                    </h2>
+                                    <dl className={COMPACT_FIELD_GRID_2_CLASS}>
+                                        <CompactField label="Display name" value={stopDisplayName} />
+                                        <CompactField label="Myanmar" value={detail.name_mm ?? "—"} />
+                                        <CompactField label="English" value={detail.name_en ?? "—"} />
+                                    </dl>
+                                </section>
+                            ) : null}
+
+                            <section className={`${STOP_CARD_CLASS} p-0`}>
+                                <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2">
+                                    <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                                        Routes using this stop
+                                    </h2>
+                                    <span className="text-xs text-gray-400">{routesTotal}</span>
+                                </div>
+
+                                {routesError ? (
+                                    <div className="m-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-800">
+                                        {routesError}
+                                    </div>
+                                ) : null}
+
+                                {routesLoading ? (
+                                    <div className="space-y-2 p-3">
+                                        {[0, 1, 2].map((i) => (
+                                            <div
+                                                key={i}
+                                                className="h-9 animate-pulse rounded bg-gray-100"
+                                            />
+                                        ))}
+                                    </div>
+                                ) : routes.length === 0 ? (
+                                    <p className="px-3 py-4 text-center text-sm text-gray-500">
+                                        No routes currently use this stop.
+                                    </p>
+                                ) : (
+                                    <ul className="max-h-64 overflow-y-auto lg:max-h-72">
+                                        {routes.map((r) => (
+                                            <li
+                                                key={`${r.variant_public_id}-${r.stop_sequence}`}
+                                                className="border-b border-gray-100 last:border-b-0"
                                             >
-                                                {detail.parent_stop.name}
-                                            </Link>
+                                                <Link
+                                                    href={`${transportPath("routes")}?route=${r.route_public_id}`}
+                                                    className="flex items-start gap-2 px-3 py-2 text-sm hover:bg-gray-50"
+                                                >
+                                                    <span className="mt-0.5 inline-flex h-5 flex-none items-center justify-center rounded bg-gray-900 px-1.5 text-[10px] font-semibold text-white">
+                                                        {r.route_code}
+                                                    </span>
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="truncate font-medium text-gray-900">
+                                                            {r.route_name}
+                                                        </p>
+                                                        <p className="truncate text-xs text-gray-500">
+                                                            {r.variant_code}
+                                                            {r.direction_name
+                                                                ? ` · ${r.direction_name}`
+                                                                : ""}
+                                                            {r.headsign ? ` · ${r.headsign}` : ""} ·
+                                                            seq {r.stop_sequence}
+                                                        </p>
+                                                    </div>
+                                                </Link>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+
+                                {routesTotal > ROUTES_PAGE_SIZE ? (
+                                    <div className="flex items-center justify-between gap-2 border-t border-gray-100 px-3 py-2 text-sm text-gray-600">
+                                        <button
+                                            type="button"
+                                            disabled={routesLoading || routesPage <= 1}
+                                            onClick={() => setRoutesPage((p) => Math.max(1, p - 1))}
+                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                        >
+                                            Previous
+                                        </button>
+                                        <span className="text-xs tabular-nums">
+                                            Page {routesPage} of {routesTotalPages}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            disabled={routesLoading || routesPage >= routesTotalPages}
+                                            onClick={() => setRoutesPage((p) => p + 1)}
+                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                        >
+                                            Next
+                                        </button>
+                                    </div>
+                                ) : null}
+                            </section>
+                        </div>
+
+                        <section className={STOP_CARD_CLASS}>
+                            {detail ? (
+                                <>
+                                    <div className="mb-2 flex items-center justify-between gap-2">
+                                        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                                            Location
+                                        </h2>
+                                        {!locEditing ? (
+                                            <button
+                                                type="button"
+                                                onClick={startLocEdit}
+                                                disabled={editing}
+                                                className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                Edit location
+                                            </button>
                                         ) : (
-                                            "—"
-                                        )
-                                    }
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={cancelLocEdit}
+                                                    disabled={locSaving}
+                                                    className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void saveLocation()}
+                                                    disabled={locSaving || !locPoint}
+                                                    className="rounded-md bg-gray-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                                                >
+                                                    {locSaving ? "Saving…" : "Save location"}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {locEditing ? (
+                                        <div className="mb-2 space-y-2">
+                                            {locError ? (
+                                                <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800">
+                                                    {locError}
+                                                </div>
+                                            ) : null}
+                                            <p className="text-[11px] text-gray-500">
+                                                Click the map or drag the marker to set this
+                                                stop&apos;s location.
+                                            </p>
+                                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                                <div>
+                                                    <span className={LABEL_CLASS}>Old location</span>
+                                                    <p className="font-medium text-gray-700 tabular-nums">
+                                                        {formatCoords(originalPoint)}
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <span className={LABEL_CLASS}>New location</span>
+                                                    <p className="font-medium text-gray-900 tabular-nums">
+                                                        {locPoint
+                                                            ? formatCoords(locPoint)
+                                                            : "Click the map…"}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <p className="text-sm text-gray-700">
+                                                Moved:{" "}
+                                                <span className="font-medium tabular-nums">
+                                                    {movedDistanceM === null
+                                                        ? "—"
+                                                        : formatMovedDistance(movedDistanceM)}
+                                                </span>
+                                            </p>
+                                            {locNearby.length > 0 ? (
+                                                <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                                                    <p className="font-medium">
+                                                        ⚠ {locNearby.length} stop
+                                                        {locNearby.length === 1 ? "" : "s"} within 30
+                                                        m of this location:
+                                                    </p>
+                                                    <ul className="mt-1 space-y-0.5">
+                                                        {locNearby.slice(0, 5).map((n) => (
+                                                            <li
+                                                                key={n.stop_public_id}
+                                                                className="truncate"
+                                                            >
+                                                                {n.name} · {Math.round(n.distance_m)}{" "}
+                                                                m · {transportModeLabel(n.mode)}
+                                                            </li>
+                                                        ))}
+                                                        {locNearby.length > 5 ? (
+                                                            <li className="text-amber-700">
+                                                                +{locNearby.length - 5} more…
+                                                            </li>
+                                                        ) : null}
+                                                    </ul>
+                                                </div>
+                                            ) : locNearbyLoading ? (
+                                                <p className="text-xs text-gray-400">
+                                                    Checking nearby stops…
+                                                </p>
+                                            ) : locPoint ? (
+                                                <p className="text-xs text-emerald-700">
+                                                    No other stops within 30 m.
+                                                </p>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
+
+                                    <TransportPreviewMap
+                                        title={stopDisplayName}
+                                        externalId={detail.public_id}
+                                        editablePoint={activePoint}
+                                        editablePointColor="#1d4ed8"
+                                        pointDraggable={mapEditing}
+                                        onPointChange={handlePointChange}
+                                        pointZoom={MAP_DEFAULT_ZOOM}
+                                        autoFitKey={publicId}
+                                        editingHint={
+                                            mapEditing
+                                                ? "Click the map or drag the marker to set this stop's location."
+                                                : null
+                                        }
+                                        emptyHint="No geometry"
+                                        heightClassName={STOP_DETAIL_MAP_HEIGHT}
+                                    />
+                                </>
+                            ) : null}
+                        </section>
+                    </div>
+
+                    <CollapsibleSection
+                        title="Advanced / Diagnostics"
+                        description="Merge duplicates, sources, review workflow, linked terminal, and archive."
+                        open={advancedOpen}
+                        onToggle={() => setAdvancedOpen((open) => !open)}
+                    >
+                        {detail && !archived ? (
+                            <section className="mb-4">
+                                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                    Review workflow
+                                </h3>
+                                <TransportReviewActionBar
+                                    currentStatus={detail.review_status}
+                                    onAction={handleStopReviewAction}
                                 />
-                                <InfoRow
-                                    label="Coordinates"
-                                    value={
-                                        detail.longitude === null || detail.latitude === null
-                                            ? "—"
-                                            : `${detail.latitude.toFixed(6)}, ${detail.longitude.toFixed(6)}`
-                                    }
-                                />
-                                <InfoRow
-                                    label="Updated"
-                                    value={new Date(detail.updated_at).toLocaleString()}
-                                />
+                            </section>
+                        ) : null}
+
+                        {detail && !archived ? (
+                            <div className="mb-4">
+                                <TransportStopMergePanel stop={detail} onMerged={handleStopMerged} />
                             </div>
                         ) : null}
-                    </section>
 
-                    {/* Names */}
-                    {detail && !editing ? (
-                        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
-                                Names
-                            </h2>
-                            <div className="divide-y divide-gray-100">
-                                <InfoRow label="Display name" value={stopDisplayName} />
-                                <InfoRow label="Myanmar" value={detail.name_mm ?? "—"} />
-                                <InfoRow label="English" value={detail.name_en ?? "—"} />
-                            </div>
-                        </section>
-                    ) : null}
-
-                    {/* Linked terminal */}
-                    {detail?.linked_terminal ? (
-                        <section className="rounded-lg border border-indigo-200 bg-white p-4 shadow-sm">
+                        {detail?.linked_terminal ? (
+                        <section className="mb-3 rounded-lg border border-indigo-200 bg-white p-3 shadow-sm">
                             <div className="mb-2 flex items-center justify-between gap-2">
                                 <h2 className="text-sm font-semibold uppercase tracking-wide text-indigo-700">
                                     Terminal info
@@ -1142,16 +1328,16 @@ export default function TransportStopDetailContent({
                                     </div>
                                 </div>
                             ) : (
-                                <div className="divide-y divide-gray-100">
-                                    <InfoRow
+                                <dl className={COMPACT_FIELD_GRID_2_CLASS}>
+                                    <CompactField
                                         label="Terminal role"
                                         value={detail.linked_terminal.terminal_role}
                                     />
-                                    <InfoRow
+                                    <CompactField
                                         label="Terminal code"
                                         value={detail.linked_terminal.terminal_code ?? "—"}
                                     />
-                                    <InfoRow
+                                    <CompactField
                                         label="Operator"
                                         value={
                                             detail.linked_terminal.operator?.name ??
@@ -1160,13 +1346,13 @@ export default function TransportStopDetailContent({
                                                 : `#${detail.linked_terminal.operator_id}`)
                                         }
                                     />
-                                    <InfoRow
+                                    <CompactField
                                         label="Review status"
                                         value={transportReviewStatusLabel(
                                             detail.linked_terminal.review_status
                                         )}
                                     />
-                                    <InfoRow
+                                    <CompactField
                                         label="Confidence"
                                         value={
                                             detail.linked_terminal.confidence_score === null
@@ -1176,29 +1362,28 @@ export default function TransportStopDetailContent({
                                                   )
                                         }
                                     />
-                                    <InfoRow
+                                    <CompactField
                                         label="Active"
                                         value={
                                             detail.linked_terminal.is_active ? "Active" : "Inactive"
                                         }
                                     />
-                                </div>
+                                </dl>
                             )}
                         </section>
-                    ) : null}
+                        ) : null}
 
-                    {/* Source / debug */}
-                    {detail && !editing ? (
-                        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                        {detail ? (
+                        <section className="mb-3 rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
                             <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
                                 Sources & debug
                             </h2>
-                            <div className="mb-2 divide-y divide-gray-100 border-b border-gray-100">
-                                <InfoRow
+                            <dl className={`${COMPACT_FIELD_GRID_2_CLASS} mb-2 border-b border-gray-100 pb-2`}>
+                                <CompactField
                                     label="Raw name"
                                     value={getRawNameDebugLabel(detail.name)}
                                 />
-                            </div>
+                            </dl>
                             {detail.sources.length > 0 ? (
                                 <ul className="mb-2 space-y-1 text-sm text-gray-700">
                                     {detail.sources.map((s, i) => (
@@ -1242,221 +1427,10 @@ export default function TransportStopDetailContent({
                                 </pre>
                             </details>
                         </section>
-                    ) : null}
-                </aside>
+                        ) : null}
 
-                {/* Center: map + focused location editor */}
-                <section className="flex flex-col gap-3">
-                    {detail ? (
-                        <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
-                            <div className="flex items-center justify-between gap-2">
-                                <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                                    Location
-                                </h2>
-                                {!locEditing ? (
-                                    <button
-                                        type="button"
-                                        onClick={startLocEdit}
-                                        disabled={editing}
-                                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        Edit location
-                                    </button>
-                                ) : (
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={cancelLocEdit}
-                                            disabled={locSaving}
-                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => void saveLocation()}
-                                            disabled={locSaving || !locPoint}
-                                            className="rounded-md bg-gray-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-                                        >
-                                            {locSaving ? "Saving…" : "Save location"}
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-
-                            {locEditing ? (
-                                <div className="mt-3 space-y-2">
-                                    {locError ? (
-                                        <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800">
-                                            {locError}
-                                        </div>
-                                    ) : null}
-                                    <p className="text-[11px] text-gray-500">
-                                        Click the map or drag the marker to set this stop&apos;s
-                                        location.
-                                    </p>
-                                    <div className="grid grid-cols-2 gap-3 text-sm">
-                                        <div>
-                                            <span className={LABEL_CLASS}>Old location</span>
-                                            <p className="font-medium text-gray-700 tabular-nums">
-                                                {formatCoords(originalPoint)}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <span className={LABEL_CLASS}>New location</span>
-                                            <p className="font-medium text-gray-900 tabular-nums">
-                                                {locPoint
-                                                    ? formatCoords(locPoint)
-                                                    : "Click the map…"}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <p className="text-sm text-gray-700">
-                                        Moved:{" "}
-                                        <span className="font-medium tabular-nums">
-                                            {movedDistanceM === null
-                                                ? "—"
-                                                : formatMovedDistance(movedDistanceM)}
-                                        </span>
-                                    </p>
-                                    {locNearby.length > 0 ? (
-                                        <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-                                            <p className="font-medium">
-                                                ⚠ {locNearby.length} stop
-                                                {locNearby.length === 1 ? "" : "s"} within 30 m of
-                                                this location:
-                                            </p>
-                                            <ul className="mt-1 space-y-0.5">
-                                                {locNearby.slice(0, 5).map((n) => (
-                                                    <li key={n.stop_public_id} className="truncate">
-                                                        {n.name} · {Math.round(n.distance_m)} m ·{" "}
-                                                        {transportModeLabel(n.mode)}
-                                                    </li>
-                                                ))}
-                                                {locNearby.length > 5 ? (
-                                                    <li className="text-amber-700">
-                                                        +{locNearby.length - 5} more…
-                                                    </li>
-                                                ) : null}
-                                            </ul>
-                                        </div>
-                                    ) : locNearbyLoading ? (
-                                        <p className="text-xs text-gray-400">
-                                            Checking nearby stops…
-                                        </p>
-                                    ) : locPoint ? (
-                                        <p className="text-xs text-emerald-700">
-                                            No other stops within 30 m.
-                                        </p>
-                                    ) : null}
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : null}
-
-                    <TransportPreviewMap
-                        title={detail ? stopDisplayName : "Stop"}
-                        externalId={detail?.public_id ?? null}
-                        editablePoint={activePoint}
-                        editablePointColor="#1d4ed8"
-                        pointDraggable={mapEditing}
-                        onPointChange={handlePointChange}
-                        pointZoom={MAP_DEFAULT_ZOOM}
-                        autoFitKey={publicId}
-                        editingHint={
-                            mapEditing
-                                ? "Click the map or drag the marker to set this stop's location."
-                                : null
-                        }
-                        emptyHint="No geometry available"
-                    />
-                </section>
-
-                {/* Right: routes using this stop */}
-                <aside className="rounded-lg border border-gray-200 bg-white shadow-sm">
-                    <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                            Routes using this stop
-                        </h2>
-                        <span className="text-xs text-gray-400">{routesTotal}</span>
-                    </div>
-
-                    {routesError ? (
-                        <div className="m-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-                            {routesError}
-                        </div>
-                    ) : null}
-
-                    {routesLoading ? (
-                        <div className="space-y-2 p-4">
-                            {[0, 1, 2, 3].map((i) => (
-                                <div key={i} className="h-10 animate-pulse rounded bg-gray-100" />
-                            ))}
-                        </div>
-                    ) : routes.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-sm text-gray-500">
-                            No routes include this stop.
-                        </p>
-                    ) : (
-                        <ul className="max-h-[60vh] overflow-y-auto">
-                            {routes.map((r) => (
-                                <li
-                                    key={`${r.variant_public_id}-${r.stop_sequence}`}
-                                    className="border-b border-gray-100"
-                                >
-                                    <Link
-                                        href={transportPath(`routes/${r.route_public_id}`)}
-                                        className="flex items-start gap-3 px-4 py-2.5 text-sm hover:bg-gray-50"
-                                    >
-                                        <span className="mt-0.5 inline-flex h-6 flex-none items-center justify-center rounded bg-gray-900 px-1.5 text-xs font-semibold text-white">
-                                            {r.route_code}
-                                        </span>
-                                        <div className="min-w-0 flex-1">
-                                            <p className="truncate font-medium text-gray-900">
-                                                {r.route_name}
-                                            </p>
-                                            <p className="truncate text-xs text-gray-500">
-                                                {r.variant_code}
-                                                {r.direction_name ? ` · ${r.direction_name}` : ""}
-                                                {r.headsign ? ` · ${r.headsign}` : ""} · seq{" "}
-                                                {r.stop_sequence}
-                                            </p>
-                                        </div>
-                                    </Link>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-
-                    {routesTotal > ROUTES_PAGE_SIZE ? (
-                        <div className="flex items-center justify-between gap-2 border-t border-gray-100 px-4 py-3 text-sm text-gray-600">
-                            <button
-                                type="button"
-                                disabled={routesLoading || routesPage <= 1}
-                                onClick={() => setRoutesPage((p) => Math.max(1, p - 1))}
-                                className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                            >
-                                Previous
-                            </button>
-                            <span className="text-xs tabular-nums">
-                                Page {routesPage} of {routesTotalPages}
-                            </span>
-                            <button
-                                type="button"
-                                disabled={routesLoading || routesPage >= routesTotalPages}
-                                onClick={() => setRoutesPage((p) => p + 1)}
-                                className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                            >
-                                Next
-                            </button>
-                        </div>
-                    ) : null}
-                </aside>
-            </div>
-
-            {/* Danger zone — archive (soft-delete) the actual stop record. */}
-            {detail ? (
-                <section className="rounded-lg border border-red-200 bg-red-50/40 p-4 shadow-sm">
+                        {detail ? (
+                <section className="rounded-lg border border-red-200 bg-red-50/40 p-3 shadow-sm">
                     <h2 className="text-sm font-semibold uppercase tracking-wide text-red-700">
                         Danger zone
                     </h2>
@@ -1500,7 +1474,10 @@ export default function TransportStopDetailContent({
                         </div>
                     ) : null}
                 </section>
-            ) : null}
+                        ) : null}
+                    </CollapsibleSection>
+                </div>
+            )}
 
             <ArchiveStopDialog
                 open={archiveOpen}

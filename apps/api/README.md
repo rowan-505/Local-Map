@@ -1,6 +1,6 @@
 # Local Map API
 
-Fastify backend for Local Map (`apps/api`). See the repo root [`AGENTS.md`](../../AGENTS.md) for architecture boundaries.
+Fastify backend for CoreMap (`apps/api`). See [`docs/03-api/api-overview.md`](../../docs/03-api/api-overview.md) and repo root [`AGENTS.md`](../../AGENTS.md).
 
 ## Development
 
@@ -42,9 +42,11 @@ npm start
   npm run docs:api
   ```
 
-  This runs `scripts/generate-api-docs.ts`, which loads the same Fastify app as production (`buildApp()`), calls `app.swagger()`, and writes **`docs/API.md`**. It does not duplicate route definitions.
+  This runs `scripts/generate-api-docs.ts`, which loads the same Fastify app as production (`buildApp()`), calls `app.swagger()`, and writes **`apps/api/docs/API.md`**. It does not duplicate route definitions.
 
-  **When to re-run:** After any change to Fastify route `schema` objects or module OpenAPI helpers (`*.openapi.ts`). Commit the updated `docs/API.md` if you want the repo to stay in sync.
+  Human-oriented API docs index: [`docs/03-api/api-overview.md`](../../docs/03-api/api-overview.md).
+
+  **When to re-run:** After any change to Fastify route `schema` objects or module OpenAPI helpers (`*.openapi.ts`). Commit the updated `apps/api/docs/API.md` if you want the repo to stay in sync.
 
 ## Typecheck
 

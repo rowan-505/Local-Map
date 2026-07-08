@@ -27,6 +27,31 @@ export const TRANSPORT_LINE_TYPE_OPTIONS = [
     { value: "tram", label: "Tram" },
 ] as const;
 
+export const TRANSPORT_ROUTE_GEOMETRY_STATUS_OPTIONS = [
+    { value: "no_path", label: "No path" },
+    { value: "estimate", label: "Estimate path" },
+    { value: "manual", label: "Manual path" },
+    { value: "verified", label: "Verified path" },
+] as const;
+
+export const TRANSPORT_PUBLIC_VISIBILITY_OPTIONS = [
+    { value: "hidden", label: "Hidden" },
+    { value: "visible", label: "Visible" },
+] as const;
+
+export const TRANSPORT_STOP_GEOMETRY_STATUS_OPTIONS = [
+    { value: "missing", label: "Missing location" },
+    { value: "estimate", label: "Estimate location" },
+    { value: "manual", label: "Manual location" },
+    { value: "verified", label: "Verified location" },
+] as const;
+
+export const TRANSPORT_DUPLICATE_STATUS_OPTIONS = [
+    { value: "none", label: "No duplicates" },
+    { value: "nearby", label: "Nearby duplicate" },
+    { value: "duplicate_name", label: "Duplicate name" },
+] as const;
+
 export const TRANSPORT_STOP_TYPE_OPTIONS = [
     { value: "stop", label: "Stop" },
     { value: "terminal", label: "Terminal" },

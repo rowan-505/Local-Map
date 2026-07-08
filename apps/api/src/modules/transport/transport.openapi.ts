@@ -101,12 +101,14 @@ export const getTransportRoutesSchema = {
     response: {
         200: {
             type: "object",
-            required: ["items", "total", "limit", "offset"],
+            required: ["items", "total", "limit", "offset", "page", "hasNextPage"],
             properties: {
                 items: { type: "array", items: routeListItemSchema },
                 total: { type: "integer", minimum: 0 },
                 limit: { type: "integer", minimum: 1 },
                 offset: { type: "integer", minimum: 0 },
+                page: { type: "integer", minimum: 1 },
+                hasNextPage: { type: "boolean" },
             },
         },
         400: badRequestSchema,
@@ -1335,8 +1337,9 @@ const putVariantPathBodySchema = {
     required: ["coordinates"],
     description:
         "Upserts the variant's single active manual route path from an ordered LineString " +
-        "(≥ 2 [lng, lat] positions). path_kind is restricted to 'manual' (no snapping / Valhalla). " +
-        "Sets review_status=needs_review, confidence_score=70, is_active=true and recomputes distance_m.",
+        "(≥ 2 [lng, lat] positions). path_kind may be manual or manual_drawn when the " +
+        "geometry was edited in the dashboard. Sets review_status=needs_review, " +
+        "confidence_score=70, is_active=true and recomputes distance_m.",
     properties: {
         coordinates: {
             type: "array",
@@ -1348,7 +1351,8 @@ const putVariantPathBodySchema = {
                 items: { type: "number" },
             },
         },
-        path_kind: { type: "string", enum: ["manual"] },
+        path_kind: { type: "string", enum: ["manual", "manual_drawn"] },
+        manually_adjusted: { type: "boolean" },
     },
 } as const;
 
@@ -1386,6 +1390,37 @@ export const deleteTransportVariantPathSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+const generatePathFromStopsResultSchema = {
+    type: "object",
+    required: ["route_path_id", "path_kind", "review_status", "geometry", "warnings"],
+    properties: {
+        route_path_id: { type: "string", format: "uuid" },
+        path_kind: { type: "string" },
+        review_status: { type: "string" },
+        geometry: geoJsonGeometrySchema,
+        distance_m: { type: "number", nullable: true },
+        warnings: { type: "array", items: { type: "string" } },
+    },
+} as const;
+
+export const postGeneratePathFromStopsSchema = {
+    tags: [Tags.Transport],
+    summary: "Generate a road-following path from ordered stops (admin)",
+    description:
+        "Builds a Valhalla-snapped route path through the variant's ordered stop coordinates, " +
+        "replaces the active route_paths row for this variant, and returns the new geometry. " +
+        "Not yet implemented — reserved contract for dashboard Review Map.",
+    security: [...bearerAuth],
+    params: routeVariantsParamSchema,
+    response: {
+        200: generatePathFromStopsResultSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+        501: { type: "object", properties: { message: { type: "string" } } },
     },
 } satisfies FastifySchema;
 
@@ -1448,6 +1483,9 @@ const orderedStopLiteSchema = {
         "stop_type",
         "longitude",
         "latitude",
+        "actual_longitude",
+        "actual_latitude",
+        "geometry_source",
         "pickup_type",
         "drop_off_type",
         "is_timing_point",
@@ -1463,6 +1501,9 @@ const orderedStopLiteSchema = {
         stop_type: { type: "string" },
         longitude: { type: "number", nullable: true },
         latitude: { type: "number", nullable: true },
+        actual_longitude: { type: "number", nullable: true },
+        actual_latitude: { type: "number", nullable: true },
+        geometry_source: { type: "string", enum: ["route_stop_review_geom", "stop_geom"] },
         pickup_type: { type: "integer" },
         drop_off_type: { type: "integer" },
         is_timing_point: { type: "boolean" },
@@ -1477,12 +1518,13 @@ const orderedStopLiteSchema = {
  */
 const routeStopMutationResponseSchema = {
     type: "object",
-    required: ["variant_public_id", "ordered_stops", "route_stop_count", "has_verified_path"],
+    required: ["variant_public_id", "ordered_stops", "route_stop_count", "has_verified_path", "has_review_placeholder_path"],
     properties: {
         variant_public_id: { type: "string", nullable: true },
         ordered_stops: { type: "array", items: orderedStopLiteSchema },
         route_stop_count: { type: "integer", minimum: 0 },
         has_verified_path: { type: "boolean" },
+        has_review_placeholder_path: { type: "boolean" },
         created_stop: {
             type: "object",
             nullable: true,

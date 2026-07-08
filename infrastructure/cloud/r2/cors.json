@@ -6,7 +6,10 @@
             "http://localhost:5173",
             "http://localhost:3000",
             "https://map-web-seven.vercel.app",
-            "https://db-dashboard-ebon.vercel.app"
+            "https://db-dashboard-ebon.vercel.app",
+            "https://coremap.com",
+            "https://www.coremap.com",
+            "https://api.coremap.com"
           ],
           "methods": ["GET", "HEAD"],
           "headers": ["range", "if-match", "if-none-match"]

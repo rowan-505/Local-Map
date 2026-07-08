@@ -82,10 +82,32 @@ export type TransportListQuery = z.infer<typeof transportListQuerySchema>;
 export const listTransportRoutesQuerySchema = transportListQuerySchema.extend({
     hasStops: boolFromQuery,
     hasPath: boolFromQuery,
+    hasSourceLink: boolFromQuery,
+    geometryStatus: z.enum(["no_path", "estimate", "manual", "verified"]).optional(),
+    publicVisibility: z.enum(["hidden", "visible"]).optional(),
+    sourceName: z.string().trim().min(1).max(120).optional(),
+    sourceKind: z.string().trim().min(1).max(120).optional(),
     page: z.coerce.number().int().min(1).optional(),
 });
 
 export type ListTransportRoutesQuery = z.infer<typeof listTransportRoutesQuerySchema>;
+
+/**
+ * GET /transport/routes (public). No review-status filters — public release rules are
+ * always enforced server-side.
+ */
+export const listPublicTransportRoutesQuerySchema = transportListQuerySchema.extend({
+    page: z.coerce.number().int().min(1).optional(),
+});
+
+export type ListPublicTransportRoutesQuery = z.infer<typeof listPublicTransportRoutesQuerySchema>;
+
+/** Path param for public route lookups by route_code (not uuid). */
+export const transportRouteCodeParamSchema = z.object({
+    routeCode: z.string().trim().min(1).max(50),
+});
+
+export type TransportRouteCodeParam = z.infer<typeof transportRouteCodeParamSchema>;
 
 /**
  * GET /transport/stops query. Extends the shared list base with stop-specific
@@ -97,6 +119,9 @@ export const listTransportStopsQuerySchema = transportListQuerySchema.extend({
     generatedName: boolFromQuery,
     hasRoutes: boolFromQuery,
     hasTerminal: boolFromQuery,
+    hasSourceLink: boolFromQuery,
+    geometryStatus: z.enum(["missing", "estimate", "manual", "verified"]).optional(),
+    duplicateStatus: z.enum(["none", "nearby", "duplicate_name"]).optional(),
     adminAreaId: z.coerce.number().int().min(1).optional(),
     page: z.coerce.number().int().min(1).optional(),
 });
@@ -434,13 +459,13 @@ const pathCoordinateSchema = z.tuple([
 /**
  * PUT /transport/variants/:variantPublicId/path body. Upserts the variant's
  * single active manual route path from an ordered LineString (≥ 2 positions).
- * `path_kind` is restricted to "manual" (this endpoint only manages hand-drawn
- * paths — no snapping / Valhalla). `.strict()` rejects any other key.
+ * `path_kind` is restricted to manual variants of this endpoint.
  */
 export const putVariantPathBodySchema = z
     .object({
         coordinates: z.array(pathCoordinateSchema).min(2),
-        path_kind: z.literal("manual").optional(),
+        path_kind: z.enum(["manual", "manual_drawn"]).optional(),
+        manually_adjusted: z.boolean().optional(),
     })
     .strict();
 
@@ -739,3 +764,24 @@ export const archiveStopBodySchema = z.object({
 });
 
 export type ArchiveStopInput = z.infer<typeof archiveStopBodySchema>;
+
+export const transportReviewActionBodySchema = z.object({
+    action: z.enum(["mark_reviewed", "mark_needs_review", "mark_verified", "reject"]),
+    reason: z.string().trim().min(1).max(500).optional(),
+});
+
+export type TransportReviewActionBody = z.infer<typeof transportReviewActionBodySchema>;
+
+export const replaceRouteStopBodySchema = z.object({
+    stop_public_id: z.string().uuid(),
+    reason: z.string().trim().min(1).max(500).optional(),
+});
+
+export type ReplaceRouteStopBody = z.infer<typeof replaceRouteStopBodySchema>;
+
+export const mergeStopBodySchema = z.object({
+    target_stop_public_id: z.string().uuid(),
+    reason: z.string().trim().min(1).max(500).optional(),
+});
+
+export type MergeStopBody = z.infer<typeof mergeStopBodySchema>;

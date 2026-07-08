@@ -2,12 +2,14 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { ZodError } from "zod";
 
 import {
+    TransportFeatureNotImplementedError,
     TransportInvalidReferenceError,
     TransportNameRequiredError,
     TransportNotFoundError,
     TransportRouteConflictError,
     TransportRouteStopDuplicateError,
     TransportRouteStopTransactionTimeoutError,
+    TransportReviewGuardError,
     TransportSchemaUnavailableError,
     TransportStopInUseError,
 } from "./transport.errors.js";
@@ -51,9 +53,11 @@ import {
     deleteVariantSchema,
     putTransportVariantPathSchema,
     deleteTransportVariantPathSchema,
+    postGeneratePathFromStopsSchema,
 } from "./transport.openapi.js";
 import {
     listTransportRoutesQuerySchema,
+    listPublicTransportRoutesQuerySchema,
     listTransportStopsQuerySchema,
     listImportBatchesQuerySchema,
     listImportErrorsQuerySchema,
@@ -78,6 +82,7 @@ import {
     routeStopIdParamSchema,
     stopPublicIdParamSchema,
     stopRoutesQuerySchema,
+    transportRouteCodeParamSchema,
     transportPublicIdParamSchema,
     updateRouteBodySchema,
     updateRouteStopBodySchema,
@@ -85,14 +90,59 @@ import {
     updateStopLocationBodySchema,
     updateTerminalBodySchema,
     updateVariantBodySchema,
+    transportReviewActionBodySchema,
+    replaceRouteStopBodySchema,
+    mergeStopBodySchema,
 } from "./transport.schema.js";
+import { sendTransportListReply } from "./transport-pagination.js";
 import { TransportService } from "./transport.service.js";
+import { TransportPublicService } from "./transport-public.service.js";
+import {
+    isTransportPublicIdParam,
+    isTransportRouteCodeParam,
+} from "./transport-public-visibility.js";
 import type { TransportAuditContext } from "./transport-audit.js";
 
 const ADMIN_ROLES = new Set(["admin"]);
 
 function requireAdminRole(roles: string[] | undefined): boolean {
     return (roles ?? []).some((role) => ADMIN_ROLES.has(role));
+}
+
+/** Transport path without query string (plugin is mounted at /transport). */
+function transportPath(request: FastifyRequest): string {
+    const url = request.url.split("?")[0] ?? request.url;
+    return url.startsWith("/transport") ? url.slice("/transport".length) || "/" : url;
+}
+
+/**
+ * Public read endpoints accept anonymous callers. Optional JWT lets the dashboard
+ * reuse the same URLs with admin-only data when the caller is an admin.
+ */
+function isOptionalAuthTransportGet(request: FastifyRequest): boolean {
+    if (request.method !== "GET") {
+        return false;
+    }
+    const path = transportPath(request);
+    if (path === "/routes") {
+        return true;
+    }
+    if (/^\/stops\/[^/]+\/routes$/.test(path)) {
+        return true;
+    }
+    const match = path.match(/^\/routes\/([^/]+)(?:\/(variants|stops))?$/);
+    if (!match) {
+        return false;
+    }
+    const param = decodeURIComponent(match[1]);
+    const sub = match[2];
+    if (isTransportPublicIdParam(param)) {
+        return sub === undefined;
+    }
+    if (isTransportRouteCodeParam(param)) {
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -135,13 +185,39 @@ function sendTransportError(reply: FastifyReply, error: unknown): FastifyReply |
     if (error instanceof TransportRouteStopTransactionTimeoutError) {
         return reply.code(503).send({ message: error.message });
     }
+    if (error instanceof TransportReviewGuardError) {
+        return reply.code(409).send({
+            message: error.message,
+            code: error.code,
+            blockers: error.blockers,
+        });
+    }
+    if (error instanceof TransportFeatureNotImplementedError) {
+        return reply.code(501).send({ message: error.message });
+    }
     return undefined;
 }
 
 const transportRoutes: FastifyPluginAsync = async (app) => {
     const service = new TransportService(app.prisma);
+    const publicService = new TransportPublicService(app.prisma);
 
     app.addHook("onRequest", async (request, reply) => {
+        if (request.method === "GET" && isOptionalAuthTransportGet(request)) {
+            try {
+                await app.authenticate(request, reply);
+            } catch {
+                // A Bearer token was sent but could not be verified — return 401 so
+                // dashboard clients refresh the session instead of treating the caller
+                // as anonymous (public route lists exclude most admin-imported rows).
+                if (request.headers.authorization) {
+                    return reply.code(401).send({ message: "Invalid or expired token" });
+                }
+                // Public callers stay unauthenticated.
+            }
+            return;
+        }
+
         await app.authenticate(request, reply);
         if (reply.sent) {
             return;
@@ -235,9 +311,25 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
     );
 
     app.get("/routes", { schema: getTransportRoutesSchema }, async (request, reply) => {
-        let query;
+        if (requireAdminRole(request.user?.roles)) {
+            let query;
+            try {
+                query = listTransportRoutesQuerySchema.parse(request.query);
+            } catch (error) {
+                if (error instanceof ZodError) {
+                    return reply
+                        .code(400)
+                        .send({ message: "Invalid query parameters", issues: error.flatten() });
+                }
+                throw error;
+            }
+            const result = await service.listRoutes(query);
+            return sendTransportListReply(reply, result, query);
+        }
+
+        let publicQuery;
         try {
-            query = listTransportRoutesQuerySchema.parse(request.query);
+            publicQuery = listPublicTransportRoutesQuerySchema.parse(request.query);
         } catch (error) {
             if (error instanceof ZodError) {
                 return reply
@@ -246,8 +338,8 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
             }
             throw error;
         }
-        const result = await service.listRoutes(query);
-        return reply.send(result);
+        const result = await publicService.listRoutes(publicQuery);
+        return sendTransportListReply(reply, result, publicQuery);
     });
 
     app.get("/stops", { schema: getTransportStopsSchema }, async (request, reply) => {
@@ -419,7 +511,11 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
             try {
                 const { publicId } = transportPublicIdParamSchema.parse(request.params);
                 const query = stopRoutesQuerySchema.parse(request.query);
-                const result = await service.listRoutesForStop(publicId, query);
+                if (requireAdminRole(request.user?.roles)) {
+                    const result = await service.listRoutesForStop(publicId, query);
+                    return reply.send(result);
+                }
+                const result = await publicService.listRoutesForStop(publicId, query);
                 return reply.send(result);
             } catch (error) {
                 const handled = sendTransportError(reply, error);
@@ -508,6 +604,15 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
 
     app.get("/routes/:publicId", { schema: getTransportRouteDetailSchema }, async (request, reply) => {
         try {
+            const raw = request.params as { publicId: string };
+            const param = raw.publicId;
+            if (isTransportRouteCodeParam(param)) {
+                const result = await publicService.getRouteByCode(param);
+                return reply.send(result);
+            }
+            if (!requireAdminRole(request.user?.roles)) {
+                return reply.code(404).send({ message: "Route not found." });
+            }
             const { publicId } = transportPublicIdParamSchema.parse(request.params);
             const result = await service.getRoute(publicId);
             return reply.send(result);
@@ -523,6 +628,15 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         { schema: getTransportRouteVariantsSchema },
         async (request, reply) => {
             try {
+                const raw = request.params as { publicId: string };
+                const param = raw.publicId;
+                if (isTransportRouteCodeParam(param)) {
+                    const items = await publicService.listVariantsForRouteCode(param);
+                    return reply.send({ items, total: items.length });
+                }
+                if (!requireAdminRole(request.user?.roles)) {
+                    return reply.code(404).send({ message: "Route not found." });
+                }
                 const { publicId } = transportPublicIdParamSchema.parse(request.params);
                 const items = await service.listVariantsForRoute(publicId);
                 return reply.send({ items, total: items.length });
@@ -531,8 +645,24 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                 if (handled) return handled;
                 throw error;
             }
-        }
+        },
     );
+
+    app.get("/routes/:routeCode/stops", async (request, reply) => {
+        try {
+            const raw = request.params as { routeCode: string };
+            if (!isTransportRouteCodeParam(raw.routeCode)) {
+                return reply.code(404).send({ message: "Route not found." });
+            }
+            const { routeCode } = transportRouteCodeParamSchema.parse(request.params);
+            const result = await publicService.listStopsForRouteCode(routeCode);
+            return reply.send(result);
+        } catch (error) {
+            const handled = sendTransportError(reply, error);
+            if (handled) return handled;
+            throw error;
+        }
+    });
 
     app.get(
         "/route-variants/:publicId/ordered-stops",
@@ -755,6 +885,29 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
     );
 
     app.post(
+        "/route-variants/:publicId/generate-path-from-stops",
+        { schema: postGeneratePathFromStopsSchema },
+        async (request, reply) => {
+            try {
+                const { publicId } = transportPublicIdParamSchema.parse(request.params);
+                const result = await service.generatePathFromStops(
+                    publicId,
+                    auditContextFrom(request),
+                );
+                request.log.info(
+                    { variantPublicId: publicId, pathKind: result.path_kind },
+                    "transport variant path generated from stops",
+                );
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
+
+    app.post(
         "/route-variants/:publicId/stops/insert-existing",
         { schema: insertExistingRouteStopSchema },
         async (request, reply) => {
@@ -892,6 +1045,108 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                 );
             }
             request.log.info({ id }, "transport route stop removed from variant");
+            return reply.send(result);
+        } catch (error) {
+            const handled = sendTransportError(reply, error);
+            if (handled) return handled;
+            throw error;
+        }
+    });
+
+    app.get("/routes/:publicId/review-readiness", async (request, reply) => {
+        try {
+            const { publicId } = transportPublicIdParamSchema.parse(request.params);
+            const result = await service.getRouteReviewReadiness(publicId);
+            return reply.send(result);
+        } catch (error) {
+            const handled = sendTransportError(reply, error);
+            if (handled) return handled;
+            throw error;
+        }
+    });
+
+    app.post("/routes/:publicId/review-action", async (request, reply) => {
+        try {
+            const { publicId } = transportPublicIdParamSchema.parse(request.params);
+            const body = transportReviewActionBodySchema.parse(request.body);
+            const result = await service.applyRouteReviewAction(
+                publicId,
+                body.action,
+                auditContextFrom(request),
+                body.reason,
+            );
+            return reply.send(result);
+        } catch (error) {
+            const handled = sendTransportError(reply, error);
+            if (handled) return handled;
+            throw error;
+        }
+    });
+
+    app.post("/stops/:publicId/review-action", async (request, reply) => {
+        try {
+            const { stopPublicId } = stopPublicIdParamSchema.parse(request.params);
+            const body = transportReviewActionBodySchema.parse(request.body);
+            const result = await service.applyStopReviewAction(
+                stopPublicId,
+                body.action,
+                auditContextFrom(request),
+                body.reason,
+            );
+            return reply.send(result);
+        } catch (error) {
+            const handled = sendTransportError(reply, error);
+            if (handled) return handled;
+            throw error;
+        }
+    });
+
+    app.post("/route-paths/:id/review-action", async (request, reply) => {
+        try {
+            const { id } = routeStopIdParamSchema.parse(request.params);
+            const body = transportReviewActionBodySchema.parse(request.body);
+            const result = await service.applyRoutePathReviewAction(
+                BigInt(id),
+                body.action,
+                auditContextFrom(request),
+                body.reason,
+            );
+            return reply.send(result);
+        } catch (error) {
+            const handled = sendTransportError(reply, error);
+            if (handled) return handled;
+            throw error;
+        }
+    });
+
+    app.patch("/route-stops/:id/replace-stop", async (request, reply) => {
+        try {
+            const { id } = routeStopIdParamSchema.parse(request.params);
+            const body = replaceRouteStopBodySchema.parse(request.body);
+            const result = await service.replaceRouteStop(
+                BigInt(id),
+                body.stop_public_id,
+                auditContextFrom(request),
+                body.reason,
+            );
+            return reply.send(result);
+        } catch (error) {
+            const handled = sendTransportError(reply, error);
+            if (handled) return handled;
+            throw error;
+        }
+    });
+
+    app.post("/stops/:publicId/merge", async (request, reply) => {
+        try {
+            const { stopPublicId } = stopPublicIdParamSchema.parse(request.params);
+            const body = mergeStopBodySchema.parse(request.body);
+            const result = await service.mergeStop(
+                stopPublicId,
+                body.target_stop_public_id,
+                auditContextFrom(request),
+                body.reason,
+            );
             return reply.send(result);
         } catch (error) {
             const handled = sendTransportError(reply, error);

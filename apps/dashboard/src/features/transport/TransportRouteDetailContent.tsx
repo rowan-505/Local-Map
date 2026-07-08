@@ -1,42 +1,258 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
 import {
+    applyTransportRoutePathReviewAction,
+    applyTransportRouteReviewAction,
+    applyTransportStopReviewAction,
     deleteTransportRouteVariant,
     deleteTransportVariantPath,
     getTransportRouteDetail,
+    getTransportRouteReviewReadiness,
     getTransportRouteVariants,
     getTransportVariantOrderedStops,
     getTransportVariantStops,
     getTransportVariantStopQuality,
+    generateTransportVariantPathFromStops,
     putTransportVariantPath,
     removeTransportRouteStop,
+    replaceTransportRouteStop,
+    searchTransportStops,
     updateTransportRouteStop,
+    updateTransportStopLocation,
 } from "./api";
-import { transportModeLabel, transportReviewStatusLabel } from "./constants";
+import { transportModeLabel } from "./constants";
 import { getTransportDisplayNameFromNames } from "./naming";
 import InsertRouteStopDialog, {
     type InsertStopContext,
     type InsertStopLngLat,
 } from "./InsertRouteStopDialog";
 import RemoveRouteStopDialog from "./RemoveRouteStopDialog";
-import TransportPreviewMap, { type TransportPreviewStop } from "./TransportPreviewMap";
+import GeneratePathFromStopsDialog from "./GeneratePathFromStopsDialog";
+import TransportPreviewMap from "./TransportPreviewMap";
+import TransportRouteReviewPanel from "./TransportRouteReviewPanel";
+import TransportRouteReviewMapShell, {
+    type ReviewMapSaveOptions,
+} from "./TransportRouteReviewMapShell";
+import {
+    buildRouteReviewChecklist,
+    CollapsibleSection,
+    RouteDetailHeader,
+    RouteReviewChecklistCard,
+    RouteSummaryCard,
+    RouteVariantsCard,
+} from "./TransportRouteDetailCards";
+import { evaluateGeneratePathFromStopsReadiness } from "./reviewMapPathGeneration";
+import { routeStopItemsToPreviewStops } from "./transportPreviewStops";
+import {
+    coordsToLineStringGeometry,
+    deletePathVertex,
+    pathCoordsEqual,
+    type PathCoord,
+} from "./reviewMapPathEdit";
+import { isReviewMapPathEditMode, type ReviewMapMode } from "./reviewMapMode";
+import { hasSavedRoutePathGeometry } from "./routePathDisplay";
 import { TransportRouteEditForm, TransportVariantForm } from "./transportEditForms";
+import { DuplicateBadge, GeometryBadge } from "./transportReviewUi";
 import type {
+    DuplicateStatus,
+    RouteReviewReadiness,
+    StopGeometryStatus,
     TransportOrderedStopLite,
     TransportRouteDetail,
     TransportRouteStopItem,
     TransportRouteStopMutationResult,
     TransportRoutePath,
+    TransportStopSearchItem,
     TransportVariantStopQualityItem,
     TransportVariantSummary,
 } from "./types";
 
 const MAP_DEFAULT_ZOOM = 11;
+
+function stopQualityGeometryStatus(
+    quality: TransportVariantStopQualityItem | undefined
+): StopGeometryStatus {
+    if (!quality || quality.lng === null || quality.lat === null) {
+        return "missing";
+    }
+    return "manual";
+}
+
+function stopQualityDuplicateStatus(
+    quality: TransportVariantStopQualityItem | undefined
+): DuplicateStatus {
+    if (!quality) {
+        return "none";
+    }
+    if (quality.is_exact_duplicate_in_variant) {
+        return "duplicate_name";
+    }
+    if (quality.nearby_duplicate_count > 0) {
+        return "nearby";
+    }
+    return "none";
+}
+
+const SELECT_CLASS =
+    "w-full rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900";
+
+function ReplaceRouteStopDialog({
+    routeStop,
+    variantPublicId,
+    mode,
+    near,
+    onClose,
+    onReplaced,
+}: {
+    readonly routeStop: TransportRouteStopItem;
+    readonly variantPublicId: string;
+    readonly mode: string;
+    readonly near: { lng: number; lat: number } | null;
+    readonly onClose: () => void;
+    readonly onReplaced: () => void;
+}) {
+    const [search, setSearch] = useState("");
+    const [results, setResults] = useState<readonly TransportStopSearchItem[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [selectedId, setSelectedId] = useState("");
+    const [reason, setReason] = useState("");
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => {
+            setLoading(true);
+            setError("");
+            void (async () => {
+                try {
+                    const response = await searchTransportStops(
+                        {
+                            search: search.trim() || undefined,
+                            mode,
+                            nearLng: near?.lng,
+                            nearLat: near?.lat,
+                            radiusMeters: near ? 2000 : undefined,
+                            excludeRouteVariantPublicId: variantPublicId,
+                            limit: 25,
+                        },
+                        { signal: controller.signal }
+                    );
+                    setResults(response.items);
+                } catch (err) {
+                    if (isAbortError(err)) return;
+                    setError(err instanceof Error ? err.message : "Search failed.");
+                } finally {
+                    setLoading(false);
+                }
+            })();
+        }, 300);
+        return () => {
+            controller.abort();
+            window.clearTimeout(timer);
+        };
+    }, [search, mode, near, variantPublicId]);
+
+    const handleReplace = async () => {
+        if (!selectedId) {
+            setError("Select a replacement stop.");
+            return;
+        }
+        setSaving(true);
+        setError("");
+        try {
+            await replaceTransportRouteStop(
+                routeStop.id,
+                selectedId,
+                reason.trim() || undefined
+            );
+            onReplaced();
+            onClose();
+        } catch (err) {
+            if (isAbortError(err)) return;
+            setError(err instanceof Error ? err.message : "Replace failed.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-lg rounded-lg border border-gray-200 bg-white p-4 shadow-xl">
+                <h3 className="text-sm font-semibold text-gray-900">Replace stop in route</h3>
+                <p className="mt-1 text-xs text-gray-600">
+                    Replace <span className="font-medium">{routeStop.stop.name}</span> with another
+                    stop. Sequence and flags stay on this route membership.
+                </p>
+
+                <div className="mt-3 space-y-2">
+                    <input
+                        type="search"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search stops by name or code…"
+                        className={SELECT_CLASS}
+                    />
+                    <select
+                        className={SELECT_CLASS}
+                        value={selectedId}
+                        onChange={(e) => setSelectedId(e.target.value)}
+                    >
+                        <option value="">
+                            {loading ? "Searching…" : "Select replacement stop…"}
+                        </option>
+                        {results.map((item) => (
+                            <option key={item.public_id} value={item.public_id}>
+                                {item.display_name}
+                                {item.distance_m !== null
+                                    ? ` · ${Math.round(item.distance_m)} m`
+                                    : ""}
+                            </option>
+                        ))}
+                    </select>
+                    <input
+                        type="text"
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        placeholder="Reason (optional)"
+                        className={SELECT_CLASS}
+                    />
+                </div>
+
+                {error ? (
+                    <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
+                        {error}
+                    </p>
+                ) : null}
+
+                <div className="mt-4 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        disabled={saving}
+                        onClick={onClose}
+                        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        disabled={saving || !selectedId}
+                        onClick={() => void handleReplace()}
+                        className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                    >
+                        {saving ? "Replacing…" : "Replace stop"}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 
 /**
  * Map a lightweight mutation-response stop into the richer ordered-stop item the
@@ -56,6 +272,7 @@ function orderedStopLiteToItem(s: TransportOrderedStopLite): TransportRouteStopI
         drop_off_type: s.drop_off_type,
         is_timing_point: s.is_timing_point,
         distance_from_start_m: null,
+        geometry_source: s.geometry_source,
         stop: {
             public_id: s.stop_public_id,
             name: s.display_name,
@@ -64,8 +281,51 @@ function orderedStopLiteToItem(s: TransportOrderedStopLite): TransportRouteStopI
             mode: s.mode,
             stop_type: s.stop_type,
             geometry,
+            review_status: s.review_status,
         },
     };
+}
+
+function patchRouteStopGeometry(
+    stops: readonly TransportRouteStopItem[],
+    routeStopId: string,
+    lng: number,
+    lat: number,
+): TransportRouteStopItem[] {
+    return stops.map((s) =>
+        s.id !== routeStopId
+            ? s
+            : {
+                  ...s,
+                  geometry_source: "stop_geom",
+                  stop: {
+                      ...s.stop,
+                      geometry: { type: "Point", coordinates: [lng, lat] },
+                  },
+              },
+    );
+}
+
+function pointFromStopDetail(stop: {
+    longitude: number | null;
+    latitude: number | null;
+    geometry: { type: string; coordinates: unknown } | null;
+}): { lng: number; lat: number } | null {
+    if (stop.geometry?.type === "Point" && Array.isArray(stop.geometry.coordinates)) {
+        const lng = Number(stop.geometry.coordinates[0]);
+        const lat = Number(stop.geometry.coordinates[1]);
+        if (Number.isFinite(lng) && Number.isFinite(lat)) {
+            return { lng, lat };
+        }
+    }
+    if (stop.longitude !== null && stop.latitude !== null) {
+        const lng = Number(stop.longitude);
+        const lat = Number(stop.latitude);
+        if (Number.isFinite(lng) && Number.isFinite(lat)) {
+            return { lng, lat };
+        }
+    }
+    return null;
 }
 
 const PICKUP_DROP_OPTIONS = [
@@ -75,34 +335,7 @@ const PICKUP_DROP_OPTIONS = [
     { value: 3, label: "3 · Coordinate w/ driver" },
 ] as const;
 
-function reviewStatusBadgeClass(status: string): string {
-    switch (status) {
-        case "verified":
-            return "bg-emerald-50 text-emerald-800 ring-emerald-100";
-        case "reviewed":
-            return "bg-blue-50 text-blue-800 ring-blue-100";
-        case "needs_review":
-            return "bg-amber-50 text-amber-900 ring-amber-100";
-        case "rejected":
-            return "bg-red-50 text-red-800 ring-red-100";
-        case "manual_protected":
-            return "bg-purple-50 text-purple-800 ring-purple-100";
-        default:
-            return "bg-gray-100 text-gray-700 ring-gray-200";
-    }
-}
-
-function StatusBadge({ status }: { readonly status: string }) {
-    return (
-        <span
-            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${reviewStatusBadgeClass(status)}`}
-        >
-            {transportReviewStatusLabel(status)}
-        </span>
-    );
-}
-
-function InfoRow({ label, value }: { readonly label: string; readonly value: React.ReactNode }) {
+function InfoRow({ label, value }: { readonly label: string; readonly value: ReactNode }) {
     return (
         <div className="flex justify-between gap-3 py-1 text-sm">
             <span className="text-gray-500">{label}</span>
@@ -248,6 +481,11 @@ export type TransportRouteDetailContentProps = {
     /** Called after any successful save/mutation so a host (e.g. list) can refresh. */
     readonly afterSave?: () => void;
     /**
+     * Opens the transport stop detail drawer while keeping this route view mounted
+     * (used from review map).
+     */
+    readonly onOpenStopDetail?: (stopPublicId: string) => void;
+    /**
      * Hide the built-in header (back control + title block). Used when a host
      * (e.g. the drawer shell) already renders its own title/close chrome.
      */
@@ -263,6 +501,7 @@ export default function TransportRouteDetailContent({
     publicId,
     onClose,
     afterSave,
+    onOpenStopDetail,
     hideHeader = false,
 }: TransportRouteDetailContentProps) {
     const [route, setRoute] = useState<TransportRouteDetail | null>(null);
@@ -270,6 +509,8 @@ export default function TransportRouteDetailContent({
     const [routeError, setRouteError] = useState("");
 
     const [variants, setVariants] = useState<readonly TransportVariantSummary[]>([]);
+    const variantsRef = useRef(variants);
+    variantsRef.current = variants;
     const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
     const [stops, setStops] = useState<readonly TransportRouteStopItem[]>([]);
@@ -296,6 +537,8 @@ export default function TransportRouteDetailContent({
 
     const [removeTarget, setRemoveTarget] = useState<TransportRouteStopItem | null>(null);
     const [removeReason, setRemoveReason] = useState("");
+    const [replaceTarget, setReplaceTarget] = useState<TransportRouteStopItem | null>(null);
+    const [stopReviewBusy, setStopReviewBusy] = useState<string | null>(null);
 
     const [insertContext, setInsertContext] = useState<InsertStopContext | null>(null);
     // New-stop draft location (create-stop flow), shared with the map for click-to-place.
@@ -310,6 +553,58 @@ export default function TransportRouteDetailContent({
     const [pathMutating, setPathMutating] = useState(false);
     const [pathError, setPathError] = useState("");
     const [confirmDeletePath, setConfirmDeletePath] = useState(false);
+
+    const [reviewMapOpen, setReviewMapOpen] = useState(false);
+    const [reviewMapSelectedStopId, setReviewMapSelectedStopId] = useState<string | null>(null);
+    const [reviewMapStopDrafts, setReviewMapStopDrafts] = useState<
+        Record<string, { lng: number; lat: number }>
+    >({});
+    const [reviewMapSaveLoading, setReviewMapSaveLoading] = useState(false);
+    const [reviewMapSaveError, setReviewMapSaveError] = useState("");
+    const [reviewMapSaveSuccess, setReviewMapSaveSuccess] = useState<string | null>(null);
+    const [reviewMapCenterStopRequest, setReviewMapCenterStopRequest] = useState<{
+        id: number;
+        stopId: string;
+    } | null>(null);
+    const [reviewMapMode, setReviewMapMode] = useState<ReviewMapMode>(null);
+    const [reviewMapPathDraftCoords, setReviewMapPathDraftCoords] = useState<PathCoord[] | null>(
+        null,
+    );
+    const [reviewMapPathBaselineCoords, setReviewMapPathBaselineCoords] = useState<
+        PathCoord[] | null
+    >(null);
+    const [reviewMapSelectedPathVertexIndex, setReviewMapSelectedPathVertexIndex] = useState<
+        number | null
+    >(null);
+    const [reviewMapPathEditLoading, setReviewMapPathEditLoading] = useState(false);
+    const [reviewMapPathEditError, setReviewMapPathEditError] = useState("");
+    const [generatePathOpen, setGeneratePathOpen] = useState(false);
+    const [generatePathLoading, setGeneratePathLoading] = useState(false);
+    const [generatePathError, setGeneratePathError] = useState("");
+    const [generatePathWarnings, setGeneratePathWarnings] = useState<string[]>([]);
+    const [advancedOpen, setAdvancedOpen] = useState(false);
+    const [readiness, setReadiness] = useState<RouteReviewReadiness | null>(null);
+    const [readinessLoading, setReadinessLoading] = useState(false);
+    const [readinessError, setReadinessError] = useState("");
+
+    const loadReadiness = useCallback(async (signal?: AbortSignal) => {
+        setReadinessLoading(true);
+        setReadinessError("");
+        try {
+            const result = await getTransportRouteReviewReadiness(
+                publicId,
+                signal ? { signal } : undefined,
+            );
+            setReadiness(result);
+        } catch (err) {
+            if (isAbortError(err)) return;
+            setReadinessError(
+                err instanceof Error ? err.message : "Failed to load review readiness.",
+            );
+        } finally {
+            setReadinessLoading(false);
+        }
+    }, [publicId]);
 
     // --- Load route detail + variants when publicId changes. -----------------
     useEffect(() => {
@@ -331,6 +626,8 @@ export default function TransportRouteDetailContent({
         setStopActionError("");
         setRemoveTarget(null);
         setRemoveReason("");
+        setReplaceTarget(null);
+        setStopReviewBusy(null);
         setInsertContext(null);
         setNewStopPoint(null);
         setPickingLocation(false);
@@ -338,6 +635,12 @@ export default function TransportRouteDetailContent({
         setDraftPath([]);
         setPathError("");
         setConfirmDeletePath(false);
+        setReviewMapOpen(false);
+        setReviewMapSelectedStopId(null);
+        setReviewMapStopDrafts({});
+        setAdvancedOpen(false);
+        setReadiness(null);
+        setReadinessError("");
 
         void (async () => {
             try {
@@ -359,7 +662,13 @@ export default function TransportRouteDetailContent({
         return () => controller.abort();
     }, [publicId]);
 
-    // --- Load the verified route path overlay (solid line + distance). Secondary
+    useEffect(() => {
+        const controller = new AbortController();
+        void loadReadiness(controller.signal);
+        return () => controller.abort();
+    }, [loadReadiness]);
+
+    // --- Load the saved route path overlay for the selected variant. -----------
     //     to the ordered-stop panel: fetched separately and only when a path
     //     exists, so the panel never waits on path geometry serialization. A
     //     failure here is non-fatal (stops stay rendered). The tiny limit keeps
@@ -395,7 +704,12 @@ export default function TransportRouteDetailContent({
                     signal ? { signal } : undefined,
                 );
                 setStops(result.ordered_stops.map(orderedStopLiteToItem));
-                if (result.has_verified_path) {
+                const variantSummary = variantsRef.current.find((v) => v.public_id === variantId);
+                const shouldLoadPath =
+                    result.has_verified_path ||
+                    result.has_review_placeholder_path ||
+                    variantSummary?.path_status === "has_path";
+                if (shouldLoadPath) {
                     void loadVariantPath(variantId, signal);
                 } else {
                     setPath(null);
@@ -413,15 +727,17 @@ export default function TransportRouteDetailContent({
     );
 
     useEffect(() => {
-        if (!selectedVariantId) {
-            setStops([]);
-            setPath(null);
+        if (!selectedVariantId || !reviewMapOpen) {
+            if (!selectedVariantId) {
+                setStops([]);
+                setPath(null);
+            }
             return;
         }
         const controller = new AbortController();
         void loadStops(selectedVariantId, controller.signal, false);
         return () => controller.abort();
-    }, [selectedVariantId, loadStops]);
+    }, [selectedVariantId, reviewMapOpen, loadStops]);
 
     /** Silent re-fetch of the current variant's stops (after a mutation). */
     const refreshStops = useCallback(async () => {
@@ -463,7 +779,7 @@ export default function TransportRouteDetailContent({
     );
 
     useEffect(() => {
-        if (!selectedVariantId || stopsSignature === "") {
+        if (!selectedVariantId || !reviewMapOpen || stopsSignature === "") {
             setStopQuality(new Map());
             setStopQualityLoading(false);
             return;
@@ -471,7 +787,7 @@ export default function TransportRouteDetailContent({
         const controller = new AbortController();
         void loadStopQuality(selectedVariantId, controller.signal);
         return () => controller.abort();
-    }, [selectedVariantId, stopsSignature, loadStopQuality]);
+    }, [selectedVariantId, reviewMapOpen, stopsSignature, loadStopQuality]);
 
     /**
      * Apply a route_stop mutation response locally: replace the ordered stops (so
@@ -536,25 +852,50 @@ export default function TransportRouteDetailContent({
 
 
     // --- Ordered stops as preview points (lng/lat + sequence + name). --------
-    const routeStops = useMemo<TransportPreviewStop[]>(() => {
-        const out: TransportPreviewStop[] = [];
-        for (const s of stops) {
-            const g = s.stop.geometry;
-            if (!g || g.type !== "Point" || !Array.isArray(g.coordinates)) {
-                continue;
-            }
-            const lng = Number(g.coordinates[0]);
-            const lat = Number(g.coordinates[1]);
-            if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
-                continue;
-            }
-            out.push({ lng, lat, sequence: s.stop_sequence, name: s.stop.name });
+    const reviewMapSavedRouteStops = useMemo(
+        () => routeStopItemsToPreviewStops(stops),
+        [stops],
+    );
+
+    const reviewMapMovedStopIds = useMemo(
+        () => new Set(Object.keys(reviewMapStopDrafts)),
+        [reviewMapStopDrafts],
+    );
+
+    const reviewMapSelectedStopHasUnsaved = Boolean(
+        reviewMapSelectedStopId && reviewMapStopDrafts[reviewMapSelectedStopId],
+    );
+
+    const reviewMapHasUnsavedMoves = reviewMapMovedStopIds.size > 0;
+
+    const reviewMapPathDirty = useMemo(() => {
+        if (!reviewMapPathDraftCoords || !reviewMapPathBaselineCoords) {
+            return false;
         }
-        return out;
-    }, [stops]);
+        return !pathCoordsEqual(reviewMapPathDraftCoords, reviewMapPathBaselineCoords);
+    }, [reviewMapPathDraftCoords, reviewMapPathBaselineCoords]);
+
+    const reviewMapPathDraftGeometry = useMemo(
+        () => coordsToLineStringGeometry(reviewMapPathDraftCoords ?? []),
+        [reviewMapPathDraftCoords],
+    );
+
+    const generatePathReadiness = useMemo(
+        () => evaluateGeneratePathFromStopsReadiness(stops, reviewMapHasUnsavedMoves),
+        [stops, reviewMapHasUnsavedMoves],
+    );
 
     const selectedVariant = variants.find((v) => v.public_id === selectedVariantId) ?? null;
-    const hasVerifiedPath = Boolean(path?.geometry);
+    const pathIsVerified = path?.review_status === "verified";
+    const pathIsReviewPlaceholder = Boolean(
+        path?.geometry &&
+            !pathIsVerified &&
+            (path.path_kind === "corridor_estimate" || path.review_status === "needs_review"),
+    );
+    const usesPlaceholderReviewPoints = stops.some(
+        (stop) => stop.geometry_source === "route_stop_review_geom",
+    );
+    const hasPathOverlay = Boolean(path?.geometry);
 
     // --- Lightweight, non-blocking stop-sequence quality warnings. -----------
     // Pure read-only hints derived from the loaded stops + path; they never
@@ -566,7 +907,7 @@ export default function TransportRouteDetailContent({
         const warnings: string[] = [];
         if (stops.length === 0) {
             warnings.push("No ordered stops yet.");
-            if (hasVerifiedPath) {
+            if (hasPathOverlay) {
                 warnings.push("Route path exists but no ordered stops are linked.");
             }
             return warnings;
@@ -582,11 +923,13 @@ export default function TransportRouteDetailContent({
             }
             seen.add(s.stop.public_id);
         }
-        if (!hasVerifiedPath) {
-            warnings.push("Stop sequence preview only — not verified route path.");
+        if (!hasPathOverlay) {
+            warnings.push("Stop sequence guide only — no saved route path for this variant.");
+        } else if (pathIsReviewPlaceholder) {
+            warnings.push("Placeholder route path — confirm stop locations in Review Map.");
         }
         return warnings;
-    }, [selectedVariantId, stopsLoading, stops, hasVerifiedPath]);
+    }, [selectedVariantId, stopsLoading, stops, hasPathOverlay, pathIsReviewPlaceholder]);
 
     const selectVariant = useCallback((variantId: string) => {
         setSelectedVariantId(variantId);
@@ -597,6 +940,8 @@ export default function TransportRouteDetailContent({
         setStopActionError("");
         setRemoveTarget(null);
         setRemoveReason("");
+        setReplaceTarget(null);
+        setStopReviewBusy(null);
         setInsertContext(null);
         setNewStopPoint(null);
         setPickingLocation(false);
@@ -604,6 +949,8 @@ export default function TransportRouteDetailContent({
         setDraftPath([]);
         setPathError("");
         setConfirmDeletePath(false);
+        setReviewMapSelectedStopId(null);
+        setReviewMapStopDrafts({});
     }, []);
 
     const openInsert = useCallback(
@@ -715,6 +1062,92 @@ export default function TransportRouteDetailContent({
         [afterSave],
     );
 
+    const handleRouteReviewUpdated = useCallback(
+        (updated: TransportRouteDetail) => {
+            setRoute(updated);
+            afterSave?.();
+        },
+        [afterSave],
+    );
+
+    const markStopReviewed = useCallback(
+        async (stopPublicId: string) => {
+            setStopReviewBusy(stopPublicId);
+            setStopActionError("");
+            try {
+                const result = await applyTransportStopReviewAction(stopPublicId, "mark_reviewed");
+                setStops((prev) =>
+                    prev.map((row) =>
+                        row.stop.public_id === stopPublicId
+                            ? {
+                                  ...row,
+                                  stop: { ...row.stop, review_status: result.review_status },
+                              }
+                            : row,
+                    ),
+                );
+            } catch (err) {
+                if (isAbortError(err)) return;
+                setStopActionError(
+                    err instanceof Error ? err.message : "Failed to mark stop reviewed."
+                );
+                throw err;
+            } finally {
+                setStopReviewBusy(null);
+            }
+        },
+        []
+    );
+
+    const markSelectedStopReviewed = useCallback(async () => {
+        const row = reviewMapSelectedStopId
+            ? stops.find((stop) => stop.id === reviewMapSelectedStopId)
+            : null;
+        if (!row) {
+            return;
+        }
+        await markStopReviewed(row.stop.public_id);
+        setReviewMapSaveSuccess("Stop marked reviewed");
+        window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
+    }, [reviewMapSelectedStopId, stops, markStopReviewed]);
+
+    const markVariantPathReviewed = useCallback(async () => {
+        if (!path?.id) {
+            return;
+        }
+        const result = await applyTransportRoutePathReviewAction(path.id, "mark_reviewed");
+        setPath((prev) => (prev ? { ...prev, review_status: result.review_status } : prev));
+        void loadReadiness();
+        setReviewMapSaveSuccess("Route path marked reviewed");
+        window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
+    }, [path, loadReadiness]);
+
+    const markRouteReviewed = useCallback(async () => {
+        if (!route) {
+            return;
+        }
+        const result = await applyTransportRouteReviewAction(route.public_id, "mark_reviewed");
+        setRoute({ ...route, review_status: result.review_status });
+        void loadReadiness();
+        setReviewMapSaveSuccess("Route marked reviewed");
+        window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
+    }, [route, loadReadiness]);
+
+    const refreshOrderedStops = useCallback(() => {
+        if (!selectedVariantId) return;
+        void loadStops(selectedVariantId, undefined, true);
+        if (selectedVariantId) {
+            void (async () => {
+                try {
+                    const quality = await getTransportVariantStopQuality(selectedVariantId);
+                    setStopQuality(new Map(quality.items.map((item) => [item.route_stop_id, item])));
+                } catch {
+                    // non-fatal
+                }
+            })();
+        }
+    }, [selectedVariantId, loadStops]);
+
     /**
      * Refresh route detail + variants after a variant create/update/delete, keeping
      * the route open. `selectId` controls selection: a public_id selects it (new
@@ -722,7 +1155,7 @@ export default function TransportRouteDetailContent({
      * and `undefined` keeps the current selection when it still exists.
      */
     const reloadRouteAndVariants = useCallback(
-        async (selectId?: string | null) => {
+        async (selectId?: string | null, options?: { refreshList?: boolean }) => {
             const [detail, variantList] = await Promise.all([
                 getTransportRouteDetail(publicId),
                 getTransportRouteVariants(publicId),
@@ -737,7 +1170,9 @@ export default function TransportRouteDetailContent({
                     ? prev
                     : (variantList.items[0]?.public_id ?? null);
             });
-            afterSave?.();
+            if (options?.refreshList) {
+                afterSave?.();
+            }
         },
         [publicId, afterSave],
     );
@@ -746,7 +1181,7 @@ export default function TransportRouteDetailContent({
         (created: TransportVariantSummary) => {
             setAddingVariant(false);
             setVariantActionError("");
-            void reloadRouteAndVariants(created.public_id);
+            void reloadRouteAndVariants(created.public_id, { refreshList: true });
         },
         [reloadRouteAndVariants],
     );
@@ -756,7 +1191,7 @@ export default function TransportRouteDetailContent({
             setEditingVariant(false);
             setVariantActionError("");
             // Keep the edited variant selected; refresh detail + variants.
-            void reloadRouteAndVariants(updated.public_id);
+            void reloadRouteAndVariants(updated.public_id, { refreshList: true });
         },
         [reloadRouteAndVariants],
     );
@@ -771,7 +1206,7 @@ export default function TransportRouteDetailContent({
                 setConfirmDeleteVariant(false);
                 setEditingVariant(false);
                 // Variant is gone — fall back to the first remaining variant.
-                await reloadRouteAndVariants(null);
+                await reloadRouteAndVariants(null, { refreshList: true });
             } catch (err) {
                 if (isAbortError(err)) return;
                 setVariantActionError(
@@ -789,6 +1224,7 @@ export default function TransportRouteDetailContent({
         setConfirmDeletePath(false);
         setDraftPath([]);
         setPathMode("create");
+        setReviewMapOpen(true);
     }, []);
 
     const startEditPath = useCallback(() => {
@@ -796,6 +1232,7 @@ export default function TransportRouteDetailContent({
         setConfirmDeletePath(false);
         setDraftPath(lineStringDraftCoords(path?.geometry ?? null));
         setPathMode("edit");
+        setReviewMapOpen(true);
     }, [path]);
 
     const addDraftPoint = useCallback((coords: { lng: number; lat: number }) => {
@@ -834,7 +1271,11 @@ export default function TransportRouteDetailContent({
                 setPathMode(null);
                 setDraftPath([]);
                 setPath(result.path);
-                await reloadRouteAndVariants(selectedVariantId);
+                setVariants((prev) =>
+                    prev.map((variant) =>
+                        variant.public_id === selectedVariantId ? result.variant : variant,
+                    ),
+                );
                 void loadStopQuality(selectedVariantId, undefined);
             } catch (err) {
                 if (isAbortError(err)) return;
@@ -845,7 +1286,7 @@ export default function TransportRouteDetailContent({
                 setPathMutating(false);
             }
         })();
-    }, [selectedVariantId, draftPath, reloadRouteAndVariants, loadStopQuality]);
+    }, [selectedVariantId, draftPath, loadStopQuality]);
 
     const confirmDeletePathNow = useCallback(() => {
         if (!selectedVariantId) return;
@@ -856,7 +1297,11 @@ export default function TransportRouteDetailContent({
                 const result = await deleteTransportVariantPath(selectedVariantId);
                 setConfirmDeletePath(false);
                 setPath(result.path);
-                await reloadRouteAndVariants(selectedVariantId);
+                setVariants((prev) =>
+                    prev.map((variant) =>
+                        variant.public_id === selectedVariantId ? result.variant : variant,
+                    ),
+                );
                 void loadStopQuality(selectedVariantId, undefined);
             } catch (err) {
                 if (isAbortError(err)) return;
@@ -867,7 +1312,7 @@ export default function TransportRouteDetailContent({
                 setPathMutating(false);
             }
         })();
-    }, [selectedVariantId, reloadRouteAndVariants, loadStopQuality]);
+    }, [selectedVariantId, loadStopQuality]);
 
     // Display title: Myanmar name → English name → route code. Never a raw/
     // generated/imported name (those stay in the Names / debug sections only).
@@ -875,494 +1320,578 @@ export default function TransportRouteDetailContent({
         ? getTransportDisplayNameFromNames(route.name_mm, route.name_en, route.route_code)
         : "";
 
+    const checklistItems = useMemo(
+        () =>
+            route
+                ? buildRouteReviewChecklist({
+                      route,
+                      variants,
+                      readiness,
+                      stopsWithoutLocation: stops.filter((s) => !s.stop.geometry).length,
+                      usesPlaceholderReviewPoints,
+                  })
+                : [],
+        [route, variants, readiness, stops, usesPlaceholderReviewPoints],
+    );
+
+    const toggleReviewMap = useCallback(() => {
+        setReviewMapOpen((open) => {
+            const next = !open;
+            if (!next) {
+                setReviewMapSelectedStopId(null);
+                setReviewMapStopDrafts({});
+            } else if (!selectedVariantId && variants[0]) {
+                setSelectedVariantId(variants[0].public_id);
+            }
+            return next;
+        });
+    }, [selectedVariantId, variants]);
+
+    const openReviewMapForVariant = useCallback(
+        (variantId: string) => {
+            selectVariant(variantId);
+            setReviewMapSelectedStopId(null);
+            setReviewMapStopDrafts({});
+            setReviewMapOpen(true);
+        },
+        [selectVariant],
+    );
+
+    const closeReviewMap = useCallback(() => {
+        setReviewMapOpen(false);
+        setReviewMapSelectedStopId(null);
+        setReviewMapStopDrafts({});
+        setReviewMapMode(null);
+        setReviewMapPathDraftCoords(null);
+        setReviewMapPathBaselineCoords(null);
+        setReviewMapSelectedPathVertexIndex(null);
+        setReviewMapPathEditError("");
+        if (pathMode !== null) {
+            setPathMode(null);
+            setDraftPath([]);
+            setPathError("");
+            setConfirmDeletePath(false);
+        }
+    }, [pathMode]);
+
+    const enterReviewMapEditPath = useCallback(() => {
+        if (!hasSavedRoutePathGeometry(path) || pathMode !== null) {
+            return;
+        }
+        const baseline = lineStringDraftCoords(path?.geometry ?? null);
+        if (baseline.length < 2) {
+            return;
+        }
+        setReviewMapMode("edit_path");
+        setReviewMapSelectedStopId(null);
+        setReviewMapPathDraftCoords(baseline);
+        setReviewMapPathBaselineCoords(baseline);
+        setReviewMapSelectedPathVertexIndex(null);
+        setReviewMapPathEditError("");
+    }, [path, pathMode]);
+
+    const cancelReviewMapEditPath = useCallback(() => {
+        setReviewMapMode(null);
+        setReviewMapPathDraftCoords(null);
+        setReviewMapPathBaselineCoords(null);
+        setReviewMapSelectedPathVertexIndex(null);
+        setReviewMapPathEditError("");
+    }, []);
+
+    const handleReviewMapPathDraftChange = useCallback((coords: PathCoord[]) => {
+        setReviewMapPathDraftCoords(coords);
+        setReviewMapPathEditError("");
+    }, []);
+
+    const deleteReviewMapSelectedPathVertex = useCallback(() => {
+        if (reviewMapSelectedPathVertexIndex === null || !reviewMapPathDraftCoords) {
+            return;
+        }
+        const next = deletePathVertex(reviewMapPathDraftCoords, reviewMapSelectedPathVertexIndex);
+        if (!next) {
+            setReviewMapPathEditError("Route path must keep at least 2 vertices.");
+            return;
+        }
+        setReviewMapPathDraftCoords(next);
+        setReviewMapSelectedPathVertexIndex(
+            Math.min(reviewMapSelectedPathVertexIndex, next.length - 1),
+        );
+        setReviewMapPathEditError("");
+    }, [reviewMapPathDraftCoords, reviewMapSelectedPathVertexIndex]);
+
+    const saveReviewMapPathEdit = useCallback(() => {
+        if (
+            !selectedVariantId ||
+            !reviewMapPathDraftCoords ||
+            reviewMapPathEditLoading ||
+            !reviewMapPathDirty
+        ) {
+            return;
+        }
+        if (reviewMapPathDraftCoords.length < 2) {
+            setReviewMapPathEditError("Route path needs at least 2 vertices.");
+            return;
+        }
+
+        void (async () => {
+            setReviewMapPathEditLoading(true);
+            setReviewMapPathEditError("");
+            try {
+                const result = await putTransportVariantPath(selectedVariantId, {
+                    coordinates: reviewMapPathDraftCoords,
+                    path_kind: "manual_drawn",
+                    manually_adjusted: true,
+                });
+                setPath(result.path);
+                setVariants((prev) =>
+                    prev.map((variant) =>
+                        variant.public_id === selectedVariantId ? result.variant : variant,
+                    ),
+                );
+                cancelReviewMapEditPath();
+                setReviewMapSaveSuccess("Route path saved");
+                window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
+            } catch (err) {
+                if (isAbortError(err)) {
+                    return;
+                }
+                setReviewMapPathEditError(
+                    err instanceof Error ? err.message : "Failed to save route path.",
+                );
+            } finally {
+                setReviewMapPathEditLoading(false);
+            }
+        })();
+    }, [
+        selectedVariantId,
+        reviewMapPathDraftCoords,
+        reviewMapPathDirty,
+        reviewMapPathEditLoading,
+        cancelReviewMapEditPath,
+    ]);
+
+    const revertReviewMapStopMoves = useCallback((routeStopId?: string) => {
+        setReviewMapSaveError("");
+        if (routeStopId) {
+            setReviewMapStopDrafts((prev) => {
+                if (!prev[routeStopId]) {
+                    return prev;
+                }
+                const next = { ...prev };
+                delete next[routeStopId];
+                return next;
+            });
+            return;
+        }
+        setReviewMapStopDrafts({});
+    }, []);
+
+    const saveReviewMapStopMoves = useCallback(
+        (options?: ReviewMapSaveOptions) => {
+            const routeStopId = options?.routeStopId ?? reviewMapSelectedStopId;
+            if (!routeStopId || reviewMapSaveLoading) {
+                return;
+            }
+            const coords = reviewMapStopDrafts[routeStopId];
+            if (!coords) {
+                return;
+            }
+
+            void (async () => {
+                setReviewMapSaveLoading(true);
+                setReviewMapSaveError("");
+                setReviewMapSaveSuccess(null);
+
+                const row = stops.find((s) => s.id === routeStopId);
+                if (!row) {
+                    setReviewMapSaveError("No stop to save.");
+                    setReviewMapSaveLoading(false);
+                    return;
+                }
+
+                try {
+                    const result = await updateTransportStopLocation(row.stop.public_id, {
+                        lng: coords.lng,
+                        lat: coords.lat,
+                    });
+
+                    const savedPoint = pointFromStopDetail(result.stop);
+                    const savedLng = savedPoint?.lng ?? coords.lng;
+                    const savedLat = savedPoint?.lat ?? coords.lat;
+
+                    setStops((prev) =>
+                        patchRouteStopGeometry(prev, routeStopId, savedLng, savedLat),
+                    );
+                    setReviewMapStopDrafts((prev) => {
+                        if (!prev[routeStopId]) {
+                            return prev;
+                        }
+                        const next = { ...prev };
+                        delete next[routeStopId];
+                        return next;
+                    });
+
+                    if (options?.thenSelectStopId !== undefined) {
+                        setReviewMapSelectedStopId(options.thenSelectStopId);
+                        if (options.thenSelectStopId) {
+                            setReviewMapCenterStopRequest({
+                                id: Date.now(),
+                                stopId: options.thenSelectStopId,
+                            });
+                        }
+                    }
+
+                    setReviewMapSaveSuccess("Stop location saved");
+                    window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
+                } catch (err) {
+                    if (isAbortError(err)) {
+                        return;
+                    }
+                    setReviewMapSaveError(
+                        err instanceof Error ? err.message : "Failed to save stop location.",
+                    );
+                } finally {
+                    setReviewMapSaveLoading(false);
+                }
+            })();
+        },
+        [reviewMapStopDrafts, reviewMapSaveLoading, reviewMapSelectedStopId, stops],
+    );
+
+    const saveReviewMapStopAndNext = useCallback(() => {
+        if (!reviewMapSelectedStopHasUnsaved || reviewMapSaveLoading || !reviewMapSelectedStopId) {
+            return;
+        }
+        const idx = stops.findIndex((s) => s.id === reviewMapSelectedStopId);
+        const nextStopId =
+            idx < 0
+                ? (stops[0]?.id ?? null)
+                : idx >= stops.length - 1
+                  ? (stops[idx]?.id ?? null)
+                  : (stops[idx + 1]?.id ?? null);
+        saveReviewMapStopMoves({
+            routeStopId: reviewMapSelectedStopId,
+            thenSelectStopId: nextStopId,
+        });
+    }, [
+        reviewMapSelectedStopHasUnsaved,
+        reviewMapSaveLoading,
+        reviewMapSelectedStopId,
+        stops,
+        saveReviewMapStopMoves,
+    ]);
+
+    const handleReviewMapStopMovePreview = useCallback(
+        (coords: { lng: number; lat: number }) => {
+            if (!reviewMapSelectedStopId || pathMode !== null || isReviewMapPathEditMode(reviewMapMode)) {
+                return;
+            }
+            const row = stops.find((s) => s.id === reviewMapSelectedStopId);
+            if (!row) {
+                return;
+            }
+
+            const geometry = row.stop.geometry;
+            const origLng =
+                geometry?.type === "Point" && Array.isArray(geometry.coordinates)
+                    ? Number(geometry.coordinates[0])
+                    : NaN;
+            const origLat =
+                geometry?.type === "Point" && Array.isArray(geometry.coordinates)
+                    ? Number(geometry.coordinates[1])
+                    : NaN;
+
+            const matchesOriginal =
+                Number.isFinite(origLng) &&
+                Number.isFinite(origLat) &&
+                Math.abs(origLng - coords.lng) < 1e-7 &&
+                Math.abs(origLat - coords.lat) < 1e-7;
+
+            setReviewMapStopDrafts((prev) => {
+                if (matchesOriginal) {
+                    if (!prev[reviewMapSelectedStopId]) {
+                        return prev;
+                    }
+                    const next = { ...prev };
+                    delete next[reviewMapSelectedStopId];
+                    return next;
+                }
+                return { ...prev, [reviewMapSelectedStopId]: coords };
+            });
+            setReviewMapSaveError("");
+        },
+        [reviewMapSelectedStopId, stops, pathMode, reviewMapMode],
+    );
+
+    const reviewMapStopMoveHint = useMemo(() => {
+        if (pathMode !== null || isReviewMapPathEditMode(reviewMapMode)) {
+            return null;
+        }
+        if (reviewMapSelectedStopId) {
+            return "Click the map to move this stop (preview only, not saved)";
+        }
+        return "Select a stop from the list, then click the map to move it";
+    }, [pathMode, reviewMapMode, reviewMapSelectedStopId]);
+
+    const reviewMapPathEditHint = useMemo(() => {
+        if (!isReviewMapPathEditMode(reviewMapMode)) {
+            return null;
+        }
+        if (reviewMapSelectedPathVertexIndex !== null) {
+            return "Drag the vertex, click the map to move it, or Delete to remove it";
+        }
+        return "Click a vertex to select it, or click the path line to add a vertex";
+    }, [reviewMapMode, reviewMapSelectedPathVertexIndex]);
+
+    const openGeneratePathDialog = useCallback(() => {
+        if (!generatePathReadiness.eligible) {
+            return;
+        }
+        setGeneratePathError("");
+        setGeneratePathWarnings([]);
+        setGeneratePathOpen(true);
+    }, [generatePathReadiness.eligible]);
+
+    const cancelGeneratePath = useCallback(() => {
+        if (generatePathLoading) {
+            return;
+        }
+        setGeneratePathOpen(false);
+        setGeneratePathError("");
+        setGeneratePathWarnings([]);
+    }, [generatePathLoading]);
+
+    const confirmGeneratePath = useCallback(() => {
+        if (!selectedVariantId || !generatePathReadiness.eligible || generatePathLoading) {
+            return;
+        }
+
+        void (async () => {
+            setGeneratePathLoading(true);
+            setGeneratePathError("");
+            setGeneratePathWarnings([]);
+            try {
+                const result = await generateTransportVariantPathFromStops(selectedVariantId);
+                setPath({
+                    path_kind: result.path_kind,
+                    review_status: result.review_status,
+                    distance_m: result.distance_m,
+                    geometry: result.geometry,
+                });
+                setGeneratePathWarnings(result.warnings ?? []);
+                setGeneratePathOpen(false);
+                setReviewMapSaveSuccess(
+                    result.warnings.length > 0
+                        ? "Path generated with warnings"
+                        : "Auto-generated path saved",
+                );
+                window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
+            } catch (err) {
+                if (isAbortError(err)) {
+                    return;
+                }
+                const message =
+                    err instanceof Error ? err.message : "Failed to generate path from stops.";
+                if (
+                    message.toLowerCase().includes("not implemented") ||
+                    message.includes("501")
+                ) {
+                    setGeneratePathError("Not implemented");
+                } else {
+                    setGeneratePathError(message);
+                }
+            } finally {
+                setGeneratePathLoading(false);
+            }
+        })();
+    }, [generatePathLoading, generatePathReadiness.eligible, selectedVariantId]);
+
+    const toggleEditInfo = useCallback(() => {
+        setEditingRoute((prev) => !prev);
+    }, []);
+
+    const reloadReadiness = useCallback(() => loadReadiness(), [loadReadiness]);
+
     return (
         <>
-            {/* Header */}
-            {!hideHeader ? (
-                <header className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-200 pb-4">
-                    <div className="min-w-0">
-                        {onClose ? (
-                            <button
-                                type="button"
-                                onClick={onClose}
-                                className="text-sm text-gray-500 hover:text-gray-900"
-                            >
-                                ← Back to routes
-                            </button>
-                        ) : (
-                            <Link
-                                href={transportPath("routes")}
-                                className="text-sm text-gray-500 hover:text-gray-900"
-                            >
-                                ← Back to routes
-                            </Link>
-                        )}
-                        {routeLoading ? (
-                            <div className="mt-2 h-7 w-64 animate-pulse rounded bg-gray-200" />
-                        ) : route ? (
-                            <div className="mt-1 flex flex-wrap items-center gap-3">
-                                <h1 className="text-2xl font-bold text-gray-900">
-                                    <span className="rounded bg-gray-900 px-2 py-0.5 text-white">
-                                        {route.route_code}
-                                    </span>{" "}
-                                    {routeDisplayName}
-                                </h1>
-                                <StatusBadge status={route.review_status} />
-                                <span className="text-sm text-gray-500">
-                                    {transportModeLabel(route.mode)} · {route.route_kind}
-                                </span>
-                                {route.is_active ? (
-                                    <span className="text-sm text-emerald-700">Active</span>
-                                ) : (
-                                    <span className="text-sm text-gray-400">Inactive</span>
-                                )}
-                            </div>
-                        ) : null}
-                    </div>
-                </header>
+            {!hideHeader && !onClose ? (
+                <div className="mb-3">
+                    <Link
+                        href={transportPath("routes")}
+                        className="text-sm text-gray-500 hover:text-gray-900"
+                    >
+                        ← Back to routes
+                    </Link>
+                </div>
             ) : null}
 
+            <RouteDetailHeader
+                route={route}
+                routeDisplayName={routeDisplayName}
+                routeLoading={routeLoading}
+                reviewMapOpen={reviewMapOpen}
+                editingRoute={editingRoute}
+                onReviewMap={toggleReviewMap}
+                onEditInfo={toggleEditInfo}
+                onClose={onClose}
+            />
+
             {routeError ? (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
                     {routeError}
                 </div>
             ) : null}
 
-            {/* Workspace grid: left info+variants · center map · right stops */}
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)_360px]">
-                {/* Left: route info + variants */}
-                <aside className="space-y-4">
-                    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                        <div className="mb-2 flex items-center justify-between">
-                            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                                Route info
-                            </h2>
-                            {route && !editingRoute ? (
-                                <button
-                                    type="button"
-                                    onClick={() => setEditingRoute(true)}
-                                    className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                                >
-                                    Edit
-                                </button>
-                            ) : null}
-                        </div>
-                        {routeLoading ? (
-                            <div className="space-y-2">
-                                {[0, 1, 2, 3].map((i) => (
-                                    <div key={i} className="h-4 animate-pulse rounded bg-gray-100" />
-                                ))}
-                            </div>
-                        ) : route && editingRoute ? (
-                            <TransportRouteEditForm
-                                route={route}
-                                onCancel={() => setEditingRoute(false)}
-                                onSaved={handleRouteSaved}
+            {editingRoute && route ? (
+                <section className="mt-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                    <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
+                        Edit route info
+                    </h2>
+                    <TransportRouteEditForm
+                        route={route}
+                        onCancel={() => setEditingRoute(false)}
+                        onSaved={handleRouteSaved}
+                    />
+                </section>
+            ) : (
+                <div className="mt-3 space-y-3">
+                    <RouteSummaryCard route={route} routeLoading={routeLoading} />
+                    <RouteVariantsCard
+                        variants={variants}
+                        routeLoading={routeLoading}
+                        addingVariant={addingVariant}
+                        onOpenReviewMap={openReviewMapForVariant}
+                        onStartAddVariant={() => {
+                            setVariantActionError("");
+                            setAddingVariant(true);
+                        }}
+                        addVariantSlot={
+                            <TransportVariantForm
+                                routePublicId={publicId}
+                                onCancel={() => setAddingVariant(false)}
+                                onSaved={handleVariantCreated}
                             />
-                        ) : route ? (
-                            <>
-                                <div className="divide-y divide-gray-100">
-                                    <InfoRow label="Display name" value={routeDisplayName} />
-                                    <InfoRow label="Myanmar name" value={route.name_mm ?? "—"} />
-                                    <InfoRow label="English name" value={route.name_en ?? "—"} />
-                                    <InfoRow label="Route code" value={route.route_code} />
-                                    <InfoRow label="Origin" value={route.origin_name ?? "—"} />
-                                    <InfoRow
-                                        label="Destination"
-                                        value={route.destination_name ?? "—"}
-                                    />
-                                    <InfoRow label="Operator" value={route.operator?.name || "—"} />
-                                    <InfoRow
-                                        label="Confidence"
-                                        value={
-                                            route.confidence_score === null
-                                                ? "—"
-                                                : Math.round(route.confidence_score)
-                                        }
-                                    />
-                                    <InfoRow label="Variants" value={route.counts.variants} />
-                                    <InfoRow label="Stops" value={route.counts.stops} />
-                                    <InfoRow label="Paths" value={route.counts.paths} />
-                                </div>
-                                {route.names && route.names.length > 0 ? (
-                                    <div className="mt-3 border-t border-gray-100 pt-3">
-                                        <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
-                                            Names
-                                        </p>
-                                        <ul className="space-y-1 text-sm text-gray-700">
-                                            {route.names.slice(0, 6).map((n, i) => (
-                                                <li
-                                                    key={`${n.name}-${i}`}
-                                                    className="flex items-center gap-2"
-                                                >
-                                                    <span>{n.name}</span>
-                                                    <span className="text-xs text-gray-400">
-                                                        {n.language_code}
-                                                        {n.is_primary ? " · primary" : ""}
-                                                    </span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                ) : null}
-                            </>
-                        ) : null}
-                    </section>
-
-                    <section className="rounded-lg border border-gray-200 bg-white shadow-sm">
-                        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                                Variants {variants.length > 0 ? `(${variants.length})` : ""}
-                            </h2>
-                            {route && !addingVariant ? (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setVariantActionError("");
-                                        setAddingVariant(true);
-                                    }}
-                                    className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                                >
-                                    + Add variant
-                                </button>
-                            ) : null}
-                        </div>
-                        {addingVariant ? (
-                            <div className="border-b border-gray-100 bg-gray-50/60 p-4">
-                                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
-                                    New variant
-                                </p>
-                                <TransportVariantForm
-                                    routePublicId={publicId}
-                                    onCancel={() => setAddingVariant(false)}
-                                    onSaved={handleVariantCreated}
-                                />
-                            </div>
-                        ) : null}
-                        {routeLoading ? (
-                            <div className="space-y-2 p-4">
-                                {[0, 1].map((i) => (
-                                    <div key={i} className="h-12 animate-pulse rounded bg-gray-100" />
-                                ))}
-                            </div>
-                        ) : variants.length === 0 ? (
-                            <p className="px-4 py-6 text-center text-sm text-gray-500">
-                                No variants for this route.
-                            </p>
-                        ) : (
-                            <ul className="max-h-[320px] overflow-y-auto">
-                                {variants.map((v) => {
-                                    const active = v.public_id === selectedVariantId;
-                                    return (
-                                        <li key={v.public_id}>
-                                            <button
-                                                type="button"
-                                                onClick={() => selectVariant(v.public_id)}
-                                                className={`flex w-full flex-col items-start gap-1 border-b border-gray-100 px-4 py-3 text-left text-sm hover:bg-gray-50 ${active ? "bg-blue-50/60" : ""}`}
-                                            >
-                                                <div className="flex w-full items-center justify-between gap-2">
-                                                    <span className="font-medium text-gray-900">
-                                                        {v.variant_code}
-                                                        {v.direction_name
-                                                            ? ` · ${v.direction_name}`
-                                                            : ""}
-                                                    </span>
-                                                    {v.path_status === "has_path" ? (
-                                                        <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-100">
-                                                            Path
-                                                        </span>
-                                                    ) : (
-                                                        <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900 ring-1 ring-amber-100">
-                                                            No path
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <span className="text-xs text-gray-500">
-                                                    {v.headsign || v.destination_name || "—"}
-                                                </span>
-                                                <span className="text-xs text-gray-400">
-                                                    {v.stop_count} stops · {formatDistance(v.distance_m)}
-                                                </span>
-                                            </button>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        )}
-                    </section>
-
-                    {selectedVariant ? (
-                        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                            <div className="mb-2 flex items-center justify-between">
-                                <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                                    Selected variant
-                                </h2>
-                                {!editingVariant ? (
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setVariantActionError("");
-                                                setConfirmDeleteVariant(false);
-                                                setEditingVariant(true);
-                                            }}
-                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                                        >
-                                            Edit
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setVariantActionError("");
-                                                setConfirmDeleteVariant(true);
-                                            }}
-                                            className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
-                                        >
-                                            Delete
-                                        </button>
-                                    </div>
-                                ) : null}
-                            </div>
-                            {variantActionError ? (
-                                <p className="mb-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
-                                    {variantActionError}
-                                </p>
-                            ) : null}
-                            {confirmDeleteVariant && !editingVariant ? (
-                                <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3">
-                                    <p className="text-sm text-red-800">
-                                        Soft-delete variant{" "}
-                                        <span className="font-medium">
-                                            {selectedVariant.variant_code}
-                                        </span>
-                                        ? It is hidden and marked inactive; ordered stops and
-                                        paths are kept.
-                                    </p>
-                                    <div className="mt-2 flex justify-end gap-2">
-                                        <button
-                                            type="button"
-                                            disabled={variantMutating}
-                                            onClick={() => setConfirmDeleteVariant(false)}
-                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            type="button"
-                                            disabled={variantMutating}
-                                            onClick={confirmDeleteSelectedVariant}
-                                            className="rounded-md bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
-                                        >
-                                            {variantMutating ? "Deleting…" : "Delete variant"}
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : null}
-                            {editingVariant ? (
-                                <TransportVariantForm
-                                    key={selectedVariant.public_id}
-                                    variant={selectedVariant}
-                                    onCancel={() => setEditingVariant(false)}
-                                    onSaved={handleVariantSaved}
-                                />
-                            ) : (
-                                <div className="divide-y divide-gray-100">
-                                    <InfoRow label="Variant code" value={selectedVariant.variant_code} />
-                                    <InfoRow
-                                        label="Direction"
-                                        value={selectedVariant.direction_name ?? "—"}
-                                    />
-                                    <InfoRow
-                                        label="Headsign"
-                                        value={selectedVariant.headsign ?? "—"}
-                                    />
-                                    <InfoRow
-                                        label="Duration"
-                                        value={
-                                            selectedVariant.estimated_duration_min === null
-                                                ? "—"
-                                                : `${selectedVariant.estimated_duration_min} min`
-                                        }
-                                    />
-                                    <InfoRow
-                                        label="Review status"
-                                        value={transportReviewStatusLabel(
-                                            selectedVariant.review_status
-                                        )}
-                                    />
-                                    <InfoRow
-                                        label="Confidence"
-                                        value={
-                                            selectedVariant.confidence_score === null
-                                                ? "—"
-                                                : Math.round(selectedVariant.confidence_score)
-                                        }
-                                    />
-                                    <InfoRow
-                                        label="Active"
-                                        value={selectedVariant.is_active ? "Active" : "Inactive"}
-                                    />
-                                </div>
-                            )}
-                        </section>
-                    ) : null}
-                </aside>
-
-                {/* Center: persistent map */}
-                <section className="flex flex-col gap-2">
-                    <TransportPreviewMap
-                        title={route ? `${route.route_code} · ${routeDisplayName}` : "Route"}
-                        externalId={selectedVariant?.public_id ?? route?.public_id ?? null}
-                        subtitle={
-                            selectedVariant
-                                ? selectedVariant.headsign ??
-                                  selectedVariant.direction_name ??
-                                  selectedVariant.variant_code
-                                : null
-                        }
-                        routePath={path?.geometry ?? null}
-                        routeStops={routeStops}
-                        autoFitKey={selectedVariantId}
-                        initialZoom={MAP_DEFAULT_ZOOM}
-                        editablePoint={pickingLocation ? newStopPoint : null}
-                        editablePointColor="#16a34a"
-                        pointDraggable={pickingLocation}
-                        onPointChange={pickingLocation ? setNewStopPoint : undefined}
-                        draftPath={pathMode ? draftPath : null}
-                        pathDrawing={pathMode !== null}
-                        onDraftPathAddPoint={pathMode ? addDraftPoint : undefined}
-                        editingHint={
-                            pathMode
-                                ? "Click the map to add path points"
-                                : pickingLocation
-                                  ? "Click the map to set the new stop location"
-                                  : null
-                        }
-                        emptyHint={
-                            variants.length === 0
-                                ? "No variants to display on the map."
-                                : "No route path or ordered stops available"
                         }
                     />
-
-                    {/* Legend / path provenance + load status. */}
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs">
-                        {selectedVariantId && stops.length > 0 ? (
-                            hasVerifiedPath ? (
-                                <span className="flex items-center gap-2 text-gray-700">
-                                    <span className="inline-block h-1 w-5 rounded bg-[#2563eb]" />
-                                    Verified route path
-                                    {path?.distance_m
-                                        ? ` · ${formatDistance(path.distance_m)}`
-                                        : ""}
-                                </span>
-                            ) : (
-                                <span className="flex items-center gap-2 text-amber-900">
-                                    <span
-                                        className="inline-block h-0 w-5 border-t-2 border-dashed border-[#d97706]"
-                                        aria-hidden
-                                    />
-                                    Stop sequence preview only — not verified route path
-                                </span>
-                            )
+                    <RouteReviewChecklistCard
+                        items={checklistItems}
+                        loading={readinessLoading}
+                    />
+                    <CollapsibleSection
+                        title="Advanced / Diagnostics"
+                        description="Source data, review workflow, variant maintenance, and technical warnings."
+                        open={advancedOpen}
+                        onToggle={() => setAdvancedOpen((open) => !open)}
+                    >
+                        {readinessError ? (
+                            <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
+                                {readinessError}
+                            </p>
                         ) : null}
-                        {stopsLoading ? (
-                            <span className="text-gray-500">Loading stops…</span>
-                        ) : null}
-                    </div>
-
-                    {/* Route path editor (selected variant only). */}
-                    {selectedVariantId ? (
-                        <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
-                            <div className="flex items-center justify-between gap-2">
-                                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                                    Route path
-                                </h3>
-                                {pathMode ? (
-                                    <span className="text-xs text-gray-500">
-                                        {draftPath.length} point
-                                        {draftPath.length === 1 ? "" : "s"}
-                                    </span>
-                                ) : null}
+                        {readiness && readiness.blockers.length > 0 ? (
+                            <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                <p className="font-medium">Verification blockers</p>
+                                <ul className="mt-1 list-inside list-disc space-y-0.5">
+                                    {readiness.blockers.map((b) => (
+                                        <li key={b}>{b}</li>
+                                    ))}
+                                </ul>
                             </div>
-
-                            {pathError ? (
-                                <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
-                                    {pathError}
+                        ) : null}
+                        {readiness && readiness.warnings.length > 0 ? (
+                            <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+                                <p className="font-medium">Technical warnings</p>
+                                <ul className="mt-1 list-inside list-disc space-y-0.5">
+                                    {readiness.warnings.map((w) => (
+                                        <li key={w}>{w}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
+                        {route && route.names.length > 0 ? (
+                            <div className="mb-3">
+                                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                                    Alternate names
                                 </p>
-                            ) : null}
+                                <ul className="space-y-1 text-sm text-gray-700">
+                                    {route.names.map((n, i) => (
+                                        <li key={`${n.name}-${i}`} className="flex items-center gap-2">
+                                            <span>{n.name}</span>
+                                            <span className="text-xs text-gray-400">
+                                                {n.language_code}
+                                                {n.is_primary ? " · primary" : ""}
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
+                        {route && route.sources.length > 0 ? (
+                            <div className="mb-3">
+                                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                                    Source links
+                                </p>
+                                <ul className="space-y-2 text-sm text-gray-700">
+                                    {route.sources.map((s, i) => (
+                                        <li
+                                            key={`${s.source_name}-${s.external_id ?? i}`}
+                                            className="rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2 text-xs"
+                                        >
+                                            <p className="font-medium text-gray-900">{s.source_name}</p>
+                                            <p className="text-gray-600">
+                                                {s.source_kind}
+                                                {s.external_id ? ` · ${s.external_id}` : ""}
+                                                {s.is_primary ? " · primary" : ""}
+                                            </p>
+                                            {s.source_url ? (
+                                                <p className="truncate text-gray-500">{s.source_url}</p>
+                                            ) : null}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : (
+                            <p className="mb-3 text-sm text-gray-500">No source links on this route.</p>
+                        )}
+                        {path?.normalized_data ? (
+                            <details className="mb-3 text-xs">
+                                <summary className="cursor-pointer font-medium text-gray-700">
+                                    Path normalized_data
+                                </summary>
+                                <pre className="mt-2 max-h-48 overflow-auto rounded-md border border-gray-200 bg-gray-50 p-2 text-[11px] text-gray-800">
+                                    {JSON.stringify(path.normalized_data, null, 2)}
+                                </pre>
+                            </details>
+                        ) : null}
+                        {sequenceWarnings.length > 0 ? (
+                            <ul className="mb-3 list-inside list-disc text-xs text-amber-900">
+                                {sequenceWarnings.map((warning) => (
+                                    <li key={warning}>{warning}</li>
+                                ))}
+                            </ul>
+                        ) : null}
+                        {route ? (
+                            <TransportRouteReviewPanel
+                                route={route}
+                                path={path}
+                                onRouteUpdated={handleRouteReviewUpdated}
+                                readiness={readiness}
+                                readinessLoading={readinessLoading}
+                                readinessError={readinessError}
+                                onReadinessReload={reloadReadiness}
+                            />
+                        ) : null}
 
-                            {pathMode ? (
-                                <>
-                                    <p className="mt-2 text-xs text-gray-600">
-                                        Click the map to add points. Need at least 2
-                                        points to save. No road snapping — vertices are
-                                        saved exactly as placed.
-                                    </p>
-                                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={undoDraftPoint}
-                                            disabled={pathMutating || draftPath.length === 0}
-                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                            Undo last
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={clearDraft}
-                                            disabled={pathMutating || draftPath.length === 0}
-                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                            Clear draft
-                                        </button>
-                                        <span className="flex-1" />
-                                        <button
-                                            type="button"
-                                            onClick={cancelPathEdit}
-                                            disabled={pathMutating}
-                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={savePath}
-                                            disabled={pathMutating || draftPath.length < 2}
-                                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                            {pathMutating ? "Saving…" : "Save path"}
-                                        </button>
-                                    </div>
-                                </>
-                            ) : confirmDeletePath ? (
-                                <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-3">
-                                    <p className="text-xs text-red-800">
-                                        Delete this route path? The stop sequence and
-                                        stops are kept.
-                                    </p>
-                                    <div className="mt-2 flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setConfirmDeletePath(false)}
-                                            disabled={pathMutating}
-                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={confirmDeletePathNow}
-                                            disabled={pathMutating}
-                                            className="rounded-md bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
-                                        >
-                                            {pathMutating ? "Deleting…" : "Delete path"}
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : (
+                        {selectedVariantId ? (
+                            <div className="mb-4 rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
+                                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                    Route path editor
+                                </h3>
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Create or edit the verified path for the selected variant.
+                                </p>
                                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                                    {hasVerifiedPath ? (
+                                    {hasPathOverlay ? (
                                         <>
                                             <button
                                                 type="button"
@@ -1394,295 +1923,232 @@ export default function TransportRouteDetailContent({
                                             Create path
                                         </button>
                                     )}
-                                    {pickingLocation ? (
-                                        <span className="text-xs text-gray-400">
-                                            Finish placing the stop first
-                                        </span>
-                                    ) : null}
                                 </div>
-                            )}
-                        </div>
-                    ) : null}
-                </section>
-
-                {/* Right: ordered stops list */}
-                <aside className="rounded-lg border border-gray-200 bg-white shadow-sm">
-                    <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                            Ordered stops
-                        </h2>
-                        {selectedVariant ? (
-                            <span className="flex items-center gap-2 text-xs text-gray-400">
-                                {stopQualityLoading ? (
-                                    <span className="text-gray-400">checking…</span>
+                                {pathError ? (
+                                    <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
+                                        {pathError}
+                                    </p>
                                 ) : null}
-                                <span>{stops.length}</span>
-                            </span>
-                        ) : null}
-                    </div>
-
-                    {sequenceWarnings.length > 0 ? (
-                        <ul className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs text-amber-900">
-                            {sequenceWarnings.map((warning) => (
-                                <li key={warning} className="flex items-start gap-1.5">
-                                    <span aria-hidden className="mt-px">
-                                        ⚠
-                                    </span>
-                                    <span>{warning}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    ) : null}
-
-                    {selectedVariantId && stops.length > 0 ? (
-                        <p className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs text-amber-900">
-                            Changing stop order affects this route variant only.
-                        </p>
-                    ) : null}
-
-                    {stopsError ? (
-                        <div className="m-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-                            {stopsError}
-                        </div>
-                    ) : null}
-                    {stopActionError && removeTarget === null ? (
-                        <div className="m-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-                            {stopActionError}
-                        </div>
-                    ) : null}
-
-                    {stopsLoading ? (
-                        <div className="space-y-2 p-4">
-                            {[0, 1, 2, 3, 4].map((i) => (
-                                <div key={i} className="h-10 animate-pulse rounded bg-gray-100" />
-                            ))}
-                        </div>
-                    ) : !selectedVariantId ? (
-                        <p className="px-4 py-6 text-center text-sm text-gray-500">
-                            Select a variant to view its stops.
-                        </p>
-                    ) : stops.length === 0 ? (
-                        <div className="px-1 py-4">
-                            <p className="px-3 pb-2 text-center text-sm text-gray-500">
-                                This variant has no ordered stops.
-                            </p>
-                            <InsertStopButton
-                                label="+ Add first stop"
-                                disabled={stopMutating}
-                                onClick={() =>
-                                    openInsert({
-                                        uiPosition: "first",
-                                        apiPosition: "start",
-                                        anchorRouteStopId: null,
-                                        previousStop: null,
-                                        nextStop: null,
-                                        near: null,
-                                    })
-                                }
-                            />
-                        </div>
-                    ) : (
-                        <div className="max-h-[60vh] overflow-y-auto">
-                            <InsertStopButton
-                                label="+ Insert stop at start"
-                                disabled={stopMutating}
-                                onClick={() =>
-                                    openInsert({
-                                        uiPosition: "start",
-                                        apiPosition: "start",
-                                        anchorRouteStopId: null,
-                                        previousStop: null,
-                                        nextStop: stopRef(stops[0]),
-                                        near: pointOf(stops[0]),
-                                    })
-                                }
-                            />
-                            {stops.map((s, i) => {
-                                const isSelected = s.id === selectedStopId;
-                                const nextStop = stops[i + 1] ?? null;
-                                const isLast = i === stops.length - 1;
-                                const quality = stopQuality.get(s.id);
-                                const qualityLine = stopQualitySummary(quality, hasVerifiedPath);
-                                const nearbyDuplicates = quality?.nearby_duplicate_count ?? 0;
-                                const exactDuplicate = quality?.is_exact_duplicate_in_variant ?? false;
-                                return (
-                                    <Fragment key={s.id}>
-                                    <div className="border-b border-gray-100">
+                                {pathMode ? (
+                                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+                                        <span className="text-xs text-gray-500">
+                                            {draftPath.length} point
+                                            {draftPath.length === 1 ? "" : "s"} — click the Review
+                                            Map to place vertices
+                                        </span>
+                                        <span className="flex-1" />
                                         <button
                                             type="button"
-                                            onClick={() =>
-                                                setSelectedStopId(isSelected ? null : s.id)
-                                            }
-                                            className={`flex w-full items-start gap-3 px-4 py-2.5 text-left text-sm hover:bg-gray-50 ${isSelected ? "bg-blue-50/60" : ""}`}
+                                            onClick={undoDraftPoint}
+                                            disabled={pathMutating || draftPath.length === 0}
+                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                                         >
-                                            <span className="mt-0.5 inline-flex h-6 min-w-9 flex-none items-center justify-center rounded-md bg-blue-100 px-1.5 text-xs font-semibold tabular-nums text-blue-800">
-                                                #{s.stop_sequence}
-                                            </span>
-                                            <div className="min-w-0 flex-1">
-                                                <p className="truncate font-medium text-gray-900">
-                                                    {s.stop.name}
-                                                </p>
-                                                <p className="truncate text-xs text-gray-500">
-                                                    {transportModeLabel(s.stop.mode)} ·{" "}
-                                                    {s.stop.stop_type}
-                                                    {s.stop.geometry ? "" : " · no location"}
-                                                    {s.is_timing_point ? " · timing point" : ""}
-                                                </p>
-                                                {qualityLine ? (
-                                                    <p className="truncate text-xs text-gray-500">
-                                                        {qualityLine}
-                                                    </p>
-                                                ) : null}
-                                                {nearbyDuplicates > 0 || exactDuplicate ? (
-                                                    <p className="mt-0.5 flex flex-wrap gap-1.5 text-[11px]">
-                                                        {exactDuplicate ? (
-                                                            <span className="inline-flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 font-medium text-red-700 ring-1 ring-red-100">
-                                                                ⚠ Duplicate in variant
-                                                            </span>
-                                                        ) : null}
-                                                        {nearbyDuplicates > 0 ? (
-                                                            <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-800 ring-1 ring-amber-100">
-                                                                ⚠ {nearbyDuplicates} nearby stop
-                                                                {nearbyDuplicates === 1 ? "" : "s"}
-                                                            </span>
-                                                        ) : null}
-                                                    </p>
-                                                ) : null}
-                                            </div>
+                                            Undo
                                         </button>
-
-                                        {isSelected ? (
-                                            <div className="space-y-3 border-t border-gray-100 bg-gray-50/70 px-4 py-3">
-                                                <div className="flex flex-wrap gap-2">
-                                                    <button
-                                                        type="button"
-                                                        disabled={stopMutating}
-                                                        onClick={() => requestRemoveStop(s)}
-                                                        className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                                    >
-                                                        Remove
-                                                    </button>
-                                                </div>
-
-                                                <div className="grid grid-cols-2 gap-2">
-                                                    <label className="flex flex-col gap-1">
-                                                        <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                                                            Pickup type
-                                                        </span>
-                                                        <select
-                                                            disabled={stopMutating}
-                                                            value={s.pickup_type}
-                                                            onChange={(e) =>
-                                                                updateStopFlag(s, {
-                                                                    pickup_type: Number(
-                                                                        e.target.value,
-                                                                    ),
-                                                                })
-                                                            }
-                                                            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 disabled:opacity-50"
-                                                        >
-                                                            {PICKUP_DROP_OPTIONS.map((o) => (
-                                                                <option key={o.value} value={o.value}>
-                                                                    {o.label}
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                    </label>
-                                                    <label className="flex flex-col gap-1">
-                                                        <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                                                            Drop-off type
-                                                        </span>
-                                                        <select
-                                                            disabled={stopMutating}
-                                                            value={s.drop_off_type}
-                                                            onChange={(e) =>
-                                                                updateStopFlag(s, {
-                                                                    drop_off_type: Number(
-                                                                        e.target.value,
-                                                                    ),
-                                                                })
-                                                            }
-                                                            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 disabled:opacity-50"
-                                                        >
-                                                            {PICKUP_DROP_OPTIONS.map((o) => (
-                                                                <option key={o.value} value={o.value}>
-                                                                    {o.label}
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                    </label>
-                                                </div>
-
-                                                <label className="flex items-center gap-2 text-xs text-gray-700">
-                                                    <input
-                                                        type="checkbox"
-                                                        disabled={stopMutating}
-                                                        checked={s.is_timing_point}
-                                                        onChange={(e) =>
-                                                            updateStopFlag(s, {
-                                                                is_timing_point: e.target.checked,
-                                                            })
-                                                        }
-                                                        className="h-4 w-4 rounded border-gray-300"
-                                                    />
-                                                    Timing point
-                                                </label>
-
-                                                <Link
-                                                    href={transportPath(
-                                                        `stops/${s.stop.public_id}`,
-                                                    )}
-                                                    className="inline-block text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline"
-                                                >
-                                                    Edit stop location in Stop detail →
-                                                </Link>
-                                            </div>
-                                        ) : null}
+                                        <button
+                                            type="button"
+                                            onClick={cancelPathEdit}
+                                            disabled={pathMutating}
+                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={savePath}
+                                            disabled={pathMutating || draftPath.length < 2}
+                                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                                        >
+                                            {pathMutating ? "Saving…" : "Save path"}
+                                        </button>
                                     </div>
+                                ) : null}
+                            </div>
+                        ) : null}
 
-                                    {isLast ? (
-                                        <InsertStopButton
-                                            label="+ Add stop at end"
-                                            disabled={stopMutating}
-                                            onClick={() =>
-                                                openInsert({
-                                                    uiPosition: "end",
-                                                    apiPosition: "end",
-                                                    anchorRouteStopId: null,
-                                                    previousStop: stopRef(s),
-                                                    nextStop: null,
-                                                    near: pointOf(s),
-                                                })
+                        {selectedVariant ? (
+                            <section className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                                <div className="mb-2 flex items-center justify-between">
+                                    <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                        Variant maintenance · {selectedVariant.variant_code}
+                                    </h3>
+                                    {!editingVariant ? (
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setVariantActionError("");
+                                                    setConfirmDeleteVariant(false);
+                                                    setEditingVariant(true);
+                                                }}
+                                                className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                            >
+                                                Edit variant
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setVariantActionError("");
+                                                    setConfirmDeleteVariant(true);
+                                                }}
+                                                className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                                            >
+                                                Delete variant
+                                            </button>
+                                        </div>
+                                    ) : null}
+                                </div>
+                                {variantActionError ? (
+                                    <p className="mb-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
+                                        {variantActionError}
+                                    </p>
+                                ) : null}
+                                {confirmDeleteVariant && !editingVariant ? (
+                                    <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3">
+                                        <p className="text-sm text-red-800">
+                                            Soft-delete variant{" "}
+                                            <span className="font-medium">
+                                                {selectedVariant.variant_code}
+                                            </span>
+                                            ? It is hidden and marked inactive; ordered stops and
+                                            paths are kept.
+                                        </p>
+                                        <div className="mt-2 flex justify-end gap-2">
+                                            <button
+                                                type="button"
+                                                disabled={variantMutating}
+                                                onClick={() => setConfirmDeleteVariant(false)}
+                                                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={variantMutating}
+                                                onClick={confirmDeleteSelectedVariant}
+                                                className="rounded-md bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
+                                            >
+                                                {variantMutating ? "Deleting…" : "Delete variant"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : null}
+                                {editingVariant ? (
+                                    <TransportVariantForm
+                                        key={selectedVariant.public_id}
+                                        variant={selectedVariant}
+                                        onCancel={() => setEditingVariant(false)}
+                                        onSaved={handleVariantSaved}
+                                    />
+                                ) : (
+                                    <div className="divide-y divide-gray-100 text-sm">
+                                        <InfoRow
+                                            label="Direction"
+                                            value={selectedVariant.direction_name ?? "—"}
+                                        />
+                                        <InfoRow
+                                            label="Headsign"
+                                            value={selectedVariant.headsign ?? "—"}
+                                        />
+                                        <InfoRow
+                                            label="Confidence"
+                                            value={
+                                                selectedVariant.confidence_score === null
+                                                    ? "—"
+                                                    : Math.round(selectedVariant.confidence_score)
                                             }
                                         />
-                                    ) : (
-                                        <InsertStopButton
-                                            label="+ Insert stop here"
-                                            disabled={stopMutating}
-                                            onClick={() =>
-                                                openInsert({
-                                                    uiPosition: "between",
-                                                    apiPosition: "after",
-                                                    anchorRouteStopId: s.id,
-                                                    previousStop: stopRef(s),
-                                                    nextStop: nextStop
-                                                        ? stopRef(nextStop)
-                                                        : null,
-                                                    near: midpoint(
-                                                        pointOf(s),
-                                                        nextStop ? pointOf(nextStop) : null,
-                                                    ),
-                                                })
-                                            }
-                                        />
-                                    )}
-                                    </Fragment>
-                                );
-                            })}
-                        </div>
-                    )}
-                </aside>
-            </div>
+                                    </div>
+                                )}
+                            </section>
+                        ) : null}
+                    </CollapsibleSection>
+                </div>
+            )}
+
+            <TransportRouteReviewMapShell
+                open={reviewMapOpen}
+                onExit={closeReviewMap}
+                routeCode={route?.route_code ?? ""}
+                routeDisplayName={routeDisplayName}
+                variants={variants}
+                selectedVariantId={selectedVariantId}
+                onVariantChange={selectVariant}
+                stops={stops}
+                stopsLoading={stopsLoading}
+                stopsError={stopsError}
+                routePathInfo={path}
+                routeStops={reviewMapSavedRouteStops}
+                stopMoveDrafts={reviewMapStopDrafts}
+                mapAutoFitKey={selectedVariantId}
+                selectedStopId={reviewMapSelectedStopId}
+                onSelectStop={setReviewMapSelectedStopId}
+                movedStopIds={reviewMapMovedStopIds}
+                hasUnsavedChanges={reviewMapHasUnsavedMoves}
+                selectedStopHasUnsaved={reviewMapSelectedStopHasUnsaved}
+                saveLoading={reviewMapSaveLoading}
+                saveError={reviewMapSaveError}
+                saveSuccessMessage={reviewMapSaveSuccess}
+                onSave={saveReviewMapStopMoves}
+                onSaveAndNext={saveReviewMapStopAndNext}
+                onRevert={revertReviewMapStopMoves}
+                onStopMovePreview={
+                    pathMode === null &&
+                    !isReviewMapPathEditMode(reviewMapMode) &&
+                    reviewMapSelectedStopId &&
+                    !reviewMapSaveLoading
+                        ? handleReviewMapStopMovePreview
+                        : undefined
+                }
+                stopMoveHint={reviewMapStopMoveHint}
+                draftPath={pathMode ? draftPath : null}
+                pathDrawing={pathMode !== null}
+                onDraftPathAddPoint={pathMode ? addDraftPoint : undefined}
+                pathDrawingHint={
+                    pathMode ? "Click the map to add path points" : null
+                }
+                canGeneratePathFromStops={generatePathReadiness.eligible}
+                generatePathFromStopsDisabledReason={
+                    generatePathReadiness.eligible
+                        ? undefined
+                        : generatePathReadiness.reasons.join(" ")
+                }
+                onGeneratePathFromStops={openGeneratePathDialog}
+                reviewMapMode={reviewMapMode}
+                canEditPath={hasSavedRoutePathGeometry(path)}
+                pathEditDraftCoords={reviewMapPathDraftCoords}
+                pathEditDraftGeometry={reviewMapPathDraftGeometry}
+                pathEditHasUnsavedChanges={reviewMapPathDirty}
+                selectedPathVertexIndex={reviewMapSelectedPathVertexIndex}
+                onEnterEditPath={enterReviewMapEditPath}
+                onCancelEditPath={cancelReviewMapEditPath}
+                onSavePathEdit={saveReviewMapPathEdit}
+                onExitEditPath={cancelReviewMapEditPath}
+                onPathVertexSelect={setReviewMapSelectedPathVertexIndex}
+                onPathEditDraftChange={handleReviewMapPathDraftChange}
+                onDeleteSelectedPathVertex={deleteReviewMapSelectedPathVertex}
+                pathEditLoading={reviewMapPathEditLoading}
+                pathEditError={reviewMapPathEditError}
+                pathEditHint={reviewMapPathEditHint}
+                routeReviewStatus={route?.review_status ?? "needs_review"}
+                routePathInfoForReview={path}
+                reviewReadiness={readiness}
+                onMarkStopReviewed={markSelectedStopReviewed}
+                onMarkPathReviewed={markVariantPathReviewed}
+                onMarkRouteReviewed={markRouteReviewed}
+                onOpenStopDetail={onOpenStopDetail}
+                centerStopRequest={reviewMapCenterStopRequest}
+            />
+
+            <GeneratePathFromStopsDialog
+                open={generatePathOpen}
+                isBusy={generatePathLoading}
+                error={generatePathError}
+                warnings={generatePathWarnings}
+                onConfirm={confirmGeneratePath}
+                onCancel={cancelGeneratePath}
+            />
+
 
             <RemoveRouteStopDialog
                 open={removeTarget !== null}
@@ -1734,6 +2200,17 @@ export default function TransportRouteDetailContent({
                 onCancel={cancelInsert}
                 onInserted={handleStopInserted}
             />
+
+            {replaceTarget && selectedVariantId && route ? (
+                <ReplaceRouteStopDialog
+                    routeStop={replaceTarget}
+                    variantPublicId={selectedVariantId}
+                    mode={route.mode}
+                    near={pointOf(replaceTarget)}
+                    onClose={() => setReplaceTarget(null)}
+                    onReplaced={refreshOrderedStops}
+                />
+            ) : null}
         </>
     );
 }

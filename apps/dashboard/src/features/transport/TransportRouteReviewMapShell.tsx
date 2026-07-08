@@ -1,0 +1,1296 @@
+"use client";
+
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type UIEvent } from "react";
+
+import TransportPreviewMap, { type TransportPreviewStop } from "./TransportPreviewMap";
+import TransportReviewMapReviewActions from "./TransportReviewMapReviewActions";
+import { isReviewMapPathEditMode, type ReviewMapMode } from "./reviewMapMode";
+import type {
+    GeoJsonGeometry,
+    RouteReviewReadiness,
+    TransportRoutePath,
+    TransportRouteStopItem,
+    TransportVariantSummary,
+} from "./types";
+import {
+    hasSavedRoutePathGeometry,
+    resolveRoutePathDisplayKind,
+    routePathDisplayLabel,
+    routePathLineStyle,
+} from "./routePathDisplay";
+
+const SELECT_CLASS =
+    "rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900";
+
+const NAV_BTN_CLASS =
+    "rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40";
+
+const TOOLBAR_BTN_CLASS =
+    "rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40";
+
+const TOOLBAR_GROUP_CLASS = "flex shrink-0 items-center gap-1.5";
+
+const VIRTUAL_STOP_LIST_THRESHOLD = 150;
+const VIRTUAL_STOP_ROW_HEIGHT = 64;
+const VIRTUAL_STOP_OVERSCAN = 8;
+
+function stopRowStatus(stop: TransportRouteStopItem): string {
+    if (!stop.stop.geometry) {
+        return "No location";
+    }
+    if (stop.geometry_source === "route_stop_review_geom") {
+        return "Review point";
+    }
+    if (stop.stop.review_status === "reviewed" || stop.stop.review_status === "verified") {
+        return "Reviewed";
+    }
+    return "Saved";
+}
+
+/** Compact "+320 m" / "+1.2 km" distance-from-previous label. */
+function formatDistanceFromPrev(meters: number): string {
+    if (meters >= 1000) {
+        return `+${(meters / 1000).toFixed(1)} km`;
+    }
+    return `+${Math.round(meters)} m`;
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+    const tag = target.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
+}
+
+function resolveNextStopId(
+    stops: readonly TransportRouteStopItem[],
+    selectedStopId: string | null,
+): string | null {
+    if (stops.length === 0) {
+        return null;
+    }
+    const idx = selectedStopId ? stops.findIndex((s) => s.id === selectedStopId) : -1;
+    if (idx < 0) {
+        return stops[0]?.id ?? null;
+    }
+    if (idx >= stops.length - 1) {
+        return stops[idx]?.id ?? null;
+    }
+    return stops[idx + 1]?.id ?? null;
+}
+
+function resolvePrevStopId(
+    stops: readonly TransportRouteStopItem[],
+    selectedStopId: string | null,
+): string | null {
+    if (stops.length === 0) {
+        return null;
+    }
+    const idx = selectedStopId ? stops.findIndex((s) => s.id === selectedStopId) : stops.length;
+    if (idx <= 0) {
+        return stops[0]?.id ?? null;
+    }
+    return stops[idx - 1]?.id ?? null;
+}
+
+const ReviewMapStopRow = memo(function ReviewMapStopRow({
+    stop,
+    selected,
+    movedUnsaved,
+    distanceFromPrev,
+    disabled = false,
+    onSelect,
+}: {
+    readonly stop: TransportRouteStopItem;
+    readonly selected: boolean;
+    readonly movedUnsaved: boolean;
+    readonly distanceFromPrev: string | null;
+    readonly disabled?: boolean;
+    readonly onSelect: (routeStopId: string) => void;
+}) {
+    const nameMm = stop.stop.name_mm?.trim() || "—";
+    const nameEn = stop.stop.name_en?.trim() || "—";
+    const status = movedUnsaved ? "Moved, not saved" : stopRowStatus(stop);
+
+    return (
+        <button
+            type="button"
+            id={`review-map-stop-${stop.id}`}
+            onClick={() => {
+                if (!disabled) {
+                    onSelect(stop.id);
+                }
+            }}
+            disabled={disabled}
+            className={`flex h-[64px] w-full items-start gap-2.5 border-b border-gray-100 px-3 py-2 text-left text-sm transition-colors ${
+                disabled ? "cursor-not-allowed opacity-50" : "hover:bg-gray-50"
+            } ${
+                selected
+                    ? "border-l-2 border-l-blue-600 bg-blue-50 ring-1 ring-inset ring-blue-300"
+                    : movedUnsaved
+                      ? "border-l-2 border-l-amber-400"
+                      : ""
+            }`}
+        >
+            <span
+                className={`mt-0.5 inline-flex h-5 min-w-8 flex-none items-center justify-center rounded px-1 text-[11px] font-semibold tabular-nums ${
+                    movedUnsaved
+                        ? "bg-amber-100 text-amber-900"
+                        : selected
+                          ? "bg-blue-600 text-white"
+                          : "bg-blue-100 text-blue-800"
+                }`}
+            >
+                #{stop.stop_sequence}
+            </span>
+            <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-medium leading-tight text-gray-900">
+                    {nameMm}
+                </p>
+                <p className="truncate text-xs leading-tight text-gray-500">{nameEn}</p>
+                <p
+                    className={`truncate text-[11px] leading-tight ${
+                        movedUnsaved ? "font-medium text-amber-700" : "text-gray-400"
+                    }`}
+                >
+                    {status}
+                    {distanceFromPrev ? (
+                        <span className="text-gray-400"> · {distanceFromPrev}</span>
+                    ) : null}
+                </p>
+            </div>
+        </button>
+    );
+});
+
+function ReviewMapLayerControls({
+    showStopSequenceGuide,
+    onShowStopSequenceGuideChange,
+    showRoutePath,
+    onShowRoutePathChange,
+    hasSavedRoutePath,
+    routePathLabel,
+    stacked = false,
+}: {
+    readonly showStopSequenceGuide: boolean;
+    readonly onShowStopSequenceGuideChange: (checked: boolean) => void;
+    readonly showRoutePath: boolean;
+    readonly onShowRoutePathChange: (checked: boolean) => void;
+    readonly hasSavedRoutePath: boolean;
+    readonly routePathLabel: string;
+    readonly stacked?: boolean;
+}) {
+    const layoutClass = stacked ? "flex flex-col gap-2" : "flex items-center gap-3";
+    return (
+        <div className={layoutClass}>
+            <label className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-xs text-gray-700">
+                <input
+                    type="checkbox"
+                    checked={showStopSequenceGuide}
+                    onChange={(e) => onShowStopSequenceGuideChange(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-gray-300"
+                />
+                <span title="Dashed line with arrows · not saved">Stop sequence guide</span>
+            </label>
+            <label
+                className={`flex items-center gap-1.5 whitespace-nowrap text-xs text-gray-700 ${
+                    hasSavedRoutePath ? "cursor-pointer" : "cursor-not-allowed opacity-70"
+                }`}
+            >
+                <input
+                    type="checkbox"
+                    checked={showRoutePath && hasSavedRoutePath}
+                    disabled={!hasSavedRoutePath}
+                    onChange={(e) => onShowRoutePathChange(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-gray-300"
+                />
+                <span
+                    title={
+                        hasSavedRoutePath
+                            ? `Saved route path · ${routePathLabel}`
+                            : "No saved route path for this variant"
+                    }
+                >
+                    {hasSavedRoutePath ? "Route path" : "Route path: No path"}
+                </span>
+            </label>
+        </div>
+    );
+}
+
+function ReviewMapPathControls({
+    onGeneratePathFromStops,
+    generatePathDisabled,
+    generatePathTitle,
+    onEnterEditPath,
+    editPathDisabled,
+    editPathTitle,
+    pathEditActive,
+    stacked = false,
+}: {
+    readonly onGeneratePathFromStops?: () => void;
+    readonly generatePathDisabled: boolean;
+    readonly generatePathTitle: string;
+    readonly onEnterEditPath?: () => void;
+    readonly editPathDisabled: boolean;
+    readonly editPathTitle: string;
+    readonly pathEditActive: boolean;
+    readonly stacked?: boolean;
+}) {
+    const layoutClass = stacked ? "flex flex-col gap-1.5" : "flex items-center gap-1.5";
+    return (
+        <div className={layoutClass}>
+            {onGeneratePathFromStops ? (
+                <button
+                    type="button"
+                    onClick={onGeneratePathFromStops}
+                    disabled={generatePathDisabled}
+                    title={generatePathTitle}
+                    className={`${TOOLBAR_BTN_CLASS} ${stacked ? "w-full text-left" : ""}`}
+                >
+                    Generate path from stops
+                </button>
+            ) : null}
+            {onEnterEditPath && !pathEditActive ? (
+                <button
+                    type="button"
+                    onClick={onEnterEditPath}
+                    disabled={editPathDisabled}
+                    title={editPathTitle}
+                    className={`${TOOLBAR_BTN_CLASS} ${stacked ? "w-full text-left" : ""}`}
+                >
+                    Edit path
+                </button>
+            ) : null}
+        </div>
+    );
+}
+
+export type ReviewMapSaveOptions = {
+    /** Save this route-stop row only (defaults to the selected stop). */
+    routeStopId?: string;
+    /** After a successful save, select this route-stop row (or null to clear). */
+    thenSelectStopId?: string | null;
+};
+
+export type TransportRouteReviewMapShellProps = {
+    readonly open: boolean;
+    readonly onExit: () => void;
+    readonly routeCode: string;
+    readonly routeDisplayName: string;
+    readonly variants: readonly TransportVariantSummary[];
+    readonly selectedVariantId: string | null;
+    readonly onVariantChange: (variantPublicId: string) => void;
+    readonly stops: readonly TransportRouteStopItem[];
+    readonly stopsLoading: boolean;
+    readonly stopsError: string;
+    readonly routePathInfo: TransportRoutePath | null;
+    readonly routeStops: readonly TransportPreviewStop[];
+    readonly stopMoveDrafts?: Readonly<Record<string, { lng: number; lat: number }>>;
+    readonly mapAutoFitKey: string | null;
+    readonly selectedStopId: string | null;
+    readonly onSelectStop: (routeStopId: string | null) => void;
+    readonly movedStopIds?: ReadonlySet<string>;
+    readonly hasUnsavedChanges?: boolean;
+    readonly selectedStopHasUnsaved?: boolean;
+    readonly saveLoading?: boolean;
+    readonly saveError?: string;
+    readonly saveSuccessMessage?: string | null;
+    readonly onSave?: (options?: ReviewMapSaveOptions) => void;
+    readonly onSaveAndNext?: () => void;
+    readonly onRevert?: (routeStopId?: string) => void;
+    readonly onStopMovePreview?: (coords: { lng: number; lat: number }) => void;
+    readonly stopMoveHint?: string | null;
+    readonly draftPath?: ReadonlyArray<[number, number]> | null;
+    readonly pathDrawing?: boolean;
+    readonly onDraftPathAddPoint?: (coords: { lng: number; lat: number }) => void;
+    readonly pathDrawingHint?: string | null;
+    readonly canGeneratePathFromStops?: boolean;
+    readonly generatePathFromStopsDisabledReason?: string;
+    readonly onGeneratePathFromStops?: () => void;
+    readonly reviewMapMode?: ReviewMapMode;
+    readonly canEditPath?: boolean;
+    readonly pathEditDraftCoords?: ReadonlyArray<[number, number]> | null;
+    readonly pathEditDraftGeometry?: GeoJsonGeometry | null;
+    readonly pathEditHasUnsavedChanges?: boolean;
+    readonly selectedPathVertexIndex?: number | null;
+    readonly onEnterEditPath?: () => void;
+    readonly onCancelEditPath?: () => void;
+    readonly onSavePathEdit?: () => void;
+    readonly onExitEditPath?: () => void;
+    readonly onPathVertexSelect?: (vertexIndex: number) => void;
+    readonly onPathEditDraftChange?: (coords: Array<[number, number]>) => void;
+    readonly onDeleteSelectedPathVertex?: () => void;
+    readonly pathEditLoading?: boolean;
+    readonly pathEditError?: string;
+    readonly pathEditHint?: string | null;
+    readonly routeReviewStatus?: string;
+    readonly routePathInfoForReview?: TransportRoutePath | null;
+    readonly reviewReadiness?: RouteReviewReadiness | null;
+    readonly onMarkStopReviewed?: () => Promise<void>;
+    readonly onMarkPathReviewed?: () => Promise<void>;
+    readonly onMarkRouteReviewed?: () => Promise<void>;
+    /** Opens the transport stop detail drawer for the selected stop's public id. */
+    readonly onOpenStopDetail?: (stopPublicId: string) => void;
+    /** Increment id to center the map on stopId after Save & Next. */
+    readonly centerStopRequest?: { readonly id: number; readonly stopId: string } | null;
+};
+
+/**
+ * Fullscreen review-map overlay for a route variant. Mounts one MapLibre instance
+ * while open; unmounts on exit so the basemap is not kept alive behind the drawer.
+ */
+export default function TransportRouteReviewMapShell({
+    open,
+    onExit,
+    routeCode,
+    routeDisplayName,
+    variants,
+    selectedVariantId,
+    onVariantChange,
+    stops,
+    stopsLoading,
+    stopsError,
+    routePathInfo,
+    routeStops,
+    stopMoveDrafts,
+    mapAutoFitKey,
+    selectedStopId,
+    onSelectStop,
+    movedStopIds,
+    hasUnsavedChanges = false,
+    selectedStopHasUnsaved = false,
+    saveLoading = false,
+    saveError = "",
+    saveSuccessMessage = null,
+    onSave,
+    onSaveAndNext,
+    onRevert,
+    onStopMovePreview,
+    stopMoveHint = null,
+    draftPath = null,
+    pathDrawing = false,
+    onDraftPathAddPoint,
+    pathDrawingHint = null,
+    canGeneratePathFromStops = false,
+    generatePathFromStopsDisabledReason = "",
+    onGeneratePathFromStops,
+    reviewMapMode = null,
+    canEditPath = false,
+    pathEditDraftCoords = null,
+    pathEditDraftGeometry = null,
+    pathEditHasUnsavedChanges = false,
+    selectedPathVertexIndex = null,
+    onEnterEditPath,
+    onCancelEditPath,
+    onSavePathEdit,
+    onExitEditPath,
+    onPathVertexSelect,
+    onPathEditDraftChange,
+    onDeleteSelectedPathVertex,
+    pathEditLoading = false,
+    pathEditError = "",
+    pathEditHint = null,
+    routeReviewStatus = "needs_review",
+    routePathInfoForReview = null,
+    reviewReadiness = null,
+    onMarkStopReviewed,
+    onMarkPathReviewed,
+    onMarkRouteReviewed,
+    onOpenStopDetail,
+    centerStopRequest = null,
+}: TransportRouteReviewMapShellProps) {
+    const titleId = useId();
+    const stopListScrollRef = useRef<HTMLDivElement | null>(null);
+    const [stopListScrollTop, setStopListScrollTop] = useState(0);
+    const [stopListViewportHeight, setStopListViewportHeight] = useState(480);
+
+    const [showStopSequenceGuide, setShowStopSequenceGuide] = useState(true);
+    const [showRoutePath, setShowRoutePath] = useState(true);
+    const [mapToolsOpen, setMapToolsOpen] = useState(false);
+    const [fitRequest, setFitRequest] = useState<{
+        id: number;
+        mode: "variant" | "stop";
+        stopId: string | null;
+    }>({ id: 0, mode: "variant", stopId: null });
+    const [stopReviewBusy, setStopReviewBusy] = useState(false);
+    const [stopReviewError, setStopReviewError] = useState("");
+    const [pendingSelectStopId, setPendingSelectStopId] = useState<string | null | undefined>(
+        undefined,
+    );
+
+    const pathEditActive = isReviewMapPathEditMode(reviewMapMode);
+
+    const selectedIndex = useMemo(
+        () => (selectedStopId ? stops.findIndex((s) => s.id === selectedStopId) : -1),
+        [stops, selectedStopId],
+    );
+
+    const routePathDisplayKind = useMemo(
+        () => resolveRoutePathDisplayKind(routePathInfo),
+        [routePathInfo],
+    );
+    const routePathLabel = routePathDisplayLabel(routePathDisplayKind);
+    const savedRoutePathStyle = useMemo(
+        () => routePathLineStyle(routePathDisplayKind),
+        [routePathDisplayKind],
+    );
+    const hasSavedRoutePath = hasSavedRoutePathGeometry(routePathInfo);
+    const visibleRoutePathGeometry =
+        showRoutePath && hasSavedRoutePath ? (routePathInfo?.geometry ?? null) : null;
+
+    const generatePathDisabled =
+        !canGeneratePathFromStops ||
+        hasUnsavedChanges ||
+        saveLoading ||
+        pathDrawing ||
+        pathEditActive;
+    const generatePathTitle = hasUnsavedChanges
+        ? "Save or revert stop changes first."
+        : canGeneratePathFromStops
+          ? "Generate a road-following path from ordered stops"
+          : generatePathFromStopsDisabledReason || "Cannot generate path yet";
+
+    const editPathDisabled =
+        !canEditPath || saveLoading || pathDrawing || hasUnsavedChanges || pathEditActive;
+    const editPathTitle = hasUnsavedChanges
+        ? "Save or revert stop changes first."
+        : canEditPath
+          ? "Edit the saved route path"
+          : "Save a route path before editing";
+
+    const canGoPrev = stops.length > 0 && selectedIndex > 0;
+    const canGoNext = stops.length > 0 && (selectedIndex < 0 || selectedIndex < stops.length - 1);
+
+    const handleFit = useCallback(() => {
+        setFitRequest((prev) => ({
+            id: prev.id + 1,
+            mode: selectedStopId ? "stop" : "variant",
+            stopId: selectedStopId,
+        }));
+    }, [selectedStopId]);
+
+    const fitTooltip = selectedStopId
+        ? "Center selected stop (F)"
+        : "Fit route: all stops, sequence guide, and path if visible (F)";
+
+    useEffect(() => {
+        if (!open || !centerStopRequest?.stopId) {
+            return;
+        }
+        setFitRequest({
+            id: centerStopRequest.id,
+            mode: "stop",
+            stopId: centerStopRequest.stopId,
+        });
+    }, [open, centerStopRequest?.id, centerStopRequest?.stopId]);
+
+    const applySelectStop = useCallback(
+        (stopId: string | null) => {
+            setPendingSelectStopId(undefined);
+            onSelectStop(stopId);
+        },
+        [onSelectStop],
+    );
+
+    const requestSelectStop = useCallback(
+        (stopId: string | null) => {
+            if (pathEditActive) {
+                return;
+            }
+            if (saveLoading) {
+                return;
+            }
+            if (stopId === selectedStopId) {
+                if (!selectedStopHasUnsaved) {
+                    applySelectStop(null);
+                } else {
+                    setPendingSelectStopId(null);
+                }
+                return;
+            }
+            if (selectedStopHasUnsaved) {
+                setPendingSelectStopId(stopId);
+                return;
+            }
+            applySelectStop(stopId);
+        },
+        [applySelectStop, pathEditActive, saveLoading, selectedStopHasUnsaved, selectedStopId],
+    );
+
+    const goToPrevStop = useCallback(() => {
+        requestSelectStop(resolvePrevStopId(stops, selectedStopId));
+    }, [requestSelectStop, stops, selectedStopId]);
+
+    const goToNextStop = useCallback(() => {
+        requestSelectStop(resolveNextStopId(stops, selectedStopId));
+    }, [requestSelectStop, stops, selectedStopId]);
+
+    const handleSavePendingNavigation = useCallback(() => {
+        if (pendingSelectStopId === undefined || !selectedStopId) {
+            return;
+        }
+        onSave?.({
+            routeStopId: selectedStopId,
+            thenSelectStopId: pendingSelectStopId,
+        });
+        setPendingSelectStopId(undefined);
+    }, [onSave, pendingSelectStopId, selectedStopId]);
+
+    const handleRevertPendingNavigation = useCallback(() => {
+        if (pendingSelectStopId === undefined) {
+            return;
+        }
+        if (selectedStopId) {
+            onRevert?.(selectedStopId);
+        }
+        applySelectStop(pendingSelectStopId);
+    }, [applySelectStop, onRevert, pendingSelectStopId, selectedStopId]);
+
+    // Distance from the previous stop, derived once per stops load from the
+    // cumulative distance_from_start_m values (no per-row computation).
+    const distanceFromPrevLabels = useMemo(() => {
+        const labels = new Map<string, string>();
+        for (let i = 1; i < stops.length; i++) {
+            const prev = stops[i - 1]?.distance_from_start_m;
+            const curr = stops[i]?.distance_from_start_m;
+            if (prev !== null && prev !== undefined && curr !== null && curr !== undefined) {
+                const delta = curr - prev;
+                if (Number.isFinite(delta) && delta >= 0) {
+                    labels.set(stops[i]!.id, formatDistanceFromPrev(delta));
+                }
+            }
+        }
+        return labels;
+    }, [stops]);
+
+    const handleMarkSelectedStopReviewed = useCallback(() => {
+        if (!onMarkStopReviewed) {
+            return;
+        }
+        setStopReviewError("");
+        setStopReviewBusy(true);
+        void onMarkStopReviewed()
+            .catch((err: unknown) => {
+                setStopReviewError(
+                    err instanceof Error ? err.message : "Failed to mark stop reviewed.",
+                );
+            })
+            .finally(() => setStopReviewBusy(false));
+    }, [onMarkStopReviewed]);
+
+    const virtualizeStopList = stops.length > VIRTUAL_STOP_LIST_THRESHOLD;
+    const virtualStopWindow = useMemo(() => {
+        if (!virtualizeStopList) {
+            return { start: 0, end: stops.length, offsetY: 0, totalHeight: 0 };
+        }
+        const start = Math.max(
+            0,
+            Math.floor(stopListScrollTop / VIRTUAL_STOP_ROW_HEIGHT) - VIRTUAL_STOP_OVERSCAN,
+        );
+        const visibleCount =
+            Math.ceil(stopListViewportHeight / VIRTUAL_STOP_ROW_HEIGHT) +
+            VIRTUAL_STOP_OVERSCAN * 2;
+        const end = Math.min(stops.length, start + visibleCount);
+        return {
+            start,
+            end,
+            offsetY: start * VIRTUAL_STOP_ROW_HEIGHT,
+            totalHeight: stops.length * VIRTUAL_STOP_ROW_HEIGHT,
+        };
+    }, [virtualizeStopList, stops.length, stopListScrollTop, stopListViewportHeight]);
+
+    const handleStopListScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+        setStopListScrollTop(event.currentTarget.scrollTop);
+    }, []);
+
+    useEffect(() => {
+        if (!open || !virtualizeStopList) {
+            return;
+        }
+        const node = stopListScrollRef.current;
+        if (!node) {
+            return;
+        }
+        const updateHeight = () => {
+            setStopListViewportHeight(node.clientHeight || 480);
+        };
+        updateHeight();
+        const observer = new ResizeObserver(updateHeight);
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, [open, virtualizeStopList, stops.length]);
+
+    useEffect(() => {
+        if (!open || !selectedStopId) {
+            return;
+        }
+        if (virtualizeStopList && stopListScrollRef.current) {
+            const idx = stops.findIndex((stop) => stop.id === selectedStopId);
+            if (idx < 0) {
+                return;
+            }
+            const rowTop = idx * VIRTUAL_STOP_ROW_HEIGHT;
+            const rowBottom = rowTop + VIRTUAL_STOP_ROW_HEIGHT;
+            const viewport = stopListScrollRef.current;
+            const viewTop = viewport.scrollTop;
+            const viewBottom = viewTop + viewport.clientHeight;
+            if (rowTop < viewTop || rowBottom > viewBottom) {
+                viewport.scrollTop = Math.max(0, rowTop - VIRTUAL_STOP_ROW_HEIGHT);
+                setStopListScrollTop(viewport.scrollTop);
+            }
+            return;
+        }
+        document
+            .getElementById(`review-map-stop-${selectedStopId}`)
+            ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, [open, selectedStopId, stops, virtualizeStopList]);
+
+    useEffect(() => {
+        if (!open) {
+            setPendingSelectStopId(undefined);
+            setStopListScrollTop(0);
+            setMapToolsOpen(false);
+        }
+    }, [open]);
+
+    useEffect(() => {
+        if (!selectedStopHasUnsaved) {
+            setPendingSelectStopId(undefined);
+        }
+    }, [selectedStopHasUnsaved]);
+
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+        const onKey = (e: KeyboardEvent) => {
+            if (isTypingTarget(e.target)) {
+                return;
+            }
+            if (e.metaKey || e.ctrlKey || e.altKey) {
+                return;
+            }
+
+            const key = e.key.toLowerCase();
+            if (key === "escape") {
+                if (pathEditActive && pathEditHasUnsavedChanges && onCancelEditPath) {
+                    e.preventDefault();
+                    onCancelEditPath();
+                    return;
+                }
+                if (pathEditActive && onExitEditPath) {
+                    e.preventDefault();
+                    onExitEditPath();
+                    return;
+                }
+                if (pendingSelectStopId !== undefined) {
+                    e.preventDefault();
+                    setPendingSelectStopId(undefined);
+                    return;
+                }
+                onExit();
+                return;
+            }
+
+            if (pendingSelectStopId !== undefined || pathEditActive) {
+                if (pathEditActive && (key === "delete" || key === "backspace") && onDeleteSelectedPathVertex) {
+                    if (selectedPathVertexIndex !== null && (pathEditDraftCoords?.length ?? 0) > 2) {
+                        e.preventDefault();
+                        onDeleteSelectedPathVertex();
+                    }
+                }
+                return;
+            }
+
+            if (key === "n") {
+                e.preventDefault();
+                goToNextStop();
+                return;
+            }
+            if (key === "p") {
+                e.preventDefault();
+                goToPrevStop();
+                return;
+            }
+            if (key === "s") {
+                if (!selectedStopHasUnsaved || !onSave || saveLoading || !selectedStopId) {
+                    return;
+                }
+                e.preventDefault();
+                onSave({ routeStopId: selectedStopId });
+                return;
+            }
+            if (key === "f") {
+                e.preventDefault();
+                handleFit();
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [
+        open,
+        onExit,
+        goToNextStop,
+        goToPrevStop,
+        handleFit,
+        hasUnsavedChanges,
+        selectedStopHasUnsaved,
+        selectedStopId,
+        onSave,
+        saveLoading,
+        pendingSelectStopId,
+        pathEditActive,
+        pathEditHasUnsavedChanges,
+        onCancelEditPath,
+        onExitEditPath,
+        onDeleteSelectedPathVertex,
+        selectedPathVertexIndex,
+        pathEditDraftCoords,
+    ]);
+
+    if (!open) {
+        return null;
+    }
+
+    const selectedStop =
+        selectedStopId !== null ? (stops.find((s) => s.id === selectedStopId) ?? null) : null;
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex flex-col bg-gray-100"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+        >
+            {/* Top bar */}
+            <header className="sticky top-0 z-10 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-3 py-2 shadow-sm">
+                {/* Left: route identity + variant */}
+                <div className="flex min-w-0 flex-1 basis-[min(100%,42rem)] items-center gap-2">
+                    <span className="shrink-0 rounded bg-gray-900 px-1.5 py-0.5 text-xs font-semibold text-white">
+                        {routeCode}
+                    </span>
+                    <span
+                        id={titleId}
+                        className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900"
+                        title={routeDisplayName}
+                    >
+                        {routeDisplayName}
+                    </span>
+                    {variants.length > 0 ? (
+                        <label className="shrink-0">
+                            <span className="sr-only">Variant</span>
+                            <select
+                                className={`${SELECT_CLASS} w-[min(360px,40vw)] min-w-[240px] py-1 text-xs`}
+                                value={selectedVariantId ?? ""}
+                                onChange={(e) => onVariantChange(e.target.value)}
+                            >
+                                {variants.map((v) => (
+                                    <option key={v.public_id} value={v.public_id}>
+                                        {v.variant_code}
+                                        {v.direction_name ? ` · ${v.direction_name}` : ""}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    ) : null}
+                </div>
+
+                {/* Middle: unsaved + fit + layer toggles */}
+                <div className={`${TOOLBAR_GROUP_CLASS} flex-wrap`}>
+                    {selectedStopHasUnsaved ? (
+                        <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                            Unsaved
+                        </span>
+                    ) : null}
+
+                    <button
+                        type="button"
+                        onClick={handleFit}
+                        className={TOOLBAR_BTN_CLASS}
+                        title={fitTooltip}
+                    >
+                        Fit
+                    </button>
+
+                    <div className="hidden items-center gap-3 lg:flex">
+                        <ReviewMapLayerControls
+                            showStopSequenceGuide={showStopSequenceGuide}
+                            onShowStopSequenceGuideChange={setShowStopSequenceGuide}
+                            showRoutePath={showRoutePath}
+                            onShowRoutePathChange={setShowRoutePath}
+                            hasSavedRoutePath={hasSavedRoutePath}
+                            routePathLabel={routePathLabel}
+                        />
+                    </div>
+                </div>
+
+                {/* Path actions */}
+                <div className="hidden shrink-0 items-center gap-1.5 md:flex">
+                    <ReviewMapPathControls
+                        onGeneratePathFromStops={onGeneratePathFromStops}
+                        generatePathDisabled={generatePathDisabled}
+                        generatePathTitle={generatePathTitle}
+                        onEnterEditPath={onEnterEditPath}
+                        editPathDisabled={editPathDisabled}
+                        editPathTitle={editPathTitle}
+                        pathEditActive={pathEditActive}
+                    />
+                </div>
+
+                {/* Narrow: layer + path menu */}
+                <div className="relative lg:hidden">
+                    <button
+                        type="button"
+                        onClick={() => setMapToolsOpen((open) => !open)}
+                        className={TOOLBAR_BTN_CLASS}
+                        aria-expanded={mapToolsOpen}
+                        aria-haspopup="menu"
+                    >
+                        Map tools
+                    </button>
+                    {mapToolsOpen ? (
+                        <>
+                            <button
+                                type="button"
+                                className="fixed inset-0 z-10 cursor-default"
+                                aria-label="Close map tools menu"
+                                onClick={() => setMapToolsOpen(false)}
+                            />
+                            <div
+                                role="menu"
+                                className="absolute right-0 top-full z-20 mt-1 w-64 rounded-md border border-gray-200 bg-white p-3 shadow-lg"
+                            >
+                                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                    Layers
+                                </p>
+                                <ReviewMapLayerControls
+                                    showStopSequenceGuide={showStopSequenceGuide}
+                                    onShowStopSequenceGuideChange={setShowStopSequenceGuide}
+                                    showRoutePath={showRoutePath}
+                                    onShowRoutePathChange={setShowRoutePath}
+                                    hasSavedRoutePath={hasSavedRoutePath}
+                                    routePathLabel={routePathLabel}
+                                    stacked
+                                />
+                                <p className="mb-2 mt-3 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                    Path
+                                </p>
+                                <ReviewMapPathControls
+                                    onGeneratePathFromStops={onGeneratePathFromStops}
+                                    generatePathDisabled={generatePathDisabled}
+                                    generatePathTitle={generatePathTitle}
+                                    onEnterEditPath={onEnterEditPath}
+                                    editPathDisabled={editPathDisabled}
+                                    editPathTitle={editPathTitle}
+                                    pathEditActive={pathEditActive}
+                                    stacked
+                                />
+                            </div>
+                        </>
+                    ) : null}
+                </div>
+
+                {/* Right: exit */}
+                <div className={`${TOOLBAR_GROUP_CLASS} ml-auto`}>
+                    <button type="button" onClick={onExit} className={TOOLBAR_BTN_CLASS}>
+                        Exit
+                    </button>
+                </div>
+            </header>
+
+            {pathEditActive ? (
+                <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-pink-200 bg-pink-50 px-4 py-2.5">
+                    <span className="text-sm font-medium text-pink-950">Path edit mode</span>
+                    {pathEditHasUnsavedChanges ? (
+                        <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
+                            Unsaved path changes
+                        </span>
+                    ) : null}
+                    {selectedPathVertexIndex !== null ? (
+                        <span className="rounded-md bg-white px-2 py-0.5 text-xs font-medium text-pink-900 ring-1 ring-pink-200">
+                            Vertex #{selectedPathVertexIndex + 1}
+                        </span>
+                    ) : (
+                        <span className="text-xs text-pink-800">No vertex selected</span>
+                    )}
+                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                        {onDeleteSelectedPathVertex ? (
+                            <button
+                                type="button"
+                                onClick={onDeleteSelectedPathVertex}
+                                disabled={
+                                    pathEditLoading ||
+                                    selectedPathVertexIndex === null ||
+                                    (pathEditDraftCoords?.length ?? 0) <= 2
+                                }
+                                className="rounded-md border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                Delete vertex
+                            </button>
+                        ) : null}
+                        {onSavePathEdit ? (
+                            <button
+                                type="button"
+                                onClick={onSavePathEdit}
+                                disabled={pathEditLoading || !pathEditHasUnsavedChanges}
+                                className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {pathEditLoading ? "Saving…" : "Save path"}
+                            </button>
+                        ) : null}
+                        {onCancelEditPath ? (
+                            <button
+                                type="button"
+                                onClick={onCancelEditPath}
+                                disabled={pathEditLoading}
+                                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                Cancel
+                            </button>
+                        ) : null}
+                        {onExitEditPath ? (
+                            <button
+                                type="button"
+                                onClick={onExitEditPath}
+                                disabled={pathEditLoading}
+                                className="rounded-md border border-pink-300 bg-white px-3 py-1.5 text-sm font-medium text-pink-900 hover:bg-pink-100/60 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                Exit edit mode
+                            </button>
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
+
+            {pathEditError ? (
+                <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
+                    {pathEditError}
+                </div>
+            ) : null}
+
+            {saveError ? (
+                <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
+                    {saveError}
+                </div>
+            ) : null}
+
+            {/* Main: map + stop list */}
+            <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
+                {saveSuccessMessage ? (
+                    <div className="pointer-events-none absolute left-1/2 top-3 z-[60] -translate-x-1/2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900 shadow-sm">
+                        {saveSuccessMessage}
+                    </div>
+                ) : null}
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col p-3">
+                    <TransportPreviewMap
+                        chromeless
+                        className="h-full"
+                        heightClassName="h-full min-h-[280px] w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100 lg:min-h-0"
+                        externalId={selectedVariantId}
+                        routePath={
+                            pathEditActive && pathEditDraftGeometry
+                                ? pathEditDraftGeometry
+                                : pathEditActive && hasSavedRoutePath
+                                  ? (routePathInfo?.geometry ?? null)
+                                  : visibleRoutePathGeometry
+                        }
+                        routePathLineStyle={
+                            pathEditActive && hasSavedRoutePath
+                                ? savedRoutePathStyle
+                                : showRoutePath && hasSavedRoutePath
+                                  ? savedRoutePathStyle
+                                  : null
+                        }
+                        routePathLegendLabel={
+                            pathEditActive && hasSavedRoutePath
+                                ? routePathLabel
+                                : showRoutePath && hasSavedRoutePath
+                                  ? routePathLabel
+                                  : null
+                        }
+                        routeStops={routeStops}
+                        stopMoveDrafts={stopMoveDrafts}
+                        showStopSequenceGuide={showStopSequenceGuide}
+                        allowStopSequenceGuideWithPath
+                        autoFitKey={mapAutoFitKey}
+                        fitRequestId={fitRequest.id}
+                        fitRequestMode={fitRequest.mode}
+                        fitRequestStopId={fitRequest.stopId}
+                        initialZoom={11}
+                        selectedStopId={pathEditActive ? null : selectedStopId}
+                        onStopMovePreview={pathEditActive ? undefined : onStopMovePreview}
+                        stopMoveHint={pathEditActive ? null : stopMoveHint}
+                        pathEditActive={pathEditActive}
+                        pathEditDraftCoords={pathEditDraftCoords}
+                        selectedPathVertexIndex={selectedPathVertexIndex}
+                        onPathVertexSelect={pathEditActive ? onPathVertexSelect : undefined}
+                        onPathEditDraftChange={pathEditActive ? onPathEditDraftChange : undefined}
+                        pathEditHint={pathEditActive ? pathEditHint : null}
+                        draftPath={draftPath}
+                        pathDrawing={pathDrawing}
+                        onDraftPathAddPoint={onDraftPathAddPoint}
+                        editingHint={pathDrawingHint}
+                        emptyHint={
+                            variants.length === 0
+                                ? "No variants to display."
+                                : "No route path or ordered stops available"
+                        }
+                    />
+                </div>
+
+                <aside className="flex w-full shrink-0 flex-col border-t border-gray-200 bg-white lg:w-[360px] lg:border-l lg:border-t-0">
+                    <TransportReviewMapReviewActions
+                        selectedStop={selectedStop}
+                        path={routePathInfoForReview}
+                        routeReviewStatus={routeReviewStatus}
+                        readiness={reviewReadiness}
+                        pathEditActive={pathEditActive}
+                        busy={saveLoading || pathEditLoading}
+                        showStopAction={false}
+                        onMarkStopReviewed={onMarkStopReviewed}
+                        onMarkPathReviewed={onMarkPathReviewed}
+                        onMarkRouteReviewed={onMarkRouteReviewed}
+                    />
+                    <div className="border-b border-gray-100 px-3 py-2">
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                Ordered stops
+                            </h3>
+                            <span className="text-xs tabular-nums text-gray-500">
+                                {selectedStop && !pathEditActive
+                                    ? `#${selectedStop.stop_sequence} / ${stops.length}`
+                                    : stops.length}
+                            </span>
+                            <div className="ml-auto flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    onClick={goToPrevStop}
+                                    disabled={!canGoPrev || saveLoading || pathEditActive}
+                                    className={NAV_BTN_CLASS}
+                                    title="Previous stop (P)"
+                                >
+                                    ←
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={goToNextStop}
+                                    disabled={!canGoNext || saveLoading || pathEditActive}
+                                    className={NAV_BTN_CLASS}
+                                    title="Next stop (N)"
+                                >
+                                    →
+                                </button>
+                            </div>
+                        </div>
+                        <p className="mt-1 text-[11px] text-gray-400">
+                            {pathEditActive
+                                ? "Stop editing is paused while path edit mode is active"
+                                : "N next · P prev · S save · F fit"}
+                        </p>
+                    </div>
+
+                    {pendingSelectStopId !== undefined ? (
+                        <div className="flex flex-wrap items-center gap-1.5 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-950">
+                            <span className="font-medium">
+                                Unsaved
+                                {selectedStop ? ` · stop #${selectedStop.stop_sequence}` : ""}
+                            </span>
+                            <div className="ml-auto flex gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={handleSavePendingNavigation}
+                                    disabled={saveLoading}
+                                    className="rounded-md bg-gray-900 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-gray-800 disabled:opacity-40"
+                                >
+                                    Save &amp; switch
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleRevertPendingNavigation}
+                                    disabled={saveLoading}
+                                    className="rounded-md border border-gray-300 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                                >
+                                    Revert &amp; switch
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPendingSelectStopId(undefined)}
+                                    className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-gray-600 hover:text-gray-900"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    ) : hasUnsavedChanges ? (
+                        <div className="border-b border-amber-100 bg-amber-50/80 px-3 py-1 text-[11px] text-amber-900">
+                            {movedStopIds?.size ?? 0} unsaved stop move
+                            {(movedStopIds?.size ?? 0) === 1 ? "" : "s"}
+                        </div>
+                    ) : null}
+
+                    {selectedStop && !pathEditActive ? (
+                        <div className="border-b border-blue-100 bg-blue-50/60 px-3 py-2">
+                            <p className="truncate text-xs font-medium text-gray-900">
+                                #{selectedStop.stop_sequence}{" "}
+                                {selectedStop.stop.name_mm?.trim() ||
+                                    selectedStop.stop.name_en?.trim() ||
+                                    "—"}
+                            </p>
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {onSave ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => onSave({ routeStopId: selectedStop.id })}
+                                        disabled={!selectedStopHasUnsaved || saveLoading}
+                                        className="rounded-md bg-gray-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                                        title="Save (S)"
+                                    >
+                                        {saveLoading ? "Saving…" : "Save"}
+                                    </button>
+                                ) : null}
+                                {onSaveAndNext ? (
+                                    <button
+                                        type="button"
+                                        onClick={onSaveAndNext}
+                                        disabled={
+                                            !selectedStopHasUnsaved || saveLoading || !canGoNext
+                                        }
+                                        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                        title="Save and go to next stop"
+                                    >
+                                        Save &amp; Next
+                                    </button>
+                                ) : null}
+                                {onRevert ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => onRevert(selectedStop.id)}
+                                        disabled={!selectedStopHasUnsaved || saveLoading}
+                                        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                        Revert
+                                    </button>
+                                ) : null}
+                                {onOpenStopDetail ? (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            onOpenStopDetail(selectedStop.stop.public_id)
+                                        }
+                                        disabled={saveLoading}
+                                        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                        title="Open stop detail in a drawer (review map stays open)"
+                                    >
+                                        Open stop detail
+                                    </button>
+                                ) : null}
+                                {onMarkStopReviewed ? (
+                                    <button
+                                        type="button"
+                                        onClick={handleMarkSelectedStopReviewed}
+                                        disabled={
+                                            stopReviewBusy ||
+                                            saveLoading ||
+                                            selectedStopHasUnsaved ||
+                                            selectedStop.stop.review_status === "reviewed" ||
+                                            selectedStop.stop.review_status === "verified"
+                                        }
+                                        title={
+                                            selectedStopHasUnsaved
+                                                ? "Save or revert stop changes first."
+                                                : selectedStop.stop.review_status === "reviewed" ||
+                                                    selectedStop.stop.review_status === "verified"
+                                                  ? "Stop is already reviewed"
+                                                  : "Mark this stop reviewed"
+                                        }
+                                        className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-[11px] font-medium text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                        {stopReviewBusy ? "Saving…" : "Mark stop reviewed"}
+                                    </button>
+                                ) : null}
+                            </div>
+                            {stopReviewError ? (
+                                <p className="mt-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-800">
+                                    {stopReviewError}
+                                </p>
+                            ) : null}
+                        </div>
+                    ) : null}
+
+                    {stopsError ? (
+                        <div className="m-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                            {stopsError}
+                        </div>
+                    ) : null}
+
+                    {stopsLoading ? (
+                        <div className="space-y-2 p-4">
+                            {[0, 1, 2, 3, 4, 5].map((i) => (
+                                <div key={i} className="h-12 animate-pulse rounded bg-gray-100" />
+                            ))}
+                        </div>
+                    ) : !selectedVariantId ? (
+                        <p className="px-4 py-8 text-center text-sm text-gray-500">
+                            Select a variant to view its stops.
+                        </p>
+                    ) : stops.length === 0 ? (
+                        <p className="px-4 py-8 text-center text-sm text-gray-500">
+                            This variant has no ordered stops.
+                        </p>
+                    ) : (
+                        <div
+                            ref={stopListScrollRef}
+                            className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                            onScroll={virtualizeStopList ? handleStopListScroll : undefined}
+                        >
+                            {virtualizeStopList ? (
+                                <div
+                                    style={{ height: virtualStopWindow.totalHeight }}
+                                    className="relative"
+                                >
+                                    <div
+                                        style={{ transform: `translateY(${virtualStopWindow.offsetY}px)` }}
+                                    >
+                                        {stops
+                                            .slice(virtualStopWindow.start, virtualStopWindow.end)
+                                            .map((stop) => (
+                                                <ReviewMapStopRow
+                                                    key={stop.id}
+                                                    stop={stop}
+                                                    selected={
+                                                        !pathEditActive && stop.id === selectedStopId
+                                                    }
+                                                    movedUnsaved={movedStopIds?.has(stop.id) ?? false}
+                                                    distanceFromPrev={
+                                                        distanceFromPrevLabels.get(stop.id) ?? null
+                                                    }
+                                                    disabled={pathEditActive}
+                                                    onSelect={requestSelectStop}
+                                                />
+                                            ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                stops.map((stop) => (
+                                    <ReviewMapStopRow
+                                        key={stop.id}
+                                        stop={stop}
+                                        selected={!pathEditActive && stop.id === selectedStopId}
+                                        movedUnsaved={movedStopIds?.has(stop.id) ?? false}
+                                        distanceFromPrev={
+                                            distanceFromPrevLabels.get(stop.id) ?? null
+                                        }
+                                        disabled={pathEditActive}
+                                        onSelect={requestSelectStop}
+                                    />
+                                ))
+                            )}
+                        </div>
+                    )}
+                </aside>
+            </div>
+        </div>
+    );
+}

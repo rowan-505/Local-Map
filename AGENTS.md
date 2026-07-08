@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file is the operating guide for AI assistants and Cursor agents working on this repository.
+This file is the tool-neutral operating guide for AI assistants working on this repository.
 
 The project is now moving from V1 to **V2 production readiness**. V1 already has a deployed public web map, MapLibre rendering, POI markers, Myanmar labels, dashboard core-review pages, import-review flows, and core database entities. Do **not** restart the architecture. V2 must harden, extend, and productionize the existing system.
 
@@ -629,34 +629,23 @@ Do not start with live location, points UI, or express UI before production foun
 
 ---
 
-## Cursor / AI Implementation Rules
+## AI configuration
 
-When asked to implement:
+Shared AI docs and skills live under [`docs/ai/`](docs/ai/README.md).
 
-1. Inspect existing files first.
-2. Reuse existing patterns before creating new architecture.
-3. Change only the requested scope.
-4. Do not rewrite unrelated modules.
-5. Do not introduce new libraries without explaining why.
-6. Do not make hidden database assumptions; inspect schema or write migration SQL.
-7. Keep changes small and reviewable.
-8. Summarize changed files and test commands after work.
-9. Mention unresolved risks honestly.
-10. If the task touches security/auth/live location/points, prioritize safety over convenience.
+| Location | Purpose |
+|----------|---------|
+| `docs/ai/skills/` | Canonical skill definitions |
+| `docs/ai/workflows/` | Agent workflow checklists |
+| `CLAUDE.md` | Claude Code entry point |
+| `.claude/skills/` | Claude skill mirror (sync from `docs/ai/skills/`) |
+| `.cursor/rules/` | Cursor-specific rules (architecture, workflow, setup) |
+| `.cursor/mcp.json` | Cursor MCP configuration |
+| `.agents/` | Legacy optional layout; see `.agents/README.md` |
 
-Recommended prompt format:
+Implementation workflow rules for Cursor are in `.cursor/rules/07-agent-workflow-safety.mdc`. Tool-neutral checklists: [`docs/ai/workflows/`](docs/ai/workflows/).
 
-```text
-Read AGENTS.md and V2_PRODUCTION_IMPLEMENTATION_PLAN.md first.
-Implement Phase X / Step Y only.
-Respect existing architecture:
-- apps/api handles business logic and database access
-- apps/dashboard uses API only
-- apps/web uses API and tiles only
-- database changes must be migration SQL
-Do not change unrelated modules.
-After implementation, summarize changed files and test commands.
-```
+V2 roadmap summary: [`docs/11-roadmap/v2-plan.md`](docs/11-roadmap/v2-plan.md).
 
 ---
 

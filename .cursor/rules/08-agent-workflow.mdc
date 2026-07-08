@@ -1,0 +1,10 @@
+---
+description: Legacy pointer — workflow rules moved to 07-agent-workflow-safety
+alwaysApply: false
+---
+
+# Agent workflow (legacy pointer)
+
+Canonical workflow and safety rules: **`07-agent-workflow-safety.mdc`**.
+
+Checklists: [`docs/ai/workflows/`](../../docs/ai/workflows/).

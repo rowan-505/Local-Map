@@ -1,0 +1,59 @@
+---
+description: Agent workflow — scope, safety, testing, and handoff
+alwaysApply: true
+---
+
+# Agent workflow and safety
+
+## Before you change code
+
+1. Understand the task and affected layer (API, dashboard, web, mobile, database, tiles, tools, or docs).
+2. Inspect existing files and patterns.
+3. For **database, auth, routing, or production config** changes: show a short plan and **wait for user confirmation** before editing.
+
+Also plan first (and wait for confirmation) for: large refactors, file/folder rearrangement, and data import or migration work.
+
+## During editing
+
+- Make the smallest safe change.
+- Do not touch unrelated files.
+- Do not expose secrets.
+- Do not run destructive commands without approval.
+- Ask before deleting or moving many files.
+
+## Security-first areas
+
+For auth, permissions, points, live location, admin actions, and promotions:
+
+- Prioritize safety over speed.
+- Require API authorization and audit where the project already does.
+- Never skip validation to “make it work”.
+
+## After editing
+
+- Run typecheck or tests that match the touched app (see table below).
+- Summarize changed files, how to test, what was not tested, and remaining risks.
+
+## Minimum checks
+
+| Area | Check |
+|------|--------|
+| API | typecheck; unit tests if they exist; OpenAPI if routes changed |
+| Dashboard | typecheck; affected pages load |
+| Web | typecheck; build; map smoke test if map code changed |
+| Database | migration file in git; indexes; no full-table spatial scans |
+
+## Routing
+
+Production road routing uses **Valhalla**. Do not build a custom production routing engine from database graph tables in V2.
+
+## V2 order (default)
+
+Security → PMTiles → auth → contributions/points → search → address → Valhalla routing → buses → live location.
+
+Do not jump to live location or points UI before foundation and basemap are stable.
+
+## Workflow docs
+
+- [`docs/ai/workflows/implementation-checklist.md`](../../docs/ai/workflows/implementation-checklist.md)
+- [`docs/ai/workflows/review-and-promotion.md`](../../docs/ai/workflows/review-and-promotion.md)

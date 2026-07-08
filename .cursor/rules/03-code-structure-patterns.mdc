@@ -1,0 +1,45 @@
+---
+description: Monorepo layout, module patterns, and naming conventions
+alwaysApply: true
+---
+
+# Code structure
+
+## Repo layout
+
+| Path | Role |
+|------|------|
+| `apps/api` | Fastify backend — only app that touches the database |
+| `apps/dashboard` | Next.js admin — API client only |
+| `apps/web` | Public map — API and tiles only |
+| `apps/mobile` | Mobile client — API only |
+| `packages/` | Shared code — must not connect to the database |
+| `tools/` | Repeatable scripts and pipelines |
+| `infrastructure/` | Migrations, tile config, deployment |
+
+## API module pattern
+
+```text
+apps/api/src/modules/<domain>/
+  <domain>.routes.ts
+  <domain>.schema.ts
+  <domain>.service.ts
+  <domain>.repo.ts
+```
+
+Flow: **route → schema → service → repo**. Keep route handlers thin.
+
+## Change discipline
+
+- Read existing files before editing.
+- Reuse existing patterns before creating new ones.
+- Change only the scope the user asked for.
+- Prefer small, reviewable diffs.
+- Do not refactor unrelated code.
+- Before a new file: check if an existing module already fits.
+
+## Naming and data
+
+- Use **0–100** for confidence, importance, popularity, quality scores (not 0–1).
+- Prefer `public_id` in public APIs.
+- Keep Myanmar and English names separate where the schema supports it.

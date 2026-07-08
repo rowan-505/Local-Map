@@ -1,0 +1,29 @@
+---
+description: PostGIS migrations, indexes, and tile delivery rules
+alwaysApply: false
+globs: infrastructure/database/**/*,infrastructure/tiles/**/*,apps/api/prisma/**/*,**/*style*.json
+---
+
+# Database and tiles
+
+## Database (PostGIS)
+
+- PostgreSQL + PostGIS is the source of truth.
+- All schema changes go in `infrastructure/database/migrations/` as SQL files.
+- Do not apply production DDL only through chat or MCP — migrations stay in git.
+- Do not drop or rewrite production data without clear approval.
+- Use SRID **4326** for geographic geometry unless the schema says otherwise.
+- Add indexes for search and geospatial paths (GIST, GIN, pg_trgm, partial indexes).
+- Use bounding-box filters before heavy spatial operations.
+
+## Tiles
+
+- PMTiles = stable static basemap. Martin = optional dynamic overlays only.
+- Tiles are for rendering only. Do not store authoritative data only in tiles.
+- Do not put business logic in MapLibre style JSON.
+- National layout: 1 overview PMTile + 15 region packages — load by zoom and viewport, not all at once.
+- Tile builds and publish metadata belong in `tools/` or `infrastructure/`, not in app runtime code.
+
+## Supabase in Cursor
+
+For MCP plugin setup and OAuth, see `09-supabase-cursor-setup.mdc` in this folder.

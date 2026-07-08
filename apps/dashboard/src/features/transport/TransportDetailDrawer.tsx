@@ -42,6 +42,10 @@ export type TransportDetailDrawerProps = {
     readonly closeOnOverlayClick?: boolean;
     /** Override the panel width utility classes if a view needs more/less room. */
     readonly widthClassName?: string;
+    /** Override the fixed overlay z-index / backdrop classes (default: z-40). */
+    readonly overlayClassName?: string;
+    /** When true, skip the sticky title/header bar (body provides its own chrome). */
+    readonly hideHeaderChrome?: boolean;
 };
 
 const DEFAULT_WIDTH_CLASS = "w-full sm:w-[85vw] sm:max-w-[1280px]";
@@ -60,6 +64,8 @@ export default function TransportDetailDrawer({
     closeOnEscape = true,
     closeOnOverlayClick = true,
     widthClassName = DEFAULT_WIDTH_CLASS,
+    overlayClassName = "z-40",
+    hideHeaderChrome = false,
 }: TransportDetailDrawerProps) {
     const titleId = useId();
     const closeRef = useRef<HTMLButtonElement>(null);
@@ -87,7 +93,7 @@ export default function TransportDetailDrawer({
 
     return (
         <div
-            className="fixed inset-0 z-40 flex justify-end bg-slate-900/40"
+            className={`fixed inset-0 flex justify-end bg-slate-900/40 ${overlayClassName}`}
             role="presentation"
             onClick={() => {
                 if (closeOnOverlayClick) {
@@ -103,6 +109,8 @@ export default function TransportDetailDrawer({
                 className={`flex h-full flex-col overflow-y-auto bg-gray-50 shadow-xl ${widthClassName}`}
                 onClick={(e) => e.stopPropagation()}
             >
+                {!hideHeaderChrome ? (
+                <>
                 {/* Sticky header */}
                 <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-gray-200 bg-white px-5 py-4">
                     <div className="min-w-0 pr-2">
@@ -133,6 +141,8 @@ export default function TransportDetailDrawer({
                         </button>
                     </div>
                 </div>
+                </>
+                ) : null}
 
                 {/* Body */}
                 <div className="flex-1">

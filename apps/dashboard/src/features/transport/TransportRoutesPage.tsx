@@ -6,16 +6,24 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { transportPath } from "@/src/lib/dashboardNavigation";
 import { getTransportRoutes } from "./api";
-import { transportListRootKey, useTransportListQuery } from "./transportListQuery";
+import { useTransportListQuery } from "./transportListQuery";
 import {
     TRANSPORT_MODE_OPTIONS,
+    TRANSPORT_PUBLIC_VISIBILITY_OPTIONS,
     TRANSPORT_REVIEW_STATUS_OPTIONS,
+    TRANSPORT_ROUTE_GEOMETRY_STATUS_OPTIONS,
     transportModeLabel,
     transportReviewStatusLabel,
 } from "./constants";
 import TransportDetailDrawer from "./TransportDetailDrawer";
 import TransportRouteDetailContent from "./TransportRouteDetailContent";
+import TransportStopDetailContent from "./TransportStopDetailContent";
 import NewTransportRouteDialog from "./NewTransportRouteDialog";
+import {
+    formatRouteListPublicName,
+    TransportRouteListVisibility,
+    TransportRouteListWorkStatus,
+} from "./transportReviewUi";
 import type { TransportRouteListItem } from "./types";
 
 const PAGE_SIZE = 50;
@@ -28,6 +36,9 @@ type Filters = {
     reviewStatus: string;
     hasStops: TriState;
     hasPath: TriState;
+    hasSourceLink: TriState;
+    geometryStatus: string;
+    publicVisibility: string;
     isActive: TriState;
     page: number;
 };
@@ -44,6 +55,9 @@ function readFilters(sp: URLSearchParams): Filters {
         reviewStatus: sp.get("reviewStatus") ?? "",
         hasStops: tri("hasStops"),
         hasPath: tri("hasPath"),
+        hasSourceLink: tri("hasSourceLink"),
+        geometryStatus: sp.get("geometryStatus") ?? "",
+        publicVisibility: sp.get("publicVisibility") ?? "",
         isActive: tri("isActive"),
         page: Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1,
     };
@@ -56,6 +70,9 @@ function filtersToSearchParams(filters: Filters): string {
     if (filters.reviewStatus) sp.set("reviewStatus", filters.reviewStatus);
     if (filters.hasStops) sp.set("hasStops", filters.hasStops);
     if (filters.hasPath) sp.set("hasPath", filters.hasPath);
+    if (filters.hasSourceLink) sp.set("hasSourceLink", filters.hasSourceLink);
+    if (filters.geometryStatus) sp.set("geometryStatus", filters.geometryStatus);
+    if (filters.publicVisibility) sp.set("publicVisibility", filters.publicVisibility);
     if (filters.isActive) sp.set("isActive", filters.isActive);
     if (filters.page > 1) sp.set("page", String(filters.page));
     return sp.toString();
@@ -102,14 +119,23 @@ export default function TransportRoutesPage() {
     const filtersKey = useMemo(() => {
         const sp = new URLSearchParams(searchParams.toString());
         sp.delete("route");
+        sp.delete("stop");
         return sp.toString();
     }, [searchParams]);
     const filters = useMemo(() => readFilters(new URLSearchParams(filtersKey)), [filtersKey]);
     const routePublicId = searchParams.get("route");
+    const stopPublicId = searchParams.get("stop");
 
     const queryClient = useQueryClient();
     const [searchInput, setSearchInput] = useState(filters.search);
     const [createOpen, setCreateOpen] = useState(false);
+    const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(
+        () =>
+            Boolean(filters.mode) ||
+            filters.hasStops !== "" ||
+            filters.hasPath !== "" ||
+            filters.hasSourceLink !== ""
+    );
 
     // Map URL filters -> API params. This object is BOTH the request payload and
     // the cache key, so equivalent filters/pages reuse the same cached response.
@@ -120,6 +146,10 @@ export default function TransportRoutesPage() {
             reviewStatus: filters.reviewStatus || undefined,
             hasStops: filters.hasStops === "" ? undefined : filters.hasStops === "true",
             hasPath: filters.hasPath === "" ? undefined : filters.hasPath === "true",
+            hasSourceLink:
+                filters.hasSourceLink === "" ? undefined : filters.hasSourceLink === "true",
+            geometryStatus: filters.geometryStatus || undefined,
+            publicVisibility: filters.publicVisibility || undefined,
             isActive: filters.isActive === "" ? undefined : filters.isActive === "true",
             limit: PAGE_SIZE,
             page: filters.page,
@@ -127,7 +157,7 @@ export default function TransportRoutesPage() {
         [filters]
     );
 
-    const { data, isPending, isFetching, isError, error: queryError } =
+    const { data, isPending, isFetching, isError, isPlaceholderData, error: queryError, refetch } =
         useTransportListQuery<TransportRouteListItem>({
             resource: "routes",
             params: apiQuery,
@@ -136,8 +166,7 @@ export default function TransportRoutesPage() {
 
     const items = data?.items ?? [];
     const total = data?.total ?? 0;
-    // Skeleton only on the very first load; keepPreviousData keeps rows during refetch.
-    const loading = isPending;
+    const loading = isPending || (isFetching && (isPlaceholderData || !data));
     const error = isError
         ? queryError instanceof Error
             ? queryError.message
@@ -161,16 +190,24 @@ export default function TransportRoutesPage() {
         [filters, router]
     );
 
-    // After a save in the drawer, refetch the current routes query in the
-    // background. keepPreviousData keeps rows visible and the URL is unchanged,
-    // so filters/page/scroll are preserved.
+    // After a save that affects list columns, refetch only the current page query.
+    // Stop moves and path edits patch drawer state locally and do not call this.
     const reloadCurrentPage = useCallback(() => {
-        void queryClient.invalidateQueries({ queryKey: transportListRootKey("routes") });
-    }, [queryClient]);
+        void queryClient.invalidateQueries({ queryKey: ["transport", "routes", apiQuery] });
+    }, [queryClient, apiQuery]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const rangeStart = total === 0 ? 0 : (filters.page - 1) * PAGE_SIZE + 1;
     const rangeEnd = Math.min(filters.page * PAGE_SIZE, total);
+
+    const showModeSubtitle = useMemo(() => {
+        if (items.length === 0) {
+            return false;
+        }
+        return items.every((row) => row.mode === "bus" && row.route_kind === "urban");
+    }, [items]);
+
+    const tableColSpan = advancedFiltersOpen ? 8 : 7;
 
     // Open the drawer by pushing `?route=<publicId>` (filters preserved). Using
     // push (not navigation to the detail route) keeps the list mounted and lets
@@ -189,6 +226,25 @@ export default function TransportRoutesPage() {
     const closeRoute = useCallback(() => {
         const sp = new URLSearchParams(searchParams.toString());
         sp.delete("route");
+        sp.delete("stop");
+        const qs = sp.toString();
+        router.replace(qs ? `${transportPath("routes")}?${qs}` : transportPath("routes"), {
+            scroll: false,
+        });
+    }, [router, searchParams]);
+
+    const openStopOverlay = useCallback(
+        (publicId: string) => {
+            const sp = new URLSearchParams(searchParams.toString());
+            sp.set("stop", publicId);
+            router.push(`${transportPath("routes")}?${sp.toString()}`, { scroll: false });
+        },
+        [router, searchParams],
+    );
+
+    const closeStopOverlay = useCallback(() => {
+        const sp = new URLSearchParams(searchParams.toString());
+        sp.delete("stop");
         const qs = sp.toString();
         router.replace(qs ? `${transportPath("routes")}?${qs}` : transportPath("routes"), {
             scroll: false,
@@ -205,15 +261,6 @@ export default function TransportRoutesPage() {
         },
         [reloadCurrentPage, openRoute]
     );
-
-    const selectedRow = useMemo(
-        () => items.find((r) => r.public_id === routePublicId) ?? null,
-        [items, routePublicId]
-    );
-
-    const drawerTitle = selectedRow
-        ? [selectedRow.route_code, selectedRow.public_name].filter(Boolean).join(" · ")
-        : "Route detail";
 
     return (
         <main className="p-6">
@@ -270,25 +317,7 @@ export default function TransportRoutesPage() {
                         </div>
                     </form>
 
-                    <div className="flex flex-wrap gap-3">
-                        <label className="flex flex-col gap-1">
-                            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                                Mode
-                            </span>
-                            <select
-                                className={SELECT_CLASS}
-                                value={filters.mode}
-                                onChange={(e) => applyFilters({ mode: e.target.value })}
-                            >
-                                <option value="">All</option>
-                                {TRANSPORT_MODE_OPTIONS.map((o) => (
-                                    <option key={o.value} value={o.value}>
-                                        {o.label}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-
+                    <div className="flex flex-wrap items-end gap-3">
                         <label className="flex flex-col gap-1">
                             <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
                                 Review status
@@ -307,116 +336,228 @@ export default function TransportRoutesPage() {
                             </select>
                         </label>
 
-                        <TriSelect
-                            label="Has stops"
-                            value={filters.hasStops}
-                            onChange={(v) => applyFilters({ hasStops: v })}
-                        />
-                        <TriSelect
-                            label="Has path"
-                            value={filters.hasPath}
-                            onChange={(v) => applyFilters({ hasPath: v })}
-                        />
+                        <label className="flex flex-col gap-1">
+                            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                Public visibility
+                            </span>
+                            <select
+                                className={SELECT_CLASS}
+                                value={filters.publicVisibility}
+                                onChange={(e) => applyFilters({ publicVisibility: e.target.value })}
+                            >
+                                <option value="">All</option>
+                                {TRANSPORT_PUBLIC_VISIBILITY_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                        {o.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+
+                        <label className="flex flex-col gap-1">
+                            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                Geometry status
+                            </span>
+                            <select
+                                className={SELECT_CLASS}
+                                value={filters.geometryStatus}
+                                onChange={(e) => applyFilters({ geometryStatus: e.target.value })}
+                            >
+                                <option value="">All</option>
+                                {TRANSPORT_ROUTE_GEOMETRY_STATUS_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                        {o.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+
                         <TriSelect
                             label="Active"
                             value={filters.isActive}
                             onChange={(v) => applyFilters({ isActive: v })}
                         />
+
+                        <button
+                            type="button"
+                            onClick={() => setAdvancedFiltersOpen((open) => !open)}
+                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                            aria-expanded={advancedFiltersOpen}
+                        >
+                            {advancedFiltersOpen ? "Hide advanced" : "Advanced filters"}
+                        </button>
                     </div>
+
+                    {advancedFiltersOpen ? (
+                        <div className="flex flex-wrap gap-3 border-t border-gray-100 pt-3">
+                            <label className="flex flex-col gap-1">
+                                <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                    Mode
+                                </span>
+                                <select
+                                    className={SELECT_CLASS}
+                                    value={filters.mode}
+                                    onChange={(e) => applyFilters({ mode: e.target.value })}
+                                >
+                                    <option value="">All</option>
+                                    {TRANSPORT_MODE_OPTIONS.map((o) => (
+                                        <option key={o.value} value={o.value}>
+                                            {o.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+
+                            <TriSelect
+                                label="Has stops"
+                                value={filters.hasStops}
+                                onChange={(v) => applyFilters({ hasStops: v })}
+                            />
+                            <TriSelect
+                                label="Has path"
+                                value={filters.hasPath}
+                                onChange={(v) => applyFilters({ hasPath: v })}
+                            />
+                            <TriSelect
+                                label="Has source link"
+                                value={filters.hasSourceLink}
+                                onChange={(v) => applyFilters({ hasSourceLink: v })}
+                            />
+                        </div>
+                    ) : null}
                 </div>
 
                 {error ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                        {error}
+                    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                        <span>{error}</span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                void refetch();
+                            }}
+                            className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-900 hover:bg-red-50"
+                        >
+                            Retry
+                        </button>
                     </div>
                 ) : null}
 
                 <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm">
-                    <table className="min-w-full text-left text-sm">
+                    <table className="w-full table-fixed text-left text-sm">
+                        <colgroup>
+                            <col className="w-[6.5rem]" />
+                            <col />
+                            <col className="w-[4.5rem]" />
+                            <col className="w-[4rem]" />
+                            <col className="w-[8.5rem]" />
+                            <col className="w-[7.5rem]" />
+                            <col className="w-[6.5rem]" />
+                            {advancedFiltersOpen ? <col className="w-[5.5rem]" /> : null}
+                        </colgroup>
                         <thead className="border-b text-xs uppercase text-gray-500">
                             <tr>
                                 <th className="px-3 py-2">Route code</th>
                                 <th className="px-3 py-2">Public name</th>
-                                <th className="px-3 py-2">Mode</th>
-                                <th className="px-3 py-2">Route kind</th>
-                                <th className="px-3 py-2">Origin</th>
-                                <th className="px-3 py-2">Destination</th>
                                 <th className="px-3 py-2 text-right">Variants</th>
                                 <th className="px-3 py-2 text-right">Stops</th>
-                                <th className="px-3 py-2">Path</th>
+                                <th className="px-3 py-2">Work status</th>
                                 <th className="px-3 py-2">Review status</th>
-                                <th className="px-3 py-2 text-right">Confidence</th>
-                                <th className="px-3 py-2">Active</th>
+                                <th className="px-3 py-2">Visibility</th>
+                                {advancedFiltersOpen ? (
+                                    <th className="px-3 py-2 text-right">Confidence</th>
+                                ) : null}
                             </tr>
                         </thead>
                         <tbody>
                             {loading ? (
                                 <tr>
-                                    <td colSpan={12} className="px-3 py-8 text-center text-gray-500">
+                                    <td
+                                        colSpan={tableColSpan}
+                                        className="px-3 py-8 text-center text-gray-500"
+                                    >
                                         Loading routes…
                                     </td>
                                 </tr>
-                            ) : items.length === 0 ? (
+                            ) : !error && items.length === 0 ? (
                                 <tr>
-                                    <td colSpan={12} className="px-3 py-8 text-center text-gray-500">
+                                    <td
+                                        colSpan={tableColSpan}
+                                        className="px-3 py-8 text-center text-gray-500"
+                                    >
                                         No routes match the current filters.
                                     </td>
                                 </tr>
                             ) : (
-                                items.map((row) => (
-                                    <tr
-                                        key={row.public_id}
-                                        onClick={() => openRoute(row.public_id)}
-                                        className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
-                                    >
-                                        <td className="px-3 py-2 font-medium text-gray-900">
-                                            {row.route_code}
-                                        </td>
-                                        <td className="px-3 py-2 text-gray-700">{row.public_name}</td>
-                                        <td className="px-3 py-2 text-gray-700">
-                                            {transportModeLabel(row.mode)}
-                                        </td>
-                                        <td className="px-3 py-2 text-gray-700">{row.route_kind}</td>
-                                        <td className="px-3 py-2 text-gray-700">
-                                            {row.origin_name ?? "—"}
-                                        </td>
-                                        <td className="px-3 py-2 text-gray-700">
-                                            {row.destination_name ?? "—"}
-                                        </td>
-                                        <td className="px-3 py-2 text-right tabular-nums text-gray-700">
-                                            {row.variant_count}
-                                        </td>
-                                        <td className="px-3 py-2 text-right tabular-nums text-gray-700">
-                                            {row.stop_count}
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            {row.path_count > 0 ? (
-                                                <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-100">
-                                                    Has path
-                                                </span>
-                                            ) : (
-                                                <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 ring-1 ring-amber-100">
-                                                    None
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-3 py-2 text-gray-700">
-                                            {transportReviewStatusLabel(row.review_status)}
-                                        </td>
-                                        <td className="px-3 py-2 text-right tabular-nums text-gray-700">
-                                            {row.confidence_score === null
-                                                ? "—"
-                                                : Math.round(row.confidence_score)}
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            {row.is_active ? (
-                                                <span className="text-emerald-700">Active</span>
-                                            ) : (
-                                                <span className="text-gray-400">Inactive</span>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))
+                                items.map((row) => {
+                                    const publicName = formatRouteListPublicName(row);
+                                    return (
+                                        <tr
+                                            key={row.public_id}
+                                            onClick={() => openRoute(row.public_id)}
+                                            className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
+                                        >
+                                            <td className="px-3 py-1.5">
+                                                <div className="font-medium text-gray-900">
+                                                    {row.route_code}
+                                                </div>
+                                                {showModeSubtitle ? null : row.mode !== "bus" ||
+                                                  row.route_kind !== "urban" ? (
+                                                    <div className="text-[11px] text-gray-500">
+                                                        {transportModeLabel(row.mode)} ·{" "}
+                                                        {row.route_kind}
+                                                    </div>
+                                                ) : null}
+                                            </td>
+                                            <td className="min-w-0 px-3 py-1.5">
+                                                <div
+                                                    className="line-clamp-2 font-medium leading-snug text-gray-900"
+                                                    title={publicName.primary}
+                                                >
+                                                    {publicName.primary}
+                                                </div>
+                                                {publicName.secondary ? (
+                                                    <div
+                                                        className="mt-0.5 line-clamp-2 text-xs leading-snug text-gray-500"
+                                                        title={publicName.secondary}
+                                                    >
+                                                        {publicName.secondary}
+                                                    </div>
+                                                ) : null}
+                                            </td>
+                                            <td className="px-3 py-1.5 text-right tabular-nums text-gray-700">
+                                                {row.variant_count}
+                                            </td>
+                                            <td className="px-3 py-1.5 text-right tabular-nums text-gray-700">
+                                                {row.stop_count}
+                                            </td>
+                                            <td className="px-3 py-1.5">
+                                                <TransportRouteListWorkStatus
+                                                    reviewStatus={row.review_status}
+                                                    variantCount={row.variant_count}
+                                                    stopCount={row.stop_count}
+                                                    pathCount={row.path_count}
+                                                    geometryStatus={row.geometry_status}
+                                                />
+                                            </td>
+                                            <td className="px-3 py-1.5 text-gray-700">
+                                                {transportReviewStatusLabel(row.review_status)}
+                                            </td>
+                                            <td className="px-3 py-1.5">
+                                                <TransportRouteListVisibility
+                                                    isActive={row.is_active}
+                                                    publicVisibility={row.public_visibility}
+                                                />
+                                            </td>
+                                            {advancedFiltersOpen ? (
+                                                <td className="px-3 py-1.5 text-right tabular-nums text-gray-700">
+                                                    {row.confidence_score === null
+                                                        ? "—"
+                                                        : Math.round(row.confidence_score)}
+                                                </td>
+                                            ) : null}
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
@@ -424,9 +565,13 @@ export default function TransportRoutesPage() {
 
                 <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
                     <span aria-live="polite">
-                        {total === 0
-                            ? "0 results"
-                            : `${rangeStart}–${rangeEnd} of ${total.toLocaleString()}`}
+                        {loading
+                            ? "Loading…"
+                            : error
+                              ? "—"
+                              : total === 0
+                                ? "0 results"
+                                : `${rangeStart}–${rangeEnd} of ${total.toLocaleString()}`}
                     </span>
                     <div className="flex items-center gap-2">
                         <button
@@ -454,34 +599,36 @@ export default function TransportRoutesPage() {
 
             <TransportDetailDrawer
                 open={Boolean(routePublicId)}
-                title={drawerTitle}
-                meta={
-                    selectedRow ? (
-                        <>
-                            <span>
-                                {transportModeLabel(selectedRow.mode)} · {selectedRow.route_kind}
-                            </span>
-                            <span>{transportReviewStatusLabel(selectedRow.review_status)}</span>
-                            {selectedRow.is_active ? (
-                                <span className="text-emerald-700">Active</span>
-                            ) : (
-                                <span className="text-gray-400">Inactive</span>
-                            )}
-                        </>
-                    ) : undefined
-                }
+                title="Route detail"
+                hideHeaderChrome
                 onClose={closeRoute}
             >
                 {routePublicId ? (
-                    <div className="p-5">
-                        <div className="space-y-4">
-                            <TransportRouteDetailContent
-                                key={routePublicId}
-                                publicId={routePublicId}
-                                hideHeader
-                                afterSave={reloadCurrentPage}
-                            />
-                        </div>
+                    <div className="p-4">
+                        <TransportRouteDetailContent
+                            publicId={routePublicId}
+                            onClose={closeRoute}
+                            afterSave={reloadCurrentPage}
+                            onOpenStopDetail={openStopOverlay}
+                        />
+                    </div>
+                ) : null}
+            </TransportDetailDrawer>
+
+            <TransportDetailDrawer
+                open={Boolean(stopPublicId)}
+                title="Stop detail"
+                hideHeaderChrome
+                overlayClassName="z-[60]"
+                onClose={closeStopOverlay}
+            >
+                {stopPublicId ? (
+                    <div className="p-4">
+                        <TransportStopDetailContent
+                            key={stopPublicId}
+                            publicId={stopPublicId}
+                            onClose={closeStopOverlay}
+                        />
                     </div>
                 ) : null}
             </TransportDetailDrawer>
