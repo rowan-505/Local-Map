@@ -10,6 +10,7 @@ import {
     explainUnifiedSearchScore,
     UNIFIED_SEARCH_RANKING_WEIGHTS,
 } from "../public-map/public-search-ranking.js";
+import { listSearchAliasesQuerySchema } from "./search-aliases.schema.js";
 import { SEARCH_ALIAS_TYPES } from "./search-aliases.types.js";
 
 const W = UNIFIED_SEARCH_RANKING_WEIGHTS;
@@ -59,6 +60,38 @@ describe("SEARCH_ALIAS_TYPES", () => {
             "local_name",
             "search_correction",
         ]);
+    });
+});
+
+describe("listSearchAliasesQuerySchema", () => {
+    it("accepts Fastify-coerced boolean query params", () => {
+        const parsed = listSearchAliasesQuerySchema.safeParse({
+            page: 1,
+            pageSize: 1,
+            is_active: true,
+            has_indexed_entity: false,
+        });
+
+        assert.equal(parsed.success, true);
+        if (parsed.success) {
+            assert.equal(parsed.data.is_active, true);
+            assert.equal(parsed.data.has_indexed_entity, false);
+        }
+    });
+
+    it("accepts raw string boolean query params", () => {
+        const parsed = listSearchAliasesQuerySchema.safeParse({
+            page: "1",
+            pageSize: "1",
+            is_active: "true",
+            has_indexed_entity: "false",
+        });
+
+        assert.equal(parsed.success, true);
+        if (parsed.success) {
+            assert.equal(parsed.data.is_active, true);
+            assert.equal(parsed.data.has_indexed_entity, false);
+        }
     });
 });
 

@@ -21,13 +21,20 @@ import {
   shouldRunPublicSearch,
   type PublicPlacesParams,
   type PublicMapPlacesParams,
-  type PublicSearchParams,
   type PublicSearchResult,
 } from './publicMapApi';
+import {
+  formatPublicSearchGeoKey,
+  publicSearchGeoBiasFromKey,
+  type SearchCenter,
+} from './publicSearchGeoBias';
+import {
+  publicSearchRetryDelay,
+  shouldRetryPublicSearch,
+} from './publicSearchRetry';
 import { isPointLikeHighlight } from '@/features/map/lib/maplibre/searchHighlightOnMap';
 
-/** Captured lazily when a request starts (not part of the query key). */
-export type SearchCenter = Pick<PublicSearchParams, 'lat' | 'lng'>;
+export type { SearchCenter };
 
 export function usePublicCategories() {
   return useQuery({
@@ -93,18 +100,6 @@ export function publicSearchQueryKey(input: PublicSearchQueryKeyInput) {
   ] as const;
 }
 
-export function formatPublicSearchGeoKey(
-  center: SearchCenter | null | undefined,
-): string | null {
-  if (!center) return null;
-  const { lat, lng } = center;
-  if (lat === undefined || lng === undefined || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return null;
-  }
-  const round = (value: number) => Math.round(value * 1000) / 1000;
-  return `${round(lat)},${round(lng)}`;
-}
-
 export type InfinitePublicSearchParams = {
   readonly q: string;
   readonly lang: PublicSearchApiLang;
@@ -121,6 +116,7 @@ export type InfinitePublicSearchParams = {
 export function useInfinitePublicSearch(params: InfinitePublicSearchParams) {
   const trimmedQuery = params.q.trim();
   const geoKey = formatPublicSearchGeoKey(params.geoBias);
+  const requestGeoBias = publicSearchGeoBiasFromKey(geoKey);
 
   return useInfiniteQuery({
     queryKey: publicSearchQueryKey({
@@ -141,7 +137,7 @@ export function useInfinitePublicSearch(params: InfinitePublicSearchParams) {
           mode: params.transportMode,
           limit: PUBLIC_SEARCH_PAGE_LIMIT,
           cursor: pageParam,
-          ...(params.geoBias ?? {}),
+          ...(requestGeoBias ?? {}),
         },
         signal,
       ),
@@ -153,6 +149,10 @@ export function useInfinitePublicSearch(params: InfinitePublicSearchParams) {
       return lastPage.nextCursor;
     },
     enabled: shouldRunPublicSearch(trimmedQuery),
+    retry: shouldRetryPublicSearch,
+    retryDelay: publicSearchRetryDelay,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     maxPages: Math.ceil(PUBLIC_SEARCH_SESSION_RESULT_CAP / PUBLIC_SEARCH_PAGE_LIMIT),
   });
 }

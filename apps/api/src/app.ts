@@ -20,6 +20,7 @@ import reportsRoutes from "./modules/reports/reports.routes.js";
 import pointsRoutes from "./modules/points/points.routes.js";
 import adminUsersRoutes from "./modules/admin-users/admin-users.routes.js";
 import searchAliasesRoutes from "./modules/search/search-aliases.routes.js";
+import searchOverviewRoutes from "./modules/search/search-overview.routes.js";
 import searchDocumentsRoutes from "./modules/search/search-documents.routes.js";
 import failedSearchesRoutes from "./modules/search/failed-searches.routes.js";
 import searchAnalyticsAdminRoutes from "./modules/search/search-analytics-admin.routes.js";
@@ -169,6 +170,7 @@ export async function buildApp() {
     await app.register(reportsRoutes);
     await app.register(pointsRoutes);
     await app.register(adminUsersRoutes);
+    await app.register(searchOverviewRoutes);
     await app.register(searchAliasesRoutes);
     await app.register(searchDocumentsRoutes);
     await app.register(failedSearchesRoutes);

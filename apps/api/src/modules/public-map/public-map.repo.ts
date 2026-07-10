@@ -153,24 +153,24 @@ export function escapeLikeToken(token: string): string {
 export function buildUnifiedSearchKeysetClause(after: PublicSearchCursorAfter): Prisma.Sql {
     const entityId = BigInt(after.entityId);
     return Prisma.sql`(
-        scored.score < ${after.score}
+        COALESCE(scored.score, 0) < ${after.score}
         OR (
-            scored.score = ${after.score}
+            COALESCE(scored.score, 0) = ${after.score}
             AND scored.importance_score < ${after.importanceScore}
         )
         OR (
-            scored.score = ${after.score}
+            COALESCE(scored.score, 0) = ${after.score}
             AND scored.importance_score = ${after.importanceScore}
             AND COALESCE(scored.display_name, '') > ${after.displayName}
         )
         OR (
-            scored.score = ${after.score}
+            COALESCE(scored.score, 0) = ${after.score}
             AND scored.importance_score = ${after.importanceScore}
             AND COALESCE(scored.display_name, '') = ${after.displayName}
             AND scored.entity_type > ${after.entityType}
         )
         OR (
-            scored.score = ${after.score}
+            COALESCE(scored.score, 0) = ${after.score}
             AND scored.importance_score = ${after.importanceScore}
             AND COALESCE(scored.display_name, '') = ${after.displayName}
             AND scored.entity_type = ${after.entityType}
@@ -203,7 +203,7 @@ export type UnifiedSearchRow = {
     category_name_en: string | null;
     admin_area_name_my: string | null;
     admin_area_name_en: string | null;
-    score: number;
+    score: number | null;
     importance_score: number;
     is_verified: boolean;
     confidence_score: number;
@@ -948,7 +948,7 @@ export class PublicMapRepository {
                     d.boundary_confidence_score::double precision AS boundary_confidence_score,
                     d.address_parts,
                     COALESCE(d.importance_score, 0)::double precision AS importance_score,
-                    ${scoreSql} AS score
+                    COALESCE(${scoreSql}, 0)::double precision AS score
                 FROM search.search_documents d
                 LEFT JOIN LATERAL (
                     SELECT n.name
@@ -1004,7 +1004,7 @@ export class PublicMapRepository {
             WHERE true
               ${keysetFilter}
             ORDER BY
-                scored.score DESC,
+                COALESCE(scored.score, 0) DESC,
                 scored.importance_score DESC,
                 COALESCE(scored.display_name, '') ASC,
                 scored.entity_type ASC,

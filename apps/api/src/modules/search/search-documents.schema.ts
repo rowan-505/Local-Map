@@ -4,6 +4,7 @@ import {
     SEARCH_DOCUMENT_ENTITY_TYPES,
     type SearchDocumentSyncState,
 } from "./search-canonical-source.js";
+import { queryBooleanSchema } from "./query-boolean.schema.js";
 import { TRANSPORT_SEARCH_MODES } from "./transport-search-entity.js";
 
 const LEGACY_ENTITY_FILTER_TYPES = [
@@ -37,22 +38,10 @@ export const listSearchDocumentsQuerySchema = z.object({
     entity_type: z.enum(LEGACY_ENTITY_FILTER_TYPES).optional(),
     transport_mode: z.enum(TRANSPORT_SEARCH_MODES).optional(),
     review_status: z.string().trim().min(1).max(64).optional(),
-    is_verified: z
-        .enum(["true", "false"])
-        .transform((value) => value === "true")
-        .optional(),
-    is_public: z
-        .enum(["true", "false"])
-        .transform((value) => value === "true")
-        .optional(),
-    is_active: z
-        .enum(["true", "false"])
-        .transform((value) => value === "true")
-        .optional(),
-    has_alias: z
-        .enum(["true", "false"])
-        .transform((value) => value === "true")
-        .optional(),
+    is_verified: queryBooleanSchema.optional(),
+    is_public: queryBooleanSchema.optional(),
+    is_active: queryBooleanSchema.optional(),
+    has_alias: queryBooleanSchema.optional(),
     sync_state: z.enum(SEARCH_DOCUMENT_SYNC_STATES).optional(),
     language: z.enum(["my", "en", "und"]).optional(),
     entity_id: z

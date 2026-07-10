@@ -81,7 +81,7 @@ test("buildSearchIndexHealthReport aggregates totals and status", () => {
         },
         lastSuccessful: {
             id: 8n,
-            status: "success",
+            status: "completed",
             started_at: new Date("2026-07-08T00:00:00.000Z"),
             finished_at: new Date("2026-07-08T02:00:00.000Z"),
             entity_counts: { place: 10 },
@@ -103,6 +103,44 @@ test("buildSearchIndexHealthReport aggregates totals and status", () => {
     assert.ok(report.overall_severity_reasons.includes("latest rebuild run failed"));
     assert.equal(report.last_rebuild_run?.status, "failed");
     assert.equal(report.last_successful_run?.id, "8");
+    assert.equal(report.last_successful_run?.status, "completed");
+});
+
+test("buildSearchIndexHealthReport does not warn when latest rebuild completed", () => {
+    const healthy = normalizeSearchIndexHealthRow({
+        entity_family: "places",
+        search_entity_type: "place",
+        canonical_count: 10n,
+        indexed_count: 10n,
+        missing_count: 0n,
+        ghost_count: 0n,
+        stale_count: 0n,
+        latest_indexed_at: new Date("2026-07-10T00:00:00.000Z"),
+        latest_source_updated_at: new Date("2026-07-10T00:00:00.000Z"),
+    });
+    const finishedAt = new Date("2026-07-10T00:00:00.000Z");
+
+    const report = buildSearchIndexHealthReport([healthy], {
+        latest: {
+            id: 12n,
+            status: "completed",
+            started_at: new Date("2026-07-09T22:00:00.000Z"),
+            finished_at: finishedAt,
+            entity_counts: { place: 10 },
+        },
+        lastSuccessful: {
+            id: 12n,
+            status: "completed",
+            started_at: new Date("2026-07-09T22:00:00.000Z"),
+            finished_at: finishedAt,
+            entity_counts: { place: 10 },
+        },
+    }, { now: new Date("2026-07-10T12:00:00.000Z") });
+
+    assert.equal(report.last_rebuild_run?.status, "completed");
+    assert.equal(report.last_successful_run?.status, "completed");
+    assert.equal(report.overall_severity, "healthy");
+    assert.ok(!report.overall_severity_reasons.includes("no successful rebuild recorded"));
 });
 
 test("buildFailedSearchIndexHealthReport marks health query failure as critical", () => {

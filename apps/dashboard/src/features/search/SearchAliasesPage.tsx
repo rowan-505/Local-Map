@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 import { searchPath } from "@/src/lib/dashboardNavigation";
@@ -26,6 +26,13 @@ import {
     formatDateTime,
 } from "./constants";
 import { formatMutationSuccess } from "./searchAliasMessages";
+import {
+    SEARCH_ALIASES_FILTERED_EMPTY_LABEL,
+    SEARCH_ALIASES_TRUE_EMPTY_LABEL,
+    getSearchAliasesTableState,
+    hasSearchAliasListFilters,
+    readSearchAliasUrlFilters,
+} from "./searchAliasesPageState";
 import type { SearchAliasItem, SearchAliasesListFilters, SearchDocumentItem } from "./types";
 import { ActiveBadge, CELL_TEXT_CLASS, INPUT_CLASS, PRIMARY_BTN, SECONDARY_BTN, SELECT_CLASS, useClampPageToTotal } from "./ui";
 
@@ -61,14 +68,13 @@ type FlashMessage = {
 export default function SearchAliasesPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const urlEntityType = searchParams.get("entity_type") ?? "";
-    const urlEntityId = searchParams.get("entity_id")?.replace(/\D/g, "") ?? "";
+    const initialUrlFilters = readSearchAliasUrlFilters(searchParams);
 
     const [filters, setFilters] = useState<Filters>(() => ({
         ...EMPTY_FILTERS,
-        entity_type: urlEntityType,
+        entity_type: initialUrlFilters.entity_type,
     }));
-    const [entityIdFilter, setEntityIdFilter] = useState(urlEntityId);
+    const [entityIdFilter, setEntityIdFilter] = useState(initialUrlFilters.entity_id);
     const [searchInput, setSearchInput] = useState("");
     const [page, setPage] = useState(1);
 
@@ -76,6 +82,7 @@ export default function SearchAliasesPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [flash, setFlash] = useState<FlashMessage | null>(null);
+    const requestSequence = useRef(0);
 
     const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
     const [editingItem, setEditingItem] = useState<SearchAliasItem | null>(null);
@@ -106,17 +113,23 @@ export default function SearchAliasesPage() {
 
     const load = useCallback(
         async (signal?: AbortSignal) => {
+            const requestId = requestSequence.current + 1;
+            requestSequence.current = requestId;
             setLoading(true);
             setError("");
             try {
                 const res = await listSearchAliases(apiFilters, signal ? { signal } : undefined);
+                if (requestSequence.current !== requestId) return;
                 setData(res);
             } catch (err) {
                 if (isAbortError(err)) return;
+                if (requestSequence.current !== requestId) return;
                 setError(err instanceof Error ? err.message : "Failed to load search aliases.");
                 setData(null);
             } finally {
-                setLoading(false);
+                if (requestSequence.current === requestId) {
+                    setLoading(false);
+                }
             }
         },
         [apiFilters],
@@ -127,6 +140,16 @@ export default function SearchAliasesPage() {
         void load(controller.signal);
         return () => controller.abort();
     }, [load]);
+
+    const urlEntityType = searchParams.get("entity_type") ?? "";
+    const urlEntityId = searchParams.get("entity_id")?.replace(/\D/g, "") ?? "";
+
+    useEffect(() => {
+        setFilters((prev) =>
+            prev.entity_type === urlEntityType ? prev : { ...prev, entity_type: urlEntityType },
+        );
+        setEntityIdFilter((prev) => (prev === urlEntityId ? prev : urlEntityId));
+    }, [urlEntityType, urlEntityId]);
 
     useEffect(() => {
         if (!urlEntityType || !urlEntityId) {
@@ -309,6 +332,12 @@ export default function SearchAliasesPage() {
     useClampPageToTotal(page, setPage, total, PAGE_SIZE);
     const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
     const rangeEnd = Math.min(page * PAGE_SIZE, total);
+    const hasFilters = hasSearchAliasListFilters(filters, entityIdFilter);
+    const tableState =
+        loading && !data
+            ? "loading"
+            : getSearchAliasesTableState({ loading: false, error, data, hasFilters });
+    const reloading = loading && data !== null;
 
     return (
         <main className="p-6">
@@ -475,8 +504,21 @@ export default function SearchAliasesPage() {
                 </div>
 
                 {error ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                        {error}
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                        <span>{error}</span>
+                        <button
+                            type="button"
+                            className={SECONDARY_BTN}
+                            onClick={() => void load()}
+                        >
+                            Retry
+                        </button>
+                    </div>
+                ) : null}
+
+                {reloading ? (
+                    <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-600 shadow-sm">
+                        Refreshing search aliases…
                     </div>
                 ) : null}
 
@@ -495,16 +537,45 @@ export default function SearchAliasesPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 bg-white">
-                            {loading ? (
+                            {tableState === "loading" ? (
+                                Array.from({ length: 5 }, (_, index) => (
+                                    <tr key={`search-aliases-loading-${index}`}>
+                                        <td colSpan={8} className="px-4 py-3">
+                                            <div className="h-5 animate-pulse rounded bg-gray-100" />
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : tableState === "error" ? (
                                 <tr>
-                                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                                        Loading aliases…
+                                    <td colSpan={8} className="px-4 py-8 text-center text-red-700">
+                                        Search aliases could not be loaded.
                                     </td>
                                 </tr>
-                            ) : items.length === 0 ? (
+                            ) : tableState === "idle" ? (
                                 <tr>
                                     <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                                        No aliases match the current filters.
+                                        Search aliases have not loaded yet.
+                                    </td>
+                                </tr>
+                            ) : tableState === "true-empty" ? (
+                                <tr>
+                                    <td colSpan={8} className="px-4 py-10 text-center">
+                                        <p className="text-sm text-gray-600">
+                                            {SEARCH_ALIASES_TRUE_EMPTY_LABEL}
+                                        </p>
+                                        <button
+                                            type="button"
+                                            className={`${PRIMARY_BTN} mt-4`}
+                                            onClick={openCreate}
+                                        >
+                                            Create alias
+                                        </button>
+                                    </td>
+                                </tr>
+                            ) : tableState === "filtered-empty" ? (
+                                <tr>
+                                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                                        {SEARCH_ALIASES_FILTERED_EMPTY_LABEL}
                                     </td>
                                 </tr>
                             ) : (

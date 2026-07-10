@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef } from 'react';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
 import type { PublicSearchResult } from '@/features/poi/api/publicMapApi';
+import { shouldAutoLoadMorePublicSearch } from '@/features/poi/api/publicSearchRetry';
 import {
   getVisiblePublicSearchCategoryFilterChips,
   PUBLIC_SEARCH_TRANSPORT_MODE_FILTER_CHIPS,
@@ -403,7 +404,12 @@ function SearchResults({
   const hasResults = results.length > 0;
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const initialLoading = searchLoading && !hasResults;
-  const canLoadMore = hasMoreSearch && !searchReachedCap && !searchLoadingMore;
+  const canLoadMore = shouldAutoLoadMorePublicSearch({
+    hasMoreSearch,
+    searchReachedCap,
+    searchLoadingMore,
+    searchFetchMoreError,
+  });
 
   useEffect(() => {
     const sentinel = sentinelRef.current;

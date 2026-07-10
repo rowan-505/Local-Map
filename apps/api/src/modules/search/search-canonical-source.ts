@@ -103,6 +103,52 @@ export function buildCanonicalFreshnessUnionSql(
     return Prisma.join(branches, " UNION ALL ");
 }
 
+export type SearchDocumentEntityKey = {
+    entity_type: string;
+    entity_id: bigint;
+};
+
+/** Canonical freshness for a bounded set of indexed rows (admin document page enrichment). */
+export function buildCanonicalFreshnessForEntityKeysSql(
+    keys: readonly SearchDocumentEntityKey[],
+): Prisma.Sql | null {
+    if (keys.length === 0) {
+        return null;
+    }
+
+    const idsByType = new Map<SearchDocumentEntityType, bigint[]>();
+    for (const key of keys) {
+        const entityType = normalizeSearchDocumentEntityType(key.entity_type);
+        if (!entityType) {
+            continue;
+        }
+        const bucket = idsByType.get(entityType) ?? [];
+        bucket.push(key.entity_id);
+        idsByType.set(entityType, bucket);
+    }
+
+    const branches: Prisma.Sql[] = [];
+    for (const [entityType, entityIds] of idsByType) {
+        const uniqueIds = [...new Set(entityIds.map((id) => id.toString()))].map((id) => BigInt(id));
+        if (uniqueIds.length === 0) {
+            continue;
+        }
+        const view = SEARCH_ENTITY_TYPE_SOURCE_VIEWS[entityType];
+        branches.push(Prisma.sql`
+            SELECT entity_type, entity_id, source_updated_at
+            FROM ${Prisma.raw(view)}
+            WHERE entity_type = ${entityType}
+              AND entity_id IN (${Prisma.join(uniqueIds)})
+        `);
+    }
+
+    if (branches.length === 0) {
+        return null;
+    }
+
+    return Prisma.join(branches, " UNION ALL ");
+}
+
 /** Canonical inventory rows for missing-document inspection. */
 export function buildCanonicalInventoryUnionSql(
     entityTypes: readonly SearchDocumentEntityType[] | null,

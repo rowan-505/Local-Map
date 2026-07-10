@@ -8,6 +8,7 @@ import {
     SEARCH_INDEX_HEALTH_SEVERITY_THRESHOLDS,
     severityToBinaryHealthStatus,
 } from "./search-index-health-severity.js";
+import { SEARCH_INDEX_RUN_STATUS } from "./search-index-run-status.js";
 
 const NOW = new Date("2026-07-10T12:00:00.000Z");
 
@@ -143,7 +144,7 @@ describe("deriveSearchIndexOverallSeverity", () => {
         const result = deriveSearchIndexOverallSeverity(
             {
                 family_severities: ["healthy"],
-                last_rebuild_status: "success",
+                last_rebuild_status: SEARCH_INDEX_RUN_STATUS.COMPLETED,
                 last_successful_rebuild_finished_at: NOW,
                 health_query_ok: false,
             },
@@ -154,11 +155,27 @@ describe("deriveSearchIndexOverallSeverity", () => {
         assert.deepEqual(result.reasons, ["health query failed"]);
     });
 
+    it("returns healthy when latest rebuild completed and rebuild age is recent", () => {
+        const result = deriveSearchIndexOverallSeverity(
+            {
+                family_severities: ["healthy"],
+                last_rebuild_status: SEARCH_INDEX_RUN_STATUS.COMPLETED,
+                last_successful_rebuild_finished_at: NOW,
+                health_query_ok: true,
+            },
+            NOW,
+        );
+
+        assert.equal(result.severity, "healthy");
+        assert.ok(!result.reasons.includes("no successful rebuild recorded"));
+        assert.ok(!result.reasons.includes("latest rebuild run failed"));
+    });
+
     it("returns critical when latest rebuild failed", () => {
         const result = deriveSearchIndexOverallSeverity(
             {
                 family_severities: ["healthy"],
-                last_rebuild_status: "failed",
+                last_rebuild_status: SEARCH_INDEX_RUN_STATUS.FAILED,
                 last_successful_rebuild_finished_at: NOW,
                 health_query_ok: true,
             },
@@ -169,6 +186,54 @@ describe("deriveSearchIndexOverallSeverity", () => {
         assert.ok(result.reasons.includes("latest rebuild run failed"));
     });
 
+    it("returns warning when no rebuild history exists", () => {
+        const result = deriveSearchIndexOverallSeverity(
+            {
+                family_severities: ["healthy"],
+                last_rebuild_status: null,
+                last_successful_rebuild_finished_at: null,
+                health_query_ok: true,
+            },
+            NOW,
+        );
+
+        assert.equal(result.severity, "warning");
+        assert.ok(result.reasons.includes("no successful rebuild recorded"));
+    });
+
+    it("returns critical when latest rebuild failed even if an older completed run exists", () => {
+        const olderCompleted = new Date("2026-07-01T00:00:00.000Z");
+        const result = deriveSearchIndexOverallSeverity(
+            {
+                family_severities: ["healthy"],
+                last_rebuild_status: SEARCH_INDEX_RUN_STATUS.FAILED,
+                last_successful_rebuild_finished_at: olderCompleted,
+                health_query_ok: true,
+            },
+            NOW,
+        );
+
+        assert.equal(result.severity, "critical");
+        assert.ok(result.reasons.includes("latest rebuild run failed"));
+        assert.ok(!result.reasons.includes("no successful rebuild recorded"));
+    });
+
+    it("returns healthy when latest rebuild completed after an older failed run", () => {
+        const result = deriveSearchIndexOverallSeverity(
+            {
+                family_severities: ["healthy"],
+                last_rebuild_status: SEARCH_INDEX_RUN_STATUS.COMPLETED,
+                last_successful_rebuild_finished_at: NOW,
+                health_query_ok: true,
+            },
+            NOW,
+        );
+
+        assert.equal(result.severity, "healthy");
+        assert.ok(!result.reasons.includes("latest rebuild run failed"));
+        assert.ok(!result.reasons.includes("no successful rebuild recorded"));
+    });
+
     it("returns warning when last successful rebuild is older than warning threshold", () => {
         const old = new Date(
             NOW.getTime() - SEARCH_INDEX_HEALTH_SEVERITY_THRESHOLDS.REBUILD_WARNING_AGE_MS - 1,
@@ -176,7 +241,7 @@ describe("deriveSearchIndexOverallSeverity", () => {
         const result = deriveSearchIndexOverallSeverity(
             {
                 family_severities: ["healthy"],
-                last_rebuild_status: "success",
+                last_rebuild_status: SEARCH_INDEX_RUN_STATUS.COMPLETED,
                 last_successful_rebuild_finished_at: old,
                 health_query_ok: true,
             },
@@ -184,13 +249,32 @@ describe("deriveSearchIndexOverallSeverity", () => {
         );
 
         assert.equal(result.severity, "warning");
+        assert.ok(result.reasons.includes("last successful rebuild exceeds warning age"));
+    });
+
+    it("returns critical when last successful rebuild is older than critical threshold", () => {
+        const veryOld = new Date(
+            NOW.getTime() - SEARCH_INDEX_HEALTH_SEVERITY_THRESHOLDS.REBUILD_CRITICAL_AGE_MS - 1,
+        );
+        const result = deriveSearchIndexOverallSeverity(
+            {
+                family_severities: ["healthy"],
+                last_rebuild_status: SEARCH_INDEX_RUN_STATUS.COMPLETED,
+                last_successful_rebuild_finished_at: veryOld,
+                health_query_ok: true,
+            },
+            NOW,
+        );
+
+        assert.equal(result.severity, "critical");
+        assert.ok(result.reasons.includes("last successful rebuild is very old"));
     });
 
     it("uses the worst family severity", () => {
         const result = deriveSearchIndexOverallSeverity(
             {
                 family_severities: ["healthy", "warning", "critical"],
-                last_rebuild_status: "success",
+                last_rebuild_status: SEARCH_INDEX_RUN_STATUS.COMPLETED,
                 last_successful_rebuild_finished_at: NOW,
                 health_query_ok: true,
             },

@@ -14,11 +14,13 @@ import {
     hasSearchIndexHealthIssues,
     isAllowlistedSearchIndexHealthFamily,
     isSearchIndexFamilyUnhealthy,
+    loadSearchIndexHealthReportUncached,
     resolveRebuildViewForHealthFamily,
     resolveRebuildViewsForHealthFamilies,
     runSearchIndexHealthCheck,
     type SearchIndexHealthReport,
 } from "./search-index-health.js";
+import { seedSearchIndexHealthCache } from "./search-index-health-cache.js";
 import {
     SearchIndexRebuildLockError,
     withSearchIndexRebuildLocks,
@@ -99,11 +101,11 @@ function deriveOperationStatus(input: {
 }
 
 async function loadHealthReport(prisma: PrismaClient): Promise<SearchIndexHealthReport> {
-    const [rows, runs] = await Promise.all([
-        runSearchIndexHealthCheck(prisma),
-        fetchSearchIndexRunMetadata(prisma),
-    ]);
-    return buildSearchIndexHealthReport(rows, runs);
+    return loadSearchIndexHealthReportUncached(prisma);
+}
+
+function publishFreshHealthReport(report: SearchIndexHealthReport): void {
+    seedSearchIndexHealthCache(report);
 }
 
 function auditSnapshot(result: SearchIndexMaintenanceOperationResult): Record<string, unknown> {
@@ -154,7 +156,8 @@ export class SearchIndexMaintenanceService {
 
     async runHealthCheck(actor: SearchIndexMaintenanceActor): Promise<SearchIndexMaintenanceOperationResult> {
         const startedAt = Date.now();
-        const report = await getSearchIndexHealthReport(this.prisma);
+        const report = await getSearchIndexHealthReport(this.prisma, { refresh: true });
+        publishFreshHealthReport(report);
         const result: SearchIndexMaintenanceOperationResult = {
             operation: "health_check",
             status: report.overall_status === "healthy" ? "success" : "partial",
@@ -234,6 +237,7 @@ export class SearchIndexMaintenanceService {
             health_after: healthAfter,
         };
         await this.writeAudit(actor, "search_index.reindex_family", null, null, result);
+        publishFreshHealthReport(healthAfter);
         return result;
     }
 
@@ -266,6 +270,7 @@ export class SearchIndexMaintenanceService {
                 health_after: healthBefore,
             };
             await this.writeAudit(actor, "search_index.repair_unhealthy", null, null, result);
+            publishFreshHealthReport(healthBefore);
             return result;
         }
 
@@ -306,6 +311,7 @@ export class SearchIndexMaintenanceService {
                     health_after: healthAfter,
                 };
                 await this.writeAudit(actor, "search_index.repair_unhealthy", null, null, result);
+                publishFreshHealthReport(healthAfter);
                 return result;
             }
             throw err;
@@ -344,6 +350,7 @@ export class SearchIndexMaintenanceService {
             health_after: healthAfter,
         };
         await this.writeAudit(actor, "search_index.repair_unhealthy", null, null, result);
+        publishFreshHealthReport(healthAfter);
         return result;
     }
 
@@ -392,6 +399,7 @@ export class SearchIndexMaintenanceService {
             health_after: healthAfter,
         };
         await this.writeAudit(actor, "search_index.reindex_entity", body.entity_id, null, result);
+        publishFreshHealthReport(healthAfter);
         return result;
     }
 }

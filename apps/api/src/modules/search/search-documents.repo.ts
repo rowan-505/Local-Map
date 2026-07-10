@@ -5,7 +5,9 @@ import {
     buildCanonicalInventoryUnionSql,
     buildIndexedSyncStateFilterSql,
     buildIndexedSyncStateSql,
+    computeSearchDocumentSyncState,
     resolveSearchDocumentEntityTypesForFilter,
+    type SearchDocumentEntityKey,
     type SearchDocumentEntityType,
     type SearchDocumentSyncState,
 } from "./search-canonical-source.js";
@@ -38,6 +40,86 @@ export type SearchDocumentRow = {
 type ResolvedListQuery = ListSearchDocumentsQuery & {
     entityTypes: SearchDocumentEntityType[] | null;
 };
+
+type IndexedDocumentPageRow = Omit<
+    SearchDocumentRow,
+    "alias_count" | "sync_state" | "canonical_source_updated_at"
+>;
+
+type AliasCountRow = {
+    entity_type: string;
+    entity_id: bigint;
+    alias_count: number;
+};
+
+export function needsCanonicalJoinForList(filters: Pick<ListSearchDocumentsQuery, "sync_state">): boolean {
+    return (
+        filters.sync_state === "current" ||
+        filters.sync_state === "stale" ||
+        filters.sync_state === "ghost"
+    );
+}
+
+export function buildHasAliasExistsSql(hasAlias: boolean, documentAlias = "d"): Prisma.Sql {
+    const document = Prisma.raw(documentAlias);
+    if (hasAlias) {
+        return Prisma.sql`EXISTS (
+            SELECT 1
+            FROM search.search_aliases a
+            WHERE a.is_active = true
+              AND a.entity_type = ${document}.entity_type
+              AND a.entity_id = ${document}.entity_id
+        )`;
+    }
+
+    return Prisma.sql`NOT EXISTS (
+        SELECT 1
+        FROM search.search_aliases a
+        WHERE a.is_active = true
+          AND a.entity_type = ${document}.entity_type
+          AND a.entity_id = ${document}.entity_id
+    )`;
+}
+
+export function entityKey(entityType: string, entityId: bigint): string {
+    return `${entityType}:${entityId.toString()}`;
+}
+
+export function enrichIndexedDocumentRows(
+    rows: readonly IndexedDocumentPageRow[],
+    aliasCounts: ReadonlyMap<string, number>,
+    canonicalFreshness: ReadonlyMap<string, Date | null> | null,
+): SearchDocumentRow[] {
+    return rows.map((row) => {
+        const key = entityKey(row.entity_type, row.entity_id);
+        const aliasCount = aliasCounts.get(key) ?? 0;
+
+        if (!canonicalFreshness) {
+            return {
+                ...row,
+                canonical_source_updated_at: null,
+                alias_count: aliasCount,
+                // List fast path: indexed rows are treated as current; use sync_state
+                // filters for accurate canonical freshness (street_group views are expensive).
+                sync_state: "current",
+            };
+        }
+
+        const canonicalSourceUpdatedAt = canonicalFreshness.get(key) ?? null;
+        const hasCanonical = canonicalFreshness.has(key);
+
+        return {
+            ...row,
+            canonical_source_updated_at: canonicalSourceUpdatedAt,
+            alias_count: aliasCount,
+            sync_state: computeSearchDocumentSyncState({
+                hasCanonical,
+                indexedSourceUpdatedAt: row.source_updated_at,
+                canonicalSourceUpdatedAt,
+            }),
+        };
+    });
+}
 
 function resolveEntityTypes(filters: ListSearchDocumentsQuery): SearchDocumentEntityType[] | null {
     const resolved = resolveSearchDocumentEntityTypesForFilter(filters.entity_type);
@@ -128,6 +210,12 @@ function buildIndexedDocumentFilters(
         conditions.push(Prisma.sql`${d}.primary_name_und IS NOT NULL AND btrim(${d}.primary_name_und) <> ''`);
     }
 
+    if (filters.has_alias === true) {
+        conditions.push(buildHasAliasExistsSql(true, documentAlias));
+    } else if (filters.has_alias === false) {
+        conditions.push(buildHasAliasExistsSql(false, documentAlias));
+    }
+
     return conditions;
 }
 
@@ -190,6 +278,30 @@ function buildMissingDocumentFilters(filters: ResolvedListQuery, canonicalAlias 
     return conditions;
 }
 
+function buildWhereClause(conditions: Prisma.Sql[]): Prisma.Sql {
+    return conditions.length > 0 ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}` : Prisma.empty;
+}
+
+const INDEXED_DOCUMENT_SELECT = Prisma.sql`
+    d.id AS search_document_id,
+    d.entity_type,
+    d.entity_id,
+    d.public_id,
+    d.display_name,
+    d.primary_name_my,
+    d.primary_name_en,
+    d.primary_name_und,
+    nullif(btrim(coalesce(d.address_parts->>'mode', d.category_code, '')), '') AS transport_mode,
+    nullif(btrim(coalesce(d.address_parts->>'review_status', '')), '') AS review_status,
+    d.is_verified,
+    d.is_public,
+    d.is_active,
+    d.importance_score::double precision AS importance_score,
+    d.confidence_score::double precision AS confidence_score,
+    d.indexed_at,
+    d.source_updated_at
+`;
+
 export class SearchDocumentsRepository {
     constructor(private readonly prisma: PrismaClient) {}
 
@@ -203,10 +315,51 @@ export class SearchDocumentsRepository {
             return this.listMissing(resolved);
         }
 
-        return this.listIndexed(resolved);
+        if (needsCanonicalJoinForList(resolved)) {
+            return this.listIndexedWithCanonicalJoin(resolved);
+        }
+
+        return this.listIndexedFast(resolved);
     }
 
-    private async listIndexed(resolved: ResolvedListQuery): Promise<{ items: SearchDocumentRow[]; total: number }> {
+    private async listIndexedFast(
+        resolved: ResolvedListQuery,
+    ): Promise<{ items: SearchDocumentRow[]; total: number }> {
+        const offset = (resolved.page - 1) * resolved.pageSize;
+        const documentConditions = buildIndexedDocumentFilters(resolved);
+        const where = buildWhereClause(documentConditions);
+        const sortSql = buildSortSql(resolved, false);
+
+        const [pageRows, totalRows] = await Promise.all([
+            this.prisma.$queryRaw<IndexedDocumentPageRow[]>(Prisma.sql`
+                SELECT ${INDEXED_DOCUMENT_SELECT}
+                FROM search.search_documents d
+                ${where}
+                ORDER BY ${sortSql}
+                LIMIT ${resolved.pageSize} OFFSET ${offset}
+            `),
+            this.prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`
+                SELECT count(*)::int AS total
+                FROM search.search_documents d
+                ${where}
+            `),
+        ]);
+
+        if (pageRows.length === 0) {
+            return { items: [], total: totalRows[0]?.total ?? 0 };
+        }
+
+        const aliasCounts = await this.fetchAliasCountsForEntityKeys(pageRows);
+
+        return {
+            items: enrichIndexedDocumentRows(pageRows, aliasCounts, null),
+            total: totalRows[0]?.total ?? 0,
+        };
+    }
+
+    private async listIndexedWithCanonicalJoin(
+        resolved: ResolvedListQuery,
+    ): Promise<{ items: SearchDocumentRow[]; total: number }> {
         const offset = (resolved.page - 1) * resolved.pageSize;
         const documentConditions = buildIndexedDocumentFilters(resolved);
         const canonicalUnion = buildCanonicalFreshnessUnionSql(resolved.entityTypes);
@@ -219,17 +372,7 @@ export class SearchDocumentsRepository {
             documentConditions.push(buildIndexedSyncStateFilterSql("ghost"));
         }
 
-        if (resolved.has_alias === true) {
-            documentConditions.push(Prisma.sql`coalesce(ac.alias_count, 0) > 0`);
-        } else if (resolved.has_alias === false) {
-            documentConditions.push(Prisma.sql`coalesce(ac.alias_count, 0) = 0`);
-        }
-
-        const where =
-            documentConditions.length > 0
-                ? Prisma.sql`WHERE ${Prisma.join(documentConditions, " AND ")}`
-                : Prisma.empty;
-
+        const where = buildWhereClause(documentConditions);
         const sortSql = buildSortSql(resolved, false);
 
         const baseFrom = Prisma.sql`
@@ -237,49 +380,79 @@ export class SearchDocumentsRepository {
             LEFT JOIN (
                 ${canonicalUnion}
             ) c ON c.entity_type = d.entity_type AND c.entity_id = d.entity_id
-            LEFT JOIN (
-                SELECT entity_type, entity_id, count(*)::int AS alias_count
-                FROM search.search_aliases
-                WHERE is_active = true
-                GROUP BY entity_type, entity_id
-            ) ac ON ac.entity_type = d.entity_type AND ac.entity_id = d.entity_id
         `;
 
-        const items = await this.prisma.$queryRaw<SearchDocumentRow[]>(Prisma.sql`
-            SELECT
-                d.id AS search_document_id,
-                d.entity_type,
-                d.entity_id,
-                d.public_id,
-                d.display_name,
-                d.primary_name_my,
-                d.primary_name_en,
-                d.primary_name_und,
-                nullif(btrim(coalesce(d.address_parts->>'mode', d.category_code, '')), '') AS transport_mode,
-                nullif(btrim(coalesce(d.address_parts->>'review_status', '')), '') AS review_status,
-                d.is_verified,
-                d.is_public,
-                d.is_active,
-                d.importance_score::double precision AS importance_score,
-                d.confidence_score::double precision AS confidence_score,
-                d.indexed_at,
-                d.source_updated_at,
-                c.source_updated_at AS canonical_source_updated_at,
-                coalesce(ac.alias_count, 0) AS alias_count,
-                ${buildIndexedSyncStateSql()} AS sync_state
-            ${baseFrom}
-            ${where}
-            ORDER BY ${sortSql}
-            LIMIT ${resolved.pageSize} OFFSET ${offset}
+        const [items, totalRows] = await Promise.all([
+            this.prisma.$queryRaw<SearchDocumentRow[]>(Prisma.sql`
+                SELECT
+                    d.id AS search_document_id,
+                    d.entity_type,
+                    d.entity_id,
+                    d.public_id,
+                    d.display_name,
+                    d.primary_name_my,
+                    d.primary_name_en,
+                    d.primary_name_und,
+                    nullif(btrim(coalesce(d.address_parts->>'mode', d.category_code, '')), '') AS transport_mode,
+                    nullif(btrim(coalesce(d.address_parts->>'review_status', '')), '') AS review_status,
+                    d.is_verified,
+                    d.is_public,
+                    d.is_active,
+                    d.importance_score::double precision AS importance_score,
+                    d.confidence_score::double precision AS confidence_score,
+                    d.indexed_at,
+                    d.source_updated_at,
+                    c.source_updated_at AS canonical_source_updated_at,
+                    0 AS alias_count,
+                    ${buildIndexedSyncStateSql()} AS sync_state
+                ${baseFrom}
+                ${where}
+                ORDER BY ${sortSql}
+                LIMIT ${resolved.pageSize} OFFSET ${offset}
+            `),
+            this.prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`
+                SELECT count(*)::int AS total
+                ${baseFrom}
+                ${where}
+            `),
+        ]);
+
+        if (items.length === 0) {
+            return { items, total: totalRows[0]?.total ?? 0 };
+        }
+
+        const aliasCounts = await this.fetchAliasCountsForEntityKeys(items);
+        return {
+            items: items.map((row) => ({
+                ...row,
+                alias_count: aliasCounts.get(entityKey(row.entity_type, row.entity_id)) ?? 0,
+            })),
+            total: totalRows[0]?.total ?? 0,
+        };
+    }
+
+    private async fetchAliasCountsForEntityKeys(
+        keys: readonly SearchDocumentEntityKey[],
+    ): Promise<Map<string, number>> {
+        if (keys.length === 0) {
+            return new Map();
+        }
+
+        const tuples = keys.map(
+            (key) => Prisma.sql`(${key.entity_type}, ${key.entity_id})`,
+        );
+
+        const rows = await this.prisma.$queryRaw<AliasCountRow[]>(Prisma.sql`
+            SELECT entity_type, entity_id, count(*)::int AS alias_count
+            FROM search.search_aliases
+            WHERE is_active = true
+              AND (entity_type, entity_id) IN (${Prisma.join(tuples)})
+            GROUP BY entity_type, entity_id
         `);
 
-        const totalRows = await this.prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`
-            SELECT count(*)::int AS total
-            ${baseFrom}
-            ${where}
-        `);
-
-        return { items, total: totalRows[0]?.total ?? 0 };
+        return new Map(
+            rows.map((row) => [entityKey(row.entity_type, row.entity_id), row.alias_count]),
+        );
     }
 
     private async listMissing(resolved: ResolvedListQuery): Promise<{ items: SearchDocumentRow[]; total: number }> {

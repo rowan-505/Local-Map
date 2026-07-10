@@ -174,4 +174,28 @@ describe("failed-searches schema", () => {
             true,
         );
     });
+
+    it("accepts Fastify-coerced and raw string resolved query params", async () => {
+        const { listFailedSearchesQuerySchema } = await import("./failed-searches.schema.js");
+
+        const coerced = listFailedSearchesQuerySchema.safeParse({
+            resolved: false,
+            page: 1,
+            pageSize: 25,
+        });
+        const raw = listFailedSearchesQuerySchema.safeParse({
+            resolved: "true",
+            page: "1",
+            pageSize: "25",
+        });
+
+        assert.equal(coerced.success, true);
+        assert.equal(raw.success, true);
+        if (coerced.success) {
+            assert.equal(coerced.data.resolved, false);
+        }
+        if (raw.success) {
+            assert.equal(raw.data.resolved, true);
+        }
+    });
 });

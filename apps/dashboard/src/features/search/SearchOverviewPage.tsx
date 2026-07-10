@@ -8,7 +8,8 @@ import { Card, CardContent } from "@/src/components/ui/card";
 import { isAbortError } from "@/src/lib/api";
 import { searchPath } from "@/src/lib/dashboardNavigation";
 
-import { listSearchAliases, listSearchDocuments } from "./api";
+import { getSearchOverview } from "./api";
+import type { SearchIndexHealthSeverity, SearchOverviewSummary } from "./types";
 
 type SectionLink = {
     title: string;
@@ -51,9 +52,7 @@ const SECTION_LINKS: readonly SectionLink[] = [
 ];
 
 export default function SearchOverviewPage() {
-    const [aliasTotal, setAliasTotal] = useState<number | null>(null);
-    const [activeAliasTotal, setActiveAliasTotal] = useState<number | null>(null);
-    const [documentTotal, setDocumentTotal] = useState<number | null>(null);
+    const [overview, setOverview] = useState<SearchOverviewSummary | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
@@ -61,23 +60,12 @@ export default function SearchOverviewPage() {
         setLoading(true);
         setError("");
         try {
-            const [all, active, documents] = await Promise.all([
-                listSearchAliases({ page: 1, pageSize: 1 }, signal ? { signal } : undefined),
-                listSearchAliases(
-                    { page: 1, pageSize: 1, is_active: true },
-                    signal ? { signal } : undefined,
-                ),
-                listSearchDocuments({ page: 1, pageSize: 1 }, signal ? { signal } : undefined),
-            ]);
-            setAliasTotal(all.total);
-            setActiveAliasTotal(active.total);
-            setDocumentTotal(documents.total);
+            const summary = await getSearchOverview(signal ? { signal } : undefined);
+            setOverview(summary);
         } catch (err) {
             if (isAbortError(err)) return;
             setError(err instanceof Error ? err.message : "Failed to load search overview.");
-            setAliasTotal(null);
-            setActiveAliasTotal(null);
-            setDocumentTotal(null);
+            setOverview(null);
         } finally {
             setLoading(false);
         }
@@ -88,6 +76,18 @@ export default function SearchOverviewPage() {
         void load(controller.signal);
         return () => controller.abort();
     }, [load]);
+
+    const allCountsZero =
+        overview !== null &&
+        overview.total_search_documents === 0 &&
+        overview.total_aliases === 0 &&
+        overview.active_aliases === 0 &&
+        overview.unresolved_failed_searches === 0 &&
+        overview.today_searches === 0;
+
+    const healthStatusColor = getHealthStatusColor(
+        overview?.overall_index_health_severity ?? null,
+    );
 
     return (
         <main className="p-6">
@@ -101,8 +101,15 @@ export default function SearchOverviewPage() {
                 </header>
 
                 {error ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                        {error}
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                        <span>{error}</span>
+                        <button
+                            type="button"
+                            onClick={() => void load()}
+                            className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm hover:bg-red-50"
+                        >
+                            Retry
+                        </button>
                     </div>
                 ) : null}
 
@@ -112,22 +119,53 @@ export default function SearchOverviewPage() {
                     </h2>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         <StatsCard
+                            title="Indexed documents"
+                            value={loading ? "…" : (overview?.total_search_documents ?? "—")}
+                            description="Rows in search.search_documents"
+                        />
+                        <StatsCard
                             title="Search aliases"
-                            value={loading ? "…" : aliasTotal ?? "—"}
+                            value={loading ? "…" : (overview?.total_aliases ?? "—")}
                             description="All rows in search.search_aliases"
                         />
                         <StatsCard
                             title="Active aliases"
-                            value={loading ? "…" : activeAliasTotal ?? "—"}
+                            value={loading ? "…" : (overview?.active_aliases ?? "—")}
                             description="Aliases folded into the live search index"
                             statusColor="success"
                         />
                         <StatsCard
-                            title="Indexed documents"
-                            value={loading ? "…" : (documentTotal ?? "—")}
-                            description="Rows in search.search_documents (first page total)"
+                            title="Unresolved failures"
+                            value={loading ? "…" : (overview?.unresolved_failed_searches ?? "—")}
+                            description="Open zero-result search logs"
+                            statusColor={
+                                overview && overview.unresolved_failed_searches > 0
+                                    ? "warning"
+                                    : "default"
+                            }
+                        />
+                        <StatsCard
+                            title="Searches today"
+                            value={loading ? "…" : (overview?.today_searches ?? "—")}
+                            description="Recorded public search requests since local day start"
+                        />
+                        <StatsCard
+                            title="Index health"
+                            value={
+                                loading
+                                    ? "…"
+                                    : (overview?.overall_index_health_severity ?? "—")
+                            }
+                            description="Overall severity from index health"
+                            statusColor={healthStatusColor}
                         />
                     </div>
+                    {!loading && !error && allCountsZero ? (
+                        <p className="mt-3 rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-600">
+                            Search overview loaded successfully; no indexed search data has been
+                            recorded yet.
+                        </p>
+                    ) : null}
                 </section>
 
                 <section aria-labelledby="search-overview-sections">
@@ -163,4 +201,13 @@ export default function SearchOverviewPage() {
             </div>
         </main>
     );
+}
+
+function getHealthStatusColor(
+    severity: SearchIndexHealthSeverity | null,
+): "default" | "success" | "warning" | "danger" {
+    if (severity === "healthy") return "success";
+    if (severity === "warning") return "warning";
+    if (severity === "critical") return "danger";
+    return "default";
 }

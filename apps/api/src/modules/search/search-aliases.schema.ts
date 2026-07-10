@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { SEARCH_ALIAS_TYPES } from "./search-aliases.types.js";
+import { queryBooleanSchema } from "./query-boolean.schema.js";
 import {
     CANONICAL_TRANSPORT_SEARCH_ENTITY_TYPES,
     LEGACY_TRANSPORT_SEARCH_ENTITY_TYPES,
@@ -43,15 +44,9 @@ export const listSearchAliasesQuerySchema = z.object({
     entity_type: z.enum(SEARCH_ALIAS_ENTITY_INPUT_TYPES).optional(),
     language_code: z.string().trim().min(1).max(16).optional(),
     alias_type: z.enum(SEARCH_ALIAS_TYPES).optional(),
-    is_active: z
-        .enum(["true", "false"])
-        .transform((value) => value === "true")
-        .optional(),
+    is_active: queryBooleanSchema.optional(),
     entity_id: entityIdSchema.optional(),
-    has_indexed_entity: z
-        .enum(["true", "false"])
-        .transform((value) => value === "true")
-        .optional(),
+    has_indexed_entity: queryBooleanSchema.optional(),
     sort: z.enum(["alias_text", "created_at", "updated_at"]).default("updated_at"),
     order: z.enum(["asc", "desc"]).default("desc"),
     page: z.coerce.number().int().min(1).default(1),

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { queryBooleanSchema } from "./query-boolean.schema.js";
+
 export const FAILED_SEARCH_RESOLUTION_TYPES = [
     "alias",
     "data_fix",
@@ -22,10 +24,7 @@ export type FailedSearchSortField = (typeof FAILED_SEARCH_SORT_FIELDS)[number];
 export const listFailedSearchesQuerySchema = z.object({
     q: z.string().trim().min(1).optional(),
     lang: z.enum(["my", "en", "und"]).optional(),
-    resolved: z
-        .enum(["true", "false"])
-        .transform((value) => value === "true")
-        .optional(),
+    resolved: queryBooleanSchema.optional(),
     last_seen_from: z.string().datetime({ offset: true }).optional(),
     last_seen_to: z.string().datetime({ offset: true }).optional(),
     min_occurrence: z.coerce.number().int().min(1).optional(),

@@ -14,6 +14,7 @@ import {
     publicSearchCursorAfterFromRow,
 } from "./public-search-cursor.js";
 import { buildPublicSearchPage, serializePublicSearchHit } from "./public-map.service.js";
+import { resolvePublicSearchFilters } from "./public-search-filters.js";
 
 const SEARCH_CTX = normalizePublicSearchCursorContext({
     q: "yangon",
@@ -152,6 +153,20 @@ describe("unified search stable ordering", () => {
         assert.ok(compareUnifiedSearchSortKeys(earlier, later) < 0);
         assert.ok(isUnifiedSearchRowAfterCursor(later, earlier));
     });
+
+    it("orders null scores as normalized zero scores with the usual tie-breakers", () => {
+        const earlier = publicSearchCursorAfterFromRow(
+            makeRow({ entity_type: "admin_area", entity_id: "10", display_name: "Same", score: null, importance_score: 5 }),
+        );
+        const later = publicSearchCursorAfterFromRow(
+            makeRow({ entity_type: "place", entity_id: "11", display_name: "Same", score: 0, importance_score: 5 }),
+        );
+
+        assert.equal(earlier.score, 0);
+        assert.equal(later.score, 0);
+        assert.ok(compareUnifiedSearchSortKeys(earlier, later) < 0);
+        assert.ok(isUnifiedSearchRowAfterCursor(later, earlier));
+    });
 });
 
 describe("buildPublicSearchPage", () => {
@@ -169,6 +184,24 @@ describe("buildPublicSearchPage", () => {
         const decoded = decodePublicSearchCursor(page.nextCursor);
         assert.equal(decoded.after.entityId, "2");
         assert.deepEqual(decoded.ctx.types, SEARCH_CTX.types);
+    });
+
+    it("normalizes a null boundary score into a valid numeric cursor and response score", () => {
+        const rows = [
+            makeRow({ entity_id: "1", display_name: "One", score: 1 }),
+            makeRow({ entity_id: "2", display_name: "Null score", score: null }),
+            makeRow({ entity_id: "3", display_name: "After null score", score: null }),
+        ];
+
+        const page = buildPublicSearchPage(rows, 2, SEARCH_CTX);
+
+        assert.equal(page.items.length, 2);
+        assert.ok(page.nextCursor);
+        assert.equal(page.items[1]?.score, 0);
+
+        const decoded = decodePublicSearchCursor(page.nextCursor);
+        assert.equal(decoded.after.entityId, "2");
+        assert.equal(decoded.after.score, 0);
     });
 
     it("returns the final page without nextCursor", () => {
@@ -205,6 +238,38 @@ describe("buildPublicSearchPage", () => {
             (second.items[0] as { entityId: string }).entityId,
             (first.items[0] as { entityId: string }).entityId,
         );
+    });
+
+    it("continues across null score rows without duplicates or skipped stable rows", () => {
+        const rows = [
+            makeRow({ entity_type: "place", entity_id: "1", display_name: "Alpha", score: 10, importance_score: 4 }),
+            makeRow({ entity_type: "admin_area", entity_id: "3", display_name: "Beta", score: null, importance_score: 5 }),
+            makeRow({ entity_type: "place", entity_id: "2", display_name: "Beta", score: null, importance_score: 5 }),
+            makeRow({ entity_type: "place", entity_id: "4", display_name: "Gamma", score: null, importance_score: 5 }),
+            makeRow({ entity_type: "place", entity_id: "5", display_name: "Delta", score: null, importance_score: 4 }),
+        ];
+
+        const first = buildPublicSearchPage(rows, 2, SEARCH_CTX);
+        assert.ok(first.nextCursor);
+        const after1 = decodePublicSearchCursor(first.nextCursor).after;
+        const page2Rows = rows.filter((row) =>
+            isUnifiedSearchRowAfterCursor(publicSearchCursorAfterFromRow(row), after1),
+        );
+        const second = buildPublicSearchPage(page2Rows, 2, SEARCH_CTX);
+        assert.ok(second.nextCursor);
+        const after2 = decodePublicSearchCursor(second.nextCursor).after;
+        const page3Rows = rows.filter((row) =>
+            isUnifiedSearchRowAfterCursor(publicSearchCursorAfterFromRow(row), after2),
+        );
+        const third = buildPublicSearchPage(page3Rows, 2, SEARCH_CTX);
+
+        const ids = [...first.items, ...second.items, ...third.items].map((item) => {
+            assert.ok("entityId" in item);
+            return `${item.entityType}:${item.entityId}`;
+        });
+
+        assert.deepEqual(ids, ["place:1", "admin_area:3", "place:2", "place:4", "place:5"]);
+        assert.equal(new Set(ids).size, ids.length);
     });
 });
 
@@ -252,6 +317,220 @@ describe("PublicMapService.search pagination (mocked repo)", () => {
         });
 
         assert.equal(calls[0]?.after?.entityId, "7");
+    });
+
+    it("continues page 1 to page 2 to page 3 for q=yangon with Myanmar language and map bias", async () => {
+        const rows = Array.from({ length: 6 }, (_, index) =>
+            makeRow({
+                entity_type: index % 2 === 0 ? "place" : "admin_area",
+                entity_id: String(index + 1),
+                display_name: `Yangon ${index + 1}`,
+                primary_name_my: `ရန်ကုန် ${index + 1}`,
+                primary_name_en: `Yangon ${index + 1}`,
+                score: 100 - index,
+                importance_score: 50 - index,
+            }),
+        );
+        const calls: Array<{ limit: number; after?: { entityId: string }; lang?: string; lat?: number; lng?: number }> = [];
+        const repo = {
+            searchUnifiedDocuments: async (params: {
+                limit: number;
+                after?: ReturnType<typeof publicSearchCursorAfterFromRow>;
+                lang?: "my" | "en" | "und";
+                lat?: number;
+                lng?: number;
+            }) => {
+                calls.push({
+                    limit: params.limit,
+                    after: params.after,
+                    lang: params.lang,
+                    lat: params.lat,
+                    lng: params.lng,
+                });
+                const remaining = params.after
+                    ? rows.filter((row) =>
+                          isUnifiedSearchRowAfterCursor(
+                              publicSearchCursorAfterFromRow(row),
+                              params.after!,
+                          ),
+                      )
+                    : rows;
+                return remaining.slice(0, params.limit);
+            },
+            logFailedSearch: async () => {},
+            insertSearchRequestEvent: async () => {},
+        };
+        const reverseSearch = { reverse: async () => null };
+        const { PublicMapService } = await import("./public-map.service.js");
+        const service = new PublicMapService(repo as never, reverseSearch as never);
+        const filters = resolvePublicSearchFilters({
+            category: "all",
+            transportType: "all",
+            transportMode: "all",
+        });
+        const ctx = normalizePublicSearchCursorContext({
+            q: "yangon",
+            mode: "full",
+            types: [...filters.entityTypes],
+            lat: 16.8401,
+            lng: 96.1735,
+            category: filters.category,
+            transportType: filters.transportType,
+            transportMode: filters.transportMode,
+            lang: "my",
+        });
+
+        const first = await service.search({
+            q: "yangon",
+            limit: 2,
+            lat: 16.8401,
+            lng: 96.1735,
+            lang: "my",
+            filters,
+            cursorContext: ctx,
+        });
+        assert.equal(first.items.length, 2);
+        assert.ok(first.nextCursor);
+
+        const page2Url = new URL("https://api.example.test/public/search");
+        page2Url.searchParams.set("q", "yangon");
+        page2Url.searchParams.set("lang", "my");
+        page2Url.searchParams.set("lat", "16.8401");
+        page2Url.searchParams.set("lng", "96.1735");
+        page2Url.searchParams.set("limit", "2");
+        page2Url.searchParams.set("cursor", first.nextCursor);
+        assert.equal(page2Url.searchParams.get("cursor"), first.nextCursor);
+        assert.match(first.nextCursor, /^[A-Za-z0-9_-]+$/);
+
+        const decoded1 = decodePublicSearchCursor(page2Url.searchParams.get("cursor")!);
+        assertPublicSearchCursorMatchesRequest(decoded1.ctx, ctx);
+        const second = await service.search({
+            q: "yangon",
+            limit: 2,
+            lat: 16.8401,
+            lng: 96.1735,
+            lang: "my",
+            filters,
+            after: decoded1.after,
+            cursorContext: ctx,
+        });
+        assert.equal(second.items.length, 2);
+        assert.ok(second.nextCursor);
+
+        const decoded2 = decodePublicSearchCursor(second.nextCursor);
+        assertPublicSearchCursorMatchesRequest(decoded2.ctx, ctx);
+        const third = await service.search({
+            q: "yangon",
+            limit: 2,
+            lat: 16.8401,
+            lng: 96.1735,
+            lang: "my",
+            filters,
+            after: decoded2.after,
+            cursorContext: ctx,
+        });
+
+        const ids = [...first.items, ...second.items, ...third.items].map((item) => {
+            assert.ok("entityId" in item);
+            return `${item.entityType}:${item.entityId}`;
+        });
+        assert.deepEqual(ids, [
+            "place:1",
+            "admin_area:2",
+            "place:3",
+            "admin_area:4",
+            "place:5",
+            "admin_area:6",
+        ]);
+        assert.equal(new Set(ids).size, ids.length);
+        assert.equal(calls[0]?.after, undefined);
+        assert.equal(calls[1]?.after?.entityId, "2");
+        assert.equal(calls[2]?.after?.entityId, "4");
+    });
+
+    it("rejects a valid cursor when the map-center bias changes inside the same search", () => {
+        const filters = resolvePublicSearchFilters({
+            category: "all",
+            transportType: "all",
+            transportMode: "all",
+        });
+        const ctx = normalizePublicSearchCursorContext({
+            q: "yangon",
+            mode: "full",
+            types: [...filters.entityTypes],
+            lat: 16.84,
+            lng: 96.173,
+            category: filters.category,
+            transportType: filters.transportType,
+            transportMode: filters.transportMode,
+            lang: "my",
+        });
+        const cursor = encodePublicSearchCursor({
+            v: PUBLIC_SEARCH_CURSOR_VERSION,
+            ctx,
+            after: publicSearchCursorAfterFromRow(makeRow({ entity_id: "2" })),
+        });
+        const decoded = decodePublicSearchCursor(cursor);
+        const changedMapCenter = normalizePublicSearchCursorContext({
+            q: "yangon",
+            mode: "full",
+            types: [...filters.entityTypes],
+            lat: 16.8404,
+            lng: 96.173,
+            category: filters.category,
+            transportType: filters.transportType,
+            transportMode: filters.transportMode,
+            lang: "my",
+        });
+
+        assert.throws(
+            () => assertPublicSearchCursorMatchesRequest(decoded.ctx, changedMapCenter),
+            /reference location/,
+        );
+    });
+
+    it("keeps filtered transport pagination bound to the same filter context", () => {
+        const filters = resolvePublicSearchFilters({
+            category: "transport",
+            transportType: "routes",
+            transportMode: "bus",
+        });
+        const ctx = normalizePublicSearchCursorContext({
+            q: "yangon",
+            mode: "full",
+            types: [...filters.entityTypes],
+            category: filters.category,
+            transportType: filters.transportType,
+            transportMode: filters.transportMode,
+            lang: "my",
+        });
+        const cursor = encodePublicSearchCursor({
+            v: PUBLIC_SEARCH_CURSOR_VERSION,
+            ctx,
+            after: publicSearchCursorAfterFromRow(
+                makeRow({
+                    entity_type: "transport_route",
+                    entity_id: "99",
+                    display_name: "YBS 99",
+                }),
+            ),
+        });
+        const decoded = decodePublicSearchCursor(cursor);
+        assertPublicSearchCursorMatchesRequest(decoded.ctx, ctx);
+
+        const changedFilter = normalizePublicSearchCursorContext({
+            q: "yangon",
+            mode: "full",
+            types: ["transport_stop", "bus_stop"],
+            category: "transport",
+            transportType: "stops",
+            transportMode: "bus",
+            lang: "my",
+        });
+        assert.throws(
+            () => assertPublicSearchCursorMatchesRequest(decoded.ctx, changedFilter),
+            /type filter|transport type filter/,
+        );
     });
 });
 

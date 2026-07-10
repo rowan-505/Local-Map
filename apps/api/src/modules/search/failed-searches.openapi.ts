@@ -112,7 +112,7 @@ export const getFailedSearchesSchema: FastifySchema = {
         properties: {
             q: { type: "string" },
             lang: { type: "string", enum: ["my", "en", "und"] },
-            resolved: { type: "string", enum: ["true", "false"] },
+            resolved: { type: "boolean" },
             last_seen_from: { type: "string", format: "date-time" },
             last_seen_to: { type: "string", format: "date-time" },
             min_occurrence: { type: "integer", minimum: 1 },

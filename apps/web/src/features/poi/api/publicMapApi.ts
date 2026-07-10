@@ -4,7 +4,10 @@ import type {
   PublicSearchTransportMode,
   PublicSearchTransportType,
 } from './publicSearchConstants.js';
+import { PublicMapApiError } from './publicMapApiError.js';
 import type { PublicSearchApiLang } from './publicSearchLang.js';
+
+export { PublicMapApiError };
 
 export type { PublicSearchCategory, PublicSearchTransportMode, PublicSearchTransportType };
 
@@ -406,11 +409,24 @@ function getApiBaseUrl(): string {
   return API_BASE_URL.replace(/\/+$/, '');
 }
 
+async function parsePublicMapApiError(response: Response): Promise<PublicMapApiError> {
+  let message = `API request failed: ${response.status} ${response.statusText}`;
+  try {
+    const body = (await response.json()) as { message?: unknown };
+    if (typeof body.message === 'string' && body.message.trim() !== '') {
+      message = body.message.trim();
+    }
+  } catch {
+    // Keep the status/statusText fallback when the response body is not JSON.
+  }
+  return new PublicMapApiError(response.status, message);
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${getApiBaseUrl()}${path}`, init);
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    throw await parsePublicMapApiError(response);
   }
 
   return response.json() as Promise<T>;

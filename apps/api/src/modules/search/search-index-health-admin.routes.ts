@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
 
 import { getSearchIndexHealthReport } from "./search-index-health.js";
+import { queryBooleanSchema } from "./query-boolean.schema.js";
 import {
     getSearchIndexHealthSchema,
     postSearchIndexHealthCheckSchema,
@@ -51,8 +53,10 @@ const searchIndexHealthAdminRoutes: FastifyPluginAsync = async (app) => {
     app.get(
         "/admin/search/index-health",
         { ...adminGuard, schema: getSearchIndexHealthSchema },
-        async (_request, reply) => {
-            return reply.send(await getSearchIndexHealthReport(app.prisma));
+        async (request, reply) => {
+            const parsed = z.object({ refresh: queryBooleanSchema.optional() }).safeParse(request.query);
+            const refresh = parsed.success ? parsed.data.refresh === true : false;
+            return reply.send(await getSearchIndexHealthReport(app.prisma, { refresh }));
         },
     );
 

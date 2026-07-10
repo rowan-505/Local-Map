@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import StatsCard from "@/src/components/dashboard/StatsCard";
 import { isAbortError } from "@/src/lib/api";
@@ -23,9 +23,18 @@ import {
     indexHealthSeverityLabel,
     maintenanceOperationStatusLabel,
 } from "./constants";
+import {
+    phaseAtSearchIndexHealthLoadStart,
+    resolveSearchIndexHealthLoadPhase,
+    shouldShowSearchIndexHealthContent,
+    shouldShowSearchIndexHealthSkeleton,
+    type SearchIndexHealthLoadPhase,
+} from "./searchIndexHealthPageState";
 import SearchIndexMaintenanceConfirmDialog from "./SearchIndexMaintenanceConfirmDialog";
 import type { SearchIndexHealthReport, SearchIndexMaintenanceOperation } from "./types";
 import { PRIMARY_BTN, SECONDARY_BTN, SELECT_CLASS, SyncStateBadge } from "./ui";
+
+const HEALTH_FAMILY_SKELETON_ROWS = 12;
 
 type PendingAction =
     | { kind: "repair" }
@@ -63,9 +72,53 @@ function formatOperationFlash(operation: SearchIndexMaintenanceOperation): strin
     return parts.join(" · ");
 }
 
+function SearchIndexHealthSkeleton() {
+    return (
+        <div className="space-y-5">
+            <p className="text-sm text-gray-600">Checking search index health...</p>
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+                {Array.from({ length: 6 }).map((_, index) => (
+                    <div
+                        key={index}
+                        className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+                    >
+                        <div className="h-3 w-24 animate-pulse rounded bg-gray-100" />
+                        <div className="mt-3 h-7 w-20 animate-pulse rounded bg-gray-200" />
+                    </div>
+                ))}
+            </div>
+            <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            {Array.from({ length: 9 }).map((_, index) => (
+                                <th key={index} className="px-4 py-3">
+                                    <div className="h-3 w-16 animate-pulse rounded bg-gray-100" />
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                        {Array.from({ length: HEALTH_FAMILY_SKELETON_ROWS }).map((_, rowIndex) => (
+                            <tr key={rowIndex}>
+                                {Array.from({ length: 9 }).map((__, cellIndex) => (
+                                    <td key={cellIndex} className="px-4 py-3">
+                                        <div className="h-4 animate-pulse rounded bg-gray-100" />
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
 export default function SearchIndexHealthPage() {
     const [data, setData] = useState<SearchIndexHealthReport | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [phase, setPhase] = useState<SearchIndexHealthLoadPhase>("initial");
+    const dataRef = useRef<SearchIndexHealthReport | null>(null);
     const [error, setError] = useState("");
     const [actionError, setActionError] = useState("");
     const [flash, setFlash] = useState("");
@@ -75,30 +128,50 @@ export default function SearchIndexHealthPage() {
     const [entityId, setEntityId] = useState("");
 
     const canMaintain = canMaintainSearchIndex();
+    const isRefreshing = phase === "refreshing";
+    const showSkeleton = shouldShowSearchIndexHealthSkeleton(phase, data != null);
+    const showContent = shouldShowSearchIndexHealthContent(phase, data != null);
 
-    const load = useCallback(async (signal?: AbortSignal) => {
-        setLoading(true);
+    const load = useCallback(async (options?: { refresh?: boolean; signal?: AbortSignal }) => {
+        const isRefresh = options?.refresh ?? false;
+        const hasData = dataRef.current != null;
+        setPhase(phaseAtSearchIndexHealthLoadStart(hasData, isRefresh));
         setError("");
         try {
-            const res = await getSearchIndexHealth(signal ? { signal } : undefined);
+            const res = await getSearchIndexHealth({
+                signal: options?.signal,
+                refresh: isRefresh,
+            });
+            dataRef.current = res;
             setData(res);
+            setPhase("loaded");
         } catch (err) {
             if (isAbortError(err)) return;
             setError(err instanceof Error ? err.message : "Failed to load search index health.");
-            setData(null);
-        } finally {
-            setLoading(false);
+            setPhase(
+                resolveSearchIndexHealthLoadPhase({
+                    hasData: dataRef.current != null,
+                    isRefresh,
+                    success: false,
+                }),
+            );
+            if (!isRefresh) {
+                dataRef.current = null;
+                setData(null);
+            }
         }
     }, []);
 
     useEffect(() => {
         const controller = new AbortController();
-        void load(controller.signal);
+        void load({ signal: controller.signal });
         return () => controller.abort();
     }, [load]);
 
     const applyOperationResult = useCallback((operation: SearchIndexMaintenanceOperation) => {
+        dataRef.current = operation.health_after;
         setData(operation.health_after);
+        setPhase("loaded");
         setFlash(formatOperationFlash(operation));
         setActionError("");
     }, []);
@@ -198,15 +271,15 @@ export default function SearchIndexHealthPage() {
                         <button
                             type="button"
                             className={SECONDARY_BTN}
-                            disabled={loading || runningAction}
-                            onClick={() => void load()}
+                            disabled={phase === "initial" || isRefreshing || runningAction}
+                            onClick={() => void load({ refresh: true })}
                         >
-                            Refresh
+                            {isRefreshing ? "Refreshing…" : "Refresh"}
                         </button>
                         <button
                             type="button"
                             className={SECONDARY_BTN}
-                            disabled={loading || runningAction}
+                            disabled={phase === "initial" || isRefreshing || runningAction}
                             onClick={() => void runHealthCheck()}
                         >
                             {runningAction ? "Running…" : "Run health check"}
@@ -215,7 +288,7 @@ export default function SearchIndexHealthPage() {
                             <button
                                 type="button"
                                 className={PRIMARY_BTN}
-                                disabled={loading || runningAction}
+                                disabled={phase === "initial" || isRefreshing || runningAction}
                                 onClick={() => setPendingAction({ kind: "repair" })}
                             >
                                 Repair unhealthy
@@ -229,7 +302,14 @@ export default function SearchIndexHealthPage() {
 
                 {error ? (
                     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                        {error}
+                        <p>{error}</p>
+                        <button
+                            type="button"
+                            className="mt-3 rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100"
+                            onClick={() => void load({ refresh: data != null })}
+                        >
+                            Retry
+                        </button>
                     </div>
                 ) : null}
 
@@ -245,15 +325,14 @@ export default function SearchIndexHealthPage() {
                     </div>
                 ) : null}
 
-                {loading ? (
-                    <div className="rounded-lg border border-gray-200 bg-white p-6 text-gray-700 shadow-sm">
-                        Loading index health…
-                    </div>
-                ) : null}
+                {showSkeleton ? <SearchIndexHealthSkeleton /> : null}
 
-                {!loading && data ? (
+                {showContent && data ? (
                     <>
                         <div className="flex flex-wrap items-center gap-3">
+                            {isRefreshing ? (
+                                <span className="text-sm text-gray-500">Refreshing health data…</span>
+                            ) : null}
                             <SyncStateBadge
                                 state={indexHealthSeverityBadgeState(data.overall_severity)}
                                 label={indexHealthSeverityLabel(data.overall_severity)}

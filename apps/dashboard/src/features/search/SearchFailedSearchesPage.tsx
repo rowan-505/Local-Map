@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 
@@ -23,6 +23,7 @@ import {
     resolutionTypeLabel,
 } from "./constants";
 import { formatMutationSuccess } from "./searchAliasMessages";
+import { getSearchListPageState } from "./searchListPageState";
 import type {
     FailedSearchItem,
     FailedSearchResolutionType,
@@ -88,6 +89,7 @@ export default function SearchFailedSearchesPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [flash, setFlash] = useState<FlashMessage | null>(null);
+    const requestSequence = useRef(0);
 
     const [inspectItem, setInspectItem] = useState<FailedSearchItem | null>(null);
     const [candidateDocuments, setCandidateDocuments] = useState<SearchDocumentItem[]>([]);
@@ -122,17 +124,23 @@ export default function SearchFailedSearchesPage() {
 
     const load = useCallback(
         async (signal?: AbortSignal) => {
+            const requestId = requestSequence.current + 1;
+            requestSequence.current = requestId;
             setLoading(true);
             setError("");
             try {
                 const res = await listFailedSearches(apiFilters, signal ? { signal } : undefined);
+                if (requestSequence.current !== requestId) return;
                 setData(res);
             } catch (err) {
                 if (isAbortError(err)) return;
+                if (requestSequence.current !== requestId) return;
                 setError(err instanceof Error ? err.message : "Failed to load failed searches.");
                 setData(null);
             } finally {
-                setLoading(false);
+                if (requestSequence.current === requestId) {
+                    setLoading(false);
+                }
             }
         },
         [apiFilters],
@@ -307,6 +315,7 @@ export default function SearchFailedSearchesPage() {
     useClampPageToTotal(page, setPage, total, PAGE_SIZE);
     const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
     const rangeEnd = Math.min(page * PAGE_SIZE, total);
+    const tableState = getSearchListPageState({ loading, error, data, items });
 
     return (
         <main className="p-6">
@@ -452,8 +461,15 @@ export default function SearchFailedSearchesPage() {
                 </div>
 
                 {error ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                        {error}
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                        <span>{error}</span>
+                        <button
+                            type="button"
+                            className={SECONDARY_BTN}
+                            onClick={() => void load()}
+                        >
+                            Retry
+                        </button>
                     </div>
                 ) : null}
 
@@ -471,13 +487,25 @@ export default function SearchFailedSearchesPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 bg-white">
-                            {loading ? (
+                            {tableState === "loading" ? (
                                 <tr>
                                     <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                                         Loading failed searches…
                                     </td>
                                 </tr>
-                            ) : items.length === 0 ? (
+                            ) : tableState === "error" ? (
+                                <tr>
+                                    <td colSpan={7} className="px-4 py-8 text-center text-red-700">
+                                        Failed searches could not be loaded.
+                                    </td>
+                                </tr>
+                            ) : tableState === "idle" ? (
+                                <tr>
+                                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                                        Failed searches have not loaded yet.
+                                    </td>
+                                </tr>
+                            ) : tableState === "empty" ? (
                                 <tr>
                                     <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                                         No failed searches match the current filters.

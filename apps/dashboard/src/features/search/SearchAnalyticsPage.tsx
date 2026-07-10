@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Bar,
     BarChart,
@@ -26,6 +26,12 @@ import {
     searchCategoryLabel,
     searchLanguageLabel,
 } from "./constants";
+import {
+    SEARCH_ANALYTICS_EMPTY_LABEL,
+    clickedEntityRowLabel,
+    formatNullableLatencyMs,
+    hasAnalyticsLatencyPoints,
+} from "./searchAnalyticsDisplay";
 import type { SearchAnalyticsDashboard, SearchAnalyticsPeriod } from "./types";
 import { INPUT_CLASS, PRIMARY_BTN, SECONDARY_BTN, SELECT_CLASS, CELL_TEXT_CLASS } from "./ui";
 
@@ -73,7 +79,7 @@ function DataTable({
         <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
             <h2 className="mb-3 text-base font-semibold text-gray-900">{title}</h2>
             {rows.length === 0 ? (
-                <p className="text-sm text-gray-500">No data in this range.</p>
+                <p className="text-sm text-gray-500">{SEARCH_ANALYTICS_EMPTY_LABEL}</p>
             ) : (
                 <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
@@ -121,8 +127,11 @@ export default function SearchAnalyticsPage() {
     const [data, setData] = useState<SearchAnalyticsDashboard | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const requestSequence = useRef(0);
 
     const load = useCallback(async (signal?: AbortSignal) => {
+        const requestId = requestSequence.current + 1;
+        requestSequence.current = requestId;
         setLoading(true);
         setError("");
         try {
@@ -135,18 +144,23 @@ export default function SearchAnalyticsPage() {
                       }
                     : { period };
             if (period === "custom" && (!filters.from || !filters.to)) {
+                if (requestSequence.current !== requestId) return;
                 setData(null);
                 setLoading(false);
                 return;
             }
             const res = await getSearchAnalyticsDashboard(filters, signal ? { signal } : undefined);
+            if (requestSequence.current !== requestId) return;
             setData(res);
         } catch (err) {
             if (isAbortError(err)) return;
+            if (requestSequence.current !== requestId) return;
             setError(err instanceof Error ? err.message : "Failed to load search analytics.");
             setData(null);
         } finally {
-            setLoading(false);
+            if (requestSequence.current === requestId) {
+                setLoading(false);
+            }
         }
     }, [period, customFrom, customTo]);
 
@@ -162,10 +176,15 @@ export default function SearchAnalyticsPage() {
             label: formatBucketLabel(row.bucket, data.range.timeseries_bucket),
             searches: row.searches,
             zero_result_rate: row.zero_result_rate,
-            latency_p50_ms: row.latency_p50_ms ?? 0,
-            latency_p95_ms: row.latency_p95_ms ?? 0,
+            latency_p50_ms: row.latency_p50_ms,
+            latency_p95_ms: row.latency_p95_ms,
         }));
     }, [data]);
+
+    const hasLatencyData = useMemo(
+        () => hasAnalyticsLatencyPoints(data?.timeseries ?? []),
+        [data?.timeseries],
+    );
 
     const languageData = useMemo(
         () =>
@@ -186,6 +205,9 @@ export default function SearchAnalyticsPage() {
     );
 
     const summary = data?.summary;
+    const missingCustomRange = period === "custom" && (!customFrom || !customTo);
+    const initialLoading = loading && !data;
+    const reloading = loading && data !== null;
 
     return (
         <main className="p-6">
@@ -239,36 +261,54 @@ export default function SearchAnalyticsPage() {
                             </label>
                         </>
                     ) : null}
-                    <button type="button" className={PRIMARY_BTN} onClick={() => void load()}>
-                        Refresh
+                    <button
+                        type="button"
+                        className={PRIMARY_BTN}
+                        disabled={loading}
+                        onClick={() => void load()}
+                    >
+                        {loading ? "Refreshing…" : "Refresh"}
                     </button>
                 </div>
 
                 {error ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                        {error}
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                        <span>{error}</span>
+                        <button
+                            type="button"
+                            className={SECONDARY_BTN}
+                            onClick={() => void load()}
+                        >
+                            Retry
+                        </button>
                     </div>
                 ) : null}
 
-                {loading ? (
+                {initialLoading ? (
                     <div className="rounded-lg border border-gray-200 bg-white p-6 text-gray-700 shadow-sm">
                         Loading search analytics…
                     </div>
                 ) : null}
 
-                {!loading && period === "custom" && (!customFrom || !customTo) ? (
+                {reloading ? (
+                    <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-600 shadow-sm">
+                        Refreshing search analytics…
+                    </div>
+                ) : null}
+
+                {!loading && missingCustomRange ? (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                         Choose a custom from/to date range.
                     </div>
                 ) : null}
 
-                {!loading && !error && data && data.summary.total_searches === 0 &&
-                !(period === "custom" && (!customFrom || !customTo)) ? (
-                    <div className="rounded-lg border border-gray-200 bg-white p-6 text-sm text-gray-600 shadow-sm">
-                        No search activity in this time range.
-                    </div>
-                ) : !loading && summary ? (
+                {!loading && !error && summary && !missingCustomRange ? (
                     <>
+                        {data?.summary.total_searches === 0 ? (
+                            <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600 shadow-sm">
+                                {SEARCH_ANALYTICS_EMPTY_LABEL}
+                            </div>
+                        ) : null}
                         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
                             <StatsCard title="Total searches" value={summary.total_searches} />
                             <StatsCard
@@ -311,7 +351,7 @@ export default function SearchAnalyticsPage() {
                         <div className="grid gap-6 lg:grid-cols-2">
                             <ChartCard title="Searches over time">
                                 {timeseriesData.length === 0 ? (
-                                    <EmptyChart label="No searches in this range." />
+                                    <EmptyChart label={SEARCH_ANALYTICS_EMPTY_LABEL} />
                                 ) : (
                                     <ResponsiveContainer>
                                         <BarChart
@@ -335,7 +375,7 @@ export default function SearchAnalyticsPage() {
 
                             <ChartCard title="Zero-result rate over time">
                                 {timeseriesData.length === 0 ? (
-                                    <EmptyChart label="No searches in this range." />
+                                    <EmptyChart label={SEARCH_ANALYTICS_EMPTY_LABEL} />
                                 ) : (
                                     <ResponsiveContainer>
                                         <LineChart
@@ -360,8 +400,8 @@ export default function SearchAnalyticsPage() {
                             </ChartCard>
 
                             <ChartCard title="Latency over time (P50 / P95)">
-                                {timeseriesData.length === 0 ? (
-                                    <EmptyChart label="No searches in this range." />
+                                {timeseriesData.length === 0 || !hasLatencyData ? (
+                                    <EmptyChart label={SEARCH_ANALYTICS_EMPTY_LABEL} />
                                 ) : (
                                     <ResponsiveContainer>
                                         <LineChart
@@ -371,7 +411,14 @@ export default function SearchAnalyticsPage() {
                                             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                                             <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                                             <YAxis tick={{ fontSize: 11 }} width={44} unit="ms" />
-                                            <Tooltip />
+                                            <Tooltip
+                                                formatter={(value, name) => [
+                                                    formatNullableLatencyMs(
+                                                        typeof value === "number" ? value : null,
+                                                    ),
+                                                    name,
+                                                ]}
+                                            />
                                             <Line
                                                 type="monotone"
                                                 dataKey="latency_p50_ms"
@@ -395,7 +442,7 @@ export default function SearchAnalyticsPage() {
 
                             <ChartCard title="Searches by language">
                                 {languageData.length === 0 ? (
-                                    <EmptyChart label="No language breakdown yet." />
+                                    <EmptyChart label={SEARCH_ANALYTICS_EMPTY_LABEL} />
                                 ) : (
                                     <ResponsiveContainer>
                                         <BarChart
@@ -419,7 +466,7 @@ export default function SearchAnalyticsPage() {
 
                             <ChartCard title="Searches by category">
                                 {categoryData.length === 0 ? (
-                                    <EmptyChart label="No category breakdown yet." />
+                                    <EmptyChart label={SEARCH_ANALYTICS_EMPTY_LABEL} />
                                 ) : (
                                     <ResponsiveContainer>
                                         <BarChart
@@ -482,7 +529,7 @@ export default function SearchAnalyticsPage() {
                                 title="Most clicked entities"
                                 headers={["Entity", "Type", "Clicks"]}
                                 rows={(data?.top_clicked_entities ?? []).map((row) => [
-                                    row.display_name ?? `id ${row.entity_id}`,
+                                    clickedEntityRowLabel(row),
                                     entityTypeLabel(row.entity_type),
                                     row.click_count,
                                 ])}

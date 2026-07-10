@@ -6,6 +6,8 @@
  * to be indexed, which avoids false positives from raw table counts.
  */
 
+import { isSearchIndexRunFailed } from "./search-index-run-status.js";
+
 export type SearchIndexHealthSeverity = "healthy" | "warning" | "critical";
 
 export const SEARCH_INDEX_HEALTH_SEVERITY_THRESHOLDS = {
@@ -71,14 +73,6 @@ export function maxSearchIndexHealthSeverity(
         return "warning";
     }
     return "healthy";
-}
-
-function isFailedRebuildStatus(status: string | null): boolean {
-    if (!status) {
-        return false;
-    }
-    const normalized = status.trim().toLowerCase();
-    return normalized.includes("fail") || normalized.includes("error");
 }
 
 function ageMs(value: Date | null, now: Date): number | null {
@@ -255,7 +249,7 @@ export function deriveSearchIndexOverallSeverity(
     const reasons: string[] = [];
     const levels: SearchIndexHealthSeverity[] = [...input.family_severities];
 
-    if (isFailedRebuildStatus(input.last_rebuild_status)) {
+    if (isSearchIndexRunFailed(input.last_rebuild_status)) {
         levels.push("critical");
         reasons.push("latest rebuild run failed");
     }

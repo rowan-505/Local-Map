@@ -228,19 +228,20 @@ export async function fitSearchResult(
     return;
   }
 
+  if (options.geometry?.feature) {
+    setSearchHighlight(map, withHighlightProps(options.geometry.feature, result));
+  } else if (result.bbox) {
+    setSearchHighlight(map, highlightBboxFeature(result.bbox, result));
+  } else if (center) {
+    setSearchHighlight(map, highlightPointFeature(center, result));
+  } else {
+    clearSearchHighlight(map);
+  }
+
   if (result.bbox) {
     fitSearchBounds(map, result.bbox, options);
   } else if (center) {
     flyToSearchPoint(map, center, result, options);
-  }
-
-  if (options.geometry?.feature) {
-    setSearchHighlight(map, withHighlightProps(options.geometry.feature, result));
-    return;
-  }
-
-  if (center) {
-    setSearchHighlight(map, highlightPointFeature(center, result));
   }
 }
 
@@ -334,6 +335,27 @@ function highlightPointFeature(
     type: 'Feature',
     geometry: { type: 'Point', coordinates: [center[0], center[1]] },
     properties: highlightProps(result),
+  };
+}
+
+function highlightBboxFeature(
+  bbox: readonly [number, number, number, number],
+  result: PublicSearchResult,
+): GeoJSON.Feature {
+  const [minLng, minLat, maxLng, maxLat] = bbox;
+  return {
+    type: 'Feature',
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[
+        [minLng, minLat],
+        [maxLng, minLat],
+        [maxLng, maxLat],
+        [minLng, maxLat],
+        [minLng, minLat],
+      ]],
+    },
+    properties: { ...highlightProps(result), source: 'bbox' },
   };
 }
 

@@ -73,15 +73,19 @@ export function normalizePublicSearchCursorContext(input: {
     };
 }
 
+export function normalizePublicSearchSortScore(value: number | null | undefined): number {
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 export function publicSearchCursorAfterFromRow(row: {
-    score: number;
+    score: number | null;
     importance_score: number;
     display_name: string | null;
     entity_type: string;
     entity_id: string;
 }): PublicSearchCursorAfter {
     return {
-        score: row.score,
+        score: normalizePublicSearchSortScore(row.score),
         importanceScore: row.importance_score,
         displayName: row.display_name ?? "",
         entityType: row.entity_type,

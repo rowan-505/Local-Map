@@ -1,11 +1,16 @@
 import type { PrismaClient } from "@prisma/client";
 
 import {
+    getCachedSearchIndexHealthReport,
+    clearSearchIndexHealthCache,
+} from "./search-index-health-cache.js";
+import {
     deriveSearchIndexFamilySeverity,
     deriveSearchIndexOverallSeverity,
     severityToBinaryHealthStatus,
     type SearchIndexHealthSeverity,
 } from "./search-index-health-severity.js";
+import { SEARCH_INDEX_RUN_SUCCESSFUL_STATUS_SQL } from "./search-index-run-status.js";
 
 export type SearchIndexHealthRow = {
     entity_family: string;
@@ -62,7 +67,7 @@ WITH families AS (
             ('water_polygons', 'water_polygon')
     ) AS t(entity_family, search_entity_type)
 ),
-canonical AS (
+canonical AS MATERIALIZED (
     SELECT entity_type, entity_id::bigint AS entity_id, source_updated_at
     FROM search.v_search_places_source
     UNION ALL
@@ -96,7 +101,7 @@ canonical AS (
     SELECT entity_type, entity_id::bigint, source_updated_at
     FROM search.v_search_water_polygons_source
 ),
-indexed AS (
+indexed AS MATERIALIZED (
     SELECT
         entity_type,
         entity_id::bigint AS entity_id,
@@ -106,7 +111,7 @@ indexed AS (
     WHERE is_public = true
       AND is_active = true
 ),
-joined AS (
+joined AS MATERIALIZED (
     SELECT
         coalesce(c.entity_type, i.entity_type) AS entity_type,
         c.entity_id AS canonical_entity_id,
@@ -308,7 +313,7 @@ LIMIT 1
 const LATEST_SUCCESSFUL_INDEX_RUN_QUERY = `
 SELECT id, status, started_at, finished_at, entity_counts
 FROM search.search_index_runs
-WHERE status = 'success'
+WHERE status = ${SEARCH_INDEX_RUN_SUCCESSFUL_STATUS_SQL}
 ORDER BY finished_at DESC NULLS LAST, id DESC
 LIMIT 1
 `;
@@ -453,7 +458,9 @@ export async function fetchSearchIndexRunMetadata(
     };
 }
 
-export async function getSearchIndexHealthReport(prisma: PrismaClient): Promise<SearchIndexHealthReport> {
+export async function loadSearchIndexHealthReportUncached(
+    prisma: PrismaClient,
+): Promise<SearchIndexHealthReport> {
     try {
         const [rows, runs] = await Promise.all([
             runSearchIndexHealthCheck(prisma),
@@ -464,6 +471,40 @@ export async function getSearchIndexHealthReport(prisma: PrismaClient): Promise<
         return buildFailedSearchIndexHealthReport(error);
     }
 }
+
+export type SearchIndexHealthReportOptions = {
+    /** Bypass the short-lived in-process cache. */
+    refresh?: boolean;
+};
+
+export async function getSearchIndexHealthReport(
+    prisma: PrismaClient,
+    options: SearchIndexHealthReportOptions = {},
+): Promise<SearchIndexHealthReport> {
+    return getCachedSearchIndexHealthReport(
+        () => loadSearchIndexHealthReportUncached(prisma),
+        { refresh: options.refresh },
+    );
+}
+
+export type SearchIndexHealthSeveritySummary = Pick<
+    SearchIndexHealthReport,
+    "overall_severity" | "overall_status" | "health_query_ok"
+>;
+
+/** Lightweight overview helper that reuses the cached full health report. */
+export async function getSearchIndexHealthSeveritySummary(
+    prisma: PrismaClient,
+): Promise<SearchIndexHealthSeveritySummary> {
+    const report = await getSearchIndexHealthReport(prisma);
+    return {
+        overall_severity: report.overall_severity,
+        overall_status: report.overall_status,
+        health_query_ok: report.health_query_ok,
+    };
+}
+
+export { clearSearchIndexHealthCache };
 
 export function printSearchIndexHealthTable(rows: readonly SearchIndexFamilyHealth[]): void {
     const headers = [

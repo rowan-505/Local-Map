@@ -18,6 +18,7 @@ import { serializePublicTransportSearchFields } from "../search/transport-search
 import {
     encodePublicSearchCursor,
     normalizePublicSearchCursorContext,
+    normalizePublicSearchSortScore,
     PUBLIC_SEARCH_CURSOR_VERSION,
     publicSearchCursorAfterFromRow,
     type PublicSearchCursorAfter,
@@ -1115,7 +1116,7 @@ export function serializePublicSearchHit(
         bbox,
         geometryType: row.geometry_type,
         hasGeometry: row.has_geometry,
-        score: Math.round(row.score * 100) / 100,
+        score: Math.round(normalizePublicSearchSortScore(row.score) * 100) / 100,
         verification: {
             isVerified: row.is_verified,
             confidenceScore: row.confidence_score,
@@ -1702,7 +1703,7 @@ export function serializeUnifiedSearchResult(row: UnifiedSearchRow): UnifiedSear
         categoryName: normalizeName(row.category_name_en) ?? normalizeName(row.category_name_my),
         adminAreaNameMy: normalizeName(row.admin_area_name_my),
         adminAreaNameEn: normalizeName(row.admin_area_name_en),
-        score: Math.round(row.score * 100) / 100,
+        score: Math.round(normalizePublicSearchSortScore(row.score) * 100) / 100,
         isVerified: row.is_verified,
         confidenceScore: row.confidence_score,
         boundaryConfidenceScore: row.boundary_confidence_score,

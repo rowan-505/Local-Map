@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 
@@ -16,6 +16,7 @@ import {
     syncStateLabel,
 } from "./constants";
 import type { SearchDocumentItem, SearchDocumentsListFilters } from "./types";
+import { getSearchDocumentsTableState } from "./searchDocumentsPageState";
 import {
     INPUT_CLASS,
     PRIMARY_BTN,
@@ -69,6 +70,7 @@ export default function SearchDocumentsPage() {
     const [data, setData] = useState<Awaited<ReturnType<typeof listSearchDocuments>> | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const requestSequence = useRef(0);
 
     const apiFilters = useMemo<SearchDocumentsListFilters>(
         () => ({
@@ -99,17 +101,23 @@ export default function SearchDocumentsPage() {
 
     const load = useCallback(
         async (signal?: AbortSignal) => {
+            const requestId = requestSequence.current + 1;
+            requestSequence.current = requestId;
             setLoading(true);
             setError("");
             try {
                 const res = await listSearchDocuments(apiFilters, signal ? { signal } : undefined);
+                if (requestSequence.current !== requestId) return;
                 setData(res);
             } catch (err) {
                 if (isAbortError(err)) return;
+                if (requestSequence.current !== requestId) return;
                 setError(err instanceof Error ? err.message : "Failed to load search documents.");
                 setData(null);
             } finally {
-                setLoading(false);
+                if (requestSequence.current === requestId) {
+                    setLoading(false);
+                }
             }
         },
         [apiFilters],
@@ -138,6 +146,7 @@ export default function SearchDocumentsPage() {
     useClampPageToTotal(page, setPage, total, PAGE_SIZE);
     const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
     const rangeEnd = Math.min(page * PAGE_SIZE, total);
+    const tableState = getSearchDocumentsTableState({ loading, error, data });
 
     return (
         <main className="p-6">
@@ -334,8 +343,15 @@ export default function SearchDocumentsPage() {
                 </div>
 
                 {error ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                        {error}
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                        <span>{error}</span>
+                        <button
+                            type="button"
+                            className={SECONDARY_BTN}
+                            onClick={() => void load()}
+                        >
+                            Retry
+                        </button>
                     </div>
                 ) : null}
 
@@ -355,13 +371,27 @@ export default function SearchDocumentsPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 bg-white">
-                            {loading ? (
+                            {tableState === "loading" ? (
+                                Array.from({ length: 5 }, (_, index) => (
+                                    <tr key={`search-documents-loading-${index}`}>
+                                        <td colSpan={9} className="px-4 py-3">
+                                            <div className="h-5 animate-pulse rounded bg-gray-100" />
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : tableState === "error" ? (
                                 <tr>
-                                    <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
-                                        Loading search documents…
+                                    <td colSpan={9} className="px-4 py-8 text-center text-red-700">
+                                        Search documents could not be loaded.
                                     </td>
                                 </tr>
-                            ) : items.length === 0 ? (
+                            ) : tableState === "idle" ? (
+                                <tr>
+                                    <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                                        Search documents have not loaded yet.
+                                    </td>
+                                </tr>
+                            ) : tableState === "empty" ? (
                                 <tr>
                                     <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
                                         No search documents match the current filters.

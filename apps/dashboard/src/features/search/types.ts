@@ -51,6 +51,15 @@ export type SearchAliasesListFilters = {
     pageSize?: number;
 };
 
+export type SearchOverviewSummary = {
+    total_search_documents: number;
+    total_aliases: number;
+    active_aliases: number;
+    unresolved_failed_searches: number;
+    today_searches: number;
+    overall_index_health_severity: SearchIndexHealthSeverity;
+};
+
 export type CreateSearchAliasBody = {
     entity_type: string;
     entity_id: string;
@@ -250,6 +259,7 @@ export type SearchAnalyticsDashboard = {
         entity_id: string;
         display_name: string | null;
         click_count: number;
+        label: string;
     }>;
     by_language: Array<{ key: string; count: number }>;
     by_category: Array<{ key: string; count: number }>;
