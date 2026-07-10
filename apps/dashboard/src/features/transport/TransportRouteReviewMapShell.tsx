@@ -7,7 +7,6 @@ import TransportMapLayerToggle from "./TransportMapLayerToggle";
 import { useTransportDashboardBasemapMode } from "./transportBasemapMode";
 import TransportReviewMapReviewActions from "./TransportReviewMapReviewActions";
 import ReviewMapActionToast from "./ReviewMapActionToast";
-import ReviewMapNearbyCandidatesStatus from "./ReviewMapNearbyCandidatesStatus";
 import type { ReviewMapNearbyCandidatesSearchStatus } from "./reviewMapNearbyCandidatesSearch";
 import ReviewMapStopInsertGap from "./ReviewMapStopInsertGap";
 import ReviewMapStopTimingEditor from "./ReviewMapStopTimingEditor";
@@ -19,15 +18,18 @@ import {
     type VariantTimetableStopSchedule,
 } from "./routeStopTimetableDisplay";
 import TransportRouteStopTimingRow from "./TransportRouteStopTimingRow";
-import ReviewMapSelectedStopPanel from "./ReviewMapSelectedStopPanel";
-import TransportMapStopDetailCard, {
-    type TransportMapStopDetailCardAction,
-} from "./TransportMapStopDetailCard";
+import TransportStopContextCard, {
+    type TransportStopContextCardMode,
+} from "./TransportStopContextCard";
+import { type TransportMapStopDetailCardAction } from "./TransportMapStopDetailCard";
+import {
+    calculatedTimetableRowHasDisplayData,
+    getCalculatedTimetableRowSegments,
+} from "./routeStopTimetableDisplay";
 import { formatRouteUsageSummary } from "./routeUsageSummaryDisplay";
 import { isReviewMapPathEditMode, type ReviewMapMode } from "./reviewMapMode";
 import type { ReviewMapActionToastState } from "./reviewMapActionFeedback";
 import { DELETE_BLOCKED_MESSAGE } from "./TransportStopUsageDialog";
-import { candidateDisplayName } from "./reviewMapCandidateDisplay";
 import type {
     GeoJsonGeometry,
     RouteReviewReadiness,
@@ -517,8 +519,6 @@ export default function TransportRouteReviewMapShell({
     const activeCandidateDetail =
         activeDetailSource === "nearby_candidate" ? selectedCandidate : null;
 
-    const candidateDetailCardRef = useRef<HTMLDivElement | null>(null);
-
     const selectedVariant = useMemo(
         () => variants.find((variant) => variant.public_id === selectedVariantId) ?? null,
         [selectedVariantId, variants],
@@ -931,73 +931,79 @@ export default function TransportRouteReviewMapShell({
         selectedRouteStop,
     ]);
 
-    const candidateDetailActions = useMemo<TransportMapStopDetailCardAction[]>(() => {
-        if (!activeCandidateDetail) {
-            return [];
+    const candidateCheckRoutesAction = useMemo<TransportMapStopDetailCardAction | null>(() => {
+        if (!activeCandidateDetail || !onCandidateCheckRoutes) {
+            return null;
         }
-        const actions: TransportMapStopDetailCardAction[] = [];
-        if (onCandidateCheckRoutes) {
-            actions.push({
-                label: "Check routes",
-                onClick: () => onCandidateCheckRoutes(activeCandidateDetail),
-            });
-        }
-        if (onCandidateKeepCurrent) {
-            actions.push({
-                label: "Keep current stop",
-                onClick: onCandidateKeepCurrent,
-            });
-        }
-        if (onCandidateKeepCandidate) {
-            actions.push({
-                label: "Keep candidate stop",
-                onClick: () => onCandidateKeepCandidate(activeCandidateDetail),
-                variant: "primary",
-            });
-        }
-        if (onCandidateCompareMerge) {
-            actions.push({
-                label: "Compare & merge",
-                onClick: () => onCandidateCompareMerge(activeCandidateDetail),
-            });
-        }
-        return actions;
-    }, [
-        onCandidateCheckRoutes,
-        onCandidateCompareMerge,
-        onCandidateKeepCandidate,
-        onCandidateKeepCurrent,
-        activeCandidateDetail,
-    ]);
+        return {
+            label: "Check routes",
+            onClick: () => onCandidateCheckRoutes(activeCandidateDetail),
+        };
+    }, [activeCandidateDetail, onCandidateCheckRoutes]);
 
-    const selectedStopTitle = selectedRouteStop
-        ? `#${selectedRouteStop.stop_sequence} ${
-              selectedRouteStop.stop.name_mm?.trim() ||
-              selectedRouteStop.stop.name_en?.trim() ||
-              selectedRouteStop.stop.name ||
-              "Unnamed stop"
-          }`
-        : "";
-    const selectedStopSecondaryName =
-        selectedRouteStop?.stop.name_mm?.trim() && selectedRouteStop.stop.name_en?.trim()
-            ? selectedRouteStop.stop.name_en
+    const candidateKeepCurrentAction = useMemo<TransportMapStopDetailCardAction | null>(() => {
+        if (!activeCandidateDetail || !onCandidateKeepCurrent) {
+            return null;
+        }
+        return {
+            label: "Keep current stop",
+            onClick: onCandidateKeepCurrent,
+        };
+    }, [activeCandidateDetail, onCandidateKeepCurrent]);
+
+    const candidateKeepCandidateAction = useMemo<TransportMapStopDetailCardAction | null>(() => {
+        if (!activeCandidateDetail || !onCandidateKeepCandidate) {
+            return null;
+        }
+        return {
+            label: "Keep candidate stop",
+            onClick: () => onCandidateKeepCandidate(activeCandidateDetail),
+            variant: "primary",
+        };
+    }, [activeCandidateDetail, onCandidateKeepCandidate]);
+
+    const candidateCompareMergeAction = useMemo<TransportMapStopDetailCardAction | null>(() => {
+        if (!activeCandidateDetail || !onCandidateCompareMerge) {
+            return null;
+        }
+        return {
+            label: "Compare & merge",
+            onClick: () => onCandidateCompareMerge(activeCandidateDetail),
+        };
+    }, [activeCandidateDetail, onCandidateCompareMerge]);
+
+    const contextCardMode: TransportStopContextCardMode =
+        activeDetailSource === "nearby_candidate"
+            ? "nearby_candidate_stop"
+            : "selected_route_stop";
+
+    const selectedStopTimetableText = useMemo(() => {
+        if (!selectedRouteStop || selectedIndex < 0) {
+            return null;
+        }
+        const schedule = variantTimetableSchedule[selectedIndex];
+        if (!schedule || !calculatedTimetableRowHasDisplayData(selectedRouteStop, schedule)) {
+            return null;
+        }
+        return getCalculatedTimetableRowSegments(selectedRouteStop, schedule)
+            .map((segment) => segment.text)
+            .join(" · ");
+    }, [selectedIndex, selectedRouteStop, variantTimetableSchedule]);
+
+    const selectedStopRouteUsageText = useMemo(() => {
+        if (activeDetailUsageError) {
+            return "Unavailable";
+        }
+        if (activeDetailUsageLoading || !activeDetailUsageSummary) {
+            return null;
+        }
+        return formatRouteUsageSummary(activeDetailUsageSummary);
+    }, [activeDetailUsageError, activeDetailUsageLoading, activeDetailUsageSummary]);
+
+    const candidateUsageError =
+        activeDetailUsageError && activeDetailSource === "nearby_candidate"
+            ? "Could not load route usage."
             : null;
-
-    // One friendly line; never surface raw API error text in the panel.
-    const selectedStopUsageText =
-        activeDetailSource === "route_stop"
-            ? activeDetailUsageLoading
-                ? "Loading route usage..."
-                : activeDetailUsageError
-                  ? "Route usage unavailable."
-                  : activeDetailUsageSummary
-                    ? `Used by ${formatRouteUsageSummary(activeDetailUsageSummary)}`
-                    : null
-            : null;
-
-    const candidateUsageError = activeDetailUsageError
-        ? "Could not load route usage."
-        : null;
 
     if (!open) {
         return null;
@@ -1342,84 +1348,82 @@ export default function TransportRouteReviewMapShell({
                     />
 
                     {selectedRouteStop && !pathEditActive ? (
-                        <div className="pointer-events-none absolute inset-3 z-10 flex w-[min(100%,380px)] max-w-[420px] flex-col items-start justify-start gap-2">
-                            <div className="pointer-events-auto w-full overflow-hidden rounded-lg border border-gray-200 bg-white/95 shadow-lg backdrop-blur-sm">
-                                <ReviewMapSelectedStopPanel
-                                    title={selectedStopTitle}
-                                    secondaryName={selectedStopSecondaryName}
+                        <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex w-auto max-w-[calc(100%-1.5rem)] flex-col sm:inset-3 sm:bottom-auto sm:left-3 sm:right-auto sm:top-3 sm:w-[min(100%,380px)] sm:max-w-[420px]">
+                            <div
+                                className={`pointer-events-auto w-full overflow-hidden rounded-lg bg-white/95 shadow-lg backdrop-blur-sm ${
+                                    contextCardMode === "nearby_candidate_stop"
+                                        ? "border border-purple-200"
+                                        : "border border-gray-200"
+                                }`}
+                            >
+                                <TransportStopContextCard
+                                    mode={contextCardMode}
+                                    busy={
+                                        pathEditLoading ||
+                                        stopPreviewSaveBusy ||
+                                        candidateActionBusy
+                                    }
+                                    stopSequence={selectedRouteStop.stop_sequence}
+                                    nameMm={
+                                        selectedRouteStop.stop.name_mm ??
+                                        selectedRouteStop.stop.name
+                                    }
+                                    nameEn={selectedRouteStop.stop.name_en}
                                     reviewStatus={selectedRouteStop.stop.review_status ?? null}
                                     hasUnsavedMove={hasUnsavedMove}
-                                    usageText={selectedStopUsageText}
+                                    routeUsageText={selectedStopRouteUsageText}
+                                    routeUsageLoading={
+                                        contextCardMode === "selected_route_stop" &&
+                                        activeDetailUsageLoading &&
+                                        !activeDetailUsageError
+                                    }
+                                    timetableText={selectedStopTimetableText}
+                                    nearbyCandidateCount={resolvedNearbyCandidateCount}
+                                    nearbyCandidatesStatus={nearbyCandidatesStatus}
+                                    onRetryNearbyCandidates={onRetryNearbyCandidates}
+                                    candidate={activeCandidateDetail}
+                                    candidateUsageSummary={
+                                        contextCardMode === "nearby_candidate_stop"
+                                            ? activeDetailUsageSummary
+                                            : null
+                                    }
+                                    candidateUsageLoading={
+                                        contextCardMode === "nearby_candidate_stop" &&
+                                        activeDetailUsageLoading
+                                    }
+                                    candidateUsageError={candidateUsageError}
                                     primaryActions={routeStopPrimaryActions}
                                     mainActions={routeStopMainActions}
                                     destructiveActions={routeStopDestructiveActions}
-                                    busy={pathEditLoading || stopPreviewSaveBusy}
-                                    extraControls={
-                                        deleteBlockMessage || onStopTimingUpdated ? (
-                                            <div className="space-y-1">
-                                                {deleteBlockMessage ? (
-                                                    <p className="text-[11px] leading-snug text-amber-900">
-                                                        {deleteBlockMessage}
-                                                    </p>
-                                                ) : null}
-                                                {onStopTimingUpdated && selectedIndex >= 0 ? (
-                                                    <ReviewMapStopTimingEditor
-                                                        stop={selectedRouteStop}
-                                                        stops={stops}
-                                                        stopIndex={selectedIndex}
-                                                        persistedSchedule={
-                                                            variantTimetableSchedule[selectedIndex]!
-                                                        }
-                                                        departureTimeText={variantDepartureAnchor}
-                                                        disabled={
-                                                            pathEditLoading || stopPreviewSaveBusy
-                                                        }
-                                                        onUpdated={onStopTimingUpdated}
-                                                    />
-                                                ) : null}
-                                            </div>
-                                        ) : null
+                                    candidateCheckRoutesAction={candidateCheckRoutesAction}
+                                    candidateKeepCurrentAction={candidateKeepCurrentAction}
+                                    candidateKeepCandidateAction={candidateKeepCandidateAction}
+                                    candidateCompareMergeAction={candidateCompareMergeAction}
+                                    onBackToSelectedStop={
+                                        contextCardMode === "nearby_candidate_stop"
+                                            ? () => onCandidateSelect?.(null)
+                                            : undefined
                                     }
-                                    footer={
-                                        <ReviewMapNearbyCandidatesStatus
-                                            status={nearbyCandidatesStatus}
-                                            count={resolvedNearbyCandidateCount}
-                                            retryDisabled={nearbyCandidatesStatus === "loading"}
-                                            onRetry={onRetryNearbyCandidates}
-                                        />
+                                    deleteBlockMessage={deleteBlockMessage}
+                                    extraControls={
+                                        onStopTimingUpdated && selectedIndex >= 0 ? (
+                                            <ReviewMapStopTimingEditor
+                                                stop={selectedRouteStop}
+                                                stops={stops}
+                                                stopIndex={selectedIndex}
+                                                persistedSchedule={
+                                                    variantTimetableSchedule[selectedIndex]!
+                                                }
+                                                departureTimeText={variantDepartureAnchor}
+                                                disabled={
+                                                    pathEditLoading || stopPreviewSaveBusy
+                                                }
+                                                onUpdated={onStopTimingUpdated}
+                                            />
+                                        ) : null
                                     }
                                 />
                             </div>
-
-                            {activeCandidateDetail ? (
-                                <div className="pointer-events-auto w-full overflow-hidden rounded-lg border border-purple-200 bg-white/95 shadow-lg backdrop-blur-sm">
-                                    <TransportMapStopDetailCard
-                                        appearance="overlay"
-                                        label="Candidate stop"
-                                        stop={{
-                                            publicId: activeCandidateDetail.publicId,
-                                            title: candidateDisplayName(activeCandidateDetail),
-                                            nameMy: activeCandidateDetail.nameMy,
-                                            nameEn: activeCandidateDetail.nameEn,
-                                            mode: activeCandidateDetail.mode,
-                                            stopType: activeCandidateDetail.stopType,
-                                            reviewStatus: activeCandidateDetail.reviewStatus,
-                                            confidenceScore:
-                                                activeCandidateDetail.confidenceScore,
-                                            distanceMeters:
-                                                activeCandidateDetail.distanceMeters,
-                                        }}
-                                        usageSummary={activeDetailUsageSummary}
-                                        usageItems={activeDetailUsageItems}
-                                        usageLoading={activeDetailUsageLoading}
-                                        usageError={candidateUsageError}
-                                        actions={candidateDetailActions}
-                                        busy={candidateActionBusy || pathEditLoading}
-                                        cardRef={candidateDetailCardRef}
-                                        onClose={() => onCandidateSelect?.(null)}
-                                    />
-                                </div>
-                            ) : null}
                         </div>
                     ) : null}
                 </div>
