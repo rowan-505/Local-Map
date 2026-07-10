@@ -1,9 +1,12 @@
 import type { PrismaClient } from "@prisma/client";
 
+import { assertRoutingServiceEnabled } from "../../config/env.js";
+import { createValhallaRoutingEngineAdapter } from "../routing/adapters/valhalla.adapter.js";
 import { TransportRepository } from "./transport.repo.js";
 import { TransportReviewOperations } from "./transport-review.repo.js";
 import type { RouteReviewReadiness, TransportReviewAction } from "./transport-review.js";
-import { TransportFeatureNotImplementedError, TransportSchemaUnavailableError } from "./transport.errors.js";
+import { collectRouteValidationWarnings } from "./transport-review.js";
+import { TransportSchemaUnavailableError, TransportGeneratePathFromStopsError } from "./transport.errors.js";
 import {
     clearTransportCache,
     getTransportCached,
@@ -24,17 +27,27 @@ import type {
     CreateVariantInput,
     InsertExistingRouteStopInput,
     CreateAndInsertRouteStopInput,
+    NearbyTransportStopCandidatesQuery,
     NearbyStopsQuery,
+    PatchRouteMetadataInput,
     PutVariantPathInput,
     SearchTransportStopsQuery,
+    StopMergeGlobalBody,
     StopRoutesQuery,
     UpdateRouteInput,
     UpdateRouteStopInput,
+    UpdateRouteStopTimingInput,
     UpdateStopInput,
     UpdateStopLocationInput,
     UpdateTerminalInput,
     UpdateVariantInput,
 } from "./transport.schema.js";
+import { mapPatchRouteMetadataToUpdateInput } from "./transport.schema.js";
+import {
+    extractOrderedRouteStopCoordinates,
+    resolveGeneratePathValhallaProfile,
+    routeThroughOrderedCoordinates,
+} from "./transport-route-stop-occurrence.js";
 import type {
     TransportDataQualityQueues,
     TransportQualitySummary,
@@ -47,24 +60,37 @@ import type {
     TransportRouteListItem,
     TransportRouteStopItem,
     TransportNearbyStop,
+    TransportNearbyStopCandidatesResponse,
     TransportStopArchiveResult,
+    TransportStopDeleteEligibility,
+    TransportStopPermanentDeleteResult,
     TransportStopDetail,
     TransportStopListItem,
     TransportStopLocationUpdateResult,
     TransportStopRouteUsage,
+    TransportStopRouteUsageDetailResponse,
+    TransportStopMergeGlobalResult,
+    TransportStopMergePreviewResponse,
     TransportStopSearchResponse,
     TransportTerminalDetail,
     TransportInfrastructureLineDetail,
     TransportInfrastructureLineListItem,
     TransportTerminalListItem,
     TransportRouteCreateResult,
+    TransportRouteDiagnostics,
     TransportRouteStopMutationResult,
     TransportVariantStopQualityResponse,
     TransportVariantStopsResponse,
     TransportVariantPathResult,
+    TransportSwapRouteDirectionResult,
     TransportVariantSummary,
     GeneratePathFromStopsResult,
 } from "./transport.types.js";
+import {
+    scheduleTransportRouteFamilySearchSync,
+    scheduleTransportStopSearchSyncByPublicId,
+} from "../search/unified-search-sync.js";
+import { UnifiedSearchSyncRepository } from "../search/unified-search-sync.repo.js";
 
 function emptyOverview(schemaAvailable: boolean): TransportOverview {
     return {
@@ -139,12 +165,32 @@ const CACHE_TTL = {
 } as const;
 
 export class TransportService {
+    private readonly prisma: PrismaClient;
     private readonly repo: TransportRepository;
     private readonly reviewOps: TransportReviewOperations;
 
     constructor(prisma: PrismaClient) {
+        this.prisma = prisma;
         this.repo = new TransportRepository(prisma);
         this.reviewOps = new TransportReviewOperations(prisma);
+    }
+
+    private scheduleRouteFamilySearchSync(routePublicId: string): void {
+        void scheduleTransportRouteFamilySearchSync(this.prisma, routePublicId);
+    }
+
+    private scheduleVariantRouteFamilySearchSync(variantPublicId: string): void {
+        void (async () => {
+            const repo = new UnifiedSearchSyncRepository(this.prisma);
+            const routePublicId = await repo.lookupTransportRoutePublicIdByVariant(variantPublicId);
+            if (routePublicId) {
+                await scheduleTransportRouteFamilySearchSync(this.prisma, routePublicId);
+            }
+        })();
+    }
+
+    private scheduleStopSearchSync(stopPublicId: string): void {
+        scheduleTransportStopSearchSyncByPublicId(this.prisma, stopPublicId);
     }
 
     /** Drops every cached Transport read result so the next read reflects a write. */
@@ -323,6 +369,13 @@ export class TransportService {
         }
     }
 
+    /** Reusable nearby-stop candidate search for Review Map actions. */
+    listNearbyStopCandidates(
+        query: NearbyTransportStopCandidatesQuery
+    ): Promise<TransportNearbyStopCandidatesResponse> {
+        return this.repo.listNearbyStopCandidates(query);
+    }
+
     /** Returns an empty page when transport tables are missing, otherwise the filtered list. */
     async listTerminals(
         query: ListTransportTerminalsQuery
@@ -402,6 +455,39 @@ export class TransportService {
         return this.repo.listRoutesForStop(publicId, query);
     }
 
+    getStopRouteUsageDetail(publicId: string): Promise<TransportStopRouteUsageDetailResponse> {
+        return this.repo.getStopRouteUsageDetail(publicId);
+    }
+
+    getStopMergePreview(
+        currentStopPublicId: string,
+        candidateStopPublicId: string,
+    ): Promise<TransportStopMergePreviewResponse> {
+        return this.repo.getStopMergePreview(currentStopPublicId, candidateStopPublicId);
+    }
+
+    async mergeStopsGlobal(
+        body: StopMergeGlobalBody,
+        audit?: TransportAuditContext,
+    ): Promise<TransportStopMergeGlobalResult> {
+        const result = await this.repo.mergeStopsKeepCanonical(
+            body.canonicalStopId,
+            body.duplicateStopId,
+            {
+                currentStopPublicId: body.currentStopId,
+                candidateStopPublicId: body.candidateStopId,
+                fieldSources: body.fieldSources,
+                acknowledgeSameVariantOccurrences: body.acknowledgeSameVariantOccurrences,
+                reason: body.reason,
+                audit,
+            },
+        );
+        this.invalidateAggregateCaches();
+        this.scheduleStopSearchSync(result.canonicalStop.publicId);
+        this.scheduleStopSearchSync(result.deletedStop.publicId);
+        return result;
+    }
+
     async updateStop(
         publicId: string,
         input: UpdateStopInput,
@@ -409,6 +495,7 @@ export class TransportService {
     ): Promise<TransportStopDetail> {
         const result = await this.repo.updateStopByPublicId(publicId, input, audit);
         this.invalidateAggregateCaches();
+        this.scheduleStopSearchSync(result.public_id);
         return result;
     }
 
@@ -425,6 +512,7 @@ export class TransportService {
     ): Promise<TransportStopLocationUpdateResult> {
         const result = await this.repo.updateStopLocation(publicId, input, audit);
         this.invalidateAggregateCaches();
+        this.scheduleStopSearchSync(result.stop.public_id);
         return result;
     }
 
@@ -440,6 +528,26 @@ export class TransportService {
     ): Promise<TransportStopArchiveResult> {
         const result = await this.repo.archiveStopByPublicId(publicId, audit, reason);
         this.invalidateAggregateCaches();
+        this.scheduleStopSearchSync(result.public_id);
+        return result;
+    }
+
+    getStopDeleteEligibility(publicId: string): Promise<TransportStopDeleteEligibility> {
+        return this.repo.getStopDeleteEligibilityByPublicId(publicId);
+    }
+
+    /**
+     * Permanently deletes a stop when it has no blocking references and is not
+     * verified / manual_protected. Invalidates aggregate caches on success.
+     */
+    async permanentDeleteStop(
+        publicId: string,
+        audit?: TransportAuditContext,
+        reason?: string
+    ): Promise<TransportStopPermanentDeleteResult> {
+        const result = await this.repo.permanentDeleteStopByPublicId(publicId, audit, reason);
+        this.invalidateAggregateCaches();
+        this.scheduleStopSearchSync(publicId);
         return result;
     }
 
@@ -454,6 +562,7 @@ export class TransportService {
     ): Promise<TransportRouteCreateResult> {
         const result = await this.repo.createRoute(input, audit);
         this.invalidateAggregateCaches();
+        this.scheduleRouteFamilySearchSync(result.public_id);
         return result;
     }
 
@@ -485,6 +594,22 @@ export class TransportService {
     ): Promise<TransportRouteDetail> {
         const result = await this.repo.updateRouteByPublicId(publicId, input, audit);
         this.invalidateAggregateCaches();
+        this.scheduleRouteFamilySearchSync(publicId);
+        return result;
+    }
+
+    async updateRouteMetadata(
+        publicId: string,
+        input: PatchRouteMetadataInput,
+        audit?: TransportAuditContext
+    ): Promise<TransportRouteDetail> {
+        const result = await this.repo.updateRouteByPublicId(
+            publicId,
+            mapPatchRouteMetadataToUpdateInput(input),
+            audit,
+        );
+        this.invalidateAggregateCaches();
+        this.scheduleRouteFamilySearchSync(publicId);
         return result;
     }
 
@@ -496,6 +621,7 @@ export class TransportService {
     ): Promise<TransportVariantSummary> {
         const result = await this.repo.createVariant(routePublicId, input, audit);
         this.invalidateAggregateCaches();
+        this.scheduleRouteFamilySearchSync(routePublicId);
         return result;
     }
 
@@ -506,6 +632,7 @@ export class TransportService {
     ): Promise<TransportVariantSummary> {
         const result = await this.repo.updateVariantByPublicId(variantPublicId, input, audit);
         this.invalidateAggregateCaches();
+        this.scheduleVariantRouteFamilySearchSync(variantPublicId);
         return result;
     }
 
@@ -516,6 +643,7 @@ export class TransportService {
     ): Promise<TransportRouteDetail> {
         const result = await this.repo.softDeleteVariant(variantPublicId, audit);
         this.invalidateAggregateCaches();
+        this.scheduleVariantRouteFamilySearchSync(variantPublicId);
         return result;
     }
 
@@ -527,6 +655,7 @@ export class TransportService {
     ): Promise<TransportVariantPathResult> {
         const result = await this.repo.upsertVariantPath(variantPublicId, input, audit);
         this.invalidateAggregateCaches();
+        this.scheduleVariantRouteFamilySearchSync(variantPublicId);
         return result;
     }
 
@@ -537,19 +666,41 @@ export class TransportService {
     ): Promise<TransportVariantPathResult> {
         const result = await this.repo.deleteVariantPath(variantPublicId, audit);
         this.invalidateAggregateCaches();
+        this.scheduleVariantRouteFamilySearchSync(variantPublicId);
         return result;
     }
 
     /**
      * Generate a Valhalla-snapped path through ordered stop coordinates and replace
-     * the variant's active route_paths row. Reserved for Review Map — not implemented.
+     * the variant's active route_paths row.
      */
     async generatePathFromStops(
         variantPublicId: string,
-        _audit?: TransportAuditContext,
+        audit?: TransportAuditContext,
     ): Promise<GeneratePathFromStopsResult> {
-        void variantPublicId;
-        throw new TransportFeatureNotImplementedError("generate-path-from-stops");
+        assertRoutingServiceEnabled();
+
+        const { route_mode, stops } = await this.repo.loadVariantPathGenerationStops(variantPublicId);
+        const coordinates = extractOrderedRouteStopCoordinates(stops);
+        const profile = resolveGeneratePathValhallaProfile(route_mode);
+        const adapter = createValhallaRoutingEngineAdapter();
+
+        const routed = await routeThroughOrderedCoordinates(coordinates, profile, (request) =>
+            adapter.route(request),
+        );
+
+        const result = await this.repo.upsertValhallaSnappedVariantPath(
+            variantPublicId,
+            routed.geometry.coordinates.map(([lng, lat]) => [lng, lat] as [number, number]),
+            {
+                warnings: routed.warnings,
+                stop_occurrence_count: stops.length,
+            },
+            audit,
+        );
+        this.invalidateAggregateCaches();
+        this.scheduleVariantRouteFamilySearchSync(variantPublicId);
+        return result;
     }
 
     async updateRouteStopFlags(
@@ -558,6 +709,32 @@ export class TransportService {
         audit?: TransportAuditContext
     ): Promise<TransportRouteStopItem> {
         const result = await this.repo.updateRouteStopFlags(id, input, audit);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    async updateRouteStopTiming(
+        id: bigint,
+        input: UpdateRouteStopTimingInput,
+        audit?: TransportAuditContext,
+    ): Promise<TransportRouteStopMutationResult> {
+        const result = await this.repo.updateRouteStopTiming(id, input, audit);
+        this.invalidateAggregateCaches();
+        return result;
+    }
+
+    async updateVariantDepartureTime(
+        variantPublicId: string,
+        departureTimeText: string | null,
+        audit?: TransportAuditContext,
+    ): Promise<TransportRouteStopMutationResult> {
+        const normalizedDepartureTimeText =
+            departureTimeText === null ? null : departureTimeText.trim();
+        const result = await this.repo.updateVariantDepartureTime(
+            variantPublicId,
+            normalizedDepartureTimeText,
+            audit,
+        );
         this.invalidateAggregateCaches();
         return result;
     }
@@ -589,6 +766,7 @@ export class TransportService {
     ): Promise<TransportRouteStopMutationResult> {
         const result = await this.repo.insertExistingRouteStop(variantPublicId, input, audit);
         this.invalidateAggregateCaches();
+        this.scheduleVariantRouteFamilySearchSync(variantPublicId);
         return result;
     }
 
@@ -599,11 +777,26 @@ export class TransportService {
     ): Promise<TransportRouteStopMutationResult> {
         const result = await this.repo.createAndInsertRouteStop(variantPublicId, input, audit);
         this.invalidateAggregateCaches();
+        this.scheduleVariantRouteFamilySearchSync(variantPublicId);
+        if (result.created_stop?.public_id) {
+            this.scheduleStopSearchSync(result.created_stop.public_id);
+        }
         return result;
     }
 
     getRouteReviewReadiness(routePublicId: string): Promise<RouteReviewReadiness> {
         return this.reviewOps.getRouteReviewReadiness(routePublicId);
+    }
+
+    async getRouteDiagnostics(routePublicId: string): Promise<TransportRouteDiagnostics> {
+        const [data, readiness] = await Promise.all([
+            this.repo.getRouteDiagnosticsData(routePublicId),
+            this.reviewOps.getRouteReviewReadiness(routePublicId),
+        ]);
+        return {
+            ...data,
+            validation_warnings: collectRouteValidationWarnings(readiness),
+        };
     }
 
     async applyRouteReviewAction(
@@ -619,6 +812,7 @@ export class TransportService {
             reason,
         );
         this.invalidateAggregateCaches();
+        this.scheduleRouteFamilySearchSync(routePublicId);
         return result;
     }
 
@@ -635,6 +829,7 @@ export class TransportService {
             reason,
         );
         this.invalidateAggregateCaches();
+        this.scheduleStopSearchSync(stopPublicId);
         return result;
     }
 
@@ -651,6 +846,13 @@ export class TransportService {
             reason,
         );
         this.invalidateAggregateCaches();
+        void (async () => {
+            const repo = new UnifiedSearchSyncRepository(this.prisma);
+            const routePublicId = await repo.lookupTransportRoutePublicIdByPath(pathId);
+            if (routePublicId) {
+                await scheduleTransportRouteFamilySearchSync(this.prisma, routePublicId);
+            }
+        })();
         return result;
     }
 
@@ -667,6 +869,7 @@ export class TransportService {
             reason,
         );
         this.invalidateAggregateCaches();
+        this.scheduleStopSearchSync(stopPublicId);
         return result;
     }
 
@@ -683,6 +886,18 @@ export class TransportService {
             reason,
         );
         this.invalidateAggregateCaches();
+        this.scheduleStopSearchSync(sourceStopPublicId);
+        this.scheduleStopSearchSync(targetStopPublicId);
+        return result;
+    }
+
+    async swapRouteDirection(
+        routePublicId: string,
+        audit?: TransportAuditContext
+    ): Promise<TransportSwapRouteDirectionResult> {
+        const result = await this.repo.swapRouteDirectionByPublicId(routePublicId, audit);
+        this.invalidateAggregateCaches();
+        this.scheduleRouteFamilySearchSync(routePublicId);
         return result;
     }
 }

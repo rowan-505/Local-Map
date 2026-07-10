@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { validateCanonicalTime } from "./transport-timetable.js";
+
 /**
  * Local pagination/list conventions for the transport dashboard module.
  * No shared API-wide pagination helper exists yet, so these stay local to
@@ -102,6 +104,18 @@ export const listPublicTransportRoutesQuerySchema = transportListQuerySchema.ext
 
 export type ListPublicTransportRoutesQuery = z.infer<typeof listPublicTransportRoutesQuerySchema>;
 
+/** GET /transport/routes/between-stops — direct variant route search by stop public_id. */
+export const searchRoutesBetweenStopsQuerySchema = z
+    .object({
+        origin_stop_public_id: z.string().uuid(),
+        destination_stop_public_id: z.string().uuid(),
+    })
+    .refine((value) => value.origin_stop_public_id !== value.destination_stop_public_id, {
+        message: "origin_stop_public_id and destination_stop_public_id must differ",
+    });
+
+export type SearchRoutesBetweenStopsQuery = z.infer<typeof searchRoutesBetweenStopsQuerySchema>;
+
 /** Path param for public route lookups by route_code (not uuid). */
 export const transportRouteCodeParamSchema = z.object({
     routeCode: z.string().trim().min(1).max(50),
@@ -159,6 +173,29 @@ export const searchTransportStopsQuerySchema = z
     });
 
 export type SearchTransportStopsQuery = z.infer<typeof searchTransportStopsQuerySchema>;
+
+/**
+ * GET /transport/stops/nearby-candidates query — reusable Review Map helper for
+ * finding nearby stops around a selected stop or draft point. Radius is fixed to
+ * a small allowlist so the PostGIS geography lookup stays predictable.
+ */
+export const nearbyTransportStopCandidatesQuerySchema = z
+    .object({
+        lng: z.coerce.number().min(-180).max(180),
+        lat: z.coerce.number().min(-90).max(90),
+        radiusMeters: z.coerce.number().int().refine((value) => [50, 100, 200, 500].includes(value), {
+            message: "radiusMeters must be one of 50, 100, 200, or 500.",
+        }).default(100),
+        mode: transportModeEnum,
+        selectedStopId: z.string().uuid(),
+        selectedName: z.string().trim().min(1).max(255).optional(),
+        limit: z.coerce.number().int().min(1).max(50).default(30),
+    })
+    .strict();
+
+export type NearbyTransportStopCandidatesQuery = z.infer<
+    typeof nearbyTransportStopCandidatesQuerySchema
+>;
 
 /**
  * GET /transport/terminals query. Extends the shared list base with terminal-specific
@@ -260,13 +297,15 @@ export type ListVariantStopsQuery = z.infer<typeof listVariantStopsQuerySchema>;
  * means "leave unchanged".
  */
 function nullableText(max: number) {
+    // `.optional()` must come after `.transform()`: in Zod 4 a transform placed
+    // after `.optional()` drops key-optionality from the inferred output type.
     return z
         .string()
         .trim()
         .max(max)
         .nullable()
-        .optional()
-        .transform((v) => (v === "" ? null : v));
+        .transform((v) => (v === "" ? null : v))
+        .optional();
 }
 
 /** Required, trimmed, non-empty text for edit forms. */
@@ -276,6 +315,25 @@ function requiredText(max: number) {
 
 /** confidence_score mirrors the live CHECK (0–100). Numeric column → number body. */
 const confidenceScoreField = z.number().min(0).max(100).optional();
+
+const operationDaysField = z
+    .array(z.string().trim().min(1).max(100))
+    .max(14)
+    .optional();
+
+function hasTrainMetadataInput(body: {
+    train_type?: unknown;
+    train_model?: unknown;
+    operation_days?: unknown;
+    is_yangon_urban_service?: unknown;
+}): boolean {
+    return (
+        body.train_type !== undefined ||
+        body.train_model !== undefined ||
+        body.operation_days !== undefined ||
+        body.is_yangon_urban_service !== undefined
+    );
+}
 
 /**
  * PATCH /transport/routes/:publicId body. All fields optional (partial update);
@@ -291,17 +349,22 @@ const confidenceScoreField = z.number().min(0).max(100).optional();
  */
 export const updateRouteBodySchema = z
     .object({
-        route_code: requiredText(50),
+        route_code: requiredText(50).optional(),
         name_mm: nullableText(200),
         name_en: nullableText(200),
         mode: transportModeEnum.optional(),
-        route_kind: requiredText(50),
+        route_kind: requiredText(50).optional(),
         origin_name: nullableText(200),
         destination_name: nullableText(200),
         description: nullableText(2000),
         review_status: transportReviewStatusEnum.optional(),
         confidence_score: confidenceScoreField,
         is_active: z.boolean().optional(),
+        train_type: nullableText(50),
+        train_model: nullableText(100),
+        operation_days: operationDaysField,
+        is_yangon_urban_service: z.boolean().optional(),
+        display_headsign: nullableText(200),
     })
     .strict()
     .refine((body) => Object.keys(body).length > 0, {
@@ -316,9 +379,135 @@ export const updateRouteBodySchema = z
                 body.name_en === null
             ),
         { message: "At least one of name_mm or name_en is required." }
-    );
+    )
+    .refine((body) => !hasTrainMetadataInput(body) || body.mode === undefined || body.mode === "train", {
+        message: "Train metadata fields require mode=train.",
+    });
 
 export type UpdateRouteInput = z.infer<typeof updateRouteBodySchema>;
+
+export { hasTrainMetadataInput };
+
+const patchRouteMetadataRouteNamesSchema = z
+    .object({
+        my: nullableText(200),
+        en: nullableText(200),
+    })
+    .strict();
+
+const patchRouteMetadataRouteSchema = z
+    .object({
+        originName: nullableText(200),
+        destinationName: nullableText(200),
+        reviewStatus: transportReviewStatusEnum.optional(),
+        confidenceScore: confidenceScoreField,
+    })
+    .strict();
+
+const patchRouteMetadataNormalizedDataPatchSchema = z
+    .object({
+        train_type: nullableText(50),
+        train_model: nullableText(100),
+        operation_days: operationDaysField,
+        display_headsign: nullableText(200),
+        is_yangon_urban_service: z.boolean().optional(),
+    })
+    .strict();
+
+function patchRouteMetadataHasAnyField(body: {
+    routeNames?: { my?: unknown; en?: unknown };
+    route?: Record<string, unknown>;
+    normalizedDataPatch?: Record<string, unknown>;
+}): boolean {
+    if (body.routeNames) {
+        if (body.routeNames.my !== undefined || body.routeNames.en !== undefined) {
+            return true;
+        }
+    }
+    if (body.route && Object.keys(body.route).length > 0) {
+        return true;
+    }
+    if (
+        body.normalizedDataPatch &&
+        Object.values(body.normalizedDataPatch).some((value) => value !== undefined)
+    ) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * PATCH /transport/routes/:publicId/metadata body. Structured metadata editor payload.
+ * Merges normalized_data keys, upserts route_names my/en, and may update primary variant
+ * headsign from normalizedDataPatch.display_headsign. Never edits route_stops.
+ */
+export const patchRouteMetadataBodySchema = z
+    .object({
+        routeNames: patchRouteMetadataRouteNamesSchema.optional(),
+        route: patchRouteMetadataRouteSchema.optional(),
+        normalizedDataPatch: patchRouteMetadataNormalizedDataPatchSchema.optional(),
+    })
+    .strict()
+    .refine((body) => patchRouteMetadataHasAnyField(body), {
+        message: "At least one metadata field must be provided.",
+    })
+    .refine(
+        (body) =>
+            !(
+                body.routeNames?.my !== undefined &&
+                body.routeNames?.en !== undefined &&
+                body.routeNames.my === null &&
+                body.routeNames.en === null
+            ),
+        { message: "At least one of routeNames.my or routeNames.en is required." },
+    );
+
+export type PatchRouteMetadataInput = z.infer<typeof patchRouteMetadataBodySchema>;
+
+/** Maps the structured metadata PATCH body onto the flat route update input. */
+export function mapPatchRouteMetadataToUpdateInput(
+    input: PatchRouteMetadataInput,
+): UpdateRouteInput {
+    const body: UpdateRouteInput = {};
+
+    if (input.routeNames?.my !== undefined) {
+        body.name_mm = input.routeNames.my;
+    }
+    if (input.routeNames?.en !== undefined) {
+        body.name_en = input.routeNames.en;
+    }
+    if (input.route?.originName !== undefined) {
+        body.origin_name = input.route.originName;
+    }
+    if (input.route?.destinationName !== undefined) {
+        body.destination_name = input.route.destinationName;
+    }
+    if (input.route?.reviewStatus !== undefined) {
+        body.review_status = input.route.reviewStatus;
+    }
+    if (input.route?.confidenceScore !== undefined) {
+        body.confidence_score = input.route.confidenceScore;
+    }
+
+    const patch = input.normalizedDataPatch;
+    if (patch?.train_type !== undefined) {
+        body.train_type = patch.train_type;
+    }
+    if (patch?.train_model !== undefined) {
+        body.train_model = patch.train_model;
+    }
+    if (patch?.operation_days !== undefined) {
+        body.operation_days = patch.operation_days;
+    }
+    if (patch?.is_yangon_urban_service !== undefined) {
+        body.is_yangon_urban_service = patch.is_yangon_urban_service;
+    }
+    if (patch?.display_headsign !== undefined) {
+        body.display_headsign = patch.display_headsign;
+    }
+
+    return body;
+}
 
 /**
  * Modes the create-route endpoint supports. The `transport.routes.mode` column
@@ -639,10 +828,20 @@ export const routeStopIdParamSchema = z.object({
 
 export type RouteStopIdParam = z.infer<typeof routeStopIdParamSchema>;
 
+export const SOURCE_TIME_TYPE_VALUES = [
+    "arrival",
+    "departure",
+    "arrival_departure",
+    "unknown",
+] as const;
+
+export type SourceTimeType = (typeof SOURCE_TIME_TYPE_VALUES)[number];
+
 /**
  * PATCH /transport/route-stops/:id body. Stop membership flags only.
- * pickup_type / drop_off_type follow GTFS semantics (0–3). `.strict()` blocks
- * editing stop_sequence (use the move endpoint) and source_refs / normalized_data.
+ * pickup_type / drop_off_type follow GTFS semantics (0–3).
+ * `.strict()` blocks editing stop_sequence (use the move endpoint),
+ * source_refs / normalized_data, and imported timetable provenance fields.
  */
 export const updateRouteStopBodySchema = z
     .object({
@@ -656,6 +855,75 @@ export const updateRouteStopBodySchema = z
     });
 
 export type UpdateRouteStopInput = z.infer<typeof updateRouteStopBodySchema>;
+
+/** Internal repo input for editable route_stops timing columns only. */
+export type UpdateRouteStopTimingInput = {
+    travel_time_from_previous_seconds?: number | null;
+    waiting_time_seconds?: number | null;
+};
+
+/**
+ * PATCH /transport/route-stops/:id/timing body. Editable timetable inputs only.
+ * Offsets are recalculated for the whole variant in one transaction.
+ */
+export const patchRouteStopTimingBodySchema = z
+    .object({
+        travelTimeFromPreviousSeconds: z.number().int().min(0).nullable().optional(),
+        waitingTimeSeconds: z.number().int().min(0).nullable().optional(),
+    })
+    .strict()
+    .refine((body) => Object.keys(body).length > 0, {
+        message: "At least one timing field must be provided.",
+    });
+
+export type PatchRouteStopTimingInput = z.infer<typeof patchRouteStopTimingBodySchema>;
+
+/** Maps the camelCase timing PATCH body onto snake_case repo input. */
+export function mapPatchRouteStopTimingToInput(
+    input: PatchRouteStopTimingInput,
+): UpdateRouteStopTimingInput {
+    const body: UpdateRouteStopTimingInput = {};
+    if (input.travelTimeFromPreviousSeconds !== undefined) {
+        body.travel_time_from_previous_seconds = input.travelTimeFromPreviousSeconds;
+    }
+    if (input.waitingTimeSeconds !== undefined) {
+        body.waiting_time_seconds = input.waitingTimeSeconds;
+    }
+    return body;
+}
+
+/**
+ * PATCH /transport/route-variants/:publicId/departure-time body.
+ * Stores departure_time_text in variant normalized_data and recalculates offsets.
+ */
+export const patchVariantDepartureTimeBodySchema = z
+    .object({
+        departureTimeText: z.string().max(200).nullable(),
+    })
+    .strict()
+    .superRefine((body, ctx) => {
+        if (body.departureTimeText === null) {
+            return;
+        }
+        const trimmed = body.departureTimeText.trim();
+        if (trimmed.length === 0) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Use null to clear departure time; empty string is not allowed.",
+                path: ["departureTimeText"],
+            });
+            return;
+        }
+        if (!validateCanonicalTime(trimmed)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Use strict HH:mm like "05:00".',
+                path: ["departureTimeText"],
+            });
+        }
+    });
+
+export type PatchVariantDepartureTimeInput = z.infer<typeof patchVariantDepartureTimeBodySchema>;
 
 /** POST /transport/route-stops/:id/move body — swap with the adjacent stop. */
 export const moveRouteStopBodySchema = z.object({
@@ -705,13 +973,10 @@ export type InsertExistingRouteStopInput = z.infer<typeof insertExistingRouteSto
 /**
  * POST /transport/route-variants/:publicId/stops/create-and-insert body.
  *
- * Secondary "quick create" path for the Insert Stop modal: creates a new stop
- * (minimal fields only) and inserts it into this variant in one transaction.
- * The backend owns stop_sequence and resequences the variant to 1..N.
- *
- * At least one of `name_mm` / `name_en` is required. `.strict()` blocks any
- * attempt to set full stop metadata here (admin_area, stop_code, review fields,
- * source_refs, etc.) — full editing stays on the Stop Detail page.
+ * Quick create path for the Insert Stop modal: creates a new stop (localized names,
+ * mode, stop_type only) and inserts it into this variant in one transaction.
+ * Placeholder geometry is derived server-side from the variant sequence. The
+ * backend owns stop_sequence and resequences the variant to 1..N.
  */
 export const createAndInsertRouteStopBodySchema = z
     .object({
@@ -719,8 +984,6 @@ export const createAndInsertRouteStopBodySchema = z
         name_en: z.string().trim().min(1).max(255).optional(),
         mode: transportModeEnum,
         stop_type: z.string().trim().min(1).max(50),
-        longitude: z.number().min(-180).max(180),
-        latitude: z.number().min(-90).max(90),
         position: z.enum(["start", "end", "before", "after"]),
         anchorRouteStopId: z
             .string()
@@ -729,6 +992,8 @@ export const createAndInsertRouteStopBodySchema = z
         pickup_type: z.number().int().min(0).max(3).default(0),
         drop_off_type: z.number().int().min(0).max(3).default(0),
         is_timing_point: z.boolean().default(false),
+        longitude: z.number().min(-180).max(180).optional(),
+        latitude: z.number().min(-90).max(90).optional(),
     })
     .strict()
     .refine((body) => body.name_mm !== undefined || body.name_en !== undefined, {
@@ -739,6 +1004,12 @@ export const createAndInsertRouteStopBodySchema = z
             (body.position !== "before" && body.position !== "after") ||
             body.anchorRouteStopId !== undefined,
         { message: "anchorRouteStopId is required when position is 'before' or 'after'." }
+    )
+    .refine(
+        (body) =>
+            (body.longitude === undefined && body.latitude === undefined) ||
+            (body.longitude !== undefined && body.latitude !== undefined),
+        { message: "longitude and latitude must both be provided or both omitted." }
     );
 
 export type CreateAndInsertRouteStopInput = z.infer<typeof createAndInsertRouteStopBodySchema>;
@@ -785,3 +1056,76 @@ export const mergeStopBodySchema = z.object({
 });
 
 export type MergeStopBody = z.infer<typeof mergeStopBodySchema>;
+
+/** POST /transport/stops/merge-preview — read-only merge comparison for two stops. */
+export const stopMergePreviewBodySchema = z
+    .object({
+        currentStopId: z.string().uuid(),
+        candidateStopId: z.string().uuid(),
+    })
+    .superRefine((body, ctx) => {
+        if (body.currentStopId === body.candidateStopId) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "currentStopId and candidateStopId must be different.",
+                path: ["candidateStopId"],
+            });
+        }
+    });
+
+export type StopMergePreviewBody = z.infer<typeof stopMergePreviewBodySchema>;
+
+/** POST /transport/stops/merge — global keep-canonical merge (hard-delete duplicate). */
+export const stopMergeFieldSourceSchema = z.enum(["current", "candidate"]);
+
+export const stopMergeFieldSourcesSchema = z
+    .object({
+        name: stopMergeFieldSourceSchema.optional(),
+        name_mm: stopMergeFieldSourceSchema.optional(),
+        name_en: stopMergeFieldSourceSchema.optional(),
+        stop_type: stopMergeFieldSourceSchema.optional(),
+        geom: stopMergeFieldSourceSchema.optional(),
+        admin_area_id: stopMergeFieldSourceSchema.optional(),
+        confidence_score: stopMergeFieldSourceSchema.optional(),
+        review_status: stopMergeFieldSourceSchema.optional(),
+        is_active: stopMergeFieldSourceSchema.optional(),
+    })
+    .strict();
+
+export const stopMergeGlobalBodySchema = z
+    .object({
+        canonicalStopId: z.string().uuid(),
+        duplicateStopId: z.string().uuid(),
+        currentStopId: z.string().uuid(),
+        candidateStopId: z.string().uuid(),
+        fieldSources: stopMergeFieldSourcesSchema.optional(),
+        acknowledgeSameVariantOccurrences: z.boolean().optional(),
+        reason: z.string().trim().min(1).max(500).optional(),
+    })
+    .superRefine((body, ctx) => {
+        if (body.canonicalStopId === body.duplicateStopId) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "canonicalStopId and duplicateStopId must be different.",
+                path: ["duplicateStopId"],
+            });
+        }
+        const mergeIds = new Set([body.canonicalStopId, body.duplicateStopId]);
+        const compareIds = new Set([body.currentStopId, body.candidateStopId]);
+        if (
+            mergeIds.size !== 2 ||
+            compareIds.size !== 2 ||
+            mergeIds.size !== compareIds.size ||
+            ![...mergeIds].every((id) => compareIds.has(id))
+        ) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message:
+                    "canonicalStopId and duplicateStopId must match currentStopId and candidateStopId.",
+                path: ["canonicalStopId"],
+            });
+        }
+    });
+
+export type StopMergeFieldSources = z.infer<typeof stopMergeFieldSourcesSchema>;
+export type StopMergeGlobalBody = z.infer<typeof stopMergeGlobalBodySchema>;

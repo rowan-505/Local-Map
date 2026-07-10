@@ -3,19 +3,28 @@ import { ZodError } from "zod";
 
 import {
     TransportFeatureNotImplementedError,
+    TransportGeneratePathFromStopsError,
     TransportInvalidReferenceError,
     TransportNameRequiredError,
     TransportNotFoundError,
+    TransportRouteMetadataError,
     TransportRouteConflictError,
-    TransportRouteStopDuplicateError,
     TransportRouteStopTransactionTimeoutError,
     TransportReviewGuardError,
     TransportSchemaUnavailableError,
     TransportStopInUseError,
+    TransportStopDeleteBlockedError,
 } from "./transport.errors.js";
+import { RoutingServiceDisabledError } from "../../config/env.js";
+import {
+    RoutingEngineTimeoutError,
+    RoutingEngineUnavailableError,
+} from "../routing/routing.errors.js";
 import {
     deleteRouteStopSchema,
     deleteTransportStopSchema,
+    getTransportStopDeleteEligibilitySchema,
+    permanentDeleteTransportStopSchema,
     getTransportDataQualityQueuesSchema,
     getTransportImportBatchesSchema,
     getTransportImportErrorsSchema,
@@ -23,10 +32,14 @@ import {
     getTransportQualitySummarySchema,
     getTransportSourceLinksSchema,
     getTransportRouteDetailSchema,
+    getTransportRouteDiagnosticsSchema,
     getTransportRouteVariantsSchema,
     getTransportRoutesSchema,
     getTransportStopDetailSchema,
     getTransportStopRoutesSchema,
+    getTransportStopRouteUsageDetailSchema,
+    postTransportStopMergePreviewSchema,
+    postTransportStopMergeGlobalSchema,
     getTransportStopsSchema,
     getTransportTerminalDetailSchema,
     getTransportInfrastructureLineDetailSchema,
@@ -36,13 +49,18 @@ import {
     getTransportVariantStopQualitySchema,
     getTransportVariantOrderedStopsSchema,
     searchTransportStopsSchema,
+    searchRoutesBetweenStopsSchema,
+    getTransportNearbyStopCandidatesSchema,
     insertExistingRouteStopSchema,
     createAndInsertRouteStopSchema,
     moveRouteStopSchema,
     patchRouteStopSchema,
+    patchRouteStopTimingSchema,
+    patchVariantDepartureTimeSchema,
     patchTransportInfrastructureLineSchema,
     postTransportRouteSchema,
     patchTransportRouteSchema,
+    patchRouteMetadataSchema,
     patchTransportStopSchema,
     patchTransportStopLocationSchema,
     getTransportStopNearbySchema,
@@ -54,6 +72,7 @@ import {
     putTransportVariantPathSchema,
     deleteTransportVariantPathSchema,
     postGeneratePathFromStopsSchema,
+    postSwapRouteDirectionSchema,
 } from "./transport.openapi.js";
 import {
     listTransportRoutesQuerySchema,
@@ -67,7 +86,9 @@ import {
     updateInfrastructureLineBodySchema,
     archiveStopBodySchema,
     listVariantStopsQuerySchema,
+    nearbyTransportStopCandidatesQuerySchema,
     searchTransportStopsQuerySchema,
+    searchRoutesBetweenStopsQuerySchema,
     createRouteBodySchema,
     createVariantBodySchema,
     patchVariantBodySchema,
@@ -85,6 +106,10 @@ import {
     transportRouteCodeParamSchema,
     transportPublicIdParamSchema,
     updateRouteBodySchema,
+    patchRouteMetadataBodySchema,
+    patchRouteStopTimingBodySchema,
+    patchVariantDepartureTimeBodySchema,
+    mapPatchRouteStopTimingToInput,
     updateRouteStopBodySchema,
     updateStopBodySchema,
     updateStopLocationBodySchema,
@@ -93,6 +118,8 @@ import {
     transportReviewActionBodySchema,
     replaceRouteStopBodySchema,
     mergeStopBodySchema,
+    stopMergePreviewBodySchema,
+    stopMergeGlobalBodySchema,
 } from "./transport.schema.js";
 import { sendTransportListReply } from "./transport-pagination.js";
 import { TransportService } from "./transport.service.js";
@@ -167,16 +194,24 @@ function sendTransportError(reply: FastifyReply, error: unknown): FastifyReply |
     if (error instanceof TransportInvalidReferenceError) {
         return reply.code(400).send({ message: error.message });
     }
-    if (error instanceof TransportRouteStopDuplicateError) {
-        return reply.code(409).send({ message: error.message });
-    }
     if (error instanceof TransportRouteConflictError) {
         return reply.code(409).send({ message: error.message });
     }
     if (error instanceof TransportStopInUseError) {
         return reply.code(409).send({ message: error.message });
     }
+    if (error instanceof TransportStopDeleteBlockedError) {
+        return reply.code(409).send({
+            message: error.message,
+            has_route_usage: error.hasRouteUsage,
+            route_count: error.routeCount,
+            blockers: error.blockers,
+        });
+    }
     if (error instanceof TransportNameRequiredError) {
+        return reply.code(400).send({ message: error.message });
+    }
+    if (error instanceof TransportRouteMetadataError) {
         return reply.code(400).send({ message: error.message });
     }
     if (error instanceof TransportSchemaUnavailableError) {
@@ -194,6 +229,18 @@ function sendTransportError(reply: FastifyReply, error: unknown): FastifyReply |
     }
     if (error instanceof TransportFeatureNotImplementedError) {
         return reply.code(501).send({ message: error.message });
+    }
+    if (error instanceof TransportGeneratePathFromStopsError) {
+        return reply.code(400).send({ message: error.message });
+    }
+    if (error instanceof RoutingServiceDisabledError) {
+        return reply.code(503).send({ message: error.message });
+    }
+    if (
+        error instanceof RoutingEngineTimeoutError ||
+        error instanceof RoutingEngineUnavailableError
+    ) {
+        return reply.code(503).send({ message: error.message });
     }
     return undefined;
 }
@@ -341,6 +388,30 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         const result = await publicService.listRoutes(publicQuery);
         return sendTransportListReply(reply, result, publicQuery);
     });
+
+    app.get(
+        "/routes/between-stops",
+        { schema: searchRoutesBetweenStopsSchema },
+        async (request, reply) => {
+            let query;
+            try {
+                query = searchRoutesBetweenStopsQuerySchema.parse(request.query);
+            } catch (error) {
+                if (error instanceof ZodError) {
+                    return reply
+                        .code(400)
+                        .send({ message: "Invalid query parameters", issues: error.flatten() });
+                }
+                throw error;
+            }
+
+            const result = await publicService.searchRoutesBetweenStops(query);
+            if (!result) {
+                return reply.code(404).send({ message: "One or both transport stops were not found" });
+            }
+            return reply.send(result);
+        },
+    );
 
     app.get("/stops", { schema: getTransportStopsSchema }, async (request, reply) => {
         let query;
@@ -492,6 +563,57 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         return reply.send(result);
     });
 
+    app.get(
+        "/stops/nearby-candidates",
+        { schema: getTransportNearbyStopCandidatesSchema },
+        async (request, reply) => {
+            try {
+                const query = nearbyTransportStopCandidatesQuerySchema.parse(request.query);
+                const result = await service.listNearbyStopCandidates(query);
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
+
+    app.post(
+        "/stops/merge-preview",
+        { schema: postTransportStopMergePreviewSchema },
+        async (request, reply) => {
+            try {
+                const body = stopMergePreviewBodySchema.parse(request.body);
+                const result = await service.getStopMergePreview(
+                    body.currentStopId,
+                    body.candidateStopId,
+                );
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
+
+    app.post(
+        "/stops/merge",
+        { schema: postTransportStopMergeGlobalSchema },
+        async (request, reply) => {
+            try {
+                const body = stopMergeGlobalBodySchema.parse(request.body);
+                const result = await service.mergeStopsGlobal(body, auditContextFrom(request));
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
+
     app.get("/stops/:publicId", { schema: getTransportStopDetailSchema }, async (request, reply) => {
         try {
             const { publicId } = transportPublicIdParamSchema.parse(request.params);
@@ -503,6 +625,22 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
             throw error;
         }
     });
+
+    app.get(
+        "/stops/:publicId/route-usage-detail",
+        { schema: getTransportStopRouteUsageDetailSchema },
+        async (request, reply) => {
+            try {
+                const { publicId } = transportPublicIdParamSchema.parse(request.params);
+                const result = await service.getStopRouteUsageDetail(publicId);
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
 
     app.get(
         "/stops/:publicId/routes",
@@ -602,6 +740,44 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         }
     });
 
+    app.get(
+        "/stops/:publicId/delete-eligibility",
+        { schema: getTransportStopDeleteEligibilitySchema },
+        async (request, reply) => {
+            try {
+                const { publicId } = transportPublicIdParamSchema.parse(request.params);
+                const result = await service.getStopDeleteEligibility(publicId);
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
+
+    app.delete(
+        "/stops/:publicId/permanent",
+        { schema: permanentDeleteTransportStopSchema },
+        async (request, reply) => {
+            try {
+                const { publicId } = transportPublicIdParamSchema.parse(request.params);
+                const { reason } = archiveStopBodySchema.parse(request.body ?? {});
+                const result = await service.permanentDeleteStop(
+                    publicId,
+                    auditContextFrom(request),
+                    reason
+                );
+                request.log.info({ publicId }, "transport stop permanently deleted");
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
+
     app.get("/routes/:publicId", { schema: getTransportRouteDetailSchema }, async (request, reply) => {
         try {
             const raw = request.params as { publicId: string };
@@ -622,6 +798,22 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
             throw error;
         }
     });
+
+    app.get(
+        "/routes/:publicId/diagnostics",
+        { schema: getTransportRouteDiagnosticsSchema },
+        async (request, reply) => {
+            try {
+                const { publicId } = transportPublicIdParamSchema.parse(request.params);
+                const result = await service.getRouteDiagnostics(publicId);
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
 
     app.get(
         "/routes/:publicId/variants",
@@ -678,6 +870,28 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                 throw error;
             }
         }
+    );
+
+    app.patch(
+        "/route-variants/:publicId/departure-time",
+        { schema: patchVariantDepartureTimeSchema },
+        async (request, reply) => {
+            try {
+                const { publicId } = transportPublicIdParamSchema.parse(request.params);
+                const body = patchVariantDepartureTimeBodySchema.parse(request.body);
+                const result = await service.updateVariantDepartureTime(
+                    publicId,
+                    body.departureTimeText,
+                    auditContextFrom(request),
+                );
+                request.log.info({ publicId }, "transport variant departure time updated");
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
     );
 
     app.get(
@@ -747,6 +961,31 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
             throw error;
         }
     });
+
+    app.patch(
+        "/routes/:publicId/metadata",
+        { schema: patchRouteMetadataSchema },
+        async (request, reply) => {
+            try {
+                const { publicId } = transportPublicIdParamSchema.parse(request.params);
+                const body = patchRouteMetadataBodySchema.parse(request.body);
+                const result = await service.updateRouteMetadata(
+                    publicId,
+                    body,
+                    auditContextFrom(request),
+                );
+                request.log.info(
+                    { publicId, sections: Object.keys(body) },
+                    "transport route metadata updated",
+                );
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
 
     app.patch(
         "/route-variants/:publicId",
@@ -1005,6 +1244,31 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         }
     });
 
+    app.patch(
+        "/route-stops/:id/timing",
+        { schema: patchRouteStopTimingSchema },
+        async (request, reply) => {
+            try {
+                const { id } = routeStopIdParamSchema.parse(request.params);
+                const body = patchRouteStopTimingBodySchema.parse(request.body);
+                const result = await service.updateRouteStopTiming(
+                    BigInt(id),
+                    mapPatchRouteStopTimingToInput(body),
+                    auditContextFrom(request),
+                );
+                request.log.info(
+                    { id, fields: Object.keys(body) },
+                    "transport route stop timing updated",
+                );
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
+
     app.post("/route-stops/:id/move", { schema: moveRouteStopSchema }, async (request, reply) => {
         try {
             const { id } = routeStopIdParamSchema.parse(request.params);
@@ -1082,6 +1346,26 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
             throw error;
         }
     });
+
+    app.post(
+        "/routes/:publicId/swap-direction",
+        { schema: postSwapRouteDirectionSchema },
+        async (request, reply) => {
+            try {
+                const { publicId } = transportPublicIdParamSchema.parse(request.params);
+                const result = await service.swapRouteDirection(
+                    publicId,
+                    auditContextFrom(request),
+                );
+                request.log.info({ publicId }, "transport route direction swapped");
+                return reply.send(result);
+            } catch (error) {
+                const handled = sendTransportError(reply, error);
+                if (handled) return handled;
+                throw error;
+            }
+        },
+    );
 
     app.post("/stops/:publicId/review-action", async (request, reply) => {
         try {

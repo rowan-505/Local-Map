@@ -16272,7 +16272,7 @@ Secondary quick-create path for the Insert Stop modal. Creates a new stop (minim
 
 **Summary:** Insert an existing stop into a route variant (admin)
 
-Inserts an existing stop into this variant's ordered pattern at start/end or before/after an anchor route_stop. The backend owns stop_sequence and resequences all route_stops for the variant to 1..N (the client never sends a final sequence). Rejects a stop already present in the variant (409). Does not create a new stop. Returns the updated ordered stops list (same shape as GET variant stops).
+Inserts an existing stop into this variant's ordered pattern at start/end or before/after an anchor route_stop. The backend owns stop_sequence and resequences all route_stops for the variant to 1..N (the client never sends a final sequence). The same physical stop may appear more than once (each row is a distinct route_stops occurrence). Does not create a new stop. Returns the updated ordered stops list (same shape as GET variant stops).
 
 **Security:** Bearer JWT (`Authorization: Bearer …`)
 

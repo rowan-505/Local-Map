@@ -132,9 +132,13 @@ export class CoreReviewService {
         this.buildingsRepo = new BuildingsRepository(prisma);
         this.buildingsService = new BuildingsService(this.buildingsRepo, entityAdminAreaService);
         this.placesRepo = new PlacesRepository(prisma);
-        this.placesService = new PlacesService(this.placesRepo, entityAdminAreaService);
+        this.placesService = new PlacesService(this.placesRepo, entityAdminAreaService, {
+            prisma,
+        });
         this.streetsRepo = new StreetsRepository(prisma);
-        this.streetsService = new StreetsService(this.streetsRepo, entityAdminAreaService, entityAdminAreaRepo);
+        this.streetsService = new StreetsService(this.streetsRepo, entityAdminAreaService, entityAdminAreaRepo, {
+            prisma,
+        });
         this.entitiesRepo = new CoreReviewEntitiesRepository(prisma);
         this.genericWriteService = new CoreReviewGenericWriteService(prisma);
         this.lifecycleService = new CoreReviewLifecycleService(prisma);

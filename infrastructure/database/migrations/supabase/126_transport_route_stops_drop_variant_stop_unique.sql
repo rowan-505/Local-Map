@@ -1,0 +1,82 @@
+-- =============================================================================
+-- Supabase migration 126: allow repeated stop_id per route variant (circular routing)
+-- =============================================================================
+--
+-- Drops the unique (route_variant_id, stop_id) index so the same physical stop
+-- may appear at multiple sequences in one variant (e.g. circular train routes).
+--
+-- Unchanged:
+--   - UNIQUE transport_route_stops_sequence_unique (route_variant_id, stop_sequence)
+--   - route_stops primary key, stop_id foreign key, timing columns
+--   - route_stops_stop_id_idx / transport_route_stops_stop_id_idx
+--
+-- Does not modify existing route_stops rows.
+-- =============================================================================
+
+begin;
+
+drop index if exists transport.transport_route_stops_variant_stop_unique;
+
+commit;
+
+-- =============================================================================
+-- Verification SQL (read-only checks + rolled-back insert probes — run manually)
+-- =============================================================================
+--
+-- 1) Index dropped; sequence unique remains:
+--
+-- select indexname, indexdef
+-- from pg_indexes
+-- where schemaname = 'transport'
+--   and tablename = 'route_stops'
+--   and indexname in (
+--       'transport_route_stops_variant_stop_unique',
+--       'transport_route_stops_sequence_unique'
+--   );
+-- -- expect: only transport_route_stops_sequence_unique
+--
+-- 2) Duplicate stop_id in one variant is allowed (no persistent change):
+--
+-- begin;
+-- drop index if exists transport.transport_route_stops_variant_stop_unique;
+-- with sample as (
+--     select rs.route_variant_id, rs.stop_id
+--     from transport.route_stops rs
+--     group by rs.route_variant_id, rs.stop_id
+--     having count(*) = 1
+--     limit 1
+-- ),
+-- next_seq as (
+--     select s.route_variant_id,
+--            s.stop_id,
+--            (select coalesce(max(r2.stop_sequence), 0) + 1
+--             from transport.route_stops r2
+--             where r2.route_variant_id = s.route_variant_id) as new_seq
+--     from sample s
+-- )
+-- insert into transport.route_stops (
+--     route_variant_id, stop_id, stop_sequence,
+--     pickup_type, drop_off_type, is_timing_point
+-- )
+-- select route_variant_id, stop_id, new_seq, 0, 0, false
+-- from next_seq;
+-- rollback;
+--
+-- 3) Duplicate stop_sequence in one variant is still rejected:
+--
+-- begin;
+-- with sample as (
+--     select route_variant_id, stop_id, stop_sequence
+--     from transport.route_stops
+--     limit 1
+-- )
+-- insert into transport.route_stops (
+--     route_variant_id, stop_id, stop_sequence,
+--     pickup_type, drop_off_type, is_timing_point
+-- )
+-- select route_variant_id, stop_id, stop_sequence, 0, 0, false
+-- from sample;
+-- rollback;
+-- -- expect: ERROR unique_violation on transport_route_stops_sequence_unique
+--
+-- =============================================================================

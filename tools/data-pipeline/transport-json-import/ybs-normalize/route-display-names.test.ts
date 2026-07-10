@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildVariantCode } from "../ybs-db-prepare/stop-normalize.js";
-import { actionBelongsToRoute } from "../ybs-supabase-import/import-executor.js";
-import type { PlanAction } from "../ybs-supabase-import/import-plan-types.js";
+import { actionBelongsToRoute } from "../ybs-supabase-import/lib/import-executor.js";
+import type { PlanAction } from "../ybs-supabase-import/lib/import-plan-types.js";
 import {
     buildYbsDisplayCode,
     buildYbsRouteCode,

@@ -23,6 +23,9 @@
       "@local-map/map-style/*": ["../../packages/map-style/*"],
       "@local-map/core-review-policy": [
         "../../packages/core-review-policy/township-admin-policy.ts"
+      ],
+      "@local-map/transport-timetable": [
+        "../../packages/transport-timetable/timetable.ts"
       ]
     }
   },

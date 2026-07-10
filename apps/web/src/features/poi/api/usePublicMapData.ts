@@ -1,15 +1,30 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import type { PublicSearchApiLang } from './publicSearchLang';
+import type {
+  PublicSearchCategory,
+  PublicSearchTransportMode,
+  PublicSearchTransportType,
+} from './publicSearchConstants.js';
+import {
+  PUBLIC_SEARCH_PAGE_LIMIT,
+  PUBLIC_SEARCH_SESSION_RESULT_CAP,
+} from './publicSearchConstants.js';
 import {
   fetchPublicCategories,
   fetchPublicMapPlaces,
   fetchPublicPlace,
   fetchPublicPlaces,
-  fetchPublicSearch,
+  fetchPublicSearchPage,
+  fetchSearchResultOverlayGeometry,
+  searchResultOverlayQueryKey,
+  searchResultOverlayZoomBucket,
   shouldRunPublicSearch,
   type PublicPlacesParams,
   type PublicMapPlacesParams,
   type PublicSearchParams,
+  type PublicSearchResult,
 } from './publicMapApi';
+import { isPointLikeHighlight } from '@/features/map/lib/maplibre/searchHighlightOnMap';
 
 /** Captured lazily when a request starts (not part of the query key). */
 export type SearchCenter = Pick<PublicSearchParams, 'lat' | 'lng'>;
@@ -54,22 +69,138 @@ export function usePublicPlace(publicId: string | null) {
   });
 }
 
+export type PublicSearchQueryKeyInput = {
+  readonly q: string;
+  readonly lang: PublicSearchApiLang;
+  readonly category: PublicSearchCategory;
+  readonly transportType: PublicSearchTransportType;
+  readonly transportMode: PublicSearchTransportMode;
+  /** Rounded map-center bias captured when the search session starts (`lat,lng` or null). */
+  readonly geoKey: string | null;
+};
+
+export function publicSearchQueryKey(input: PublicSearchQueryKeyInput) {
+  return [
+    'public-search',
+    {
+      q: input.q.trim(),
+      lang: input.lang,
+      category: input.category,
+      transportType: input.transportType,
+      transportMode: input.transportMode,
+      geoKey: input.geoKey,
+    },
+  ] as const;
+}
+
+export function formatPublicSearchGeoKey(
+  center: SearchCenter | null | undefined,
+): string | null {
+  if (!center) return null;
+  const { lat, lng } = center;
+  if (lat === undefined || lng === undefined || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+  const round = (value: number) => Math.round(value * 1000) / 1000;
+  return `${round(lat)},${round(lng)}`;
+}
+
+export type InfinitePublicSearchParams = {
+  readonly q: string;
+  readonly lang: PublicSearchApiLang;
+  readonly category: PublicSearchCategory;
+  readonly transportType: PublicSearchTransportType;
+  readonly transportMode: PublicSearchTransportMode;
+  readonly geoBias?: SearchCenter | null;
+};
+
 /**
- * Public search query.
- *
- * The map center is intentionally NOT part of the query key: it is read lazily
- * via `getCenter()` at the moment the request starts, so panning/zooming (and the
- * `flyTo` from clicking a result) never re-key or refetch the search. Stale-response
- * protection and request cancellation are handled by React Query (key = query only,
- * `signal` aborts the previous in-flight request).
+ * Cursor-paginated public search (20 per page) for the main map sidebar.
+ * Query key includes normalized query, language, filters, and geo bias snapshot.
+ */
+export function useInfinitePublicSearch(params: InfinitePublicSearchParams) {
+  const trimmedQuery = params.q.trim();
+  const geoKey = formatPublicSearchGeoKey(params.geoBias);
+
+  return useInfiniteQuery({
+    queryKey: publicSearchQueryKey({
+      q: trimmedQuery,
+      lang: params.lang,
+      category: params.category,
+      transportType: params.transportType,
+      transportMode: params.transportMode,
+      geoKey,
+    }),
+    queryFn: ({ pageParam, signal }) =>
+      fetchPublicSearchPage(
+        {
+          q: trimmedQuery,
+          lang: params.lang,
+          category: params.category,
+          transportType: params.transportType,
+          mode: params.transportMode,
+          limit: PUBLIC_SEARCH_PAGE_LIMIT,
+          cursor: pageParam,
+          ...(params.geoBias ?? {}),
+        },
+        signal,
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((count, page) => count + page.items.length, 0);
+      if (loaded >= PUBLIC_SEARCH_SESSION_RESULT_CAP) return undefined;
+      if (!lastPage.hasMore || !lastPage.nextCursor) return undefined;
+      return lastPage.nextCursor;
+    },
+    enabled: shouldRunPublicSearch(trimmedQuery),
+    maxPages: Math.ceil(PUBLIC_SEARCH_SESSION_RESULT_CAP / PUBLIC_SEARCH_PAGE_LIMIT),
+  });
+}
+
+/**
+ * Single-page public search (first 20 results). Used by lightweight overlays.
  */
 export function usePublicSearch(q: string, getCenter?: () => SearchCenter | undefined) {
   const trimmedQuery = q.trim();
 
   return useQuery({
-    queryKey: ['public-search', trimmedQuery],
+    queryKey: ['public-search', 'single', trimmedQuery],
     queryFn: ({ signal }) =>
-      fetchPublicSearch({ q: trimmedQuery, ...(getCenter?.() ?? {}) }, signal),
+      fetchPublicSearchPage(
+        {
+          q: trimmedQuery,
+          limit: PUBLIC_SEARCH_PAGE_LIMIT,
+          ...(getCenter?.() ?? {}),
+        },
+        signal,
+      ).then((page) => page.items),
     enabled: shouldRunPublicSearch(trimmedQuery),
+  });
+}
+
+/**
+ * Cached overlay geometry for the selected search result (areas, streets, routes).
+ * Point-like results are skipped. React Query cancels stale in-flight requests.
+ */
+export function useSearchResultOverlayGeometry(
+  result: PublicSearchResult | null,
+  zoom: number,
+) {
+  const entityType = result?.entityType;
+  const entityId = result?.entityId;
+  const zoomBucket = searchResultOverlayZoomBucket(zoom);
+  const enabled =
+    result !== null && !!entityType && !!entityId && !isPointLikeHighlight(result);
+
+  return useQuery({
+    queryKey:
+      entityType && entityId
+        ? searchResultOverlayQueryKey(entityType, entityId, zoomBucket)
+        : ['search-result-overlay', 'disabled'],
+    queryFn: ({ signal }) =>
+      fetchSearchResultOverlayGeometry(entityType!, entityId!, zoomBucket, signal),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
   });
 }

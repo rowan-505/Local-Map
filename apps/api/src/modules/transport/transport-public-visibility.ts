@@ -20,6 +20,40 @@ export type PublicReleaseReviewStatus = (typeof PUBLIC_RELEASE_REVIEW_STATUSES)[
 const UUID_RE =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/**
+ * Loose UUID shape for stop lookup — matches the tile/route contract (any UUID version)
+ * and the public route param schema. Kept separate from the strict {@link UUID_RE} used
+ * for route-code disambiguation so a valid non-v4 `public_id` is never misclassified.
+ */
+const LOOKUP_UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const NUMERIC_ID_RE = /^\d+$/;
+
+/**
+ * Single lookup contract for `GET /public/transport/stops/:id`:
+ * - numeric string  → `transport.stops.id`
+ * - uuid string     → `transport.stops.public_id`
+ * - anything else   → invalid (caller returns 404, never guesses another id)
+ */
+export type TransportStopLookupClassification =
+    | { kind: "numeric"; id: bigint }
+    | { kind: "uuid"; publicId: string }
+    | { kind: "invalid" };
+
+export function classifyTransportStopLookupId(
+    rawLookupId: string,
+): TransportStopLookupClassification {
+    const value = rawLookupId.trim();
+    if (NUMERIC_ID_RE.test(value)) {
+        return { kind: "numeric", id: BigInt(value) };
+    }
+    if (LOOKUP_UUID_RE.test(value)) {
+        return { kind: "uuid", publicId: value };
+    }
+    return { kind: "invalid" };
+}
+
 export function isPublicReleaseReviewStatus(status: string): status is PublicReleaseReviewStatus {
     return (PUBLIC_RELEASE_REVIEW_STATUSES as readonly string[]).includes(status);
 }
@@ -41,6 +75,35 @@ export function sqlPublicReleaseVisible(alias: string): Prisma.Sql {
         AND ${a}.deleted_at IS NULL
     `;
 }
+
+/**
+ * Canonical transport.stop row exists for public detail lookup.
+ * Matches tile click contract: `public_id` from `tiles.transport_stops_v` maps to
+ * `transport.stops.public_id` without review_status gating. Route lists still use
+ * {@link sqlPublicReleaseVisible}.
+ */
+export function sqlCanonicalTransportStopExists(alias: string): Prisma.Sql {
+    const a = Prisma.raw(alias);
+    return Prisma.sql`
+        ${a}.is_active = true
+        AND ${a}.deleted_at IS NULL
+    `;
+}
+
+/**
+ * Canonical transport.terminal row exists for public detail lookup.
+ * Matches tile click contract without review_status gating on the row itself.
+ */
+export function sqlCanonicalTransportTerminalExists(alias: string): Prisma.Sql {
+    const a = Prisma.raw(alias);
+    return Prisma.sql`
+        ${a}.is_active = true
+        AND ${a}.deleted_at IS NULL
+    `;
+}
+
+/** Same lookup contract as stops: numeric id or uuid public_id. */
+export const classifyTransportTerminalLookupId = classifyTransportStopLookupId;
 
 export type PublicPreviewState =
     | "hidden_imported_unreviewed"

@@ -8,6 +8,7 @@ import {
     LineChart,
     Route,
     ScanSearch,
+    Search,
     Users,
     type LucideIcon,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import {
     referencesPath,
     reportsPath,
     routingAdminPath,
+    searchPath,
     statsPath,
     transportPath,
     userAnalyticsPath,
@@ -34,6 +36,7 @@ export {
     POINT_MANAGEMENT_PATH,
     REFERENCES_PATH,
     REPORTS_PATH,
+    SEARCH_PATH,
     STATS_PATH,
     TRANSPORT_PATH,
     USERS_PATH,
@@ -43,6 +46,7 @@ export {
     pointManagementPath,
     referencesPath,
     reportsPath,
+    searchPath,
     statsPath,
     transportPath,
     userAnalyticsPath,
@@ -56,6 +60,7 @@ export type DashboardSidebarModuleKey =
     | "routing"
     | "stats"
     | "transport"
+    | "search"
     | "reports"
     | "users"
     | "user-analytics"
@@ -87,6 +92,7 @@ export function sidebarModuleFromPathname(pathname: string): DashboardSidebarMod
         key === "routing" ||
         key === "stats" ||
         key === "transport" ||
+        key === "search" ||
         key === "reports" ||
         key === "users" ||
         key === "user-analytics" ||
@@ -133,6 +139,12 @@ export const dashboardSidebarItems: readonly DashboardSidebarItem[] = [
         href: transportPath(),
         label: "Transport",
         Icon: Bus,
+    },
+    {
+        moduleKey: "search",
+        href: searchPath(),
+        label: "Search",
+        Icon: Search,
     },
     {
         moduleKey: "reports",
@@ -223,6 +235,15 @@ export const transportTabs: readonly FamilyNavTab[] = [
     { label: "Stops", segment: "stops" },
     { label: "Infrastructure", segment: "infrastructure" },
     { label: "Imports", segment: "imports" },
+];
+
+export const searchTabs: readonly FamilyNavTab[] = [
+    { label: "Overview", segment: "", match: "exact" },
+    { label: "Documents", segment: "documents" },
+    { label: "Aliases", segment: "aliases" },
+    { label: "Failed Searches", segment: "failed-searches" },
+    { label: "Analytics", segment: "analytics" },
+    { label: "Index Health", segment: "index-health" },
 ];
 
 function joinPath(base: string, segment?: string): string {

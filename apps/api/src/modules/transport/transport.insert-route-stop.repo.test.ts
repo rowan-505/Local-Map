@@ -3,7 +3,6 @@ import { describe, it } from "node:test";
 import type { PrismaClient } from "@prisma/client";
 
 import { TransportRepository } from "./transport.repo.js";
-import { TransportRouteStopDuplicateError } from "./transport.errors.js";
 
 const VARIANT_ID = 36n;
 
@@ -145,6 +144,13 @@ function seqForStop(rows: RouteStopRow[], stopId: bigint): number | undefined {
     return rows.find((r) => String(r.stop_id) === String(stopId))?.stop_sequence;
 }
 
+/** stop_id 1 at sequence 1 and again at sequence 39 (circular closing revisit). */
+function makeRevisitAtOneAndThirtyNine(): RouteStopRow[] {
+    const rows = makeVariant(39);
+    rows[38] = { id: 138n, stop_id: 1n, stop_sequence: 39 };
+    return rows;
+}
+
 describe("TransportRepository.insertStopIntoVariantTx (resequencing)", () => {
     it("inserts at the start of a 60-stop variant and keeps 1..N", async () => {
         const { promise, state } = callInsert(makeVariant(60), { position: "start" });
@@ -186,15 +192,24 @@ describe("TransportRepository.insertStopIntoVariantTx (resequencing)", () => {
         assert.equal(seqForStop(state, 9999n), 1);
     });
 
-    it("rejects a duplicate stop in the same variant (409)", async () => {
-        const { promise, state } = callInsert(makeVariant(60), {
-            position: "start",
-            stopId: 5n, // already present (stop_id 5)
-            stopRef: "5",
+    it("allows the same stop_id at another occurrence (circular revisit)", async () => {
+        const { promise, state } = callInsert(makeRevisitAtOneAndThirtyNine(), {
+            position: "end",
+            stopId: 1n,
+            stopRef: "1",
         });
+        await promise;
 
-        await assert.rejects(promise, TransportRouteStopDuplicateError);
-        // No row added on rejection.
-        assert.equal(state.length, 60);
+        assert.equal(state.length, 40);
+        assertGapFree(state);
+
+        const occurrences = state.filter((r) => String(r.stop_id) === "1");
+        assert.equal(occurrences.length, 3, "stop_id 1 at sequences 1, 39, and new end");
+        const sequences = occurrences.map((r) => r.stop_sequence).sort((a, b) => a - b);
+        assert.deepEqual(sequences, [1, 39, 40]);
+
+        const firstOccurrence = state.find((r) => r.id === 100n);
+        assert.ok(firstOccurrence);
+        assert.equal(firstOccurrence.stop_sequence, 1);
     });
 });

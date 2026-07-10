@@ -59,6 +59,11 @@ export function regionLayerIds(regionId: string): string[] {
   return getRegionalTemplateLayers().map((layer) => regionLayerId(layer.id, regionId));
 }
 
+/** Base regional layer ids from `base-map.json` (without the `-{region}` suffix). */
+export function getRegionalTemplateLayerIds(): string[] {
+  return getRegionalTemplateLayers().map((layer) => layer.id);
+}
+
 /**
  * Adds the region's layers (in stable paint order) on top of the current stack.
  * Idempotent: skips any layer id that already exists. Does NOT add the source.

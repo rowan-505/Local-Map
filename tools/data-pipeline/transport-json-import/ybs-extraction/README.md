@@ -1,5 +1,7 @@
 # YBS Go ADB UI Extraction (Phase 4)
 
+**Full pipeline guide:** [`../README.md`](../README.md)
+
 Extract visible bus route and stop data from the YBS Go Android app using ADB
 `uiautomator` XML dumps.
 

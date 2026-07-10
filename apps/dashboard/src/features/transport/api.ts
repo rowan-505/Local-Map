@@ -8,14 +8,21 @@ import type {
     TransportOverview,
     TransportPaginated,
     TransportRouteDetail,
+    TransportRouteDiagnostics,
     TransportRouteListItem,
     TransportRouteStopItem,
     TransportStopArchiveResult,
+    TransportStopDeleteEligibility,
+    TransportStopPermanentDeleteResult,
     TransportStopDetail,
     TransportStopListItem,
     TransportStopLocationUpdateResult,
     TransportStopRouteUsage,
+    TransportStopRouteUsageDetailResponse,
+    TransportStopMergePreviewResponse,
+    TransportStopMergeGlobalResult,
     TransportStopSearchResponse,
+    TransportNearbyStopCandidatesResponse,
     TransportNearbyStop,
     UpdateTransportStopLocationBody,
     CreateTransportRouteBody,
@@ -31,13 +38,17 @@ import type {
     TransportVariantStopsResponse,
     TransportVariantStopQualityResponse,
     TransportVariantSummary,
+    TransportSwapRouteDirectionResult,
     TransportVariantPathResult,
     PutTransportVariantPathBody,
     GeneratePathFromStopsResult,
     RouteStopMutationResult,
     TransportRouteStopMutationResult,
     UpdateRouteStopBody,
+    PatchRouteStopTimingBody,
+    PatchVariantDepartureTimeBody,
     UpdateTransportRouteBody,
+    PatchTransportRouteMetadataBody,
     UpdateTransportInfrastructureLineBody,
     UpdateTransportStopBody,
     UpdateTransportTerminalBody,
@@ -412,6 +423,103 @@ export function getTransportStopRoutes(
     );
 }
 
+export function getTransportStopRouteUsageDetail(
+    publicId: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportStopRouteUsageDetailResponse>(
+        `/transport/stops/${encodeURIComponent(publicId)}/route-usage-detail`,
+        { method: "GET", ...fetchInit },
+    );
+}
+
+export type TransportStopMergePreviewBody = {
+    currentStopId: string;
+    candidateStopId: string;
+};
+
+export function previewTransportStopMerge(
+    body: TransportStopMergePreviewBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportStopMergePreviewResponse>("/transport/stops/merge-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        ...fetchInit,
+    });
+}
+
+export type TransportStopMergeFieldSource = "current" | "candidate";
+
+export type TransportStopMergeFieldSources = Partial<
+    Record<
+        | "name"
+        | "name_mm"
+        | "name_en"
+        | "stop_type"
+        | "geom"
+        | "admin_area_id"
+        | "confidence_score"
+        | "review_status"
+        | "is_active",
+        TransportStopMergeFieldSource
+    >
+>;
+
+export type TransportStopMergeGlobalBody = {
+    canonicalStopId: string;
+    duplicateStopId: string;
+    currentStopId: string;
+    candidateStopId: string;
+    fieldSources?: TransportStopMergeFieldSources;
+    acknowledgeSameVariantOccurrences?: boolean;
+    reason?: string;
+};
+
+export function mergeTransportStopsGlobal(
+    body: TransportStopMergeGlobalBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const payload: TransportStopMergeGlobalBody = {
+        canonicalStopId: body.canonicalStopId,
+        duplicateStopId: body.duplicateStopId,
+        currentStopId: body.currentStopId,
+        candidateStopId: body.candidateStopId,
+    };
+    if (body.fieldSources && Object.keys(body.fieldSources).length > 0) {
+        payload.fieldSources = body.fieldSources;
+    }
+    const trimmed = body.reason?.trim();
+    if (trimmed) {
+        payload.reason = trimmed;
+    }
+    return apiFetch<TransportStopMergeGlobalResult>("/transport/stops/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        ...fetchInit,
+    });
+}
+
+export function mapStopRouteUsageDetailItemToRouteUsage(
+    item: TransportStopRouteUsageDetailResponse["items"][number],
+    mode = "",
+): TransportStopRouteUsage {
+    return {
+        route_stop_id: item.routeStopId,
+        route_public_id: item.routeId,
+        route_code: item.routeCode,
+        route_name: item.routeName,
+        mode,
+        variant_public_id: item.variantId,
+        variant_code: item.variantCode,
+        direction_name: item.directionName,
+        headsign: null,
+        stop_sequence: item.stopSequence,
+    };
+}
+
 export type TransportStopSearchParams = {
     search?: string;
     mode?: string;
@@ -521,6 +629,41 @@ export function getTransportStopNearby(
     );
 }
 
+export type NearbyTransportStopCandidatesParams = {
+    lat: number;
+    lng: number;
+    radiusMeters?: 50 | 100 | 200 | 500;
+    mode: string;
+    selectedStopId: string;
+    selectedName?: string;
+    limit?: number;
+};
+
+export function getNearbyTransportStopCandidates(
+    params: NearbyTransportStopCandidatesParams,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    const search = new URLSearchParams();
+    search.set("lat", String(params.lat));
+    search.set("lng", String(params.lng));
+    search.set("mode", params.mode);
+    search.set("selectedStopId", params.selectedStopId);
+    if (params.radiusMeters !== undefined) {
+        search.set("radiusMeters", String(params.radiusMeters));
+    }
+    if (params.selectedName?.trim()) {
+        search.set("selectedName", params.selectedName.trim());
+    }
+    if (params.limit !== undefined) {
+        search.set("limit", String(params.limit));
+    }
+
+    return apiFetch<TransportNearbyStopCandidatesResponse>(
+        `/transport/stops/nearby-candidates?${search.toString()}`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
 /**
  * Archive (soft-delete) a stop. The backend rejects with 409 when the stop is
  * still used by routes; on success the stop (and any linked terminal) is
@@ -548,12 +691,49 @@ export function archiveTransportStop(
     );
 }
 
+/** Read-only check for permanent stop deletion eligibility. */
+export function getTransportStopDeleteEligibility(
+    publicId: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportStopDeleteEligibility>(
+        `/transport/stops/${encodeURIComponent(publicId)}/delete-eligibility`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+/** Permanently delete a stop when the backend reports no blocking references. */
+export function permanentDeleteTransportStop(
+    publicId: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportStopPermanentDeleteResult>(
+        `/transport/stops/${encodeURIComponent(publicId)}/permanent`,
+        {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+            ...fetchInit,
+        }
+    );
+}
+
 export function getTransportRouteDetail(
     publicId: string,
     fetchInit?: Pick<RequestInit, "signal">
 ) {
     return apiFetch<TransportRouteDetail>(
         `/transport/routes/${encodeURIComponent(publicId)}`,
+        { method: "GET", ...fetchInit }
+    );
+}
+
+export function getTransportRouteDiagnostics(
+    publicId: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportRouteDiagnostics>(
+        `/transport/routes/${encodeURIComponent(publicId)}/diagnostics`,
         { method: "GET", ...fetchInit }
     );
 }
@@ -645,6 +825,22 @@ export function updateTransportRoute(
     });
 }
 
+export function patchTransportRouteMetadata(
+    publicId: string,
+    body: PatchTransportRouteMetadataBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportRouteDetail>(
+        `/transport/routes/${encodeURIComponent(publicId)}/metadata`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        },
+    );
+}
+
 /** Create a variant under a route. Returns the created variant summary. */
 export function createTransportRouteVariant(
     routePublicId: string,
@@ -675,6 +871,16 @@ export function updateTransportRouteVariant(
             body: JSON.stringify(body),
             ...fetchInit,
         }
+    );
+}
+
+export function swapTransportRouteDirection(
+    routePublicId: string,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportSwapRouteDirectionResult>(
+        `/transport/routes/${encodeURIComponent(routePublicId)}/swap-direction`,
+        { method: "POST", ...fetchInit },
     );
 }
 
@@ -741,6 +947,38 @@ export function updateTransportRouteStop(
 ) {
     return apiFetch<TransportRouteStopItem>(
         `/transport/route-stops/${encodeURIComponent(id)}`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function patchTransportRouteStopTiming(
+    id: string,
+    body: PatchRouteStopTimingBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportRouteStopMutationResult>(
+        `/transport/route-stops/${encodeURIComponent(id)}/timing`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            ...fetchInit,
+        }
+    );
+}
+
+export function patchTransportVariantDepartureTime(
+    variantPublicId: string,
+    body: PatchVariantDepartureTimeBody,
+    fetchInit?: Pick<RequestInit, "signal">
+) {
+    return apiFetch<TransportRouteStopMutationResult>(
+        `/transport/route-variants/${encodeURIComponent(variantPublicId)}/departure-time`,
         {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },

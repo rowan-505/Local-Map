@@ -38,15 +38,11 @@ export class TransportNameRequiredError extends Error {
     }
 }
 
-/**
- * Thrown when inserting a stop into a route variant that already contains it.
- * route_stops has a UNIQUE (route_variant_id, stop_id) constraint, so the same
- * stop may appear at most once per variant.
- */
-export class TransportRouteStopDuplicateError extends Error {
-    constructor(public readonly stopRef: string) {
-        super(`Stop is already in this route variant: ${stopRef}`);
-        this.name = "TransportRouteStopDuplicateError";
+/** Thrown when route metadata fields are invalid for the route mode or shape. */
+export class TransportRouteMetadataError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "TransportRouteMetadataError";
     }
 }
 
@@ -97,6 +93,14 @@ export class TransportFeatureNotImplementedError extends Error {
     }
 }
 
+/** Thrown when generate-path-from-stops preconditions fail (stops, geometry, sequence). */
+export class TransportGeneratePathFromStopsError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "TransportGeneratePathFromStopsError";
+    }
+}
+
 /** Thrown when archiving a stop that is still referenced by one or more routes
  * (counted as distinct routes via non-deleted variants). The stop must be
  * removed from all routes first; archiving never deletes route_stops rows.
@@ -107,5 +111,31 @@ export class TransportStopInUseError extends Error {
             "This stop is still used by routes. Remove it from all routes before deleting."
         );
         this.name = "TransportStopInUseError";
+    }
+}
+
+/** Blocker codes returned when a stop cannot be permanently deleted. */
+export type TransportStopDeleteBlocker =
+    | "route_stops"
+    | "variant_endpoints"
+    | "child_stops"
+    | "linked_terminals"
+    | "fares"
+    | "verified"
+    | "manual_protected";
+
+/**
+ * Thrown when permanent stop deletion is blocked by references or protected
+ * review_status (verified / manual_protected).
+ */
+export class TransportStopDeleteBlockedError extends Error {
+    constructor(
+        message: string,
+        public readonly blockers: TransportStopDeleteBlocker[],
+        public readonly hasRouteUsage: boolean,
+        public readonly routeCount: number
+    ) {
+        super(message);
+        this.name = "TransportStopDeleteBlockedError";
     }
 }

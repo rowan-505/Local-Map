@@ -48,11 +48,43 @@ See [PMTiles](../06-tiles/pmtiles.md).
 
 ## Search index rebuild (API)
 
+Rebuild is **manual** — search does not auto-sync when core/transport data changes. After transport imports or bulk stop edits, run at least the light preset (includes `bus_stops`).
+
 ```bash
 cd apps/api
 npm run rebuild:search-index
 npm run rebuild:search-index:light
 npm run rebuild:search-index:street-groups
+npx tsx src/scripts/rebuild-search-index.ts --views bus_stops
+```
+
+Details: [Search system](../08-search-address-routing/search-system.md)
+
+Verify index health (read-only, no rebuild):
+
+```bash
+cd apps/api
+npm run search:health
+# alias:
+npm run verify:search-index
+```
+
+Reconcile unhealthy families (check by default; repair only with `--repair`):
+
+```bash
+cd apps/api
+npm run search:reconcile
+npm run search:reconcile -- --repair
+```
+
+**Nightly scheduler (recommended):** no in-repo cron exists yet. On the API host or CI runner with DB access, schedule check-only nightly and repair only when needed:
+
+```bash
+# crontab example — 02:30 UTC daily, check only (exit 1 alerts if unhealthy)
+30 2 * * * cd /path/to/Core-Map/apps/api && npm run search:health >> /var/log/coremap-search-health.log 2>&1
+
+# optional weekly repair (explicit flag required)
+0 3 * * 0 cd /path/to/Core-Map/apps/api && npm run search:reconcile -- --repair >> /var/log/coremap-search-reconcile.log 2>&1
 ```
 
 ## Regression

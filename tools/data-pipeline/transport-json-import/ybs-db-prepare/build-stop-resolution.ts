@@ -40,7 +40,7 @@ import {
     type StopMatchDecision,
     type StopMatchResult,
 } from "./supabase-stop-match.js";
-import { MANUAL_REVIEW_CONFIDENCE_SCORE } from "../ybs-supabase-import/route-import-policy.js";
+import { MANUAL_REVIEW_CONFIDENCE_SCORE } from "../ybs-supabase-import/lib/route-import-policy.js";
 
 export const PHASE6_SCHEMA_VERSION = 5;
 

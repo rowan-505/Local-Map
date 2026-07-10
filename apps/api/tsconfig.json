@@ -3,7 +3,7 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "rootDir": "src",
+    "rootDir": "../..",
     "outDir": "dist",
     "strict": true,
     "esModuleInterop": true,
@@ -17,7 +17,8 @@
     ]
   },
   "include": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "../../packages/transport-timetable/timetable.ts"
   ],
   "exclude": [
     "dist",

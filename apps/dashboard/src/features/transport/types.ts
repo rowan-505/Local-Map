@@ -345,6 +345,7 @@ export type TransportStopLinkedTerminal = {
 };
 
 export type TransportStopRouteUsage = {
+    route_stop_id: string;
     route_public_id: string;
     route_code: string;
     route_name: string;
@@ -355,6 +356,158 @@ export type TransportStopRouteUsage = {
     headsign: string | null;
     stop_sequence: number;
 };
+
+export type TransportStopRouteUsageDetailItem = {
+    routeStopId: string;
+    routeId: string;
+    routeCode: string;
+    routeName: string;
+    variantId: string;
+    variantCode: string;
+    directionName: string | null;
+    directionId: number | null;
+    stopSequence: number;
+};
+
+export type TransportStopRouteUsageSummary = {
+    totalRoutes: number;
+    totalVariants: number;
+    routeStopMemberships: number;
+    inboundCount: number;
+    outboundCount: number;
+    clockwiseCount: number;
+    anticlockwiseCount: number;
+};
+
+export type TransportStopRouteUsageDirectionUsage = {
+    inbound: number;
+    outbound: number;
+    clockwise: number;
+    anticlockwise: number;
+};
+
+export type TransportStopRouteUsageDetailResponse = {
+    stopPublicId: string;
+    stopId: string;
+    items: TransportStopRouteUsageDetailItem[];
+    routes: TransportStopRouteUsageDetailItem[];
+    summary: TransportStopRouteUsageSummary;
+    totalRoutes: number;
+    totalVariants: number;
+    directionUsage: TransportStopRouteUsageDirectionUsage;
+};
+
+export type TransportStopMergePreviewStop = {
+    publicId: string;
+    name: string;
+    nameMy: string | null;
+    nameEn: string | null;
+    mode: string;
+    stopType: string;
+    adminAreaId: number | null;
+    adminAreaName: string | null;
+    reviewStatus: string;
+    confidenceScore: number | null;
+    isActive: boolean;
+    lat: number | null;
+    lng: number | null;
+};
+
+export type TransportStopMergeReferenceCounts = {
+    routeStops: number;
+    variantOrigins: number;
+    variantDestinations: number;
+    terminals: number;
+    faresOrigin: number;
+    faresDestination: number;
+    childStops: number;
+    stopNames: number;
+    sourceLinks: number;
+};
+
+export type TransportStopMergeVariantConflict = {
+    routeCode: string;
+    variantCode: string;
+    directionName: string | null;
+    currentRouteStopId: string;
+    currentSequence: number;
+    candidateRouteStopId: string;
+    candidateSequence: number;
+};
+
+export type TransportStopMergeScalarComparison<T> = {
+    current: T;
+    candidate: T;
+    same: boolean;
+};
+
+export type TransportStopMergeGeomComparison = {
+    current: { lat: number; lng: number } | null;
+    candidate: { lat: number; lng: number } | null;
+    same: boolean;
+    distanceMeters: number | null;
+};
+
+export type TransportStopMergeFieldComparison = {
+    name: TransportStopMergeScalarComparison<string>;
+    name_mm: TransportStopMergeScalarComparison<string | null>;
+    name_en: TransportStopMergeScalarComparison<string | null>;
+    stop_type: TransportStopMergeScalarComparison<string>;
+    geom: TransportStopMergeGeomComparison;
+    admin_area_id: TransportStopMergeScalarComparison<number | null>;
+    confidence_score: TransportStopMergeScalarComparison<number | null>;
+    review_status: TransportStopMergeScalarComparison<string>;
+    is_active: TransportStopMergeScalarComparison<boolean>;
+};
+
+export type TransportStopMergePreviewResponse = {
+    currentStop: TransportStopMergePreviewStop;
+    candidateStop: TransportStopMergePreviewStop;
+    currentUsage: TransportStopRouteUsageDetailResponse;
+    candidateUsage: TransportStopRouteUsageDetailResponse;
+    sameVariantConflicts: TransportStopMergeVariantConflict[];
+    sameVariantWarning: string | null;
+    referenceCounts: {
+        current: TransportStopMergeReferenceCounts;
+        candidate: TransportStopMergeReferenceCounts;
+    };
+    fieldComparison: TransportStopMergeFieldComparison;
+};
+
+export type TransportStopMergeGlobalReferenceChanges = {
+    routeStops: number;
+    variantOrigins: number;
+    variantDestinations: number;
+    terminals: number;
+    faresOrigin: number;
+    faresDestination: number;
+    childStops: number;
+    stopNames: number;
+    sourceLinks: number;
+};
+
+export type TransportStopMergeGlobalCounts = {
+    canonicalBefore: TransportStopMergeReferenceCounts;
+    canonicalAfter: TransportStopMergeReferenceCounts;
+    duplicateBefore: TransportStopMergeReferenceCounts;
+    duplicateAfter: TransportStopMergeReferenceCounts;
+};
+
+export type TransportStopMergeGlobalResult = {
+    canonicalStop: TransportStopMergePreviewStop;
+    deletedStop: TransportStopMergePreviewStop;
+    deletedStopId: string;
+    referencesChanged: TransportStopMergeGlobalReferenceChanges;
+    affectedRouteCodes: string[];
+    affectedVariantCodes: string[];
+    counts: TransportStopMergeGlobalCounts;
+};
+
+export type TransportStopMergeFieldSource = "current" | "candidate";
+
+export type TransportStopMergeFieldSources = Partial<
+    Record<keyof TransportStopMergeFieldComparison, TransportStopMergeFieldSource>
+>;
 
 export type UpdateTransportStopBody = {
     stop_code?: string | null;
@@ -433,6 +586,102 @@ export type TransportRouteDetail = {
     counts: { variants: number; stops: number; paths: number };
     names: TransportRouteName[];
     sources: TransportSourceSummary[];
+    routeMetadata: TransportRouteMetadata;
+};
+
+export type TransportRouteDiagnosticsRoute = {
+    normalized_data: Record<string, unknown> | null;
+    source_refs: Record<string, unknown> | null;
+};
+
+export type TransportRouteDiagnosticsVariant = {
+    public_id: string;
+    variant_code: string;
+    normalized_data: Record<string, unknown> | null;
+};
+
+export type TransportRouteDiagnosticsSourceLink = {
+    id: number;
+    entity_type: string;
+    entity_id: number;
+    source_name: string;
+    source_kind: string;
+    external_id: string | null;
+    source_url: string | null;
+    import_batch_id: number | null;
+    confidence_score: number | null;
+    is_primary: boolean;
+    created_at: string;
+};
+
+export type TransportRouteDiagnostics = {
+    route: TransportRouteDiagnosticsRoute;
+    variants: TransportRouteDiagnosticsVariant[];
+    source_links: TransportRouteDiagnosticsSourceLink[];
+    validation_warnings: string[];
+};
+
+export type TransportRouteMetadataSummary = {
+    mode: string;
+    routeKind: string;
+    routeType: string | null;
+    trainType: string | null;
+    trainModel: string | null;
+    operationDays: string[];
+    sourceStatus: "none" | "linked" | "imported";
+    reviewStatus: string;
+    isActive: boolean;
+    confidenceScore: number | null;
+    generation: string | null;
+};
+
+export type TransportRouteMetadataNames = {
+    routeCode: string;
+    nameMy: string | null;
+    nameEn: string | null;
+    originName: string | null;
+    destinationName: string | null;
+    displayHeadsign: string | null;
+};
+
+export type TransportRouteMetadataCounts = {
+    variantCount: number;
+    stopCount: number;
+    pathCount: number;
+    sourceLinksCount: number;
+};
+
+export type TransportRouteMetadataTrain = {
+    trainNumber: string | null;
+    trainType: string | null;
+    trainModel: string | null;
+    operationDays: string[];
+    totalStations: number | null;
+    estimatedDurationMin: number | null;
+    displayGroup: string | null;
+    isYangonUrbanService: boolean;
+    isSourceFullLoop: boolean;
+    closingDuplicateStopSkipped: boolean;
+    importedRouteStops: number | null;
+};
+
+export type TransportRouteMetadataDiagnostics = {
+    hasSourceLinks: boolean;
+    hasPath: boolean;
+    hasCompleteStopSequence: boolean;
+    hasStopLocationWarnings: boolean;
+};
+
+export type TransportRouteMetadata = {
+    summary: TransportRouteMetadataSummary;
+    names: TransportRouteMetadataNames;
+    counts: TransportRouteMetadataCounts;
+    train: TransportRouteMetadataTrain;
+    diagnostics: TransportRouteMetadataDiagnostics;
+};
+
+export type TransportSwapRouteDirectionResult = {
+    variants: TransportVariantSummary[];
 };
 
 export type TransportVariantSummary = {
@@ -451,6 +700,8 @@ export type TransportVariantSummary = {
     review_status: string;
     confidence_score: number | null;
     is_active: boolean;
+    /** Variant timetable anchor from normalized_data.departure_time_text. */
+    departure_time_text?: string | null;
 };
 
 export type TransportRouteStopItem = {
@@ -461,6 +712,14 @@ export type TransportRouteStopItem = {
     is_timing_point: boolean;
     distance_from_start_m: number | null;
     geometry_source?: "route_stop_review_geom" | "stop_geom";
+    source_time_text?: string | null;
+    source_time_type?: string | null;
+    travel_time_from_previous_seconds?: number | null;
+    waiting_time_seconds?: number | null;
+    arrival_offset_seconds?: number | null;
+    departure_offset_seconds?: number | null;
+    /** Intentional circular closing occurrence (same stop as an earlier row). */
+    is_loop_closure?: boolean;
     stop: {
         public_id: string;
         name: string;
@@ -547,12 +806,46 @@ export type UpdateTransportRouteBody = {
     review_status?: string;
     confidence_score?: number;
     is_active?: boolean;
+    train_type?: string | null;
+    train_model?: string | null;
+    operation_days?: string[];
+    is_yangon_urban_service?: boolean;
+    display_headsign?: string | null;
+};
+
+export type PatchTransportRouteMetadataBody = {
+    routeNames?: {
+        my?: string | null;
+        en?: string | null;
+    };
+    route?: {
+        originName?: string | null;
+        destinationName?: string | null;
+        reviewStatus?: string;
+        confidenceScore?: number;
+    };
+    normalizedDataPatch?: {
+        train_type?: string | null;
+        train_model?: string | null;
+        operation_days?: string[];
+        display_headsign?: string | null;
+        is_yangon_urban_service?: boolean;
+    };
 };
 
 export type UpdateRouteStopBody = {
     pickup_type?: number;
     drop_off_type?: number;
     is_timing_point?: boolean;
+};
+
+export type PatchRouteStopTimingBody = {
+    travelTimeFromPreviousSeconds?: number | null;
+    waitingTimeSeconds?: number | null;
+};
+
+export type PatchVariantDepartureTimeBody = {
+    departureTimeText: string | null;
 };
 
 export type RouteStopMutationResult = {
@@ -572,6 +865,29 @@ export type TransportStopArchiveResult = {
     public_id: string;
     route_count: number;
     archived_terminals: string[];
+};
+
+export type TransportStopDeleteReferenceCounts = {
+    route_stops: number;
+    variant_endpoints: number;
+    child_stops: number;
+    linked_terminals: number;
+    fares: number;
+};
+
+export type TransportStopDeleteEligibility = {
+    can_delete: boolean;
+    message: string;
+    has_route_usage: boolean;
+    route_count: number;
+    review_status: string;
+    references: TransportStopDeleteReferenceCounts;
+    blockers: string[];
+};
+
+export type TransportStopPermanentDeleteResult = {
+    deleted: boolean;
+    public_id: string;
 };
 
 /**
@@ -598,6 +914,13 @@ export type TransportOrderedStopLite = {
     drop_off_type: number;
     is_timing_point: boolean;
     review_status: string;
+    source_time_text: string | null;
+    source_time_type: string | null;
+    travel_time_from_previous_seconds: number | null;
+    waiting_time_seconds: number | null;
+    arrival_offset_seconds: number | null;
+    departure_offset_seconds: number | null;
+    is_loop_closure: boolean;
 };
 
 /** Created-stop summary returned by create-and-insert. */
@@ -683,6 +1006,7 @@ export type TransportVariantStopQualityItem = {
     distance_from_previous_m: number | null;
     distance_from_path_m: number | null;
     is_exact_duplicate_in_variant: boolean;
+    is_loop_closure: boolean;
     nearby_duplicate_count: number;
 };
 
@@ -712,6 +1036,27 @@ export type TransportStopSearchResponse = {
     limit: number;
 };
 
+export type TransportNearbyStopCandidate = {
+    id: string;
+    publicId: string;
+    name: string;
+    nameMy: string | null;
+    nameEn: string | null;
+    mode: string;
+    stopType: string;
+    reviewStatus: string;
+    confidenceScore: number | null;
+    lat: number;
+    lng: number;
+    distanceMeters: number;
+};
+
+export type TransportNearbyStopCandidatesResponse = {
+    items: TransportNearbyStopCandidate[];
+    radiusMeters: number;
+    limit: number;
+};
+
 /**
  * Body for POST /transport/route-variants/:publicId/stops/insert-existing.
  * The backend owns stop_sequence — callers send only a relative position
@@ -737,13 +1082,14 @@ export type CreateAndInsertRouteStopBody = {
     name_en?: string;
     mode: string;
     stop_type: string;
-    longitude: number;
-    latitude: number;
     position: "start" | "end" | "before" | "after";
     anchorRouteStopId?: string;
     pickup_type?: number;
     drop_off_type?: number;
     is_timing_point?: boolean;
+    /** Fallback map point when the variant has no neighbour geometry (empty variant). */
+    longitude?: number;
+    latitude?: number;
 };
 
 /** Top import-issue categories derived from transport.import_errors.error_code. */

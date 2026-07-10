@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { PrismaClient } from "@prisma/client";
 
 import type { JwtUser } from "../../plugins/auth.js";
 import {
@@ -22,6 +23,11 @@ import type { UpdatePlaceInput } from "./places.repo.js";
 import { placeCategoryValidationError } from "./places-category-validation.js";
 import { resolvePlaceAdminAreaForUpdate } from "../../lib/core-review/place-admin-area-write.js";
 import { createPlaceBodySchema, updatePlaceBodySchema } from "./places.schema.js";
+import { scheduleUnifiedSearchDocuments } from "../search/unified-search-sync.js";
+
+type PlacesServiceOptions = {
+    prisma?: PrismaClient;
+};
 
 type CreatePlaceBody = z.infer<typeof createPlaceBodySchema>;
 type UpdatePlaceBody = z.infer<typeof updatePlaceBodySchema>;
@@ -54,8 +60,18 @@ export class PlaceValidationError extends Error {
 export class PlacesService {
     constructor(
         private readonly placesRepo: PlacesRepository,
-        private readonly entityAdminArea: EntityAdminAreaService
+        private readonly entityAdminArea: EntityAdminAreaService,
+        private readonly options: PlacesServiceOptions = {},
     ) {}
+
+    private schedulePlaceSearchSync(placeId: bigint): void {
+        if (!this.options.prisma) {
+            return;
+        }
+        scheduleUnifiedSearchDocuments(this.options.prisma, [
+            { entityType: "place", entityId: placeId },
+        ]);
+    }
 
     private serializePlace(place: PlaceRow) {
         const verificationStatus = effectiveVerificationStatusFromRow(place);
@@ -263,6 +279,8 @@ export class PlacesService {
             throw new PlaceValidationError("Failed to create place");
         }
 
+        this.schedulePlaceSearchSync(createdPlace.id);
+
         return this.serializePlaceDetail(createdPlace);
     }
 
@@ -322,6 +340,8 @@ export class PlacesService {
                 throw new PlaceNotFoundError();
             }
 
+            this.schedulePlaceSearchSync(updatedPlace.id);
+
             return this.serializePlaceDetail(updatedPlace);
         } catch (error) {
             if (error instanceof Error && error.message === "PLACE_NAMES_REQUIRED") {
@@ -352,10 +372,15 @@ export class PlacesService {
     }
 
     async deletePlace(publicId: string) {
+        const existing = await this.placesRepo.getPlaceDetailByPublicId(publicId);
         const deletedPlace = await this.placesRepo.deletePlace(publicId);
 
         if (!deletedPlace) {
             throw new PlaceNotFoundError();
+        }
+
+        if (existing) {
+            this.schedulePlaceSearchSync(existing.id);
         }
 
         return {

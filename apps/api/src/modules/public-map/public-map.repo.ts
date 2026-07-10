@@ -1,5 +1,18 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import { expandSearchEntityTypeFilters } from "../search/transport-search-entity.js";
+import type { PublicSearchCursorAfter } from "./public-search-cursor.js";
+import {
+    buildPublicSearchFilterSql,
+    type ResolvedPublicSearchFilters,
+} from "./public-search-filters.js";
+import { buildUnifiedSearchCandidateMatchSql, buildUnifiedSearchScoreSql, resolveFuzzySimilarityThreshold } from "./public-search-ranking.js";
+import {
+    buildPublicSearchMatchedNameLanguageOrderSql,
+    normalizePublicSearchLang,
+    type PublicSearchLang,
+} from "./public-search-language.js";
+
 type ListPublicPlacesParams = {
     q?: string;
     category?: string;
@@ -108,6 +121,7 @@ export type UnifiedSearchParams = {
     lng?: number | undefined;
     lang?: "my" | "en" | "und" | undefined;
     types?: string[] | undefined;
+    filters?: ResolvedPublicSearchFilters | undefined;
     /**
      * Match strategy from the query planner:
      * - "prefix" (q length 2): exact code + name prefix only; no trigram fuzzy / FTS.
@@ -116,6 +130,8 @@ export type UnifiedSearchParams = {
      */
     mode?: SearchPublicMapMode | undefined;
     limit: number;
+    /** Keyset continuation — rows strictly after this position in sort order. */
+    after?: PublicSearchCursorAfter | undefined;
 };
 
 /**
@@ -133,6 +149,36 @@ export function escapeLikeToken(token: string): string {
     return token.replace(/([\\%_])/g, "\\$1");
 }
 
+/** Keyset filter for unified search continuation (no OFFSET). */
+export function buildUnifiedSearchKeysetClause(after: PublicSearchCursorAfter): Prisma.Sql {
+    const entityId = BigInt(after.entityId);
+    return Prisma.sql`(
+        scored.score < ${after.score}
+        OR (
+            scored.score = ${after.score}
+            AND scored.importance_score < ${after.importanceScore}
+        )
+        OR (
+            scored.score = ${after.score}
+            AND scored.importance_score = ${after.importanceScore}
+            AND COALESCE(scored.display_name, '') > ${after.displayName}
+        )
+        OR (
+            scored.score = ${after.score}
+            AND scored.importance_score = ${after.importanceScore}
+            AND COALESCE(scored.display_name, '') = ${after.displayName}
+            AND scored.entity_type > ${after.entityType}
+        )
+        OR (
+            scored.score = ${after.score}
+            AND scored.importance_score = ${after.importanceScore}
+            AND COALESCE(scored.display_name, '') = ${after.displayName}
+            AND scored.entity_type = ${after.entityType}
+            AND scored.entity_id::bigint > ${entityId}
+        )
+    )`;
+}
+
 /** Raw row from search.search_documents (no heavy core joins, no full geometry). */
 export type UnifiedSearchRow = {
     entity_type: string;
@@ -142,6 +188,7 @@ export type UnifiedSearchRow = {
     subtitle: string | null;
     primary_name_my: string | null;
     primary_name_en: string | null;
+    primary_name_und: string | null;
     matched_name: string | null;
     geometry_type: string | null;
     lng: number | null;
@@ -157,19 +204,45 @@ export type UnifiedSearchRow = {
     admin_area_name_my: string | null;
     admin_area_name_en: string | null;
     score: number;
+    importance_score: number;
     is_verified: boolean;
     confidence_score: number;
     boundary_confidence_score: number;
+    address_parts: unknown;
 };
 
 export type FailedSearchLogInput = {
     q: string;
     normalizedQuery: string;
     lang?: string | null;
-    lat?: number | null;
-    lng?: number | null;
+    category: string;
+    transportType: string;
+    transportMode: string;
+    entityTypesKey: string;
+    areaContextKey: string;
+    dedupeKey: string;
     types?: string[] | null;
     resultCount: number;
+};
+
+export type SearchRequestAnalyticsInsert = {
+    correlationId: string;
+    normalizedQuery: string;
+    lang: string | null;
+    category: string;
+    transportType: string;
+    transportMode: string;
+    resultCount: number;
+    latencyMs: number;
+    sessionKey: string | null;
+};
+
+export type SearchResultClickAnalyticsInsert = {
+    searchCorrelationId: string;
+    entityType: string;
+    entityId: string;
+    clickedRank: number;
+    timeToClickMs: number | null;
 };
 
 export class PublicMapRepository {
@@ -766,22 +839,30 @@ export class PublicMapRepository {
             Number.isFinite(params.lat) &&
             Number.isFinite(params.lng);
 
-        // Nearby bonus: exponential decay (~20 at the point, ~7 at 5km, ~0 by 20km).
-        const nearbyScore = hasRef
-            ? Prisma.sql`CASE WHEN d.centroid IS NOT NULL THEN 20.0 * exp(
-                  - ST_Distance(
-                        d.centroid::geography,
-                        ST_SetSRID(ST_MakePoint(${params.lng}, ${params.lat}), 4326)::geography
-                    ) / 5000.0
-              ) ELSE 0 END`
-            : Prisma.sql`0`;
+        const resolvedFilters =
+            params.filters ??
+            (params.types && params.types.length > 0
+                ? {
+                      entityTypes: params.types,
+                      expandedEntityTypes: expandSearchEntityTypeFilters(params.types),
+                      transportMode: "all",
+                      transportModeFilter: null,
+                      transportStopTypes: null,
+                      category: "all" as const,
+                      transportType: "all" as const,
+                  }
+                : undefined);
 
-        const typeFilter =
-            params.types && params.types.length > 0
-                ? Prisma.sql`AND d.entity_type IN (${Prisma.join(params.types)})`
-                : Prisma.empty;
+        const sqlFilters = resolvedFilters
+            ? buildPublicSearchFilterSql(resolvedFilters)
+            : {
+                  entityTypeFilter: Prisma.empty,
+                  transportModeFilter: Prisma.empty,
+                  transportStopTypeFilter: Prisma.empty,
+              };
 
-        const langPref = params.lang ?? null;
+        const langPref: PublicSearchLang | null = normalizePublicSearchLang(params.lang ?? null);
+        const matchedNameLanguageOrder = buildPublicSearchMatchedNameLanguageOrderSql(langPref);
 
         // Multi-token AND match (full mode only). Myanmar terms are glued in stored
         // strings (e.g. "ဘုရင့်နောင်လမ်း", "အင်းစိန်ခရိုင်"), so Postgres FTS, which
@@ -800,49 +881,26 @@ export class PublicMapRepository {
               )
             : null;
 
-        // Candidate filter:
-        // - Prefix mode (q length 2): exact code + name prefix only -- index-friendly,
-        //   no global trigram fuzzy / FTS, so short broad queries stay fast.
-        // - Multi-token (q length >= 3, >= 2 tokens): require EVERY token in
-        //   trigram_text (AND). This is precise AND uses the gin_trgm index on
-        //   trigram_text (BitmapAnd, sub-ms), unlike a big OR which forces a full
-        //   filtered scan. It also fixes Myanmar glued-token queries that FTS misses.
-        // - Single-token full: exact code + substring + full-text + trigram fuzzy.
-        //   Every branch here is index-backed -- lower(code) -> functional btree,
-        //   trigram_text ILIKE '%q%' / % q -> gin_trgm, search_vector @@ -> gin --
-        //   so the planner builds a BitmapOr instead of a full heap scan. The old
-        //   `lower(display_name) LIKE 'q%'` branch had no index and forced a seq scan
-        //   over every row (the single-token latency bug). display_name tokens are
-        //   already inside trigram_text, so the substring ILIKE preserves recall, and
-        //   prefix ranking is still applied via the score expression below.
-        const candidateMatch = isPrefixMode
-            ? Prisma.sql`(
-                  lower(d.code) = ${qNorm}
-                  OR lower(d.display_name) LIKE ${prefix}
-                  OR d.trigram_text LIKE ${prefix}
-              )`
-            : multiTokenMatch
-              ? Prisma.sql`(${multiTokenMatch})`
-              : Prisma.sql`(
-                  lower(d.code) = ${qNorm}
-                  OR d.trigram_text ILIKE ${`%${escapeLikeToken(qNorm)}%`}
-                  OR d.trigram_text % ${qNorm}
-                  OR d.search_vector @@ plainto_tsquery('simple', ${qNorm})
-              )`;
+        const fuzzyThreshold = resolveFuzzySimilarityThreshold(qNorm, isPrefixMode ? "prefix" : "full");
 
-        // Bonus when ALL query tokens match (ranks multi-term hits high, above a
-        // single fuzzy trigram match). Only in full mode with >= 2 tokens.
-        const multiTokenScore = multiTokenMatch
-            ? Prisma.sql`+ (CASE WHEN (${multiTokenMatch}) THEN 60 ELSE 0 END)`
-            : Prisma.empty;
+        const candidateMatch = buildUnifiedSearchCandidateMatchSql({
+            qNorm,
+            prefix,
+            isPrefixMode,
+            multiTokenMatch,
+            fuzzyThreshold,
+        });
 
-        // Fuzzy/full-text score contributions are dropped in prefix mode.
-        const fuzzyScore = isPrefixMode
-            ? Prisma.empty
-            : Prisma.sql`
-                  + (CASE WHEN d.search_vector @@ plainto_tsquery('simple', ${qNorm}) THEN 30 ELSE 0 END)
-                  + (similarity(coalesce(d.trigram_text, ''), ${qNorm}) * 25.0)
-                  ${multiTokenScore}`;
+        const scoreSql = buildUnifiedSearchScoreSql({
+            qNorm,
+            prefix,
+            isPrefixMode,
+            multiTokenMatch,
+            fuzzyThreshold,
+            hasRef,
+            lat: params.lat,
+            lng: params.lng,
+        });
 
         // Matched-name lateral: skip the `%` trigram operator in prefix mode.
         const nameMatch = isPrefixMode
@@ -856,67 +914,101 @@ export class PublicMapRepository {
                   OR n.normalized_name % ${qNorm}
               )`;
 
+        const keysetFilter = params.after
+            ? Prisma.sql`AND ${buildUnifiedSearchKeysetClause(params.after)}`
+            : Prisma.empty;
+
         const query = Prisma.sql`
+            WITH scored AS (
+                SELECT
+                    d.entity_type,
+                    d.entity_id::text AS entity_id,
+                    d.public_id,
+                    d.display_name,
+                    d.subtitle,
+                    d.primary_name_my,
+                    d.primary_name_en,
+                    d.primary_name_und,
+                    mn.name AS matched_name,
+                    d.geometry_type,
+                    ST_X(d.centroid)::double precision AS lng,
+                    ST_Y(d.centroid)::double precision AS lat,
+                    ST_XMin(d.bbox)::double precision AS min_lng,
+                    ST_YMin(d.bbox)::double precision AS min_lat,
+                    ST_XMax(d.bbox)::double precision AS max_lng,
+                    ST_YMax(d.bbox)::double precision AS max_lat,
+                    d.has_geometry,
+                    d.category_code,
+                    d.category_name_my,
+                    d.category_name_en,
+                    d.admin_area_name_my,
+                    d.admin_area_name_en,
+                    d.is_verified,
+                    d.confidence_score::double precision AS confidence_score,
+                    d.boundary_confidence_score::double precision AS boundary_confidence_score,
+                    d.address_parts,
+                    COALESCE(d.importance_score, 0)::double precision AS importance_score,
+                    ${scoreSql} AS score
+                FROM search.search_documents d
+                LEFT JOIN LATERAL (
+                    SELECT n.name
+                    FROM search.search_document_names n
+                    WHERE n.search_document_id = d.id
+                      AND ${nameMatch}
+                    ORDER BY
+                        CASE WHEN lower(n.normalized_name) = ${qNorm} THEN 1
+                             WHEN n.normalized_name LIKE ${prefix} THEN 2
+                             ELSE 3 END,
+                        ${matchedNameLanguageOrder},
+                        n.is_primary DESC,
+                        similarity(coalesce(n.normalized_name, ''), ${qNorm}) DESC
+                    LIMIT 1
+                ) mn ON true
+                WHERE d.is_public = true
+                  AND d.is_active = true
+                  ${sqlFilters.entityTypeFilter}
+                  ${sqlFilters.transportModeFilter}
+                  ${sqlFilters.transportStopTypeFilter}
+                  AND ${candidateMatch}
+            )
             SELECT
-                d.entity_type,
-                d.entity_id::text AS entity_id,
-                d.public_id,
-                d.display_name,
-                d.subtitle,
-                d.primary_name_my,
-                d.primary_name_en,
-                mn.name AS matched_name,
-                d.geometry_type,
-                ST_X(d.centroid)::double precision AS lng,
-                ST_Y(d.centroid)::double precision AS lat,
-                ST_XMin(d.bbox)::double precision AS min_lng,
-                ST_YMin(d.bbox)::double precision AS min_lat,
-                ST_XMax(d.bbox)::double precision AS max_lng,
-                ST_YMax(d.bbox)::double precision AS max_lat,
-                d.has_geometry,
-                d.category_code,
-                d.category_name_my,
-                d.category_name_en,
-                d.admin_area_name_my,
-                d.admin_area_name_en,
-                d.is_verified,
-                d.confidence_score::double precision AS confidence_score,
-                d.boundary_confidence_score::double precision AS boundary_confidence_score,
-                (
-                    (CASE WHEN lower(d.code) = ${qNorm} THEN 100 ELSE 0 END)
-                  + (CASE WHEN lower(d.display_name) = ${qNorm}
-                          OR lower(d.primary_name_my) = ${qNorm}
-                          OR lower(d.primary_name_en) = ${qNorm}
-                          OR lower(d.primary_name_und) = ${qNorm} THEN 80 ELSE 0 END)
-                  + (CASE WHEN lower(d.display_name) LIKE ${prefix}
-                          OR d.trigram_text LIKE ${prefix} THEN 40 ELSE 0 END)
-                  ${fuzzyScore}
-                  + ${nearbyScore}
-                  + (COALESCE(d.importance_score, 0) * 0.15)
-                  + (COALESCE(d.confidence_score, 0) * 0.05)
-                  + (CASE WHEN d.is_verified THEN 8 ELSE 0 END)
-                )::double precision AS score
-            FROM search.search_documents d
-            LEFT JOIN LATERAL (
-                SELECT n.name
-                FROM search.search_document_names n
-                WHERE n.search_document_id = d.id
-                  AND ${nameMatch}
-                ORDER BY
-                    CASE WHEN lower(n.normalized_name) = ${qNorm} THEN 1
-                         WHEN n.normalized_name LIKE ${prefix} THEN 2
-                         ELSE 3 END,
-                    CASE WHEN ${langPref}::text IS NOT NULL
-                              AND n.language_code = ${langPref}::text THEN 0 ELSE 1 END,
-                    n.is_primary DESC,
-                    similarity(coalesce(n.normalized_name, ''), ${qNorm}) DESC
-                LIMIT 1
-            ) mn ON true
-            WHERE d.is_public = true
-              AND d.is_active = true
-              ${typeFilter}
-              AND ${candidateMatch}
-            ORDER BY score DESC, COALESCE(d.importance_score, 0) DESC, d.display_name ASC
+                scored.entity_type,
+                scored.entity_id,
+                scored.public_id,
+                scored.display_name,
+                scored.subtitle,
+                scored.primary_name_my,
+                scored.primary_name_en,
+                scored.primary_name_und,
+                scored.matched_name,
+                scored.geometry_type,
+                scored.lng,
+                scored.lat,
+                scored.min_lng,
+                scored.min_lat,
+                scored.max_lng,
+                scored.max_lat,
+                scored.has_geometry,
+                scored.category_code,
+                scored.category_name_my,
+                scored.category_name_en,
+                scored.admin_area_name_my,
+                scored.admin_area_name_en,
+                scored.is_verified,
+                scored.confidence_score,
+                scored.boundary_confidence_score,
+                scored.address_parts,
+                scored.importance_score,
+                scored.score
+            FROM scored
+            WHERE true
+              ${keysetFilter}
+            ORDER BY
+                scored.score DESC,
+                scored.importance_score DESC,
+                COALESCE(scored.display_name, '') ASC,
+                scored.entity_type ASC,
+                scored.entity_id::bigint ASC
             LIMIT ${params.limit}
         `;
 
@@ -930,7 +1022,10 @@ export class PublicMapRepository {
         });
     }
 
-    /** Append a zero-result (or otherwise failed) search to telemetry. */
+    /**
+     * Upsert a zero-result search into telemetry. Repeated unresolved queries
+     * increment occurrence_count instead of inserting a new row each time.
+     */
     async logFailedSearch(input: FailedSearchLogInput): Promise<void> {
         const typesSql =
             input.types && input.types.length > 0
@@ -938,16 +1033,103 @@ export class PublicMapRepository {
                 : Prisma.sql`NULL::text[]`;
 
         await this.prisma.$executeRaw(Prisma.sql`
-            INSERT INTO search.failed_search_logs
-                (query, normalized_query, lang, lat, lng, types, result_count)
+            INSERT INTO search.failed_search_logs (
+                query,
+                normalized_query,
+                lang,
+                lat,
+                lng,
+                types,
+                result_count,
+                first_seen_at,
+                last_seen_at,
+                occurrence_count,
+                category,
+                transport_type,
+                transport_mode,
+                entity_types_key,
+                area_context_key,
+                dedupe_key
+            )
             VALUES (
                 ${input.q},
                 ${input.normalizedQuery},
                 ${input.lang ?? null},
-                ${input.lat ?? null},
-                ${input.lng ?? null},
+                NULL,
+                NULL,
                 ${typesSql},
-                ${input.resultCount}
+                ${input.resultCount},
+                now(),
+                now(),
+                1,
+                ${input.category},
+                ${input.transportType},
+                ${input.transportMode},
+                ${input.entityTypesKey},
+                ${input.areaContextKey},
+                ${input.dedupeKey}
+            )
+            ON CONFLICT (dedupe_key) WHERE resolved_at IS NULL
+            DO UPDATE SET
+                query = EXCLUDED.query,
+                normalized_query = EXCLUDED.normalized_query,
+                lang = EXCLUDED.lang,
+                types = EXCLUDED.types,
+                result_count = EXCLUDED.result_count,
+                category = EXCLUDED.category,
+                transport_type = EXCLUDED.transport_type,
+                transport_mode = EXCLUDED.transport_mode,
+                entity_types_key = EXCLUDED.entity_types_key,
+                area_context_key = EXCLUDED.area_context_key,
+                last_seen_at = now(),
+                occurrence_count = search.failed_search_logs.occurrence_count + 1
+        `);
+    }
+
+    /** Best-effort search request analytics insert (single row, no location). */
+    async insertSearchRequestEvent(input: SearchRequestAnalyticsInsert): Promise<void> {
+        await this.prisma.$executeRaw(Prisma.sql`
+            INSERT INTO search.search_request_events (
+                correlation_id,
+                normalized_query,
+                lang,
+                category,
+                transport_type,
+                transport_mode,
+                result_count,
+                latency_ms,
+                session_key
+            )
+            VALUES (
+                ${input.correlationId}::uuid,
+                ${input.normalizedQuery},
+                ${input.lang},
+                ${input.category},
+                ${input.transportType},
+                ${input.transportMode},
+                ${input.resultCount},
+                ${input.latencyMs},
+                ${input.sessionKey}
+            )
+        `);
+    }
+
+    /** Best-effort search result click analytics insert. */
+    async insertSearchResultClickEvent(input: SearchResultClickAnalyticsInsert): Promise<void> {
+        await this.prisma.$executeRaw(Prisma.sql`
+            INSERT INTO search.search_result_click_events (
+                search_correlation_id,
+                entity_type,
+                entity_id,
+                clicked_rank,
+                time_to_click_ms
+            )
+            VALUES (
+                ${input.searchCorrelationId}::uuid,
+                ${input.entityType},
+                ${BigInt(input.entityId)},
+                ${input.clickedRank},
+                ${input.timeToClickMs}
             )
         `);
     }
@@ -966,12 +1148,15 @@ export class PublicMapRepository {
         if (entityType === "street_group") {
             return this.getStreetGroupGeometry(entityId, simplifyToleranceDeg);
         }
-        // A parent bus_route's geometry lives in its variants' paths -> collect+cap.
-        if (entityType === "bus_route") {
+        // A parent transport route's geometry lives in its variants' paths -> collect+cap.
+        if (entityType === "bus_route" || entityType === "transport_route") {
             return this.getBusRouteGeometry(entityId, simplifyToleranceDeg);
         }
 
-        const source = GEOMETRY_SOURCES[entityType];
+        const source = GEOMETRY_SOURCES[entityType as keyof typeof GEOMETRY_SOURCES];
+        if (!source) {
+            return null;
+        }
         const isNumericId = /^\d+$/.test(entityId);
 
         let idCondition: Prisma.Sql;
@@ -1171,6 +1356,188 @@ export class PublicMapRepository {
 
         return rows[0] ?? null;
     }
+
+    /**
+     * Lightweight route preview for map overlays: one simplified path (primary/focus
+     * variant), variant summaries, and optional first/last stops only.
+     */
+    async getTransportRouteMapPreview(
+        entityType:
+            | "transport_route"
+            | "transport_route_variant"
+            | "bus_route"
+            | "bus_route_variant",
+        entityId: string,
+        simplifyToleranceDeg: number,
+    ): Promise<TransportRouteMapPreviewRow | null> {
+        const isVariantEntity =
+            entityType === "transport_route_variant" || entityType === "bus_route_variant";
+        const isNumericId = /^\d+$/.test(entityId);
+        const tolerance = simplifyToleranceDeg;
+
+        const ctxCte = isVariantEntity
+            ? Prisma.sql`
+                SELECT
+                    v.route_id,
+                    v.id AS focus_variant_id
+                FROM transport.route_variants v
+                JOIN transport.routes r ON r.id = v.route_id
+                WHERE ${
+                    isNumericId
+                        ? Prisma.sql`v.id = ${BigInt(entityId)}`
+                        : Prisma.sql`v.public_id = ${entityId}::uuid`
+                }
+                  AND v.is_active = true
+                  AND v.deleted_at IS NULL
+                  AND v.review_status IN ('reviewed', 'verified')
+                  AND r.is_active = true
+                  AND r.deleted_at IS NULL
+                  AND r.review_status IN ('reviewed', 'verified')
+                LIMIT 1
+            `
+            : Prisma.sql`
+                SELECT
+                    r.id AS route_id,
+                    NULL::bigint AS focus_variant_id
+                FROM transport.routes r
+                WHERE ${
+                    isNumericId
+                        ? Prisma.sql`r.id = ${BigInt(entityId)}`
+                        : Prisma.sql`r.public_id = ${entityId}::uuid`
+                }
+                  AND r.is_active = true
+                  AND r.deleted_at IS NULL
+                  AND r.review_status IN ('reviewed', 'verified')
+                LIMIT 1
+            `;
+
+        const rows = await this.prisma.$queryRaw<TransportRouteMapPreviewRow[]>(Prisma.sql`
+            WITH ctx AS (
+                ${ctxCte}
+            ),
+            active_variants AS (
+                SELECT
+                    v.id,
+                    v.public_id,
+                    v.variant_code,
+                    v.headsign,
+                    v.direction_name,
+                    (
+                        v.id = COALESCE(
+                            ctx.focus_variant_id,
+                            (
+                                SELECT v2.id
+                                FROM transport.route_variants v2
+                                WHERE v2.route_id = ctx.route_id
+                                  AND v2.is_active = true
+                                  AND v2.deleted_at IS NULL
+                                  AND v2.review_status IN ('reviewed', 'verified')
+                                ORDER BY v2.variant_code, v2.id
+                                LIMIT 1
+                            )
+                        )
+                    ) AS is_focus
+                FROM transport.route_variants v
+                CROSS JOIN ctx
+                WHERE v.route_id = ctx.route_id
+                  AND v.is_active = true
+                  AND v.deleted_at IS NULL
+                  AND v.review_status IN ('reviewed', 'verified')
+            ),
+            focus_variant AS (
+                SELECT *
+                FROM active_variants
+                ORDER BY is_focus DESC, variant_code, id
+                LIMIT 1
+            ),
+            focus_path AS (
+                SELECT rp.geom
+                FROM focus_variant fv
+                JOIN transport.route_paths rp
+                  ON rp.route_variant_id = fv.id
+                 AND rp.is_active = true
+                 AND rp.deleted_at IS NULL
+                 AND rp.review_status IN ('reviewed', 'verified')
+                 AND rp.geom IS NOT NULL
+                 AND NOT ST_IsEmpty(rp.geom)
+                ORDER BY CASE WHEN rp.path_kind = 'primary' THEN 0 ELSE 1 END, rp.id
+                LIMIT 1
+            ),
+            simplified AS (
+                SELECT
+                    CASE
+                        WHEN ${tolerance}::double precision > 0
+                            THEN ST_SimplifyPreserveTopology(geom, ${tolerance}::double precision)
+                        ELSE geom
+                    END AS g
+                FROM focus_path
+            ),
+            endpoint_stops AS (
+                SELECT
+                    s.public_id::text AS public_id,
+                    COALESCE(NULLIF(BTRIM(s.name_mm), ''), s.name) AS display_name,
+                    rs.stop_sequence,
+                    ST_Y(s.geom)::double precision AS lat,
+                    ST_X(s.geom)::double precision AS lng,
+                    ROW_NUMBER() OVER (ORDER BY rs.stop_sequence ASC) AS fwd_rn,
+                    ROW_NUMBER() OVER (ORDER BY rs.stop_sequence DESC) AS rev_rn
+                FROM focus_variant fv
+                JOIN transport.route_stops rs
+                  ON rs.route_variant_id = fv.id
+                JOIN transport.stops s
+                  ON s.id = rs.stop_id
+                 AND s.is_active = true
+                 AND s.deleted_at IS NULL
+                 AND s.review_status IN ('reviewed', 'verified')
+                 AND s.geom IS NOT NULL
+            )
+            SELECT
+                ST_AsGeoJSON(s.g)::json AS path_geometry,
+                ST_XMin(s.g)::double precision AS min_lng,
+                ST_YMin(s.g)::double precision AS min_lat,
+                ST_XMax(s.g)::double precision AS max_lng,
+                ST_YMax(s.g)::double precision AS max_lat,
+                COALESCE(
+                    (
+                        SELECT json_agg(
+                            json_build_object(
+                                'entityId', av.id::text,
+                                'publicId', av.public_id::text,
+                                'variantCode', av.variant_code,
+                                'headsign', av.headsign,
+                                'directionName', av.direction_name,
+                                'isPrimary', av.is_focus
+                            )
+                            ORDER BY av.variant_code, av.id
+                        )
+                        FROM active_variants av
+                    ),
+                    '[]'::json
+                ) AS variants_json,
+                COALESCE(
+                    (
+                        SELECT json_agg(
+                            json_build_object(
+                                'publicId', es.public_id,
+                                'displayName', es.display_name,
+                                'sequence', es.stop_sequence,
+                                'lat', es.lat,
+                                'lng', es.lng
+                            )
+                            ORDER BY es.stop_sequence
+                        )
+                        FROM endpoint_stops es
+                        WHERE es.fwd_rn = 1 OR es.rev_rn = 1
+                    ),
+                    '[]'::json
+                ) AS stops_json
+            FROM simplified s
+            WHERE s.g IS NOT NULL
+              AND NOT ST_IsEmpty(s.g)
+        `);
+
+        return rows[0] ?? null;
+    }
 }
 
 /** Max segments collected into one street_group highlight before capping + warning. */
@@ -1179,9 +1546,23 @@ export const STREET_GROUP_SEGMENT_CAP = 2000;
 /** Max route paths collected into one bus_route highlight before capping + warning. */
 export const BUS_ROUTE_PATH_CAP = 500;
 
+export type TransportRouteMapPreviewRow = {
+    path_geometry: { type: string; coordinates: unknown } | null;
+    min_lng: number;
+    min_lat: number;
+    max_lng: number;
+    max_lat: number;
+    variants_json: unknown;
+    stops_json: unknown;
+};
+
 export type GeometryEntityType =
     | "place"
     | "address"
+    | "transport_stop"
+    | "transport_terminal"
+    | "transport_route"
+    | "transport_route_variant"
     | "bus_stop"
     | "admin_area"
     | "street"
@@ -1236,7 +1617,7 @@ type GeometrySource = {
  * lines/polygons have no public_id, so only numeric ids resolve them.
  */
 const GEOMETRY_SOURCES: Record<
-    Exclude<GeometryEntityType, "street_group" | "bus_route">,
+    Exclude<GeometryEntityType, "street_group" | "bus_route" | "transport_route">,
     GeometrySource
 > = {
     place: {
@@ -1264,6 +1645,24 @@ const GEOMETRY_SOURCES: Record<
         publicIdColumn: "s.public_id",
         pointLike: true,
     },
+    transport_stop: {
+        from: "transport.stops s",
+        geomExpr: "s.geom",
+        activeCondition:
+            "s.is_active = true AND s.deleted_at IS NULL AND s.review_status IN ('reviewed', 'verified')",
+        idColumn: "s.id",
+        publicIdColumn: "s.public_id",
+        pointLike: true,
+    },
+    transport_terminal: {
+        from: "transport.terminals t",
+        geomExpr: "t.geom",
+        activeCondition:
+            "t.is_active = true AND t.deleted_at IS NULL AND t.review_status IN ('reviewed', 'verified')",
+        idColumn: "t.id",
+        publicIdColumn: "t.public_id",
+        pointLike: true,
+    },
     admin_area: {
         from: "core.core_admin_areas a",
         geomExpr: "a.geom",
@@ -1286,6 +1685,19 @@ const GEOMETRY_SOURCES: Record<
     // getBusRouteGeometry), not this single-row template. bus_route_variant (one
     // variant = one path) stays here.
     bus_route_variant: {
+        from: "transport.route_variants v",
+        geomExpr:
+            "(SELECT rp.geom FROM transport.route_paths rp " +
+            "WHERE rp.route_variant_id = v.id AND rp.is_active = true AND rp.deleted_at IS NULL " +
+            "AND rp.review_status IN ('reviewed', 'verified') " +
+            "ORDER BY CASE WHEN rp.path_kind = 'primary' THEN 0 ELSE 1 END, rp.id ASC LIMIT 1)",
+        activeCondition:
+            "v.is_active = true AND v.deleted_at IS NULL AND v.review_status IN ('reviewed', 'verified')",
+        idColumn: "v.id",
+        publicIdColumn: "v.public_id",
+        pointLike: false,
+    },
+    transport_route_variant: {
         from: "transport.route_variants v",
         geomExpr:
             "(SELECT rp.geom FROM transport.route_paths rp " +

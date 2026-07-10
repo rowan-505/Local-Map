@@ -7,7 +7,8 @@ import {
     applyTransportRouteReviewAction,
     getTransportRouteReviewReadiness,
 } from "./api";
-import { transportReviewStatusLabel } from "./constants";
+import { AdvancedToolSection, ReadinessUnavailableNotice } from "./TransportRouteDetailCards";
+import { logTransportReadinessFetchError } from "./transportFetchErrors";
 import { TransportReviewActionBar } from "./transportReviewUi";
 import type {
     RouteReviewReadiness,
@@ -30,7 +31,7 @@ export default function TransportRouteReviewPanel({
     onRouteUpdated,
     readiness: readinessProp,
     readinessLoading: readinessLoadingProp,
-    readinessError: readinessErrorProp,
+    readinessUnavailable: readinessUnavailableProp,
     onReadinessReload,
 }: {
     readonly route: TransportRouteDetail;
@@ -39,12 +40,12 @@ export default function TransportRouteReviewPanel({
     /** When provided, the panel reuses parent-loaded readiness instead of fetching again. */
     readonly readiness?: RouteReviewReadiness | null;
     readonly readinessLoading?: boolean;
-    readonly readinessError?: string;
+    readonly readinessUnavailable?: boolean;
     readonly onReadinessReload?: () => Promise<void>;
 }) {
     const [localReadiness, setLocalReadiness] = useState<RouteReviewReadiness | null>(null);
     const [localLoading, setLocalLoading] = useState(true);
-    const [localLoadError, setLocalLoadError] = useState("");
+    const [localUnavailable, setLocalUnavailable] = useState(false);
 
     const usesExternalReadiness = readinessProp !== undefined;
 
@@ -53,13 +54,15 @@ export default function TransportRouteReviewPanel({
             return;
         }
         setLocalLoading(true);
-        setLocalLoadError("");
+        setLocalUnavailable(false);
         try {
             const result = await getTransportRouteReviewReadiness(route.public_id, { signal });
             setLocalReadiness(result);
         } catch (err) {
             if (isAbortError(err)) return;
-            setLocalLoadError(err instanceof Error ? err.message : "Failed to load review readiness.");
+            logTransportReadinessFetchError(err, "Failed to load review readiness.");
+            setLocalReadiness(null);
+            setLocalUnavailable(true);
         } finally {
             setLocalLoading(false);
         }
@@ -76,7 +79,9 @@ export default function TransportRouteReviewPanel({
 
     const readiness = usesExternalReadiness ? readinessProp : localReadiness;
     const loading = usesExternalReadiness ? (readinessLoadingProp ?? false) : localLoading;
-    const loadError = usesExternalReadiness ? (readinessErrorProp ?? "") : localLoadError;
+    const unavailable = usesExternalReadiness
+        ? (readinessUnavailableProp ?? false)
+        : localUnavailable;
 
     const reloadReadiness = useCallback(async () => {
         if (onReadinessReload) {
@@ -114,65 +119,69 @@ export default function TransportRouteReviewPanel({
                 throw err;
             }
         },
-        [route, onRouteUpdated, reloadReadiness]
+        [route, onRouteUpdated, reloadReadiness, usesExternalReadiness, onReadinessReload]
     );
 
     const geomSource = pathGeomSource(path);
 
     return (
-        <section className="mt-4 border-t border-gray-100 pt-4">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Review workflow
-            </h3>
-
-            <div className="mb-3 space-y-1 text-sm">
-                <div className="flex justify-between gap-3">
-                    <span className="text-gray-500">Review status</span>
-                    <span className="font-medium text-gray-900">
-                        {transportReviewStatusLabel(route.review_status)}
-                    </span>
-                </div>
+        <AdvancedToolSection
+            accent="slate"
+            title="Review workflow"
+            description="Change review status when the route and selected variant are ready."
+        >
+            <dl className="mb-3 space-y-2 text-sm">
                 {path ? (
                     <>
-                        <div className="flex justify-between gap-3">
-                            <span className="text-gray-500">Path kind</span>
-                            <span className="font-medium text-gray-900">{path.path_kind}</span>
+                        <div className="flex justify-between gap-3 rounded-lg bg-slate-50/80 px-2.5 py-1.5">
+                            <dt className="text-slate-500">Path kind</dt>
+                            <dd className="font-medium text-slate-900">{path.path_kind}</dd>
                         </div>
                         {geomSource ? (
-                            <div className="flex justify-between gap-3">
-                                <span className="text-gray-500">Geom source</span>
-                                <span className="font-medium text-gray-900">{geomSource}</span>
+                            <div className="flex justify-between gap-3 rounded-lg bg-slate-50/80 px-2.5 py-1.5">
+                                <dt className="text-slate-500">Geom source</dt>
+                                <dd className="font-medium text-slate-900">{geomSource}</dd>
                             </div>
                         ) : null}
                     </>
                 ) : (
-                    <p className="text-xs text-gray-500">No active route path for the selected variant.</p>
+                    <p className="text-xs text-slate-500">
+                        No active route path for the selected variant.
+                    </p>
                 )}
-            </div>
+            </dl>
 
-            {loading ? (
-                <p className="text-xs text-gray-500">Loading readiness…</p>
-            ) : loadError ? (
-                <p className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
-                    {loadError}
-                </p>
-            ) : (
-                <>
-                    {readiness && readiness.warnings.length > 0 ? (
-                        <ul className="mb-2 list-inside list-disc text-xs text-gray-600">
-                            {readiness.warnings.map((w) => (
-                                <li key={w}>{w}</li>
-                            ))}
-                        </ul>
-                    ) : null}
-                    <TransportReviewActionBar
-                        currentStatus={route.review_status}
-                        blockers={readiness?.blockers ?? []}
-                        markReviewedBlockers={readiness?.mark_reviewed_blockers ?? []}
-                        onAction={handleAction}
+            {loading && !unavailable ? (
+                <div className="mb-3 h-8 animate-pulse rounded-lg bg-slate-100" />
+            ) : null}
+
+            {unavailable ? (
+                <div className="mb-3">
+                    <ReadinessUnavailableNotice
+                        onRetry={() => void reloadReadiness()}
+                        retrying={loading}
                     />
-                </>
-            )}
-        </section>
+                </div>
+            ) : null}
+
+            {!unavailable && readiness && readiness.warnings.length > 0 ? (
+                <ul className="mb-3 space-y-1">
+                    {readiness.warnings.map((w) => (
+                        <li
+                            key={w}
+                            className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600"
+                        >
+                            {w}
+                        </li>
+                    ))}
+                </ul>
+            ) : null}
+            <TransportReviewActionBar
+                currentStatus={route.review_status}
+                blockers={readiness?.blockers ?? []}
+                markReviewedBlockers={readiness?.mark_reviewed_blockers ?? []}
+                onAction={handleAction}
+            />
+        </AdvancedToolSection>
     );
 }

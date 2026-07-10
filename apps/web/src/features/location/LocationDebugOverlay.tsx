@@ -3,8 +3,8 @@
  *
  * Renders a tiny, fixed panel with permission/environment diagnostics so a tester
  * on a real phone (where the DevTools console is invisible) can see why location
- * was denied. It is shown ONLY when `isLocationDebugEnabled()` is true (local dev or
- * `?debugLocation=1` on the deployed URL); otherwise it renders nothing.
+ * was denied. It is shown ONLY when `isLocationDebugOverlayEnabled()` is true
+ * (`?debugLocation=1` or `enableLocationDebug()`); otherwise it renders nothing.
  *
  * Privacy: never shows exact coordinates — only permission state, secure-context,
  * browser category, in-app-browser flag, accuracy, and a reset hint.
@@ -17,7 +17,7 @@ import {
 } from './locationBrowserEnvironment';
 import { detectPermissionsPolicyAllowsGeolocation, getLocationAuditOrigin } from './locationPermissionAudit';
 import { getPermissionDeniedDebugHints } from './locationPermissionHints';
-import { isLocationDebugEnabled } from './locationDebug';
+import { isLocationDebugOverlayEnabled } from './locationDebug';
 import type { UserLocationStatus } from './userLocationTypes';
 
 type PermissionStateLike = 'granted' | 'denied' | 'prompt' | 'unsupported' | 'unknown';
@@ -38,11 +38,11 @@ export function LocationDebugOverlay({
 
   // Compute UA-derived env on mount (client only; stable for the session).
   useEffect(() => {
-    if (!isLocationDebugEnabled()) return;
+    if (!isLocationDebugOverlayEnabled()) return;
     setEnv(detectLocationBrowserEnvironment());
   }, []);
 
-  if (!isLocationDebugEnabled() || !env) return null;
+  if (!isLocationDebugOverlayEnabled() || !env) return null;
 
   const rows: Array<[string, string]> = [
     ['status', status],
@@ -92,7 +92,7 @@ function useGeolocationPermission(): PermissionStateLike {
   const [state, setState] = useState<PermissionStateLike>('unknown');
 
   useEffect(() => {
-    if (!isLocationDebugEnabled()) return;
+    if (!isLocationDebugOverlayEnabled()) return;
     if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
       setState('unsupported');
       return;

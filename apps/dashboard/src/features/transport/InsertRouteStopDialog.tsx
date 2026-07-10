@@ -54,9 +54,6 @@ export type InsertStopContext = {
 const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_LIMIT = 25;
 const NEARBY_RADIUS_M = 2000;
-/** Radius used to warn about likely-duplicate stops near a new stop's location. */
-const DUP_RADIUS_M = 200;
-const DUP_LIMIT = 5;
 
 type Tab = "existing" | "create";
 
@@ -83,25 +80,15 @@ function formatDistance(meters: number | null): string | null {
     return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
 }
 
-function isValidLng(value: number): boolean {
-    return Number.isFinite(value) && value >= -180 && value <= 180;
-}
-
-function isValidLat(value: number): boolean {
-    return Number.isFinite(value) && value >= -90 && value <= 90;
-}
-
 /**
  * Insert Stop modal for the Route Detail page.
  *
  * Two ways to add a stop:
  *   1. "Choose existing stop" (default, primary): search existing stops by
  *      name/code or nearby, confirm, then call insert-existing.
- *   2. "Create new stop" (secondary): only when no correct existing stop exists.
- *      Minimal fields (localized names, mode, stop_type, location). Location is
- *      set by clicking the route map (handled by the parent via onStartPick) or
- *      by typing lon/lat. A nearby-duplicate warning nudges reuse. On confirm it
- *      creates the stop + inserts it in one backend transaction.
+ *   2. "Create new stop" (secondary): minimal fields only (localized names, mode,
+ *      stop_type). Placeholder geometry is derived server-side from the variant
+ *      sequence when the stop is created and inserted.
  *
  * The backend owns stop_sequence in both flows. On success the parent refreshes
  * the ordered stops + map overlay + counts. Closing is non-destructive.
@@ -111,31 +98,23 @@ export default function InsertRouteStopDialog({
     context,
     variantPublicId,
     routeMode,
-    draftPoint,
-    onDraftPointChange,
-    picking,
-    onStartPick,
     onCancel,
     onInserted,
+    getFallbackPlaceholderPoint,
 }: {
     readonly open: boolean;
     readonly context: InsertStopContext | null;
     readonly variantPublicId: string | null;
     /** Default mode for a newly created stop (the route's mode). */
     readonly routeMode: string | null;
-    /** Lifted new-stop location, shared between map picking and manual entry. */
-    readonly draftPoint: InsertStopLngLat | null;
-    readonly onDraftPointChange: (point: InsertStopLngLat | null) => void;
-    /** True while the parent map is in click-to-place mode (modal hidden). */
-    readonly picking: boolean;
-    /** Ask the parent to enter map click-to-place mode. */
-    readonly onStartPick: () => void;
     readonly onCancel: () => void;
     /**
      * Called after a successful insert with the mutation response, so the host can
      * update ordered stops / map overlay / counts locally without a refetch.
      */
     readonly onInserted: (result: TransportRouteStopMutationResult) => void | Promise<void>;
+    /** Review map center when the variant has no neighbour geometry. */
+    readonly getFallbackPlaceholderPoint?: () => InsertStopLngLat | null;
 }) {
     const titleId = useId();
     const searchInputRef = useRef<HTMLInputElement>(null);
@@ -149,15 +128,11 @@ export default function InsertRouteStopDialog({
     const [searchError, setSearchError] = useState("");
     const [selected, setSelected] = useState<TransportStopSearchItem | null>(null);
 
-    // --- Create-stop form state (location lives in draftPoint, lifted up). ----
+    // --- Create-stop form state. ----------------------------------------------
     const [nameMm, setNameMm] = useState("");
     const [nameEn, setNameEn] = useState("");
     const [mode, setMode] = useState("bus");
     const [stopType, setStopType] = useState("stop");
-    const [lngText, setLngText] = useState("");
-    const [latText, setLatText] = useState("");
-    const [nearbyDup, setNearbyDup] = useState<readonly TransportStopSearchItem[]>([]);
-    const [dupLoading, setDupLoading] = useState(false);
 
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState("");
@@ -176,41 +151,27 @@ export default function InsertRouteStopDialog({
         setNameEn("");
         setMode(routeMode ?? "bus");
         setStopType("stop");
-        setLngText("");
-        setLatText("");
-        setNearbyDup([]);
-        setDupLoading(false);
         setSubmitting(false);
         setSubmitError("");
-        onDraftPointChange(null);
         const t = window.setTimeout(() => searchInputRef.current?.focus(), 0);
         return () => window.clearTimeout(t);
-        // onDraftPointChange is stable; routeMode change shouldn't reset an open form.
+        // routeMode change shouldn't reset an open form.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, context]);
 
-    // Keep the lon/lat text inputs in sync when the location is set elsewhere
-    // (e.g. picked on the map). Manual typing updates draftPoint directly below.
-    useEffect(() => {
-        if (draftPoint) {
-            setLngText(draftPoint.lng.toFixed(6));
-            setLatText(draftPoint.lat.toFixed(6));
-        }
-    }, [draftPoint]);
-
-    // Escape closes the modal (unless an insert is in flight or we're picking).
+    // Escape closes the modal (unless an insert is in flight).
     useEffect(() => {
         if (!open) {
             return;
         }
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape" && !submitting && !picking) {
+            if (e.key === "Escape" && !submitting) {
                 onCancel();
             }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [open, submitting, picking, onCancel]);
+    }, [open, submitting, onCancel]);
 
     const near = context?.near ?? null;
     const trimmedSearch = search.trim();
@@ -268,45 +229,6 @@ export default function InsertRouteStopDialog({
         };
     }, [open, context, tab, canSearch, hasQuery, trimmedSearch, near, variantPublicId]);
 
-    // Debounced nearby-duplicate check for the new-stop location (create tab).
-    useEffect(() => {
-        if (!open || tab !== "create" || !draftPoint) {
-            setNearbyDup([]);
-            setDupLoading(false);
-            return;
-        }
-        const controller = new AbortController();
-        setDupLoading(true);
-        const handle = window.setTimeout(() => {
-            void (async () => {
-                try {
-                    const res = await searchTransportStops(
-                        {
-                            nearLng: draftPoint.lng,
-                            nearLat: draftPoint.lat,
-                            radiusMeters: DUP_RADIUS_M,
-                            limit: DUP_LIMIT,
-                            ...(variantPublicId
-                                ? { excludeRouteVariantPublicId: variantPublicId }
-                                : {}),
-                        },
-                        { signal: controller.signal }
-                    );
-                    setNearbyDup(res.items);
-                } catch (err) {
-                    if (isAbortError(err)) return;
-                    setNearbyDup([]);
-                } finally {
-                    setDupLoading(false);
-                }
-            })();
-        }, SEARCH_DEBOUNCE_MS);
-        return () => {
-            controller.abort();
-            window.clearTimeout(handle);
-        };
-    }, [open, tab, draftPoint, variantPublicId]);
-
     const confirmInsertExisting = useCallback(async () => {
         if (!context || !variantPublicId || !selected) {
             return;
@@ -334,27 +256,31 @@ export default function InsertRouteStopDialog({
     const trimmedMm = nameMm.trim();
     const trimmedEn = nameEn.trim();
     const hasName = trimmedMm.length > 0 || trimmedEn.length > 0;
-    const hasValidPoint =
-        draftPoint !== null && isValidLng(draftPoint.lng) && isValidLat(draftPoint.lat);
-    const canCreate = hasName && hasValidPoint && mode.length > 0 && stopType.length > 0;
+    const canCreate = hasName && mode.length > 0 && stopType.length > 0;
 
     const confirmCreate = useCallback(async () => {
-        if (!context || !variantPublicId || !draftPoint || !canCreate) {
+        if (!context || !variantPublicId || !canCreate) {
             return;
         }
         setSubmitting(true);
         setSubmitError("");
         try {
+            const placeholderPoint =
+                context.near ?? getFallbackPlaceholderPoint?.() ?? null;
             const body: CreateAndInsertRouteStopBody = {
                 ...(trimmedMm ? { name_mm: trimmedMm } : {}),
                 ...(trimmedEn ? { name_en: trimmedEn } : {}),
                 mode,
                 stop_type: stopType,
-                longitude: draftPoint.lng,
-                latitude: draftPoint.lat,
                 position: context.apiPosition,
                 ...(context.anchorRouteStopId
                     ? { anchorRouteStopId: context.anchorRouteStopId }
+                    : {}),
+                ...(placeholderPoint
+                    ? {
+                          longitude: placeholderPoint.lng,
+                          latitude: placeholderPoint.lat,
+                      }
                     : {}),
             };
             const result = await createAndInsertRouteStop(variantPublicId, body);
@@ -368,29 +294,17 @@ export default function InsertRouteStopDialog({
     }, [
         context,
         variantPublicId,
-        draftPoint,
         canCreate,
         trimmedMm,
         trimmedEn,
         mode,
         stopType,
+        getFallbackPlaceholderPoint,
         onInserted,
         onCancel,
     ]);
 
-    const applyLngLatText = useCallback(
-        (nextLng: string, nextLat: string) => {
-            const lng = Number(nextLng);
-            const lat = Number(nextLat);
-            if (nextLng.trim() !== "" && nextLat.trim() !== "" && isValidLng(lng) && isValidLat(lat)) {
-                onDraftPointChange({ lng, lat });
-            }
-        },
-        [onDraftPointChange]
-    );
-
-    // Hidden (but mounted) while picking on the map so form state is preserved.
-    if (!open || !context || picking) {
+    if (!open || !context) {
         return null;
     }
 
@@ -450,8 +364,8 @@ export default function InsertRouteStopDialog({
                     </div>
                     {tab === "create" ? (
                         <p className="mt-2 text-xs text-slate-500">
-                            Use an existing stop when one exists. Only create a new stop if none
-                            is correct.
+                            Use an existing stop when one exists. New stops get a temporary
+                            placeholder location from this route sequence until reviewed.
                         </p>
                     ) : null}
                 </div>
@@ -646,97 +560,6 @@ export default function InsertRouteStopDialog({
                                 </select>
                             </label>
                         </div>
-
-                        <div className="mt-4">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-medium text-slate-600">Location</span>
-                                <button
-                                    type="button"
-                                    onClick={onStartPick}
-                                    className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                                >
-                                    Pick on map
-                                </button>
-                            </div>
-                            <div className="mt-2 grid grid-cols-2 gap-3">
-                                <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
-                                    Longitude
-                                    <input
-                                        type="number"
-                                        inputMode="decimal"
-                                        step="any"
-                                        value={lngText}
-                                        onChange={(e) => {
-                                            setLngText(e.target.value);
-                                            applyLngLatText(e.target.value, latText);
-                                        }}
-                                        placeholder="96.123456"
-                                        className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-                                    />
-                                </label>
-                                <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
-                                    Latitude
-                                    <input
-                                        type="number"
-                                        inputMode="decimal"
-                                        step="any"
-                                        value={latText}
-                                        onChange={(e) => {
-                                            setLatText(e.target.value);
-                                            applyLngLatText(lngText, e.target.value);
-                                        }}
-                                        placeholder="16.123456"
-                                        className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-                                    />
-                                </label>
-                            </div>
-                            <p className="mt-1.5 text-xs text-slate-400">
-                                Click “Pick on map” then click the route map, or type coordinates.
-                            </p>
-                        </div>
-
-                        {/* Nearby-duplicate warning. */}
-                        {hasValidPoint && (dupLoading || nearbyDup.length > 0) ? (
-                            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                                {dupLoading ? (
-                                    "Checking for nearby existing stops…"
-                                ) : (
-                                    <>
-                                        <p className="font-medium">
-                                            Nearby existing stops found. Use an existing stop if
-                                            possible to avoid duplicates.
-                                        </p>
-                                        <ul className="mt-2 space-y-1">
-                                            {nearbyDup.map((r) => {
-                                                const distance = formatDistance(r.distance_m);
-                                                return (
-                                                    <li key={r.public_id}>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setSubmitError("");
-                                                                setSelected(r);
-                                                                setTab("existing");
-                                                            }}
-                                                            className="flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-amber-100"
-                                                        >
-                                                            <span className="min-w-0 flex-1 truncate">
-                                                                {r.display_name}
-                                                            </span>
-                                                            {distance ? (
-                                                                <span className="flex-none text-amber-700">
-                                                                    {distance}
-                                                                </span>
-                                                            ) : null}
-                                                        </button>
-                                                    </li>
-                                                );
-                                            })}
-                                        </ul>
-                                    </>
-                                )}
-                            </div>
-                        ) : null}
 
                         {submitError ? (
                             <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">

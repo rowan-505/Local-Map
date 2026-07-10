@@ -1,5 +1,6 @@
 import type { LayerSpecification } from 'maplibre-gl';
 import type { MapEngine } from '../mapEngineTypes';
+import { TRANSPORT_STOPS_LAYER_ID } from './publicMapMarkerLayerIds';
 
 /** Route + legacy overlay layer ids — never used as insertion anchors. */
 const ROUTE_OVERLAY_LAYER_IDS = new Set([
@@ -61,6 +62,10 @@ export function findLastRoadLineLayerIndex(map: MapEngine): number {
  * above road line geometry — keeps roads under the route and labels over the route.
  */
 export function findRouteOverlayInsertBeforeLayerId(map: MapEngine): string | undefined {
+  if (typeof map.getLayer === 'function' && map.getLayer(TRANSPORT_STOPS_LAYER_ID)) {
+    return TRANSPORT_STOPS_LAYER_ID;
+  }
+
   const layers = map.getStyle()?.layers;
   if (!layers?.length) return undefined;
 

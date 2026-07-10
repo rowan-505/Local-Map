@@ -16,7 +16,8 @@ export const REPORT_TYPE_OPTIONS = [
 
 export type ReportTypeCode = (typeof REPORT_TYPE_OPTIONS)[number]['code'];
 
-export type ReportTargetEntityType = 'place' | 'map_point';
+/** Entity kinds accepted by POST /reports — subset mirrored from API REPORT_TARGET_ENTITY_TYPES. */
+export type ReportTargetEntityType = 'place' | 'map_point' | 'bus_stop';
 
 /** What is being reported — supplied by the surface that opens the modal. */
 export type ReportTarget = {

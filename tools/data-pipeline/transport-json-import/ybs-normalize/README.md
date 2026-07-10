@@ -1,5 +1,7 @@
 # YBS Phase 5 Normalization
 
+**Full pipeline guide:** [`../README.md`](../README.md)
+
 Normalize merged Phase 4 YBS route JSON into Phase 6-ready files.
 
 This tool does **not** touch Supabase or the CoreMap database. It only reads

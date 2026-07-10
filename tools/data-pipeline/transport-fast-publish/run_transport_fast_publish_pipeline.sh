@@ -25,6 +25,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 LOCAL_SQL_DIR="${SCRIPT_DIR}/sql/local"
 SUPABASE_SQL_DIR="${SCRIPT_DIR}/sql/supabase"
@@ -605,6 +606,18 @@ if [[ "${PUBLISH_TO_SUPABASE}" == "true" ]]; then
   else
     log "route stop publish skipped (IMPORT_ROUTE_STOPS != true)"
   fi
+
+  run_stage "supabase — rebuild unified search transport families"
+  SEARCH_REBUILD_VIEWS=("bus_stops")
+  if [[ "$(to_bool "${IMPORT_ROUTE_METADATA:-}")" == "true" ]]; then
+    SEARCH_REBUILD_VIEWS+=("bus_routes")
+  fi
+  SEARCH_REBUILD_VIEWS_CSV="$(IFS=,; echo "${SEARCH_REBUILD_VIEWS[*]}")"
+  log "rebuilding search families: ${SEARCH_REBUILD_VIEWS_CSV}"
+  (
+    cd "${REPO_ROOT}/apps/api"
+    DATABASE_URL="${SUPABASE_DIRECT_DATABASE_URL}" npx tsx src/scripts/rebuild-search-index.ts --views "${SEARCH_REBUILD_VIEWS_CSV}"
+  ) 2>&1 | tee -a "${LOG_FILE}"
 else
   run_stage "supabase — publish skipped"
   log "PUBLISH_TO_SUPABASE=false: local-only run; Supabase untouched."

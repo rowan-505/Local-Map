@@ -65,7 +65,7 @@ export function MapLeftRail({ activeMode, onModeChange, accountSlot }: MapLeftRa
 
 function isRailItemActive(activeMode: SidebarMode, itemMode: RailMode): boolean {
   if (itemMode === 'search') {
-    return activeMode === 'search' || activeMode === 'placeDetail' || activeMode === 'address';
+    return activeMode === 'search' || activeMode === 'placeDetail' || activeMode === 'transportStopDetail' || activeMode === 'address';
   }
 
   return activeMode === itemMode;

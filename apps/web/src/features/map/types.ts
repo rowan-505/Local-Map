@@ -2,10 +2,11 @@
  * Public props for the map UI — stable surface if the underlying map SDK changes.
  */
 import type { Poi } from '@/types';
-import type { PublicSearchResult, SearchCameraTarget } from '@/features/poi/api/publicMapApi';
+import type { PublicSearchResult, SearchCameraTarget, SearchResultGeometry } from '@/features/poi/api/publicMapApi';
 import type { UserLocationFix } from '@/features/location/userLocationTypes';
 import type { DirectionsMapOverlay } from './lib/maplibre/directionsRouteGeoJson';
 import type { MapCameraLayout } from './lib/mapCameraPadding';
+import type { TransportMapSelection } from '@/features/transport/transportMapSelection';
 
 export type MapClickedLocation = {
   readonly label: string;
@@ -37,8 +38,8 @@ export type MapViewProps = {
   readonly cameraTarget?: SearchCameraTarget;
   /** Selected search result to highlight + frame on the map (null clears it). */
   readonly searchHighlight?: PublicSearchResult | null;
-  /** Loading state for the geometry overlay fetch only (line/polygon results). */
-  readonly onSearchHighlightLoadingChange?: (loading: boolean) => void;
+  /** Cached overlay geometry for the selected search result (line/polygon shapes). */
+  readonly searchHighlightGeometry?: SearchResultGeometry | null;
   readonly cameraLayout: MapCameraLayout;
   readonly clickedLocation?: MapClickedLocation | null;
   readonly directionsOverlay?: DirectionsMapOverlay | null;
@@ -56,6 +57,9 @@ export type MapViewProps = {
   readonly onUserLocationFollowDisengage?: () => void;
   /** Called when a POI marker is clicked, or when the map is clicked away from markers. */
   readonly onSelectPoiId: (id: string | null) => void;
+  /** Selected transport stop/station from the Martin overlay (drives highlight + detail panel). */
+  readonly selectedTransportSelection?: TransportMapSelection | null;
+  readonly onSelectTransportStop?: (selection: TransportMapSelection) => void;
   readonly onEmptyMapClick?: (location: MapClickedLocation) => void;
   readonly onViewportChange?: (viewport: MapViewportState) => void;
   readonly className?: string;

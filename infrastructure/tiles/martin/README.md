@@ -28,11 +28,61 @@ Historical notes: [`martin_config.yaml`](./martin_config.yaml) (documentation on
 
 ## Local run (Docker)
 
+### Public web dev (`VITE_MARTIN_TILE_URL=http://localhost:3002`)
+
+Transport-only config with small pool (`config.local.yaml`):
+
+```bash
+cd infrastructure/tiles/martin
+export DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require'
+
+# First start
+docker run -d --rm --name coremap-martin-local \
+  -p 3002:3000 \
+  -e DATABASE_URL \
+  -v "$(pwd)/config.local.yaml:/config.yaml:ro" \
+  ghcr.io/maplibre/martin:1.7.0 \
+  --config /config.yaml --webui enable-for-all
+
+# After editing config.local.yaml or config.yaml — restart required
+./scripts/restart-local.sh
+```
+
+Or: `docker restart coremap-martin-local`
+
+### Fly-style image (port 3000, full `config.yaml`)
+
 ```bash
 export DATABASE_URL='postgresql://USER:PASSWORD@localhost:5432/postgres'
 docker build -t local-martin infrastructure/tiles/martin
 docker run --rm -p 3000:3000 -e DATABASE_URL "$DATABASE_URL" local-martin
 ```
+
+## Validate transport config
+
+Static YAML (maxzoom 22 + required MVT properties):
+
+```bash
+cd infrastructure/tiles/martin
+./scripts/validate-transport-config.sh
+```
+
+Running instance (TileJSON fields + Yangon zoom probes):
+
+```bash
+MARTIN_URL=http://localhost:3002 ./scripts/validate-transport-runtime.sh
+```
+
+From repo root: `npm run tiles:martin:validate-config` and `npm run tiles:martin:validate-runtime`.
+
+> **Transport stops vanish when zooming in:** MapLibre requests native tiles up to source
+> `maxzoom` (web uses 22). Martin transport views must declare `maxzoom: 22` in
+> [`config.yaml`](./config.yaml) / [`config.local.yaml`](./config.local.yaml). If Martin still
+> serves the old default ~z14 pyramid, restart/redeploy Martin after config changes. A stale
+> container started before `maxzoom: 22` was added will keep the old tile pyramid until restarted.
+
+> **PostGIS &lt; 3.5:** Martin logs a warning when Supabase PostGIS is below 3.5. Some geometries
+> can be missing at certain zooms. Upgrade PostGIS when possible.
 
 > **If popups show `properties: {}`, check that selected columns are included in Martin config.**
 > Explicit table sources (e.g. [`config.local.yaml`](./config.local.yaml)) only emit geometry + `id_column`

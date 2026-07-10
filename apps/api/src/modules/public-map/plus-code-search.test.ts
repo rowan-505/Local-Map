@@ -37,13 +37,13 @@ describe("plusCodeReferenceRequiredResult", () => {
     it("builds a reference-required pin with no center", () => {
         const result = plusCodeReferenceRequiredResult("VMP3+RX");
         assert.equal(result.type, "plus_code");
-        assert.equal(result.referenceRequired, true);
-        assert.equal(result.reason, "REFERENCE_REQUIRED");
+        assert.equal(result.plusCode.referenceRequired, true);
+        assert.equal(result.plusCode.reason, "REFERENCE_REQUIRED");
         assert.equal(result.center, null);
         assert.equal(result.lat, null);
         assert.equal(result.lng, null);
         assert.equal(result.hasGeometry, false);
-        assert.equal(result.plus_code, "VMP3+RX");
+        assert.equal(result.plusCode.code, "VMP3+RX");
         assert.equal(result.cameraTarget, undefined);
     });
 });
@@ -64,8 +64,8 @@ describe("plusCodePinResult", () => {
         assert.equal(result.type, "plus_code");
         assert.equal(result.geometryType, "Point");
         assert.equal(result.hasGeometry, true);
-        assert.equal(result.outsideServiceArea, false);
-        assert.equal(result.referenceRequired, false);
+        assert.equal(result.plusCode.outsideServiceArea, false);
+        assert.equal(result.plusCode.referenceRequired, false);
         assert.deepEqual(result.center, [96.3168, 16.659]);
         assert.deepEqual(result.cameraTarget, {
             type: "point",
@@ -78,7 +78,7 @@ describe("plusCodePinResult", () => {
 
     it("builds an outside-service-area pin without forcing a nearest place", () => {
         const result = plusCodePinResult("9C3XGV00+00", 51.5074, -0.1278, null, true);
-        assert.equal(result.outsideServiceArea, true);
+        assert.equal(result.plusCode.outsideServiceArea, true);
         assert.equal(result.reverse, null);
         assert.equal(result.hasGeometry, true);
         assert.deepEqual(result.center, [-0.1278, 51.5074]);

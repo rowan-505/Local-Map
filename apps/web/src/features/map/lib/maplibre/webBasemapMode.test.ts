@@ -7,6 +7,7 @@ import {
   WEB_HYBRID_ON_LAYERS,
   WEB_IMAGERY_OFF_FILL_LAYERS,
   WEB_TOGGLE_VECTOR_LAYERS,
+  resolveBasemapToggleKey,
 } from './webBasemapMode.js';
 import {
   normalizeMapMode,
@@ -81,5 +82,18 @@ describe('webBasemapMode layer lists', () => {
   it('turns off solid fills when imagery is shown', () => {
     assert.ok(WEB_IMAGERY_OFF_FILL_LAYERS.includes('background'));
     assert.ok(WEB_IMAGERY_OFF_FILL_LAYERS.includes('overview-ocean'));
+  });
+
+  it('resolves regional suffixed layer ids to base toggle keys', () => {
+    assert.equal(resolveBasemapToggleKey('road-major-fill-yangon'), 'road-major-fill');
+    assert.equal(resolveBasemapToggleKey('landuse-mandalay'), 'landuse');
+    assert.equal(resolveBasemapToggleKey('yangon-road-labels-major-yangon'), 'yangon-road-labels-major');
+    assert.equal(resolveBasemapToggleKey('overview-country-labels'), 'overview-country-labels');
+  });
+
+  it('keeps satellite and hybrid distinct via hybrid allowlist', () => {
+    assert.equal(WEB_HYBRID_ON_LAYERS.has('road-major-fill'), true);
+    assert.equal(WEB_HYBRID_ON_LAYERS.has('road-medium-fill'), false);
+    assert.equal(WEB_HYBRID_ON_LAYERS.has('landuse'), false);
   });
 });

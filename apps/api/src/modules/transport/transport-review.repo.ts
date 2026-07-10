@@ -42,11 +42,18 @@ export class TransportReviewOperations {
 
     async getRouteReviewReadiness(routePublicId: string): Promise<RouteReviewReadiness> {
         const routeRows = await this.prisma.$queryRaw<
-            { id: bigint; route_code: string; name_mm: string | null; name_en: string | null }[]
+            {
+                id: bigint;
+                route_code: string;
+                mode: string;
+                name_mm: string | null;
+                name_en: string | null;
+            }[]
         >`
             SELECT
                 r.id,
                 r.route_code,
+                r.mode,
                 rn_mm.name AS name_mm,
                 rn_en.name AS name_en
             FROM transport.routes r
@@ -193,10 +200,25 @@ export class TransportReviewOperations {
                         FROM transport.route_variants v
                         LEFT JOIN transport.route_stops rs ON rs.route_variant_id = v.id
                         WHERE v.route_id = ${route.id} AND v.deleted_at IS NULL
-                        GROUP BY v.id
+                        GROUP BY v.id, v.normalized_data
                         HAVING count(rs.id) < 2
                             OR min(rs.stop_sequence) IS DISTINCT FROM 1
-                            OR max(rs.stop_sequence) IS DISTINCT FROM count(rs.id)
+                            OR (
+                                max(rs.stop_sequence) IS DISTINCT FROM count(rs.id)
+                                AND NOT (
+                                    (
+                                        coalesce(
+                                            (v.normalized_data->>'closing_duplicate_stop_skipped')::boolean,
+                                            false
+                                        )
+                                        OR coalesce(
+                                            (v.normalized_data->>'is_circular_route')::boolean,
+                                            false
+                                        )
+                                    )
+                                    AND max(rs.stop_sequence) = count(rs.id) + 1
+                                )
+                            )
                     ) AS sequence_incomplete
             `,
         ]);
@@ -226,6 +248,7 @@ export class TransportReviewOperations {
                 all_stops_have_geom: !Boolean(markReviewed[0]?.stops_missing_geom),
                 all_variants_have_path: !Boolean(markReviewed[0]?.variant_missing_path),
                 all_paths_reviewed: !Boolean(markReviewed[0]?.path_unreviewed),
+                path_required: route.mode !== "train",
             }),
         };
     }
@@ -433,19 +456,6 @@ export class TransportReviewOperations {
             const newStopId = targetStop[0]?.id;
             if (!newStopId) {
                 throw new TransportNotFoundError("stop", stopPublicId);
-            }
-
-            const duplicate = await tx.$queryRaw<{ count: bigint }[]>`
-                SELECT count(*)::bigint AS count FROM transport.route_stops
-                WHERE route_variant_id = ${row.route_variant_id}
-                  AND stop_id = ${newStopId}
-                  AND id <> ${row.id}
-            `;
-            if (Number(duplicate[0]?.count ?? 0) > 0) {
-                throw new TransportReviewGuardError(
-                    "ROUTE_STOP_DUPLICATE",
-                    "Target stop is already in this variant.",
-                );
             }
 
             await tx.$queryRaw`

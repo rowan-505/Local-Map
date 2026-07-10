@@ -36,6 +36,12 @@ import {
     assertRoadTownshipAdminArea,
     StreetAdminAreaValidationError,
 } from "./street-admin-area.js";
+import { refreshStreetGroupSearchForStreet } from "../search/unified-search-sync.js";
+import { UnifiedSearchSyncRepository } from "../search/unified-search-sync.repo.js";
+
+type StreetsServiceOptions = {
+    prisma?: import("@prisma/client").PrismaClient;
+};
 
 export type NearestStreetPointResponse = {
     /** Public UUID identifying the snapped street (`core.core_streets.public_id`). */
@@ -207,7 +213,22 @@ export class StreetsService {
         private readonly streetsRepo: StreetsRepository,
         private readonly entityAdminArea: EntityAdminAreaService,
         private readonly entityAdminAreaRepo: EntityAdminAreaRepository,
+        private readonly options: StreetsServiceOptions = {},
     ) {}
+
+    private scheduleStreetGroupSearchSync(streetPublicId: string): void {
+        const prisma = this.options.prisma;
+        if (!prisma) {
+            return;
+        }
+        void (async () => {
+            const repo = new UnifiedSearchSyncRepository(prisma);
+            const streetId = await repo.lookupStreetId(streetPublicId);
+            if (streetId) {
+                await refreshStreetGroupSearchForStreet(prisma, streetId);
+            }
+        })();
+    }
 
     private serializeStreet(street: Awaited<ReturnType<StreetsRepository["getStreetByPublicId"]>>) {
         if (!street) {
@@ -754,6 +775,8 @@ export class StreetsService {
                 throw new StreetValidationError("Street could not be created");
             }
 
+            this.scheduleStreetGroupSearchSync(street.public_id);
+
             return this.serializeStreet(street);
         } catch (error) {
             if (error instanceof StreetCrudValidationError) {
@@ -845,6 +868,8 @@ export class StreetsService {
                 throw new StreetNotFoundError();
             }
 
+            this.scheduleStreetGroupSearchSync(street.public_id);
+
             return this.serializeStreet(street);
         } catch (error) {
             if (error instanceof StreetCrudValidationError) {
@@ -861,6 +886,8 @@ export class StreetsService {
             if (!street) {
                 throw new StreetNotFoundError();
             }
+
+            this.scheduleStreetGroupSearchSync(street.public_id);
 
             return this.serializeStreet(street);
         } catch (error) {
@@ -889,6 +916,10 @@ export class StreetsService {
                 this.serializeStreet(result.newStreets[0]),
                 this.serializeStreet(result.newStreets[1]),
             ];
+
+            this.scheduleStreetGroupSearchSync(result.originalStreetId);
+            this.scheduleStreetGroupSearchSync(result.newStreets[0].public_id);
+            this.scheduleStreetGroupSearchSync(result.newStreets[1].public_id);
 
             return {
                 originalStreetId: result.originalStreetId,

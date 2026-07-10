@@ -86,6 +86,90 @@ export function SourceBadge({ hasSourceLink }: { readonly hasSourceLink: boolean
     );
 }
 
+export function SourceStatusBadge({
+    status,
+}: {
+    readonly status: "none" | "linked" | "imported";
+}) {
+    switch (status) {
+        case "linked":
+            return (
+                <span
+                    className={`${BADGE_BASE} bg-indigo-50 text-indigo-800 ring-indigo-100`}
+                    title="Route has linked source records"
+                >
+                    Source linked
+                </span>
+            );
+        case "imported":
+            return (
+                <span
+                    className={`${BADGE_BASE} bg-amber-50 text-amber-900 ring-amber-100`}
+                    title="Imported route with source links, not yet fully reviewed"
+                >
+                    Source imported
+                </span>
+            );
+        case "none":
+        default:
+            return (
+                <span
+                    className={`${BADGE_BASE} bg-gray-100 text-gray-600 ring-gray-200`}
+                    title="No source links on this route"
+                >
+                    No source
+                </span>
+            );
+    }
+}
+
+export function ReviewStatusBadge({ reviewStatus }: { readonly reviewStatus: string }) {
+    let className = `${BADGE_BASE} bg-gray-100 text-gray-700 ring-gray-200`;
+    if (reviewStatus === "reviewed" || reviewStatus === "verified") {
+        className = `${BADGE_BASE} bg-emerald-50 text-emerald-800 ring-emerald-100`;
+    } else if (
+        reviewStatus === "needs_review" ||
+        reviewStatus === "imported_unreviewed"
+    ) {
+        className = `${BADGE_BASE} bg-amber-50 text-amber-900 ring-amber-100`;
+    } else if (reviewStatus === "rejected") {
+        className = `${BADGE_BASE} bg-red-50 text-red-800 ring-red-100`;
+    }
+
+    return (
+        <span className={className} title={`Review status: ${reviewStatus}`}>
+            {reviewStatus.replace(/_/g, " ")}
+        </span>
+    );
+}
+
+export function TrainYangonServiceBadge({
+    isYangonUrbanService,
+    isSourceFullLoop,
+}: {
+    readonly isYangonUrbanService: boolean;
+    readonly isSourceFullLoop?: boolean;
+}) {
+    if (!isYangonUrbanService) {
+        return null;
+    }
+
+    const label = isSourceFullLoop ? "Yangon Circular" : "Yangon Urban";
+
+    return (
+        <span
+            className={`${BADGE_BASE} bg-violet-50 text-violet-900 ring-violet-100`}
+            title={
+                isSourceFullLoop
+                    ? "Yangon circular train service"
+                    : "Yangon urban train service"
+            }
+        >
+            {label}
+        </span>
+    );
+}
+
 export function PublicVisibilityBadge({ visibility }: { readonly visibility: PublicVisibility }) {
     return visibility === "visible" ? (
         <span className={`${BADGE_BASE} bg-emerald-50 text-emerald-800 ring-emerald-100`} title="Public visibility">
@@ -182,6 +266,17 @@ export function DuplicateBadge({ status }: { readonly status: DuplicateStatus })
     return (
         <span className={`${BADGE_BASE} bg-amber-50 text-amber-900 ring-amber-100`} title="Duplicate status">
             {DUPLICATE_LABELS.nearby}
+        </span>
+    );
+}
+
+export function LoopClosureBadge() {
+    return (
+        <span
+            className={`${BADGE_BASE} bg-violet-50 text-violet-800 ring-violet-100`}
+            title="Circular route closing occurrence"
+        >
+            Loop closure
         </span>
     );
 }

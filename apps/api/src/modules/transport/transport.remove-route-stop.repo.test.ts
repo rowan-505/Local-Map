@@ -133,6 +133,13 @@ function makeVariant(count: number): RouteStopRow[] {
     }));
 }
 
+/** stop_id 1 at sequence 1 and again at sequence 39 (circular closing revisit). */
+function makeRevisitAtOneAndThirtyNine(): RouteStopRow[] {
+    const rows = makeVariant(39);
+    rows[38] = { id: 138n, stop_id: 1n, stop_sequence: 39 };
+    return rows;
+}
+
 describe("TransportRepository.removeRouteStop (resequencing)", () => {
     it("removes the first stop of a 60-stop variant and resequences to 1..N", async () => {
         const { prisma, rows } = createMockPrisma(makeVariant(60));
@@ -180,6 +187,30 @@ describe("TransportRepository.removeRouteStop (resequencing)", () => {
         assert.deepEqual(
             sequences,
             Array.from({ length: 59 }, (_, i) => i + 1)
+        );
+    });
+
+    it("removes only the sequence-39 occurrence when stop_id repeats at 1 and 39", async () => {
+        const { prisma, rows } = createMockPrisma(makeRevisitAtOneAndThirtyNine());
+        const repo = new TransportRepository(prisma);
+
+        const result = await repo.removeRouteStop(138n); // route_stop id 138 == sequence 39
+
+        assert.equal(result.deleted, true);
+        assert.equal(rows.length, 38);
+
+        const firstOccurrence = rows.find((r) => r.id === 100n);
+        assert.ok(firstOccurrence, "sequence-1 occurrence must remain");
+        assert.equal(firstOccurrence.stop_id, 1n);
+        assert.equal(firstOccurrence.stop_sequence, 1);
+        assert.equal(rows.some((r) => r.id === 138n), false);
+        assert.equal(rows.filter((r) => String(r.stop_id) === "1").length, 1);
+
+        const sequences = result.ordered_stops.map((i) => i.stop_sequence);
+        assert.deepEqual(
+            sequences,
+            Array.from({ length: 38 }, (_, i) => i + 1),
+            "remaining stops must be a gap-free 1..N"
         );
     });
 

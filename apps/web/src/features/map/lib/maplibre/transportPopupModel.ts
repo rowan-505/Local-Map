@@ -35,8 +35,15 @@ const SOURCE_LAYER_TO_KIND: Readonly<Record<string, TransportFeatureKind>> = {
 
 const LAYER_ID_TO_KIND: Readonly<Record<string, TransportFeatureKind>> = {
   'transport-stops': 'stop',
+  'transport-stops-hitbox': 'stop',
+  'transport-major-stop-labels': 'stop',
+  'transport-stop-labels': 'stop',
   'transport-major-terminals': 'terminal',
+  'transport-major-terminals-hitbox': 'terminal',
+  'transport-major-terminal-labels': 'terminal',
   'transport-ferry-landings': 'terminal',
+  'transport-ferry-landings-hitbox': 'terminal',
+  'transport-ferry-landing-labels': 'terminal',
   'transport-route-paths': 'route',
   'transport-infrastructure-lines': 'infrastructure',
 };

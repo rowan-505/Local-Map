@@ -28,6 +28,7 @@ import { pickAlias, pickGeometry } from "./core-review-write.schema.js";
 import { buildDetailResponse } from "./core-review.pagination.js";
 import { serializeGenericCoreRow } from "./core-review-serializers.js";
 import { getCoreReviewLanduseDetail } from "./entities/landuse.handler.js";
+import { scheduleUnifiedSearchDocuments } from "../search/unified-search-sync.js";
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
 
 type WriteLogger = {
@@ -214,6 +215,11 @@ export class CoreReviewGenericWriteService {
                 const publicId = await this.writeRepo.createAdminArea(body, sourceTypeId);
                 if (!publicId) throw new CoreReviewValidationError("Failed to create admin area");
                 const row = await this.entitiesRepo.getAdminAreaByPublicId(publicId);
+                if (row?.id) {
+                    scheduleUnifiedSearchDocuments(this.prisma, [
+                        { entityType: "admin_area", entityId: BigInt(String(row.id)) },
+                    ]);
+                }
                 return buildDetailResponse(serializeGenericCoreRow(row!));
             }
             default:
@@ -348,6 +354,11 @@ export class CoreReviewGenericWriteService {
                 const ok = await this.writeRepo.updateAdminArea(id, body);
                 if (!ok) throw new CoreReviewNotFoundError();
                 const row = await this.entitiesRepo.getAdminAreaByPublicId(id);
+                if (row?.id) {
+                    scheduleUnifiedSearchDocuments(this.prisma, [
+                        { entityType: "admin_area", entityId: BigInt(String(row.id)) },
+                    ]);
+                }
                 return buildDetailResponse(serializeGenericCoreRow(row!));
             }
             default:

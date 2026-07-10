@@ -7,12 +7,10 @@ import {
   ROUTE_CONNECTOR_SOURCE_ID,
   type DirectionsMapOverlay,
 } from './directionsRouteGeoJson';
+import { applyMapLayerStackBottomToTop } from './mapLayerStack';
 import { findRouteOverlayInsertBeforeLayerId } from './mapLayerInsert';
-import {
-  PLACES_IMPORTANT_LAYER_ID,
-  PLACES_LAYER_ID,
-  PLACES_SELECTED_HALO_LAYER_ID,
-} from './placesOnMap';
+import { PUBLIC_MAP_OVERLAY_STACK_BOTTOM_TO_TOP } from './publicMapMarkerStackOrder';
+import { PLACES_SELECTED_HALO_LAYER_ID } from './publicMapMarkerLayerIds';
 export {
   bboxFromDirectionsOverlay,
   overlayConnectorsToGeoJSON,
@@ -38,17 +36,6 @@ export const ROUTE_END_POINT_LAYER_ID = 'route-end-point' as const;
 /** Removed arrow layer — kept for idempotent cleanup on existing map sessions. */
 const LEGACY_ROUTE_DIRECTION_ARROWS_LAYER_ID = 'route-direction-arrows' as const;
 const LEGACY_ROUTE_DIRECTION_ARROW_IMAGE_ID = 'route-direction-arrow' as const;
-
-const ROUTE_CONNECTOR_LAYER_IDS = [
-  ROUTE_CONNECTOR_FROM_LAYER_ID,
-  ROUTE_CONNECTOR_TO_LAYER_ID,
-] as const;
-
-const ROUTE_LINE_LAYER_IDS = [
-  ...ROUTE_CONNECTOR_LAYER_IDS,
-  ROUTE_ACTIVE_CASING_LAYER_ID,
-  ROUTE_ACTIVE_LINE_LAYER_ID,
-] as const;
 
 /** MapLibre requires literal wrapper for constant dash arrays on GeoJSON lines. */
 const CONNECTOR_LINE_DASH: ['literal', number[]] = ['literal', [1, 1.25]];
@@ -124,13 +111,6 @@ const ROUTE_ENDPOINT_DOT_RADIUS: ExpressionSpecification = [
 
 const ROUTE_ENDPOINT_STROKE_COLOR = '#ffffff';
 const ROUTE_ENDPOINT_STROKE_WIDTH = 2.5;
-
-const ROUTE_ENDPOINT_LAYER_IDS = [
-  ROUTE_START_HALO_LAYER_ID,
-  ROUTE_END_HALO_LAYER_ID,
-  ROUTE_START_POINT_LAYER_ID,
-  ROUTE_END_POINT_LAYER_ID,
-] as const;
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
@@ -391,36 +371,16 @@ export function moveDirectionsRouteLayersToTop(map: MapEngine): void {
 }
 
 /**
- * Route lines sit above roads and below labels; start/end circles sit above the route line
- * and basemap overlays (below selected POI pin when present).
+ * Route lines sit above transport paths and below bus stops; start/end markers sit above
+ * normal POIs and below the selected POI pin.
  */
 export function positionActiveRouteLayers(map: MapEngine): void {
-  moveRouteLayerStack(map, ROUTE_LINE_LAYER_IDS, findRouteOverlayInsertBeforeLayerId(map));
-  moveRouteLayerStack(map, ROUTE_ENDPOINT_LAYER_IDS, findRouteEndpointInsertBeforeLayerId(map));
+  applyMapLayerStackBottomToTop(map, PUBLIC_MAP_OVERLAY_STACK_BOTTOM_TO_TOP);
 }
 
-function moveRouteLayerStack(
-  map: MapEngine,
-  layerIds: readonly string[],
-  beforeId: string | undefined,
-): void {
-  if (beforeId) {
-    for (const layerId of layerIds) {
-      if (map.getLayer(layerId)) map.moveLayer(layerId, beforeId);
-    }
-    return;
-  }
-
-  for (const layerId of layerIds) {
-    if (map.getLayer(layerId)) map.moveLayer(layerId);
-  }
-}
-
-/** Above route line + street labels; below selected-place pin / normal POI circles. */
+/** Above normal POIs; below selected POI halo + pin. */
 function findRouteEndpointInsertBeforeLayerId(map: MapEngine): string | undefined {
   if (map.getLayer(PLACES_SELECTED_HALO_LAYER_ID)) return PLACES_SELECTED_HALO_LAYER_ID;
-  if (map.getLayer(PLACES_IMPORTANT_LAYER_ID)) return PLACES_IMPORTANT_LAYER_ID;
-  if (map.getLayer(PLACES_LAYER_ID)) return PLACES_LAYER_ID;
   return findRouteOverlayInsertBeforeLayerId(map);
 }
 

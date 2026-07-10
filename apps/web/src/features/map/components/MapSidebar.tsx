@@ -8,6 +8,7 @@ export type RouteDestination = {
 export type SidebarMode =
   | 'search'
   | 'placeDetail'
+  | 'transportStopDetail'
   | 'address'
   | 'route'
   | 'bus'
@@ -24,9 +25,12 @@ type MapSidebarProps = {
   readonly onBottomSheetStateChange: (state: BottomSheetState) => void;
   readonly searchPanel: ReactNode;
   readonly placeDetailPanel?: ReactNode;
+  readonly transportStopDetailPanel?: ReactNode;
   readonly addressPanel?: ReactNode;
   readonly routePanel?: ReactNode;
   readonly routeDestination?: RouteDestination | null;
+  /** Overrides the default "Stop details" sidebar title in transport detail mode. */
+  readonly transportStopDetailTitle?: string;
   readonly busPanel?: ReactNode;
   readonly savedPanel?: ReactNode;
   readonly reportsPanel?: ReactNode;
@@ -44,9 +48,11 @@ export function MapSidebar({
   onBottomSheetStateChange,
   searchPanel,
   placeDetailPanel = <PlaceDetailEmptyState />,
+  transportStopDetailPanel = <TransportStopDetailEmptyState />,
   addressPanel = <AddressPanelEmptyState />,
   routePanel,
   routeDestination = null,
+  transportStopDetailTitle,
   busPanel = <BusPanelPlaceholder />,
   savedPanel = <SavedPanelPlaceholder />,
   reportsPanel = null,
@@ -54,6 +60,10 @@ export function MapSidebar({
   accountPanel = null,
 }: MapSidebarProps) {
   const meta = sidebarModeMeta(activeMode);
+  const headerTitle =
+    activeMode === 'transportStopDetail' && transportStopDetailTitle
+      ? transportStopDetailTitle
+      : meta.title;
 
   if (!isOpen) return null;
 
@@ -77,7 +87,7 @@ export function MapSidebar({
           />
           <SidebarHeader
             eyebrow={meta.eyebrow}
-            title={meta.title}
+            title={headerTitle}
           />
           <BottomSheetControls
             state={bottomSheetState}
@@ -96,6 +106,7 @@ export function MapSidebar({
             activeMode={activeMode}
             searchPanel={searchPanel}
             placeDetailPanel={placeDetailPanel}
+            transportStopDetailPanel={transportStopDetailPanel}
             addressPanel={addressPanel}
             routePanel={routePanel ?? <RoutePanelPlaceholder destination={routeDestination} />}
             busPanel={busPanel}
@@ -249,6 +260,7 @@ export function SidebarModeContent({
   activeMode,
   searchPanel,
   placeDetailPanel,
+  transportStopDetailPanel,
   addressPanel,
   routePanel,
   busPanel,
@@ -260,6 +272,7 @@ export function SidebarModeContent({
   readonly activeMode: SidebarMode;
   readonly searchPanel: ReactNode;
   readonly placeDetailPanel: ReactNode;
+  readonly transportStopDetailPanel: ReactNode;
   readonly addressPanel: ReactNode;
   readonly routePanel: ReactNode;
   readonly busPanel: ReactNode;
@@ -269,6 +282,7 @@ export function SidebarModeContent({
   readonly accountPanel: ReactNode;
 }) {
   if (activeMode === 'placeDetail') return placeDetailPanel;
+  if (activeMode === 'transportStopDetail') return transportStopDetailPanel;
   if (activeMode === 'address') return addressPanel;
   if (activeMode === 'route') return routePanel;
   if (activeMode === 'bus') return busPanel;
@@ -286,6 +300,8 @@ function sidebarModeMeta(mode: SidebarMode): {
   switch (mode) {
     case 'placeDetail':
       return { eyebrow: 'Place', title: 'Place details' };
+    case 'transportStopDetail':
+      return { eyebrow: 'Transit', title: 'Stop details' };
     case 'address':
       return { eyebrow: 'Location', title: 'Inspect location' };
     case 'route':
@@ -304,6 +320,16 @@ function sidebarModeMeta(mode: SidebarMode): {
     default:
       return { eyebrow: 'Local Map', title: 'Kyauktan' };
   }
+}
+
+function TransportStopDetailEmptyState() {
+  return (
+    <PlaceholderPanel
+      eyebrow="Transit"
+      title="Select a stop"
+      body="Choose a bus stop or station on the map to view details."
+    />
+  );
 }
 
 function AddressPanelEmptyState() {

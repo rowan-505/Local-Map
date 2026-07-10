@@ -1,6 +1,14 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { useMapUiStore } from '@/features/map/state/mapUiStore';
-import type { PublicSearchResult, SearchEntityType } from '@/features/poi/api/publicMapApi';
+import type { PublicSearchResult } from '@/features/poi/api/publicMapApi';
+import {
+  getVisiblePublicSearchCategoryFilterChips,
+  PUBLIC_SEARCH_TRANSPORT_MODE_FILTER_CHIPS,
+  PUBLIC_SEARCH_TRANSPORT_TYPE_FILTER_CHIPS,
+  type PublicSearchCategory,
+  type PublicSearchTransportMode,
+  type PublicSearchTransportType,
+} from '@/features/poi/api/publicSearchConstants';
 import { PoiList } from '@/features/poi/components/PoiList';
 import { Chip, ChipRow, ResultRow, SidebarSectionTitle } from '@/components/ui/sidebarUi';
 import { resultTitleClass, sidebarCard } from '@/components/ui/sidebarTokens';
@@ -14,28 +22,18 @@ type SearchResultType =
   | 'bus_stop'
   | 'coordinate';
 
-/** Top-level result filter chips (client-side filter; keep simple, no advanced filters). */
-type SearchTypeChipId = 'all' | 'places' | 'areas' | 'roads' | 'bus' | 'addresses';
-
-const SEARCH_TYPE_CHIPS: ReadonlyArray<{
-  readonly id: SearchTypeChipId;
-  readonly label: string;
-  readonly types: ReadonlySet<SearchEntityType> | null;
-}> = [
-  { id: 'all', label: 'All', types: null },
-  { id: 'places', label: 'Places', types: new Set(['place']) },
-  { id: 'areas', label: 'Areas', types: new Set(['admin_area']) },
-  { id: 'roads', label: 'Roads', types: new Set(['street', 'street_group']) },
-  { id: 'bus', label: 'Bus', types: new Set(['bus_stop', 'bus_route', 'bus_route_variant']) },
-  { id: 'addresses', label: 'Addresses', types: new Set(['address']) },
-];
-
 type SearchPanelProps = {
   readonly categories: readonly PoiCategory[];
   readonly selectedCategoryCode: PoiCategoryCode | null;
   readonly onSelectCategory: (code: PoiCategoryCode | null) => void;
   readonly searchQuery: string;
   readonly onSearchQueryChange: (value: string) => void;
+  readonly searchCategory: PublicSearchCategory;
+  readonly onSearchCategoryChange: (category: PublicSearchCategory) => void;
+  readonly searchTransportType: PublicSearchTransportType;
+  readonly onSearchTransportTypeChange: (transportType: PublicSearchTransportType) => void;
+  readonly searchTransportMode: PublicSearchTransportMode;
+  readonly onSearchTransportModeChange: (mode: PublicSearchTransportMode) => void;
   readonly searchResults: readonly PublicSearchResult[];
   readonly selectedSearchResultId: string | null;
   readonly selectedSearchResult?: PublicSearchResult | null;
@@ -52,7 +50,13 @@ type SearchPanelProps = {
   readonly hasMorePlaces?: boolean;
   readonly onLoadMorePlaces?: () => void;
   readonly searchLoading?: boolean;
+  readonly searchLoadingMore?: boolean;
   readonly searchError?: boolean;
+  readonly searchFetchMoreError?: boolean;
+  readonly hasMoreSearch?: boolean;
+  readonly searchReachedCap?: boolean;
+  readonly onLoadMoreSearch?: () => void;
+  readonly onRetrySearch?: () => void;
   readonly categoriesLoading?: boolean;
   readonly categoriesError?: boolean;
   readonly placesLoading?: boolean;
@@ -67,6 +71,12 @@ function SearchPanelInner({
   onSelectCategory,
   searchQuery,
   onSearchQueryChange,
+  searchCategory,
+  onSearchCategoryChange,
+  searchTransportType,
+  onSearchTransportTypeChange,
+  searchTransportMode,
+  onSearchTransportModeChange,
   searchResults,
   selectedSearchResultId,
   selectedSearchResult = null,
@@ -83,7 +93,13 @@ function SearchPanelInner({
   hasMorePlaces = false,
   onLoadMorePlaces,
   searchLoading = false,
+  searchLoadingMore = false,
   searchError = false,
+  searchFetchMoreError = false,
+  hasMoreSearch = false,
+  searchReachedCap = false,
+  onLoadMoreSearch,
+  onRetrySearch,
   categoriesLoading = false,
   categoriesError = false,
   placesLoading = false,
@@ -92,18 +108,8 @@ function SearchPanelInner({
   placesLoadMoreError = null,
 }: SearchPanelProps) {
   const showSearchResults = searchQuery.trim().length > 0;
-  const [activeTypeChip, setActiveTypeChip] = useState<SearchTypeChipId>('all');
-
-  const filteredResults = useMemo(() => {
-    const chip = SEARCH_TYPE_CHIPS.find((c) => c.id === activeTypeChip);
-    if (!chip || !chip.types) return searchResults;
-    return searchResults.filter((result) => {
-      const entityType = result.entityType ?? result.type;
-      // Always keep Plus Code / coordinate pins regardless of the active chip.
-      if (entityType === 'plus_code' || entityType === 'coordinate') return true;
-      return chip.types?.has(entityType as SearchEntityType) ?? false;
-    });
-  }, [searchResults, activeTypeChip]);
+  const categoryFilterChips = getVisiblePublicSearchCategoryFilterChips();
+  const showTransportFilters = searchCategory === 'transport';
 
   return (
     <section className="space-y-3 p-3.5" aria-label="Search places">
@@ -142,23 +148,58 @@ function SearchPanelInner({
       {showSearchResults ? (
         <div className="space-y-2">
           <ChipRow label="Filter results by type">
-            {SEARCH_TYPE_CHIPS.map((chip) => (
+            {categoryFilterChips.map((chip) => (
               <Chip
                 key={chip.id}
-                selected={activeTypeChip === chip.id}
-                onClick={() => setActiveTypeChip(chip.id)}
+                selected={searchCategory === chip.id}
+                onClick={() => onSearchCategoryChange(chip.id)}
               >
                 {chip.label}
               </Chip>
             ))}
           </ChipRow>
+          {showTransportFilters ? (
+            <div className="space-y-1.5 rounded-xl border border-neutral-100 bg-neutral-50/70 px-2 py-2">
+              <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
+                Transport filters
+              </p>
+              <ChipRow label="Transport subtype">
+                {PUBLIC_SEARCH_TRANSPORT_TYPE_FILTER_CHIPS.map((chip) => (
+                  <Chip
+                    key={chip.id}
+                    selected={searchTransportType === chip.id}
+                    onClick={() => onSearchTransportTypeChange(chip.id)}
+                  >
+                    {chip.label}
+                  </Chip>
+                ))}
+              </ChipRow>
+              <ChipRow label="Transport mode">
+                {PUBLIC_SEARCH_TRANSPORT_MODE_FILTER_CHIPS.map((chip) => (
+                  <Chip
+                    key={chip.id}
+                    selected={searchTransportMode === chip.id}
+                    onClick={() => onSearchTransportModeChange(chip.id)}
+                  >
+                    {chip.label}
+                  </Chip>
+                ))}
+              </ChipRow>
+            </div>
+          ) : null}
           <SearchResults
-            results={filteredResults}
+            results={searchResults}
             selectedSearchResultId={selectedSearchResultId}
             onSelectSearchResult={onSelectSearchResult}
             referenceCoordinates={referenceCoordinates}
             searchLoading={searchLoading}
+            searchLoadingMore={searchLoadingMore}
             searchError={searchError}
+            searchFetchMoreError={searchFetchMoreError}
+            hasMoreSearch={hasMoreSearch}
+            searchReachedCap={searchReachedCap}
+            onLoadMoreSearch={onLoadMoreSearch}
+            onRetrySearch={onRetrySearch}
           />
         </div>
       ) : (
@@ -337,37 +378,85 @@ function SearchResults({
   onSelectSearchResult,
   referenceCoordinates,
   searchLoading,
+  searchLoadingMore,
   searchError,
+  searchFetchMoreError,
+  hasMoreSearch,
+  searchReachedCap,
+  onLoadMoreSearch,
+  onRetrySearch,
 }: {
   readonly results: readonly PublicSearchResult[];
   readonly selectedSearchResultId: string | null;
   readonly onSelectSearchResult: (result: PublicSearchResult) => void;
   readonly referenceCoordinates?: readonly [number, number] | null;
   readonly searchLoading: boolean;
+  readonly searchLoadingMore: boolean;
   readonly searchError: boolean;
+  readonly searchFetchMoreError: boolean;
+  readonly hasMoreSearch: boolean;
+  readonly searchReachedCap: boolean;
+  readonly onLoadMoreSearch?: () => void;
+  readonly onRetrySearch?: () => void;
 }) {
   const languageMode = useMapUiStore((s) => s.languageMode);
   const hasResults = results.length > 0;
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const initialLoading = searchLoading && !hasResults;
+  const canLoadMore = hasMoreSearch && !searchReachedCap && !searchLoadingMore;
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || !canLoadMore || !onLoadMoreSearch) return;
+
+    const root = sentinel.closest('.overflow-y-auto');
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          onLoadMoreSearch();
+        }
+      },
+      {
+        root: root instanceof Element ? root : null,
+        rootMargin: '120px 0px',
+        threshold: 0,
+      },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [canLoadMore, onLoadMoreSearch, results.length]);
 
   return (
     <div className={sidebarCard}>
       <div className="border-b border-neutral-100 px-3.5 py-2">
         <SidebarSectionTitle>Search results</SidebarSectionTitle>
       </div>
-      {searchLoading ? (
+      {initialLoading ? (
         <SearchStateMessage title="Searching..." body="Looking across available map data." />
       ) : null}
       {searchError ? (
-        <SearchStateMessage
-          tone="error"
-          title="Could not load search results."
-          body="Check the connection and try again."
-        />
+        <div className="px-3.5 py-3">
+          <SearchStateMessage
+            tone="error"
+            title="Could not load search results."
+            body="Check the connection and try again."
+          />
+          {onRetrySearch ? (
+            <button
+              type="button"
+              className="mt-2 text-sm font-medium text-sky-700 hover:text-sky-800"
+              onClick={onRetrySearch}
+            >
+              Retry search
+            </button>
+          ) : null}
+        </div>
       ) : null}
-      {!searchLoading && !searchError && !hasResults ? (
+      {!initialLoading && !searchError && !hasResults ? (
         <SearchStateMessage title="No results found." body="Try another place, street, or route name." />
       ) : null}
-      {!searchLoading && !searchError && hasResults ? (
+      {!searchError && hasResults ? (
         <ul className="divide-y divide-neutral-100" role="listbox" aria-label="Search results">
           {results.map((result) => {
             const selected = result.id === selectedSearchResultId;
@@ -405,7 +494,43 @@ function SearchResults({
               </li>
             );
           })}
+          <li aria-hidden="true">
+            <div ref={sentinelRef} className="h-1" />
+          </li>
         </ul>
+      ) : null}
+      {searchLoadingMore ? (
+        <SearchStateMessage title="Loading more results..." body="Fetching the next page." />
+      ) : null}
+      {searchFetchMoreError ? (
+        <div className="border-t border-neutral-100 px-3.5 py-3">
+          <SearchStateMessage
+            tone="error"
+            title="Could not load more results."
+            body="Scroll again or tap retry."
+          />
+          {onLoadMoreSearch ? (
+            <button
+              type="button"
+              className="mt-2 text-sm font-medium text-sky-700 hover:text-sky-800"
+              onClick={onLoadMoreSearch}
+            >
+              Retry
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {!searchLoading &&
+      !searchError &&
+      hasResults &&
+      !hasMoreSearch &&
+      !searchLoadingMore &&
+      !searchFetchMoreError ? (
+        <p className="border-t border-neutral-100 px-3.5 py-2.5 text-xs text-neutral-500">
+          {searchReachedCap
+            ? 'Showing the maximum results for this search.'
+            : 'No more relevant results.'}
+        </p>
       ) : null}
     </div>
   );
@@ -564,9 +689,14 @@ function searchResultTypeMeta(type: SearchResultType): {
       return { badge: 'Ad', label: 'Address', className: 'bg-blue-50 text-blue-700' };
     case 'bus_route':
     case 'bus_route_variant':
-      return { badge: 'R', label: 'Bus route', className: 'bg-cyan-50 text-cyan-700' };
+    case 'transport_route':
+    case 'transport_route_variant':
+      return { badge: 'R', label: 'Route', className: 'bg-cyan-50 text-cyan-700' };
     case 'bus_stop':
-      return { badge: 'B', label: 'Bus stop', className: 'bg-amber-50 text-amber-700' };
+    case 'transport_stop':
+      return { badge: 'S', label: 'Stop', className: 'bg-amber-50 text-amber-700' };
+    case 'transport_terminal':
+      return { badge: 'T', label: 'Terminal', className: 'bg-amber-50 text-amber-800' };
     case 'building':
       return { badge: 'Bd', label: 'Building', className: 'bg-stone-100 text-stone-700' };
     case 'water_line':

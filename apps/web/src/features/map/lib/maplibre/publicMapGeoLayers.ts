@@ -8,7 +8,7 @@ import type {
   SymbolLayerSpecification,
 } from 'maplibre-gl';
 import type { MapEngine } from '../mapEngineTypes';
-import { PLACES_LAYER_ID } from './placesOnMap';
+import { PLACES_LAYER_ID } from './publicMapMarkerLayerIds';
 
 export const PUBLIC_MAP_EMPTY_FC = Object.freeze({
   type: 'FeatureCollection' as const,

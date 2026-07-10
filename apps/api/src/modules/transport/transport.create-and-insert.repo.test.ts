@@ -69,6 +69,16 @@ function createMockPrisma(initial: RouteStopRow[]) {
         if (sql.includes("route_variants")) {
             return [{ id: VARIANT_ID, public_id: VARIANT_PUBLIC_ID }];
         }
+        if (sql.includes("ST_X") && !sql.includes("display_name")) {
+            return [...rows]
+                .sort((a, b) => a.stop_sequence - b.stop_sequence)
+                .map((r) => ({
+                    route_stop_id: String(r.id),
+                    stop_sequence: r.stop_sequence,
+                    longitude: 96.1,
+                    latitude: 16.8,
+                }));
+        }
         if (sql.includes("INSERT INTO transport.stops")) {
             return [{ id: NEW_STOP_ID, public_id: NEW_STOP_PUBLIC_ID }];
         }
@@ -79,6 +89,9 @@ function createMockPrisma(initial: RouteStopRow[]) {
         if (sql.includes("max(stop_sequence)")) {
             const m = rows.length === 0 ? null : Math.max(...rows.map((r) => r.stop_sequence));
             return [{ m }];
+        }
+        if (sql.includes("FROM transport.route_stops") && sql.includes("FOR UPDATE")) {
+            return [...rows].sort((a, b) => a.stop_sequence - b.stop_sequence);
         }
         if (sql.includes("JOIN transport.stops")) {
             // listOrderedStopsLite ordered read (flat lightweight shape).
@@ -113,10 +126,6 @@ function createMockPrisma(initial: RouteStopRow[]) {
                 stop_sequence: Number(rest[2]),
             });
             return [{ id }];
-        }
-        if (sql.includes("FROM transport.route_stops")) {
-            // membership read (id, stop_id, stop_sequence) FOR UPDATE
-            return [...rows].sort((a, b) => a.stop_sequence - b.stop_sequence);
         }
         return [];
     };
@@ -158,8 +167,6 @@ function baseInput(
         name_en: "New Stop",
         mode: "bus",
         stop_type: "stop",
-        longitude: 96.1,
-        latitude: 16.8,
         position: "start",
         pickup_type: 0,
         drop_off_type: 0,

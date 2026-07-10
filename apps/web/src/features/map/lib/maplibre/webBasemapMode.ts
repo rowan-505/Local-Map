@@ -1,14 +1,19 @@
 /**
  * Satellite / hybrid basemap switching for the public web map.
  * Mirrors dashboard preview-map behavior (`dataReviewBasemap.ts`) without importing dashboard code.
+ *
+ * Dynamic regional PMTiles layers use suffixed ids (`road-major-fill-yangon`). Mode toggling walks
+ * the live style and classifies basemap layers by source — not only the static id lists below.
  */
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { getSatelliteRasterConfig, type MapMode } from '../../config/mapModes';
-import { OVERVIEW_LAYER_IDS } from './overviewBasemap';
+import { OVERVIEW_LAYER_IDS, OVERVIEW_SOURCE_ID } from './overviewBasemap';
 import type { MapEngine } from '../mapEngineTypes';
 
 export const WEB_SATELLITE_SOURCE_ID = 'web-satellite';
 export const WEB_SATELLITE_LAYER_ID = 'web-satellite';
+
+const BASEMAP_VECTOR_SOURCE_ID = 'local-basemap';
 
 const SATELLITE_RASTER_MAX_ZOOM = 19;
 
@@ -68,6 +73,11 @@ export const WEB_TOGGLE_VECTOR_LAYERS = [
   'overview-populated-places',
 ] as const;
 
+/** Longest base ids first so `yangon-road-labels-major` wins over shorter prefixes. */
+const BASEMAP_TOGGLE_KEYS = [...WEB_TOGGLE_VECTOR_LAYERS].sort((a, b) => b.length - a.length);
+
+const WEB_IMAGERY_OFF_FILL_LAYER_SET = new Set<string>(WEB_IMAGERY_OFF_FILL_LAYERS);
+
 /**
  * Hybrid overlays kept above imagery — admin boundaries, major roads/labels, place/admin labels.
  * All other vector layers stay hidden in hybrid mode.
@@ -100,9 +110,56 @@ const SATELLITE_INSERT_BEFORE_CANDIDATES = [
   'background',
 ] as const;
 
+type StyleLayerRef = {
+  readonly id: string;
+  readonly type: string;
+  readonly source?: string;
+};
+
 function setLayerVisibility(map: MapLibreMap, layerId: string, visible: boolean): void {
   if (!map.getLayer(layerId)) return;
   map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
+}
+
+function safeStyleLayers(map: MapLibreMap): StyleLayerRef[] {
+  try {
+    return (map.getStyle().layers ?? []) as StyleLayerRef[];
+  } catch {
+    return [];
+  }
+}
+
+function isManagedBasemapLayer(layer: StyleLayerRef): boolean {
+  if (layer.id === 'background') return true;
+  const source = layer.source;
+  if (!source) return false;
+  if (source === OVERVIEW_SOURCE_ID || source === BASEMAP_VECTOR_SOURCE_ID) return true;
+  return source.startsWith('region-');
+}
+
+/**
+ * Maps a style layer id to the static toggle key used by hybrid allowlists.
+ * Regional clones use `{baseId}-{regionId}` (e.g. `road-major-fill-yangon` → `road-major-fill`).
+ */
+export function resolveBasemapToggleKey(layerId: string): string {
+  if (WEB_IMAGERY_OFF_FILL_LAYER_SET.has(layerId)) return layerId;
+
+  for (const baseId of BASEMAP_TOGGLE_KEYS) {
+    if (layerId === baseId) return baseId;
+    if (layerId.startsWith(`${baseId}-`)) return baseId;
+  }
+
+  return layerId;
+}
+
+function basemapLayerVisible(mode: MapMode, layerId: string): boolean {
+  if (mode === 'normal') return true;
+
+  if (WEB_IMAGERY_OFF_FILL_LAYER_SET.has(layerId)) return false;
+
+  if (mode === 'satellite') return false;
+
+  return WEB_HYBRID_ON_LAYERS.has(resolveBasemapToggleKey(layerId));
 }
 
 function satelliteInsertBeforeId(map: MapLibreMap): string | undefined {
@@ -177,26 +234,10 @@ export function applyWebBasemapMode(map: MapEngine, mode: MapMode): void {
   const imageryOn = mode !== 'normal';
   setLayerVisibility(map, WEB_SATELLITE_LAYER_ID, imageryOn);
 
-  for (const id of WEB_IMAGERY_OFF_FILL_LAYERS) {
-    setLayerVisibility(map, id, !imageryOn);
-  }
-
-  if (!imageryOn) {
-    for (const id of WEB_TOGGLE_VECTOR_LAYERS) {
-      setLayerVisibility(map, id, true);
-    }
-    return;
-  }
-
-  if (mode === 'satellite') {
-    for (const id of WEB_TOGGLE_VECTOR_LAYERS) {
-      setLayerVisibility(map, id, false);
-    }
-    return;
-  }
-
-  for (const id of WEB_TOGGLE_VECTOR_LAYERS) {
-    setLayerVisibility(map, id, WEB_HYBRID_ON_LAYERS.has(id));
+  for (const layer of safeStyleLayers(map)) {
+    if (layer.id === WEB_SATELLITE_LAYER_ID) continue;
+    if (!isManagedBasemapLayer(layer)) continue;
+    setLayerVisibility(map, layer.id, basemapLayerVisible(mode, layer.id));
   }
 }
 

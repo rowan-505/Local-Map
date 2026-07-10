@@ -10,6 +10,7 @@ export const USERS_PATH = `${DASHBOARD_PATH}/users`;
 export const USER_ANALYTICS_PATH = `${DASHBOARD_PATH}/user-analytics`;
 export const POINT_MANAGEMENT_PATH = `${DASHBOARD_PATH}/point-management`;
 export const REPORTS_PATH = `${DASHBOARD_PATH}/reports`;
+export const SEARCH_PATH = `${DASHBOARD_PATH}/search`;
 
 function joinPath(base: string, segment?: string): string {
     const seg = segment?.replace(/^\/+|\/+$/g, "") ?? "";
@@ -54,4 +55,8 @@ export function pointManagementPath(segment?: string): string {
 
 export function reportsPath(segment?: string): string {
     return joinPath(REPORTS_PATH, segment);
+}
+
+export function searchPath(segment?: string): string {
+    return joinPath(SEARCH_PATH, segment);
 }

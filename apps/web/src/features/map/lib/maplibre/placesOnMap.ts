@@ -8,13 +8,51 @@ import { getMapTextFieldExpression } from '@local-map/localized-name';
 import type { ExpressionSpecification, GeoJSONSource } from 'maplibre-gl';
 import { MAP_SYMBOL_TEXT_FONT } from '../../config';
 import type { MapEngine } from '../mapEngineTypes';
+import {
+  PLACES_IMPORTANT_LABEL_LAYER_ID,
+  PLACES_IMPORTANT_LAYER_ID,
+  PLACES_LABEL_LAYER_ID,
+  PLACES_LAYER_ID,
+  PLACES_SELECTED_HALO_LAYER_ID,
+  PLACES_SELECTED_LABEL_LAYER_ID,
+  PLACES_SELECTED_LAYER_ID,
+  PLACES_SOURCE_ID,
+} from './publicMapMarkerLayerIds';
+import { MARKER_ZOOM } from './publicMapMarkerPolicy';
+import {
+  densePoiLabelFilter,
+  importantPoiLabelFilter,
+  LABEL_SORT_KEY,
+  LABEL_ZOOM,
+  labelFadeInOpacity,
+  linearZoomTextSize,
+  poiDenseLabelSortKey,
+  selectedMarkerCaptionTextField,
+  TEXT_SIZE_POI_DENSE,
+  TEXT_SIZE_POI_IMPORTANT,
+  TEXT_SIZE_SELECTED_CAPTION,
+} from './publicMapLabelPolicy';
+import {
+  denseMarkerStrokeWidth,
+  POI_MARKER_COLORS,
+  poiImportantPointRadius,
+  poiNormalPointRadius,
+  SELECTED_POI_PIN_IMAGE_PREFIX,
+  SELECTED_MARKER_HALO,
+  selectedMarkerHaloRadius,
+  selectedPoiPinIconSize,
+} from './publicMapMarkerStyles';
 
-export const PLACES_SOURCE_ID = 'places' as const;
-export const PLACES_IMPORTANT_LAYER_ID = 'places-important-circle' as const;
-export const PLACES_LAYER_ID = 'places-circle' as const;
-export const PLACES_SELECTED_HALO_LAYER_ID = 'places-selected-halo' as const;
-export const PLACES_SELECTED_LAYER_ID = 'places-selected-circle' as const;
-export const PLACES_LABEL_LAYER_ID = 'places-label' as const;
+export {
+  PLACES_SOURCE_ID,
+  PLACES_IMPORTANT_LAYER_ID,
+  PLACES_LAYER_ID,
+  PLACES_SELECTED_HALO_LAYER_ID,
+  PLACES_SELECTED_LAYER_ID,
+  PLACES_IMPORTANT_LABEL_LAYER_ID,
+  PLACES_LABEL_LAYER_ID,
+  PLACES_SELECTED_LABEL_LAYER_ID,
+} from './publicMapMarkerLayerIds';
 
 const DEFAULT_LANGUAGE_MODE: LanguageMode = 'my';
 
@@ -22,10 +60,9 @@ function placesLabelTextField(mode: LanguageMode): ExpressionSpecification {
   return getMapTextFieldExpression(mode) as ExpressionSpecification;
 }
 
-const DEFAULT_COLOR = '#0ea5e9';
-const SELECTED_COLOR = '#f97316';
-const DEFAULT_STROKE_COLOR = '#ffffff';
-const SELECTED_PLACE_PIN_IMAGE_PREFIX = 'selected-place-pin' as const;
+const DEFAULT_COLOR = POI_MARKER_COLORS.default;
+const SELECTED_COLOR = POI_MARKER_COLORS.selectedPin;
+const DEFAULT_STROKE_COLOR = POI_MARKER_COLORS.stroke;
 const SELECTED_PLACE_PIN_CATEGORIES = [
   'default',
   'food',
@@ -63,11 +100,11 @@ function selectedPoiFilter(selectedPoiId: string | null): ExpressionSpecificatio
 }
 
 function normalCircleRadiusExpression(): ExpressionSpecification {
-  return ['interpolate', ['linear'], ['zoom'], 12, 3.5, 14, 5, 18, 7] as ExpressionSpecification;
+  return poiNormalPointRadius();
 }
 
 function importantCircleRadiusExpression(): ExpressionSpecification {
-  return ['interpolate', ['linear'], ['zoom'], 10, 4, 12, 5.5, 13, 6] as ExpressionSpecification;
+  return poiImportantPointRadius();
 }
 
 function poiCategoryColorExpression(): ExpressionSpecification {
@@ -95,14 +132,14 @@ function poiCategoryColorExpression(): ExpressionSpecification {
 }
 
 function selectedHaloRadiusExpression(): ExpressionSpecification {
-  return ['interpolate', ['linear'], ['zoom'], 10, 9, 14, 14, 18, 18] as ExpressionSpecification;
+  return selectedMarkerHaloRadius();
 }
 
 function selectedPinIconExpression(): ExpressionSpecification {
   return [
     'coalesce',
     ['get', 'selected_pin_icon'],
-    `${SELECTED_PLACE_PIN_IMAGE_PREFIX}-default`,
+    `${SELECTED_POI_PIN_IMAGE_PREFIX}-default`,
   ] as ExpressionSpecification;
 }
 
@@ -123,14 +160,14 @@ export function ensurePlacesLayer(
       id: PLACES_IMPORTANT_LAYER_ID,
       type: 'circle',
       source: PLACES_SOURCE_ID,
-      minzoom: 10,
-      maxzoom: 13,
+      minzoom: MARKER_ZOOM.POI_IMPORTANT_MIN,
+      maxzoom: MARKER_ZOOM.POI_IMPORTANT_MAX,
       filter: importantPoiFilter(selectedPoiId),
       paint: {
         'circle-radius': importantCircleRadiusExpression(),
         'circle-color': poiCategoryColorExpression(),
         'circle-opacity': 0.82,
-        'circle-stroke-width': 1.25,
+        'circle-stroke-width': denseMarkerStrokeWidth(),
         'circle-stroke-color': DEFAULT_STROKE_COLOR,
       },
     });
@@ -138,13 +175,13 @@ export function ensurePlacesLayer(
       id: PLACES_LAYER_ID,
       type: 'circle',
       source: PLACES_SOURCE_ID,
-      minzoom: 13,
+      minzoom: MARKER_ZOOM.POI_DENSE_MIN,
       filter: normalPoiFilter(selectedPoiId),
       paint: {
         'circle-radius': normalCircleRadiusExpression(),
         'circle-color': poiCategoryColorExpression(),
         'circle-opacity': 0.82,
-        'circle-stroke-width': 1.25,
+        'circle-stroke-width': denseMarkerStrokeWidth(),
         'circle-stroke-color': DEFAULT_STROKE_COLOR,
       },
     });
@@ -156,8 +193,8 @@ export function ensurePlacesLayer(
       paint: {
         'circle-radius': selectedHaloRadiusExpression(),
         'circle-color': SELECTED_COLOR,
-        'circle-opacity': 0.18,
-        'circle-blur': 0.35,
+        'circle-opacity': SELECTED_MARKER_HALO.poi.opacity,
+        'circle-blur': SELECTED_MARKER_HALO.poi.blur,
       },
     });
     map.addLayer({
@@ -170,27 +207,76 @@ export function ensurePlacesLayer(
         'icon-anchor': 'bottom',
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.72, 14, 0.9, 18, 1.05],
+        'icon-size': selectedPoiPinIconSize(),
+      },
+    });
+    map.addLayer({
+      id: PLACES_IMPORTANT_LABEL_LAYER_ID,
+      type: 'symbol',
+      source: PLACES_SOURCE_ID,
+      minzoom: LABEL_ZOOM.POI_IMPORTANT_MIN,
+      filter: importantPoiLabelFilter(selectedPoiId),
+      layout: {
+        'text-field': placesLabelTextField(languageMode),
+        'text-font': [...MAP_SYMBOL_TEXT_FONT],
+        'text-size': linearZoomTextSize(TEXT_SIZE_POI_IMPORTANT),
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+        'text-optional': true,
+        'symbol-sort-key': LABEL_SORT_KEY.poiImportant,
+      },
+      paint: {
+        'text-color': '#1f2937',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.5,
+        'text-opacity': labelFadeInOpacity(LABEL_ZOOM.POI_IMPORTANT_MIN),
       },
     });
     map.addLayer({
       id: PLACES_LABEL_LAYER_ID,
       type: 'symbol',
       source: PLACES_SOURCE_ID,
-      minzoom: 15,
+      minzoom: LABEL_ZOOM.POI_DENSE_MIN,
+      filter: densePoiLabelFilter(selectedPoiId),
       layout: {
         'text-field': placesLabelTextField(languageMode),
         'text-font': [...MAP_SYMBOL_TEXT_FONT],
-        'text-size': 12,
+        'text-size': linearZoomTextSize(TEXT_SIZE_POI_DENSE),
         'text-offset': [0, 1.2],
         'text-anchor': 'top',
         'text-allow-overlap': false,
+        'text-ignore-placement': false,
         'text-optional': true,
+        'symbol-sort-key': poiDenseLabelSortKey(),
       },
       paint: {
         'text-color': '#1f2937',
         'text-halo-color': '#ffffff',
         'text-halo-width': 1.5,
+        'text-opacity': labelFadeInOpacity(LABEL_ZOOM.POI_DENSE_MIN),
+      },
+    });
+    map.addLayer({
+      id: PLACES_SELECTED_LABEL_LAYER_ID,
+      type: 'symbol',
+      source: PLACES_SOURCE_ID,
+      filter: selectedPoiFilter(selectedPoiId),
+      layout: {
+        'text-field': selectedMarkerCaptionTextField(languageMode),
+        'text-font': [...MAP_SYMBOL_TEXT_FONT],
+        'text-size': linearZoomTextSize(TEXT_SIZE_SELECTED_CAPTION),
+        'text-offset': [0, 1.35],
+        'text-anchor': 'top',
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+      },
+      paint: {
+        'text-color': '#1f2937',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.75,
+        'text-opacity': 1,
       },
     });
     return;
@@ -198,7 +284,94 @@ export function ensurePlacesLayer(
 
   const src = map.getSource(PLACES_SOURCE_ID) as GeoJSONSource;
   src.setData(geojson);
+  ensureMissingPoiLabelLayers(map, selectedPoiId, languageMode);
   setSelectedPoiHighlight(map, selectedPoiId);
+}
+
+function ensureMissingPoiLabelLayers(
+  map: MapEngine,
+  selectedPoiId: string | null,
+  languageMode: LanguageMode,
+): void {
+  if (!map.getSource(PLACES_SOURCE_ID)) return;
+
+  if (!map.getLayer(PLACES_IMPORTANT_LABEL_LAYER_ID)) {
+    map.addLayer({
+      id: PLACES_IMPORTANT_LABEL_LAYER_ID,
+      type: 'symbol',
+      source: PLACES_SOURCE_ID,
+      minzoom: LABEL_ZOOM.POI_IMPORTANT_MIN,
+      filter: importantPoiLabelFilter(selectedPoiId),
+      layout: {
+        'text-field': placesLabelTextField(languageMode),
+        'text-font': [...MAP_SYMBOL_TEXT_FONT],
+        'text-size': linearZoomTextSize(TEXT_SIZE_POI_IMPORTANT),
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+        'text-optional': true,
+        'symbol-sort-key': LABEL_SORT_KEY.poiImportant,
+      },
+      paint: {
+        'text-color': '#1f2937',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.5,
+        'text-opacity': labelFadeInOpacity(LABEL_ZOOM.POI_IMPORTANT_MIN),
+      },
+    });
+  }
+
+  if (!map.getLayer(PLACES_LABEL_LAYER_ID)) {
+    map.addLayer({
+      id: PLACES_LABEL_LAYER_ID,
+      type: 'symbol',
+      source: PLACES_SOURCE_ID,
+      minzoom: LABEL_ZOOM.POI_DENSE_MIN,
+      filter: densePoiLabelFilter(selectedPoiId),
+      layout: {
+        'text-field': placesLabelTextField(languageMode),
+        'text-font': [...MAP_SYMBOL_TEXT_FONT],
+        'text-size': linearZoomTextSize(TEXT_SIZE_POI_DENSE),
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+        'text-optional': true,
+        'symbol-sort-key': poiDenseLabelSortKey(),
+      },
+      paint: {
+        'text-color': '#1f2937',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.5,
+        'text-opacity': labelFadeInOpacity(LABEL_ZOOM.POI_DENSE_MIN),
+      },
+    });
+  }
+
+  if (!map.getLayer(PLACES_SELECTED_LABEL_LAYER_ID)) {
+    map.addLayer({
+      id: PLACES_SELECTED_LABEL_LAYER_ID,
+      type: 'symbol',
+      source: PLACES_SOURCE_ID,
+      filter: selectedPoiFilter(selectedPoiId),
+      layout: {
+        'text-field': selectedMarkerCaptionTextField(languageMode),
+        'text-font': [...MAP_SYMBOL_TEXT_FONT],
+        'text-size': linearZoomTextSize(TEXT_SIZE_SELECTED_CAPTION),
+        'text-offset': [0, 1.35],
+        'text-anchor': 'top',
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+      },
+      paint: {
+        'text-color': '#1f2937',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.75,
+        'text-opacity': 1,
+      },
+    });
+  }
 }
 
 export function setPlacesGeoJSON(map: MapEngine, geojson: GeoJSON.FeatureCollection): void {
@@ -213,17 +386,26 @@ export function setSelectedPoiHighlight(map: MapEngine, selectedPoiId: string | 
     map.setFilter(PLACES_IMPORTANT_LAYER_ID, importantPoiFilter(selectedPoiId));
   }
   map.setFilter(PLACES_LAYER_ID, normalPoiFilter(selectedPoiId));
+  if (map.getLayer(PLACES_IMPORTANT_LABEL_LAYER_ID)) {
+    map.setFilter(PLACES_IMPORTANT_LABEL_LAYER_ID, importantPoiLabelFilter(selectedPoiId));
+  }
+  if (map.getLayer(PLACES_LABEL_LAYER_ID)) {
+    map.setFilter(PLACES_LABEL_LAYER_ID, densePoiLabelFilter(selectedPoiId));
+  }
   if (map.getLayer(PLACES_SELECTED_HALO_LAYER_ID)) {
     map.setFilter(PLACES_SELECTED_HALO_LAYER_ID, selectedPoiFilter(selectedPoiId));
   }
   if (map.getLayer(PLACES_SELECTED_LAYER_ID)) {
     map.setFilter(PLACES_SELECTED_LAYER_ID, selectedPoiFilter(selectedPoiId));
   }
+  if (map.getLayer(PLACES_SELECTED_LABEL_LAYER_ID)) {
+    map.setFilter(PLACES_SELECTED_LABEL_LAYER_ID, selectedPoiFilter(selectedPoiId));
+  }
 }
 
 function ensureSelectedPlacePinImages(map: MapEngine): void {
   for (const category of SELECTED_PLACE_PIN_CATEGORIES) {
-    const imageId = `${SELECTED_PLACE_PIN_IMAGE_PREFIX}-${category}`;
+    const imageId = `${SELECTED_POI_PIN_IMAGE_PREFIX}-${category}`;
     if (map.hasImage(imageId)) continue;
 
     const image = createSelectedPlacePinImage(category);

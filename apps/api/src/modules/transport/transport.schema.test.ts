@@ -14,6 +14,13 @@ import {
     updateStopBodySchema,
     updateTerminalBodySchema,
     updateVariantBodySchema,
+    patchRouteMetadataBodySchema,
+    mapPatchRouteMetadataToUpdateInput,
+    patchRouteStopTimingBodySchema,
+    patchVariantDepartureTimeBodySchema,
+    mapPatchRouteStopTimingToInput,
+    stopMergePreviewBodySchema,
+    stopMergeGlobalBodySchema,
 } from "./transport.schema.js";
 
 describe("updateRouteBodySchema", () => {
@@ -112,6 +119,66 @@ describe("updateRouteBodySchema", () => {
         assert.equal(parsed.confidence_score, 80);
         assert.equal(parsed.is_active, true);
     });
+
+    it("accepts structured train metadata fields without raw normalized_data", () => {
+        const parsed = updateRouteBodySchema.parse({
+            train_type: "express",
+            train_model: "AAR",
+            operation_days: ["daily"],
+            is_yangon_urban_service: true,
+            display_headsign: "Mandalay",
+        });
+        assert.equal(parsed.train_type, "express");
+        assert.equal(parsed.train_model, "AAR");
+        assert.deepEqual(parsed.operation_days, ["daily"]);
+        assert.equal(parsed.is_yangon_urban_service, true);
+        assert.equal(parsed.display_headsign, "Mandalay");
+    });
+});
+
+describe("patchRouteMetadataBodySchema", () => {
+    it("rejects an empty body", () => {
+        assert.equal(patchRouteMetadataBodySchema.safeParse({}).success, false);
+    });
+
+    it("rejects raw normalized_data blobs", () => {
+        assert.equal(
+            patchRouteMetadataBodySchema.safeParse({ normalized_data: { train_type: "x" } }).success,
+            false,
+        );
+    });
+
+    it("accepts structured metadata and maps to flat route update input", () => {
+        const parsed = patchRouteMetadataBodySchema.parse({
+            routeNames: { my: "မြန်မာ", en: "Train 11" },
+            route: {
+                originName: "Yangon",
+                destinationName: "Mandalay",
+                reviewStatus: "reviewed",
+                confidenceScore: 80,
+            },
+            normalizedDataPatch: {
+                train_type: "express",
+                train_model: "AAR",
+                operation_days: ["daily"],
+                display_headsign: "Mandalay",
+                is_yangon_urban_service: true,
+            },
+        });
+
+        const mapped = mapPatchRouteMetadataToUpdateInput(parsed);
+        assert.equal(mapped.name_mm, "မြန်မာ");
+        assert.equal(mapped.name_en, "Train 11");
+        assert.equal(mapped.origin_name, "Yangon");
+        assert.equal(mapped.destination_name, "Mandalay");
+        assert.equal(mapped.review_status, "reviewed");
+        assert.equal(mapped.confidence_score, 80);
+        assert.equal(mapped.train_type, "express");
+        assert.equal(mapped.train_model, "AAR");
+        assert.deepEqual(mapped.operation_days, ["daily"]);
+        assert.equal(mapped.display_headsign, "Mandalay");
+        assert.equal(mapped.is_yangon_urban_service, true);
+    });
 });
 
 describe("updateVariantBodySchema", () => {
@@ -191,6 +258,126 @@ describe("updateRouteStopBodySchema", () => {
         assert.equal(parsed.pickup_type, 2);
         assert.equal(parsed.drop_off_type, 3);
         assert.equal(parsed.is_timing_point, true);
+    });
+
+    it("rejects timetable fields on the flags endpoint", () => {
+        assert.equal(
+            updateRouteStopBodySchema.safeParse({
+                travel_time_from_previous_seconds: 1560,
+            }).success,
+            false,
+        );
+        assert.equal(
+            updateRouteStopBodySchema.safeParse({
+                source_time_text: "04:45 PM",
+            }).success,
+            false,
+        );
+        assert.equal(
+            updateRouteStopBodySchema.safeParse({
+                arrival_offset_seconds: 3600,
+            }).success,
+            false,
+        );
+    });
+});
+
+describe("patchRouteStopTimingBodySchema", () => {
+    it("rejects an empty body", () => {
+        assert.equal(patchRouteStopTimingBodySchema.safeParse({}).success, false);
+    });
+
+    it("rejects unknown keys (strict)", () => {
+        assert.equal(
+            patchRouteStopTimingBodySchema.safeParse({
+                travelTimeFromPreviousSeconds: 1560,
+                sourceTimeText: "05:00 AM",
+            }).success,
+            false,
+        );
+        assert.equal(
+            patchRouteStopTimingBodySchema.safeParse({
+                arrivalOffsetSeconds: 3600,
+            }).success,
+            false,
+        );
+    });
+
+    it("accepts editable travel and waiting seconds", () => {
+        const parsed = patchRouteStopTimingBodySchema.parse({
+            travelTimeFromPreviousSeconds: 1560,
+            waitingTimeSeconds: 300,
+        });
+        assert.equal(parsed.travelTimeFromPreviousSeconds, 1560);
+        assert.equal(parsed.waitingTimeSeconds, 300);
+    });
+
+    it("maps camelCase body to snake_case repo input", () => {
+        const mapped = mapPatchRouteStopTimingToInput(
+            patchRouteStopTimingBodySchema.parse({
+                travelTimeFromPreviousSeconds: 600,
+                waitingTimeSeconds: null,
+            }),
+        );
+        assert.equal(mapped.travel_time_from_previous_seconds, 600);
+        assert.equal(mapped.waiting_time_seconds, null);
+    });
+
+    it("accepts explicit zero values distinct from null", () => {
+        const parsed = patchRouteStopTimingBodySchema.parse({
+            travelTimeFromPreviousSeconds: 0,
+            waitingTimeSeconds: 0,
+        });
+        const mapped = mapPatchRouteStopTimingToInput(parsed);
+        assert.equal(parsed.travelTimeFromPreviousSeconds, 0);
+        assert.equal(parsed.waitingTimeSeconds, 0);
+        assert.equal(mapped.travel_time_from_previous_seconds, 0);
+        assert.equal(mapped.waiting_time_seconds, 0);
+    });
+});
+
+describe("patchVariantDepartureTimeBodySchema", () => {
+    it("accepts null to clear departure time", () => {
+        const parsed = patchVariantDepartureTimeBodySchema.parse({
+            departureTimeText: null,
+        });
+        assert.equal(parsed.departureTimeText, null);
+    });
+
+    it("accepts strict HH:mm only", () => {
+        const parsed = patchVariantDepartureTimeBodySchema.parse({
+            departureTimeText: "05:00",
+        });
+        assert.equal(parsed.departureTimeText, "05:00");
+    });
+
+    it("rejects AM/PM and empty string", () => {
+        assert.equal(
+            patchVariantDepartureTimeBodySchema.safeParse({ departureTimeText: "05:00 AM" }).success,
+            false,
+        );
+        assert.equal(
+            patchVariantDepartureTimeBodySchema.safeParse({ departureTimeText: "" }).success,
+            false,
+        );
+        assert.equal(
+            patchVariantDepartureTimeBodySchema.safeParse({ departureTimeText: "   " }).success,
+            false,
+        );
+        assert.equal(
+            patchVariantDepartureTimeBodySchema.safeParse({ departureTimeText: "bad" }).success,
+            false,
+        );
+    });
+
+    it("rejects unknown keys (strict)", () => {
+        assert.equal(
+            patchVariantDepartureTimeBodySchema.safeParse({
+                departureTimeText: "05:00",
+                normalizedData: {},
+            }).success,
+            false,
+        );
     });
 });
 
@@ -555,8 +742,6 @@ describe("createAndInsertRouteStopBodySchema", () => {
     const base = {
         mode: "bus",
         stop_type: "stop",
-        longitude: 96.1,
-        latitude: 16.8,
         position: "end" as const,
     };
 
@@ -572,7 +757,7 @@ describe("createAndInsertRouteStopBodySchema", () => {
         );
     });
 
-    it("requires mode / stop_type / coordinates", () => {
+    it("requires mode / stop_type / position", () => {
         const { mode: _mode, ...noMode } = base;
         assert.equal(
             createAndInsertRouteStopBodySchema.safeParse({ ...noMode, name_en: "x" }).success,
@@ -582,9 +767,18 @@ describe("createAndInsertRouteStopBodySchema", () => {
             createAndInsertRouteStopBodySchema.safeParse({
                 ...base,
                 name_en: "x",
-                longitude: 200,
+                longitude: 96.1,
             }).success,
             false
+        );
+        assert.equal(
+            createAndInsertRouteStopBodySchema.safeParse({
+                ...base,
+                name_en: "x",
+                longitude: 96.1,
+                latitude: 16.8,
+            }).success,
+            true
         );
     });
 
@@ -714,5 +908,77 @@ describe("routeStopIdParamSchema", () => {
 
     it("accepts a numeric id", () => {
         assert.equal(routeStopIdParamSchema.parse({ id: "42" }).id, "42");
+    });
+});
+
+describe("stopMergePreviewBodySchema", () => {
+    it("accepts two different stop public ids", () => {
+        const parsed = stopMergePreviewBodySchema.parse({
+            currentStopId: "11111111-1111-4111-8111-111111111111",
+            candidateStopId: "22222222-2222-4222-8222-222222222222",
+        });
+        assert.equal(parsed.currentStopId, "11111111-1111-4111-8111-111111111111");
+    });
+
+    it("rejects identical stop ids", () => {
+        const id = "11111111-1111-4111-8111-111111111111";
+        assert.equal(
+            stopMergePreviewBodySchema.safeParse({
+                currentStopId: id,
+                candidateStopId: id,
+            }).success,
+            false,
+        );
+    });
+});
+
+describe("stopMergeGlobalBodySchema", () => {
+    it("accepts canonical and duplicate stop public ids", () => {
+        const parsed = stopMergeGlobalBodySchema.parse({
+            canonicalStopId: "11111111-1111-4111-8111-111111111111",
+            duplicateStopId: "22222222-2222-4222-8222-222222222222",
+            currentStopId: "11111111-1111-4111-8111-111111111111",
+            candidateStopId: "22222222-2222-4222-8222-222222222222",
+            reason: "Duplicate nearby stop",
+            fieldSources: { name_mm: "candidate" },
+        });
+        assert.equal(parsed.canonicalStopId, "11111111-1111-4111-8111-111111111111");
+        assert.equal(parsed.reason, "Duplicate nearby stop");
+    });
+
+    it("rejects identical stop ids", () => {
+        const id = "11111111-1111-4111-8111-111111111111";
+        assert.equal(
+            stopMergeGlobalBodySchema.safeParse({
+                canonicalStopId: id,
+                duplicateStopId: id,
+                currentStopId: id,
+                candidateStopId: id,
+            }).success,
+            false,
+        );
+    });
+
+    it("rejects merge ids that do not match compare ids", () => {
+        assert.equal(
+            stopMergeGlobalBodySchema.safeParse({
+                canonicalStopId: "11111111-1111-4111-8111-111111111111",
+                duplicateStopId: "22222222-2222-4222-8222-222222222222",
+                currentStopId: "33333333-3333-4333-8333-333333333333",
+                candidateStopId: "22222222-2222-4222-8222-222222222222",
+            }).success,
+            false,
+        );
+    });
+
+    it("accepts same-variant occurrence acknowledgment", () => {
+        const parsed = stopMergeGlobalBodySchema.parse({
+            canonicalStopId: "11111111-1111-4111-8111-111111111111",
+            duplicateStopId: "22222222-2222-4222-8222-222222222222",
+            currentStopId: "11111111-1111-4111-8111-111111111111",
+            candidateStopId: "22222222-2222-4222-8222-222222222222",
+            acknowledgeSameVariantOccurrences: true,
+        });
+        assert.equal(parsed.acknowledgeSameVariantOccurrences, true);
     });
 });

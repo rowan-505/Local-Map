@@ -51,7 +51,14 @@ PostGIS views (`tiles.*_v`) for PMTiles export. **Rendering only** — not busin
 
 ### `search` — search index
 
-`search_documents` and rebuild functions. Materialized from core via API scripts.
+Denormalized runtime store rebuilt from source views (not live triggers):
+
+- `search_documents`, `search_document_names` — unified public search
+- `address_index` — separate `/addresses/search` path
+- `search_index_runs`, `failed_search_logs` — ops telemetry
+- `search.rebuild_search_documents()`, `search.refresh_address_index()`
+
+See [Search system](../08-search-address-routing/search-system.md). Legacy tables `search_names` / `search_addresses` (migration 023) are unused.
 
 ### `app_auth` — users
 

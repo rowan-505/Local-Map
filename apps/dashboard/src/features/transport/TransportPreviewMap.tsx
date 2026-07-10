@@ -24,7 +24,7 @@ import type {
     Point,
     Position,
 } from "geojson";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import maplibregl from "maplibre-gl";
 
 import { useClientMounted } from "@/src/hooks/useClientMounted";
@@ -48,7 +48,8 @@ import {
 import { dashboardMyanmarTextFont } from "@/src/lib/map/dashboardMapFonts";
 import MapPreviewCard from "@/src/components/map/MapPreviewCard";
 
-import type { GeoJsonGeometry } from "./types";
+import { candidateMapLabelText } from "./reviewMapCandidateDisplay";
+import type { GeoJsonGeometry, TransportNearbyStopCandidate } from "./types";
 
 export type TransportPreviewLngLat = { lng: number; lat: number };
 
@@ -85,11 +86,6 @@ export type TransportPreviewMapProps = {
     routePathLegendLabel?: string | null;
     /** Ordered route stops → numbered points (+ dashed connector when no `routePath`). */
     routeStops?: ReadonlyArray<TransportPreviewStop>;
-    /**
-     * Review map: unsaved stop move previews keyed by route_stop id. Merged into
-     * the main stops source as display coordinates (draft wins over saved geom).
-     */
-    stopMoveDrafts?: Readonly<Record<string, { lng: number; lat: number }>>;
     /** Secondary linked point (e.g. a terminal's linked stop). */
     linkedPoint?: TransportPreviewLngLat | null;
 
@@ -143,15 +139,32 @@ export type TransportPreviewMapProps = {
      * (review map). Default: guide only when there is no route path overlay.
      */
     allowStopSequenceGuideWithPath?: boolean;
-    /** Highlight + label one ordered route stop (review map list selection). */
+    /** Highlight one ordered route stop (review map list selection). */
     selectedStopId?: string | null;
+    /** Exclude this stop public id from nearby candidate markers (the orange route stop). */
+    selectedRouteStopPublicId?: string | null;
+    /** Review map: in-map hint for nearby candidate search. */
+    candidateSearchHint?: string | null;
     /**
-     * Review map: click map to preview-move the selected stop. Ignored while
-     * {@link pathDrawing} is true.
+     * Review map: nearby stop candidates around the latest search point. Rendered as
+     * a separate purple layer; does not mutate route stop geometry.
      */
-    onStopMovePreview?: (coords: TransportPreviewLngLat) => void;
-    /** In-map hint while awaiting a map click to move the selected stop. */
-    stopMoveHint?: string | null;
+    nearbyCandidates?: ReadonlyArray<TransportNearbyStopCandidate>;
+    /** Highlight one nearby candidate (green). */
+    selectedCandidateId?: string | null;
+    onCandidateSelect?: (publicId: string | null) => void;
+    /**
+     * Review map: click the map to search nearby candidates at lng/lat.
+     */
+    onCandidateSearchRequest?: (
+        coords: TransportPreviewLngLat,
+        options: { immediate: boolean },
+    ) => void;
+    /**
+     * Review map: unsaved map-click position for the selected stop. Rendered as a
+     * separate orange marker; saved DB geometry stays on {@link routeStops}.
+     */
+    selectedStopPreviewPoint?: TransportPreviewLngLat | null;
     /** Review map path edit: show route-path vertices and allow vertex selection. */
     pathEditActive?: boolean;
     pathEditDraftCoords?: ReadonlyArray<[number, number]> | null;
@@ -159,6 +172,11 @@ export type TransportPreviewMapProps = {
     onPathVertexSelect?: (vertexIndex: number) => void;
     onPathEditDraftChange?: (coords: Array<[number, number]>) => void;
     pathEditHint?: string | null;
+    /**
+     * Optional ref populated with a getter for the current map center (review map
+     * placeholder geometry for empty variants).
+     */
+    mapCenterGetterRef?: MutableRefObject<(() => TransportPreviewLngLat | null) | null>;
 };
 
 const DEFAULT_HEIGHT_CLASS =
@@ -177,6 +195,9 @@ const SRC_PATH_VERTEX_SELECTED = "transport-preview-path-vertex-selected";
 const SRC_DRAFT_PATH = "transport-preview-draft-path";
 const SRC_DRAFT_VERTICES = "transport-preview-draft-vertices";
 const SRC_EDITABLE_POINT = "transport-preview-editable-point";
+const SRC_CANDIDATES = "transport-preview-candidates";
+const SRC_SELECTED_SAVED = "transport-preview-selected-saved";
+const SRC_SELECTED_PREVIEW = "transport-preview-selected-preview";
 
 const LYR_PATH = "transport-preview-path-line";
 const LYR_STOP_PREVIEW_CASING = "transport-preview-stop-dashed-casing";
@@ -193,12 +214,23 @@ const LYR_GEOM_LINE = "transport-preview-geom-line-line";
 const LYR_GEOM_POINT = "transport-preview-geom-point-circle";
 const LYR_STOPS_CIRCLE = "transport-preview-stops-circle";
 const LYR_STOPS_LABEL = "transport-preview-stops-label";
+const LYR_SELECTED_SAVED_CIRCLE = "transport-preview-selected-saved-circle";
+const LYR_SELECTED_SAVED_LABEL = "transport-preview-selected-saved-label";
+const LYR_SELECTED_PREVIEW_CIRCLE = "transport-preview-selected-preview-circle";
+const LYR_SELECTED_PREVIEW_LABEL = "transport-preview-selected-preview-label";
 const LYR_LINKED = "transport-preview-linked-circle";
 const LYR_VERTICES = "transport-preview-vertices-circle";
 const LYR_PATH_VERTEX_SELECTED = "transport-preview-path-vertex-selected";
 const LYR_DRAFT_PATH = "transport-preview-draft-path-line";
 const LYR_DRAFT_VERTICES = "transport-preview-draft-vertices-circle";
 const LYR_EDITABLE_POINT = "transport-preview-editable-point-circle";
+const LYR_CANDIDATES_CIRCLE = "transport-preview-candidates-circle";
+const LYR_CANDIDATES_LABEL = "transport-preview-candidates-label";
+
+const ROUTE_STOP_COLOR = "#1d4ed8";
+const ROUTE_STOP_SELECTED_COLOR = "#ea580c";
+const CANDIDATE_COLOR = "#9333ea";
+const CANDIDATE_SELECTED_COLOR = "#16a34a";
 
 const ORDERED_LAYER_IDS = [
     LYR_PATH,
@@ -212,6 +244,12 @@ const ORDERED_LAYER_IDS = [
     LYR_VERTICES,
     LYR_PATH_VERTEX_SELECTED,
     LYR_STOPS_LABEL,
+    LYR_SELECTED_SAVED_CIRCLE,
+    LYR_SELECTED_SAVED_LABEL,
+    LYR_SELECTED_PREVIEW_CIRCLE,
+    LYR_SELECTED_PREVIEW_LABEL,
+    LYR_CANDIDATES_CIRCLE,
+    LYR_CANDIDATES_LABEL,
     LYR_DRAFT_PATH,
     LYR_DRAFT_VERTICES,
     LYR_EDITABLE_POINT,
@@ -301,10 +339,36 @@ function singleFeature(geometry: GeoJsonGeometry): FeatureCollection<Geometry> {
     };
 }
 
-function stopsToDisplayFeatures(
-    stops: ReadonlyArray<TransportPreviewStop>,
-    drafts?: Readonly<Record<string, { lng: number; lat: number }>>,
-): {
+function labeledPointFc(
+    point: TransportPreviewLngLat,
+    labelText: string,
+): FeatureCollection<Point> {
+    return {
+        type: "FeatureCollection",
+        features: [
+            {
+                type: "Feature",
+                properties: { labelText },
+                geometry: { type: "Point", coordinates: [point.lng, point.lat] },
+            },
+        ],
+    };
+}
+
+/** Fixed radius for review-map saved / preview selected-stop markers. */
+const SELECTED_STOP_MARKER_RADIUS: maplibregl.ExpressionSpecification = [
+    "interpolate",
+    ["linear"],
+    ["zoom"],
+    12,
+    9,
+    14,
+    11,
+    18,
+    13,
+];
+
+function stopsToDisplayFeatures(stops: ReadonlyArray<TransportPreviewStop>): {
     fc: FeatureCollection<Point>;
     ordered: Position[];
 } {
@@ -314,9 +378,8 @@ function stopsToDisplayFeatures(
         if (!stop.id) {
             continue;
         }
-        const draft = drafts?.[stop.id];
-        const lng = draft?.lng ?? stop.lng;
-        const lat = draft?.lat ?? stop.lat;
+        const lng = stop.lng;
+        const lat = stop.lat;
         if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
             continue;
         }
@@ -324,11 +387,11 @@ function stopsToDisplayFeatures(
         ordered.push(coords);
         features.push({
             type: "Feature",
+            id: stop.id,
             properties: {
                 id: stop.id,
                 sequence: stop.sequence ?? features.length + 1,
                 name: stop.name ?? "",
-                moved: Boolean(draft),
             },
             geometry: { type: "Point", coordinates: coords },
         });
@@ -337,6 +400,46 @@ function stopsToDisplayFeatures(
 }
 
 /** Re-apply selection after setData — GeoJSON updates clear feature-state. */
+function candidatesToFeatureCollection(
+    candidates: ReadonlyArray<TransportNearbyStopCandidate>,
+    excludePublicId: string | null | undefined,
+): FeatureCollection<Point> {
+    return {
+        type: "FeatureCollection",
+        features: candidates
+            .filter((candidate) => !excludePublicId || candidate.publicId !== excludePublicId)
+            .map((candidate) => ({
+                type: "Feature",
+                id: candidate.publicId,
+                properties: {
+                    id: candidate.publicId,
+                    labelText: candidateMapLabelText(candidate),
+                },
+                geometry: {
+                    type: "Point",
+                    coordinates: [candidate.lng, candidate.lat],
+                },
+            })),
+    };
+}
+
+function reapplySelectedCandidateFeatureState(
+    map: maplibregl.Map,
+    selectedCandidateId: string | null,
+): void {
+    if (!selectedCandidateId) {
+        return;
+    }
+    try {
+        map.setFeatureState(
+            { source: SRC_CANDIDATES, id: selectedCandidateId },
+            { selected: true },
+        );
+    } catch {
+        // Feature may not be in the source yet on the same tick as setData.
+    }
+}
+
 function reapplySelectedStopFeatureState(
     map: maplibregl.Map,
     selectedStopId: string | null,
@@ -357,60 +460,32 @@ const STOP_CIRCLE_RADIUS_PAINT: maplibregl.ExpressionSpecification = [
     ["linear"],
     ["zoom"],
     9,
-    [
-        "case",
-        ["boolean", ["feature-state", "selected"], false],
-        7,
-        ["boolean", ["get", "moved"], false],
-        5,
-        3.5,
-    ],
+    ["case", ["boolean", ["feature-state", "selected"], false], 7, 3.5],
     14,
-    [
-        "case",
-        ["boolean", ["feature-state", "selected"], false],
-        10,
-        ["boolean", ["get", "moved"], false],
-        7,
-        6,
-    ],
+    ["case", ["boolean", ["feature-state", "selected"], false], 10, 6],
     18,
-    [
-        "case",
-        ["boolean", ["feature-state", "selected"], false],
-        13,
-        ["boolean", ["get", "moved"], false],
-        9,
-        8,
-    ],
+    ["case", ["boolean", ["feature-state", "selected"], false], 13, 8],
 ];
 
-const STOP_CIRCLE_COLOR_PAINT: maplibregl.ExpressionSpecification = [
+const STOP_SELECTED_ORANGE_PAINT: maplibregl.ExpressionSpecification = [
     "case",
     ["boolean", ["feature-state", "selected"], false],
-    "#ea580c",
-    ["boolean", ["get", "moved"], false],
-    "#d97706",
-    "#1d4ed8",
+    ROUTE_STOP_SELECTED_COLOR,
+    ROUTE_STOP_COLOR,
 ];
+
+const STOP_CIRCLE_COLOR_PAINT: maplibregl.ExpressionSpecification = STOP_SELECTED_ORANGE_PAINT;
 
 const STOP_CIRCLE_STROKE_WIDTH_PAINT: maplibregl.ExpressionSpecification = [
     "case",
     ["boolean", ["feature-state", "selected"], false],
     3,
-    ["boolean", ["get", "moved"], false],
-    2.5,
     2,
 ];
 
-const STOP_CIRCLE_STROKE_COLOR_PAINT: maplibregl.ExpressionSpecification = [
-    "case",
-    ["boolean", ["feature-state", "selected"], false],
-    "#ffffff",
-    ["boolean", ["get", "moved"], false],
-    "#f59e0b",
-    "#ffffff",
-];
+const STOP_CIRCLE_STROKE_COLOR = "#ffffff";
+
+const STOP_CIRCLE_OPACITY_PAINT: maplibregl.ExpressionSpecification = ["literal", 0.95];
 
 function applyStopPinLayerStyles(map: maplibregl.Map): void {
     if (!map.getLayer(LYR_STOPS_CIRCLE)) {
@@ -418,9 +493,9 @@ function applyStopPinLayerStyles(map: maplibregl.Map): void {
     }
     map.setPaintProperty(LYR_STOPS_CIRCLE, "circle-radius", STOP_CIRCLE_RADIUS_PAINT);
     map.setPaintProperty(LYR_STOPS_CIRCLE, "circle-color", STOP_CIRCLE_COLOR_PAINT);
-    map.setPaintProperty(LYR_STOPS_CIRCLE, "circle-opacity", 0.95);
+    map.setPaintProperty(LYR_STOPS_CIRCLE, "circle-opacity", STOP_CIRCLE_OPACITY_PAINT);
     map.setPaintProperty(LYR_STOPS_CIRCLE, "circle-stroke-width", STOP_CIRCLE_STROKE_WIDTH_PAINT);
-    map.setPaintProperty(LYR_STOPS_CIRCLE, "circle-stroke-color", STOP_CIRCLE_STROKE_COLOR_PAINT);
+    map.setPaintProperty(LYR_STOPS_CIRCLE, "circle-stroke-color", STOP_CIRCLE_STROKE_COLOR);
 
     if (!map.getLayer(LYR_STOPS_LABEL)) {
         return;
@@ -436,7 +511,7 @@ function applyStopPinLayerStyles(map: maplibregl.Map): void {
         "case",
         ["boolean", ["feature-state", "selected"], false],
         "#c2410c",
-        ["case", ["boolean", ["get", "moved"], false], "#b45309", "#1e3a8a"],
+        "#1e3a8a",
     ]);
     map.setPaintProperty(LYR_STOPS_LABEL, "text-halo-color", "#ffffff");
     map.setPaintProperty(LYR_STOPS_LABEL, "text-halo-width", [
@@ -445,6 +520,7 @@ function applyStopPinLayerStyles(map: maplibregl.Map): void {
         2,
         1.4,
     ]);
+    map.setPaintProperty(LYR_STOPS_LABEL, "text-opacity", 1);
 }
 
 function pathEditVerticesFc(geometry: Geometry): FeatureCollection<Point> {
@@ -741,6 +817,16 @@ function ensureLayers(map: maplibregl.Map): void {
         map.addSource(SRC_STOPS, { type: "geojson", data: emptyFc(), promoteId: "id" });
     }
 
+    if (!map.getSource(SRC_CANDIDATES)) {
+        map.addSource(SRC_CANDIDATES, { type: "geojson", data: emptyFc(), promoteId: "id" });
+    }
+
+    for (const id of [SRC_SELECTED_SAVED, SRC_SELECTED_PREVIEW]) {
+        if (!map.getSource(id)) {
+            map.addSource(id, { type: "geojson", data: emptyFc() });
+        }
+    }
+
     if (!map.getSource(SRC_PATH_VERTEX_SELECTED)) {
         map.addSource(SRC_PATH_VERTEX_SELECTED, {
             type: "geojson",
@@ -853,7 +939,7 @@ function ensureLayers(map: maplibregl.Map): void {
                 "circle-color": STOP_CIRCLE_COLOR_PAINT,
                 "circle-opacity": 0.95,
                 "circle-stroke-width": STOP_CIRCLE_STROKE_WIDTH_PAINT,
-                "circle-stroke-color": STOP_CIRCLE_STROKE_COLOR_PAINT,
+                "circle-stroke-color": STOP_CIRCLE_STROKE_COLOR,
             },
         });
     }
@@ -882,6 +968,143 @@ function ensureLayers(map: maplibregl.Map): void {
     }
 
     applyStopPinLayerStyles(map);
+
+    if (!map.getLayer(LYR_SELECTED_SAVED_CIRCLE)) {
+        map.addLayer({
+            id: LYR_SELECTED_SAVED_CIRCLE,
+            type: "circle",
+            source: SRC_SELECTED_SAVED,
+            paint: {
+                "circle-radius": SELECTED_STOP_MARKER_RADIUS,
+                "circle-color": ROUTE_STOP_COLOR,
+                "circle-opacity": 0.95,
+                "circle-stroke-width": 3,
+                "circle-stroke-color": "#ffffff",
+            },
+        });
+    }
+
+    if (!map.getLayer(LYR_SELECTED_SAVED_LABEL)) {
+        map.addLayer({
+            id: LYR_SELECTED_SAVED_LABEL,
+            type: "symbol",
+            source: SRC_SELECTED_SAVED,
+            minzoom: 12,
+            layout: {
+                "text-field": ["get", "labelText"],
+                "text-font": dashboardMyanmarTextFont(),
+                "text-size": 11,
+                "text-offset": [0, 1.35],
+                "text-anchor": "top",
+                "text-optional": true,
+                "text-allow-overlap": true,
+                "text-max-width": 12,
+            },
+            paint: {
+                "text-color": "#1e3a8a",
+                "text-halo-color": "#ffffff",
+                "text-halo-width": 1.5,
+            },
+        });
+    }
+
+    if (!map.getLayer(LYR_SELECTED_PREVIEW_CIRCLE)) {
+        map.addLayer({
+            id: LYR_SELECTED_PREVIEW_CIRCLE,
+            type: "circle",
+            source: SRC_SELECTED_PREVIEW,
+            paint: {
+                "circle-radius": SELECTED_STOP_MARKER_RADIUS,
+                "circle-color": ROUTE_STOP_SELECTED_COLOR,
+                "circle-opacity": 0.95,
+                "circle-stroke-width": 3,
+                "circle-stroke-color": "#ffffff",
+            },
+        });
+    }
+
+    if (!map.getLayer(LYR_SELECTED_PREVIEW_LABEL)) {
+        map.addLayer({
+            id: LYR_SELECTED_PREVIEW_LABEL,
+            type: "symbol",
+            source: SRC_SELECTED_PREVIEW,
+            minzoom: 12,
+            layout: {
+                "text-field": ["get", "labelText"],
+                "text-font": dashboardMyanmarTextFont(),
+                "text-size": 11,
+                "text-offset": [0, 1.35],
+                "text-anchor": "top",
+                "text-optional": true,
+                "text-allow-overlap": true,
+                "text-max-width": 12,
+            },
+            paint: {
+                "text-color": "#c2410c",
+                "text-halo-color": "#ffffff",
+                "text-halo-width": 1.5,
+            },
+        });
+    }
+
+    if (!map.getLayer(LYR_CANDIDATES_CIRCLE)) {
+        map.addLayer({
+            id: LYR_CANDIDATES_CIRCLE,
+            type: "circle",
+            source: SRC_CANDIDATES,
+            paint: {
+                "circle-radius": [
+                    "case",
+                    ["boolean", ["feature-state", "selected"], false],
+                    8,
+                    6,
+                ],
+                "circle-color": [
+                    "case",
+                    ["boolean", ["feature-state", "selected"], false],
+                    CANDIDATE_SELECTED_COLOR,
+                    CANDIDATE_COLOR,
+                ],
+                "circle-opacity": 0.95,
+                "circle-stroke-width": [
+                    "case",
+                    ["boolean", ["feature-state", "selected"], false],
+                    3,
+                    2,
+                ],
+                "circle-stroke-color": "#ffffff",
+            },
+        });
+    }
+
+    if (!map.getLayer(LYR_CANDIDATES_LABEL)) {
+        map.addLayer({
+            id: LYR_CANDIDATES_LABEL,
+            type: "symbol",
+            source: SRC_CANDIDATES,
+            minzoom: 12,
+            layout: {
+                "text-field": ["get", "labelText"],
+                "text-font": dashboardMyanmarTextFont(),
+                "text-size": 11,
+                "text-offset": [0, 1.35],
+                "text-anchor": "top",
+                "text-optional": true,
+                "text-allow-overlap": true,
+                "text-max-width": 12,
+            },
+            paint: {
+                "text-color": [
+                    "case",
+                    ["boolean", ["feature-state", "selected"], false],
+                    "#15803d",
+                    "#6b21a8",
+                ],
+                "text-halo-color": "#ffffff",
+                "text-halo-width": 1.5,
+            },
+        });
+    }
 
     if (!map.getLayer(LYR_LINKED)) {
         map.addLayer({
@@ -1006,7 +1229,6 @@ export default function TransportPreviewMap({
     routePathLineStyle = null,
     routePathLegendLabel = null,
     routeStops,
-    stopMoveDrafts,
     linkedPoint = null,
     editablePoint = null,
     editablePointColor = "#1d4ed8",
@@ -1027,14 +1249,20 @@ export default function TransportPreviewMap({
     showStopSequenceGuide = true,
     allowStopSequenceGuideWithPath = false,
     selectedStopId = null,
-    onStopMovePreview,
-    stopMoveHint = null,
+    selectedRouteStopPublicId = null,
+    candidateSearchHint = null,
+    nearbyCandidates = [],
+    selectedCandidateId = null,
+    onCandidateSelect,
+    onCandidateSearchRequest,
+    selectedStopPreviewPoint = null,
     pathEditActive = false,
     pathEditDraftCoords = null,
     selectedPathVertexIndex = null,
     onPathVertexSelect,
     onPathEditDraftChange,
     pathEditHint = null,
+    mapCenterGetterRef,
 }: TransportPreviewMapProps) {
     const clientMounted = useClientMounted();
     const transportBasemap = useTransportDashboardBasemapMode();
@@ -1050,7 +1278,9 @@ export default function TransportPreviewMap({
     const lastAutoFitSignatureRef = useRef<string | null>(null);
     const onPointChangeRef = useRef<typeof onPointChange>(onPointChange);
     const onDraftPathAddPointRef = useRef<typeof onDraftPathAddPoint>(onDraftPathAddPoint);
-    const onStopMovePreviewRef = useRef<typeof onStopMovePreview>(onStopMovePreview);
+    const onCandidateSelectRef = useRef<typeof onCandidateSelect>(onCandidateSelect);
+    const onCandidateSearchRequestRef =
+        useRef<typeof onCandidateSearchRequest>(onCandidateSearchRequest);
     const onPathVertexSelectRef = useRef<typeof onPathVertexSelect>(onPathVertexSelect);
     const onPathEditDraftChangeRef = useRef<typeof onPathEditDraftChange>(onPathEditDraftChange);
     const pathEditDragRef = useRef<{
@@ -1076,8 +1306,12 @@ export default function TransportPreviewMap({
     }, [onDraftPathAddPoint]);
 
     useEffect(() => {
-        onStopMovePreviewRef.current = onStopMovePreview;
-    }, [onStopMovePreview]);
+        onCandidateSelectRef.current = onCandidateSelect;
+    }, [onCandidateSelect]);
+
+    useEffect(() => {
+        onCandidateSearchRequestRef.current = onCandidateSearchRequest;
+    }, [onCandidateSearchRequest]);
 
     useEffect(() => {
         onPathVertexSelectRef.current = onPathVertexSelect;
@@ -1087,45 +1321,98 @@ export default function TransportPreviewMap({
         onPathEditDraftChangeRef.current = onPathEditDraftChange;
     }, [onPathEditDraftChange]);
 
+    useEffect(() => {
+        if (!mapCenterGetterRef) {
+            return;
+        }
+        if (!mapReady) {
+            mapCenterGetterRef.current = null;
+            return;
+        }
+        mapCenterGetterRef.current = () => {
+            const map = mapRef.current;
+            if (!map) {
+                return null;
+            }
+            const center = map.getCenter();
+            return { lng: center.lng, lat: center.lat };
+        };
+        return () => {
+            mapCenterGetterRef.current = null;
+        };
+    }, [mapCenterGetterRef, mapReady]);
+
     const stops = useMemo(() => routeStops ?? [], [routeStops]);
 
-    const stopsGeo = useMemo(
-        () => stopsToDisplayFeatures(stops, stopMoveDrafts),
-        [stops, stopMoveDrafts],
+    const useSplitSelectedStopMarkers = Boolean(onCandidateSearchRequest && selectedStopId);
+
+    const displayStops = useMemo(() => {
+        if (!useSplitSelectedStopMarkers || !selectedStopId) {
+            return stops;
+        }
+        return stops.filter((stop) => stop.id !== selectedStopId);
+    }, [stops, useSplitSelectedStopMarkers, selectedStopId]);
+
+    const stopsGeo = useMemo(() => stopsToDisplayFeatures(displayStops), [displayStops]);
+
+    const sequenceGuideStopsGeo = useMemo(() => stopsToDisplayFeatures(stops), [stops]);
+
+    const selectedSavedMarkerFc = useMemo(() => {
+        if (!useSplitSelectedStopMarkers || !selectedStopId) {
+            return emptyFc();
+        }
+        const stop = stops.find((row) => row.id === selectedStopId);
+        if (!stop || !isValidPreviewPoint(stop)) {
+            return emptyFc();
+        }
+        return labeledPointFc(stop, "Selected · Saved");
+    }, [useSplitSelectedStopMarkers, selectedStopId, stops]);
+
+    const selectedPreviewMarkerFc = useMemo(() => {
+        if (!useSplitSelectedStopMarkers || !isValidPreviewPoint(selectedStopPreviewPoint)) {
+            return emptyFc();
+        }
+        return labeledPointFc(selectedStopPreviewPoint, "Selected · Preview");
+    }, [useSplitSelectedStopMarkers, selectedStopPreviewPoint]);
+
+    const candidatesFc = useMemo(
+        () => candidatesToFeatureCollection(nearbyCandidates, selectedRouteStopPublicId),
+        [nearbyCandidates, selectedRouteStopPublicId],
     );
 
     const showStopSequenceGuideLine = useMemo(
         () =>
             shouldShowStopSequenceGuide(
                 showStopSequenceGuide,
-                stopsGeo.ordered.length,
+                sequenceGuideStopsGeo.ordered.length,
                 routePath,
                 allowStopSequenceGuideWithPath,
             ),
-        [showStopSequenceGuide, stopsGeo.ordered.length, routePath, allowStopSequenceGuideWithPath],
+        [
+            showStopSequenceGuide,
+            sequenceGuideStopsGeo.ordered.length,
+            routePath,
+            allowStopSequenceGuideWithPath,
+        ],
     );
 
     const stopSequenceGuideData = useMemo(
-        () => (showStopSequenceGuideLine ? stopSequenceGuideFc(stopsGeo.ordered) : emptyFc()),
-        [showStopSequenceGuideLine, stopsGeo.ordered],
+        () =>
+            showStopSequenceGuideLine
+                ? stopSequenceGuideFc(sequenceGuideStopsGeo.ordered)
+                : emptyFc(),
+        [showStopSequenceGuideLine, sequenceGuideStopsGeo.ordered],
     );
 
     const stopsById = useMemo(() => {
         const out = new Map<string, TransportPreviewStop>();
         for (const stop of stops) {
-            if (!stop.id) {
-                continue;
+            if (stop.id) {
+                out.set(stop.id, stop);
             }
-            const draft = stopMoveDrafts?.[stop.id];
-            out.set(
-                stop.id,
-                draft
-                    ? { ...stop, lng: draft.lng, lat: draft.lat, moved: true }
-                    : stop,
-            );
         }
         return out;
-    }, [stops, stopMoveDrafts]);
+    }, [stops]);
 
     /** A dashed stop-sequence guide connects ordered stops when no route path exists (or in review map). */
     const hasStopPreviewLine = showStopSequenceGuideLine;
@@ -1147,11 +1434,11 @@ export default function TransportPreviewMap({
         if (isLineGeometry(geometry)) {
             return geometry as unknown as Geometry;
         }
-        if (hasStopPreviewLine && stopsGeo.ordered.length >= 2) {
-            return { type: "LineString", coordinates: stopsGeo.ordered } as Geometry;
+        if (hasStopPreviewLine && sequenceGuideStopsGeo.ordered.length >= 2) {
+            return { type: "LineString", coordinates: sequenceGuideStopsGeo.ordered } as Geometry;
         }
         return null;
-    }, [routePath, geometry, hasStopPreviewLine, stopsGeo.ordered]);
+    }, [routePath, geometry, hasStopPreviewLine, sequenceGuideStopsGeo.ordered]);
 
     const hasLineGeometry = vertexLineGeometry !== null;
     const hasRenderable =
@@ -1293,7 +1580,24 @@ export default function TransportPreviewMap({
 
             const { fc: stopsFc } = stopsGeo;
             setSourceData(map, SRC_STOPS, stopsFc as FeatureCollection<Geometry>);
-            reapplySelectedStopFeatureState(map, selectedStopId);
+            if (useSplitSelectedStopMarkers) {
+                setSourceData(
+                    map,
+                    SRC_SELECTED_SAVED,
+                    selectedSavedMarkerFc as FeatureCollection<Geometry>,
+                );
+                setSourceData(
+                    map,
+                    SRC_SELECTED_PREVIEW,
+                    selectedPreviewMarkerFc as FeatureCollection<Geometry>,
+                );
+            } else {
+                setSourceData(map, SRC_SELECTED_SAVED, emptyFc());
+                setSourceData(map, SRC_SELECTED_PREVIEW, emptyFc());
+                reapplySelectedStopFeatureState(map, selectedStopId);
+            }
+            setSourceData(map, SRC_CANDIDATES, candidatesFc as FeatureCollection<Geometry>);
+            reapplySelectedCandidateFeatureState(map, selectedCandidateId);
 
             if (showStopSequenceGuideLine) {
                 setSourceData(map, SRC_STOP_PREVIEW, stopSequenceGuideData);
@@ -1395,10 +1699,16 @@ export default function TransportPreviewMap({
         fitToContent,
         routePathLineStyle,
         selectedStopId,
+        selectedCandidateId,
+        candidatesFc,
         basemapMode,
+        useSplitSelectedStopMarkers,
+        selectedSavedMarkerFc,
+        selectedPreviewMarkerFc,
     ]);
 
     const prevSelectedStopIdRef = useRef<string | null>(null);
+    const prevSelectedCandidateIdRef = useRef<string | null>(null);
     const selectionPanTargetRef = useRef<string | null>(null);
 
     // Selection highlight via feature-state (no GeoJSON rebuild on click).
@@ -1415,11 +1725,24 @@ export default function TransportPreviewMap({
             ensureLayers(map);
 
             const prev = prevSelectedStopIdRef.current;
-            if (prev && prev !== selectedStopId) {
-                map.removeFeatureState({ source: SRC_STOPS, id: prev }, "selected");
-            }
-            if (selectedStopId) {
-                map.setFeatureState({ source: SRC_STOPS, id: selectedStopId }, { selected: true });
+            if (useSplitSelectedStopMarkers) {
+                if (prev) {
+                    try {
+                        map.removeFeatureState({ source: SRC_STOPS, id: prev });
+                    } catch {
+                        // Feature may not be in the source when using split markers.
+                    }
+                }
+            } else {
+                if (prev && prev !== selectedStopId) {
+                    map.removeFeatureState({ source: SRC_STOPS, id: prev });
+                }
+                if (selectedStopId) {
+                    map.setFeatureState(
+                        { source: SRC_STOPS, id: selectedStopId },
+                        { selected: true },
+                    );
+                }
             }
             prevSelectedStopIdRef.current = selectedStopId;
 
@@ -1463,7 +1786,48 @@ export default function TransportPreviewMap({
         return () => {
             map.off("idle", onIdle);
         };
-    }, [mapReady, selectedStopId, stopsById, pointZoom]);
+    }, [mapReady, selectedStopId, stopsById, pointZoom, useSplitSelectedStopMarkers]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) {
+            return;
+        }
+
+        const apply = () => {
+            if (map !== mapRef.current || !map.isStyleLoaded()) {
+                return false;
+            }
+            ensureLayers(map);
+
+            const prev = prevSelectedCandidateIdRef.current;
+            if (prev && prev !== selectedCandidateId) {
+                map.removeFeatureState({ source: SRC_CANDIDATES, id: prev }, "selected");
+            }
+            if (selectedCandidateId) {
+                map.setFeatureState(
+                    { source: SRC_CANDIDATES, id: selectedCandidateId },
+                    { selected: true },
+                );
+            }
+            prevSelectedCandidateIdRef.current = selectedCandidateId;
+            return true;
+        };
+
+        if (apply()) {
+            return;
+        }
+
+        const onIdle = () => {
+            if (apply()) {
+                map.off("idle", onIdle);
+            }
+        };
+        map.on("idle", onIdle);
+        return () => {
+            map.off("idle", onIdle);
+        };
+    }, [mapReady, selectedCandidateId]);
 
     useEffect(() => {
         if (!fitRequestId) {
@@ -1499,7 +1863,9 @@ export default function TransportPreviewMap({
                 collectReviewVariantFitPositions({
                     routePath,
                     stops: displayStops,
-                    sequenceGuideOrdered: showStopSequenceGuideLine ? stopsGeo.ordered : [],
+                    sequenceGuideOrdered: showStopSequenceGuideLine
+                        ? sequenceGuideStopsGeo.ordered
+                        : [],
                 }),
             );
             applyFitTarget(map, target, cameraOptions);
@@ -1516,7 +1882,7 @@ export default function TransportPreviewMap({
         stopsById,
         routePath,
         showStopSequenceGuideLine,
-        stopsGeo.ordered,
+        sequenceGuideStopsGeo.ordered,
         initialZoom,
         pointZoom,
     ]);
@@ -1929,30 +2295,90 @@ export default function TransportPreviewMap({
         };
     }, [mapReady, pathDrawing, onDraftPathAddPoint]);
 
-    // --- Click map to preview-move selected review-map stop. ----------------
+    // --- Review map: click to search candidates or select a candidate marker.
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || !mapReady || pathDrawing || pathEditActive || !onStopMovePreview) {
+        if (!map || !mapReady || pathDrawing || pathEditActive || !onCandidateSearchRequest) {
             return;
         }
-        const handler = (e: maplibregl.MapMouseEvent) => {
-            onStopMovePreviewRef.current?.({ lng: e.lngLat.lng, lat: e.lngLat.lat });
+
+        const queryCandidateAt = (event: maplibregl.MapMouseEvent): string | null => {
+            if (!map.getLayer(LYR_CANDIDATES_CIRCLE)) {
+                return null;
+            }
+            const features = map.queryRenderedFeatures(event.point, {
+                layers: [LYR_CANDIDATES_CIRCLE],
+            });
+            const feature = features[0];
+            const publicId = feature?.properties?.id;
+            return typeof publicId === "string" && publicId.length > 0 ? publicId : null;
         };
-        map.on("click", handler);
+
+        const querySelectedStopAt = (event: maplibregl.MapMouseEvent): boolean => {
+            if (!selectedStopId || !map.getLayer(LYR_STOPS_CIRCLE)) {
+                return false;
+            }
+            const features = map.queryRenderedFeatures(event.point, {
+                layers: [LYR_STOPS_CIRCLE],
+            });
+            return features.some((feature) => feature.properties?.id === selectedStopId);
+        };
+
+        const querySplitSelectedMarkerAt = (
+            event: maplibregl.MapMouseEvent,
+            layerId: string,
+        ): boolean => {
+            if (!map.getLayer(layerId)) {
+                return false;
+            }
+            return (
+                map.queryRenderedFeatures(event.point, { layers: [layerId] }).length > 0
+            );
+        };
+
+        const onClick = (event: maplibregl.MapMouseEvent) => {
+            const candidateId = queryCandidateAt(event);
+            if (candidateId) {
+                onCandidateSelectRef.current?.(candidateId);
+                return;
+            }
+
+            if (
+                querySplitSelectedMarkerAt(event, LYR_SELECTED_PREVIEW_CIRCLE) ||
+                querySplitSelectedMarkerAt(event, LYR_SELECTED_SAVED_CIRCLE) ||
+                querySelectedStopAt(event)
+            ) {
+                onCandidateSelectRef.current?.(null);
+                return;
+            }
+
+            const coords = { lng: event.lngLat.lng, lat: event.lngLat.lat };
+            onCandidateSearchRequestRef.current?.(coords, { immediate: true });
+        };
+
+        map.on("click", onClick);
         map.getCanvas().style.cursor = "crosshair";
+
         return () => {
-            map.off("click", handler);
+            map.off("click", onClick);
             if (mapRef.current) {
                 mapRef.current.getCanvas().style.cursor = "";
             }
         };
-    }, [mapReady, pathDrawing, pathEditActive, onStopMovePreview]);
+    }, [
+        mapReady,
+        pathDrawing,
+        pathEditActive,
+        onCandidateSearchRequest,
+        onCandidateSelect,
+        selectedStopId,
+    ]);
 
     const handleFit = useCallback(() => {
         fitToContent(550);
     }, [fitToContent]);
 
-    const mapInteractionHint = pathEditHint ?? editingHint ?? stopMoveHint;
+    const mapInteractionHint = pathEditHint ?? editingHint ?? candidateSearchHint;
     const showRoutePathLegend = Boolean(
         routePathLegendLabel && isDrawable(routePath) && routePathLineStyle,
     );

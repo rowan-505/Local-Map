@@ -29,6 +29,10 @@ config({ path: resolve(repoRoot, ".env") });
 config({ path: resolve(apiRoot, ".env"), override: true });
 
 import { prisma } from "../db/prisma.js";
+import {
+    guardDeprecatedSearchRebuildViews,
+    rebuildSearchFamilies,
+} from "../modules/search/search-family-rebuild.js";
 
 /** Light views: everything cheap (no street_groups). Keeps `addresses`. */
 const LIGHT_VIEWS = [
@@ -37,6 +41,7 @@ const LIGHT_VIEWS = [
     "addresses",
     "bus_stops",
     "bus_routes",
+    "transport_terminals",
     "buildings",
     "water_lines",
     "water_polygons",
@@ -48,9 +53,6 @@ const STREET_GROUP_VIEWS = ["street_groups"] as const;
 
 /** Full normal rebuild = light views + grouped streets. Never per-segment streets. */
 const FULL_VIEWS = [...LIGHT_VIEWS, ...STREET_GROUP_VIEWS] as const;
-
-/** Deprecated per-segment street views (removed in migration 121). */
-const DEPRECATED_VIEWS = new Set(["streets", "street"]);
 
 const PRESETS: Record<string, readonly string[]> = {
     full: FULL_VIEWS,
@@ -89,64 +91,25 @@ function resolveRequestedViews(): string[] {
     return [...views];
 }
 
-/**
- * Strip deprecated per-segment street views and warn loudly. Returns the safe
- * list. Throws if, after stripping, nothing is left to rebuild.
- */
-function guardDeprecatedViews(views: string[]): string[] {
-    const requestedDeprecated = views.filter((v) => DEPRECATED_VIEWS.has(v));
-    if (requestedDeprecated.length > 0) {
-        console.warn(
-            "\n[rebuild-search-index] ⚠️  DEPRECATED: per-segment street rebuild " +
-                `(${requestedDeprecated.join(", ")}) is no longer supported.\n` +
-                "  Streets are indexed as grouped roads via 'street_groups'. " +
-                "Ignoring the deprecated view(s).\n",
-        );
-    }
-
-    const safe = views.filter((v) => !DEPRECATED_VIEWS.has(v));
-    if (safe.length === 0) {
-        throw new Error(
-            "No valid views to rebuild after removing deprecated per-segment streets. " +
-                "Use 'street_groups' instead.",
-        );
-    }
-    return safe;
-}
-
-type RebuildResult = {
-    run_id: number;
-    status: string;
-    requested_views: string[];
-    entity_counts: Record<string, unknown>;
-};
-
-async function rebuildViews(views: string[]): Promise<RebuildResult | undefined> {
-    // Disable statement_timeout on this connection BEFORE the call (it is armed
-    // when the statement begins, so changing it inside the function is too late).
-    const rows = await prisma.$transaction(
-        async (tx) => {
-            await tx.$executeRawUnsafe("SET LOCAL statement_timeout = 0");
-            return tx.$queryRawUnsafe<Array<{ rebuild_search_documents: RebuildResult }>>(
-                "SELECT search.rebuild_search_documents($1::text[]) AS rebuild_search_documents",
-                views,
-            );
-        },
-        { timeout: 30 * 60 * 1000, maxWait: 60 * 1000 },
-    );
-
-    return rows[0]?.rebuild_search_documents;
-}
-
 async function main(): Promise<void> {
-    const requested = guardDeprecatedViews(resolveRequestedViews());
+    const requested = guardDeprecatedSearchRebuildViews(resolveRequestedViews());
 
     const startedAt = new Date();
     console.log("[rebuild-search-index] Connection: direct Postgres (Prisma), not Supabase SQL Editor.");
     console.log(`[rebuild-search-index] Requested views: ${requested.join(", ")}`);
     console.log(`[rebuild-search-index] Started:  ${startedAt.toISOString()}`);
 
-    const result = await rebuildViews(requested);
+    const outcome = await rebuildSearchFamilies(prisma, requested, {
+        info: (obj, msg) => console.log(`[rebuild-search-index] ${msg}`, obj),
+        error: (obj, msg) => console.error(`[rebuild-search-index] ${msg}`, obj),
+    });
+    const result = outcome
+        ? {
+              run_id: outcome.run_id ?? undefined,
+              status: outcome.status,
+              entity_counts: outcome.entity_counts,
+          }
+        : undefined;
 
     const finishedAt = new Date();
     const secs = ((finishedAt.getTime() - startedAt.getTime()) / 1000).toFixed(1);
@@ -163,7 +126,6 @@ async function main(): Promise<void> {
         console.log(`  ${row.entity_type}: ${Number(row.cnt)}`);
     }
 
-    // Surface a non-zero exit on a partial/failed rebuild so CI/operators notice.
     const status = (result?.status ?? "").toLowerCase();
     if (status.includes("error") || status.includes("fail")) {
         console.error(`[rebuild-search-index] ⚠️  Rebuild reported status "${result?.status}".`);

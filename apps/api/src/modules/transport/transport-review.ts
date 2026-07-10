@@ -146,6 +146,22 @@ export type RouteReviewReadiness = {
     warnings: string[];
 };
 
+/** Merges readiness blockers and warnings for diagnostics display (deduped, stable order). */
+export function collectRouteValidationWarnings(readiness: RouteReviewReadiness): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const message of [
+        ...readiness.blockers,
+        ...readiness.warnings,
+        ...readiness.mark_reviewed_blockers,
+    ]) {
+        if (seen.has(message)) continue;
+        seen.add(message);
+        out.push(message);
+    }
+    return out;
+}
+
 export function buildRouteMarkReviewedReadiness(input: {
     names_complete: boolean;
     has_variants: boolean;
@@ -153,8 +169,11 @@ export function buildRouteMarkReviewedReadiness(input: {
     all_stops_have_geom: boolean;
     all_variants_have_path: boolean;
     all_paths_reviewed: boolean;
+    /** When false (train), missing path is allowed for mark-reviewed. */
+    path_required?: boolean;
 }): Pick<RouteReviewReadiness, "can_mark_reviewed" | "mark_reviewed_blockers"> {
     const mark_reviewed_blockers: string[] = [];
+    const pathRequired = input.path_required !== false;
 
     if (!input.names_complete) {
         mark_reviewed_blockers.push("Route Myanmar and English names are required.");
@@ -168,7 +187,7 @@ export function buildRouteMarkReviewedReadiness(input: {
     if (!input.all_stops_have_geom) {
         mark_reviewed_blockers.push("One or more stops are missing geometry.");
     }
-    if (!input.all_variants_have_path) {
+    if (pathRequired && !input.all_variants_have_path) {
         mark_reviewed_blockers.push("One or more variants are missing a route path.");
     }
     if (!input.all_paths_reviewed) {

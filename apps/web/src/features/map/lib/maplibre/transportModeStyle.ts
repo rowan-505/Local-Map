@@ -1,21 +1,17 @@
 /**
- * Mode-based color tokens + expressions for the Martin transport overlay (overlay only —
- * never the basemap or POIs). Kept to a small, limited palette: one color per transport mode
- * family, shared across route paths, terminals, and stops so a rider learns "violet = bus",
- * "teal = rail", "blue = ferry" once. Shape/size still distinguishes routes vs terminals vs stops.
+ * MapLibre paint expressions for transport mode colors.
+ * Color tokens live in `publicMapMarkerStyles.ts`.
  */
 import type { ExpressionSpecification } from 'maplibre-gl';
+import { TRANSPORT_MARKER_COLORS } from './publicMapMarkerStyles';
 
-export const TRANSPORT_MODE_BUS_COLOR = '#7c3aed'; // violet-600 — bus / local bus
-export const TRANSPORT_MODE_RAIL_COLOR = '#0f766e'; // teal-700 — rail / train
-export const TRANSPORT_MODE_FERRY_COLOR = '#2563eb'; // blue-600 — ferry / water
-export const TRANSPORT_MODE_FALLBACK_COLOR = '#64748b'; // slate-500 — unknown / other
+export const TRANSPORT_MODE_BUS_COLOR = TRANSPORT_MARKER_COLORS.bus;
+export const TRANSPORT_MODE_RAIL_COLOR = TRANSPORT_MARKER_COLORS.rail;
+export const TRANSPORT_MODE_FERRY_COLOR = TRANSPORT_MARKER_COLORS.ferry;
+export const TRANSPORT_MODE_FALLBACK_COLOR = TRANSPORT_MARKER_COLORS.fallback;
+export const TRANSPORT_MAJOR_POINT_COLOR = TRANSPORT_MARKER_COLORS.majorPoint;
+export const TRANSPORT_SELECTED_PIN_COLOR = TRANSPORT_MARKER_COLORS.selectedPin;
 
-/**
- * `match` on `["get","mode"]` mapping mode families to the palette above.
- * Null/empty/unrecognized modes fall back to slate. Used for line-color (routes) and
- * circle-color (terminals, stops).
- */
 export function transportModeColorExpression(): ExpressionSpecification {
   return [
     'match',
@@ -27,5 +23,31 @@ export function transportModeColorExpression(): ExpressionSpecification {
     ['ferry', 'water'],
     TRANSPORT_MODE_FERRY_COLOR,
     TRANSPORT_MODE_FALLBACK_COLOR,
+  ] as ExpressionSpecification;
+}
+
+const MAJOR_STOP_TYPES = ['bus_station', 'terminal', 'rail_station', 'ferry_terminal', 'airport'];
+
+/** Station/terminal-class stops use indigo; ordinary stops follow mode color. */
+export function transportStopFillExpression(): ExpressionSpecification {
+  return [
+    'case',
+    [
+      'in',
+      ['coalesce', ['get', 'stop_type'], 'bus_stop'],
+      ['literal', MAJOR_STOP_TYPES],
+    ],
+    TRANSPORT_MAJOR_POINT_COLOR,
+    transportModeColorExpression(),
+  ] as ExpressionSpecification;
+}
+
+/** Major bus terminals/interchanges use indigo; rail/ferry keep mode colors. */
+export function transportTerminalFillExpression(): ExpressionSpecification {
+  return [
+    'case',
+    ['in', ['coalesce', ['get', 'mode'], ''], ['literal', ['bus', 'local_bus']]],
+    TRANSPORT_MAJOR_POINT_COLOR,
+    transportModeColorExpression(),
   ] as ExpressionSpecification;
 }

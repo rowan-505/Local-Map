@@ -1,4 +1,12 @@
 import type { Poi, PoiCategory } from '@/types';
+import type {
+  PublicSearchCategory,
+  PublicSearchTransportMode,
+  PublicSearchTransportType,
+} from './publicSearchConstants.js';
+import type { PublicSearchApiLang } from './publicSearchLang.js';
+
+export type { PublicSearchCategory, PublicSearchTransportMode, PublicSearchTransportType };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -64,6 +72,10 @@ export type SearchCameraTarget =
 export type SearchEntityType =
   | 'place'
   | 'address'
+  | 'transport_stop'
+  | 'transport_terminal'
+  | 'transport_route'
+  | 'transport_route_variant'
   | 'bus_stop'
   | 'admin_area'
   | 'street'
@@ -81,6 +93,10 @@ export type SearchEntityType =
 const GEOMETRY_SEARCH_ENTITY_TYPES: ReadonlySet<SearchEntityType> = new Set([
   'place',
   'address',
+  'transport_stop',
+  'transport_terminal',
+  'transport_route',
+  'transport_route_variant',
   'bus_stop',
   'admin_area',
   'street',
@@ -155,6 +171,10 @@ export type PublicSearchResult = {
   readonly confidenceScore?: number | null;
   readonly boundaryConfidenceScore?: number | null;
   readonly score?: number;
+  readonly mode?: string | null;
+  readonly stopType?: string | null;
+  readonly reviewStatus?: string | null;
+  readonly verificationStatus?: string | null;
   readonly plusCode?: PlusCodeSearchInfo;
   readonly reverseAddress?: SearchResultReverseAddress;
   readonly cameraTarget?: SearchCameraTarget;
@@ -171,6 +191,42 @@ type ReverseAddressDto = {
   readonly confidence?: string | null;
 };
 
+type PublicSearchVerificationDto = {
+  readonly isVerified?: boolean;
+  readonly confidenceScore?: number | null;
+  readonly boundaryConfidenceScore?: number | null;
+  readonly reviewStatus?: string | null;
+  readonly verificationStatus?: string | null;
+};
+
+type PublicSearchCategoryDto = {
+  readonly code?: string | null;
+  readonly name?: string | null;
+};
+
+type PublicSearchTransportDto = {
+  readonly mode?: string | null;
+  readonly stopType?: string | null;
+  readonly routeCode?: string | null;
+  readonly parentRoutePublicId?: string | null;
+  readonly variantCode?: string | null;
+  readonly headsign?: string | null;
+  readonly directionName?: string | null;
+  readonly originName?: string | null;
+  readonly destinationName?: string | null;
+};
+
+type PublicSearchPlusCodeDto = {
+  readonly code?: string;
+  readonly referenceRequired?: boolean;
+  readonly outsideServiceArea?: boolean;
+  readonly reason?: string;
+};
+
+type PublicSearchCoordinateDto = {
+  readonly outsideServiceArea?: boolean;
+};
+
 type PublicSearchResultDto = {
   readonly id?: string;
   readonly publicId?: string;
@@ -178,22 +234,9 @@ type PublicSearchResultDto = {
   readonly entityId?: string | number;
   readonly entityType?: string;
   readonly type?: string;
-  readonly myanmar_name?: string | null;
-  readonly english_name?: string | null;
-  readonly name_mm?: string | null;
-  readonly name_en?: string | null;
-  readonly primaryNameMy?: string | null;
-  readonly primaryNameEn?: string | null;
-  readonly matchedName?: string | null;
-  readonly display_name?: string | null;
   readonly displayName?: string | null;
-  readonly primary_name?: string | null;
-  readonly canonical_name?: string | null;
+  readonly display_name?: string | null;
   readonly subtitle?: string | null;
-  readonly categoryName?: string | null;
-  readonly categoryCode?: string | null;
-  readonly adminAreaNameMy?: string | null;
-  readonly adminAreaNameEn?: string | null;
   readonly lat?: number;
   readonly lng?: number;
   readonly center?: readonly [number, number] | null;
@@ -201,24 +244,69 @@ type PublicSearchResultDto = {
   readonly geometryType?: string | null;
   readonly hasGeometry?: boolean;
   readonly geometryEndpoint?: string;
+  readonly score?: number;
+  readonly verification?: PublicSearchVerificationDto;
+  readonly category?: PublicSearchCategoryDto | null;
+  readonly transport?: PublicSearchTransportDto;
+  readonly plusCode?: PublicSearchPlusCodeDto;
+  readonly coordinate?: PublicSearchCoordinateDto;
+  readonly cameraTarget?: SearchCameraTarget;
+  readonly reverse?: ReverseAddressDto | null;
+  // Legacy flat fields (older API responses).
+  readonly myanmar_name?: string | null;
+  readonly english_name?: string | null;
+  readonly name_mm?: string | null;
+  readonly name_en?: string | null;
+  readonly primaryNameMy?: string | null;
+  readonly primaryNameEn?: string | null;
+  readonly matchedName?: string | null;
+  readonly primary_name?: string | null;
+  readonly canonical_name?: string | null;
+  readonly categoryName?: string | null;
+  readonly categoryCode?: string | null;
+  readonly adminAreaNameMy?: string | null;
+  readonly adminAreaNameEn?: string | null;
   readonly isVerified?: boolean;
   readonly confidenceScore?: number | null;
   readonly boundaryConfidenceScore?: number | null;
-  readonly score?: number;
-  // Plus Code fields (type === 'plus_code')
+  readonly mode?: string | null;
+  readonly stopType?: string | null;
+  readonly reviewStatus?: string | null;
+  readonly verificationStatus?: string | null;
   readonly plus_code?: string | null;
   readonly referenceRequired?: boolean;
   readonly outsideServiceArea?: boolean;
   readonly reason?: string;
-  readonly reverse?: ReverseAddressDto | null;
-  readonly cameraTarget?: SearchCameraTarget;
+};
+
+type PublicSearchAnalyticsDto = {
+  readonly eventId?: string;
+};
+
+type PublicSearchPageDto = {
+  readonly items: readonly PublicSearchResultDto[];
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
+  readonly analytics?: PublicSearchAnalyticsDto;
+};
+
+export type PublicSearchAnalytics = {
+  readonly eventId: string;
 };
 
 type PublicSearchResponseDto =
   | readonly PublicSearchResultDto[]
+  | PublicSearchPageDto
   | {
       readonly results: readonly PublicSearchResultDto[];
     };
+
+export type PublicSearchPage = {
+  readonly items: readonly PublicSearchResult[];
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
+  readonly analytics?: PublicSearchAnalytics;
+};
 
 /** Full GeoJSON geometry for a selected search result (GET .../geometry). */
 export type SearchResultGeometry = {
@@ -229,13 +317,44 @@ export type SearchResultGeometry = {
   readonly feature: GeoJSON.Feature;
 };
 
+export type TransportRouteMapPreviewVariant = {
+  readonly entityId: string;
+  readonly publicId: string | null;
+  readonly variantCode: string | null;
+  readonly headsign: string | null;
+  readonly directionName: string | null;
+  readonly isPrimary: boolean;
+};
+
+export type TransportRouteMapPreviewStop = {
+  readonly publicId: string;
+  readonly displayName: string;
+  readonly sequence: number;
+  readonly lat: number;
+  readonly lng: number;
+};
+
+/** Lightweight transport route overlay (GET .../map-preview). */
+export type TransportRouteMapPreview = {
+  readonly entityType: 'transport_route' | 'transport_route_variant';
+  readonly entityId: string;
+  readonly bbox: readonly [number, number, number, number];
+  readonly path: GeoJSON.Feature;
+  readonly variants: readonly TransportRouteMapPreviewVariant[];
+  readonly importantStops: readonly TransportRouteMapPreviewStop[];
+};
+
 export type PublicSearchParams = {
   readonly q: string;
   readonly lat?: number;
   readonly lng?: number;
-  readonly lang?: PlaceLanguageMode | string;
+  readonly lang?: PublicSearchApiLang;
   readonly types?: readonly SearchEntityType[] | readonly string[];
   readonly limit?: number;
+  readonly cursor?: string;
+  readonly category?: PublicSearchCategory;
+  readonly transportType?: PublicSearchTransportType;
+  readonly mode?: PublicSearchTransportMode;
 };
 
 export type PublicPlacesParams = {
@@ -389,13 +508,14 @@ export function shouldRunPublicSearch(raw: string): boolean {
   return PLUS_CODE_HINT_RE.test(q) || COORDINATE_HINT_RE.test(q);
 }
 
-export async function fetchPublicSearch(
-  input: string | PublicSearchParams,
+export async function fetchPublicSearchPage(
+  params: PublicSearchParams,
   signal?: AbortSignal,
-): Promise<readonly PublicSearchResult[]> {
-  const params: PublicSearchParams = typeof input === 'string' ? { q: input } : input;
+): Promise<PublicSearchPage> {
   const trimmedQuery = params.q.trim();
-  if (trimmedQuery === '') return [];
+  if (trimmedQuery === '') {
+    return { items: [], nextCursor: null, hasMore: false };
+  }
 
   const search = new URLSearchParams({ q: trimmedQuery });
   if (typeof params.lat === 'number' && Number.isFinite(params.lat)) {
@@ -404,8 +524,8 @@ export async function fetchPublicSearch(
   if (typeof params.lng === 'number' && Number.isFinite(params.lng)) {
     search.set('lng', String(params.lng));
   }
-  if (typeof params.lang === 'string' && params.lang.trim() !== '') {
-    search.set('lang', params.lang.trim());
+  if (params.lang === 'my' || params.lang === 'en' || params.lang === 'und') {
+    search.set('lang', params.lang);
   }
   if (params.types && params.types.length > 0) {
     search.set('types', params.types.join(','));
@@ -413,14 +533,56 @@ export async function fetchPublicSearch(
   if (typeof params.limit === 'number' && Number.isFinite(params.limit)) {
     search.set('limit', String(params.limit));
   }
+  if (typeof params.cursor === 'string' && params.cursor.trim() !== '') {
+    search.set('cursor', params.cursor.trim());
+  }
+  if (params.category && params.category !== 'all') {
+    search.set('category', params.category);
+  }
+  if (params.transportType && params.transportType !== 'all') {
+    search.set('transportType', params.transportType);
+  }
+  if (params.mode && params.mode !== 'all') {
+    search.set('mode', params.mode);
+  }
 
   const response = await fetchJson<PublicSearchResponseDto>(
     `/public/search?${search.toString()}`,
     { signal },
   );
-  const results = hasSearchResults(response) ? response.results : response;
 
-  return results.map(publicSearchResultFromDto).filter((result) => result !== null);
+  if (isPublicSearchPageDto(response)) {
+    const items = response.items
+      .map(publicSearchResultFromDto)
+      .filter((result): result is PublicSearchResult => result !== null);
+    const analytics = publicSearchAnalyticsFromDto(response.analytics);
+    return {
+      items,
+      nextCursor: response.nextCursor,
+      hasMore: response.hasMore,
+      ...(analytics ? { analytics } : {}),
+    };
+  }
+
+  const legacyItems = hasLegacySearchResults(response) ? response.results : response;
+  const items = legacyItems
+    .map(publicSearchResultFromDto)
+    .filter((result): result is PublicSearchResult => result !== null);
+
+  return {
+    items,
+    nextCursor: null,
+    hasMore: false,
+  };
+}
+
+export async function fetchPublicSearch(
+  input: string | PublicSearchParams,
+  signal?: AbortSignal,
+): Promise<readonly PublicSearchResult[]> {
+  const params: PublicSearchParams = typeof input === 'string' ? { q: input } : input;
+  const page = await fetchPublicSearchPage(params, signal);
+  return page.items;
 }
 
 /** Path to the geometry endpoint for a selected result, or null if unsupported. */
@@ -454,8 +616,90 @@ export async function fetchSearchResultGeometry(
   const query = search.toString();
   return fetchJson<SearchResultGeometry>(
     `${endpoint}${query.length > 0 ? `?${query}` : ''}`,
-    signal ? { signal } : undefined,
+    { signal },
   );
+}
+
+const TRANSPORT_ROUTE_MAP_PREVIEW_ENTITY_TYPES: ReadonlySet<SearchEntityType> = new Set([
+  'transport_route',
+  'bus_route',
+]);
+
+export function usesTransportRouteMapPreview(entityType: SearchEntityType): boolean {
+  return TRANSPORT_ROUTE_MAP_PREVIEW_ENTITY_TYPES.has(entityType);
+}
+
+/** Path to the lightweight transport route map-preview endpoint. */
+export function searchResultMapPreviewEndpoint(
+  entityType: SearchEntityType,
+  entityId: string,
+): string | null {
+  if (!usesTransportRouteMapPreview(entityType)) return null;
+  const id = entityId.trim();
+  if (id === '') return null;
+  return `/public/search/${encodeURIComponent(entityType)}/${encodeURIComponent(id)}/map-preview`;
+}
+
+export async function fetchTransportRouteMapPreview(
+  entityType: SearchEntityType,
+  entityId: string,
+  zoom?: number,
+  signal?: AbortSignal,
+): Promise<TransportRouteMapPreview | null> {
+  const endpoint = searchResultMapPreviewEndpoint(entityType, entityId);
+  if (endpoint === null) return null;
+
+  const search = new URLSearchParams();
+  if (typeof zoom === 'number' && Number.isFinite(zoom)) {
+    search.set('zoom', String(Number(zoom.toFixed(2))));
+  }
+  const query = search.toString();
+  return fetchJson<TransportRouteMapPreview>(
+    `${endpoint}${query.length > 0 ? `?${query}` : ''}`,
+    { signal },
+  );
+}
+
+function mapPreviewToSearchResultGeometry(
+  preview: TransportRouteMapPreview,
+): SearchResultGeometry {
+  const geometryType =
+    preview.path.geometry && typeof preview.path.geometry === 'object' && 'type' in preview.path.geometry
+      ? String(preview.path.geometry.type)
+      : null;
+  return {
+    entityType: preview.entityType,
+    entityId: preview.entityId,
+    geometryType,
+    bbox: preview.bbox,
+    feature: preview.path,
+  };
+}
+
+/** Fetch overlay geometry for a selected search result (preview or full geometry). */
+export async function fetchSearchResultOverlayGeometry(
+  entityType: SearchEntityType,
+  entityId: string,
+  zoom?: number,
+  signal?: AbortSignal,
+): Promise<SearchResultGeometry | null> {
+  if (usesTransportRouteMapPreview(entityType)) {
+    const preview = await fetchTransportRouteMapPreview(entityType, entityId, zoom, signal);
+    return preview ? mapPreviewToSearchResultGeometry(preview) : null;
+  }
+  return fetchSearchResultGeometry(entityType, entityId, zoom, signal);
+}
+
+export function searchResultOverlayQueryKey(
+  entityType: SearchEntityType,
+  entityId: string,
+  zoomBucket: number,
+) {
+  return ['search-result-overlay', entityType, entityId, zoomBucket] as const;
+}
+
+export function searchResultOverlayZoomBucket(zoom: number): number {
+  return Math.max(0, Math.min(24, Math.round(zoom)));
 }
 
 export async function fetchPublicMapGeoJson(
@@ -605,12 +849,24 @@ function reverseAddressFromDto(
   };
 }
 
+function normalizeSearchEntityType(raw: string | undefined): SearchEntityType | null {
+  if (!raw) return null;
+  const normalized =
+    raw === 'bus_stop'
+      ? 'transport_stop'
+      : raw === 'bus_route'
+        ? 'transport_route'
+        : raw === 'bus_route_variant'
+          ? 'transport_route_variant'
+          : raw;
+  return isKnownSearchEntityType(normalized) ? normalized : null;
+}
+
 function publicSearchResultFromDto(result: PublicSearchResultDto): PublicSearchResult | null {
-  const rawType = result.entityType ?? result.type;
-  if (!isKnownSearchEntityType(rawType)) {
+  const entityType = normalizeSearchEntityType(result.entityType ?? result.type);
+  if (!entityType) {
     return null;
   }
-  const entityType: SearchEntityType = rawType;
 
   const publicId = trimOpt(result.publicId ?? result.placePublicId);
   const entityId =
@@ -618,25 +874,33 @@ function publicSearchResultFromDto(result: PublicSearchResultDto): PublicSearchR
       ? String(result.entityId)
       : (publicId ?? trimOpt(result.id));
   const id = trimOpt(result.id) ?? entityId ?? publicId ?? `${entityType}:unknown`;
-  const mm = trimOpt(result.name_mm ?? result.myanmar_name ?? result.primaryNameMy);
-  const en = trimOpt(result.name_en ?? result.english_name ?? result.primaryNameEn);
-  const display = trimOpt(result.display_name ?? result.displayName);
+  const display = trimOpt(result.displayName ?? result.display_name);
+  const transportDto = result.transport;
+  const categoryDto = result.category;
+  const verificationDto = result.verification;
 
   const hasGeometry =
     typeof result.hasGeometry === 'boolean' ? result.hasGeometry : undefined;
   const geometryEndpoint =
     result.geometryEndpoint ??
     (entityId && hasGeometry !== false
-      ? (searchResultGeometryEndpoint(entityType, entityId) ?? undefined)
+      ? (searchResultGeometryEndpoint(entityType, entityId) ??
+          searchResultMapPreviewEndpoint(entityType, entityId) ??
+          undefined)
       : undefined);
 
   const plusCode =
     entityType === 'plus_code'
       ? {
-          code: trimOpt(result.plus_code) ?? id,
-          referenceRequired: result.referenceRequired === true,
-          outsideServiceArea: result.outsideServiceArea === true,
-          reason: trimOpt(result.reason),
+          code:
+            trimOpt(result.plusCode?.code ?? result.plus_code) ??
+            trimOpt(result.displayName ?? result.display_name) ??
+            id,
+          referenceRequired:
+            result.plusCode?.referenceRequired === true || result.referenceRequired === true,
+          outsideServiceArea:
+            result.plusCode?.outsideServiceArea === true || result.outsideServiceArea === true,
+          reason: trimOpt(result.plusCode?.reason ?? result.reason),
         }
       : undefined;
 
@@ -646,19 +910,17 @@ function publicSearchResultFromDto(result: PublicSearchResultDto): PublicSearchR
     entityId,
     entityType,
     type: entityType,
-    myanmar_name: mm ?? null,
-    english_name: en ?? null,
-    name_mm: mm ?? null,
-    name_en: en ?? null,
     display_name: display ?? null,
     displayName: display ?? null,
-    primary_name: trimOpt(result.primary_name) ?? null,
-    canonical_name: trimOpt(result.canonical_name) ?? null,
+    name_mm: trimOpt(result.primaryNameMy) ?? trimOpt(result.name_mm) ?? trimOpt(result.myanmar_name),
+    name_en: trimOpt(result.primaryNameEn) ?? trimOpt(result.name_en) ?? trimOpt(result.english_name),
+    myanmar_name: trimOpt(result.primaryNameMy) ?? trimOpt(result.myanmar_name) ?? null,
+    english_name: trimOpt(result.primaryNameEn) ?? trimOpt(result.english_name) ?? null,
     subtitle: trimOpt(result.subtitle ?? result.matchedName),
-    categoryName: result.categoryName,
-    categoryCode: result.categoryCode,
-    adminAreaNameMy: result.adminAreaNameMy ?? null,
-    adminAreaNameEn: result.adminAreaNameEn ?? null,
+    categoryName:
+      trimOpt(categoryDto?.name) ?? trimOpt(result.categoryName) ?? null,
+    categoryCode:
+      trimOpt(categoryDto?.code) ?? trimOpt(result.categoryCode) ?? null,
     lat: result.lat,
     lng: result.lng,
     center: result.center ?? undefined,
@@ -666,9 +928,15 @@ function publicSearchResultFromDto(result: PublicSearchResultDto): PublicSearchR
     geometryType: result.geometryType ?? null,
     hasGeometry,
     geometryEndpoint,
-    isVerified: result.isVerified,
-    confidenceScore: result.confidenceScore ?? null,
-    boundaryConfidenceScore: result.boundaryConfidenceScore ?? null,
+    isVerified: verificationDto?.isVerified ?? result.isVerified,
+    confidenceScore: verificationDto?.confidenceScore ?? result.confidenceScore ?? null,
+    boundaryConfidenceScore:
+      verificationDto?.boundaryConfidenceScore ?? result.boundaryConfidenceScore ?? null,
+    mode: trimOpt(transportDto?.mode ?? result.mode) ?? null,
+    stopType: trimOpt(transportDto?.stopType ?? result.stopType) ?? null,
+    reviewStatus: trimOpt(verificationDto?.reviewStatus ?? result.reviewStatus) ?? null,
+    verificationStatus:
+      trimOpt(verificationDto?.verificationStatus ?? result.verificationStatus) ?? null,
     score: result.score,
     plusCode,
     reverseAddress: reverseAddressFromDto(result.reverse),
@@ -676,10 +944,34 @@ function publicSearchResultFromDto(result: PublicSearchResultDto): PublicSearchR
   };
 }
 
-function hasSearchResults(
+function publicSearchAnalyticsFromDto(
+  dto: PublicSearchAnalyticsDto | undefined,
+): PublicSearchAnalytics | undefined {
+  const eventId = dto?.eventId?.trim();
+  if (!eventId) return undefined;
+  return { eventId };
+}
+
+function isPublicSearchPageDto(response: PublicSearchResponseDto): response is PublicSearchPageDto {
+  return (
+    typeof response === 'object' &&
+    response !== null &&
+    !Array.isArray(response) &&
+    'items' in response &&
+    Array.isArray(response.items)
+  );
+}
+
+function hasLegacySearchResults(
   response: PublicSearchResponseDto,
 ): response is { readonly results: readonly PublicSearchResultDto[] } {
-  return !Array.isArray(response);
+  return (
+    typeof response === 'object' &&
+    response !== null &&
+    !Array.isArray(response) &&
+    'results' in response &&
+    Array.isArray(response.results)
+  );
 }
 
 function publicMapPlacesLimitForZoom(zoom: number): number {

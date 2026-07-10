@@ -7,11 +7,7 @@
  * `ensureSearchHighlightLayers` and reused for the life of the map.
  */
 import type { ExpressionSpecification, GeoJSONSource } from 'maplibre-gl';
-import {
-  fetchSearchResultGeometry,
-  type PublicSearchResult,
-  type SearchEntityType,
-} from '@/features/poi/api/publicMapApi';
+import type { PublicSearchResult, SearchEntityType, SearchResultGeometry } from '@/features/poi/api/publicMapApi';
 import type { MapCameraPadding } from '../mapCameraPadding';
 import type { MapEngine } from '../mapEngineTypes';
 
@@ -37,11 +33,13 @@ const EMPTY_FC: GeoJSON.FeatureCollection = {
   features: [],
 };
 
-/** Point-like results render a pin directly; everything else fetches geometry. */
+/** Point-like results render a pin directly; everything else fetches geometry on select. */
 const POINT_LIKE_ENTITY_TYPES: ReadonlySet<SearchEntityType> = new Set([
   'place',
   'address',
   'bus_stop',
+  'transport_stop',
+  'transport_terminal',
   'plus_code',
   'coordinate',
 ]);
@@ -97,15 +95,11 @@ export const SEARCH_HIGHLIGHT_CAMERA_DURATION_MS = 400;
 
 export type FitSearchResultOptions = {
   readonly padding?: MapCameraPadding | number;
-  readonly signal?: AbortSignal;
+  /** Pre-fetched geometry from React Query (selection overlay). */
+  readonly geometry?: SearchResultGeometry | null;
   /** Override the point fly-to zoom; defaults to a per-entity value. */
   readonly zoom?: number;
   readonly duration?: number;
-  /**
-   * Loading state for the geometry overlay ONLY (line/polygon fetch). Never
-   * fires for point/plus_code results, and never gates the search list.
-   */
-  readonly onGeometryLoadingChange?: (loading: boolean) => void;
 };
 
 /** Idempotent: creates the source + four layers once. No-op if style not ready. */
@@ -226,47 +220,27 @@ export async function fitSearchResult(
 
   if (isPointLikeHighlight(result)) {
     if (!center) {
-      // Short Plus Code awaiting a reference, or a result without coordinates.
       clearSearchHighlight(map);
       return;
     }
-    // Point / plus_code: draw immediately, fly to center. No geometry fetch.
     setSearchHighlight(map, highlightPointFeature(center, result));
     flyToSearchPoint(map, center, result, options);
     return;
   }
 
-  // Line / polygon: move the camera right away (do NOT wait for geometry).
   if (result.bbox) {
     fitSearchBounds(map, result.bbox, options);
   } else if (center) {
     flyToSearchPoint(map, center, result, options);
   }
 
-  // Show a center pin while the full geometry loads (and as a fallback on error).
-  if (center) {
-    setSearchHighlight(map, highlightPointFeature(center, result));
+  if (options.geometry?.feature) {
+    setSearchHighlight(map, withHighlightProps(options.geometry.feature, result));
+    return;
   }
 
-  const entityId = result.entityId;
-  if (!entityId) return;
-
-  // Loading state applies only to the geometry overlay fetch.
-  options.onGeometryLoadingChange?.(true);
-  try {
-    const geometry = await fetchSearchResultGeometry(
-      result.entityType,
-      entityId,
-      Math.round(map.getZoom()),
-      options.signal,
-    );
-    if (!geometry?.feature) return;
-    if (options.signal?.aborted) return;
-    setSearchHighlight(map, withHighlightProps(geometry.feature, result));
-  } catch {
-    // Keep the center pin highlight; geometry is best-effort.
-  } finally {
-    if (!options.signal?.aborted) options.onGeometryLoadingChange?.(false);
+  if (center) {
+    setSearchHighlight(map, highlightPointFeature(center, result));
   }
 }
 
@@ -341,6 +315,8 @@ function searchResultPointZoom(result: PublicSearchResult): number {
     case 'street_group':
     case 'bus_route':
     case 'bus_route_variant':
+    case 'transport_route':
+    case 'transport_route_variant':
       return 15;
     case 'plus_code':
     case 'coordinate':

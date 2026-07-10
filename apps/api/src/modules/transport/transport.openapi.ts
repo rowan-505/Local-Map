@@ -77,6 +77,85 @@ const routeListItemSchema = {
     },
 } as const;
 
+const routeSearchStopSchema = {
+    type: "object",
+    required: ["route_stop_id", "stop_id", "public_id", "stop_sequence", "name_my", "name_en"],
+    properties: {
+        route_stop_id: { type: "string" },
+        stop_id: { type: "string" },
+        public_id: { type: "string", format: "uuid" },
+        stop_sequence: { type: "integer", minimum: 1 },
+        name_my: { type: "string", nullable: true },
+        name_en: { type: "string", nullable: true },
+    },
+} as const;
+
+const routeSearchCandidateSchema = {
+    type: "object",
+    required: [
+        "route_id",
+        "route_public_id",
+        "route_code",
+        "public_name",
+        "variant_id",
+        "variant_public_id",
+        "variant_code",
+        "direction_name",
+        "origin_name",
+        "destination_name",
+        "origin_stop_sequence",
+        "destination_stop_sequence",
+        "forward_stop_count",
+        "stops",
+    ],
+    properties: {
+        route_id: { type: "string" },
+        route_public_id: { type: "string", format: "uuid" },
+        route_code: { type: "string" },
+        public_name: { type: "string", nullable: true },
+        variant_id: { type: "string" },
+        variant_public_id: { type: "string", format: "uuid" },
+        variant_code: { type: "string" },
+        direction_name: { type: "string", nullable: true },
+        origin_name: { type: "string", nullable: true },
+        destination_name: { type: "string", nullable: true },
+        origin_stop_sequence: { type: "integer", minimum: 1 },
+        destination_stop_sequence: { type: "integer", minimum: 1 },
+        forward_stop_count: { type: "integer", minimum: 1 },
+        stops: { type: "array", items: routeSearchStopSchema },
+    },
+} as const;
+
+export const searchRoutesBetweenStopsSchema = {
+    tags: [Tags.Transport],
+    summary: "Search direct route variants between two stops",
+    description:
+        "Finds public-release route variants that serve both stops and returns the best forward " +
+        "occurrence pair per variant (destination.stop_sequence > origin.stop_sequence, smallest span). " +
+        "Supports repeated stop_id on circular routes without wrap-around.",
+    querystring: {
+        type: "object",
+        required: ["origin_stop_public_id", "destination_stop_public_id"],
+        properties: {
+            origin_stop_public_id: { type: "string", format: "uuid" },
+            destination_stop_public_id: { type: "string", format: "uuid" },
+        },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["origin_stop_public_id", "destination_stop_public_id", "candidates"],
+            properties: {
+                origin_stop_public_id: { type: "string", format: "uuid" },
+                destination_stop_public_id: { type: "string", format: "uuid" },
+                candidates: { type: "array", items: routeSearchCandidateSchema },
+            },
+        },
+        400: badRequestSchema,
+        404: notFoundSchema,
+    },
+} as const;
+
 export const getTransportRoutesSchema = {
     tags: [Tags.Transport],
     summary: "List transport routes (admin)",
@@ -757,6 +836,7 @@ export const getTransportStopDetailSchema = {
 const stopRouteUsageSchema = {
     type: "object",
     properties: {
+        route_stop_id: { type: "string" },
         route_public_id: { type: "string", format: "uuid" },
         route_code: { type: "string" },
         route_name: { type: "string" },
@@ -798,6 +878,439 @@ export const getTransportStopRoutesSchema = {
         401: unauthorizedSchema,
         403: forbiddenSchema,
         404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+const stopRouteUsageDetailItemSchema = {
+    type: "object",
+    required: [
+        "routeStopId",
+        "routeId",
+        "routeCode",
+        "routeName",
+        "variantId",
+        "variantCode",
+        "directionName",
+        "directionId",
+        "stopSequence",
+    ],
+    properties: {
+        routeStopId: { type: "string" },
+        routeId: { type: "string", format: "uuid" },
+        routeCode: { type: "string" },
+        routeName: { type: "string" },
+        variantId: { type: "string", format: "uuid" },
+        variantCode: { type: "string" },
+        directionName: { type: "string", nullable: true },
+        directionId: { type: "integer", nullable: true },
+        stopSequence: { type: "integer" },
+    },
+} as const;
+
+const stopRouteUsageSummarySchema = {
+    type: "object",
+    required: [
+        "totalRoutes",
+        "totalVariants",
+        "routeStopMemberships",
+        "inboundCount",
+        "outboundCount",
+        "clockwiseCount",
+        "anticlockwiseCount",
+    ],
+    properties: {
+        totalRoutes: { type: "integer", minimum: 0 },
+        totalVariants: { type: "integer", minimum: 0 },
+        routeStopMemberships: { type: "integer", minimum: 0 },
+        inboundCount: { type: "integer", minimum: 0 },
+        outboundCount: { type: "integer", minimum: 0 },
+        clockwiseCount: { type: "integer", minimum: 0 },
+        anticlockwiseCount: { type: "integer", minimum: 0 },
+    },
+} as const;
+
+const stopRouteUsageDirectionUsageSchema = {
+    type: "object",
+    required: ["inbound", "outbound", "clockwise", "anticlockwise"],
+    properties: {
+        inbound: { type: "integer", minimum: 0 },
+        outbound: { type: "integer", minimum: 0 },
+        clockwise: { type: "integer", minimum: 0 },
+        anticlockwise: { type: "integer", minimum: 0 },
+    },
+} as const;
+
+export const getTransportStopRouteUsageDetailSchema = {
+    tags: [Tags.Transport],
+    summary: "Route usage detail for one stop (admin)",
+    description:
+        "Authoritative route usage for one stop: distinct route/variant totals, direction " +
+        "breakdown, and every non-deleted route membership. Uses the same membership filters " +
+        "as GET /transport/stops/:publicId/routes. One query via indexed route_stops.stop_id — no N+1.",
+    security: [...bearerAuth],
+    params: publicIdParamSchema,
+    response: {
+        200: {
+            type: "object",
+            required: [
+                "stopPublicId",
+                "stopId",
+                "items",
+                "routes",
+                "summary",
+                "totalRoutes",
+                "totalVariants",
+                "directionUsage",
+            ],
+            properties: {
+                stopPublicId: { type: "string", format: "uuid" },
+                stopId: { type: "string", format: "uuid" },
+                items: { type: "array", items: stopRouteUsageDetailItemSchema },
+                routes: { type: "array", items: stopRouteUsageDetailItemSchema },
+                summary: stopRouteUsageSummarySchema,
+                totalRoutes: { type: "integer", minimum: 0 },
+                totalVariants: { type: "integer", minimum: 0 },
+                directionUsage: stopRouteUsageDirectionUsageSchema,
+            },
+        },
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+const stopMergePreviewStopSchema = {
+    type: "object",
+    required: [
+        "publicId",
+        "name",
+        "nameMy",
+        "nameEn",
+        "mode",
+        "stopType",
+        "adminAreaId",
+        "adminAreaName",
+        "reviewStatus",
+        "confidenceScore",
+        "isActive",
+        "lat",
+        "lng",
+    ],
+    properties: {
+        publicId: { type: "string", format: "uuid" },
+        name: { type: "string" },
+        nameMy: { type: "string", nullable: true },
+        nameEn: { type: "string", nullable: true },
+        mode: { type: "string" },
+        stopType: { type: "string" },
+        adminAreaId: { type: "integer", nullable: true },
+        adminAreaName: { type: "string", nullable: true },
+        reviewStatus: { type: "string" },
+        confidenceScore: { type: "number", nullable: true },
+        isActive: { type: "boolean" },
+        lat: { type: "number", nullable: true },
+        lng: { type: "number", nullable: true },
+    },
+} as const;
+
+const stopMergeReferenceCountsSchema = {
+    type: "object",
+    required: [
+        "routeStops",
+        "variantOrigins",
+        "variantDestinations",
+        "terminals",
+        "faresOrigin",
+        "faresDestination",
+        "childStops",
+        "stopNames",
+        "sourceLinks",
+    ],
+    properties: {
+        routeStops: { type: "integer", minimum: 0 },
+        variantOrigins: { type: "integer", minimum: 0 },
+        variantDestinations: { type: "integer", minimum: 0 },
+        terminals: { type: "integer", minimum: 0 },
+        faresOrigin: { type: "integer", minimum: 0 },
+        faresDestination: { type: "integer", minimum: 0 },
+        childStops: { type: "integer", minimum: 0 },
+        stopNames: { type: "integer", minimum: 0 },
+        sourceLinks: { type: "integer", minimum: 0 },
+    },
+} as const;
+
+const stopMergeVariantConflictSchema = {
+    type: "object",
+    required: [
+        "routeCode",
+        "variantCode",
+        "directionName",
+        "currentRouteStopId",
+        "currentSequence",
+        "candidateRouteStopId",
+        "candidateSequence",
+    ],
+    properties: {
+        routeCode: { type: "string" },
+        variantCode: { type: "string" },
+        directionName: { type: "string", nullable: true },
+        currentRouteStopId: { type: "string" },
+        currentSequence: { type: "integer" },
+        candidateRouteStopId: { type: "string" },
+        candidateSequence: { type: "integer" },
+    },
+} as const;
+
+const stopMergeScalarComparisonSchema = {
+    type: "object",
+    required: ["current", "candidate", "same"],
+    properties: {
+        current: {},
+        candidate: {},
+        same: { type: "boolean" },
+    },
+} as const;
+
+const stopMergeFieldComparisonSchema = {
+    type: "object",
+    required: [
+        "name",
+        "name_mm",
+        "name_en",
+        "stop_type",
+        "geom",
+        "admin_area_id",
+        "confidence_score",
+        "review_status",
+        "is_active",
+    ],
+    properties: {
+        name: stopMergeScalarComparisonSchema,
+        name_mm: stopMergeScalarComparisonSchema,
+        name_en: stopMergeScalarComparisonSchema,
+        stop_type: stopMergeScalarComparisonSchema,
+        geom: {
+            type: "object",
+            required: ["current", "candidate", "same", "distanceMeters"],
+            properties: {
+                current: {
+                    type: "object",
+                    nullable: true,
+                    properties: {
+                        lat: { type: "number" },
+                        lng: { type: "number" },
+                    },
+                },
+                candidate: {
+                    type: "object",
+                    nullable: true,
+                    properties: {
+                        lat: { type: "number" },
+                        lng: { type: "number" },
+                    },
+                },
+                same: { type: "boolean" },
+                distanceMeters: { type: "number", nullable: true },
+            },
+        },
+        admin_area_id: stopMergeScalarComparisonSchema,
+        confidence_score: stopMergeScalarComparisonSchema,
+        review_status: stopMergeScalarComparisonSchema,
+        is_active: stopMergeScalarComparisonSchema,
+    },
+} as const;
+
+export const postTransportStopMergePreviewSchema = {
+    tags: [Tags.Transport],
+    summary: "Preview merging two transport stops (admin)",
+    description:
+        "Read-only merge preview for Review Map and stop dedup workflows. Requires both " +
+        "stops to exist, be active (not deleted), and share the same mode. Reports variants " +
+        "where both stop IDs occur (including repeated occurrences). Does not block on distance " +
+        "or name similarity.",
+    security: [...bearerAuth],
+    body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["currentStopId", "candidateStopId"],
+        properties: {
+            currentStopId: { type: "string", format: "uuid" },
+            candidateStopId: { type: "string", format: "uuid" },
+        },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: [
+                "currentStop",
+                "candidateStop",
+                "currentUsage",
+                "candidateUsage",
+                "sameVariantConflicts",
+                "sameVariantWarning",
+                "referenceCounts",
+                "fieldComparison",
+            ],
+            properties: {
+                currentStop: stopMergePreviewStopSchema,
+                candidateStop: stopMergePreviewStopSchema,
+                currentUsage: {
+                    type: "object",
+                    required: ["items", "summary"],
+                    properties: {
+                        items: { type: "array", items: stopRouteUsageDetailItemSchema },
+                        summary: stopRouteUsageSummarySchema,
+                    },
+                },
+                candidateUsage: {
+                    type: "object",
+                    required: ["items", "summary"],
+                    properties: {
+                        items: { type: "array", items: stopRouteUsageDetailItemSchema },
+                        summary: stopRouteUsageSummarySchema,
+                    },
+                },
+                sameVariantConflicts: {
+                    type: "array",
+                    items: stopMergeVariantConflictSchema,
+                },
+                sameVariantWarning: { type: "string", nullable: true },
+                referenceCounts: {
+                    type: "object",
+                    required: ["current", "candidate"],
+                    properties: {
+                        current: stopMergeReferenceCountsSchema,
+                        candidate: stopMergeReferenceCountsSchema,
+                    },
+                },
+                fieldComparison: stopMergeFieldComparisonSchema,
+            },
+        },
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+        409: {
+            type: "object",
+            properties: {
+                message: { type: "string" },
+                code: { type: "string" },
+                blockers: { type: "array", items: { type: "string" } },
+            },
+        },
+    },
+} satisfies FastifySchema;
+
+const stopMergeGlobalReferenceChangesSchema = {
+    type: "object",
+    required: [
+        "routeStops",
+        "variantOrigins",
+        "variantDestinations",
+        "terminals",
+        "faresOrigin",
+        "faresDestination",
+        "childStops",
+        "stopNames",
+        "sourceLinks",
+    ],
+    properties: {
+        routeStops: { type: "integer", minimum: 0 },
+        variantOrigins: { type: "integer", minimum: 0 },
+        variantDestinations: { type: "integer", minimum: 0 },
+        terminals: { type: "integer", minimum: 0 },
+        faresOrigin: { type: "integer", minimum: 0 },
+        faresDestination: { type: "integer", minimum: 0 },
+        childStops: { type: "integer", minimum: 0 },
+        stopNames: { type: "integer", minimum: 0 },
+        sourceLinks: { type: "integer", minimum: 0 },
+    },
+} as const;
+
+const stopMergeGlobalCountsSchema = {
+    type: "object",
+    required: ["canonicalBefore", "canonicalAfter", "duplicateBefore", "duplicateAfter"],
+    properties: {
+        canonicalBefore: stopMergeReferenceCountsSchema,
+        canonicalAfter: stopMergeReferenceCountsSchema,
+        duplicateBefore: stopMergeReferenceCountsSchema,
+        duplicateAfter: stopMergeReferenceCountsSchema,
+    },
+} as const;
+
+export const postTransportStopMergeGlobalSchema = {
+    tags: [Tags.Transport],
+    summary: "Merge transport stops — keep canonical (admin)",
+    description:
+        "Global keep-canonical merge: repoint all duplicate references to the canonical stop, " +
+        "preserve every route_stop occurrence and sequence, preserve non-conflicting names and " +
+        "source links, verify zero duplicate references, then hard-delete the duplicate stop. " +
+        "Blocks when stops differ in mode. When both stops occur on the same variant, merge " +
+        "requires acknowledgeSameVariantOccurrences.",
+    security: [...bearerAuth],
+    body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["canonicalStopId", "duplicateStopId", "currentStopId", "candidateStopId"],
+        properties: {
+            canonicalStopId: { type: "string", format: "uuid" },
+            duplicateStopId: { type: "string", format: "uuid" },
+            currentStopId: { type: "string", format: "uuid" },
+            candidateStopId: { type: "string", format: "uuid" },
+            fieldSources: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    name: { type: "string", enum: ["current", "candidate"] },
+                    name_mm: { type: "string", enum: ["current", "candidate"] },
+                    name_en: { type: "string", enum: ["current", "candidate"] },
+                    stop_type: { type: "string", enum: ["current", "candidate"] },
+                    geom: { type: "string", enum: ["current", "candidate"] },
+                    admin_area_id: { type: "string", enum: ["current", "candidate"] },
+                    confidence_score: { type: "string", enum: ["current", "candidate"] },
+                    review_status: { type: "string", enum: ["current", "candidate"] },
+                    is_active: { type: "string", enum: ["current", "candidate"] },
+                },
+            },
+            reason: { type: "string", minLength: 1, maxLength: 500 },
+            acknowledgeSameVariantOccurrences: { type: "boolean" },
+        },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: [
+                "canonicalStop",
+                "deletedStop",
+                "deletedStopId",
+                "referencesChanged",
+                "affectedRouteCodes",
+                "affectedVariantCodes",
+                "counts",
+            ],
+            properties: {
+                canonicalStop: stopMergePreviewStopSchema,
+                deletedStop: stopMergePreviewStopSchema,
+                deletedStopId: { type: "string", format: "uuid" },
+                referencesChanged: stopMergeGlobalReferenceChangesSchema,
+                affectedRouteCodes: { type: "array", items: { type: "string" } },
+                affectedVariantCodes: { type: "array", items: { type: "string" } },
+                counts: stopMergeGlobalCountsSchema,
+            },
+        },
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+        409: {
+            type: "object",
+            properties: {
+                message: { type: "string" },
+                code: { type: "string" },
+                blockers: { type: "array", items: { type: "string" } },
+            },
+        },
     },
 } satisfies FastifySchema;
 
@@ -864,6 +1377,77 @@ const nearbyStopSchema = {
         stop_type: { type: "string" },
     },
 } as const;
+
+const nearbyStopCandidateSchema = {
+    type: "object",
+    required: [
+        "id",
+        "publicId",
+        "name",
+        "nameMy",
+        "nameEn",
+        "mode",
+        "stopType",
+        "reviewStatus",
+        "confidenceScore",
+        "lat",
+        "lng",
+        "distanceMeters",
+    ],
+    properties: {
+        id: { type: "string" },
+        publicId: { type: "string", format: "uuid" },
+        name: { type: "string" },
+        nameMy: { type: "string", nullable: true },
+        nameEn: { type: "string", nullable: true },
+        mode: { type: "string" },
+        stopType: { type: "string" },
+        reviewStatus: { type: "string" },
+        confidenceScore: { type: "number", nullable: true },
+        lat: { type: "number" },
+        lng: { type: "number" },
+        distanceMeters: { type: "number" },
+    },
+} as const;
+
+export const getTransportNearbyStopCandidatesSchema = {
+    tags: [Tags.Transport],
+    summary: "List nearby transport stop candidates for Review Map (admin)",
+    description:
+        "Reusable Review Map helper. Returns same-mode non-deleted stops within an allowed " +
+        "radius around lng/lat, excludes selectedStopId (stop public_id), and orders by distance. " +
+        "Route usage counts are not included — load GET /transport/stops/:publicId/route-usage-detail " +
+        "for the selected stop or a candidate.",
+    security: [...bearerAuth],
+    querystring: {
+        type: "object",
+        additionalProperties: false,
+        required: ["lng", "lat", "mode", "selectedStopId"],
+        properties: {
+            lng: { type: "number", minimum: -180, maximum: 180 },
+            lat: { type: "number", minimum: -90, maximum: 90 },
+            radiusMeters: { type: "integer", enum: [50, 100, 200, 500], default: 100 },
+            mode: { type: "string", enum: [...TRANSPORT_MODES] },
+            selectedStopId: { type: "string", format: "uuid" },
+            selectedName: { type: "string", minLength: 1, maxLength: 255 },
+            limit: { type: "integer", minimum: 1, maximum: 50, default: 30 },
+        },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["items", "radiusMeters", "limit"],
+            properties: {
+                items: { type: "array", items: nearbyStopCandidateSchema },
+                radiusMeters: { type: "integer", enum: [50, 100, 200, 500] },
+                limit: { type: "integer", minimum: 1, maximum: 50 },
+            },
+        },
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+    },
+} satisfies FastifySchema;
 
 const updateStopLocationBodySchema = {
     type: "object",
@@ -977,6 +1561,212 @@ export const deleteTransportStopSchema = {
     },
 } satisfies FastifySchema;
 
+const stopDeleteReferenceCountsSchema = {
+    type: "object",
+    required: [
+        "route_stops",
+        "variant_endpoints",
+        "child_stops",
+        "linked_terminals",
+        "fares",
+    ],
+    properties: {
+        route_stops: { type: "integer", minimum: 0 },
+        variant_endpoints: { type: "integer", minimum: 0 },
+        child_stops: { type: "integer", minimum: 0 },
+        linked_terminals: { type: "integer", minimum: 0 },
+        fares: { type: "integer", minimum: 0 },
+    },
+} as const;
+
+export const getTransportStopDeleteEligibilitySchema = {
+    tags: [Tags.Transport],
+    summary: "Check whether a transport stop can be permanently deleted (admin)",
+    description:
+        "Read-only reference check across route_stops, variant endpoints, child stops, " +
+        "linked terminals, and fares (when fare stop columns exist). Verified and " +
+        "manual_protected stops are never eligible.",
+    security: [...bearerAuth],
+    params: publicIdParamSchema,
+    response: {
+        200: {
+            type: "object",
+            required: [
+                "can_delete",
+                "message",
+                "has_route_usage",
+                "route_count",
+                "review_status",
+                "references",
+                "blockers",
+            ],
+            properties: {
+                can_delete: { type: "boolean" },
+                message: { type: "string" },
+                has_route_usage: { type: "boolean" },
+                route_count: { type: "integer", minimum: 0 },
+                review_status: { type: "string" },
+                references: stopDeleteReferenceCountsSchema,
+                blockers: { type: "array", items: { type: "string" } },
+            },
+        },
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+export const permanentDeleteTransportStopSchema = {
+    tags: [Tags.Transport],
+    summary: "Permanently delete a transport stop (admin)",
+    description:
+        "Hard-deletes the stop when it has no blocking references and is not verified / " +
+        "manual_protected. Deletes related stop_names and source_links in the same transaction. " +
+        "Rejected with 409 when references remain or the stop is protected. Accepts an optional " +
+        "JSON body `{ reason }` recorded in the delete audit log.",
+    security: [...bearerAuth],
+    params: publicIdParamSchema,
+    body: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+            reason: { type: "string", maxLength: 500 },
+        },
+    },
+    response: {
+        200: {
+            type: "object",
+            required: ["deleted", "public_id"],
+            properties: {
+                deleted: { type: "boolean" },
+                public_id: { type: "string", format: "uuid" },
+            },
+        },
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+        409: {
+            type: "object",
+            required: ["message", "has_route_usage", "route_count", "blockers"],
+            properties: {
+                message: { type: "string" },
+                has_route_usage: { type: "boolean" },
+                route_count: { type: "integer", minimum: 0 },
+                blockers: { type: "array", items: { type: "string" } },
+            },
+        },
+    },
+} satisfies FastifySchema;
+
+const routeMetadataSchema = {
+    type: "object",
+    required: ["summary", "names", "counts", "train", "diagnostics"],
+    properties: {
+        summary: {
+            type: "object",
+            required: [
+                "mode",
+                "routeKind",
+                "routeType",
+                "trainType",
+                "trainModel",
+                "operationDays",
+                "sourceStatus",
+                "reviewStatus",
+                "isActive",
+                "confidenceScore",
+            ],
+            properties: {
+                mode: { type: "string" },
+                routeKind: { type: "string" },
+                routeType: { type: "string", nullable: true },
+                trainType: { type: "string", nullable: true },
+                trainModel: { type: "string", nullable: true },
+                operationDays: { type: "array", items: { type: "string" } },
+                sourceStatus: { type: "string", enum: ["none", "linked", "imported"] },
+                reviewStatus: { type: "string" },
+                isActive: { type: "boolean" },
+                confidenceScore: { type: "number", nullable: true },
+                generation: { type: "string", nullable: true },
+            },
+        },
+        names: {
+            type: "object",
+            required: [
+                "routeCode",
+                "nameMy",
+                "nameEn",
+                "originName",
+                "destinationName",
+                "displayHeadsign",
+            ],
+            properties: {
+                routeCode: { type: "string" },
+                nameMy: { type: "string", nullable: true },
+                nameEn: { type: "string", nullable: true },
+                originName: { type: "string", nullable: true },
+                destinationName: { type: "string", nullable: true },
+                displayHeadsign: { type: "string", nullable: true },
+            },
+        },
+        counts: {
+            type: "object",
+            required: ["variantCount", "stopCount", "pathCount", "sourceLinksCount"],
+            properties: {
+                variantCount: { type: "integer", minimum: 0 },
+                stopCount: { type: "integer", minimum: 0 },
+                pathCount: { type: "integer", minimum: 0 },
+                sourceLinksCount: { type: "integer", minimum: 0 },
+            },
+        },
+        train: {
+            type: "object",
+            required: [
+                "trainNumber",
+                "trainType",
+                "trainModel",
+                "operationDays",
+                "totalStations",
+                "estimatedDurationMin",
+                "displayGroup",
+                "isYangonUrbanService",
+                "isSourceFullLoop",
+                "closingDuplicateStopSkipped",
+                "importedRouteStops",
+            ],
+            properties: {
+                trainNumber: { type: "string", nullable: true },
+                trainType: { type: "string", nullable: true },
+                trainModel: { type: "string", nullable: true },
+                operationDays: { type: "array", items: { type: "string" } },
+                totalStations: { type: "integer", nullable: true, minimum: 0 },
+                estimatedDurationMin: { type: "integer", nullable: true, minimum: 0 },
+                displayGroup: { type: "string", nullable: true },
+                isYangonUrbanService: { type: "boolean" },
+                isSourceFullLoop: { type: "boolean" },
+                closingDuplicateStopSkipped: { type: "boolean" },
+                importedRouteStops: { type: "integer", nullable: true, minimum: 0 },
+            },
+        },
+        diagnostics: {
+            type: "object",
+            required: [
+                "hasSourceLinks",
+                "hasPath",
+                "hasCompleteStopSequence",
+                "hasStopLocationWarnings",
+            ],
+            properties: {
+                hasSourceLinks: { type: "boolean" },
+                hasPath: { type: "boolean" },
+                hasCompleteStopSequence: { type: "boolean" },
+                hasStopLocationWarnings: { type: "boolean" },
+            },
+        },
+    },
+} as const;
+
 const routeDetailSchema = {
     type: "object",
     required: [
@@ -1027,6 +1817,7 @@ const routeDetailSchema = {
         },
         names: { type: "array", items: routeNameSchema },
         sources: { type: "array", items: sourceSummarySchema },
+        routeMetadata: routeMetadataSchema,
     },
 } as const;
 
@@ -1038,6 +1829,83 @@ export const getTransportRouteDetailSchema = {
     params: publicIdParamSchema,
     response: {
         200: routeDetailSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+const routeDiagnosticsRouteSchema = {
+    type: "object",
+    required: ["normalized_data", "source_refs"],
+    properties: {
+        normalized_data: { type: ["object", "null"], additionalProperties: true },
+        source_refs: { type: ["object", "null"], additionalProperties: true },
+    },
+} as const;
+
+const routeDiagnosticsVariantSchema = {
+    type: "object",
+    required: ["public_id", "variant_code", "normalized_data"],
+    properties: {
+        public_id: { type: "string", format: "uuid" },
+        variant_code: { type: "string" },
+        normalized_data: { type: ["object", "null"], additionalProperties: true },
+    },
+} as const;
+
+const routeDiagnosticsSourceLinkSchema = {
+    type: "object",
+    required: [
+        "id",
+        "entity_type",
+        "entity_id",
+        "source_name",
+        "source_kind",
+        "external_id",
+        "source_url",
+        "import_batch_id",
+        "confidence_score",
+        "is_primary",
+        "created_at",
+    ],
+    properties: {
+        id: { type: "integer", minimum: 1 },
+        entity_type: { type: "string" },
+        entity_id: { type: "integer", minimum: 1 },
+        source_name: { type: "string" },
+        source_kind: { type: "string" },
+        external_id: { type: "string", nullable: true },
+        source_url: { type: "string", nullable: true },
+        import_batch_id: { type: "integer", nullable: true, minimum: 1 },
+        confidence_score: { type: "number", nullable: true },
+        is_primary: { type: "boolean" },
+        created_at: { type: "string", format: "date-time" },
+    },
+} as const;
+
+const routeDiagnosticsResponseSchema = {
+    type: "object",
+    required: ["route", "variants", "source_links", "validation_warnings"],
+    properties: {
+        route: routeDiagnosticsRouteSchema,
+        variants: { type: "array", items: routeDiagnosticsVariantSchema },
+        source_links: { type: "array", items: routeDiagnosticsSourceLinkSchema },
+        validation_warnings: { type: "array", items: { type: "string" } },
+    },
+} as const;
+
+export const getTransportRouteDiagnosticsSchema = {
+    tags: [Tags.Transport],
+    summary: "Route technical diagnostics (admin)",
+    description:
+        "Read-only technical payload for route review: normalized_data, source_refs, variant normalized_data, " +
+        "source_links, and merged validation warnings from review readiness.",
+    security: [...bearerAuth],
+    params: publicIdParamSchema,
+    response: {
+        200: routeDiagnosticsResponseSchema,
         400: badRequestSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,
@@ -1061,6 +1929,15 @@ const updateRouteBodySchema = {
         review_status: { type: "string", enum: [...TRANSPORT_REVIEW_STATUSES] },
         confidence_score: { type: "number", minimum: 0, maximum: 100 },
         is_active: { type: "boolean" },
+        train_type: { type: "string", nullable: true, maxLength: 50 },
+        train_model: { type: "string", nullable: true, maxLength: 100 },
+        operation_days: {
+            type: "array",
+            items: { type: "string", minLength: 1, maxLength: 100 },
+            maxItems: 14,
+        },
+        is_yangon_urban_service: { type: "boolean" },
+        display_headsign: { type: "string", nullable: true, maxLength: 200 },
     },
 } as const;
 
@@ -1070,11 +1947,72 @@ export const patchTransportRouteSchema = {
     description:
         "Partial update of editable route fields. Names are edited via name_mm/name_en " +
         "(public_name is derived, Myanmar first, English fallback) and written to " +
-        "transport.route_names. Cannot edit public_name, source_refs, or normalized_data. " +
-        "No hard delete.",
+        "transport.route_names. Structured train metadata merges into normalized_data keys. " +
+        "display_headsign updates the primary variant headsign. Cannot edit public_name, " +
+        "source_refs, or raw normalized_data blobs. No hard delete.",
     security: [...bearerAuth],
     params: publicIdParamSchema,
     body: updateRouteBodySchema,
+    response: {
+        200: routeDetailSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+const patchRouteMetadataBodyOpenApiSchema = {
+    type: "object",
+    additionalProperties: false,
+    minProperties: 1,
+    properties: {
+        routeNames: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                my: { type: "string", nullable: true, maxLength: 200 },
+                en: { type: "string", nullable: true, maxLength: 200 },
+            },
+        },
+        route: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                originName: { type: "string", nullable: true, maxLength: 200 },
+                destinationName: { type: "string", nullable: true, maxLength: 200 },
+                reviewStatus: { type: "string", enum: [...TRANSPORT_REVIEW_STATUSES] },
+                confidenceScore: { type: "number", minimum: 0, maximum: 100 },
+            },
+        },
+        normalizedDataPatch: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                train_type: { type: "string", nullable: true, maxLength: 50 },
+                train_model: { type: "string", nullable: true, maxLength: 100 },
+                operation_days: {
+                    type: "array",
+                    items: { type: "string", minLength: 1, maxLength: 100 },
+                    maxItems: 14,
+                },
+                display_headsign: { type: "string", nullable: true, maxLength: 200 },
+                is_yangon_urban_service: { type: "boolean" },
+            },
+        },
+    },
+} as const;
+
+export const patchRouteMetadataSchema = {
+    tags: [Tags.Transport],
+    summary: "Patch structured transport route metadata (admin)",
+    description:
+        "Structured metadata editor endpoint. Upserts route_names my/en, updates route columns, " +
+        "merges normalized_data keys (never replaces the full blob), and may update the primary " +
+        "variant headsign from normalizedDataPatch.display_headsign. Does not edit route_stops.",
+    security: [...bearerAuth],
+    params: publicIdParamSchema,
+    body: patchRouteMetadataBodyOpenApiSchema,
     response: {
         200: routeDetailSchema,
         400: badRequestSchema,
@@ -1255,6 +2193,31 @@ const patchVariantBodySchema = {
     },
 } as const;
 
+export const postSwapRouteDirectionSchema = {
+    tags: [Tags.Transport],
+    summary: "Swap inbound/outbound direction metadata for a two-variant route (admin)",
+    description:
+        "Atomically swaps direction_id, direction_name, variant_code suffix (-A/-B), and " +
+        "normalized_data.direction (when present) between the route's two active variants. " +
+        "Requires exactly one outbound (direction_id 0) and one inbound (direction_id 1). " +
+        "Does not change route_stops, paths, or endpoint stop pointers.",
+    security: [...bearerAuth],
+    params: publicIdParamSchema,
+    response: {
+        200: {
+            type: "object",
+            required: ["variants"],
+            properties: {
+                variants: { type: "array", items: variantSummarySchema, minItems: 2, maxItems: 2 },
+            },
+        },
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
 export const postRouteVariantSchema = {
     tags: [Tags.Transport],
     summary: "Create a route variant (admin)",
@@ -1410,9 +2373,9 @@ export const postGeneratePathFromStopsSchema = {
     tags: [Tags.Transport],
     summary: "Generate a road-following path from ordered stops (admin)",
     description:
-        "Builds a Valhalla-snapped route path through the variant's ordered stop coordinates, " +
-        "replaces the active route_paths row for this variant, and returns the new geometry. " +
-        "Not yet implemented — reserved contract for dashboard Review Map.",
+        "Builds a Valhalla-snapped route path through the variant's ordered stop coordinates " +
+        "(all route_stop occurrences, including circular loop closure), replaces the active " +
+        "route_paths row for this variant, and returns the new geometry.",
     security: [...bearerAuth],
     params: routeVariantsParamSchema,
     response: {
@@ -1433,6 +2396,20 @@ const routeStopItemSchema = {
         drop_off_type: { type: "integer" },
         is_timing_point: { type: "boolean" },
         distance_from_start_m: { type: "number", nullable: true },
+        source_time_text: {
+            type: "string",
+            nullable: true,
+            description: "Read-only import provenance (e.g. 04:45 PM). Not editable via API.",
+        },
+        source_time_type: {
+            type: "string",
+            nullable: true,
+            description: "Read-only import provenance: arrival, departure, arrival_departure, or unknown.",
+        },
+        travel_time_from_previous_seconds: { type: "integer", nullable: true },
+        waiting_time_seconds: { type: "integer", nullable: true },
+        arrival_offset_seconds: { type: "integer", nullable: true },
+        departure_offset_seconds: { type: "integer", nullable: true },
         stop: {
             type: "object",
             properties: {
@@ -1489,6 +2466,7 @@ const orderedStopLiteSchema = {
         "pickup_type",
         "drop_off_type",
         "is_timing_point",
+        "is_loop_closure",
     ],
     properties: {
         route_stop_id: { type: "string" },
@@ -1507,6 +2485,22 @@ const orderedStopLiteSchema = {
         pickup_type: { type: "integer" },
         drop_off_type: { type: "integer" },
         is_timing_point: { type: "boolean" },
+        review_status: { type: "string" },
+        source_time_text: {
+            type: "string",
+            nullable: true,
+            description: "Read-only import provenance (e.g. 04:45 PM). Not editable via API.",
+        },
+        source_time_type: {
+            type: "string",
+            nullable: true,
+            description: "Read-only import provenance: arrival, departure, arrival_departure, or unknown.",
+        },
+        travel_time_from_previous_seconds: { type: "integer", nullable: true },
+        waiting_time_seconds: { type: "integer", nullable: true },
+        arrival_offset_seconds: { type: "integer", nullable: true },
+        departure_offset_seconds: { type: "integer", nullable: true },
+        is_loop_closure: { type: "boolean" },
     },
 } as const;
 
@@ -1610,6 +2604,7 @@ const variantStopQualityItemSchema = {
         "distance_from_previous_m",
         "distance_from_path_m",
         "is_exact_duplicate_in_variant",
+        "is_loop_closure",
         "nearby_duplicate_count",
     ],
     properties: {
@@ -1622,6 +2617,7 @@ const variantStopQualityItemSchema = {
         distance_from_previous_m: { type: "number", nullable: true },
         distance_from_path_m: { type: "number", nullable: true },
         is_exact_duplicate_in_variant: { type: "boolean" },
+        is_loop_closure: { type: "boolean" },
         nearby_duplicate_count: { type: "integer", minimum: 0 },
     },
 } as const;
@@ -1660,7 +2656,8 @@ export const insertExistingRouteStopSchema = {
     description:
         "Inserts an existing stop into this variant's ordered pattern at start/end or before/after an anchor route_stop. " +
         "The backend owns stop_sequence and resequences all route_stops for the variant to 1..N (the client never sends a final sequence). " +
-        "Rejects a stop already present in the variant (409). Does not create a new stop. Returns the updated ordered stops (lightweight shape) plus route_stop_count and has_verified_path so the client can update locally without a refetch.",
+        "The same physical stop may appear more than once (each row is a distinct route_stops occurrence). " +
+        "Does not create a new stop. Returns the updated ordered stops (lightweight shape) plus route_stop_count and has_verified_path so the client can update locally without a refetch.",
     security: [...bearerAuth],
     params: publicIdParamSchema,
     body: {
@@ -1691,15 +2688,16 @@ export const createAndInsertRouteStopSchema = {
     tags: [Tags.Transport],
     summary: "Create a new stop and insert it into a route variant (admin)",
     description:
-        "Secondary quick-create path for the Insert Stop modal. Creates a new stop (minimal fields: localized names, " +
-        "mode, stop_type, location) and inserts it into this variant in one transaction. At least one of name_mm / " +
-        "name_en is required. The backend owns stop_sequence and resequences all route_stops for the variant to 1..N. " +
-        "Full stop metadata editing stays on the Stop Detail page. Returns the updated ordered stops (lightweight shape) plus route_stop_count, has_verified_path, and the created_stop summary so the client can update locally without a refetch.",
+        "Quick-create path for the Insert Stop modal. Creates a new stop (localized names, " +
+        "mode, stop_type) and inserts it into this variant in one transaction. Placeholder " +
+        "geometry is derived from the variant stop sequence, or from optional longitude/latitude " +
+        "when the variant is empty. At least one of name_mm / name_en is required. The backend owns stop_sequence and resequences all route_stops for the variant to 1..N. " +
+        "Returns the updated ordered stops (lightweight shape) plus route_stop_count, has_verified_path, and the created_stop summary so the client can update locally without a refetch.",
     security: [...bearerAuth],
     params: publicIdParamSchema,
     body: {
         type: "object",
-        required: ["mode", "stop_type", "longitude", "latitude", "position"],
+        required: ["mode", "stop_type", "position"],
         additionalProperties: false,
         properties: {
             name_mm: { type: "string", minLength: 1, maxLength: 255 },
@@ -1709,13 +2707,13 @@ export const createAndInsertRouteStopSchema = {
                 enum: ["bus", "express_bus", "train", "ferry", "air", "other"],
             },
             stop_type: { type: "string", minLength: 1, maxLength: 50 },
-            longitude: { type: "number", minimum: -180, maximum: 180 },
-            latitude: { type: "number", minimum: -90, maximum: 90 },
             position: { type: "string", enum: ["start", "end", "before", "after"] },
             anchorRouteStopId: { type: "string", pattern: "^\\d+$" },
             pickup_type: { type: "integer", minimum: 0, maximum: 3, default: 0 },
             drop_off_type: { type: "integer", minimum: 0, maximum: 3, default: 0 },
             is_timing_point: { type: "boolean", default: false },
+            longitude: { type: "number", minimum: -180, maximum: 180 },
+            latitude: { type: "number", minimum: -90, maximum: 90 },
         },
     },
     response: {
@@ -1736,9 +2734,13 @@ const routeStopIdParamSchema = {
 
 export const patchRouteStopSchema = {
     tags: [Tags.Transport],
-    summary: "Update route stop flags (admin)",
+    summary: "Update route stop membership flags (admin)",
     description:
-        "Update pickup_type, drop_off_type, or is_timing_point for a route_stops row. stop_sequence is not editable here (use the move endpoint).",
+        "Update pickup_type, drop_off_type, and is_timing_point for a route_stops row. " +
+        "stop_sequence is not editable here (use the move endpoint). " +
+        "Imported source_time_text / source_time_type and timetable offsets are read-only via this route; " +
+        "use PATCH /transport/route-stops/:id/timing for travel/waiting edits and " +
+        "PATCH /transport/route-variants/:publicId/departure-time for the variant departure anchor.",
     security: [...bearerAuth],
     params: routeStopIdParamSchema,
     body: {
@@ -1753,6 +2755,60 @@ export const patchRouteStopSchema = {
     },
     response: {
         200: routeStopItemSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+const patchRouteStopTimingBodyOpenApiSchema = {
+    type: "object",
+    additionalProperties: false,
+    minProperties: 1,
+    properties: {
+        travelTimeFromPreviousSeconds: { type: "integer", minimum: 0, nullable: true },
+        waitingTimeSeconds: { type: "integer", minimum: 0, nullable: true },
+    },
+} as const;
+
+export const patchRouteStopTimingSchema = {
+    tags: [Tags.Transport],
+    summary: "Update route stop timetable inputs (admin)",
+    description:
+        "Update editable travel/waiting seconds on one route_stops row, recalculate arrival/departure " +
+        "offsets for the whole variant in one transaction, and return the refreshed ordered stop list. " +
+        "Does not change stop_id, stop geometry, stop_sequence, or imported source_time_text / source_time_type.",
+    security: [...bearerAuth],
+    params: routeStopIdParamSchema,
+    body: patchRouteStopTimingBodyOpenApiSchema,
+    response: {
+        200: routeStopMutationResponseSchema,
+        400: badRequestSchema,
+        401: unauthorizedSchema,
+        403: forbiddenSchema,
+        404: notFoundSchema,
+    },
+} satisfies FastifySchema;
+
+export const patchVariantDepartureTimeSchema = {
+    tags: [Tags.Transport],
+    summary: "Update variant departure time (admin)",
+    description:
+        "Stores departure_time_text on the variant normalized_data blob, recalculates timetable offsets " +
+        "for all ordered stops in one transaction, and returns the refreshed ordered stop list.",
+    security: [...bearerAuth],
+    params: publicIdParamSchema,
+    body: {
+        type: "object",
+        required: ["departureTimeText"],
+        additionalProperties: false,
+        properties: {
+            departureTimeText: { type: "string", nullable: true, maxLength: 200 },
+        },
+    },
+    response: {
+        200: routeStopMutationResponseSchema,
         400: badRequestSchema,
         401: unauthorizedSchema,
         403: forbiddenSchema,

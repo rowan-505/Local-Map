@@ -29,6 +29,9 @@
     "tiles:build:overview": "bash infrastructure/tiles/pmtiles/scripts/build-overview.sh",
     "tiles:rebuild:overview": "bash infrastructure/tiles/pmtiles/scripts/rebuild-overview.sh",
     "tiles:verify:overview": "bash infrastructure/tiles/pmtiles/scripts/verify-overview-local.sh",
+    "tiles:martin:validate-config": "bash infrastructure/tiles/martin/scripts/validate-transport-config.sh",
+    "tiles:martin:validate-runtime": "bash infrastructure/tiles/martin/scripts/validate-transport-runtime.sh",
+    "tiles:martin:restart-local": "bash infrastructure/tiles/martin/scripts/restart-local.sh",
     "test:overview-style": "npm test --prefix packages/map-style"
   },
   "dependencies": {

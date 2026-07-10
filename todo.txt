@@ -459,3 +459,125 @@ API = search, detail, saved, reports, user actions
 
 That matches your own architecture and avoids overengineering while still supporting offline downloads for all townships later.
 
+
+
+
+----
+
+
+Phase A — English extraction
+Command 1 — Read the route list (index only)
+npx tsx tools/data-pipeline/train-app-import/extract/extract-route-index.ts --language en
+What it does:
+
+Scrolls the All tab route list on your phone
+Reads each card (train number, direction, path, time)
+Saves one file: tmp/train-import/raw/en/route-list.json
+Does not open route detail pages
+Does not use --all (that flag does not exist here)
+Wait until it finishes. Check: Routes found: <number>.
+
+Command 2 — Open every route and read full schedules
+npx tsx tools/data-pipeline/train-app-import/extract/extract-route-details.ts --language en --all
+What it does:
+
+Reads route-list.json from step 1
+Opens each route on the phone
+Taps View Full Schedule
+Scrolls until Collapse Schedule
+Saves one JSON per route, e.g. tmp/train-import/raw/en/routes/TRAIN-141-UP.json
+Why --all?
+This script has two modes:
+
+Flag	Meaning
+--all
+Process every route in the list (normal workflow)
+--current-route TRAIN-141-UP
+Process only the route already open on screen (manual fallback)
+For the first full run, use --all.
+
+This can take a long time (many routes). Let it finish.
+
+Phase B — Myanmar extraction
+Manual step (not a command)
+On the phone:
+
+Switch app language to Myanmar
+Stay on Route → All tab (not Online Ticket)
+Command 3 — Read MY route list
+npx tsx tools/data-pipeline/train-app-import/extract/extract-route-index.ts --language my
+What it does: Same as Command 1, but Myanmar UI → tmp/train-import/raw/my/route-list.json.
+
+Command 4 — Read MY detail for all routes
+npx tsx tools/data-pipeline/train-app-import/extract/extract-route-details.ts --language my --all
+What it does: Same as Command 2, but Myanmar → tmp/train-import/raw/my/routes/*.json.
+
+Phase C — Merge and normalize (files only, no phone, no DB writes)
+Command 5 — Merge EN + MY
+npx tsx tools/data-pipeline/train-app-import/normalize/merge-language-routes.ts
+What it does:
+
+Pairs EN and MY files by train number + direction
+Writes tmp/train-import/merged/TRAIN-*.json
+Command 6 — Normalize for DB import
+npx tsx tools/data-pipeline/train-app-import/normalize/normalize-train-routes.ts
+What it does:
+
+Converts merged data to a clean DB-ready shape
+Computes timing offsets
+Writes tmp/train-import/normalized/TRAIN-*.json
+Phase D — Station matching (read-only DB)
+Command 7 — Match stations in Supabase
+npx tsx tools/data-pipeline/train-app-import/db/match-train-stations.ts
+What it does:
+
+Reads existing transport.stops where mode = 'train'
+Matches station names to stop IDs
+Writes tmp/train-import/import-ready/TRAIN-*.json only for fully matched routes
+Does not create new stops
+Check tmp/train-import/station-matches/unmatched-stations.json if some routes fail.
+
+Phase E — Import one route first (test)
+Pick one route that exists in import-ready/, e.g. TRAIN-141-UP.
+
+Command 8 — Dry-run import (no DB write)
+npx tsx tools/data-pipeline/train-app-import/db/import-train-route.ts --route TRAIN-141-UP
+What it does:
+
+Shows what would be imported
+Does not change the database
+Command 9 — Real import (writes DB)
+npx tsx tools/data-pipeline/train-app-import/db/import-train-route.ts --route TRAIN-141-UP --execute
+What it does:
+
+Writes route + variant + route_stops to the database
+Sets is_active=false, review_status=imported_unreviewed
+--execute here means “write to DB”. Without it = dry-run only.
+
+Command 10 — Validate that route
+npx tsx tools/data-pipeline/train-app-import/validate/validate-train-route.ts --route TRAIN-141-UP
+What it does:
+
+Read-only DB checks (stop count, sequence, generation, etc.)
+Report: tmp/train-import/reports/TRAIN-141-UP-validation.json
+If validation fails, fix the problem before importing more routes.
+
+Phase F — Import more routes (after one route is good)
+Repeat Commands 8–9 for each route (change the route code):
+
+npx tsx tools/data-pipeline/train-app-import/db/import-train-route.ts --route TRAIN-83-UP
+npx tsx tools/data-pipeline/train-app-import/db/import-train-route.ts --route TRAIN-83-UP --execute
+Then validate:
+
+npx tsx tools/data-pipeline/train-app-import/validate/validate-train-route.ts --route TRAIN-83-UP
+Phase G — Legacy cleanup (later, not now)
+Only after many new routes are imported and checked.
+
+Command 11 — Mark old train data as legacy (dry-run)
+npx tsx tools/data-pipeline/train-app-import/cleanup/mark-legacy-train-data.ts
+Command 12 — Mark legacy (real write)
+npx tsx tools/data-pipeline/train-app-import/cleanup/mark-legacy-train-data.ts --execute
+Command 13 — Soft-delete legacy routes (dry-run)
+npx tsx tools/data-pipeline/train-app-import/cleanup/cleanup-legacy-train-routes.ts
+Command 14 — Soft-delete legacy (real, needs confirm flag)
+npx tsx tools/data-pipeline/train-app-import/cleanup/cleanup-legacy-train-routes.ts --execute --confirm-legacy-train-cleanup

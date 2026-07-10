@@ -1,5 +1,7 @@
 # YBS Phase 6 Stop Resolution
 
+**Full pipeline guide:** [`../README.md`](../README.md)
+
 Resolve extracted YBS stops into shared stop candidates before Supabase import.
 
 This tool does **not** insert, update, or delete Supabase data. It only:

@@ -14,8 +14,11 @@ import {
   addTransportSources,
   bindTransportTileErrorHandler,
 } from '../lib/maplibre/transportSources';
+import { ensureTransportStopHighlightLayers } from '../lib/maplibre/transportStopHighlight';
+import { applySelectedTransportMarker } from '../lib/maplibre/selectedTransportMarker';
 import { addTransportLayers, setTransportOverlayVisible } from '../lib/maplibre/transportLayers';
-import { bindTransportDebugPopups } from '../lib/maplibre/transportDebugPopup';
+import { bindTransportMapInteractions } from '../lib/maplibre/transportMapInteractions';
+import { bindPublicMapClickInteractions } from '../lib/maplibre/publicMapClickInteractions';
 import type { MapViewProps } from '../types';
 import {
   clampPublicMapFlyToTarget,
@@ -81,7 +84,7 @@ function MapViewInner({
   selectedPoi,
   cameraTarget,
   searchHighlight = null,
-  onSearchHighlightLoadingChange,
+  searchHighlightGeometry = null,
   cameraLayout,
   clickedLocation,
   directionsOverlay = null,
@@ -92,6 +95,8 @@ function MapViewInner({
   locationCameraCommand = null,
   onUserLocationFollowDisengage,
   onSelectPoiId,
+  selectedTransportSelection = null,
+  onSelectTransportStop,
   onEmptyMapClick,
   onViewportChange,
   className,
@@ -111,7 +116,6 @@ function MapViewInner({
   const languageModeRef = useRef(languageMode);
   const mapModeRef = useRef(mapMode);
   const cameraLayoutRef = useRef(cameraLayout ?? DEFAULT_MAP_CAMERA_LAYOUT);
-  const searchHighlightLoadingRef = useRef(onSearchHighlightLoadingChange);
   /** After manual pan/zoom, startup/sidebar auto-fit must not recenter the camera. */
   const hasUserInteractedRef = useRef(false);
   /**
@@ -121,10 +125,6 @@ function MapViewInner({
    * national overview and fight the share flyTo. Captured once at mount.
    */
   const hasInitialCameraTargetRef = useRef(Boolean(cameraTarget));
-
-  useEffect(() => {
-    searchHighlightLoadingRef.current = onSearchHighlightLoadingChange;
-  }, [onSearchHighlightLoadingChange]);
 
   useEffect(() => {
     languageModeRef.current = languageMode;
@@ -181,11 +181,15 @@ function MapViewInner({
   }, [onUserLocationFollowDisengage]);
 
   const onSelectRef = useRef(onSelectPoiId);
+  const onSelectTransportStopRef = useRef(onSelectTransportStop);
   const onEmptyMapClickRef = useRef(onEmptyMapClick);
   const onViewportChangeRef = useRef(onViewportChange);
   useEffect(() => {
     onSelectRef.current = onSelectPoiId;
   }, [onSelectPoiId]);
+  useEffect(() => {
+    onSelectTransportStopRef.current = onSelectTransportStop;
+  }, [onSelectTransportStop]);
   useEffect(() => {
     onEmptyMapClickRef.current = onEmptyMapClick;
   }, [onEmptyMapClick]);
@@ -237,6 +241,7 @@ function MapViewInner({
           if (martin.status === 'configured') {
             addTransportSources(map, martin.baseUrl);
             addTransportLayers(map);
+            ensureTransportStopHighlightLayers(map);
             setTransportOverlayVisible(map, transportOverlayVisibleRef.current);
           } else if (import.meta.env.DEV) {
             console.warn('[map] Martin transport overlay disabled:', martin.status);
@@ -353,13 +358,44 @@ function MapViewInner({
     return bindTransportTileErrorHandler(map);
   }, [mapReady]);
 
-  /** Debug-only inspection popups for transport features (separate from POI selection). */
+  /** Transport stop hover highlight (clicks handled by bindPublicMapClickInteractions). */
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current;
     if (!map) return;
-    return bindTransportDebugPopups(map);
+    return bindTransportMapInteractions(map);
   }, [mapReady]);
+
+  /** Deterministic POI / transport / inspect click priority. */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+    return bindPublicMapClickInteractions(map, {
+      getRoutePickMode: () => routePickModeRef.current,
+      onSelectPoiId: (id) => {
+        onSelectRef.current(id);
+      },
+      onSelectTransportStop: (selection) => {
+        onSelectTransportStopRef.current?.(selection);
+      },
+      onEmptyMapClick: (location) => {
+        onEmptyMapClickRef.current?.(location);
+      },
+    });
+  }, [mapReady]);
+
+  /** Keep selected transport pin in sync when parent clears or replaces selection. */
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+    if (!selectedTransportSelection) {
+      applySelectedTransportMarker(map, null);
+      return;
+    }
+    applySelectedTransportMarker(map, selectedTransportSelection.highlight);
+  }, [mapReady, selectedTransportSelection]);
 
   /**
    * Dynamic regional PMTiles: load only the regions visible in the viewport at z>=7,
@@ -373,7 +409,11 @@ function MapViewInner({
     let cancelled = false;
     let handle: RegionalPmtilesLoaderHandle | null = null;
 
-    void startRegionalPmtilesLoader(map, () => applyMapOverlayStackOrder(map))
+    void startRegionalPmtilesLoader(map, () => {
+      const camera = snapshotMapCamera(map);
+      applyWebBasemapModePreservingCamera(map, mapModeRef.current, camera);
+      applyMapOverlayStackOrder(map);
+    })
       .then((started) => {
         if (cancelled) {
           started.destroy();
@@ -519,25 +559,16 @@ function MapViewInner({
 
     if (!searchHighlight) {
       clearSearchHighlight(map);
-      searchHighlightLoadingRef.current?.(false);
       return;
     }
 
-    const controller = new AbortController();
     void fitSearchResult(map, searchHighlight, {
       padding: visibleMapCameraPadding(cameraLayoutRef.current, containerRef.current),
-      signal: controller.signal,
-      onGeometryLoadingChange: (loading) => searchHighlightLoadingRef.current?.(loading),
+      geometry: searchHighlightGeometry,
     }).finally(() => {
       applyMapOverlayStackOrder(map);
     });
-
-    return () => {
-      controller.abort();
-      // A superseded/aborted fetch must not leave the overlay stuck "loading".
-      searchHighlightLoadingRef.current?.(false);
-    };
-  }, [mapReady, searchHighlight]);
+  }, [mapReady, searchHighlight, searchHighlightGeometry]);
 
   useEffect(() => {
     if (cameraTarget) return;
@@ -687,23 +718,12 @@ function MapViewInner({
     };
   }, [mapReady, routePickMode]);
 
-  /** Clicks / hover — stable subscription (handler reads latest callback via ref). */
+  /** POI hover cursor — stable subscription (handler reads latest callback via ref). */
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current;
     if (!map) return;
-    return bindPoiLayerInteractions(
-      map,
-      (id) => {
-        onSelectRef.current(id);
-      },
-      (location) => {
-        onEmptyMapClickRef.current?.(location);
-      },
-      {
-        getRoutePickMode: () => routePickModeRef.current,
-      },
-    );
+    return bindPoiLayerInteractions(map);
   }, [mapReady]);
 
   useEffect(() => {

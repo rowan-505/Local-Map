@@ -1,13 +1,15 @@
 /**
- * Console-only debug helper for the own-user location precision flow.
+ * Location debug helpers for the own-user location precision flow.
  *
- * Logs when EITHER:
- *   - `import.meta.env.DEV` is true (local dev), OR
- *   - the page URL carries `?debugLocation=1` or `?debugLocation=true` — this lets
- *     us debug REAL devices on the deployed HTTPS domain without a dev build.
+ * Console logging (`isLocationDebugEnabled`) runs in local dev OR when explicitly
+ * opted in via URL / runtime toggle — see `isLocationDebugEnabled()`.
+ *
+ * The on-screen overlay (`isLocationDebugOverlayEnabled`) is hidden by default and
+ * requires explicit opt-in (`?debugLocation=1`, runtime toggle). `import.meta.env.DEV`
+ * alone never shows the overlay.
  *
  * Safety:
- * - Console only; renders no UI and persists nothing (no localStorage/sessionStorage).
+ * - Console logs render no UI and persist nothing (no localStorage/sessionStorage).
  * - Never logs exact coordinates by default. A local-only opt-in
  *   (`LOCAL_DEBUG_LOCATION_COORDS`) exists for hands-on debugging; it MUST stay
  *   `false` in committed code.
@@ -150,6 +152,12 @@ function hasUrlDebugFlag(): boolean {
   return fragmentHasFlag(window.location.search) || fragmentHasFlag(window.location.hash);
 }
 
+function latchUrlDebugFlag(): boolean {
+  if (!hasUrlDebugFlag()) return false;
+  if (typeof window !== 'undefined') window.__coremapDebugLocation = true;
+  return true;
+}
+
 /**
  * True when location debug logging should run:
  *   - local dev (`import.meta.env.DEV`), OR
@@ -163,12 +171,19 @@ function hasUrlDebugFlag(): boolean {
 export function isLocationDebugEnabled(): boolean {
   if (import.meta.env.DEV) return true;
   if (typeof window !== 'undefined' && window.__coremapDebugLocation === true) return true;
-  if (hasUrlDebugFlag()) {
-    // Latch it so later calls (and the console hatch) stay consistent this session.
-    if (typeof window !== 'undefined') window.__coremapDebugLocation = true;
-    return true;
-  }
-  return false;
+  return latchUrlDebugFlag();
+}
+
+/**
+ * True when the on-screen location debug overlay should render.
+ * Explicit opt-in only — never enabled by `import.meta.env.DEV` alone.
+ *
+ *   - `?debugLocation=1` (or `=true`/bare flag) on the page URL, OR
+ *   - `window.enableLocationDebug()` / latched `window.__coremapDebugLocation`.
+ */
+export function isLocationDebugOverlayEnabled(): boolean {
+  if (typeof window !== 'undefined' && window.__coremapDebugLocation === true) return true;
+  return latchUrlDebugFlag();
 }
 
 // Expose a console escape hatch so real deployed devices can enable logs without a

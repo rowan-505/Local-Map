@@ -67,4 +67,17 @@ describe('findRouteOverlayInsertBeforeLayerId', () => {
     ]);
     assert.equal(findRouteOverlayInsertBeforeLayerId(map as never), 'buildings');
   });
+
+  it('anchors below transport-stops when the transport overlay is loaded', () => {
+    const layers = [
+      ...BASEMAP_LIKE_LAYERS,
+      { id: 'transport-stops', type: 'circle' },
+      { id: 'places-circle', type: 'circle' },
+    ];
+    const map = {
+      getStyle: () => ({ layers: [...layers] }),
+      getLayer: (id: string) => (id === 'transport-stops' ? { id } : undefined),
+    };
+    assert.equal(findRouteOverlayInsertBeforeLayerId(map as never), 'transport-stops');
+  });
 });

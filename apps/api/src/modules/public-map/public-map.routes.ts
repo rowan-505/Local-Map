@@ -3,9 +3,17 @@ import type { FastifyPluginAsync } from "fastify";
 import { ReverseSearchRepository } from "../addresses/reverse-search.repo.js";
 import { ReverseSearchService } from "../addresses/reverse-search.service.js";
 import { AdminAreasRepository } from "../admin-areas/admin-areas.repo.js";
+import { TransportPublicService } from "../transport/transport-public.service.js";
 import { PublicMapRepository } from "./public-map.repo.js";
-import { PublicMapService, PublicPlaceNotFoundError } from "./public-map.service.js";
 import {
+    PublicMapService,
+    PublicPlaceNotFoundError,
+    PublicTransportStopNotFoundError,
+    PublicTransportTerminalNotFoundError,
+    planPublicSearch,
+} from "./public-map.service.js";
+import {
+    PUBLIC_SEARCH_ENTITY_TYPES,
     publicAdminAreaIdParamsSchema,
     publicAdminAreaSearchQuerySchema,
     publicPlaceIdParamsSchema,
@@ -13,7 +21,14 @@ import {
     publicPlacesQuerySchema,
     publicSearchGeometryParamsSchema,
     publicSearchGeometryQuerySchema,
+    publicSearchMapPreviewParamsSchema,
+    publicSearchMapPreviewQuerySchema,
     publicSearchQuerySchema,
+    searchResultClickAnalyticsBodySchema,
+    publicTransportStopIdParamsSchema,
+    publicTransportStopQuerySchema,
+    publicTransportTerminalIdParamsSchema,
+    publicTransportTerminalQuerySchema,
 } from "./public-map.schema.js";
 import {
     getPublicAdminAreaByIdSchema,
@@ -27,17 +42,41 @@ import {
     getPublicPlaceByIdSchema,
     getPublicPlacesSchema,
     getPublicSearchGeometrySchema,
+    getPublicSearchMapPreviewSchema,
     getPublicSearchSchema,
+    postSearchResultClickAnalyticsSchema,
+    getPublicTransportStopByIdSchema,
+    getPublicTransportTerminalByIdSchema,
 } from "./public-map.openapi.js";
+import {
+    resolvePublicSearchFilters,
+} from "./public-search-filters.js";
+import {
+    assertPublicSearchCursorMatchesRequest,
+    decodePublicSearchCursor,
+    InvalidPublicSearchCursorError,
+    normalizePublicSearchCursorContext,
+} from "./public-search-cursor.js";
+
+function anonymousSessionKey(request: { headers: Record<string, unknown> }): string | null {
+    const raw = request.headers["x-anonymous-id"];
+    if (typeof raw !== "string") {
+        return null;
+    }
+    const trimmed = raw.trim();
+    return trimmed.length > 0 && trimmed.length <= 128 ? trimmed : null;
+}
 
 const publicMapRoutes: FastifyPluginAsync = async (app) => {
     const publicMapRepo = new PublicMapRepository(app.prisma);
     const reverseSearchService = new ReverseSearchService(new ReverseSearchRepository(app.prisma));
     const adminAreasRepo = new AdminAreasRepository(app.prisma);
+    const transportPublicService = new TransportPublicService(app.prisma);
     const publicMapService = new PublicMapService(
         publicMapRepo,
         reverseSearchService,
         adminAreasRepo,
+        transportPublicService,
     );
 
     app.get("/public/places", { schema: getPublicPlacesSchema }, async (request, reply) => {
@@ -78,6 +117,85 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
         }
     });
 
+    app.get(
+        "/public/transport/stops/:id",
+        { schema: getPublicTransportStopByIdSchema },
+        async (request, reply) => {
+            const parsedParams = publicTransportStopIdParamsSchema.safeParse(request.params);
+
+            if (!parsedParams.success) {
+                return reply.code(400).send({
+                    message: "Invalid public transport stop id",
+                    issues: parsedParams.error.flatten(),
+                });
+            }
+
+            const parsedQuery = publicTransportStopQuerySchema.safeParse(request.query);
+            if (!parsedQuery.success) {
+                return reply.code(400).send({
+                    message: "Invalid public transport stop query",
+                    issues: parsedQuery.error.flatten(),
+                });
+            }
+
+            try {
+                const stop = await publicMapService.getTransportStopById(parsedParams.data.id, {
+                    lang: parsedQuery.data.lang,
+                });
+                return reply.send(stop);
+            } catch (error) {
+                if (error instanceof PublicTransportStopNotFoundError) {
+                    return reply.code(404).send({
+                        message: error.message,
+                    });
+                }
+
+                throw error;
+            }
+        },
+    );
+
+    app.get(
+        "/public/transport/terminals/:id",
+        { schema: getPublicTransportTerminalByIdSchema },
+        async (request, reply) => {
+            const parsedParams = publicTransportTerminalIdParamsSchema.safeParse(request.params);
+
+            if (!parsedParams.success) {
+                return reply.code(400).send({
+                    message: "Invalid public transport terminal id",
+                    issues: parsedParams.error.flatten(),
+                });
+            }
+
+            const parsedQuery = publicTransportTerminalQuerySchema.safeParse(request.query);
+            if (!parsedQuery.success) {
+                return reply.code(400).send({
+                    message: "Invalid public transport terminal query",
+                    issues: parsedQuery.error.flatten(),
+                });
+            }
+
+            try {
+                const terminal = await publicMapService.getTransportTerminalById(
+                    parsedParams.data.id,
+                    {
+                        lang: parsedQuery.data.lang,
+                    },
+                );
+                return reply.send(terminal);
+            } catch (error) {
+                if (error instanceof PublicTransportTerminalNotFoundError) {
+                    return reply.code(404).send({
+                        message: error.message,
+                    });
+                }
+
+                throw error;
+            }
+        },
+    );
+
     app.get("/public/map/places", { schema: getPublicMapPlacesSchema }, async (request, reply) => {
         const parsed = publicMapPlacesQuerySchema.safeParse(request.query);
 
@@ -113,18 +231,90 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
             });
         }
 
+        const q = parsed.data.q;
+        const allowed = new Set<string>(PUBLIC_SEARCH_ENTITY_TYPES);
+        const legacyTypes = (parsed.data.types ?? []).filter((t) => allowed.has(t));
+        const filters = resolvePublicSearchFilters({
+            category: parsed.data.category,
+            transportType: parsed.data.transportType,
+            transportMode: parsed.data.mode,
+            legacyTypes,
+        });
+        const plan = planPublicSearch(q);
+
+        let after;
+        let cursorContext;
+        if (parsed.data.cursor) {
+            if (!plan.allowed) {
+                return reply.code(400).send({ message: "Invalid search cursor" });
+            }
+            try {
+                const decoded = decodePublicSearchCursor(parsed.data.cursor);
+                cursorContext = normalizePublicSearchCursorContext({
+                    q,
+                    mode: plan.mode,
+                    types: legacyTypes.length > 0 ? legacyTypes : [...filters.entityTypes],
+                    lat: parsed.data.lat,
+                    lng: parsed.data.lng,
+                    category: filters.category,
+                    transportType: filters.transportType,
+                    transportMode: filters.transportMode,
+                    lang: parsed.data.lang ?? null,
+                });
+                assertPublicSearchCursorMatchesRequest(decoded.ctx, cursorContext);
+                after = decoded.after;
+            } catch (error) {
+                if (error instanceof InvalidPublicSearchCursorError) {
+                    return reply.code(400).send({ message: error.message });
+                }
+                return reply.code(400).send({ message: "Invalid search cursor" });
+            }
+        }
+
         const results = await publicMapService.search(
             {
-                q: parsed.data.q,
+                q,
                 limit: parsed.data.limit,
                 lat: parsed.data.lat,
                 lng: parsed.data.lng,
-                types: parsed.data.types,
+                lang: parsed.data.lang,
+                types: legacyTypes,
+                category: parsed.data.category,
+                transportType: parsed.data.transportType,
+                transportMode: parsed.data.mode,
+                filters,
+                after,
+                cursorContext,
+                sessionKey: anonymousSessionKey(request),
             },
             request.log,
         );
         return reply.send(results);
     });
+
+    app.post(
+        "/public/search/analytics/clicks",
+        { schema: postSearchResultClickAnalyticsSchema },
+        async (request, reply) => {
+            const parsed = searchResultClickAnalyticsBodySchema.safeParse(request.body);
+            if (!parsed.success) {
+                return reply.code(400).send({
+                    message: "Invalid search click analytics payload",
+                    issues: parsed.error.flatten(),
+                });
+            }
+
+            publicMapService.recordSearchResultClick({
+                searchCorrelationId: parsed.data.event_id,
+                entityType: parsed.data.entity_type,
+                entityId: parsed.data.entity_id,
+                clickedRank: parsed.data.clicked_rank,
+                timeToClickMs: parsed.data.time_to_click_ms,
+            });
+
+            return reply.code(204).send();
+        },
+    );
 
     app.get(
         "/public/search/:entityType/:entityId/geometry",
@@ -157,6 +347,39 @@ const publicMapRoutes: FastifyPluginAsync = async (app) => {
 
             if (!result) {
                 return reply.code(404).send({ message: "Geometry not found" });
+            }
+            return reply.send(result);
+        },
+    );
+
+    app.get(
+        "/public/search/:entityType/:entityId/map-preview",
+        { schema: getPublicSearchMapPreviewSchema },
+        async (request, reply) => {
+            const parsedParams = publicSearchMapPreviewParamsSchema.safeParse(request.params);
+            if (!parsedParams.success) {
+                return reply.code(400).send({
+                    message: "Invalid search map-preview request",
+                    issues: parsedParams.error.flatten(),
+                });
+            }
+
+            const parsedQuery = publicSearchMapPreviewQuerySchema.safeParse(request.query);
+            if (!parsedQuery.success) {
+                return reply.code(400).send({
+                    message: "Invalid search map-preview query",
+                    issues: parsedQuery.error.flatten(),
+                });
+            }
+
+            const result = await publicMapService.getTransportRouteMapPreview({
+                entityType: parsedParams.data.entityType,
+                entityId: parsedParams.data.entityId,
+                zoom: parsedQuery.data.zoom,
+            });
+
+            if (!result) {
+                return reply.code(404).send({ message: "Map preview not found" });
             }
             return reply.send(result);
         },

@@ -4,12 +4,21 @@ import {
     TransportInvalidReferenceError,
     TransportNameRequiredError,
     TransportNotFoundError,
+    TransportRouteMetadataError,
     TransportRouteConflictError,
-    TransportRouteStopDuplicateError,
     TransportRouteStopTransactionTimeoutError,
     TransportSchemaUnavailableError,
+    TransportStopDeleteBlockedError,
     TransportStopInUseError,
+    TransportReviewGuardError,
+    TransportGeneratePathFromStopsError,
+    type TransportStopDeleteBlocker,
 } from "./transport.errors.js";
+import {
+    buildCreatedFromRouteSequenceNormalizedData,
+    resolvePlaceholderStopGeometry,
+    type RouteStopGeometryPoint,
+} from "./transport-stop-placeholder-geometry.js";
 import { getDefaultRouteKind } from "./transport-mode-config.js";
 import {
     appendPointDiff,
@@ -24,6 +33,24 @@ import {
     deriveRouteGeometryStatus,
     deriveStopGeometryStatus,
 } from "./transport-review.js";
+import { calculateVariantTimetableSchedule, variantTimetableScheduleToOffsets } from "./transport-timetable.js";
+import { assembleStopRouteUsageDetail, buildStopRouteUsageSummary } from "./stopRouteUsageDetail.js";
+import { buildStopMergeFieldComparison } from "./stopMergePreview.js";
+import {
+    emptyStopMergeReferenceChanges,
+    sumStopMergeReferenceCounts,
+} from "./stopMergeGlobal.js";
+import {
+    resolveMergeFieldValue,
+    type StopMergeFieldKey,
+    type StopMergeFieldSources,
+    type StopMergeFieldStopSnapshot,
+} from "./stopMergeFieldApply.js";
+import {
+    buildTransportRouteMetadata,
+    hasPlaceholderStopNames,
+    type RouteMetadataVariantRow,
+} from "./transport-route-metadata.js";
 import type {
     ListTransportRoutesQuery,
     ListTransportStopsQuery,
@@ -37,6 +64,7 @@ import type {
     CreateVariantInput,
     InsertExistingRouteStopInput,
     CreateAndInsertRouteStopInput,
+    NearbyTransportStopCandidatesQuery,
     NearbyStopsQuery,
     SearchTransportStopsQuery,
     StopRoutesQuery,
@@ -44,6 +72,7 @@ import type {
     PutVariantPathInput,
     UpdateRouteInput,
     UpdateRouteStopInput,
+    UpdateRouteStopTimingInput,
     UpdateStopInput,
     UpdateStopLocationInput,
     UpdateTerminalInput,
@@ -64,17 +93,26 @@ import type {
     TransportRawNameStatus,
     TransportRouteCreateResult,
     TransportRouteDetail,
+    TransportRouteDiagnostics,
     TransportRouteListItem,
     TransportRouteStopItem,
     TransportCreatedStopLite,
     TransportOrderedStopLite,
     TransportRouteStopMutationResult,
     TransportNearbyStop,
+    TransportNearbyStopCandidatesResponse,
     TransportStopArchiveResult,
+    TransportStopDeleteEligibility,
+    TransportStopDeleteReferenceCounts,
+    TransportStopPermanentDeleteResult,
     TransportStopDetail,
     TransportStopListItem,
     TransportStopLocationUpdateResult,
     TransportStopRouteUsage,
+    TransportStopRouteUsageDetailResponse,
+    TransportStopMergePreviewResponse,
+    TransportStopMergeReferenceCounts,
+    TransportStopMergeGlobalResult,
     TransportStopSearchItem,
     TransportStopSearchResponse,
     TransportInfrastructureLineDetail,
@@ -86,7 +124,13 @@ import type {
     TransportVariantStopQualityResponse,
     TransportVariantStopsResponse,
     TransportVariantSummary,
+    GeneratePathFromStopsResult,
 } from "./transport.types.js";
+import { isCircularClosingRouteStop } from "./transport-route-stop-occurrence.js";
+import {
+    assertSameVariantMergeAcknowledged,
+    buildSameVariantMergeWarning,
+} from "./stopMergeSameVariant.js";
 
 type CountsRow = {
     routes: bigint;
@@ -233,6 +277,7 @@ type TerminalDetailRow = {
 };
 
 type StopRouteUsageRow = {
+    route_stop_id: string;
     route_public_id: string;
     route_code: string;
     route_name: string;
@@ -242,6 +287,70 @@ type StopRouteUsageRow = {
     direction_name: string | null;
     headsign: string | null;
     stop_sequence: number;
+};
+
+type StopRouteUsageDetailRow = {
+    route_stop_id: string;
+    route_id: string;
+    route_code: string;
+    route_name: string;
+    variant_id: string;
+    variant_code: string;
+    direction_name: string | null;
+    direction_id: number | null;
+    stop_sequence: number;
+};
+
+type StopRouteUsageDetailByStopRow = StopRouteUsageDetailRow & {
+    stop_internal_id: bigint;
+};
+
+type MergePreviewStopRow = {
+    id: bigint;
+    public_id: string;
+    name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    mode: string;
+    stop_type: string;
+    admin_area_id: number | null;
+    admin_area_name: string | null;
+    review_status: string;
+    confidence_score: number | null;
+    is_active: boolean;
+    longitude: number | null;
+    latitude: number | null;
+};
+
+type MergePreviewVariantConflictRow = {
+    route_code: string;
+    variant_code: string;
+    direction_name: string | null;
+    current_route_stop_id: string;
+    current_sequence: number;
+    candidate_route_stop_id: string;
+    candidate_sequence: number;
+};
+
+type MergePreviewReferenceCountsRow = {
+    current_route_stops: bigint;
+    candidate_route_stops: bigint;
+    current_variant_origins: bigint;
+    candidate_variant_origins: bigint;
+    current_variant_destinations: bigint;
+    candidate_variant_destinations: bigint;
+    current_terminals: bigint;
+    candidate_terminals: bigint;
+    current_fares_origin: bigint;
+    candidate_fares_origin: bigint;
+    current_fares_destination: bigint;
+    candidate_fares_destination: bigint;
+    current_child_stops: bigint;
+    candidate_child_stops: bigint;
+    current_stop_names: bigint;
+    candidate_stop_names: bigint;
+    current_source_links: bigint;
+    candidate_source_links: bigint;
 };
 
 type TerminalListRow = {
@@ -355,9 +464,28 @@ type RouteDetailRow = {
     created_at: Date;
     updated_at: Date;
     deleted_at: Date | null;
+    normalized_data: Record<string, unknown> | null;
     variant_count: bigint;
     stop_count: bigint;
     path_count: bigint;
+    source_links_count: bigint;
+    stops_missing_geom: boolean;
+    has_stop_geometry_review_flag: boolean;
+    sequence_incomplete: boolean;
+};
+
+type RouteMetadataVariantQueryRow = {
+    headsign: string | null;
+    destination_name: string | null;
+    estimated_duration_min: number | null;
+    stop_count: bigint;
+    normalized_data: Record<string, unknown> | null;
+};
+
+type RouteMetadataStopNameRow = {
+    name_mm: string | null;
+    name_en: string | null;
+    name: string;
 };
 
 type RouteNameRow = {
@@ -392,6 +520,7 @@ type VariantSummaryRow = {
     review_status: string;
     confidence_score: number | null;
     is_active: boolean;
+    departure_time_text: string | null;
 };
 
 type RouteStopRow = {
@@ -401,6 +530,12 @@ type RouteStopRow = {
     drop_off_type: number;
     is_timing_point: boolean;
     distance_from_start_m: number | null;
+    source_time_text: string | null;
+    source_time_type: string | null;
+    travel_time_from_previous_seconds: number | null;
+    waiting_time_seconds: number | null;
+    arrival_offset_seconds: number | null;
+    departure_offset_seconds: number | null;
     stop_public_id: string;
     stop_name: string;
     stop_name_mm: string | null;
@@ -432,6 +567,21 @@ type StopSearchRow = {
     lat: number | null;
     distance_m: number | null;
     route_count: bigint;
+};
+
+type NearbyStopCandidateRow = {
+    id: bigint;
+    public_id: string;
+    name: string;
+    name_mm: string | null;
+    name_en: string | null;
+    mode: string;
+    stop_type: string;
+    review_status: string;
+    confidence_score: number | null;
+    lat: number;
+    lng: number;
+    distance_m: number;
 };
 
 /** Synthetic names created by the importer when no human name exists, e.g. "bus_station osm:N:5293807821". */
@@ -692,6 +842,12 @@ function mapRouteStopRow(row: RouteStopRow): TransportRouteStopItem {
         drop_off_type: row.drop_off_type,
         is_timing_point: row.is_timing_point,
         distance_from_start_m: row.distance_from_start_m,
+        source_time_text: row.source_time_text,
+        source_time_type: row.source_time_type,
+        travel_time_from_previous_seconds: row.travel_time_from_previous_seconds,
+        waiting_time_seconds: row.waiting_time_seconds,
+        arrival_offset_seconds: row.arrival_offset_seconds,
+        departure_offset_seconds: row.departure_offset_seconds,
         stop: {
             public_id: row.stop_public_id,
             name: row.stop_name,
@@ -841,7 +997,11 @@ const INFRASTRUCTURE_LINE_AUDIT_FIELDS = [
     "is_active",
 ] as const;
 
-const ROUTE_STOP_FLAGS_AUDIT_FIELDS = ["pickup_type", "drop_off_type", "is_timing_point"] as const;
+const ROUTE_STOP_FLAGS_AUDIT_FIELDS = [
+    "pickup_type",
+    "drop_off_type",
+    "is_timing_point",
+] as const;
 
 /** Pre-mutation snapshot rows used for audit diffs (FK ids cast to int, geom to lat/lng). */
 type RouteAuditRow = {
@@ -927,6 +1087,21 @@ type RouteStopFlagsAuditRow = {
     is_timing_point: boolean | null;
 };
 
+type RouteStopTimingAuditRow = {
+    id: bigint;
+    route_variant_id: bigint;
+    travel_time_from_previous_seconds: number | null;
+    waiting_time_seconds: number | null;
+    arrival_offset_seconds: number | null;
+    departure_offset_seconds: number | null;
+};
+
+type VariantTimetableStopRow = {
+    id: bigint;
+    travel_time_from_previous_seconds: number | null;
+    waiting_time_seconds: number | null;
+};
+
 type RouteStopRemoveAuditRow = {
     id: bigint;
     route_variant_id: bigint;
@@ -938,7 +1113,136 @@ type RouteStopRemoveAuditRow = {
     distance_from_start_m: number | null;
 };
 
+type StopDeleteReferenceRow = {
+    id: bigint;
+    public_id: string;
+    review_status: string;
+    name: string | null;
+    mode: string | null;
+    stop_type: string | null;
+    route_stops_count: bigint;
+    variant_endpoints_count: bigint;
+    child_stops_count: bigint;
+    linked_terminals_count: bigint;
+    route_count: bigint;
+};
+
+function stopDeleteReferenceCounts(row: StopDeleteReferenceRow, fares: number): TransportStopDeleteReferenceCounts {
+    return {
+        route_stops: num(row.route_stops_count),
+        variant_endpoints: num(row.variant_endpoints_count),
+        child_stops: num(row.child_stops_count),
+        linked_terminals: num(row.linked_terminals_count),
+        fares,
+    };
+}
+
+function buildStopDeleteBlockers(
+    reviewStatus: string,
+    references: TransportStopDeleteReferenceCounts
+): TransportStopDeleteBlocker[] {
+    const blockers: TransportStopDeleteBlocker[] = [];
+    if (reviewStatus === "verified") {
+        blockers.push("verified");
+    }
+    if (reviewStatus === "manual_protected") {
+        blockers.push("manual_protected");
+    }
+    if (references.route_stops > 0) {
+        blockers.push("route_stops");
+    }
+    if (references.variant_endpoints > 0) {
+        blockers.push("variant_endpoints");
+    }
+    if (references.child_stops > 0) {
+        blockers.push("child_stops");
+    }
+    if (references.linked_terminals > 0) {
+        blockers.push("linked_terminals");
+    }
+    if (references.fares > 0) {
+        blockers.push("fares");
+    }
+    return blockers;
+}
+
+function buildStopDeleteBlockMessage(
+    blockers: TransportStopDeleteBlocker[],
+    references: TransportStopDeleteReferenceCounts
+): string {
+    if (blockers.includes("verified")) {
+        return "Verified stops cannot be deleted.";
+    }
+    if (blockers.includes("manual_protected")) {
+        return "Manual-protected stops cannot be deleted.";
+    }
+
+    const parts: string[] = [];
+    if (blockers.includes("route_stops") || blockers.includes("variant_endpoints")) {
+        parts.push("still used by routes");
+    }
+    if (blockers.includes("child_stops")) {
+        parts.push(
+            references.child_stops === 1
+                ? "has a child stop"
+                : `has ${references.child_stops} child stops`
+        );
+    }
+    if (blockers.includes("linked_terminals")) {
+        parts.push(
+            references.linked_terminals === 1
+                ? "linked to a terminal"
+                : `linked to ${references.linked_terminals} terminals`
+        );
+    }
+    if (blockers.includes("fares")) {
+        parts.push("referenced by fares");
+    }
+
+    if (parts.length === 0) {
+        return "This stop cannot be deleted.";
+    }
+    return `Cannot delete: ${parts.join("; ")}.`;
+}
+
+function buildStopDeleteEligibility(
+    row: StopDeleteReferenceRow,
+    fares: number
+): TransportStopDeleteEligibility {
+    const references = stopDeleteReferenceCounts(row, fares);
+    const blockers = buildStopDeleteBlockers(row.review_status, references);
+    const routeCount = num(row.route_count);
+    const hasRouteUsage =
+        references.route_stops > 0 ||
+        references.variant_endpoints > 0 ||
+        routeCount > 0;
+
+    return {
+        can_delete: blockers.length === 0,
+        message: blockers.length === 0 ? "This stop can be permanently deleted." : buildStopDeleteBlockMessage(blockers, references),
+        has_route_usage: hasRouteUsage,
+        route_count: routeCount,
+        review_status: row.review_status,
+        references,
+        blockers,
+    };
+}
+
+function assertStopDeleteAllowed(eligibility: TransportStopDeleteEligibility): void {
+    if (eligibility.can_delete) {
+        return;
+    }
+    throw new TransportStopDeleteBlockedError(
+        eligibility.message,
+        eligibility.blockers as TransportStopDeleteBlocker[],
+        eligibility.has_route_usage,
+        eligibility.route_count
+    );
+}
+
 export class TransportRepository {
+    private faresStopColumns: boolean | null = null;
+
     constructor(private readonly prisma: PrismaClient) {}
 
     async assertSchemaAvailable(): Promise<void> {
@@ -2127,6 +2431,105 @@ export class TransportRepository {
         return { items, limit };
     }
 
+    /**
+     * Reusable Review Map nearby-stop candidate search. One SQL statement returns
+     * candidate rows plus route usage counts; it never fetches route usage details
+     * per result.
+     */
+    async listNearbyStopCandidates(
+        query: NearbyTransportStopCandidatesQuery
+    ): Promise<TransportNearbyStopCandidatesResponse> {
+        await this.assertSchemaAvailable();
+
+        const radiusDeg = query.radiusMeters / 90000;
+        const selectedName = query.selectedName?.trim().toLowerCase() || null;
+
+        const rows = await this.prisma.$queryRaw<NearbyStopCandidateRow[]>(Prisma.sql`
+            WITH candidates AS (
+                SELECT
+                    s.id,
+                    s.public_id,
+                    COALESCE(
+                        NULLIF(btrim(s.name), ''),
+                        NULLIF(btrim(s.name_mm), ''),
+                        NULLIF(btrim(s.name_en), ''),
+                        'Unnamed ' || replace(s.stop_type, '_', ' ')
+                    ) AS name,
+                    s.name_mm,
+                    s.name_en,
+                    s.mode,
+                    s.stop_type,
+                    s.review_status,
+                    s.confidence_score::float8 AS confidence_score,
+                    ST_Y(s.geom)::float8 AS lat,
+                    ST_X(s.geom)::float8 AS lng,
+                    ST_Distance(
+                        s.geom::geography,
+                        ST_SetSRID(ST_MakePoint(${query.lng}, ${query.lat}), 4326)::geography
+                    )::float8 AS distance_m
+                FROM transport.stops s
+                WHERE s.deleted_at IS NULL
+                  AND s.public_id <> ${query.selectedStopId}::uuid
+                  AND s.mode = ${query.mode}
+                  AND s.geom && ST_Expand(
+                      ST_SetSRID(ST_MakePoint(${query.lng}, ${query.lat}), 4326),
+                      ${radiusDeg}::float8
+                  )
+                  AND ST_DWithin(
+                      s.geom::geography,
+                      ST_SetSRID(ST_MakePoint(${query.lng}, ${query.lat}), 4326)::geography,
+                      ${query.radiusMeters}::float8
+                  )
+                ORDER BY
+                    ST_Distance(
+                        s.geom::geography,
+                        ST_SetSRID(ST_MakePoint(${query.lng}, ${query.lat}), 4326)::geography
+                    ) ASC,
+                    CASE
+                        WHEN ${selectedName}::text IS NULL THEN 1
+                        WHEN lower(COALESCE(NULLIF(btrim(s.name), ''), NULLIF(btrim(s.name_mm), ''), NULLIF(btrim(s.name_en), ''))) = ${selectedName}::text THEN 0
+                        ELSE 1
+                    END ASC,
+                    s.id ASC
+                LIMIT ${query.limit}
+            )
+            SELECT
+                c.id,
+                c.public_id::text AS public_id,
+                c.name,
+                c.name_mm,
+                c.name_en,
+                c.mode,
+                c.stop_type,
+                c.review_status,
+                c.confidence_score,
+                c.lat,
+                c.lng,
+                c.distance_m
+            FROM candidates c
+            ORDER BY c.distance_m ASC, c.id ASC
+        `);
+
+        return {
+            items: rows.map((row) => ({
+                id: String(row.id),
+                publicId: row.public_id,
+                name: row.name,
+                nameMy: row.name_mm,
+                nameEn: row.name_en,
+                mode: row.mode,
+                stopType: row.stop_type,
+                reviewStatus: row.review_status,
+                confidenceScore: row.confidence_score,
+                lat: row.lat,
+                lng: row.lng,
+                distanceMeters: row.distance_m,
+            })),
+            radiusMeters: query.radiusMeters,
+            limit: query.limit,
+        };
+    }
+
     async listTerminals(
         query: ListTransportTerminalsQuery
     ): Promise<TransportPaginated<TransportTerminalListItem>> {
@@ -2687,6 +3090,7 @@ export class TransportRepository {
 
         const rows = await this.prisma.$queryRaw<StopRouteUsageRow[]>`
             SELECT
+                rs.id::text AS route_stop_id,
                 r.public_id::text AS route_public_id,
                 r.route_code,
                 r.public_name AS route_name,
@@ -2715,6 +3119,7 @@ export class TransportRepository {
 
         return {
             items: rows.map((row) => ({
+                route_stop_id: row.route_stop_id,
                 route_public_id: row.route_public_id,
                 route_code: row.route_code,
                 route_name: row.route_name,
@@ -2729,6 +3134,947 @@ export class TransportRepository {
             limit,
             offset,
         };
+    }
+
+    /**
+     * Canonical route membership rows for one or more stops. Matches
+     * {@link listRoutesForStop}: non-deleted routes and variants only (no is_active filter).
+     */
+    private async fetchRouteUsageDetailRowsForStopIds(
+        stopIds: readonly bigint[],
+    ): Promise<StopRouteUsageDetailByStopRow[]> {
+        if (stopIds.length === 0) {
+            return [];
+        }
+
+        return this.prisma.$queryRaw<StopRouteUsageDetailByStopRow[]>`
+            SELECT
+                rs.stop_id AS stop_internal_id,
+                rs.id::text AS route_stop_id,
+                r.public_id::text AS route_id,
+                r.route_code,
+                r.public_name AS route_name,
+                v.public_id::text AS variant_id,
+                v.variant_code,
+                v.direction_name,
+                v.direction_id,
+                rs.stop_sequence
+            FROM transport.route_stops rs
+            JOIN transport.route_variants v
+                ON v.id = rs.route_variant_id
+                AND v.deleted_at IS NULL
+            JOIN transport.routes r
+                ON r.id = v.route_id
+                AND r.deleted_at IS NULL
+            WHERE rs.stop_id IN (${Prisma.join(stopIds)})
+            ORDER BY rs.stop_id, r.route_code ASC, v.variant_code ASC, rs.stop_sequence ASC
+        `;
+    }
+
+    /**
+     * All non-deleted route memberships for one stop plus a direction summary. Uses the
+     * indexed route_stops.stop_id lookup; one SQL round-trip (no N+1).
+     */
+    async getStopRouteUsageDetail(publicId: string): Promise<TransportStopRouteUsageDetailResponse> {
+        await this.assertSchemaAvailable();
+        const stopId = await this.getStopIdByPublicId(publicId);
+        const rows = await this.fetchRouteUsageDetailRowsForStopIds([stopId]);
+        return this.buildRouteUsageDetailFromRows(
+            publicId,
+            rows.map((row) => ({
+                route_stop_id: row.route_stop_id,
+                route_id: row.route_id,
+                route_code: row.route_code,
+                route_name: row.route_name,
+                variant_id: row.variant_id,
+                variant_code: row.variant_code,
+                direction_name: row.direction_name,
+                direction_id: row.direction_id,
+                stop_sequence: row.stop_sequence,
+            })),
+        );
+    }
+
+    private buildRouteUsageDetailFromRows(
+        stopPublicId: string,
+        rows: readonly StopRouteUsageDetailRow[],
+    ): TransportStopRouteUsageDetailResponse {
+        const items = rows.map((row) => ({
+            routeStopId: row.route_stop_id,
+            routeId: row.route_id,
+            routeCode: row.route_code,
+            routeName: row.route_name,
+            variantId: row.variant_id,
+            variantCode: row.variant_code,
+            directionName: row.direction_name,
+            directionId: row.direction_id,
+            stopSequence: row.stop_sequence,
+        }));
+
+        const summary = buildStopRouteUsageSummary(
+            rows.map((row) => ({
+                variantCode: row.variant_code,
+                directionName: row.direction_name,
+                directionId: row.direction_id,
+            })),
+            rows.map((row) => row.route_id),
+            rows.map((row) => row.variant_id),
+        );
+
+        return assembleStopRouteUsageDetail(stopPublicId, items, summary);
+    }
+
+    private async getStopRouteUsageDetailByStopId(
+        stopId: bigint,
+    ): Promise<TransportStopRouteUsageDetailResponse> {
+        const stopRows = await this.prisma.$queryRaw<{ public_id: string }[]>`
+            SELECT public_id::text AS public_id
+            FROM transport.stops
+            WHERE id = ${stopId}
+              AND deleted_at IS NULL
+            LIMIT 1
+        `;
+        const stopPublicId = stopRows[0]?.public_id;
+        if (!stopPublicId) {
+            throw new TransportNotFoundError("stop", String(stopId));
+        }
+        return this.getStopRouteUsageDetail(stopPublicId);
+    }
+
+    private mapMergePreviewStop(row: MergePreviewStopRow) {
+        return {
+            publicId: row.public_id,
+            name: row.name,
+            nameMy: row.name_mm,
+            nameEn: row.name_en,
+            mode: row.mode,
+            stopType: row.stop_type,
+            adminAreaId: row.admin_area_id,
+            adminAreaName: row.admin_area_name,
+            reviewStatus: row.review_status,
+            confidenceScore: row.confidence_score,
+            isActive: row.is_active,
+            lat: row.latitude,
+            lng: row.longitude,
+        };
+    }
+
+    private mapMergePreviewReferenceCounts(
+        row: MergePreviewReferenceCountsRow,
+        side: "current" | "candidate",
+    ): TransportStopMergeReferenceCounts {
+        if (side === "current") {
+            return {
+                routeStops: num(row.current_route_stops),
+                variantOrigins: num(row.current_variant_origins),
+                variantDestinations: num(row.current_variant_destinations),
+                terminals: num(row.current_terminals),
+                faresOrigin: num(row.current_fares_origin),
+                faresDestination: num(row.current_fares_destination),
+                childStops: num(row.current_child_stops),
+                stopNames: num(row.current_stop_names),
+                sourceLinks: num(row.current_source_links),
+            };
+        }
+
+        return {
+            routeStops: num(row.candidate_route_stops),
+            variantOrigins: num(row.candidate_variant_origins),
+            variantDestinations: num(row.candidate_variant_destinations),
+            terminals: num(row.candidate_terminals),
+            faresOrigin: num(row.candidate_fares_origin),
+            faresDestination: num(row.candidate_fares_destination),
+            childStops: num(row.candidate_child_stops),
+            stopNames: num(row.candidate_stop_names),
+            sourceLinks: num(row.candidate_source_links),
+        };
+    }
+
+    private async loadMergePreviewReferenceCounts(
+        currentStopId: bigint,
+        candidateStopId: bigint,
+    ): Promise<{
+        current: TransportStopMergeReferenceCounts;
+        candidate: TransportStopMergeReferenceCounts;
+    }> {
+        const hasFares = await this.resolveFaresStopColumns(this.prisma);
+        const faresOrigin = (stopId: bigint) =>
+            hasFares
+                ? Prisma.sql`(SELECT count(*)::bigint FROM transport.fares WHERE origin_stop_id = ${stopId})`
+                : Prisma.sql`0::bigint`;
+        const faresDestination = (stopId: bigint) =>
+            hasFares
+                ? Prisma.sql`(SELECT count(*)::bigint FROM transport.fares WHERE destination_stop_id = ${stopId})`
+                : Prisma.sql`0::bigint`;
+
+        const rows = await this.prisma.$queryRaw<MergePreviewReferenceCountsRow[]>`
+            SELECT
+                (SELECT count(*)::bigint FROM transport.route_stops WHERE stop_id = ${currentStopId}) AS current_route_stops,
+                (SELECT count(*)::bigint FROM transport.route_stops WHERE stop_id = ${candidateStopId}) AS candidate_route_stops,
+                (SELECT count(*)::bigint FROM transport.route_variants WHERE deleted_at IS NULL AND origin_stop_id = ${currentStopId}) AS current_variant_origins,
+                (SELECT count(*)::bigint FROM transport.route_variants WHERE deleted_at IS NULL AND origin_stop_id = ${candidateStopId}) AS candidate_variant_origins,
+                (SELECT count(*)::bigint FROM transport.route_variants WHERE deleted_at IS NULL AND destination_stop_id = ${currentStopId}) AS current_variant_destinations,
+                (SELECT count(*)::bigint FROM transport.route_variants WHERE deleted_at IS NULL AND destination_stop_id = ${candidateStopId}) AS candidate_variant_destinations,
+                (SELECT count(*)::bigint FROM transport.terminals WHERE deleted_at IS NULL AND linked_stop_id = ${currentStopId}) AS current_terminals,
+                (SELECT count(*)::bigint FROM transport.terminals WHERE deleted_at IS NULL AND linked_stop_id = ${candidateStopId}) AS candidate_terminals,
+                ${faresOrigin(currentStopId)} AS current_fares_origin,
+                ${faresOrigin(candidateStopId)} AS candidate_fares_origin,
+                ${faresDestination(currentStopId)} AS current_fares_destination,
+                ${faresDestination(candidateStopId)} AS candidate_fares_destination,
+                (SELECT count(*)::bigint FROM transport.stops WHERE deleted_at IS NULL AND parent_stop_id = ${currentStopId}) AS current_child_stops,
+                (SELECT count(*)::bigint FROM transport.stops WHERE deleted_at IS NULL AND parent_stop_id = ${candidateStopId}) AS candidate_child_stops,
+                (SELECT count(*)::bigint FROM transport.stop_names WHERE stop_id = ${currentStopId}) AS current_stop_names,
+                (SELECT count(*)::bigint FROM transport.stop_names WHERE stop_id = ${candidateStopId}) AS candidate_stop_names,
+                (SELECT count(*)::bigint FROM transport.source_links WHERE entity_type = 'stop' AND entity_id = ${currentStopId}) AS current_source_links,
+                (SELECT count(*)::bigint FROM transport.source_links WHERE entity_type = 'stop' AND entity_id = ${candidateStopId}) AS candidate_source_links
+        `;
+
+        const row = rows[0];
+        return {
+            current: this.mapMergePreviewReferenceCounts(row, "current"),
+            candidate: this.mapMergePreviewReferenceCounts(row, "candidate"),
+        };
+    }
+
+    private async countSingleStopReferences(
+        client: { $queryRaw: PrismaClient["$queryRaw"] },
+        stopId: bigint,
+    ): Promise<TransportStopMergeReferenceCounts> {
+        const hasFares = await this.resolveFaresStopColumns(client);
+        const faresOrigin = hasFares
+            ? Prisma.sql`(SELECT count(*)::bigint FROM transport.fares WHERE origin_stop_id = ${stopId})`
+            : Prisma.sql`0::bigint`;
+        const faresDestination = hasFares
+            ? Prisma.sql`(SELECT count(*)::bigint FROM transport.fares WHERE destination_stop_id = ${stopId})`
+            : Prisma.sql`0::bigint`;
+
+        const rows = await client.$queryRaw<
+            {
+                route_stops: bigint;
+                variant_origins: bigint;
+                variant_destinations: bigint;
+                terminals: bigint;
+                fares_origin: bigint;
+                fares_destination: bigint;
+                child_stops: bigint;
+                stop_names: bigint;
+                source_links: bigint;
+            }[]
+        >`
+            SELECT
+                (SELECT count(*)::bigint FROM transport.route_stops WHERE stop_id = ${stopId}) AS route_stops,
+                (SELECT count(*)::bigint FROM transport.route_variants WHERE deleted_at IS NULL AND origin_stop_id = ${stopId}) AS variant_origins,
+                (SELECT count(*)::bigint FROM transport.route_variants WHERE deleted_at IS NULL AND destination_stop_id = ${stopId}) AS variant_destinations,
+                (SELECT count(*)::bigint FROM transport.terminals WHERE deleted_at IS NULL AND linked_stop_id = ${stopId}) AS terminals,
+                ${faresOrigin} AS fares_origin,
+                ${faresDestination} AS fares_destination,
+                (SELECT count(*)::bigint FROM transport.stops WHERE deleted_at IS NULL AND parent_stop_id = ${stopId}) AS child_stops,
+                (SELECT count(*)::bigint FROM transport.stop_names WHERE stop_id = ${stopId}) AS stop_names,
+                (SELECT count(*)::bigint FROM transport.source_links WHERE entity_type = 'stop' AND entity_id = ${stopId}) AS source_links
+        `;
+
+        const row = rows[0];
+        return {
+            routeStops: num(row?.route_stops),
+            variantOrigins: num(row?.variant_origins),
+            variantDestinations: num(row?.variant_destinations),
+            terminals: num(row?.terminals),
+            faresOrigin: num(row?.fares_origin),
+            faresDestination: num(row?.fares_destination),
+            childStops: num(row?.child_stops),
+            stopNames: num(row?.stop_names),
+            sourceLinks: num(row?.source_links),
+        };
+    }
+
+    private async loadMergePreviewStopRow(
+        client: { $queryRaw: PrismaClient["$queryRaw"] },
+        publicId: string,
+    ): Promise<MergePreviewStopRow | null> {
+        const rows = await client.$queryRaw<MergePreviewStopRow[]>`
+            SELECT
+                s.id,
+                s.public_id::text AS public_id,
+                s.name,
+                COALESCE(sn_mm.name, s.name_mm) AS name_mm,
+                COALESCE(sn_en.name, s.name_en) AS name_en,
+                s.mode,
+                s.stop_type,
+                s.admin_area_id,
+                aa.canonical_name AS admin_area_name,
+                s.review_status,
+                s.confidence_score::float8 AS confidence_score,
+                s.is_active,
+                ST_X(s.geom)::float8 AS longitude,
+                ST_Y(s.geom)::float8 AS latitude
+            FROM transport.stops s
+            LEFT JOIN core.core_admin_areas aa ON aa.id = s.admin_area_id
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM transport.stop_names AS n
+                WHERE n.stop_id = s.id
+                  AND lower(btrim(coalesce(n.language_code, ''))) = 'my'
+                ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+                LIMIT 1
+            ) AS sn_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM transport.stop_names AS n
+                WHERE n.stop_id = s.id
+                  AND lower(btrim(coalesce(n.language_code, ''))) = 'en'
+                ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+                LIMIT 1
+            ) AS sn_en ON true
+            WHERE s.public_id = ${publicId}::uuid
+              AND s.deleted_at IS NULL
+            LIMIT 1
+        `;
+        return rows[0] ?? null;
+    }
+
+    /**
+     * Read-only merge preview for two active stops in the same mode. Reports variants
+     * where both stop IDs occur (including repeated occurrences) but does not block merge.
+     */
+    async getStopMergePreview(
+        currentStopPublicId: string,
+        candidateStopPublicId: string,
+    ): Promise<TransportStopMergePreviewResponse> {
+        await this.assertSchemaAvailable();
+
+        const stopRows = await this.prisma.$queryRaw<MergePreviewStopRow[]>`
+            SELECT
+                s.id,
+                s.public_id::text AS public_id,
+                s.name,
+                COALESCE(sn_mm.name, s.name_mm) AS name_mm,
+                COALESCE(sn_en.name, s.name_en) AS name_en,
+                s.mode,
+                s.stop_type,
+                s.admin_area_id,
+                aa.canonical_name AS admin_area_name,
+                s.review_status,
+                s.confidence_score::float8 AS confidence_score,
+                s.is_active,
+                ST_X(s.geom)::float8 AS longitude,
+                ST_Y(s.geom)::float8 AS latitude
+            FROM transport.stops s
+            LEFT JOIN core.core_admin_areas aa ON aa.id = s.admin_area_id
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM transport.stop_names AS n
+                WHERE n.stop_id = s.id
+                  AND lower(btrim(coalesce(n.language_code, ''))) = 'my'
+                ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+                LIMIT 1
+            ) AS sn_mm ON true
+            LEFT JOIN LATERAL (
+                SELECT n.name
+                FROM transport.stop_names AS n
+                WHERE n.stop_id = s.id
+                  AND lower(btrim(coalesce(n.language_code, ''))) = 'en'
+                ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+                LIMIT 1
+            ) AS sn_en ON true
+            WHERE s.public_id IN (${currentStopPublicId}::uuid, ${candidateStopPublicId}::uuid)
+              AND s.deleted_at IS NULL
+        `;
+
+        const currentRow = stopRows.find((row) => row.public_id === currentStopPublicId);
+        const candidateRow = stopRows.find((row) => row.public_id === candidateStopPublicId);
+        if (!currentRow) {
+            throw new TransportNotFoundError("stop", currentStopPublicId);
+        }
+        if (!candidateRow) {
+            throw new TransportNotFoundError("stop", candidateStopPublicId);
+        }
+        if (currentRow.mode !== candidateRow.mode) {
+            throw new TransportReviewGuardError(
+                "MERGE_MODE_MISMATCH",
+                "Both stops must have the same transport mode.",
+            );
+        }
+
+        const [geomRows, referenceCounts, conflictRows, usageRows] = await Promise.all([
+            this.prisma.$queryRaw<{ geom_same: boolean; geom_distance_m: number | null }[]>`
+                SELECT
+                    CASE
+                        WHEN cur.geom IS NULL AND cand.geom IS NULL THEN true
+                        WHEN cur.geom IS NULL OR cand.geom IS NULL THEN false
+                        ELSE ST_Equals(cur.geom, cand.geom)
+                    END AS geom_same,
+                    CASE
+                        WHEN cur.geom IS NOT NULL AND cand.geom IS NOT NULL
+                        THEN ST_Distance(cur.geom::geography, cand.geom::geography)
+                        ELSE NULL
+                    END::float8 AS geom_distance_m
+                FROM transport.stops cur
+                JOIN transport.stops cand ON cand.id = ${candidateRow.id}
+                WHERE cur.id = ${currentRow.id}
+            `,
+            this.loadMergePreviewReferenceCounts(currentRow.id, candidateRow.id),
+            this.prisma.$queryRaw<MergePreviewVariantConflictRow[]>`
+                SELECT
+                    r.route_code,
+                    v.variant_code,
+                    v.direction_name,
+                    cur_rs.id::text AS current_route_stop_id,
+                    cur_rs.stop_sequence AS current_sequence,
+                    cand_rs.id::text AS candidate_route_stop_id,
+                    cand_rs.stop_sequence AS candidate_sequence
+                FROM transport.route_stops cur_rs
+                JOIN transport.route_stops cand_rs
+                    ON cand_rs.route_variant_id = cur_rs.route_variant_id
+                JOIN transport.route_variants v
+                    ON v.id = cur_rs.route_variant_id
+                    AND v.deleted_at IS NULL
+                JOIN transport.routes r
+                    ON r.id = v.route_id
+                    AND r.deleted_at IS NULL
+                WHERE cur_rs.stop_id = ${currentRow.id}
+                  AND cand_rs.stop_id = ${candidateRow.id}
+                ORDER BY r.route_code ASC, v.variant_code ASC,
+                    cur_rs.stop_sequence ASC, cand_rs.stop_sequence ASC
+            `,
+            this.fetchRouteUsageDetailRowsForStopIds([currentRow.id, candidateRow.id]),
+        ]);
+
+        const geom = geomRows[0];
+        const currentUsageRows = usageRows
+            .filter((row) => row.stop_internal_id === currentRow.id)
+            .map((row) => ({
+                route_stop_id: row.route_stop_id,
+                route_id: row.route_id,
+                route_code: row.route_code,
+                route_name: row.route_name,
+                variant_id: row.variant_id,
+                variant_code: row.variant_code,
+                direction_name: row.direction_name,
+                direction_id: row.direction_id,
+                stop_sequence: row.stop_sequence,
+            }));
+        const candidateUsageRows = usageRows
+            .filter((row) => row.stop_internal_id === candidateRow.id)
+            .map((row) => ({
+                route_stop_id: row.route_stop_id,
+                route_id: row.route_id,
+                route_code: row.route_code,
+                route_name: row.route_name,
+                variant_id: row.variant_id,
+                variant_code: row.variant_code,
+                direction_name: row.direction_name,
+                direction_id: row.direction_id,
+                stop_sequence: row.stop_sequence,
+            }));
+
+        const fieldComparison = buildStopMergeFieldComparison(
+            {
+                name: currentRow.name,
+                name_mm: currentRow.name_mm,
+                name_en: currentRow.name_en,
+                stop_type: currentRow.stop_type,
+                admin_area_id: currentRow.admin_area_id,
+                confidence_score: currentRow.confidence_score,
+                review_status: currentRow.review_status,
+                is_active: currentRow.is_active,
+                longitude: currentRow.longitude,
+                latitude: currentRow.latitude,
+            },
+            {
+                name: candidateRow.name,
+                name_mm: candidateRow.name_mm,
+                name_en: candidateRow.name_en,
+                stop_type: candidateRow.stop_type,
+                admin_area_id: candidateRow.admin_area_id,
+                confidence_score: candidateRow.confidence_score,
+                review_status: candidateRow.review_status,
+                is_active: candidateRow.is_active,
+                longitude: candidateRow.longitude,
+                latitude: candidateRow.latitude,
+            },
+            geom?.geom_same ?? false,
+            geom?.geom_distance_m ?? null,
+        );
+
+        return {
+            currentStop: this.mapMergePreviewStop(currentRow),
+            candidateStop: this.mapMergePreviewStop(candidateRow),
+            currentUsage: this.buildRouteUsageDetailFromRows(
+                currentRow.public_id,
+                currentUsageRows,
+            ),
+            candidateUsage: this.buildRouteUsageDetailFromRows(
+                candidateRow.public_id,
+                candidateUsageRows,
+            ),
+            sameVariantConflicts: conflictRows.map((row) => ({
+                routeCode: row.route_code,
+                variantCode: row.variant_code,
+                directionName: row.direction_name,
+                currentRouteStopId: row.current_route_stop_id,
+                currentSequence: row.current_sequence,
+                candidateRouteStopId: row.candidate_route_stop_id,
+                candidateSequence: row.candidate_sequence,
+            })),
+            sameVariantWarning: buildSameVariantMergeWarning(conflictRows.length),
+            referenceCounts,
+            fieldComparison,
+        };
+    }
+
+    private toMergeFieldSnapshot(row: MergePreviewStopRow): StopMergeFieldStopSnapshot {
+        return {
+            name: row.name,
+            name_mm: row.name_mm,
+            name_en: row.name_en,
+            stop_type: row.stop_type,
+            admin_area_id: row.admin_area_id,
+            confidence_score: row.confidence_score,
+            review_status: row.review_status,
+            is_active: row.is_active,
+            longitude: row.longitude,
+            latitude: row.latitude,
+        };
+    }
+
+    private async applyMergeFieldSourcesToCanonical(
+        tx: Prisma.TransactionClient,
+        params: {
+            readonly canonicalId: bigint;
+            readonly canonicalPublicId: string;
+            readonly currentRow: MergePreviewStopRow;
+            readonly candidateRow: MergePreviewStopRow;
+            readonly fieldSources: StopMergeFieldSources;
+            readonly audit?: TransportAuditContext;
+        },
+    ): Promise<void> {
+        const current = this.toMergeFieldSnapshot(params.currentRow);
+        const candidate = this.toMergeFieldSnapshot(params.candidateRow);
+        const canonicalBefore = this.toMergeFieldSnapshot(params.currentRow.public_id === params.canonicalPublicId
+            ? params.currentRow
+            : params.candidateRow);
+        const sets: Prisma.Sql[] = [];
+        let effectiveMm: string | null | undefined;
+        let effectiveEn: string | null | undefined;
+        let derivedName: string | null | undefined;
+
+        const applyField = (field: StopMergeFieldKey) => {
+            const source = params.fieldSources[field];
+            if (!source) {
+                return;
+            }
+            return resolveMergeFieldValue(field, source, current, candidate);
+        };
+
+        if (params.fieldSources.name_mm) {
+            effectiveMm = applyField("name_mm") as string | null;
+            await this.upsertLocalizedStopName(tx, params.canonicalId, "my", effectiveMm);
+        }
+        if (params.fieldSources.name_en) {
+            effectiveEn = applyField("name_en") as string | null;
+            await this.upsertLocalizedStopName(tx, params.canonicalId, "en", effectiveEn);
+        }
+        if (params.fieldSources.name_mm || params.fieldSources.name_en) {
+            if (effectiveMm === undefined) {
+                effectiveMm = canonicalBefore.name_mm;
+            }
+            if (effectiveEn === undefined) {
+                effectiveEn = canonicalBefore.name_en;
+            }
+            derivedName = effectiveMm ?? effectiveEn;
+            sets.push(Prisma.sql`name_mm = ${effectiveMm}`);
+            sets.push(Prisma.sql`name_en = ${effectiveEn}`);
+            sets.push(Prisma.sql`name = ${derivedName}`);
+        } else if (params.fieldSources.name) {
+            const nameValue = applyField("name") as string;
+            sets.push(Prisma.sql`name = ${nameValue}`);
+        }
+
+        if (params.fieldSources.stop_type) {
+            sets.push(Prisma.sql`stop_type = ${applyField("stop_type") as string}`);
+        }
+        if (params.fieldSources.admin_area_id) {
+            const adminAreaId = applyField("admin_area_id") as number | null;
+            if (adminAreaId !== null) {
+                await this.assertReferenceExists("admin_area_id", adminAreaId, params.canonicalId);
+            }
+            sets.push(Prisma.sql`admin_area_id = ${adminAreaId}`);
+        }
+        if (params.fieldSources.confidence_score) {
+            sets.push(
+                Prisma.sql`confidence_score = ${applyField("confidence_score") as number | null}`,
+            );
+        }
+        if (params.fieldSources.review_status) {
+            sets.push(Prisma.sql`review_status = ${applyField("review_status") as string}`);
+        }
+        if (params.fieldSources.is_active) {
+            sets.push(Prisma.sql`is_active = ${applyField("is_active") as boolean}`);
+        }
+        if (params.fieldSources.geom) {
+            const point = applyField("geom") as { longitude: number; latitude: number } | null;
+            if (point) {
+                sets.push(
+                    Prisma.sql`geom = ST_SetSRID(ST_MakePoint(${point.longitude}, ${point.latitude}), 4326)`,
+                );
+            } else {
+                sets.push(Prisma.sql`geom = NULL`);
+            }
+        }
+
+        if (sets.length === 0) {
+            return;
+        }
+
+        await tx.$executeRaw(Prisma.sql`
+            UPDATE transport.stops
+            SET ${Prisma.join([...sets, Prisma.sql`updated_at = now()`], ", ")}
+            WHERE id = ${params.canonicalId}
+        `);
+
+        const syncName =
+            params.fieldSources.name !== undefined ||
+            params.fieldSources.name_mm !== undefined ||
+            params.fieldSources.name_en !== undefined;
+        const syncPoint = params.fieldSources.geom !== undefined;
+        if (syncName || syncPoint) {
+            const canonicalRow = await this.loadMergePreviewStopRow(tx, params.canonicalPublicId);
+            if (canonicalRow) {
+                await this.syncLinkedTerminalsFromStop(tx, {
+                    stopId: params.canonicalId,
+                    stopPublicId: params.canonicalPublicId,
+                    name: syncName ? canonicalRow.name : undefined,
+                    nameMm: syncName ? canonicalRow.name_mm : undefined,
+                    nameEn: syncName ? canonicalRow.name_en : undefined,
+                    point:
+                        syncPoint &&
+                        canonicalRow.longitude !== null &&
+                        canonicalRow.latitude !== null
+                            ? {
+                                  longitude: canonicalRow.longitude,
+                                  latitude: canonicalRow.latitude,
+                              }
+                            : undefined,
+                    audit: params.audit,
+                });
+            }
+        }
+    }
+
+    /**
+     * Global keep-canonical merge: optionally apply selected field values, repoint all
+     * duplicate references, preserve non-conflicting names/source links, verify zero
+     * duplicate references, then hard-delete the duplicate stop.
+     */
+    async mergeStopsKeepCanonical(
+        canonicalStopPublicId: string,
+        duplicateStopPublicId: string,
+        options: {
+            readonly currentStopPublicId: string;
+            readonly candidateStopPublicId: string;
+            readonly fieldSources?: StopMergeFieldSources;
+            readonly acknowledgeSameVariantOccurrences?: boolean;
+            readonly audit?: TransportAuditContext;
+            readonly reason?: string;
+        },
+    ): Promise<TransportStopMergeGlobalResult> {
+        await this.assertSchemaAvailable();
+
+        const preview = await this.getStopMergePreview(
+            options.currentStopPublicId,
+            options.candidateStopPublicId,
+        );
+        assertSameVariantMergeAcknowledged(
+            preview.sameVariantConflicts.length,
+            options.acknowledgeSameVariantOccurrences,
+        );
+
+        const trimmedReason = typeof options.reason === "string" ? options.reason.trim() : "";
+        const sameVariantAcknowledged = preview.sameVariantConflicts.length > 0;
+
+        return this.prisma.$transaction(async (tx) => {
+            const stopRows = await tx.$queryRaw<
+                { id: bigint; public_id: string; mode: string; review_status: string }[]
+            >`
+                SELECT id, public_id::text, mode, review_status
+                FROM transport.stops
+                WHERE public_id IN (${canonicalStopPublicId}::uuid, ${duplicateStopPublicId}::uuid)
+                  AND deleted_at IS NULL
+                FOR UPDATE
+            `;
+            const canonical = stopRows.find((row) => row.public_id === canonicalStopPublicId);
+            const duplicate = stopRows.find((row) => row.public_id === duplicateStopPublicId);
+            if (!canonical) {
+                throw new TransportNotFoundError("stop", canonicalStopPublicId);
+            }
+            if (!duplicate) {
+                throw new TransportNotFoundError("stop", duplicateStopPublicId);
+            }
+            if (canonical.mode !== duplicate.mode) {
+                throw new TransportReviewGuardError(
+                    "MERGE_MODE_MISMATCH",
+                    "Both stops must have the same transport mode.",
+                );
+            }
+            if (duplicate.review_status === "manual_protected") {
+                throw new TransportReviewGuardError(
+                    "MERGE_PROTECTED",
+                    "Cannot delete a manual_protected stop during merge.",
+                );
+            }
+
+            const duplicateSnapshotRow = await this.loadMergePreviewStopRow(tx, duplicateStopPublicId);
+            if (!duplicateSnapshotRow) {
+                throw new TransportNotFoundError("stop", duplicateStopPublicId);
+            }
+
+            if (options.fieldSources && Object.keys(options.fieldSources).length > 0) {
+                const [currentRow, candidateRow] = await Promise.all([
+                    this.loadMergePreviewStopRow(tx, options.currentStopPublicId),
+                    this.loadMergePreviewStopRow(tx, options.candidateStopPublicId),
+                ]);
+                if (!currentRow || !candidateRow) {
+                    throw new TransportNotFoundError(
+                        "stop",
+                        !currentRow ? options.currentStopPublicId : options.candidateStopPublicId,
+                    );
+                }
+                await this.applyMergeFieldSourcesToCanonical(tx, {
+                    canonicalId: canonical.id,
+                    canonicalPublicId: canonicalStopPublicId,
+                    currentRow,
+                    candidateRow,
+                    fieldSources: options.fieldSources,
+                    audit: options.audit,
+                });
+            }
+
+            const canonicalBefore = await this.countSingleStopReferences(tx, canonical.id);
+            const duplicateBefore = await this.countSingleStopReferences(tx, duplicate.id);
+            const referencesChanged = emptyStopMergeReferenceChanges();
+            const affectedRouteCodes = new Set<string>();
+            const affectedVariantCodes = new Set<string>();
+
+            const collectAffected = async (variantIds: readonly bigint[]) => {
+                if (variantIds.length === 0) {
+                    return;
+                }
+                const rows = await tx.$queryRaw<{ route_code: string; variant_code: string }[]>`
+                    SELECT DISTINCT r.route_code, v.variant_code
+                    FROM transport.route_variants v
+                    JOIN transport.routes r ON r.id = v.route_id
+                    WHERE v.id IN (${Prisma.join(variantIds)})
+                `;
+                for (const row of rows) {
+                    affectedRouteCodes.add(row.route_code);
+                    affectedVariantCodes.add(row.variant_code);
+                }
+            };
+
+            const routeStopRows = await tx.$queryRaw<{ route_variant_id: bigint }[]>`
+                UPDATE transport.route_stops
+                SET stop_id = ${canonical.id}, updated_at = now()
+                WHERE stop_id = ${duplicate.id}
+                RETURNING route_variant_id
+            `;
+            referencesChanged.routeStops = routeStopRows.length;
+            await collectAffected(routeStopRows.map((row) => row.route_variant_id));
+
+            const variantOriginRows = await tx.$queryRaw<{ id: bigint }[]>`
+                UPDATE transport.route_variants
+                SET origin_stop_id = ${canonical.id}, updated_at = now()
+                WHERE deleted_at IS NULL
+                  AND origin_stop_id = ${duplicate.id}
+                RETURNING id
+            `;
+            referencesChanged.variantOrigins = variantOriginRows.length;
+            await collectAffected(variantOriginRows.map((row) => row.id));
+
+            const variantDestinationRows = await tx.$queryRaw<{ id: bigint }[]>`
+                UPDATE transport.route_variants
+                SET destination_stop_id = ${canonical.id}, updated_at = now()
+                WHERE deleted_at IS NULL
+                  AND destination_stop_id = ${duplicate.id}
+                RETURNING id
+            `;
+            referencesChanged.variantDestinations = variantDestinationRows.length;
+            await collectAffected(variantDestinationRows.map((row) => row.id));
+
+            const terminalRows = await tx.$queryRaw<{ count: bigint }[]>`
+                WITH updated AS (
+                    UPDATE transport.terminals
+                    SET linked_stop_id = ${canonical.id}, updated_at = now()
+                    WHERE deleted_at IS NULL
+                      AND linked_stop_id = ${duplicate.id}
+                    RETURNING id
+                )
+                SELECT count(*)::bigint AS count FROM updated
+            `;
+            referencesChanged.terminals = num(terminalRows[0]?.count);
+
+            const hasFares = await this.resolveFaresStopColumns(tx);
+            if (hasFares) {
+                const fareOriginRows = await tx.$queryRaw<{ count: bigint }[]>`
+                    WITH updated AS (
+                        UPDATE transport.fares
+                        SET origin_stop_id = ${canonical.id}, updated_at = now()
+                        WHERE origin_stop_id = ${duplicate.id}
+                        RETURNING id
+                    )
+                    SELECT count(*)::bigint AS count FROM updated
+                `;
+                referencesChanged.faresOrigin = num(fareOriginRows[0]?.count);
+
+                const fareDestinationRows = await tx.$queryRaw<{ count: bigint }[]>`
+                    WITH updated AS (
+                        UPDATE transport.fares
+                        SET destination_stop_id = ${canonical.id}, updated_at = now()
+                        WHERE destination_stop_id = ${duplicate.id}
+                        RETURNING id
+                    )
+                    SELECT count(*)::bigint AS count FROM updated
+                `;
+                referencesChanged.faresDestination = num(fareDestinationRows[0]?.count);
+            }
+
+            const childStopRows = await tx.$queryRaw<{ count: bigint }[]>`
+                WITH updated AS (
+                    UPDATE transport.stops
+                    SET parent_stop_id = ${canonical.id}, updated_at = now()
+                    WHERE deleted_at IS NULL
+                      AND parent_stop_id = ${duplicate.id}
+                      AND id <> ${canonical.id}
+                    RETURNING id
+                )
+                SELECT count(*)::bigint AS count FROM updated
+            `;
+            referencesChanged.childStops = num(childStopRows[0]?.count);
+
+            const stopNameRows = await tx.$queryRaw<{ count: bigint }[]>`
+                WITH updated AS (
+                    UPDATE transport.stop_names dup
+                    SET stop_id = ${canonical.id}, updated_at = now()
+                    WHERE dup.stop_id = ${duplicate.id}
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM transport.stop_names keep
+                        WHERE keep.stop_id = ${canonical.id}
+                          AND keep.language_code = dup.language_code
+                      )
+                    RETURNING dup.id
+                )
+                SELECT count(*)::bigint AS count FROM updated
+            `;
+            referencesChanged.stopNames = num(stopNameRows[0]?.count);
+
+            const sourceLinkRows = await tx.$queryRaw<{ count: bigint }[]>`
+                WITH updated AS (
+                    UPDATE transport.source_links sl
+                    SET entity_id = ${canonical.id}
+                    WHERE sl.entity_type = 'stop'
+                      AND sl.entity_id = ${duplicate.id}
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM transport.source_links keep
+                        WHERE keep.entity_type = 'stop'
+                          AND keep.entity_id = ${canonical.id}
+                          AND keep.source_name = sl.source_name
+                          AND keep.source_kind = sl.source_kind
+                          AND (
+                            (keep.external_id IS NULL AND sl.external_id IS NULL)
+                            OR keep.external_id = sl.external_id
+                          )
+                      )
+                    RETURNING sl.id
+                )
+                SELECT count(*)::bigint AS count FROM updated
+            `;
+            referencesChanged.sourceLinks = num(sourceLinkRows[0]?.count);
+
+            await tx.$executeRaw`
+                DELETE FROM transport.stop_names
+                WHERE stop_id = ${duplicate.id}
+            `;
+            await tx.$executeRaw`
+                DELETE FROM transport.source_links
+                WHERE entity_type = 'stop' AND entity_id = ${duplicate.id}
+            `;
+
+            const duplicateAfter = await this.countSingleStopReferences(tx, duplicate.id);
+            if (sumStopMergeReferenceCounts(duplicateAfter) > 0) {
+                throw new TransportReviewGuardError(
+                    "MERGE_REFERENCES_REMAIN",
+                    "Duplicate stop still has references after merge repointing.",
+                    ["duplicate_references_remain"],
+                );
+            }
+
+            await tx.$executeRaw`
+                DELETE FROM transport.stops
+                WHERE id = ${duplicate.id}
+            `;
+
+            const canonicalAfter = await this.countSingleStopReferences(tx, canonical.id);
+            const canonicalRow = await this.loadMergePreviewStopRow(tx, canonicalStopPublicId);
+            if (!canonicalRow) {
+                throw new TransportNotFoundError("stop", canonicalStopPublicId);
+            }
+
+            await insertTransportAuditLog(tx, {
+                action: "transport.stop.merge",
+                entityType: "transport_stop",
+                entityId: canonical.id,
+                entityPublicId: canonicalStopPublicId,
+                changedFields: ["merged_duplicate_stop_id"],
+                oldValues: {
+                    duplicate_stop_public_id: duplicateStopPublicId,
+                },
+                newValues: {
+                    merged_duplicate_stop_id: duplicateStopPublicId,
+                    deleted_duplicate: true,
+                },
+                metadata: {
+                    canonical_stop_public_id: canonicalStopPublicId,
+                    duplicate_stop_public_id: duplicateStopPublicId,
+                    references_changed: referencesChanged,
+                    affected_route_codes: [...affectedRouteCodes],
+                    affected_variant_codes: [...affectedVariantCodes],
+                    counts: {
+                        canonicalBefore,
+                        canonicalAfter,
+                        duplicateBefore,
+                        duplicateAfter,
+                    },
+                    ...(trimmedReason ? { reason: trimmedReason } : {}),
+                    ...(options.fieldSources
+                        ? { field_sources: options.fieldSources }
+                        : {}),
+                    ...(sameVariantAcknowledged
+                        ? {
+                              same_variant_occurrences_acknowledged: true,
+                              same_variant_conflict_count:
+                                  preview.sameVariantConflicts.length,
+                          }
+                        : {}),
+                },
+                context: options.audit,
+            });
+
+            return {
+                canonicalStop: this.mapMergePreviewStop(canonicalRow),
+                deletedStop: this.mapMergePreviewStop(duplicateSnapshotRow),
+                deletedStopId: duplicateStopPublicId,
+                referencesChanged,
+                affectedRouteCodes: [...affectedRouteCodes].sort(),
+                affectedVariantCodes: [...affectedVariantCodes].sort(),
+                counts: {
+                    canonicalBefore,
+                    canonicalAfter,
+                    duplicateBefore,
+                    duplicateAfter,
+                },
+            };
+        }, ROUTE_STOP_TX_OPTIONS);
     }
 
     /** Confirms an FK target row exists; throws {@link TransportInvalidReferenceError} otherwise. */
@@ -3710,6 +5056,7 @@ export class TransportRepository {
                 r.created_at,
                 r.updated_at,
                 r.deleted_at,
+                r.normalized_data,
                 (SELECT count(*) FROM transport.route_variants v
                     WHERE v.route_id = r.id AND v.deleted_at IS NULL)::bigint AS variant_count,
                 (SELECT count(*) FROM transport.route_variants v
@@ -3717,7 +5064,57 @@ export class TransportRepository {
                     WHERE v.route_id = r.id AND v.deleted_at IS NULL)::bigint AS stop_count,
                 (SELECT count(*) FROM transport.route_variants v
                     JOIN transport.route_paths p ON p.route_variant_id = v.id
-                    WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL)::bigint AS path_count
+                    WHERE v.route_id = r.id AND v.deleted_at IS NULL AND p.deleted_at IS NULL)::bigint AS path_count,
+                (SELECT count(*) FROM transport.source_links sl
+                    WHERE sl.entity_type = 'route' AND sl.entity_id = r.id)::bigint AS source_links_count,
+                EXISTS (
+                    SELECT 1
+                    FROM transport.route_stops rs
+                    JOIN transport.route_variants rv ON rv.id = rs.route_variant_id
+                    JOIN transport.stops s ON s.id = rs.stop_id
+                    WHERE rv.route_id = r.id
+                      AND rv.deleted_at IS NULL
+                      AND s.deleted_at IS NULL
+                      AND s.geom IS NULL
+                ) AS stops_missing_geom,
+                EXISTS (
+                    SELECT 1
+                    FROM transport.route_stops rs
+                    JOIN transport.route_variants rv ON rv.id = rs.route_variant_id
+                    JOIN transport.stops s ON s.id = rs.stop_id
+                    WHERE rv.route_id = r.id
+                      AND rv.deleted_at IS NULL
+                      AND s.deleted_at IS NULL
+                      AND (
+                        coalesce(s.normalized_data->>'needs_geometry_review', 'false') = 'true'
+                        OR s.normalized_data->>'geom_source' = 'generated_route_sequence_estimate'
+                      )
+                ) AS has_stop_geometry_review_flag,
+                EXISTS (
+                    SELECT 1
+                    FROM transport.route_variants v
+                    LEFT JOIN transport.route_stops rs ON rs.route_variant_id = v.id
+                    WHERE v.route_id = r.id AND v.deleted_at IS NULL
+                    GROUP BY v.id, v.normalized_data
+                    HAVING count(rs.id) < 2
+                        OR min(rs.stop_sequence) IS DISTINCT FROM 1
+                        OR (
+                            max(rs.stop_sequence) IS DISTINCT FROM count(rs.id)
+                            AND NOT (
+                                (
+                                    coalesce(
+                                        (v.normalized_data->>'closing_duplicate_stop_skipped')::boolean,
+                                        false
+                                    )
+                                    OR coalesce(
+                                        (v.normalized_data->>'is_circular_route')::boolean,
+                                        false
+                                    )
+                                )
+                                AND max(rs.stop_sequence) = count(rs.id) + 1
+                            )
+                        )
+                ) AS sequence_incomplete
             FROM transport.routes r
             LEFT JOIN transport.operators o ON o.id = r.operator_id
             WHERE r.public_id = ${publicId}::uuid
@@ -3729,7 +5126,7 @@ export class TransportRepository {
             throw new TransportNotFoundError("route", publicId);
         }
 
-        const [nameRows, sourceRows] = await Promise.all([
+        const [nameRows, sourceRows, variantRows, stopNameRows] = await Promise.all([
             this.prisma.$queryRaw<RouteNameRow[]>`
                 SELECT name, language_code, script_code, name_type, is_primary, search_weight
                 FROM transport.route_names
@@ -3743,6 +5140,25 @@ export class TransportRepository {
                 ORDER BY is_primary DESC, source_name ASC
                 LIMIT 50
             `,
+            this.prisma.$queryRaw<RouteMetadataVariantQueryRow[]>`
+                SELECT
+                    v.headsign,
+                    v.destination_name,
+                    v.estimated_duration_min,
+                    v.normalized_data,
+                    (SELECT count(*) FROM transport.route_stops rs
+                        WHERE rs.route_variant_id = v.id)::bigint AS stop_count
+                FROM transport.route_variants v
+                WHERE v.route_id = ${row.id} AND v.deleted_at IS NULL
+                ORDER BY v.variant_code ASC
+            `,
+            this.prisma.$queryRaw<RouteMetadataStopNameRow[]>`
+                SELECT DISTINCT s.name_mm, s.name_en, s.name
+                FROM transport.stops s
+                JOIN transport.route_stops rs ON rs.stop_id = s.id
+                JOIN transport.route_variants rv ON rv.id = rs.route_variant_id
+                WHERE rv.route_id = ${row.id} AND rv.deleted_at IS NULL AND s.deleted_at IS NULL
+            `,
         ]);
 
         const pickLocalizedName = (lang: "my" | "en"): string | null =>
@@ -3753,6 +5169,38 @@ export class TransportRepository {
         const publicNameFallback =
             row.public_name && row.public_name.trim() !== "" ? row.public_name : row.route_code;
         const displayName = nameMm ?? nameEn ?? publicNameFallback;
+        const metadataVariants: RouteMetadataVariantRow[] = variantRows.map((variant) => ({
+            headsign: variant.headsign,
+            destination_name: variant.destination_name,
+            estimated_duration_min: variant.estimated_duration_min,
+            stop_count: num(variant.stop_count),
+            normalized_data: variant.normalized_data,
+        }));
+
+        const routeMetadata = buildTransportRouteMetadata({
+            route_code: row.route_code,
+            mode: row.mode,
+            route_kind: row.route_kind,
+            origin_name: row.origin_name,
+            destination_name: row.destination_name,
+            review_status: row.review_status,
+            is_active: row.is_active,
+            confidence_score: row.confidence_score,
+            normalized_data: row.normalized_data,
+            name_mm: nameMm,
+            name_en: nameEn,
+            variant_count: num(row.variant_count),
+            stop_count: num(row.stop_count),
+            path_count: num(row.path_count),
+            source_links_count: num(row.source_links_count),
+            variants: metadataVariants,
+            diagnostics: {
+                stops_missing_geom: row.stops_missing_geom,
+                has_placeholder_stop_name: hasPlaceholderStopNames(stopNameRows),
+                has_stop_geometry_review_flag: row.has_stop_geometry_review_flag,
+                sequence_incomplete: row.sequence_incomplete,
+            },
+        });
 
         return {
             public_id: row.public_id,
@@ -3799,6 +5247,91 @@ export class TransportRepository {
                 source_url: s.source_url,
                 is_primary: s.is_primary,
             })),
+            routeMetadata,
+        };
+    }
+
+    async getRouteDiagnosticsData(routePublicId: string): Promise<
+        Pick<TransportRouteDiagnostics, "route" | "variants" | "source_links">
+    > {
+        await this.assertSchemaAvailable();
+
+        const routeRows = await this.prisma.$queryRaw<
+            {
+                id: bigint;
+                normalized_data: Record<string, unknown> | null;
+                source_refs: Record<string, unknown> | null;
+            }[]
+        >`
+            SELECT id, normalized_data, source_refs
+            FROM transport.routes
+            WHERE public_id = ${routePublicId}::uuid AND deleted_at IS NULL
+            LIMIT 1
+        `;
+        const route = routeRows[0];
+        if (!route) {
+            throw new TransportNotFoundError("route", routePublicId);
+        }
+
+        const [variantRows, sourceRows] = await Promise.all([
+            this.prisma.$queryRaw<
+                {
+                    public_id: string;
+                    variant_code: string;
+                    normalized_data: Record<string, unknown> | null;
+                }[]
+            >`
+                SELECT
+                    v.public_id::text AS public_id,
+                    v.variant_code,
+                    v.normalized_data
+                FROM transport.route_variants v
+                WHERE v.route_id = ${route.id} AND v.deleted_at IS NULL
+                ORDER BY v.variant_code ASC
+            `,
+            this.prisma.$queryRaw<SourceLinkRowListItem[]>`
+                SELECT
+                    s.id,
+                    s.entity_type,
+                    s.entity_id,
+                    s.source_name,
+                    s.source_kind,
+                    s.external_id,
+                    s.source_url,
+                    s.import_batch_id,
+                    s.confidence_score::float8 AS confidence_score,
+                    s.is_primary,
+                    s.created_at
+                FROM transport.source_links s
+                WHERE s.entity_type = 'route' AND s.entity_id = ${route.id}
+                ORDER BY s.is_primary DESC, s.source_name ASC, s.id ASC
+                LIMIT 100
+            `,
+        ]);
+
+        return {
+            route: {
+                normalized_data: route.normalized_data,
+                source_refs: route.source_refs,
+            },
+            variants: variantRows.map((variant) => ({
+                public_id: variant.public_id,
+                variant_code: variant.variant_code,
+                normalized_data: variant.normalized_data,
+            })),
+            source_links: sourceRows.map((row) => ({
+                id: Number(row.id),
+                entity_type: row.entity_type,
+                entity_id: Number(row.entity_id),
+                source_name: row.source_name,
+                source_kind: row.source_kind,
+                external_id: row.external_id,
+                source_url: row.source_url,
+                import_batch_id: row.import_batch_id === null ? null : Number(row.import_batch_id),
+                confidence_score: row.confidence_score,
+                is_primary: row.is_primary,
+                created_at: row.created_at.toISOString(),
+            })),
         };
     }
 
@@ -3830,7 +5363,8 @@ export class TransportRepository {
                 v.estimated_duration_min,
                 v.review_status,
                 v.confidence_score::float8 AS confidence_score,
-                v.is_active
+                v.is_active,
+                v.normalized_data->>'departure_time_text' AS departure_time_text
             FROM transport.route_variants v
             WHERE v.route_id = ${route.id} AND v.deleted_at IS NULL
             ORDER BY v.variant_code ASC
@@ -3854,6 +5388,7 @@ export class TransportRepository {
                 review_status: row.review_status,
                 confidence_score: row.confidence_score,
                 is_active: row.is_active,
+                departure_time_text: row.departure_time_text?.trim() || null,
             };
         });
     }
@@ -3963,8 +5498,8 @@ export class TransportRepository {
      * straight-line gap from the previous stop (LAG + geography ST_Distance, null
      * for the first stop), deviation from the variant's active route path
      * (geography ST_Distance, null when no active path), a defensive
-     * exact-duplicate flag (same stop_id more than once — DB unique-guarded), and
-     * a count of other active same-mode stops within ~30 m. The nearby lookup
+     * exact-duplicate flag (same stop_id more than once, excluding intentional
+     * circular closing occurrences), and a count of other active same-mode stops within ~30 m. The nearby lookup
      * prefilters with the GIST(geom) index via a `&&` bbox before the exact
      * geography ST_DWithin, mirroring the stop-search path. Diagnostics only.
      */
@@ -3997,6 +5532,7 @@ export class TransportRepository {
                 distance_from_previous_m: number | null;
                 distance_from_path_m: number | null;
                 is_exact_duplicate_in_variant: boolean;
+                is_loop_closure: boolean;
                 nearby_duplicate_count: bigint;
             }[]
         >`
@@ -4012,6 +5548,7 @@ export class TransportRepository {
                     rs.id AS route_stop_id,
                     rs.stop_sequence,
                     rs.stop_id,
+                    rs.normalized_data,
                     s.public_id AS stop_public_id,
                     s.name AS stop_name,
                     s.mode AS stop_mode,
@@ -4039,7 +5576,11 @@ export class TransportRepository {
                     WHEN ap.geom IS NULL OR o.geom IS NULL THEN NULL
                     ELSE ST_Distance(o.geom::geography, ap.geom::geography)
                 END::float8 AS distance_from_path_m,
-                (o.stop_id_count > 1) AS is_exact_duplicate_in_variant,
+                (o.stop_id_count > 1
+                    AND coalesce(o.normalized_data->>'circular_closing_occurrence', 'false') <> 'true'
+                ) AS is_exact_duplicate_in_variant,
+                (coalesce(o.normalized_data->>'circular_closing_occurrence', 'false') = 'true'
+                ) AS is_loop_closure,
                 CASE
                     WHEN o.geom IS NULL THEN 0
                     ELSE (
@@ -4072,6 +5613,7 @@ export class TransportRepository {
                 distance_from_previous_m: row.distance_from_previous_m,
                 distance_from_path_m: row.distance_from_path_m,
                 is_exact_duplicate_in_variant: row.is_exact_duplicate_in_variant,
+                is_loop_closure: row.is_loop_closure,
                 nearby_duplicate_count: num(row.nearby_duplicate_count),
             })),
             total: rows.length,
@@ -4147,6 +5689,13 @@ export class TransportRepository {
                     drop_off_type: number;
                     is_timing_point: boolean;
                     review_status: string;
+                    source_time_text: string | null;
+                    source_time_type: string | null;
+                    travel_time_from_previous_seconds: number | null;
+                    waiting_time_seconds: number | null;
+                    arrival_offset_seconds: number | null;
+                    departure_offset_seconds: number | null;
+                    is_loop_closure: boolean;
                 }[]
             >`
                 SELECT
@@ -4170,7 +5719,15 @@ export class TransportRepository {
                     rs.pickup_type,
                     rs.drop_off_type,
                     rs.is_timing_point,
-                    s.review_status
+                    s.review_status,
+                    rs.source_time_text,
+                    rs.source_time_type,
+                    rs.travel_time_from_previous_seconds,
+                    rs.waiting_time_seconds,
+                    rs.arrival_offset_seconds,
+                    rs.departure_offset_seconds,
+                    (coalesce(rs.normalized_data->>'circular_closing_occurrence', 'false') = 'true'
+                    ) AS is_loop_closure
                 FROM transport.route_stops rs
                 JOIN transport.stops s ON s.id = rs.stop_id
                 WHERE rs.route_variant_id = ${variant.id}
@@ -4198,6 +5755,13 @@ export class TransportRepository {
                 drop_off_type: r.drop_off_type,
                 is_timing_point: r.is_timing_point,
                 review_status: r.review_status,
+                source_time_text: r.source_time_text,
+                source_time_type: r.source_time_type,
+                travel_time_from_previous_seconds: r.travel_time_from_previous_seconds,
+                waiting_time_seconds: r.waiting_time_seconds,
+                arrival_offset_seconds: r.arrival_offset_seconds,
+                departure_offset_seconds: r.departure_offset_seconds,
+                is_loop_closure: r.is_loop_closure,
             })),
             route_stop_count: rows.length,
             has_verified_path: variant.has_verified_path,
@@ -4287,7 +5851,8 @@ export class TransportRepository {
      * derives the `routes.public_name` cache (Myanmar first, English fallback).
      * `public_name` is never accepted as direct input. A merge-aware rule
      * enforces that at least one of name_mm/name_en remains after the edit.
-     * `und` names, `source_refs`, and `normalized_data` are never touched.
+     * `und` names, `source_refs`, and raw `normalized_data` blobs are never accepted.
+     * Structured train metadata fields merge into `normalized_data` keys only.
      * Returns the refreshed route detail. Throws {@link TransportNotFoundError}
      * when the route is missing/soft-deleted, or {@link TransportNameRequiredError}
      * when an edit would clear both localized names.
@@ -4315,9 +5880,15 @@ export class TransportRepository {
             sets.push(Prisma.sql`confidence_score = ${input.confidence_score}`);
         if (input.is_active !== undefined) sets.push(Prisma.sql`is_active = ${input.is_active}`);
 
+        const editingTrainMetadata =
+            input.train_type !== undefined ||
+            input.train_model !== undefined ||
+            input.operation_days !== undefined ||
+            input.is_yangon_urban_service !== undefined;
+        const editingDisplayHeadsign = input.display_headsign !== undefined;
         const editingNames = input.name_mm !== undefined || input.name_en !== undefined;
 
-        if (sets.length === 0 && !editingNames) {
+        if (sets.length === 0 && !editingNames && !editingTrainMetadata && !editingDisplayHeadsign) {
             return this.getRouteByPublicId(publicId);
         }
 
@@ -4333,6 +5904,31 @@ export class TransportRepository {
             const before = beforeRows[0];
             if (!before) {
                 throw new TransportNotFoundError("route", publicId);
+            }
+
+            if (editingTrainMetadata && before.mode !== "train") {
+                throw new TransportRouteMetadataError(
+                    "Train metadata fields can only be edited on train routes.",
+                );
+            }
+
+            const normalizedPatch: Record<string, unknown> = {};
+            if (input.train_type !== undefined) {
+                normalizedPatch.train_type = input.train_type;
+            }
+            if (input.train_model !== undefined) {
+                normalizedPatch.train_model = input.train_model;
+            }
+            if (input.operation_days !== undefined) {
+                normalizedPatch.operation_days = input.operation_days;
+            }
+            if (input.is_yangon_urban_service !== undefined) {
+                normalizedPatch.is_yangon_urban_service = input.is_yangon_urban_service;
+            }
+            if (Object.keys(normalizedPatch).length > 0) {
+                sets.push(
+                    Prisma.sql`normalized_data = coalesce(normalized_data, '{}'::jsonb) || ${JSON.stringify(normalizedPatch)}::jsonb`,
+                );
             }
 
             // Localized-name edits (source of truth) + derived public_name cache.
@@ -4387,6 +5983,20 @@ export class TransportRepository {
                 `);
             }
 
+            if (editingDisplayHeadsign) {
+                await tx.$executeRaw`
+                    UPDATE transport.route_variants
+                    SET headsign = ${input.display_headsign}, updated_at = now()
+                    WHERE id = (
+                        SELECT v.id
+                        FROM transport.route_variants v
+                        WHERE v.route_id = ${before.id} AND v.deleted_at IS NULL
+                        ORDER BY v.variant_code ASC
+                        LIMIT 1
+                    )
+                `;
+            }
+
             // Audit: scalar fields (input has no public_name) + derived public_name + names.
             const diff = diffScalarFields(before, input, ROUTE_AUDIT_FIELDS);
             if (editingNames) {
@@ -4412,6 +6022,36 @@ export class TransportRepository {
                     changedFields: diff.changedFields,
                     oldValues: diff.oldValues,
                     newValues: diff.newValues,
+                    metadata:
+                        Object.keys(normalizedPatch).length > 0 || editingDisplayHeadsign
+                            ? {
+                                  ...(Object.keys(normalizedPatch).length > 0
+                                      ? { normalized_data_patch: normalizedPatch }
+                                      : {}),
+                                  ...(editingDisplayHeadsign
+                                      ? { display_headsign: input.display_headsign }
+                                      : {}),
+                              }
+                            : null,
+                    context: audit,
+                });
+            } else if (Object.keys(normalizedPatch).length > 0 || editingDisplayHeadsign) {
+                await insertTransportAuditLog(tx, {
+                    action: "transport.route.update",
+                    entityType: "transport_route",
+                    entityId: before.id,
+                    entityPublicId: publicId,
+                    changedFields: [
+                        ...Object.keys(normalizedPatch).map((key) => `normalized_data.${key}`),
+                        ...(editingDisplayHeadsign ? ["display_headsign"] : []),
+                    ],
+                    oldValues: {},
+                    newValues: {
+                        ...normalizedPatch,
+                        ...(editingDisplayHeadsign
+                            ? { display_headsign: input.display_headsign }
+                            : {}),
+                    },
                     metadata: null,
                     context: audit,
                 });
@@ -4440,7 +6080,8 @@ export class TransportRepository {
                 v.estimated_duration_min,
                 v.review_status,
                 v.confidence_score::float8 AS confidence_score,
-                v.is_active
+                v.is_active,
+                v.normalized_data->>'departure_time_text' AS departure_time_text
             FROM transport.route_variants v
             WHERE v.public_id = ${variantPublicId}::uuid AND v.deleted_at IS NULL
             LIMIT 1
@@ -4468,6 +6109,7 @@ export class TransportRepository {
             review_status: row.review_status,
             confidence_score: row.confidence_score,
             is_active: row.is_active,
+            departure_time_text: row.departure_time_text?.trim() || null,
         };
     }
 
@@ -5036,6 +6678,293 @@ export class TransportRepository {
         return this.getVariantPathResult(variantPublicId);
     }
 
+    /**
+     * Ordered route_stop occurrences for generate-path-from-stops. Returns every row
+     * by stop_sequence without deduplicating stop_id (circular closing rows included).
+     */
+    async loadVariantPathGenerationStops(variantPublicId: string): Promise<{
+        route_mode: string;
+        stops: Array<{
+            stop_sequence: number;
+            lng: number;
+            lat: number;
+            is_loop_closure: boolean;
+        }>;
+    }> {
+        await this.assertSchemaAvailable();
+
+        const variantRows = await this.prisma.$queryRaw<{ id: bigint; route_mode: string }[]>`
+            SELECT v.id, r.mode AS route_mode
+            FROM transport.route_variants v
+            JOIN transport.routes r ON r.id = v.route_id
+            WHERE v.public_id = ${variantPublicId}::uuid AND v.deleted_at IS NULL
+            LIMIT 1
+        `;
+        const variant = variantRows[0];
+        if (!variant) {
+            throw new TransportNotFoundError("route variant", variantPublicId);
+        }
+
+        const rows = await this.prisma.$queryRaw<
+            {
+                stop_sequence: number;
+                lng: number | null;
+                lat: number | null;
+                normalized_data: unknown;
+            }[]
+        >`
+            SELECT
+                rs.stop_sequence,
+                ST_X(COALESCE(s.geom, rs.review_geom))::float8 AS lng,
+                ST_Y(COALESCE(s.geom, rs.review_geom))::float8 AS lat,
+                rs.normalized_data
+            FROM transport.route_stops rs
+            JOIN transport.stops s ON s.id = rs.stop_id
+            WHERE rs.route_variant_id = ${variant.id}
+              AND s.deleted_at IS NULL
+            ORDER BY rs.stop_sequence ASC, rs.id ASC
+        `;
+
+        if (rows.length < 2) {
+            throw new TransportGeneratePathFromStopsError(
+                "Select a variant with at least 2 ordered stops.",
+            );
+        }
+
+        for (let i = 0; i < rows.length; i++) {
+            if (rows[i]?.stop_sequence !== i + 1) {
+                throw new TransportGeneratePathFromStopsError(
+                    "Stop sequence must be continuous (1, 2, 3, …).",
+                );
+            }
+        }
+
+        const stops = rows.map((row) => {
+            if (row.lng === null || row.lat === null) {
+                throw new TransportGeneratePathFromStopsError(
+                    "Every stop must have a saved location.",
+                );
+            }
+            return {
+                stop_sequence: row.stop_sequence,
+                lng: row.lng,
+                lat: row.lat,
+                is_loop_closure: isCircularClosingRouteStop(row.normalized_data),
+            };
+        });
+
+        return { route_mode: variant.route_mode, stops };
+    }
+
+    /**
+     * Replaces the variant active path with a Valhalla-snapped LineString built from
+     * ordered stop occurrences (path_kind = valhalla_snapped).
+     */
+    async upsertValhallaSnappedVariantPath(
+        variantPublicId: string,
+        coordinates: [number, number][],
+        options: {
+            warnings: string[];
+            stop_occurrence_count: number;
+        },
+        audit?: TransportAuditContext,
+    ): Promise<GeneratePathFromStopsResult> {
+        await this.assertSchemaAvailable();
+
+        if (coordinates.length < 2) {
+            throw new TransportGeneratePathFromStopsError(
+                "Generated path must contain at least two coordinates.",
+            );
+        }
+
+        const geojson = JSON.stringify({ type: "LineString", coordinates });
+        const pathKind = "valhalla_snapped";
+        const normalizedData = JSON.stringify({
+            geom_source: "valhalla_from_ordered_stops",
+            stop_occurrence_count: options.stop_occurrence_count,
+            warnings: options.warnings,
+        });
+        const sourceRefs = JSON.stringify({
+            created_via: "generate_path_from_stops",
+            created_by: "admin_dashboard",
+        });
+
+        const pathId = await this.prisma.$transaction(async (tx) => {
+            const variantRows = await tx.$queryRaw<{ id: bigint }[]>`
+                SELECT id FROM transport.route_variants
+                WHERE public_id = ${variantPublicId}::uuid AND deleted_at IS NULL
+                LIMIT 1
+            `;
+            const variant = variantRows[0];
+            if (!variant) {
+                throw new TransportNotFoundError("route variant", variantPublicId);
+            }
+
+            const existingRows = await tx.$queryRaw<
+                {
+                    id: bigint;
+                    path_kind: string | null;
+                    distance_m: number | null;
+                    review_status: string | null;
+                    confidence_score: number | null;
+                    normalized_data: unknown;
+                }[]
+            >`
+                SELECT id, path_kind, distance_m::float8 AS distance_m,
+                       review_status, confidence_score::float8 AS confidence_score,
+                       normalized_data
+                FROM transport.route_paths
+                WHERE route_variant_id = ${variant.id} AND deleted_at IS NULL
+                ORDER BY id ASC
+                LIMIT 1
+                FOR UPDATE
+            `;
+            const existing = existingRows[0];
+
+            if (existing) {
+                const updated = await tx.$queryRaw<{ id: bigint; distance_m: number | null }[]>`
+                    UPDATE transport.route_paths
+                    SET geom = ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326),
+                        distance_m = ST_Length(
+                            ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326)::geography
+                        ),
+                        path_kind = ${pathKind},
+                        review_status = 'needs_review',
+                        confidence_score = 70,
+                        is_active = true,
+                        normalized_data = ${normalizedData}::jsonb,
+                        source_refs = coalesce(source_refs, '{}'::jsonb) || ${sourceRefs}::jsonb,
+                        updated_at = now()
+                    WHERE id = ${existing.id}
+                    RETURNING id, distance_m::float8 AS distance_m
+                `;
+                const row = updated[0];
+                if (!row) {
+                    throw new Error("Failed to update generated route path");
+                }
+                await insertTransportAuditLog(tx, {
+                    action: "transport.route_path.update",
+                    entityType: "transport_route_path",
+                    entityId: existing.id,
+                    entityPublicId: null,
+                    changedFields: [
+                        "geom",
+                        "distance_m",
+                        "path_kind",
+                        "review_status",
+                        "confidence_score",
+                        "is_active",
+                        "normalized_data",
+                        "source_refs",
+                    ],
+                    oldValues: {
+                        path_kind: existing.path_kind,
+                        distance_m: existing.distance_m,
+                        review_status: existing.review_status,
+                        confidence_score: existing.confidence_score,
+                        normalized_data: existing.normalized_data,
+                    },
+                    newValues: {
+                        path_kind: pathKind,
+                        distance_m: row.distance_m,
+                        review_status: "needs_review",
+                        confidence_score: 70,
+                        is_active: true,
+                        normalized_data: JSON.parse(normalizedData),
+                    },
+                    metadata: {
+                        route_variant_public_id: variantPublicId,
+                        point_count: coordinates.length,
+                        stop_occurrence_count: options.stop_occurrence_count,
+                    },
+                    context: audit,
+                });
+                return row.id;
+            }
+
+            const inserted = await tx.$queryRaw<{ id: bigint; distance_m: number | null }[]>`
+                INSERT INTO transport.route_paths
+                    (route_variant_id, path_kind, geom, distance_m, source_refs,
+                     normalized_data, confidence_score, review_status, is_active)
+                VALUES
+                    (${variant.id}, ${pathKind},
+                     ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326),
+                     ST_Length(ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326)::geography),
+                     ${sourceRefs}::jsonb,
+                     ${normalizedData}::jsonb,
+                     70, 'needs_review', true)
+                RETURNING id, distance_m::float8 AS distance_m
+            `;
+            const created = inserted[0];
+            if (!created) {
+                throw new Error("Failed to create generated route path");
+            }
+            await insertTransportAuditLog(tx, {
+                action: "transport.route_path.create",
+                entityType: "transport_route_path",
+                entityId: created.id,
+                entityPublicId: null,
+                changedFields: [
+                    "geom",
+                    "distance_m",
+                    "path_kind",
+                    "review_status",
+                    "confidence_score",
+                    "is_active",
+                    "normalized_data",
+                    "source_refs",
+                ],
+                oldValues: null,
+                newValues: {
+                    path_kind: pathKind,
+                    distance_m: created.distance_m,
+                    review_status: "needs_review",
+                    confidence_score: 70,
+                    is_active: true,
+                    normalized_data: JSON.parse(normalizedData),
+                },
+                metadata: {
+                    route_variant_public_id: variantPublicId,
+                    point_count: coordinates.length,
+                    stop_occurrence_count: options.stop_occurrence_count,
+                },
+                context: audit,
+            });
+            return created.id;
+        });
+
+        const pathRows = await this.prisma.$queryRaw<
+            {
+                path_kind: string;
+                review_status: string;
+                distance_m: number | null;
+                geometry: unknown;
+            }[]
+        >`
+            SELECT
+                p.path_kind,
+                p.review_status,
+                p.distance_m::float8 AS distance_m,
+                ST_AsGeoJSON(p.geom)::jsonb AS geometry
+            FROM transport.route_paths p
+            WHERE p.id = ${pathId}
+            LIMIT 1
+        `;
+        const path = pathRows[0];
+        if (!path) {
+            throw new Error("Failed to load generated route path");
+        }
+
+        return {
+            route_path_id: String(pathId),
+            path_kind: path.path_kind,
+            review_status: path.review_status,
+            geometry: asGeometry(path.geometry) as NonNullable<GeoJsonGeometry>,
+            distance_m: path.distance_m,
+            warnings: options.warnings,
+        };
+    }
+
     /** Single ordered-stop row (with its stop + GeoJSON geometry) by route_stops.id. */
     async getRouteStopItemById(id: bigint): Promise<TransportRouteStopItem> {
         const rows = await this.prisma.$queryRaw<RouteStopRow[]>`
@@ -5046,6 +6975,12 @@ export class TransportRepository {
                 rs.drop_off_type,
                 rs.is_timing_point,
                 rs.distance_from_start_m::float8 AS distance_from_start_m,
+                rs.source_time_text,
+                rs.source_time_type,
+                rs.travel_time_from_previous_seconds,
+                rs.waiting_time_seconds,
+                rs.arrival_offset_seconds,
+                rs.departure_offset_seconds,
                 s.public_id::text AS stop_public_id,
                 s.name AS stop_name,
                 s.name_mm AS stop_name_mm,
@@ -5066,7 +7001,7 @@ export class TransportRepository {
         return mapRouteStopRow(row);
     }
 
-    /** Partial update of a route stop's membership flags. Never touches stop_sequence. */
+    /** Partial update of a route stop's membership flags. Never touches stop_sequence or timetable fields. */
     async updateRouteStopFlags(
         id: bigint,
         input: UpdateRouteStopInput,
@@ -5121,6 +7056,195 @@ export class TransportRepository {
         });
 
         return this.getRouteStopItemById(id);
+    }
+
+    /**
+     * Updates editable timetable inputs on one route stop, recalculates offsets for
+     * the whole variant in the same transaction, and returns the refreshed ordered stops.
+     * Preserves imported source_time_text and source_time_type on every row.
+     */
+    async updateRouteStopTiming(
+        id: bigint,
+        input: UpdateRouteStopTimingInput,
+        audit?: TransportAuditContext,
+    ): Promise<TransportRouteStopMutationResult> {
+        await this.assertSchemaAvailable();
+
+        let variantPublicId: string | null = null;
+
+        await this.prisma.$transaction(async (tx) => {
+            const beforeRows = await tx.$queryRaw<RouteStopTimingAuditRow[]>`
+                SELECT id,
+                       route_variant_id,
+                       travel_time_from_previous_seconds,
+                       waiting_time_seconds,
+                       arrival_offset_seconds,
+                       departure_offset_seconds
+                FROM transport.route_stops
+                WHERE id = ${id}
+                FOR UPDATE
+            `;
+            const before = beforeRows[0];
+            if (!before) {
+                throw new TransportNotFoundError("route stop", String(id));
+            }
+
+            const variantRows = await tx.$queryRaw<{ public_id: string }[]>`
+                SELECT public_id::text AS public_id
+                FROM transport.route_variants
+                WHERE id = ${before.route_variant_id}
+                  AND deleted_at IS NULL
+                LIMIT 1
+            `;
+            variantPublicId = variantRows[0]?.public_id ?? null;
+            if (!variantPublicId) {
+                throw new TransportNotFoundError("route variant", String(before.route_variant_id));
+            }
+
+            const sets: Prisma.Sql[] = [];
+            if (input.travel_time_from_previous_seconds !== undefined) {
+                sets.push(
+                    Prisma.sql`travel_time_from_previous_seconds = ${input.travel_time_from_previous_seconds}`,
+                );
+            }
+            if (input.waiting_time_seconds !== undefined) {
+                sets.push(Prisma.sql`waiting_time_seconds = ${input.waiting_time_seconds}`);
+            }
+
+            if (sets.length > 0) {
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE transport.route_stops
+                    SET ${Prisma.join([...sets, Prisma.sql`updated_at = now()`], ", ")}
+                    WHERE id = ${id}
+                `);
+
+                const diff = diffScalarFields(before, input, [
+                    "travel_time_from_previous_seconds",
+                    "waiting_time_seconds",
+                ]);
+                if (diff.changedFields.length > 0) {
+                    await insertTransportAuditLog(tx, {
+                        action: "transport.route_stop.update_timing",
+                        entityType: "transport_route_stop",
+                        entityId: before.id,
+                        entityPublicId: null,
+                        changedFields: diff.changedFields,
+                        oldValues: diff.oldValues,
+                        newValues: diff.newValues,
+                        metadata: null,
+                        context: audit,
+                    });
+                }
+            }
+
+            await this.recalculateVariantTimetableOffsetsInTx(tx, before.route_variant_id);
+        });
+
+        if (!variantPublicId) {
+            throw new TransportNotFoundError("route stop", String(id));
+        }
+
+        return this.getOrderedStops(variantPublicId);
+    }
+
+    /**
+     * Updates variant departure_time_text in normalized_data and recalculates stop
+     * offsets for the whole variant in one transaction.
+     */
+    async updateVariantDepartureTime(
+        variantPublicId: string,
+        departureTimeText: string | null,
+        audit?: TransportAuditContext,
+    ): Promise<TransportRouteStopMutationResult> {
+        await this.assertSchemaAvailable();
+
+        await this.prisma.$transaction(async (tx) => {
+            const beforeRows = await tx.$queryRaw<
+                { id: bigint; normalized_data: unknown }[]
+            >`
+                SELECT id, normalized_data
+                FROM transport.route_variants
+                WHERE public_id = ${variantPublicId}::uuid
+                  AND deleted_at IS NULL
+                FOR UPDATE
+            `;
+            const before = beforeRows[0];
+            if (!before) {
+                throw new TransportNotFoundError("route variant", variantPublicId);
+            }
+
+            const normalizedPatch = { departure_time_text: departureTimeText };
+            if (departureTimeText === null) {
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE transport.route_variants
+                    SET normalized_data = coalesce(normalized_data, '{}'::jsonb) - 'departure_time_text',
+                        updated_at = now()
+                    WHERE id = ${before.id}
+                `);
+            } else {
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE transport.route_variants
+                    SET normalized_data = coalesce(normalized_data, '{}'::jsonb) || ${JSON.stringify(normalizedPatch)}::jsonb,
+                        updated_at = now()
+                    WHERE id = ${before.id}
+                `);
+            }
+
+            await insertTransportAuditLog(tx, {
+                action: "transport.route_variant.update_departure_time",
+                entityType: "transport_route_variant",
+                entityId: before.id,
+                entityPublicId: variantPublicId,
+                changedFields: ["normalized_data.departure_time_text"],
+                oldValues: {
+                    departure_time_text:
+                        typeof before.normalized_data === "object" &&
+                        before.normalized_data !== null &&
+                        "departure_time_text" in (before.normalized_data as object)
+                            ? (before.normalized_data as { departure_time_text?: unknown })
+                                  .departure_time_text
+                            : null,
+                },
+                newValues: { departure_time_text: departureTimeText },
+                metadata: null,
+                context: audit,
+            });
+
+            await this.recalculateVariantTimetableOffsetsInTx(tx, before.id);
+        });
+
+        return this.getOrderedStops(variantPublicId);
+    }
+
+    private async recalculateVariantTimetableOffsetsInTx(
+        tx: Prisma.TransactionClient,
+        variantId: bigint,
+    ): Promise<void> {
+        const stops = await tx.$queryRaw<VariantTimetableStopRow[]>`
+            SELECT id, travel_time_from_previous_seconds, waiting_time_seconds
+            FROM transport.route_stops
+            WHERE route_variant_id = ${variantId}
+            ORDER BY stop_sequence ASC
+            FOR UPDATE
+        `;
+
+        const calculated = variantTimetableScheduleToOffsets(
+            calculateVariantTimetableSchedule({
+                departureTimeText: null,
+                stops,
+            }),
+        );
+        for (let index = 0; index < stops.length; index += 1) {
+            const stop = stops[index]!;
+            const offsets = calculated[index]!;
+            await tx.$executeRaw(Prisma.sql`
+                UPDATE transport.route_stops
+                SET arrival_offset_seconds = ${offsets.arrival_offset_seconds},
+                    departure_offset_seconds = ${offsets.departure_offset_seconds},
+                    updated_at = now()
+                WHERE id = ${stop.id}
+            `);
+        }
     }
 
     /**
@@ -5540,6 +7664,179 @@ export class TransportRepository {
         });
     }
 
+    private async resolveFaresStopColumns(client: {
+        $queryRaw: PrismaClient["$queryRaw"];
+    }): Promise<boolean> {
+        if (this.faresStopColumns !== null) {
+            return this.faresStopColumns;
+        }
+        const rows = await client.$queryRaw<{ exists: boolean }[]>`
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'transport'
+                  AND table_name = 'fares'
+                  AND column_name = 'origin_stop_id'
+            ) AS exists
+        `;
+        this.faresStopColumns = rows[0]?.exists ?? false;
+        return this.faresStopColumns;
+    }
+
+    private async countFareStopReferences(
+        client: { $queryRaw: PrismaClient["$queryRaw"] },
+        stopId: bigint
+    ): Promise<number> {
+        const hasStopColumns = await this.resolveFaresStopColumns(client);
+        if (!hasStopColumns) {
+            return 0;
+        }
+        const countRows = await client.$queryRaw<{ count: bigint }[]>`
+            SELECT count(*)::bigint AS count
+            FROM transport.fares
+            WHERE (origin_stop_id = ${stopId} OR destination_stop_id = ${stopId})
+        `;
+        return num(countRows[0]?.count);
+    }
+
+    private async loadStopDeleteReferences(
+        client: { $queryRaw: PrismaClient["$queryRaw"] },
+        publicId: string,
+        lockRow: boolean
+    ): Promise<{ row: StopDeleteReferenceRow; fares: number } | null> {
+        const stopRows = await client.$queryRaw<StopDeleteReferenceRow[]>`
+            SELECT
+                s.id,
+                s.public_id::text AS public_id,
+                s.review_status,
+                s.name,
+                s.mode,
+                s.stop_type,
+                (
+                    SELECT count(*)::bigint
+                    FROM transport.route_stops rs
+                    WHERE rs.stop_id = s.id
+                ) AS route_stops_count,
+                (
+                    SELECT count(*)::bigint
+                    FROM transport.route_variants v
+                    WHERE v.deleted_at IS NULL
+                      AND (v.origin_stop_id = s.id OR v.destination_stop_id = s.id)
+                ) AS variant_endpoints_count,
+                (
+                    SELECT count(*)::bigint
+                    FROM transport.stops c
+                    WHERE c.deleted_at IS NULL
+                      AND c.id <> s.id
+                      AND c.parent_stop_id = s.id
+                ) AS child_stops_count,
+                (
+                    SELECT count(*)::bigint
+                    FROM transport.terminals t
+                    WHERE t.deleted_at IS NULL
+                      AND t.linked_stop_id = s.id
+                ) AS linked_terminals_count,
+                (
+                    SELECT count(DISTINCT v.route_id)::bigint
+                    FROM transport.route_stops rs
+                    JOIN transport.route_variants v
+                        ON v.id = rs.route_variant_id AND v.deleted_at IS NULL
+                    WHERE rs.stop_id = s.id
+                ) AS route_count
+            FROM transport.stops s
+            WHERE s.public_id = ${publicId}::uuid
+              AND s.deleted_at IS NULL
+            ${lockRow ? Prisma.sql`FOR UPDATE` : Prisma.empty}
+        `;
+        const row = stopRows[0];
+        if (!row) {
+            return null;
+        }
+        const fares = await this.countFareStopReferences(client, row.id);
+        return { row, fares };
+    }
+
+    /**
+     * Read-only eligibility check for permanent stop deletion. Counts references
+     * across route_stops, variant endpoints, child stops, linked terminals, and
+     * fares (when fare stop columns exist). Blocks verified / manual_protected.
+     */
+    async getStopDeleteEligibilityByPublicId(
+        publicId: string
+    ): Promise<TransportStopDeleteEligibility> {
+        await this.assertSchemaAvailable();
+        const loaded = await this.loadStopDeleteReferences(this.prisma, publicId, false);
+        if (!loaded) {
+            throw new TransportNotFoundError("stop", publicId);
+        }
+        return buildStopDeleteEligibility(loaded.row, loaded.fares);
+    }
+
+    /**
+     * Permanently deletes a stop when it has no blocking references and is not
+     * verified / manual_protected. Removes related stop_names and source_links
+     * in the same transaction, then hard-deletes the stop row.
+     */
+    async permanentDeleteStopByPublicId(
+        publicId: string,
+        audit?: TransportAuditContext,
+        reason?: string
+    ): Promise<TransportStopPermanentDeleteResult> {
+        await this.assertSchemaAvailable();
+
+        const trimmedReason = typeof reason === "string" ? reason.trim() : "";
+
+        return this.prisma.$transaction(async (tx) => {
+            const loaded = await this.loadStopDeleteReferences(tx, publicId, true);
+            if (!loaded) {
+                throw new TransportNotFoundError("stop", publicId);
+            }
+
+            const eligibility = buildStopDeleteEligibility(loaded.row, loaded.fares);
+            assertStopDeleteAllowed(eligibility);
+
+            const stop = loaded.row;
+
+            await tx.$executeRaw`
+                DELETE FROM transport.source_links
+                WHERE entity_type = 'stop' AND entity_id = ${stop.id}
+            `;
+            await tx.$executeRaw`
+                DELETE FROM transport.stop_names
+                WHERE stop_id = ${stop.id}
+            `;
+            await tx.$executeRaw`
+                DELETE FROM transport.stops
+                WHERE id = ${stop.id}
+            `;
+
+            await insertTransportAuditLog(tx, {
+                action: "transport.stop.delete",
+                entityType: "transport_stop",
+                entityId: stop.id,
+                entityPublicId: stop.public_id,
+                changedFields: ["deleted"],
+                oldValues: {
+                    name: stop.name,
+                    mode: stop.mode,
+                    stop_type: stop.stop_type,
+                    review_status: stop.review_status,
+                },
+                newValues: { deleted: true },
+                metadata: {
+                    permanent: true,
+                    ...(trimmedReason ? { reason: trimmedReason } : {}),
+                },
+                context: audit,
+            });
+
+            return {
+                deleted: true,
+                public_id: stop.public_id,
+            };
+        });
+    }
+
     /**
      * Insert an EXISTING stop into a route variant's ordered pattern and resequence
      * the whole variant to a gap-free 1..N. The backend owns stop_sequence; callers
@@ -5549,9 +7846,8 @@ export class TransportRepository {
      *   - Runs in a single transaction that first takes `FOR UPDATE` on the parent
      *     route_variants row, then on the variant's stops, so concurrent
      *     inserts/moves/removes serialize even when the variant is currently empty.
-     *   - Rejects a stop already present in the variant. There is no
-     *     UNIQUE(route_variant_id, stop_id) constraint, so this duplicate guard is
-     *     app-enforced; the variant-row lock is what makes it race-safe.
+     *   - The same physical stop (stop_id) may appear more than once in a variant;
+     *     each membership row is a distinct occurrence keyed by route_stops.id.
      *   - The variant's route_stops carry a UNIQUE (route_variant_id, stop_sequence) and a
      *     `stop_sequence > 0` CHECK, so we never write 0/negative temporaries. Instead we
      *     first bump every existing row to a positive out-of-range slot (max+1 …), then
@@ -5654,16 +7950,64 @@ export class TransportRepository {
             stop_public_id: string;
             route_stop_id: bigint;
             variant_id: bigint;
+            placeholder_longitude: number | null;
+            placeholder_latitude: number | null;
         };
         try {
             txResult = await this.prisma.$transaction(async (tx) => {
             const variant = await this.resolveVariantForInsert(tx, variantPublicId);
 
+            const sequenceRows = await tx.$queryRaw<RouteStopGeometryPoint[]>`
+                SELECT
+                    rs.id::text AS route_stop_id,
+                    rs.stop_sequence,
+                    ST_X(COALESCE(s.geom, rs.review_geom))::float8 AS longitude,
+                    ST_Y(COALESCE(s.geom, rs.review_geom))::float8 AS latitude
+                FROM transport.route_stops rs
+                JOIN transport.stops s ON s.id = rs.stop_id
+                WHERE rs.route_variant_id = ${variant.id}
+                ORDER BY rs.stop_sequence ASC, rs.id ASC
+            `;
+            const placeholderResolved = resolvePlaceholderStopGeometry(
+                sequenceRows,
+                input.position,
+                input.anchorRouteStopId,
+                { longitude: input.longitude, latitude: input.latitude }
+            );
+            if (!placeholderResolved) {
+                throw new TransportRouteMetadataError(
+                    "Placeholder geometry is required when the variant has no stop geometry to derive from. Provide longitude and latitude from the review map."
+                );
+            }
+            const placeholderGeometry = placeholderResolved.geometry;
+            const normalizedData = buildCreatedFromRouteSequenceNormalizedData(
+                placeholderResolved.source
+            );
+
             const insertedStopRows = await tx.$queryRaw<{ id: bigint; public_id: string }[]>`
-                INSERT INTO transport.stops (name, name_mm, name_en, mode, stop_type, geom)
+                INSERT INTO transport.stops (
+                    name,
+                    name_mm,
+                    name_en,
+                    mode,
+                    stop_type,
+                    review_status,
+                    is_active,
+                    normalized_data,
+                    geom
+                )
                 VALUES (
-                    ${derivedName}, ${nameMm}, ${nameEn}, ${input.mode}, ${input.stop_type},
-                    ST_SetSRID(ST_MakePoint(${input.longitude}, ${input.latitude}), 4326)
+                    ${derivedName},
+                    ${nameMm},
+                    ${nameEn},
+                    ${input.mode},
+                    ${input.stop_type},
+                    'needs_review',
+                    false,
+                    ${JSON.stringify(normalizedData)}::jsonb,
+                    ${
+                        Prisma.sql`ST_SetSRID(ST_MakePoint(${placeholderGeometry.longitude}, ${placeholderGeometry.latitude}), 4326)`
+                    }
                 )
                 RETURNING id, public_id::text AS public_id
             `;
@@ -5693,8 +8037,11 @@ export class TransportRepository {
                     name_en: nameEn,
                     mode: input.mode,
                     stop_type: input.stop_type,
-                    longitude: input.longitude,
-                    latitude: input.latitude,
+                    review_status: "needs_review",
+                    is_active: false,
+                    normalized_data: normalizedData,
+                    longitude: placeholderGeometry?.longitude ?? null,
+                    latitude: placeholderGeometry?.latitude ?? null,
                 },
                 metadata: {
                     variant_public_id: variantPublicId,
@@ -5726,6 +8073,8 @@ export class TransportRepository {
                 stop_public_id: stopPublicId,
                 route_stop_id: insertedRouteStopId,
                 variant_id: variant.id,
+                placeholder_longitude: placeholderGeometry?.longitude ?? null,
+                placeholder_latitude: placeholderGeometry?.latitude ?? null,
             };
             }, ROUTE_STOP_TX_OPTIONS);
         } catch (error) {
@@ -5744,8 +8093,8 @@ export class TransportRepository {
             name_en: nameEn,
             mode: input.mode,
             stop_type: input.stop_type,
-            longitude: input.longitude,
-            latitude: input.latitude,
+            longitude: txResult.placeholder_longitude,
+            latitude: txResult.placeholder_latitude,
         };
 
         // Lightweight ordered re-read OUTSIDE the transaction (no path geometry).
@@ -5780,8 +8129,7 @@ export class TransportRepository {
     /**
      * Shared insert + 1..N resequence used by both insert-existing and
      * create-and-insert. Assumes the variant exists and the stop row already
-     * exists. Rejects a stop already present in the variant (409). Runs entirely
-     * within the caller's transaction. Returns the new route_stop id.
+     * exists. Runs entirely within the caller's transaction. Returns the new route_stop id.
      */
     private async insertStopIntoVariantTx(
         tx: Prisma.TransactionClient,
@@ -5816,12 +8164,8 @@ export class TransportRepository {
         } = args;
 
         // Serialize all inserts for this variant on the parent row. The membership
-        // FOR UPDATE below locks zero rows when the variant is empty, so two
-        // concurrent inserts into an empty variant could otherwise both pass the
-        // duplicate check (there is no UNIQUE(route_variant_id, stop_id)). Locking
-        // the route_variants row first forces the second transaction to wait until
-        // the first commits, after which it re-reads the now-populated membership
-        // list and the duplicate check sees the freshly inserted stop.
+        // FOR UPDATE below locks zero rows when the variant is empty, so concurrent
+        // inserts must wait on the route_variants row before re-reading membership.
         await tx.$queryRaw`
             SELECT id FROM transport.route_variants WHERE id = ${variantId} FOR UPDATE
         `;
@@ -5838,11 +8182,6 @@ export class TransportRepository {
             FOR UPDATE
         `;
         perf?.mark(`route_stops loaded (${current.length} rows)`);
-
-        // Reject duplicates (a stop may appear at most once per variant).
-        if (current.some((r) => String(r.stop_id) === String(stopId))) {
-            throw new TransportRouteStopDuplicateError(stopRef);
-        }
 
         // Resolve the 0-based insertion index within the ordered list.
         let insertIndex: number;
@@ -5989,5 +8328,171 @@ export class TransportRepository {
         perf?.mark("route_stop.insert audit written");
 
         return insertedId;
+    }
+
+    /**
+     * Swaps inbound/outbound direction metadata between the route's two active
+     * variants (direction_id 0 and 1). Stops, paths, and endpoint pointers are
+     * untouched. Uses temporary variant_code values inside the transaction to
+     * avoid (route_id, variant_code) unique conflicts.
+     */
+    async swapRouteDirectionByPublicId(
+        routePublicId: string,
+        audit?: TransportAuditContext
+    ): Promise<{ variants: TransportVariantSummary[] }> {
+        await this.assertSchemaAvailable();
+
+        type SwapVariantRow = {
+            id: bigint;
+            public_id: string;
+            variant_code: string;
+            direction_name: string | null;
+            direction_id: number | null;
+            normalized_data: Record<string, unknown> | null;
+        };
+
+        const swappedPublicIds = await this.prisma.$transaction(async (tx) => {
+            const routeRows = await tx.$queryRaw<{ id: bigint; route_code: string }[]>`
+                SELECT id, route_code
+                FROM transport.routes
+                WHERE public_id = ${routePublicId}::uuid AND deleted_at IS NULL
+                FOR UPDATE
+            `;
+            const route = routeRows[0];
+            if (!route) {
+                throw new TransportNotFoundError("route", routePublicId);
+            }
+
+            const rows = await tx.$queryRaw<SwapVariantRow[]>`
+                SELECT
+                    id,
+                    public_id::text AS public_id,
+                    variant_code,
+                    direction_name,
+                    direction_id,
+                    normalized_data
+                FROM transport.route_variants
+                WHERE route_id = ${route.id}
+                  AND deleted_at IS NULL
+                  AND is_active = true
+                FOR UPDATE
+            `;
+
+            if (rows.length !== 2) {
+                throw new TransportRouteMetadataError(
+                    "Change direction requires exactly two active variants (one inbound, one outbound)."
+                );
+            }
+
+            const outbound = rows.find((row) => row.direction_id === 0);
+            const inbound = rows.find((row) => row.direction_id === 1);
+            if (!outbound || !inbound) {
+                throw new TransportRouteMetadataError(
+                    "Change direction requires one outbound (direction_id 0) and one inbound (direction_id 1) variant."
+                );
+            }
+
+            const outboundBecomesInbound = {
+                variant_code: `${route.route_code}-B`,
+                direction_id: 1,
+                direction_name: "inbound",
+                direction_value: "inbound",
+            };
+            const inboundBecomesOutbound = {
+                variant_code: `${route.route_code}-A`,
+                direction_id: 0,
+                direction_name: "outbound",
+                direction_value: "outbound",
+            };
+
+            const outboundTemp = `__DIRSWAP_${outbound.public_id}`;
+            const inboundTemp = `__DIRSWAP_${inbound.public_id}`;
+
+            await tx.$executeRaw`
+                UPDATE transport.route_variants
+                SET variant_code = ${outboundTemp}, updated_at = now()
+                WHERE id = ${outbound.id}
+            `;
+            await tx.$executeRaw`
+                UPDATE transport.route_variants
+                SET variant_code = ${inboundTemp}, updated_at = now()
+                WHERE id = ${inbound.id}
+            `;
+
+            const applySwap = async (
+                row: SwapVariantRow,
+                target: typeof outboundBecomesInbound,
+                partnerPublicId: string
+            ) => {
+                const hadNormalizedDirection =
+                    row.normalized_data !== null &&
+                    typeof row.normalized_data === "object" &&
+                    "direction" in row.normalized_data;
+
+                const oldValues: Record<string, unknown> = {
+                    variant_code: row.variant_code,
+                    direction_id: row.direction_id,
+                    direction_name: row.direction_name,
+                };
+                const newValues: Record<string, unknown> = {
+                    variant_code: target.variant_code,
+                    direction_id: target.direction_id,
+                    direction_name: target.direction_name,
+                };
+                const changedFields = ["variant_code", "direction_id", "direction_name"];
+
+                if (hadNormalizedDirection) {
+                    oldValues["normalized_data.direction"] = row.normalized_data?.direction;
+                    newValues["normalized_data.direction"] = target.direction_value;
+                    changedFields.push("normalized_data.direction");
+                }
+
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE transport.route_variants
+                    SET
+                        variant_code = ${target.variant_code},
+                        direction_id = ${target.direction_id},
+                        direction_name = ${target.direction_name},
+                        normalized_data = ${
+                            hadNormalizedDirection
+                                ? Prisma.sql`jsonb_set(
+                                      COALESCE(normalized_data, '{}'::jsonb),
+                                      '{direction}',
+                                      to_jsonb(${target.direction_value}::text)
+                                  )`
+                                : Prisma.sql`normalized_data`
+                        },
+                        updated_at = now()
+                    WHERE id = ${row.id}
+                `);
+
+                await insertTransportAuditLog(tx, {
+                    action: "transport.route_variant.direction_swap",
+                    entityType: "transport_route_variant",
+                    entityId: row.id,
+                    entityPublicId: row.public_id,
+                    changedFields,
+                    oldValues,
+                    newValues,
+                    metadata: {
+                        route_public_id: routePublicId,
+                        swap_partner_public_id: partnerPublicId,
+                    },
+                    context: audit,
+                });
+            };
+
+            await applySwap(outbound, outboundBecomesInbound, inbound.public_id);
+            await applySwap(inbound, inboundBecomesOutbound, outbound.public_id);
+
+            return [outbound.public_id, inbound.public_id] as const;
+        });
+
+        const variants = await Promise.all(
+            swappedPublicIds.map((publicId) => this.getVariantSummaryByPublicId(publicId))
+        );
+        variants.sort((a, b) => (a.direction_id ?? 99) - (b.direction_id ?? 99));
+
+        return { variants };
     }
 }

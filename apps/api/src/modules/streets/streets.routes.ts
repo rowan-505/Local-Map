@@ -49,7 +49,9 @@ const streetsRoutes: FastifyPluginAsync = async (app) => {
     const streetsRepo = new StreetsRepository(app.prisma);
     const entityAdminAreaRepo = new EntityAdminAreaRepository(app.prisma);
     const entityAdminAreaService = new EntityAdminAreaService(entityAdminAreaRepo);
-    const streetsService = new StreetsService(streetsRepo, entityAdminAreaService, entityAdminAreaRepo);
+    const streetsService = new StreetsService(streetsRepo, entityAdminAreaService, entityAdminAreaRepo, {
+        prisma: app.prisma,
+    });
 
     app.get(
         "/road-classes",

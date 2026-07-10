@@ -319,6 +319,7 @@ function nullableTrim(value: string): string | null {
 export function TransportVariantForm({
     routePublicId,
     variant,
+    lockDirection = false,
     onCancel,
     onSaved,
 }: {
@@ -326,6 +327,8 @@ export function TransportVariantForm({
     readonly routePublicId?: string;
     /** Provided for edit; omitted for create. */
     readonly variant?: TransportVariantSummary;
+    /** When true, direction cannot be edited (use route Change direction action). */
+    readonly lockDirection?: boolean;
     readonly onCancel: () => void;
     readonly onSaved: (variant: TransportVariantSummary) => void;
 }) {
@@ -375,9 +378,12 @@ export function TransportVariantForm({
                 const body: UpdateTransportVariantBody = {};
                 if (variantCode.trim() !== variant.variant_code)
                     body.variant_code = variantCode.trim();
-                if (dir.directionId !== variant.direction_id) body.direction_id = dir.directionId;
-                if ((dir.directionName ?? null) !== (variant.direction_name ?? null))
-                    body.direction_name = dir.directionName;
+                if (!lockDirection) {
+                    if (dir.directionId !== variant.direction_id)
+                        body.direction_id = dir.directionId;
+                    if ((dir.directionName ?? null) !== (variant.direction_name ?? null))
+                        body.direction_name = dir.directionName;
+                }
                 if (headsign.trim() !== (variant.headsign ?? ""))
                     body.headsign = nullableTrim(headsign);
                 if (originName.trim() !== (variant.origin_name ?? ""))
@@ -439,17 +445,23 @@ export function TransportVariantForm({
                     />
                 </Field>
                 <Field label="Direction">
-                    <select
-                        className={INPUT_CLASS}
-                        value={direction}
-                        onChange={(e) => setDirection(e.target.value as DirectionKey)}
-                    >
-                        {VARIANT_DIRECTION_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>
-                                {o.label}
-                            </option>
-                        ))}
-                    </select>
+                    {lockDirection && isEdit ? (
+                        <p className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-sm text-gray-700">
+                            {DIRECTION_BY_KEY[direction].label} — use Change direction on the route
+                        </p>
+                    ) : (
+                        <select
+                            className={INPUT_CLASS}
+                            value={direction}
+                            onChange={(e) => setDirection(e.target.value as DirectionKey)}
+                        >
+                            {VARIANT_DIRECTION_OPTIONS.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                    {o.label}
+                                </option>
+                            ))}
+                        </select>
+                    )}
                 </Field>
             </div>
             <Field label="Headsign">

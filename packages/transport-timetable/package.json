@@ -1,0 +1,10 @@
+{
+  "name": "@local-map/transport-timetable",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./timetable.ts",
+    "./transport-time": "./transport-time.ts"
+  }
+}

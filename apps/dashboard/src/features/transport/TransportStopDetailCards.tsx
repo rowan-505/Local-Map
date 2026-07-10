@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 
 import { transportModeLabel, transportReviewStatusLabel } from "./constants";
+import { DELETE_BLOCKED_MESSAGE } from "./TransportStopUsageDialog";
 import type { TransportStopDetail } from "./types";
 
 export const STOP_CARD_CLASS = "rounded-lg border border-gray-200 bg-white p-3 shadow-sm";
@@ -35,6 +36,10 @@ export function StopDetailHeader({
     onCancelEdit,
     onSaveEdit,
     onClose,
+    onDelete,
+    deleteLoading = false,
+    deleteAllowed = false,
+    deleteBlockMessage = null,
 }: {
     readonly stopDisplayName: string;
     readonly detail: TransportStopDetail | null;
@@ -46,7 +51,18 @@ export function StopDetailHeader({
     readonly onCancelEdit: () => void;
     readonly onSaveEdit: () => void;
     readonly onClose?: () => void;
+    readonly onDelete?: () => void;
+    readonly deleteLoading?: boolean;
+    readonly deleteAllowed?: boolean;
+    readonly deleteBlockMessage?: string | null;
 }) {
+    const deleteTitle = deleteLoading
+        ? "Checking delete eligibility…"
+        : deleteBlockMessage
+          ? deleteBlockMessage
+          : deleteAllowed
+            ? "Review route usage before permanent deletion"
+            : DELETE_BLOCKED_MESSAGE;
     return (
         <header className="flex flex-col gap-2 border-b border-gray-200 pb-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
@@ -83,6 +99,17 @@ export function StopDetailHeader({
                         className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                     >
                         Edit
+                    </button>
+                ) : null}
+                {detail && !editing && onDelete ? (
+                    <button
+                        type="button"
+                        onClick={onDelete}
+                        disabled={locEditing || deleteLoading}
+                        title={deleteTitle}
+                        className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {deleteLoading ? "Checking…" : "Delete"}
                     </button>
                 ) : null}
                 {editing ? (

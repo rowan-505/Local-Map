@@ -7,13 +7,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
 import ArchiveStopDialog from "./ArchiveStopDialog";
+import PermanentDeleteStopDialog from "./PermanentDeleteStopDialog";
 import TransportPreviewMap from "./TransportPreviewMap";
+import TransportStopUsageDialog from "./TransportStopUsageDialog";
 import {
     applyTransportStopReviewAction,
     archiveTransportStop,
     getTransportStopDetail,
     getTransportStopNearby,
-    getTransportStopRoutes,
+    mapStopRouteUsageDetailItemToRouteUsage,
+    permanentDeleteTransportStop,
     updateTransportStop,
     updateTransportStopLocation,
     updateTransportTerminal,
@@ -41,9 +44,13 @@ import type {
     UpdateTransportTerminalBody,
 } from "./types";
 import TransportStopMergePanel from "./TransportStopMergePanel";
+import { formatReviewMapStopActionError } from "./reviewMapActionFeedback";
+import { formatRouteUsageSummary } from "./routeUsageSummaryDisplay";
+import { useTransportStopRouteUsageDetail } from "./useTransportStopRouteUsageDetail";
 import { CollapsibleSection, CompactField, COMPACT_FIELD_GRID_2_CLASS } from "./TransportRouteDetailCards";
 import { STOP_CARD_CLASS, StopDetailHeader } from "./TransportStopDetailCards";
 import { TransportReviewActionBar } from "./transportReviewUi";
+import { useSelectedStopRouteUsage } from "./useSelectedStopRouteUsage";
 
 const STOP_DETAIL_MAP_HEIGHT =
     "h-[min(48vh,420px)] min-h-[240px] w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100";
@@ -183,11 +190,8 @@ export default function TransportStopDetailContent({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const [routes, setRoutes] = useState<readonly TransportStopRouteUsage[]>([]);
-    const [routesTotal, setRoutesTotal] = useState(0);
     const [routesPage, setRoutesPage] = useState(1);
-    const [routesLoading, setRoutesLoading] = useState(false);
-    const [routesError, setRoutesError] = useState("");
+    const [usageReloadNonce, setUsageReloadNonce] = useState(0);
 
     const [editing, setEditing] = useState(false);
     const [form, setForm] = useState<FormState | null>(null);
@@ -229,6 +233,45 @@ export default function TransportStopDetailContent({
     const [archiveError, setArchiveError] = useState("");
     const [archived, setArchived] = useState(false);
 
+    const [usageDialogOpen, setUsageDialogOpen] = useState(false);
+    const [permanentDeleteOpen, setPermanentDeleteOpen] = useState(false);
+    const [permanentDeleteError, setPermanentDeleteError] = useState("");
+    const [permanentDeleting, setPermanentDeleting] = useState(false);
+
+    const stopDeleteEligibility = useSelectedStopRouteUsage(detail?.public_id ?? null);
+    const {
+        loading: deleteEligibilityLoading,
+        deleteAllowed: stopDeleteAllowed,
+        blockMessage: stopDeleteBlockMessage,
+        reload: reloadStopDeleteEligibility,
+    } = stopDeleteEligibility;
+
+    const {
+        usage: stopRouteUsage,
+        summary: routesUsageSummary,
+        loading: routesLoading,
+        error: routesError,
+    } = useTransportStopRouteUsageDetail({
+        stopPublicId: publicId,
+        enabled: Boolean(publicId),
+        reloadNonce: usageReloadNonce,
+    });
+
+    const allRoutes = useMemo<readonly TransportStopRouteUsage[]>(
+        () =>
+            stopRouteUsage?.routes.map((item) =>
+                mapStopRouteUsageDetailItemToRouteUsage(item, detail?.mode ?? ""),
+            ) ?? [],
+        [stopRouteUsage, detail?.mode],
+    );
+
+    const routesTotal = allRoutes.length;
+
+    const routes = useMemo(() => {
+        const offset = (routesPage - 1) * ROUTES_PAGE_SIZE;
+        return allRoutes.slice(offset, offset + ROUTES_PAGE_SIZE);
+    }, [allRoutes, routesPage]);
+
     // --- Focused location-only edit (separate from the full Edit form). -------
     // Uses PATCH /transport/stops/:stopPublicId/location and surfaces moved
     // distance + nearby-duplicate warnings from the dedicated location API.
@@ -261,10 +304,13 @@ export default function TransportStopDetailContent({
         setLocPoint(null);
         setLocError("");
         setLocNearby([]);
-        setRoutes([]);
-        setRoutesTotal(0);
         setRoutesPage(1);
+        setUsageReloadNonce(0);
         setAdvancedOpen(false);
+        setUsageDialogOpen(false);
+        setPermanentDeleteOpen(false);
+        setPermanentDeleteError("");
+        setPermanentDeleting(false);
 
         void (async () => {
             try {
@@ -280,30 +326,17 @@ export default function TransportStopDetailContent({
         return () => controller.abort();
     }, [publicId]);
 
-    // --- Load route usage (paginated). ---------------------------------------
     useEffect(() => {
-        if (!detail) return;
-        const controller = new AbortController();
-        setRoutesLoading(true);
-        setRoutesError("");
-        void (async () => {
-            try {
-                const result = await getTransportStopRoutes(
-                    publicId,
-                    { limit: ROUTES_PAGE_SIZE, offset: (routesPage - 1) * ROUTES_PAGE_SIZE },
-                    { signal: controller.signal }
-                );
-                setRoutes(result.items);
-                setRoutesTotal(result.total);
-            } catch (err) {
-                if (isAbortError(err)) return;
-                setRoutesError(err instanceof Error ? err.message : "Failed to load routes.");
-            } finally {
-                setRoutesLoading(false);
-            }
-        })();
-        return () => controller.abort();
-    }, [publicId, detail, routesPage]);
+        const routeCount = stopRouteUsage?.totalRoutes;
+        if (routeCount === undefined) {
+            return;
+        }
+        setDetail((current) =>
+            current && current.route_count !== routeCount
+                ? { ...current, route_count: routeCount }
+                : current,
+        );
+    }, [stopRouteUsage?.totalRoutes]);
 
     // --- The stop's saved point (used as the "old" coords baseline). ---------
     const originalPoint = useMemo<{ lng: number; lat: number } | null>(() => {
@@ -654,6 +687,56 @@ export default function TransportStopDetailContent({
         }
     }, [detail, publicId, archiveReason, afterSave, router]);
 
+    const refreshRoutesUsage = useCallback(() => {
+        reloadStopDeleteEligibility();
+        setUsageReloadNonce((value) => value + 1);
+    }, [reloadStopDeleteEligibility]);
+
+    const openDeleteFlow = useCallback(() => {
+        setUsageDialogOpen(true);
+    }, []);
+
+    const handlePermanentDeleteRequest = useCallback(() => {
+        setUsageDialogOpen(false);
+        setPermanentDeleteError("");
+        setPermanentDeleteOpen(true);
+    }, []);
+
+    const cancelPermanentDelete = useCallback(() => {
+        if (permanentDeleting) {
+            return;
+        }
+        setPermanentDeleteOpen(false);
+        setPermanentDeleteError("");
+    }, [permanentDeleting]);
+
+    const confirmPermanentDelete = useCallback(() => {
+        if (!detail) {
+            return;
+        }
+        void (async () => {
+            setPermanentDeleting(true);
+            setPermanentDeleteError("");
+            try {
+                await permanentDeleteTransportStop(publicId);
+                setPermanentDeleteOpen(false);
+                afterSave?.();
+                if (onClose) {
+                    onClose();
+                    return;
+                }
+                router.push(transportPath("stops"));
+            } catch (err) {
+                if (isAbortError(err)) {
+                    return;
+                }
+                setPermanentDeleteError(formatReviewMapStopActionError(err));
+            } finally {
+                setPermanentDeleting(false);
+            }
+        })();
+    }, [detail, publicId, afterSave, onClose, router]);
+
     const routesTotalPages = Math.max(1, Math.ceil(routesTotal / ROUTES_PAGE_SIZE));
 
     const archiveBlockedByRoutes = (detail?.route_count ?? 0) > 0;
@@ -683,7 +766,15 @@ export default function TransportStopDetailContent({
                 onCancelEdit={cancelEdit}
                 onSaveEdit={() => void save()}
                 onClose={onClose}
+                onDelete={detail && !archived ? openDeleteFlow : undefined}
+                deleteLoading={deleteEligibilityLoading}
+                deleteAllowed={stopDeleteAllowed}
+                deleteBlockMessage={stopDeleteBlockMessage}
             />
+
+            {stopDeleteBlockMessage && !usageDialogOpen ? (
+                <p className="mt-2 text-sm text-amber-900">{stopDeleteBlockMessage}</p>
+            ) : null}
 
             {error ? (
                 <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -957,7 +1048,13 @@ export default function TransportStopDetailContent({
                                     <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
                                         Routes using this stop
                                     </h2>
-                                    <span className="text-xs text-gray-400">{routesTotal}</span>
+                                    <span className="text-xs text-gray-400">
+                                        {routesLoading
+                                            ? "…"
+                                            : routesUsageSummary
+                                              ? formatRouteUsageSummary(routesUsageSummary)
+                                              : "—"}
+                                    </span>
                                 </div>
 
                                 {routesError ? (
@@ -1492,6 +1589,28 @@ export default function TransportStopDetailContent({
                         setArchiveOpen(false);
                     }
                 }}
+            />
+
+            <TransportStopUsageDialog
+                open={usageDialogOpen}
+                stopPublicId={detail?.public_id ?? null}
+                stopName={stopDisplayName}
+                mode="delete"
+                onClose={() => setUsageDialogOpen(false)}
+                onRouteUsageChanged={refreshRoutesUsage}
+                onPermanentDeleteRequest={handlePermanentDeleteRequest}
+                permanentDeleteLoading={permanentDeleting}
+                deleteBlockMessage={stopDeleteBlockMessage}
+                deleteAllowed={stopDeleteAllowed}
+            />
+
+            <PermanentDeleteStopDialog
+                open={permanentDeleteOpen}
+                stopName={stopDisplayName}
+                isBusy={permanentDeleting}
+                error={permanentDeleteError}
+                onConfirm={() => void confirmPermanentDelete()}
+                onCancel={cancelPermanentDelete}
             />
         </>
     );

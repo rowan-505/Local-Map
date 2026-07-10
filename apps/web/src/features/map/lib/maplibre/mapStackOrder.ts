@@ -1,40 +1,16 @@
 /**
- * Basemap roads → route overlay → basemap/API labels → POI markers → click pin →
- * own-user location dot (top).
+ * Central overlay stack for the public web map.
+ *
+ * Basemap PMTiles (land, roads, labels) stay in the style JSON. Everything listed in
+ * {@link PUBLIC_MAP_OVERLAY_STACK_BOTTOM_TO_TOP} is moved above those layers in a fixed order
+ * so POI/transport points are not buried by roads, route lines, or labels.
  */
-import type { MapEngine } from '../mapEngineTypes';
 import { moveUserLocationLayersToTop } from '@/features/location/userLocationMapLayers';
-import { restorePublicMapLayersUnderPlaces } from './publicMapGeoLayers';
-import {
-  PLACES_LABEL_LAYER_ID,
-  PLACES_IMPORTANT_LAYER_ID,
-  PLACES_LAYER_ID,
-  PLACES_SELECTED_HALO_LAYER_ID,
-  PLACES_SELECTED_LAYER_ID,
-} from './placesOnMap';
-import { moveClickedLocationLayersToTop } from './clickedLocationOnMap';
-import { positionActiveRouteLayers } from './directionsRouteOnMap';
-import { moveSearchHighlightLayers } from './searchHighlightOnMap';
-import { moveTransportLayersToTop } from './transportLayers';
+import type { MapEngine } from '../mapEngineTypes';
+import { applyMapLayerStackBottomToTop } from './mapLayerStack';
+import { PUBLIC_MAP_OVERLAY_STACK_BOTTOM_TO_TOP } from './publicMapMarkerStackOrder';
 
 export function applyMapOverlayStackOrder(map: MapEngine): void {
-  restorePublicMapLayersUnderPlaces(map);
-  // Transport (Martin) overlay sits above the basemap — including dynamically loaded regional
-  // PMTiles layers, which get appended on top — so it is moved up first; the route/POI/highlight/
-  // click overlays below then stack on top of it.
-  moveTransportLayersToTop(map);
-  // Highlight sits above the basemap but below route/POI/click overlays, so it
-  // is moved first (subsequent moves stack on top of it).
-  moveSearchHighlightLayers(map);
-  positionActiveRouteLayers(map);
-  if (map.getLayer(PLACES_IMPORTANT_LAYER_ID)) map.moveLayer(PLACES_IMPORTANT_LAYER_ID);
-  if (map.getLayer(PLACES_LAYER_ID)) map.moveLayer(PLACES_LAYER_ID);
-  if (map.getLayer(PLACES_SELECTED_HALO_LAYER_ID)) map.moveLayer(PLACES_SELECTED_HALO_LAYER_ID);
-  if (map.getLayer(PLACES_SELECTED_LAYER_ID)) map.moveLayer(PLACES_SELECTED_LAYER_ID);
-  if (map.getLayer(PLACES_LABEL_LAYER_ID)) map.moveLayer(PLACES_LABEL_LAYER_ID);
-  positionActiveRouteLayers(map);
-  moveClickedLocationLayersToTop(map);
-  // Own-user location dot sits at the very top so it is never hidden by POI/route/
-  // click overlays or dynamically loaded regional PMTiles.
+  applyMapLayerStackBottomToTop(map, PUBLIC_MAP_OVERLAY_STACK_BOTTOM_TO_TOP);
   moveUserLocationLayersToTop(map);
 }

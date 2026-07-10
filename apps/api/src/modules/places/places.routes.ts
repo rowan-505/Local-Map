@@ -52,7 +52,9 @@ function sanitizePlacePatchBody(body: unknown) {
 const placesRoutes: FastifyPluginAsync = async (app) => {
     const placesRepo = new PlacesRepository(app.prisma);
     const entityAdminAreaService = new EntityAdminAreaService(new EntityAdminAreaRepository(app.prisma));
-    const placesService = new PlacesService(placesRepo, entityAdminAreaService);
+    const placesService = new PlacesService(placesRepo, entityAdminAreaService, {
+        prisma: app.prisma,
+    });
 
     app.get(
         "/places",

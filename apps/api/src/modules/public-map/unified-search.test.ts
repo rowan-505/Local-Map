@@ -23,6 +23,7 @@ function makeRow(overrides: Partial<UnifiedSearchRow> = {}): UnifiedSearchRow {
         subtitle: "Market",
         primary_name_my: " ဈေး ",
         primary_name_en: "Kyauktan Market",
+        primary_name_und: null,
         matched_name: " Kyauktan Market ",
         geometry_type: "POINT",
         lng: 96.3168,
@@ -38,9 +39,11 @@ function makeRow(overrides: Partial<UnifiedSearchRow> = {}): UnifiedSearchRow {
         admin_area_name_my: "ကျောက်တန်း",
         admin_area_name_en: "Kyauktan",
         score: 123.456,
+        importance_score: 0,
         is_verified: true,
         confidence_score: 70,
         boundary_confidence_score: 0,
+        address_parts: null,
         ...overrides,
     };
 }
@@ -97,20 +100,27 @@ describe("serializeUnifiedSearchResult", () => {
 
 describe("serializePublicSearchHit", () => {
     it("maps a place to a point camera target and id", () => {
-        const hit = serializePublicSearchHit(makeRow());
+        const hit = serializePublicSearchHit(makeRow(), "en");
         assert.equal(hit.id, "place:42");
         assert.equal(hit.entityType, "place");
         assert.equal(hit.type, "place");
         assert.equal(hit.entityId, "42");
         assert.equal(hit.publicId, "11111111-1111-1111-1111-111111111111");
-        assert.equal(hit.display_name, "Kyauktan Market");
         assert.equal(hit.displayName, "Kyauktan Market");
-        assert.equal(hit.name_mm, "ဈေး");
+        assert.equal(hit.primaryNameEn, "Kyauktan Market");
         assert.deepEqual(hit.center, [96.3168, 16.659]);
         assert.equal(hit.cameraTarget?.type, "point");
         assert.equal(hit.cameraTarget?.zoom, 16);
         assert.equal(hit.hasGeometry, true);
         assert.equal(hit.geometryType, "POINT");
+        assert.equal(hit.verification.isVerified, true);
+        assert.equal(hit.category?.code, "market");
+    });
+
+    it("prefers Myanmar labels when lang=my", () => {
+        const hit = serializePublicSearchHit(makeRow(), "my");
+        assert.equal(hit.displayName, "ဈေး");
+        assert.equal(hit.primaryNameMy, "ဈေး");
     });
 
     it("maps a grouped street to a bounds camera target", () => {
@@ -131,7 +141,7 @@ describe("serializePublicSearchHit", () => {
         assert.equal(hit.geometryType, "MultiLineString");
         assert.equal(hit.cameraTarget?.type, "bounds");
         assert.deepEqual(hit.bbox, [96.31, 16.65, 96.32, 16.66]);
-        assert.equal(hit.categoryCode, "primary");
+        assert.equal(hit.category?.code, "primary");
     });
 
     it("omits center/bbox and camera target when geometry is missing", () => {
@@ -210,13 +220,13 @@ describe("coordinatePinResult", () => {
         const hit = coordinatePinResult(16.8, 96.15, null, false);
         assert.equal(hit.entityType, "coordinate");
         assert.equal(hit.type, "coordinate");
-        assert.equal(hit.display_name, "16.8, 96.15");
+        assert.equal(hit.displayName, "16.8, 96.15");
         assert.equal(hit.subtitle, "Coordinate location");
         assert.equal(hit.geometryType, "Point");
         assert.deepEqual(hit.center, [96.15, 16.8]);
         assert.equal(hit.hasGeometry, true);
         assert.equal(hit.score, 100);
-        assert.equal(hit.outsideServiceArea, false);
+        assert.equal(hit.coordinate.outsideServiceArea, false);
         assert.equal(hit.cameraTarget.type, "point");
         assert.deepEqual(hit.cameraTarget.center, [96.15, 16.8]);
     });
@@ -233,11 +243,65 @@ describe("coordinatePinResult", () => {
             confidence: null,
         };
         const outside = coordinatePinResult(-33.9, 151.2, null, true);
-        assert.equal(outside.outsideServiceArea, true);
+        assert.equal(outside.coordinate.outsideServiceArea, true);
         // Subtitle stays a stable descriptor; admin detail rides in `reverse`.
         const inArea = coordinatePinResult(16.8, 96.15, reverse, false);
         assert.equal(inArea.subtitle, "Coordinate location");
         assert.equal(inArea.reverse?.township, "Dagon");
+    });
+});
+
+describe("serializePublicSearchHit transport entity types", () => {
+    it("serializes train station hits with mode-agnostic fields", () => {
+        const hit = serializePublicSearchHit(
+            makeRow({
+                entity_type: "transport_stop",
+                display_name: "Yangon Central",
+                category_code: "train",
+                category_name_en: "station",
+                address_parts: {
+                    mode: "train",
+                    stop_type: "station",
+                    review_status: "verified",
+                    verification_status: "verified",
+                },
+            }),
+        );
+
+        assert.equal(hit.entityType, "transport_stop");
+        assert.equal(hit.type, "transport_stop");
+        assert.equal(hit.transport?.mode, "train");
+        assert.equal(hit.transport?.stopType, "station");
+        assert.equal(hit.verification.reviewStatus, "verified");
+        assert.equal(hit.verification.verificationStatus, "verified");
+    });
+
+    it("maps legacy bus_stop index rows to transport_stop in API output", () => {
+        const hit = serializePublicSearchHit(
+            makeRow({
+                entity_type: "bus_stop",
+                category_code: "bus",
+                category_name_en: "bus_stop",
+                address_parts: { mode: "bus", stop_type: "bus_stop", review_status: "reviewed" },
+            }),
+        );
+
+        assert.equal(hit.entityType, "transport_stop");
+        assert.equal(hit.transport?.mode, "bus");
+    });
+
+    it("serializes express route hits with mode metadata", () => {
+        const hit = serializePublicSearchHit(
+            makeRow({
+                entity_type: "transport_route",
+                display_name: "Yangon - Mandalay Express",
+                category_code: "express",
+                address_parts: { mode: "express", review_status: "reviewed" },
+            }),
+        );
+
+        assert.equal(hit.entityType, "transport_route");
+        assert.equal(hit.transport?.mode, "express");
     });
 });
 

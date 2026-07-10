@@ -1,17 +1,42 @@
 "use client";
 
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type UIEvent } from "react";
+import { Fragment, memo, useCallback, useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type UIEvent } from "react";
 
 import TransportPreviewMap, { type TransportPreviewStop } from "./TransportPreviewMap";
 import TransportMapLayerToggle from "./TransportMapLayerToggle";
 import { useTransportDashboardBasemapMode } from "./transportBasemapMode";
 import TransportReviewMapReviewActions from "./TransportReviewMapReviewActions";
+import ReviewMapActionToast from "./ReviewMapActionToast";
+import ReviewMapNearbyCandidatesStatus from "./ReviewMapNearbyCandidatesStatus";
+import type { ReviewMapNearbyCandidatesSearchStatus } from "./reviewMapNearbyCandidatesSearch";
+import ReviewMapStopInsertGap from "./ReviewMapStopInsertGap";
+import ReviewMapStopTimingEditor from "./ReviewMapStopTimingEditor";
+import { supportsVariantTimetable } from "@local-map/transport-timetable";
+import ReviewMapVariantDepartureTimeEditor from "./ReviewMapVariantDepartureTimeEditor";
+import {
+    buildVariantTimetableSchedule,
+    resolveVariantDepartureAnchor,
+    type VariantTimetableStopSchedule,
+} from "./routeStopTimetableDisplay";
+import TransportRouteStopTimingRow from "./TransportRouteStopTimingRow";
+import ReviewMapSelectedStopPanel from "./ReviewMapSelectedStopPanel";
+import TransportMapStopDetailCard, {
+    type TransportMapStopDetailCardAction,
+} from "./TransportMapStopDetailCard";
+import { formatRouteUsageSummary } from "./routeUsageSummaryDisplay";
 import { isReviewMapPathEditMode, type ReviewMapMode } from "./reviewMapMode";
+import type { ReviewMapActionToastState } from "./reviewMapActionFeedback";
+import { DELETE_BLOCKED_MESSAGE } from "./TransportStopUsageDialog";
+import { candidateDisplayName } from "./reviewMapCandidateDisplay";
 import type {
     GeoJsonGeometry,
     RouteReviewReadiness,
+    TransportNearbyStopCandidate,
+    TransportRouteStopMutationResult,
     TransportRoutePath,
     TransportRouteStopItem,
+    TransportStopRouteUsageDetailItem,
+    TransportStopRouteUsageSummary,
     TransportVariantSummary,
 } from "./types";
 import {
@@ -34,6 +59,7 @@ const TOOLBAR_GROUP_CLASS = "flex shrink-0 items-center gap-1.5";
 
 const VIRTUAL_STOP_LIST_THRESHOLD = 150;
 const VIRTUAL_STOP_ROW_HEIGHT = 64;
+const VIRTUAL_STOP_INSERT_GAP_HEIGHT = 22;
 const VIRTUAL_STOP_OVERSCAN = 8;
 
 function stopRowStatus(stop: TransportRouteStopItem): string {
@@ -67,12 +93,12 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 function resolveNextStopId(
     stops: readonly TransportRouteStopItem[],
-    selectedStopId: string | null,
+    selectedRouteStopId: string | null,
 ): string | null {
     if (stops.length === 0) {
         return null;
     }
-    const idx = selectedStopId ? stops.findIndex((s) => s.id === selectedStopId) : -1;
+    const idx = selectedRouteStopId ? stops.findIndex((s) => s.id === selectedRouteStopId) : -1;
     if (idx < 0) {
         return stops[0]?.id ?? null;
     }
@@ -84,12 +110,12 @@ function resolveNextStopId(
 
 function resolvePrevStopId(
     stops: readonly TransportRouteStopItem[],
-    selectedStopId: string | null,
+    selectedRouteStopId: string | null,
 ): string | null {
     if (stops.length === 0) {
         return null;
     }
-    const idx = selectedStopId ? stops.findIndex((s) => s.id === selectedStopId) : stops.length;
+    const idx = selectedRouteStopId ? stops.findIndex((s) => s.id === selectedRouteStopId) : stops.length;
     if (idx <= 0) {
         return stops[0]?.id ?? null;
     }
@@ -101,6 +127,8 @@ const ReviewMapStopRow = memo(function ReviewMapStopRow({
     selected,
     movedUnsaved,
     distanceFromPrev,
+    rowHeight,
+    schedule,
     disabled = false,
     onSelect,
 }: {
@@ -108,11 +136,11 @@ const ReviewMapStopRow = memo(function ReviewMapStopRow({
     readonly selected: boolean;
     readonly movedUnsaved: boolean;
     readonly distanceFromPrev: string | null;
+    readonly rowHeight: number;
+    readonly schedule: VariantTimetableStopSchedule;
     readonly disabled?: boolean;
     readonly onSelect: (routeStopId: string) => void;
 }) {
-    const nameMm = stop.stop.name_mm?.trim() || "—";
-    const nameEn = stop.stop.name_en?.trim() || "—";
     const status = movedUnsaved ? "Moved, not saved" : stopRowStatus(stop);
 
     return (
@@ -125,7 +153,8 @@ const ReviewMapStopRow = memo(function ReviewMapStopRow({
                 }
             }}
             disabled={disabled}
-            className={`flex h-[64px] w-full items-start gap-2.5 border-b border-gray-100 px-3 py-2 text-left text-sm transition-colors ${
+            style={{ height: rowHeight }}
+            className={`flex w-full items-start border-b border-gray-100 px-3 py-1.5 text-left text-sm transition-colors ${
                 disabled ? "cursor-not-allowed opacity-50" : "hover:bg-gray-50"
             } ${
                 selected
@@ -135,33 +164,14 @@ const ReviewMapStopRow = memo(function ReviewMapStopRow({
                       : ""
             }`}
         >
-            <span
-                className={`mt-0.5 inline-flex h-5 min-w-8 flex-none items-center justify-center rounded px-1 text-[11px] font-semibold tabular-nums ${
-                    movedUnsaved
-                        ? "bg-amber-100 text-amber-900"
-                        : selected
-                          ? "bg-blue-600 text-white"
-                          : "bg-blue-100 text-blue-800"
-                }`}
-            >
-                #{stop.stop_sequence}
-            </span>
-            <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-medium leading-tight text-gray-900">
-                    {nameMm}
-                </p>
-                <p className="truncate text-xs leading-tight text-gray-500">{nameEn}</p>
-                <p
-                    className={`truncate text-[11px] leading-tight ${
-                        movedUnsaved ? "font-medium text-amber-700" : "text-gray-400"
-                    }`}
-                >
-                    {status}
-                    {distanceFromPrev ? (
-                        <span className="text-gray-400"> · {distanceFromPrev}</span>
-                    ) : null}
-                </p>
-            </div>
+            <TransportRouteStopTimingRow
+                stop={stop}
+                schedule={schedule}
+                selected={selected}
+                movedUnsaved={movedUnsaved}
+                statusText={status}
+                distanceFromPrev={distanceFromPrev}
+            />
         </button>
     );
 });
@@ -269,18 +279,12 @@ function ReviewMapPathControls({
     );
 }
 
-export type ReviewMapSaveOptions = {
-    /** Save this route-stop row only (defaults to the selected stop). */
-    routeStopId?: string;
-    /** After a successful save, select this route-stop row (or null to clear). */
-    thenSelectStopId?: string | null;
-};
-
 export type TransportRouteReviewMapShellProps = {
     readonly open: boolean;
     readonly onExit: () => void;
     readonly routeCode: string;
     readonly routeDisplayName: string;
+    readonly routeMode?: string | null;
     readonly variants: readonly TransportVariantSummary[];
     readonly selectedVariantId: string | null;
     readonly onVariantChange: (variantPublicId: string) => void;
@@ -289,21 +293,39 @@ export type TransportRouteReviewMapShellProps = {
     readonly stopsError: string;
     readonly routePathInfo: TransportRoutePath | null;
     readonly routeStops: readonly TransportPreviewStop[];
-    readonly stopMoveDrafts?: Readonly<Record<string, { lng: number; lat: number }>>;
     readonly mapAutoFitKey: string | null;
-    readonly selectedStopId: string | null;
+    /** Route occurrence id (`transport.route_stops.id`) — not a nearby candidate. */
+    readonly selectedRouteStopId: string | null;
+    /** Unsaved map-click geometry for the selected route stop. */
+    readonly previewGeom?: { lng: number; lat: number } | null;
+    readonly hasUnsavedMove?: boolean;
+    readonly stopPreviewSaveBusy?: boolean;
+    readonly onSaveStopPreview?: () => void;
+    readonly onRevertStopPreview?: () => void;
     readonly onSelectStop: (routeStopId: string | null) => void;
-    readonly movedStopIds?: ReadonlySet<string>;
-    readonly hasUnsavedChanges?: boolean;
-    readonly selectedStopHasUnsaved?: boolean;
-    readonly saveLoading?: boolean;
-    readonly saveError?: string;
-    readonly saveSuccessMessage?: string | null;
-    readonly onSave?: (options?: ReviewMapSaveOptions) => void;
-    readonly onSaveAndNext?: () => void;
-    readonly onRevert?: (routeStopId?: string) => void;
-    readonly onStopMovePreview?: (coords: { lng: number; lat: number }) => void;
-    readonly stopMoveHint?: string | null;
+    readonly actionToast?: ReviewMapActionToastState;
+    readonly candidateSearchHint?: string | null;
+    readonly nearbyCandidates?: readonly TransportNearbyStopCandidate[];
+    readonly nearbyCandidateCount?: number;
+    readonly nearbyCandidatesStatus?: ReviewMapNearbyCandidatesSearchStatus;
+    readonly onRetryNearbyCandidates?: () => void;
+    readonly selectedCandidateId?: string | null;
+    readonly onCandidateSelect?: (publicId: string | null) => void;
+    readonly onCandidateSearchRequest?: (
+        coords: { lng: number; lat: number },
+        options: { immediate: boolean },
+    ) => void;
+    readonly onCandidateCheckRoutes?: (candidate: TransportNearbyStopCandidate) => void;
+    readonly onCandidateKeepCurrent?: () => void;
+    readonly onCandidateKeepCandidate?: (candidate: TransportNearbyStopCandidate) => void;
+    readonly onCandidateCompareMerge?: (candidate: TransportNearbyStopCandidate) => void;
+    readonly candidateActionBusy?: boolean;
+    /** Which entity drives the detail card content. */
+    readonly activeDetailSource?: "route_stop" | "nearby_candidate" | null;
+    readonly activeDetailUsageSummary?: TransportStopRouteUsageSummary | null;
+    readonly activeDetailUsageItems?: readonly TransportStopRouteUsageDetailItem[];
+    readonly activeDetailUsageLoading?: boolean;
+    readonly activeDetailUsageError?: string | null;
     readonly draftPath?: ReadonlyArray<[number, number]> | null;
     readonly pathDrawing?: boolean;
     readonly onDraftPathAddPoint?: (coords: { lng: number; lat: number }) => void;
@@ -335,8 +357,30 @@ export type TransportRouteReviewMapShellProps = {
     readonly onMarkRouteReviewed?: () => Promise<void>;
     /** Opens the transport stop detail drawer for the selected stop's public id. */
     readonly onOpenStopDetail?: (stopPublicId: string) => void;
+    /** Called after timing fields are saved for a route stop row. */
+    readonly onStopTimingUpdated?: (result: TransportRouteStopMutationResult) => void;
+    /** Called after variant departure time is saved. */
+    readonly onVariantDepartureTimeUpdated?: (
+        result: TransportRouteStopMutationResult,
+        departureTimeText: string | null,
+    ) => void;
     /** Increment id to center the map on stopId after Save & Next. */
     readonly centerStopRequest?: { readonly id: number; readonly stopId: string } | null;
+    readonly insertDisabled?: boolean;
+    readonly onInsertAtStart?: () => void;
+    readonly onInsertAfter?: (stop: TransportRouteStopItem, stopIndex: number) => void;
+    readonly onRemoveFromRoute?: (stop: TransportRouteStopItem) => void;
+    readonly onCheckRoutes?: (stop: TransportRouteStopItem) => void;
+    readonly onDeleteStop?: (stop: TransportRouteStopItem) => void;
+    readonly routeUsageLoading?: boolean;
+    readonly deleteStopAllowed?: boolean;
+    readonly deleteBlockMessage?: string | null;
+    readonly pickingInsertLocation?: boolean;
+    readonly insertPickPoint?: { readonly lng: number; readonly lat: number } | null;
+    readonly onInsertPickPointChange?: (coords: { lng: number; lat: number }) => void;
+    readonly mapCenterGetterRef?: MutableRefObject<
+        (() => { lng: number; lat: number } | null) | null
+    >;
 };
 
 /**
@@ -348,6 +392,7 @@ export default function TransportRouteReviewMapShell({
     onExit,
     routeCode,
     routeDisplayName,
+    routeMode = null,
     variants,
     selectedVariantId,
     onVariantChange,
@@ -356,21 +401,33 @@ export default function TransportRouteReviewMapShell({
     stopsError,
     routePathInfo,
     routeStops,
-    stopMoveDrafts,
     mapAutoFitKey,
-    selectedStopId,
+    selectedRouteStopId,
+    previewGeom = null,
+    hasUnsavedMove = false,
+    stopPreviewSaveBusy = false,
+    onSaveStopPreview,
+    onRevertStopPreview,
     onSelectStop,
-    movedStopIds,
-    hasUnsavedChanges = false,
-    selectedStopHasUnsaved = false,
-    saveLoading = false,
-    saveError = "",
-    saveSuccessMessage = null,
-    onSave,
-    onSaveAndNext,
-    onRevert,
-    onStopMovePreview,
-    stopMoveHint = null,
+    actionToast = null,
+    candidateSearchHint = null,
+    nearbyCandidates = [],
+    nearbyCandidateCount,
+    nearbyCandidatesStatus = "idle",
+    onRetryNearbyCandidates,
+    selectedCandidateId = null,
+    onCandidateSelect,
+    onCandidateSearchRequest,
+    onCandidateCheckRoutes,
+    onCandidateKeepCurrent,
+    onCandidateKeepCandidate,
+    onCandidateCompareMerge,
+    candidateActionBusy = false,
+    activeDetailSource = null,
+    activeDetailUsageSummary = null,
+    activeDetailUsageItems = [],
+    activeDetailUsageLoading = false,
+    activeDetailUsageError = null,
     draftPath = null,
     pathDrawing = false,
     onDraftPathAddPoint,
@@ -401,7 +458,22 @@ export default function TransportRouteReviewMapShell({
     onMarkPathReviewed,
     onMarkRouteReviewed,
     onOpenStopDetail,
+    onStopTimingUpdated,
+    onVariantDepartureTimeUpdated,
     centerStopRequest = null,
+    insertDisabled = false,
+    onInsertAtStart,
+    onInsertAfter,
+    onRemoveFromRoute,
+    onCheckRoutes,
+    onDeleteStop,
+    routeUsageLoading = false,
+    deleteStopAllowed = false,
+    deleteBlockMessage = null,
+    pickingInsertLocation = false,
+    insertPickPoint = null,
+    onInsertPickPointChange,
+    mapCenterGetterRef,
 }: TransportRouteReviewMapShellProps) {
     const titleId = useId();
     const { basemapMode, setBasemapMode, satelliteAvailable } = useTransportDashboardBasemapMode();
@@ -418,16 +490,47 @@ export default function TransportRouteReviewMapShell({
         stopId: string | null;
     }>({ id: 0, mode: "variant", stopId: null });
     const [stopReviewBusy, setStopReviewBusy] = useState(false);
-    const [stopReviewError, setStopReviewError] = useState("");
-    const [pendingSelectStopId, setPendingSelectStopId] = useState<string | null | undefined>(
-        undefined,
-    );
 
     const pathEditActive = isReviewMapPathEditMode(reviewMapMode);
 
     const selectedIndex = useMemo(
-        () => (selectedStopId ? stops.findIndex((s) => s.id === selectedStopId) : -1),
-        [stops, selectedStopId],
+        () => (selectedRouteStopId ? stops.findIndex((s) => s.id === selectedRouteStopId) : -1),
+        [stops, selectedRouteStopId],
+    );
+
+    const resolvedNearbyCandidateCount = nearbyCandidateCount ?? nearbyCandidates.length;
+
+    const selectedCandidate = useMemo(
+        () =>
+            selectedCandidateId
+                ? (nearbyCandidates.find(
+                      (candidate) => candidate.publicId === selectedCandidateId,
+                  ) ?? null)
+                : null,
+        [nearbyCandidates, selectedCandidateId],
+    );
+
+    /**
+     * The card shows candidate details only when the active detail source says so
+     * and the candidate is still present in the current search results.
+     */
+    const activeCandidateDetail =
+        activeDetailSource === "nearby_candidate" ? selectedCandidate : null;
+
+    const candidateDetailCardRef = useRef<HTMLDivElement | null>(null);
+
+    const selectedVariant = useMemo(
+        () => variants.find((variant) => variant.public_id === selectedVariantId) ?? null,
+        [selectedVariantId, variants],
+    );
+    const variantDepartureTimeText = selectedVariant?.departure_time_text ?? null;
+    const variantDepartureAnchor = useMemo(
+        () => resolveVariantDepartureAnchor(variantDepartureTimeText),
+        [variantDepartureTimeText],
+    );
+    const variantTimetableSchedule = useMemo(
+        () => buildVariantTimetableSchedule(variantDepartureAnchor, stops),
+        [stops, variantDepartureAnchor],
     );
 
     const routePathDisplayKind = useMemo(
@@ -444,24 +547,15 @@ export default function TransportRouteReviewMapShell({
         showRoutePath && hasSavedRoutePath ? (routePathInfo?.geometry ?? null) : null;
 
     const generatePathDisabled =
-        !canGeneratePathFromStops ||
-        hasUnsavedChanges ||
-        saveLoading ||
-        pathDrawing ||
-        pathEditActive;
-    const generatePathTitle = hasUnsavedChanges
-        ? "Save or revert stop changes first."
-        : canGeneratePathFromStops
-          ? "Generate a road-following path from ordered stops"
-          : generatePathFromStopsDisabledReason || "Cannot generate path yet";
+        !canGeneratePathFromStops || pathDrawing || pathEditActive;
+    const generatePathTitle = canGeneratePathFromStops
+        ? "Generate a road-following path from ordered stops"
+        : generatePathFromStopsDisabledReason || "Cannot generate path yet";
 
-    const editPathDisabled =
-        !canEditPath || saveLoading || pathDrawing || hasUnsavedChanges || pathEditActive;
-    const editPathTitle = hasUnsavedChanges
-        ? "Save or revert stop changes first."
-        : canEditPath
-          ? "Edit the saved route path"
-          : "Save a route path before editing";
+    const editPathDisabled = !canEditPath || pathDrawing || pathEditActive;
+    const editPathTitle = canEditPath
+        ? "Edit the saved route path"
+        : "Save a route path before editing";
 
     const canGoPrev = stops.length > 0 && selectedIndex > 0;
     const canGoNext = stops.length > 0 && (selectedIndex < 0 || selectedIndex < stops.length - 1);
@@ -469,12 +563,12 @@ export default function TransportRouteReviewMapShell({
     const handleFit = useCallback(() => {
         setFitRequest((prev) => ({
             id: prev.id + 1,
-            mode: selectedStopId ? "stop" : "variant",
-            stopId: selectedStopId,
+            mode: selectedRouteStopId ? "stop" : "variant",
+            stopId: selectedRouteStopId,
         }));
-    }, [selectedStopId]);
+    }, [selectedRouteStopId]);
 
-    const fitTooltip = selectedStopId
+    const fitTooltip = selectedRouteStopId
         ? "Center selected stop (F)"
         : "Fit route: all stops, sequence guide, and path if visible (F)";
 
@@ -491,7 +585,6 @@ export default function TransportRouteReviewMapShell({
 
     const applySelectStop = useCallback(
         (stopId: string | null) => {
-            setPendingSelectStopId(undefined);
             onSelectStop(stopId);
         },
         [onSelectStop],
@@ -499,57 +592,36 @@ export default function TransportRouteReviewMapShell({
 
     const requestSelectStop = useCallback(
         (stopId: string | null) => {
-            if (pathEditActive) {
+            if (pathEditActive || pathEditLoading) {
                 return;
             }
-            if (saveLoading) {
-                return;
-            }
-            if (stopId === selectedStopId) {
-                if (!selectedStopHasUnsaved) {
-                    applySelectStop(null);
-                } else {
-                    setPendingSelectStopId(null);
+            if (stopId === selectedRouteStopId) {
+                if (activeDetailSource === "nearby_candidate") {
+                    onCandidateSelect?.(null);
+                    return;
                 }
-                return;
-            }
-            if (selectedStopHasUnsaved) {
-                setPendingSelectStopId(stopId);
+                applySelectStop(null);
                 return;
             }
             applySelectStop(stopId);
         },
-        [applySelectStop, pathEditActive, saveLoading, selectedStopHasUnsaved, selectedStopId],
+        [
+            activeDetailSource,
+            applySelectStop,
+            onCandidateSelect,
+            pathEditActive,
+            pathEditLoading,
+            selectedRouteStopId,
+        ],
     );
 
     const goToPrevStop = useCallback(() => {
-        requestSelectStop(resolvePrevStopId(stops, selectedStopId));
-    }, [requestSelectStop, stops, selectedStopId]);
+        requestSelectStop(resolvePrevStopId(stops, selectedRouteStopId));
+    }, [requestSelectStop, stops, selectedRouteStopId]);
 
     const goToNextStop = useCallback(() => {
-        requestSelectStop(resolveNextStopId(stops, selectedStopId));
-    }, [requestSelectStop, stops, selectedStopId]);
-
-    const handleSavePendingNavigation = useCallback(() => {
-        if (pendingSelectStopId === undefined || !selectedStopId) {
-            return;
-        }
-        onSave?.({
-            routeStopId: selectedStopId,
-            thenSelectStopId: pendingSelectStopId,
-        });
-        setPendingSelectStopId(undefined);
-    }, [onSave, pendingSelectStopId, selectedStopId]);
-
-    const handleRevertPendingNavigation = useCallback(() => {
-        if (pendingSelectStopId === undefined) {
-            return;
-        }
-        if (selectedStopId) {
-            onRevert?.(selectedStopId);
-        }
-        applySelectStop(pendingSelectStopId);
-    }, [applySelectStop, onRevert, pendingSelectStopId, selectedStopId]);
+        requestSelectStop(resolveNextStopId(stops, selectedRouteStopId));
+    }, [requestSelectStop, stops, selectedRouteStopId]);
 
     // Distance from the previous stop, derived once per stops load from the
     // cumulative distance_from_start_m values (no per-row computation).
@@ -572,16 +644,16 @@ export default function TransportRouteReviewMapShell({
         if (!onMarkStopReviewed) {
             return;
         }
-        setStopReviewError("");
         setStopReviewBusy(true);
-        void onMarkStopReviewed()
-            .catch((err: unknown) => {
-                setStopReviewError(
-                    err instanceof Error ? err.message : "Failed to mark stop reviewed.",
-                );
-            })
-            .finally(() => setStopReviewBusy(false));
+        void onMarkStopReviewed().finally(() => setStopReviewBusy(false));
     }, [onMarkStopReviewed]);
+
+    const stopListRowHeight = VIRTUAL_STOP_ROW_HEIGHT;
+    const canEditStopSequence =
+        Boolean(onInsertAtStart || onInsertAfter) && !insertDisabled;
+    const stopListUnitHeight = canEditStopSequence
+        ? stopListRowHeight + VIRTUAL_STOP_INSERT_GAP_HEIGHT
+        : stopListRowHeight;
 
     const virtualizeStopList = stops.length > VIRTUAL_STOP_LIST_THRESHOLD;
     const virtualStopWindow = useMemo(() => {
@@ -590,19 +662,24 @@ export default function TransportRouteReviewMapShell({
         }
         const start = Math.max(
             0,
-            Math.floor(stopListScrollTop / VIRTUAL_STOP_ROW_HEIGHT) - VIRTUAL_STOP_OVERSCAN,
+            Math.floor(stopListScrollTop / stopListUnitHeight) - VIRTUAL_STOP_OVERSCAN,
         );
         const visibleCount =
-            Math.ceil(stopListViewportHeight / VIRTUAL_STOP_ROW_HEIGHT) +
-            VIRTUAL_STOP_OVERSCAN * 2;
+            Math.ceil(stopListViewportHeight / stopListUnitHeight) + VIRTUAL_STOP_OVERSCAN * 2;
         const end = Math.min(stops.length, start + visibleCount);
         return {
             start,
             end,
-            offsetY: start * VIRTUAL_STOP_ROW_HEIGHT,
-            totalHeight: stops.length * VIRTUAL_STOP_ROW_HEIGHT,
+            offsetY: start * stopListUnitHeight,
+            totalHeight: stops.length * stopListUnitHeight,
         };
-    }, [virtualizeStopList, stops.length, stopListScrollTop, stopListViewportHeight]);
+    }, [
+        stopListUnitHeight,
+        stopListScrollTop,
+        stopListViewportHeight,
+        stops.length,
+        virtualizeStopList,
+    ]);
 
     const handleStopListScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
         setStopListScrollTop(event.currentTarget.scrollTop);
@@ -626,43 +703,36 @@ export default function TransportRouteReviewMapShell({
     }, [open, virtualizeStopList, stops.length]);
 
     useEffect(() => {
-        if (!open || !selectedStopId) {
+        if (!open || !selectedRouteStopId) {
             return;
         }
         if (virtualizeStopList && stopListScrollRef.current) {
-            const idx = stops.findIndex((stop) => stop.id === selectedStopId);
+            const idx = stops.findIndex((stop) => stop.id === selectedRouteStopId);
             if (idx < 0) {
                 return;
             }
-            const rowTop = idx * VIRTUAL_STOP_ROW_HEIGHT;
-            const rowBottom = rowTop + VIRTUAL_STOP_ROW_HEIGHT;
+            const rowTop = idx * stopListUnitHeight;
+            const rowBottom = rowTop + stopListRowHeight;
             const viewport = stopListScrollRef.current;
             const viewTop = viewport.scrollTop;
             const viewBottom = viewTop + viewport.clientHeight;
             if (rowTop < viewTop || rowBottom > viewBottom) {
-                viewport.scrollTop = Math.max(0, rowTop - VIRTUAL_STOP_ROW_HEIGHT);
+                viewport.scrollTop = Math.max(0, rowTop - stopListRowHeight);
                 setStopListScrollTop(viewport.scrollTop);
             }
             return;
         }
         document
-            .getElementById(`review-map-stop-${selectedStopId}`)
+            .getElementById(`review-map-stop-${selectedRouteStopId}`)
             ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }, [open, selectedStopId, stops, virtualizeStopList]);
+    }, [open, selectedRouteStopId, stopListRowHeight, stopListUnitHeight, stops, virtualizeStopList]);
 
     useEffect(() => {
         if (!open) {
-            setPendingSelectStopId(undefined);
             setStopListScrollTop(0);
             setMapToolsOpen(false);
         }
     }, [open]);
-
-    useEffect(() => {
-        if (!selectedStopHasUnsaved) {
-            setPendingSelectStopId(undefined);
-        }
-    }, [selectedStopHasUnsaved]);
 
     useEffect(() => {
         if (!open) {
@@ -688,16 +758,11 @@ export default function TransportRouteReviewMapShell({
                     onExitEditPath();
                     return;
                 }
-                if (pendingSelectStopId !== undefined) {
-                    e.preventDefault();
-                    setPendingSelectStopId(undefined);
-                    return;
-                }
                 onExit();
                 return;
             }
 
-            if (pendingSelectStopId !== undefined || pathEditActive) {
+            if (pathEditActive) {
                 if (pathEditActive && (key === "delete" || key === "backspace") && onDeleteSelectedPathVertex) {
                     if (selectedPathVertexIndex !== null && (pathEditDraftCoords?.length ?? 0) > 2) {
                         e.preventDefault();
@@ -717,14 +782,6 @@ export default function TransportRouteReviewMapShell({
                 goToPrevStop();
                 return;
             }
-            if (key === "s") {
-                if (!selectedStopHasUnsaved || !onSave || saveLoading || !selectedStopId) {
-                    return;
-                }
-                e.preventDefault();
-                onSave({ routeStopId: selectedStopId });
-                return;
-            }
             if (key === "f") {
                 e.preventDefault();
                 handleFit();
@@ -738,12 +795,6 @@ export default function TransportRouteReviewMapShell({
         goToNextStop,
         goToPrevStop,
         handleFit,
-        hasUnsavedChanges,
-        selectedStopHasUnsaved,
-        selectedStopId,
-        onSave,
-        saveLoading,
-        pendingSelectStopId,
         pathEditActive,
         pathEditHasUnsavedChanges,
         onCancelEditPath,
@@ -753,12 +804,252 @@ export default function TransportRouteReviewMapShell({
         pathEditDraftCoords,
     ]);
 
+    const selectedRouteStop =
+        selectedRouteStopId !== null
+            ? (stops.find((row) => row.id === selectedRouteStopId) ?? null)
+            : null;
+
+    const selectedRouteStopReviewed =
+        selectedRouteStop?.stop.review_status === "reviewed" ||
+        selectedRouteStop?.stop.review_status === "verified";
+    const routeStopActionBlocked = pathEditLoading || stopPreviewSaveBusy;
+    const routeStopDeleteTitle = routeUsageLoading
+        ? "Checking delete eligibility..."
+        : deleteBlockMessage
+          ? deleteBlockMessage
+          : deleteStopAllowed
+            ? "Delete this stop"
+            : DELETE_BLOCKED_MESSAGE;
+
+    const routeStopPrimaryActions = useMemo<TransportMapStopDetailCardAction[]>(() => {
+        if (!selectedRouteStop) {
+            return [];
+        }
+        const actions: TransportMapStopDetailCardAction[] = [];
+        if (onSaveStopPreview) {
+            actions.push({
+                label: stopPreviewSaveBusy ? "Saving..." : "Save",
+                onClick: onSaveStopPreview,
+                disabled: !hasUnsavedMove || routeStopActionBlocked,
+                variant: "primary",
+                title: hasUnsavedMove ? "Save preview location" : "No unsaved preview location",
+            });
+        }
+        if (onRevertStopPreview) {
+            actions.push({
+                label: "Revert",
+                onClick: onRevertStopPreview,
+                disabled: !hasUnsavedMove || routeStopActionBlocked,
+                title: hasUnsavedMove ? "Discard preview location" : "No unsaved preview location",
+            });
+        }
+        return actions;
+    }, [
+        hasUnsavedMove,
+        onRevertStopPreview,
+        onSaveStopPreview,
+        routeStopActionBlocked,
+        selectedRouteStop,
+        stopPreviewSaveBusy,
+    ]);
+
+    const routeStopMainActions = useMemo<TransportMapStopDetailCardAction[]>(() => {
+        if (!selectedRouteStop) {
+            return [];
+        }
+        const actions: TransportMapStopDetailCardAction[] = [];
+        if (onMarkStopReviewed) {
+            actions.push({
+                label: stopReviewBusy ? "Saving..." : "Mark reviewed",
+                onClick: handleMarkSelectedStopReviewed,
+                disabled:
+                    routeStopActionBlocked || stopReviewBusy || selectedRouteStopReviewed,
+                title: selectedRouteStopReviewed
+                    ? "Stop is already reviewed"
+                    : "Mark this stop reviewed",
+            });
+        }
+        if (onCheckRoutes) {
+            actions.push({
+                label: "Check routes",
+                onClick: () => onCheckRoutes(selectedRouteStop),
+                disabled: routeStopActionBlocked,
+            });
+        }
+        if (onOpenStopDetail) {
+            actions.push({
+                label: "Open stop detail",
+                onClick: () => onOpenStopDetail(selectedRouteStop.stop.public_id),
+                disabled: pathEditLoading || stopPreviewSaveBusy,
+            });
+        }
+        return actions;
+    }, [
+        handleMarkSelectedStopReviewed,
+        onCheckRoutes,
+        onMarkStopReviewed,
+        onOpenStopDetail,
+        pathEditLoading,
+        routeStopActionBlocked,
+        selectedRouteStop,
+        selectedRouteStopReviewed,
+        stopPreviewSaveBusy,
+        stopReviewBusy,
+    ]);
+
+    const routeStopDestructiveActions = useMemo<TransportMapStopDetailCardAction[]>(() => {
+        if (!selectedRouteStop) {
+            return [];
+        }
+        const actions: TransportMapStopDetailCardAction[] = [];
+        if (onRemoveFromRoute) {
+            actions.push({
+                label: "Remove from route",
+                onClick: () => onRemoveFromRoute(selectedRouteStop),
+                disabled: routeStopActionBlocked,
+                title: "Remove from this route variant only",
+                variant: "destructive",
+            });
+        }
+        if (onDeleteStop) {
+            actions.push({
+                label: routeUsageLoading ? "Checking..." : "Delete stop",
+                onClick: () => onDeleteStop(selectedRouteStop),
+                disabled: routeStopActionBlocked || routeUsageLoading || !deleteStopAllowed,
+                title: routeStopDeleteTitle,
+                variant: "destructive",
+            });
+        }
+        return actions;
+    }, [
+        deleteStopAllowed,
+        onDeleteStop,
+        onRemoveFromRoute,
+        routeStopActionBlocked,
+        routeStopDeleteTitle,
+        routeUsageLoading,
+        selectedRouteStop,
+    ]);
+
+    const candidateDetailActions = useMemo<TransportMapStopDetailCardAction[]>(() => {
+        if (!activeCandidateDetail) {
+            return [];
+        }
+        const actions: TransportMapStopDetailCardAction[] = [];
+        if (onCandidateCheckRoutes) {
+            actions.push({
+                label: "Check routes",
+                onClick: () => onCandidateCheckRoutes(activeCandidateDetail),
+            });
+        }
+        if (onCandidateKeepCurrent) {
+            actions.push({
+                label: "Keep current stop",
+                onClick: onCandidateKeepCurrent,
+            });
+        }
+        if (onCandidateKeepCandidate) {
+            actions.push({
+                label: "Keep candidate stop",
+                onClick: () => onCandidateKeepCandidate(activeCandidateDetail),
+                variant: "primary",
+            });
+        }
+        if (onCandidateCompareMerge) {
+            actions.push({
+                label: "Compare & merge",
+                onClick: () => onCandidateCompareMerge(activeCandidateDetail),
+            });
+        }
+        return actions;
+    }, [
+        onCandidateCheckRoutes,
+        onCandidateCompareMerge,
+        onCandidateKeepCandidate,
+        onCandidateKeepCurrent,
+        activeCandidateDetail,
+    ]);
+
+    const selectedStopTitle = selectedRouteStop
+        ? `#${selectedRouteStop.stop_sequence} ${
+              selectedRouteStop.stop.name_mm?.trim() ||
+              selectedRouteStop.stop.name_en?.trim() ||
+              selectedRouteStop.stop.name ||
+              "Unnamed stop"
+          }`
+        : "";
+    const selectedStopSecondaryName =
+        selectedRouteStop?.stop.name_mm?.trim() && selectedRouteStop.stop.name_en?.trim()
+            ? selectedRouteStop.stop.name_en
+            : null;
+
+    // One friendly line; never surface raw API error text in the panel.
+    const selectedStopUsageText =
+        activeDetailSource === "route_stop"
+            ? activeDetailUsageLoading
+                ? "Loading route usage..."
+                : activeDetailUsageError
+                  ? "Route usage unavailable."
+                  : activeDetailUsageSummary
+                    ? `Used by ${formatRouteUsageSummary(activeDetailUsageSummary)}`
+                    : null
+            : null;
+
+    const candidateUsageError = activeDetailUsageError
+        ? "Could not load route usage."
+        : null;
+
     if (!open) {
         return null;
     }
 
-    const selectedStop =
-        selectedStopId !== null ? (stops.find((s) => s.id === selectedStopId) ?? null) : null;
+    const renderStopInsertGap = (title: string, onClick: () => void) => (
+        <ReviewMapStopInsertGap
+            title={title}
+            disabled={!canEditStopSequence || pathEditActive || pathEditLoading}
+            onClick={onClick}
+        />
+    );
+
+    const renderStopRow = (stop: TransportRouteStopItem, stopIndex: number) => (
+        <ReviewMapStopRow
+            key={stop.id}
+            stop={stop}
+            selected={!pathEditActive && stop.id === selectedRouteStopId}
+            movedUnsaved={stop.id === selectedRouteStopId && hasUnsavedMove}
+            distanceFromPrev={distanceFromPrevLabels.get(stop.id) ?? null}
+            rowHeight={stopListRowHeight}
+            schedule={variantTimetableSchedule[stopIndex]!}
+            disabled={pathEditActive}
+            onSelect={requestSelectStop}
+        />
+    );
+
+    const renderStopWithGap = (stop: TransportRouteStopItem, stopIndex: number) => (
+        <Fragment key={stop.id}>
+            {renderStopRow(stop, stopIndex)}
+            {canEditStopSequence
+                ? renderStopInsertGap(
+                      stopIndex === stops.length - 1 ? "Add final stop" : "Insert stop here",
+                      () => onInsertAfter?.(stop, stopIndex),
+                  )
+                : null}
+        </Fragment>
+    );
+
+    const mapCandidateSearchRequest =
+        !pathDrawing &&
+        !isReviewMapPathEditMode(reviewMapMode) &&
+        !pickingInsertLocation &&
+        onCandidateSearchRequest
+            ? onCandidateSearchRequest
+            : undefined;
+
+    const mapInteractionHint = pickingInsertLocation
+        ? "Click the map to set the new stop location"
+        : pathEditActive
+          ? null
+          : candidateSearchHint;
 
     return (
         <div
@@ -802,12 +1093,6 @@ export default function TransportRouteReviewMapShell({
 
                 {/* Middle: unsaved + fit + layer toggles */}
                 <div className={`${TOOLBAR_GROUP_CLASS} flex-wrap`}>
-                    {selectedStopHasUnsaved ? (
-                        <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-                            Unsaved
-                        </span>
-                    ) : null}
-
                     <button
                         type="button"
                         onClick={handleFit}
@@ -980,20 +1265,10 @@ export default function TransportRouteReviewMapShell({
                 </div>
             ) : null}
 
-            {saveError ? (
-                <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
-                    {saveError}
-                </div>
-            ) : null}
-
             {/* Main: map + stop list */}
             <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
-                {saveSuccessMessage ? (
-                    <div className="pointer-events-none absolute left-1/2 top-3 z-[60] -translate-x-1/2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900 shadow-sm">
-                        {saveSuccessMessage}
-                    </div>
-                ) : null}
-                <div className="flex min-h-0 min-w-0 flex-1 flex-col p-3">
+                <ReviewMapActionToast toast={actionToast} />
+                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col p-3">
                     <TransportPreviewMap
                         chromeless
                         showBasemapToggle={false}
@@ -1024,7 +1299,6 @@ export default function TransportRouteReviewMapShell({
                                   : null
                         }
                         routeStops={routeStops}
-                        stopMoveDrafts={stopMoveDrafts}
                         showStopSequenceGuide={showStopSequenceGuide}
                         allowStopSequenceGuideWithPath
                         autoFitKey={mapAutoFitKey}
@@ -1032,9 +1306,24 @@ export default function TransportRouteReviewMapShell({
                         fitRequestMode={fitRequest.mode}
                         fitRequestStopId={fitRequest.stopId}
                         initialZoom={11}
-                        selectedStopId={pathEditActive ? null : selectedStopId}
-                        onStopMovePreview={pathEditActive ? undefined : onStopMovePreview}
-                        stopMoveHint={pathEditActive ? null : stopMoveHint}
+                        selectedStopId={pathEditActive ? null : selectedRouteStopId}
+                        selectedStopPreviewPoint={pathEditActive ? null : previewGeom}
+                        selectedRouteStopPublicId={
+                            pathEditActive ? null : (selectedRouteStop?.stop.public_id ?? null)
+                        }
+                        candidateSearchHint={mapInteractionHint}
+                        nearbyCandidates={nearbyCandidates}
+                        selectedCandidateId={selectedCandidateId}
+                        onCandidateSelect={onCandidateSelect}
+                        onCandidateSearchRequest={mapCandidateSearchRequest}
+                        editablePoint={pickingInsertLocation ? insertPickPoint : null}
+                        pointDraggable={pickingInsertLocation}
+                        onPointChange={pickingInsertLocation ? onInsertPickPointChange : undefined}
+                        editingHint={
+                            pickingInsertLocation
+                                ? "Click the map to set the new stop location"
+                                : pathDrawingHint
+                        }
                         pathEditActive={pathEditActive}
                         pathEditDraftCoords={pathEditDraftCoords}
                         selectedPathVertexIndex={selectedPathVertexIndex}
@@ -1044,23 +1333,105 @@ export default function TransportRouteReviewMapShell({
                         draftPath={draftPath}
                         pathDrawing={pathDrawing}
                         onDraftPathAddPoint={onDraftPathAddPoint}
-                        editingHint={pathDrawingHint}
+                        mapCenterGetterRef={mapCenterGetterRef}
                         emptyHint={
                             variants.length === 0
                                 ? "No variants to display."
                                 : "No route path or ordered stops available"
                         }
                     />
+
+                    {selectedRouteStop && !pathEditActive ? (
+                        <div className="pointer-events-none absolute inset-3 z-10 flex w-[min(100%,380px)] max-w-[420px] flex-col items-start justify-start gap-2">
+                            <div className="pointer-events-auto w-full overflow-hidden rounded-lg border border-gray-200 bg-white/95 shadow-lg backdrop-blur-sm">
+                                <ReviewMapSelectedStopPanel
+                                    title={selectedStopTitle}
+                                    secondaryName={selectedStopSecondaryName}
+                                    reviewStatus={selectedRouteStop.stop.review_status ?? null}
+                                    hasUnsavedMove={hasUnsavedMove}
+                                    usageText={selectedStopUsageText}
+                                    primaryActions={routeStopPrimaryActions}
+                                    mainActions={routeStopMainActions}
+                                    destructiveActions={routeStopDestructiveActions}
+                                    busy={pathEditLoading || stopPreviewSaveBusy}
+                                    extraControls={
+                                        deleteBlockMessage || onStopTimingUpdated ? (
+                                            <div className="space-y-1">
+                                                {deleteBlockMessage ? (
+                                                    <p className="text-[11px] leading-snug text-amber-900">
+                                                        {deleteBlockMessage}
+                                                    </p>
+                                                ) : null}
+                                                {onStopTimingUpdated && selectedIndex >= 0 ? (
+                                                    <ReviewMapStopTimingEditor
+                                                        stop={selectedRouteStop}
+                                                        stops={stops}
+                                                        stopIndex={selectedIndex}
+                                                        persistedSchedule={
+                                                            variantTimetableSchedule[selectedIndex]!
+                                                        }
+                                                        departureTimeText={variantDepartureAnchor}
+                                                        disabled={
+                                                            pathEditLoading || stopPreviewSaveBusy
+                                                        }
+                                                        onUpdated={onStopTimingUpdated}
+                                                    />
+                                                ) : null}
+                                            </div>
+                                        ) : null
+                                    }
+                                    footer={
+                                        <ReviewMapNearbyCandidatesStatus
+                                            status={nearbyCandidatesStatus}
+                                            count={resolvedNearbyCandidateCount}
+                                            retryDisabled={nearbyCandidatesStatus === "loading"}
+                                            onRetry={onRetryNearbyCandidates}
+                                        />
+                                    }
+                                />
+                            </div>
+
+                            {activeCandidateDetail ? (
+                                <div className="pointer-events-auto w-full overflow-hidden rounded-lg border border-purple-200 bg-white/95 shadow-lg backdrop-blur-sm">
+                                    <TransportMapStopDetailCard
+                                        appearance="overlay"
+                                        label="Candidate stop"
+                                        stop={{
+                                            publicId: activeCandidateDetail.publicId,
+                                            title: candidateDisplayName(activeCandidateDetail),
+                                            nameMy: activeCandidateDetail.nameMy,
+                                            nameEn: activeCandidateDetail.nameEn,
+                                            mode: activeCandidateDetail.mode,
+                                            stopType: activeCandidateDetail.stopType,
+                                            reviewStatus: activeCandidateDetail.reviewStatus,
+                                            confidenceScore:
+                                                activeCandidateDetail.confidenceScore,
+                                            distanceMeters:
+                                                activeCandidateDetail.distanceMeters,
+                                        }}
+                                        usageSummary={activeDetailUsageSummary}
+                                        usageItems={activeDetailUsageItems}
+                                        usageLoading={activeDetailUsageLoading}
+                                        usageError={candidateUsageError}
+                                        actions={candidateDetailActions}
+                                        busy={candidateActionBusy || pathEditLoading}
+                                        cardRef={candidateDetailCardRef}
+                                        onClose={() => onCandidateSelect?.(null)}
+                                    />
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
                 </div>
 
                 <aside className="flex w-full shrink-0 flex-col border-t border-gray-200 bg-white lg:w-[360px] lg:border-l lg:border-t-0">
                     <TransportReviewMapReviewActions
-                        selectedStop={selectedStop}
+                        selectedStop={selectedRouteStop}
                         path={routePathInfoForReview}
                         routeReviewStatus={routeReviewStatus}
                         readiness={reviewReadiness}
                         pathEditActive={pathEditActive}
-                        busy={saveLoading || pathEditLoading}
+                        busy={pathEditLoading}
                         showStopAction={false}
                         onMarkStopReviewed={onMarkStopReviewed}
                         onMarkPathReviewed={onMarkPathReviewed}
@@ -1072,15 +1443,15 @@ export default function TransportRouteReviewMapShell({
                                 Ordered stops
                             </h3>
                             <span className="text-xs tabular-nums text-gray-500">
-                                {selectedStop && !pathEditActive
-                                    ? `#${selectedStop.stop_sequence} / ${stops.length}`
+                                {selectedRouteStop && !pathEditActive
+                                    ? `#${selectedRouteStop.stop_sequence} / ${stops.length}`
                                     : stops.length}
                             </span>
                             <div className="ml-auto flex items-center gap-1">
                                 <button
                                     type="button"
                                     onClick={goToPrevStop}
-                                    disabled={!canGoPrev || saveLoading || pathEditActive}
+                                    disabled={!canGoPrev || pathEditLoading || pathEditActive}
                                     className={NAV_BTN_CLASS}
                                     title="Previous stop (P)"
                                 >
@@ -1089,7 +1460,7 @@ export default function TransportRouteReviewMapShell({
                                 <button
                                     type="button"
                                     onClick={goToNextStop}
-                                    disabled={!canGoNext || saveLoading || pathEditActive}
+                                    disabled={!canGoNext || pathEditLoading || pathEditActive}
                                     className={NAV_BTN_CLASS}
                                     title="Next stop (N)"
                                 >
@@ -1100,137 +1471,21 @@ export default function TransportRouteReviewMapShell({
                         <p className="mt-1 text-[11px] text-gray-400">
                             {pathEditActive
                                 ? "Stop editing is paused while path edit mode is active"
-                                : "N next · P prev · S save · F fit"}
+                                : "N next · P prev · F fit"}
                         </p>
+                        {selectedVariantId &&
+                        onVariantDepartureTimeUpdated &&
+                        supportsVariantTimetable(routeMode) ? (
+                            <div className="mt-2">
+                                <ReviewMapVariantDepartureTimeEditor
+                                    variantPublicId={selectedVariantId}
+                                    departureTimeText={variantDepartureTimeText}
+                                    disabled={pathEditLoading || pathEditActive}
+                                    onUpdated={onVariantDepartureTimeUpdated}
+                                />
+                            </div>
+                        ) : null}
                     </div>
-
-                    {pendingSelectStopId !== undefined ? (
-                        <div className="flex flex-wrap items-center gap-1.5 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-950">
-                            <span className="font-medium">
-                                Unsaved
-                                {selectedStop ? ` · stop #${selectedStop.stop_sequence}` : ""}
-                            </span>
-                            <div className="ml-auto flex gap-1.5">
-                                <button
-                                    type="button"
-                                    onClick={handleSavePendingNavigation}
-                                    disabled={saveLoading}
-                                    className="rounded-md bg-gray-900 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-gray-800 disabled:opacity-40"
-                                >
-                                    Save &amp; switch
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleRevertPendingNavigation}
-                                    disabled={saveLoading}
-                                    className="rounded-md border border-gray-300 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-                                >
-                                    Revert &amp; switch
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setPendingSelectStopId(undefined)}
-                                    className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-gray-600 hover:text-gray-900"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </div>
-                    ) : hasUnsavedChanges ? (
-                        <div className="border-b border-amber-100 bg-amber-50/80 px-3 py-1 text-[11px] text-amber-900">
-                            {movedStopIds?.size ?? 0} unsaved stop move
-                            {(movedStopIds?.size ?? 0) === 1 ? "" : "s"}
-                        </div>
-                    ) : null}
-
-                    {selectedStop && !pathEditActive ? (
-                        <div className="border-b border-blue-100 bg-blue-50/60 px-3 py-2">
-                            <p className="truncate text-xs font-medium text-gray-900">
-                                #{selectedStop.stop_sequence}{" "}
-                                {selectedStop.stop.name_mm?.trim() ||
-                                    selectedStop.stop.name_en?.trim() ||
-                                    "—"}
-                            </p>
-                            <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                {onSave ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => onSave({ routeStopId: selectedStop.id })}
-                                        disabled={!selectedStopHasUnsaved || saveLoading}
-                                        className="rounded-md bg-gray-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
-                                        title="Save (S)"
-                                    >
-                                        {saveLoading ? "Saving…" : "Save"}
-                                    </button>
-                                ) : null}
-                                {onSaveAndNext ? (
-                                    <button
-                                        type="button"
-                                        onClick={onSaveAndNext}
-                                        disabled={
-                                            !selectedStopHasUnsaved || saveLoading || !canGoNext
-                                        }
-                                        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-                                        title="Save and go to next stop"
-                                    >
-                                        Save &amp; Next
-                                    </button>
-                                ) : null}
-                                {onRevert ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => onRevert(selectedStop.id)}
-                                        disabled={!selectedStopHasUnsaved || saveLoading}
-                                        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-                                    >
-                                        Revert
-                                    </button>
-                                ) : null}
-                                {onOpenStopDetail ? (
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            onOpenStopDetail(selectedStop.stop.public_id)
-                                        }
-                                        disabled={saveLoading}
-                                        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-                                        title="Open stop detail in a drawer (review map stays open)"
-                                    >
-                                        Open stop detail
-                                    </button>
-                                ) : null}
-                                {onMarkStopReviewed ? (
-                                    <button
-                                        type="button"
-                                        onClick={handleMarkSelectedStopReviewed}
-                                        disabled={
-                                            stopReviewBusy ||
-                                            saveLoading ||
-                                            selectedStopHasUnsaved ||
-                                            selectedStop.stop.review_status === "reviewed" ||
-                                            selectedStop.stop.review_status === "verified"
-                                        }
-                                        title={
-                                            selectedStopHasUnsaved
-                                                ? "Save or revert stop changes first."
-                                                : selectedStop.stop.review_status === "reviewed" ||
-                                                    selectedStop.stop.review_status === "verified"
-                                                  ? "Stop is already reviewed"
-                                                  : "Mark this stop reviewed"
-                                        }
-                                        className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-[11px] font-medium text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
-                                    >
-                                        {stopReviewBusy ? "Saving…" : "Mark stop reviewed"}
-                                    </button>
-                                ) : null}
-                            </div>
-                            {stopReviewError ? (
-                                <p className="mt-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-800">
-                                    {stopReviewError}
-                                </p>
-                            ) : null}
-                        </div>
-                    ) : null}
 
                     {stopsError ? (
                         <div className="m-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
@@ -1249,9 +1504,19 @@ export default function TransportRouteReviewMapShell({
                             Select a variant to view its stops.
                         </p>
                     ) : stops.length === 0 ? (
-                        <p className="px-4 py-8 text-center text-sm text-gray-500">
-                            This variant has no ordered stops.
-                        </p>
+                        <div className="px-4 py-8 text-center">
+                            <p className="text-sm text-gray-500">This variant has no ordered stops.</p>
+                            {onInsertAtStart ? (
+                                <button
+                                    type="button"
+                                    disabled={!canEditStopSequence || pathEditActive || pathEditLoading}
+                                    onClick={onInsertAtStart}
+                                    className="mt-3 rounded-md border border-dashed border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    Add first stop
+                                </button>
+                            ) : null}
+                        </div>
                     ) : (
                         <div
                             ref={stopListScrollRef}
@@ -1264,41 +1529,21 @@ export default function TransportRouteReviewMapShell({
                                     className="relative"
                                 >
                                     <div
-                                        style={{ transform: `translateY(${virtualStopWindow.offsetY}px)` }}
+                                        style={{
+                                            transform: `translateY(${virtualStopWindow.offsetY}px)`,
+                                        }}
                                     >
                                         {stops
                                             .slice(virtualStopWindow.start, virtualStopWindow.end)
-                                            .map((stop) => (
-                                                <ReviewMapStopRow
-                                                    key={stop.id}
-                                                    stop={stop}
-                                                    selected={
-                                                        !pathEditActive && stop.id === selectedStopId
-                                                    }
-                                                    movedUnsaved={movedStopIds?.has(stop.id) ?? false}
-                                                    distanceFromPrev={
-                                                        distanceFromPrevLabels.get(stop.id) ?? null
-                                                    }
-                                                    disabled={pathEditActive}
-                                                    onSelect={requestSelectStop}
-                                                />
-                                            ))}
+                                            .map((stop, sliceIndex) => {
+                                                const stopIndex =
+                                                    virtualStopWindow.start + sliceIndex;
+                                                return renderStopWithGap(stop, stopIndex);
+                                            })}
                                     </div>
                                 </div>
                             ) : (
-                                stops.map((stop) => (
-                                    <ReviewMapStopRow
-                                        key={stop.id}
-                                        stop={stop}
-                                        selected={!pathEditActive && stop.id === selectedStopId}
-                                        movedUnsaved={movedStopIds?.has(stop.id) ?? false}
-                                        distanceFromPrev={
-                                            distanceFromPrevLabels.get(stop.id) ?? null
-                                        }
-                                        disabled={pathEditActive}
-                                        onSelect={requestSelectStop}
-                                    />
-                                ))
+                                stops.map((stop, stopIndex) => renderStopWithGap(stop, stopIndex))
                             )}
                         </div>
                     )}

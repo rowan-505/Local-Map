@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 
+import { rebuildSearchAfterSplitPromotion } from "../search/bulk-promotion-search-rebuild.js";
 import { ImportReviewBatchNotFoundError } from "./import-review-errors.js";
 import { ImportReviewPlacePromotionRepository } from "./import-review-place-promotion.repo.js";
 import type { PostImportReviewPlacePromotionBody } from "./import-review-place-promotion.schema.js";
@@ -157,6 +158,26 @@ async function runPromotion(
             }
         }
     });
+
+    if (!dryRun && summary.promoted > 0) {
+        try {
+            await rebuildSearchAfterSplitPromotion(
+                prisma,
+                {
+                    workflow: "import-review-place-promotion",
+                    promotedCount: summary.promoted,
+                    views: ["places"],
+                    batchId: body.review_batch_id,
+                },
+            );
+        } catch (searchRebuildErr) {
+            warnings.push(
+                `search index rebuild failed after place promotion: ${
+                    searchRebuildErr instanceof Error ? searchRebuildErr.message : "unknown error"
+                }`,
+            );
+        }
+    }
 
     return {
         dry_run: dryRun,

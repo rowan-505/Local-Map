@@ -22,8 +22,14 @@ import {
 } from "./core-review-write.errors.js";
 import type { CoreReviewEntitySlug } from "./core-review.types.js";
 import type { CoreReviewDetailResponse } from "./core-review.types.js";
+import {
+    refreshStreetGroupSearchForStreet,
+    refreshUnifiedSearchDocuments,
+} from "../search/unified-search-sync.js";
+import { UnifiedSearchSyncRepository } from "../search/unified-search-sync.repo.js";
 
 export class CoreReviewLifecycleService {
+    private readonly prisma: PrismaClient;
     private readonly lifecycleRepo: CoreReviewLifecycleRepository;
     private readonly placesRepo: PlacesRepository;
     private readonly buildingsRepo: BuildingsRepository;
@@ -32,6 +38,7 @@ export class CoreReviewLifecycleService {
     private readonly landuseRepo: CoreReviewLanduseRepository;
 
     constructor(prisma: PrismaClient) {
+        this.prisma = prisma;
         this.lifecycleRepo = new CoreReviewLifecycleRepository(prisma);
         this.placesRepo = new PlacesRepository(prisma);
         this.buildingsRepo = new BuildingsRepository(prisma);
@@ -88,6 +95,8 @@ export class CoreReviewLifecycleService {
             throw new CoreReviewNotFoundError();
         }
 
+        await this.scheduleSearchSyncAfterLifecycle(slug, id, "delete");
+
         const detail = await this.loadDetail(slug, id);
         if (!detail) {
             throw new CoreReviewNotFoundError();
@@ -124,11 +133,48 @@ export class CoreReviewLifecycleService {
             throw new CoreReviewNotFoundError();
         }
 
+        await this.scheduleSearchSyncAfterLifecycle(slug, id, "restore");
+
         const detail = await this.loadDetail(slug, id);
         if (!detail) {
             throw new CoreReviewNotFoundError();
         }
         return detail;
+    }
+
+    private async scheduleSearchSyncAfterLifecycle(
+        slug: CoreReviewEntitySlug,
+        id: string,
+        _action: "delete" | "restore",
+    ): Promise<void> {
+        if (slug === "places") {
+            const detail = await getCoreReviewPlaceDetail(this.placesRepo, id, { anyStatus: true });
+            const placeId = detail?.data?.id;
+            if (placeId) {
+                await refreshUnifiedSearchDocuments(this.prisma, [
+                    { entityType: "place", entityId: BigInt(String(placeId)) },
+                ]);
+            }
+            return;
+        }
+
+        if (slug === "streets") {
+            const repo = new UnifiedSearchSyncRepository(this.prisma);
+            const streetId = await repo.lookupStreetId(id);
+            if (streetId) {
+                await refreshStreetGroupSearchForStreet(this.prisma, streetId);
+            }
+            return;
+        }
+
+        if (slug === "admin-areas") {
+            const row = await this.entitiesRepo.getAdminAreaByPublicId(id, { anyStatus: true });
+            if (row?.id) {
+                await refreshUnifiedSearchDocuments(this.prisma, [
+                    { entityType: "admin_area", entityId: BigInt(String(row.id)) },
+                ]);
+            }
+        }
     }
 
     private async applySoftDelete(slug: CoreReviewEntitySlug, id: string, user?: JwtUser): Promise<boolean> {

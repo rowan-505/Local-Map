@@ -5,7 +5,47 @@ import {
 } from "../../lib/geo/plus-code.js";
 import type { ReverseSearchService } from "../addresses/reverse-search.service.js";
 import type { AdminAreaOptionRow, AdminAreasRepository } from "../admin-areas/admin-areas.repo.js";
-import { PUBLIC_SEARCH_ENTITY_TYPES } from "./public-map.schema.js";
+import {
+    isGeneratedOsmTransportName,
+    normalizeTransportNameInput,
+} from "../transport/transport-naming.js";
+import type {
+    PublicTransportStopDetail,
+    PublicTransportTerminalDetail,
+} from "../transport/transport-public.types.js";
+import { TransportPublicService } from "../transport/transport-public.service.js";
+import { serializePublicTransportSearchFields } from "../search/transport-search-entity.js";
+import {
+    encodePublicSearchCursor,
+    normalizePublicSearchCursorContext,
+    PUBLIC_SEARCH_CURSOR_VERSION,
+    publicSearchCursorAfterFromRow,
+    type PublicSearchCursorAfter,
+    type PublicSearchCursorContext,
+} from "./public-search-cursor.js";
+import {
+    resolvePublicSearchFilters,
+    type PublicSearchCategory,
+    type PublicSearchTransportMode,
+    type PublicSearchTransportType,
+    type ResolvedPublicSearchFilters,
+} from "./public-search-filters.js";
+import {
+    buildFailedSearchLogPayload,
+    shouldRecordFailedSearch,
+} from "./failed-search-log.js";
+import {
+    buildSearchRequestAnalyticsPayload,
+    clampSearchResultClickRank,
+    clampTimeToClickMs,
+    shouldRecordSearchRequestAnalytics,
+    type SearchResultClickAnalyticsInput,
+} from "./search-analytics.js";
+import {
+    resolvePublicSearchDisplayName,
+    type PublicSearchLang,
+} from "./public-search-language.js";
+import { PUBLIC_SEARCH_ENTITY_TYPES, type SearchMapPreviewEntityType } from "./public-map.schema.js";
 import {
     BUS_ROUTE_PATH_CAP,
     effectiveImportanceThresholdForZoom,
@@ -18,6 +58,7 @@ import {
     type PublicSearchRow,
     type SearchPublicMapMode,
     STREET_GROUP_SEGMENT_CAP,
+    type TransportRouteMapPreviewRow,
     type UnifiedSearchRow,
     type ViewportPublicPlacesParams,
 } from "./public-map.repo.js";
@@ -83,6 +124,20 @@ export class PublicPlaceNotFoundError extends Error {
     }
 }
 
+export class PublicTransportStopNotFoundError extends Error {
+    constructor(message = "Public transport stop not found") {
+        super(message);
+        this.name = "PublicTransportStopNotFoundError";
+    }
+}
+
+export class PublicTransportTerminalNotFoundError extends Error {
+    constructor(message = "Public transport terminal not found") {
+        super(message);
+        this.name = "PublicTransportTerminalNotFoundError";
+    }
+}
+
 /** Public admin-area option for the profile region picker (no internal fields). */
 export type PublicAdminAreaResult = {
     readonly id: string;
@@ -102,6 +157,7 @@ export class PublicMapService {
         private readonly reverseSearch?: ReverseSearchService,
         /** Optional: powers the public admin-area (region) search used by the profile picker. */
         private readonly adminAreasRepo?: AdminAreasRepository,
+        private readonly transportPublicService?: TransportPublicService,
     ) {}
 
     async searchAdminAreas(input: {
@@ -192,6 +248,68 @@ export class PublicMapService {
         };
     }
 
+    async getTransportStopById(
+        lookupId: string,
+        options?: { lang?: "my" | "en" | "und" },
+    ): Promise<PublicTransportStopDetail> {
+        if (!this.transportPublicService) {
+            throw new Error("Transport public service is not configured");
+        }
+
+        const detail = await this.transportPublicService.getPublicStopDetail(lookupId, options);
+        if (!detail) {
+            throw new PublicTransportStopNotFoundError();
+        }
+
+        const plus_code = generatePlusCode(detail.lat, detail.lng);
+        let address_line: string | undefined;
+        if (this.reverseSearch) {
+            try {
+                const reverse = await this.reverseSearch.reverse(detail.lat, detail.lng);
+                address_line = reverse.address_line;
+            } catch {
+                // Best-effort enrichment only.
+            }
+        }
+
+        return {
+            ...detail,
+            plus_code,
+            ...(address_line !== undefined ? { address_line } : {}),
+        };
+    }
+
+    async getTransportTerminalById(
+        lookupId: string,
+        options?: { lang?: "my" | "en" | "und" },
+    ): Promise<PublicTransportTerminalDetail> {
+        if (!this.transportPublicService) {
+            throw new Error("Transport public service is not configured");
+        }
+
+        const detail = await this.transportPublicService.getPublicTerminalDetail(lookupId, options);
+        if (!detail) {
+            throw new PublicTransportTerminalNotFoundError();
+        }
+
+        const plus_code = generatePlusCode(detail.lat, detail.lng);
+        let address_line: string | undefined;
+        if (this.reverseSearch) {
+            try {
+                const reverse = await this.reverseSearch.reverse(detail.lat, detail.lng);
+                address_line = reverse.address_line;
+            } catch {
+                // Best-effort enrichment only.
+            }
+        }
+
+        return {
+            ...detail,
+            plus_code,
+            ...(address_line !== undefined ? { address_line } : {}),
+        };
+    }
+
     async listCategories() {
         const categories = await this.publicMapRepo.listCategories();
 
@@ -218,9 +336,23 @@ export class PublicMapService {
             lng?: number;
             lang?: "my" | "en" | "und";
             types?: readonly string[];
+            category?: PublicSearchCategory;
+            transportType?: PublicSearchTransportType;
+            transportMode?: PublicSearchTransportMode;
+            filters?: ResolvedPublicSearchFilters;
+            after?: PublicSearchCursorAfter;
+            cursorContext?: PublicSearchCursorContext;
+            sessionKey?: string | null;
         },
         logger?: SearchTelemetryLogger,
-    ) {
+    ): Promise<PublicSearchPage> {
+        const emptyPage = (analytics?: PublicSearchAnalytics): PublicSearchPage => ({
+            items: [],
+            nextCursor: null,
+            hasMore: false,
+            ...(analytics ? { analytics } : {}),
+        });
+
         const q = input.q.trim();
         const limit = clampPublicSearchLimit(input.limit);
 
@@ -230,7 +362,7 @@ export class PublicMapService {
         if (isLikelyPlusCode(q)) {
             const plusResult = await this.resolvePlusCodeSearch(q, input.lat, input.lng);
             if (plusResult) {
-                return [plusResult];
+                return { items: [plusResult], nextCursor: null, hasMore: false };
             }
         }
 
@@ -239,21 +371,45 @@ export class PublicMapService {
         // return null here and fall through to normal text search.
         const coordinate = parseCoordinate(q);
         if (coordinate) {
-            return [await this.resolveCoordinateSearch(coordinate.lat, coordinate.lng)];
+            return {
+                items: [await this.resolveCoordinateSearch(coordinate.lat, coordinate.lng)],
+                nextCursor: null,
+                hasMore: false,
+            };
         }
 
         // Guard cheap/broad queries. Plus Codes and coordinates bypass the length
         // guard (checked above / in `planPublicSearch`).
         const plan = planPublicSearch(q);
         if (!plan.allowed) {
-            return [];
+            return emptyPage();
         }
 
-        // Restrict to the renderable entity types (excludes the parent `bus_route`,
-        // which has no geometry endpoint). A caller-provided subset is intersected.
-        const allowed = new Set<string>(PUBLIC_SEARCH_ENTITY_TYPES);
-        const requested = (input.types ?? []).filter((t) => allowed.has(t));
-        const types = requested.length > 0 ? requested : [...PUBLIC_SEARCH_ENTITY_TYPES];
+        const legacyTypes = (input.types ?? []).filter((t) =>
+            new Set<string>(PUBLIC_SEARCH_ENTITY_TYPES).has(t),
+        );
+        const filters =
+            input.filters ??
+            resolvePublicSearchFilters({
+                category: input.category,
+                transportType: input.transportType,
+                transportMode: input.transportMode,
+                legacyTypes,
+            });
+
+        const cursorContext =
+            input.cursorContext ??
+            normalizePublicSearchCursorContext({
+                q,
+                mode: plan.mode,
+                types: legacyTypes.length > 0 ? legacyTypes : [...filters.entityTypes],
+                lat: input.lat,
+                lng: input.lng,
+                category: filters.category,
+                transportType: filters.transportType,
+                transportMode: filters.transportMode,
+                lang: input.lang ?? null,
+            });
 
         const startedAt = Date.now();
         let timedOut = false;
@@ -264,9 +420,10 @@ export class PublicMapService {
                 lat: input.lat,
                 lng: input.lng,
                 lang: input.lang,
-                types,
+                filters,
                 mode: plan.mode,
-                limit,
+                limit: limit + 1,
+                after: input.after,
             });
         } catch (error) {
             if (isStatementTimeoutError(error)) {
@@ -304,25 +461,35 @@ export class PublicMapService {
             );
         }
 
-        // Telemetry: record zero-result (or timed-out) queries. Best-effort.
+        // Telemetry: record zero-result (or timed-out) queries. Best-effort, non-blocking.
+        const analytics = this.beginSearchRequestAnalytics({
+            q,
+            lang: input.lang ?? null,
+            filters,
+            resultCount: rows.length,
+            latencyMs: durationMs,
+            sessionKey: input.sessionKey ?? null,
+            isPaginationContinuation: Boolean(input.after),
+            searchAllowed: plan.allowed,
+        });
+
         if (rows.length === 0) {
-            try {
-                await this.publicMapRepo.logFailedSearch({
-                    q,
-                    normalizedQuery: q.toLowerCase(),
-                    lang: input.lang ?? null,
-                    lat: input.lat ?? null,
-                    lng: input.lng ?? null,
-                    types,
-                    resultCount: 0,
-                });
-            } catch {
-                // Telemetry failure never fails the search response.
-            }
-            return [];
+            this.recordFailedSearchTelemetry({
+                q,
+                lang: input.lang ?? null,
+                lat: input.lat,
+                lng: input.lng,
+                filters,
+                legacyTypes,
+                resultCount: 0,
+                isPaginationContinuation: Boolean(input.after),
+                searchAllowed: plan.allowed,
+            });
+            return emptyPage(analytics ?? undefined);
         }
 
-        return rows.map((row) => serializePublicSearchHit(row));
+        const page = buildPublicSearchPage(rows, limit, cursorContext);
+        return analytics ? { ...page, analytics } : page;
     }
 
     /**
@@ -394,6 +561,100 @@ export class PublicMapService {
         return coordinatePinResult(lat, lng, reverse, outsideServiceArea);
     }
 
+    /** Best-effort zero-result telemetry. Never awaited — must not slow search. */
+    private recordFailedSearchTelemetry(input: {
+        q: string;
+        lang?: PublicSearchLang | null;
+        lat?: number;
+        lng?: number;
+        filters: ResolvedPublicSearchFilters;
+        legacyTypes?: readonly string[];
+        resultCount: number;
+        isPaginationContinuation: boolean;
+        searchAllowed: boolean;
+    }): void {
+        const payload = buildFailedSearchLogPayload({
+            q: input.q,
+            lang: input.lang ?? null,
+            lat: input.lat,
+            lng: input.lng,
+            filters: input.filters,
+            legacyTypes: input.legacyTypes,
+            resultCount: input.resultCount,
+        });
+
+        if (
+            !shouldRecordFailedSearch({
+                normalizedQuery: payload.normalizedQuery,
+                resultCount: input.resultCount,
+                isPaginationContinuation: input.isPaginationContinuation,
+                searchAllowed: input.searchAllowed,
+            })
+        ) {
+            return;
+        }
+
+        void this.publicMapRepo.logFailedSearch(payload).catch(() => {
+            // Telemetry failure never fails the search response.
+        });
+    }
+
+    /**
+     * Returns analytics correlation id for the client; persists the event asynchronously.
+     */
+    private beginSearchRequestAnalytics(input: {
+        q: string;
+        lang?: PublicSearchLang | null;
+        filters: ResolvedPublicSearchFilters;
+        resultCount: number;
+        latencyMs: number;
+        sessionKey?: string | null;
+        isPaginationContinuation: boolean;
+        searchAllowed: boolean;
+    }): PublicSearchAnalytics | null {
+        const payload = buildSearchRequestAnalyticsPayload({
+            q: input.q,
+            lang: input.lang ?? null,
+            filters: input.filters,
+            resultCount: input.resultCount,
+            latencyMs: input.latencyMs,
+            sessionKey: input.sessionKey ?? null,
+            isPaginationContinuation: input.isPaginationContinuation,
+            searchAllowed: input.searchAllowed,
+        });
+
+        if (
+            !shouldRecordSearchRequestAnalytics({
+                normalizedQuery: payload.normalizedQuery,
+                isPaginationContinuation: input.isPaginationContinuation,
+                searchAllowed: input.searchAllowed,
+            })
+        ) {
+            return null;
+        }
+
+        void this.publicMapRepo.insertSearchRequestEvent(payload).catch(() => {
+            // Analytics failure never fails the search response.
+        });
+
+        return { eventId: payload.correlationId };
+    }
+
+    /** Best-effort search result click analytics. Never awaited by callers. */
+    recordSearchResultClick(input: SearchResultClickAnalyticsInput): void {
+        const payload = {
+            searchCorrelationId: input.searchCorrelationId.trim(),
+            entityType: input.entityType,
+            entityId: input.entityId,
+            clickedRank: clampSearchResultClickRank(input.clickedRank),
+            timeToClickMs: clampTimeToClickMs(input.timeToClickMs),
+        };
+
+        void this.publicMapRepo.insertSearchResultClickEvent(payload).catch(() => {
+            // Analytics failure never breaks user flows.
+        });
+    }
+
     /**
      * Full geometry for a clicked search result. Returns null when the entity is
      * missing / not public (caller responds 404).
@@ -429,8 +690,8 @@ export class PublicMapService {
             return serializeEntityGeometry("street_group", input.entityId, row);
         }
 
-        // Parent bus routes: collect their variants' paths (+cap) into one line.
-        if (input.entityType === "bus_route") {
+        // Parent transport routes: collect their variants' paths (+cap) into one line.
+        if (input.entityType === "bus_route" || input.entityType === "transport_route") {
             const row = await this.publicMapRepo.getBusRouteGeometry(
                 input.entityId,
                 tolerance,
@@ -439,15 +700,16 @@ export class PublicMapService {
             if (row.capped) {
                 logger?.warn(
                     {
-                        event: "bus_route_geometry_capped",
+                        event: "transport_route_geometry_capped",
                         entity_id: input.entityId,
                         segment_count: row.segment_count,
                         cap: BUS_ROUTE_PATH_CAP,
                     },
-                    "bus_route geometry capped to safe path limit",
+                    "transport route geometry capped to safe path limit",
                 );
             }
-            return serializeEntityGeometry("bus_route", input.entityId, row);
+            const geometryType = input.entityType;
+            return serializeEntityGeometry(geometryType, input.entityId, row);
         }
 
         const row = await this.publicMapRepo.getEntityGeometry(
@@ -457,6 +719,26 @@ export class PublicMapService {
         );
         if (!row || !row.geometry) return null;
         return serializeEntityGeometry(input.entityType, input.entityId, row);
+    }
+
+    /**
+     * Lightweight transport route preview for map overlays: one simplified path,
+     * variant summaries, and optional endpoint stops (no full variant collect).
+     */
+    async getTransportRouteMapPreview(input: {
+        entityType: SearchMapPreviewEntityType;
+        entityId: string;
+        zoom?: number;
+    }): Promise<TransportRouteMapPreviewResult | null> {
+        const canonicalType = normalizeMapPreviewEntityType(input.entityType);
+        const tolerance = resolveSimplifyTolerance("transport_route_variant", input.zoom);
+        const row = await this.publicMapRepo.getTransportRouteMapPreview(
+            input.entityType,
+            input.entityId,
+            tolerance,
+        );
+        if (!row?.path_geometry) return null;
+        return serializeTransportRouteMapPreview(canonicalType, input.entityId, row);
     }
 
     /**
@@ -478,19 +760,21 @@ export class PublicMapService {
         });
 
         if (rows.length === 0) {
-            try {
-                await this.publicMapRepo.logFailedSearch({
-                    q,
-                    normalizedQuery: q.toLowerCase(),
-                    lang: input.lang ?? null,
-                    lat: input.lat ?? null,
-                    lng: input.lng ?? null,
-                    types: input.types ?? null,
-                    resultCount: 0,
-                });
-            } catch {
-                // Telemetry is best-effort; an empty result is still a valid response.
-            }
+            const filters =
+                input.types && input.types.length > 0
+                    ? resolvePublicSearchFilters({ legacyTypes: input.types })
+                    : resolvePublicSearchFilters({ category: "all" });
+            this.recordFailedSearchTelemetry({
+                q,
+                lang: input.lang ?? null,
+                lat: input.lat,
+                lng: input.lng,
+                filters,
+                legacyTypes: input.types ?? [],
+                resultCount: 0,
+                isPaginationContinuation: false,
+                searchAllowed: q.length >= 2,
+            });
             return [];
         }
 
@@ -584,6 +868,17 @@ function serializePlace(place: PublicPlaceRow) {
     };
 }
 
+function publicSafeTransportName(value: string | null | undefined): string | null {
+    const normalized = normalizeTransportNameInput(value);
+    if (normalized === null) {
+        return null;
+    }
+    if (isGeneratedOsmTransportName(normalized)) {
+        return null;
+    }
+    return normalized;
+}
+
 function viewportPlaceFeature(place: PublicMapViewportPlaceRow) {
     const mm = normalizeName(place.name_mm);
     const en = normalizeName(place.name_en);
@@ -631,16 +926,114 @@ function isDevelopmentRuntime() {
 const PUBLIC_SEARCH_POINT_ZOOM: Record<string, number> = {
     place: 16,
     bus_stop: 17,
+    transport_stop: 17,
+    transport_terminal: 16,
     address: 17,
 };
 
+/** Verification / review summary carried on every search list hit. */
+export type PublicSearchVerificationSummary = {
+    isVerified: boolean;
+    confidenceScore: number | null;
+    boundaryConfidenceScore: number | null;
+    reviewStatus: string | null;
+    verificationStatus: string | null;
+};
+
+export type PublicSearchCategorySummary = {
+    code: string | null;
+    name: string | null;
+};
+
+export type PublicSearchTransportSummary = {
+    mode: string | null;
+    stopType: string | null;
+    routeCode: string | null;
+    parentRoutePublicId: string | null;
+    variantCode: string | null;
+    headsign: string | null;
+    directionName: string | null;
+    originName: string | null;
+    destinationName: string | null;
+};
+
+/** Lightweight unified search list item (no geometry payloads). */
+export type PublicSearchHit = {
+    id: string;
+    entityType: string;
+    /** Alias of entityType for older clients. */
+    type: string;
+    entityId: string;
+    publicId: string | null;
+    displayName: string | null;
+    subtitle: string | null;
+    primaryNameMy: string | null;
+    primaryNameEn: string | null;
+    lat: number | null;
+    lng: number | null;
+    center: [number, number] | null;
+    bbox: [number, number, number, number] | null;
+    geometryType: string | null;
+    hasGeometry: boolean;
+    score: number;
+    verification: PublicSearchVerificationSummary;
+    category: PublicSearchCategorySummary | null;
+    transport?: PublicSearchTransportSummary;
+    cameraTarget?:
+        | { type: "point"; center: [number, number]; zoom: number }
+        | {
+              type: "bounds";
+              center?: [number, number];
+              bbox: [number, number, number, number];
+              padding: number;
+          };
+};
+
+function isTransportSearchEntityType(entityType: string): boolean {
+    return (
+        entityType.startsWith("transport_") ||
+        entityType === "bus_stop" ||
+        entityType === "bus_route" ||
+        entityType === "bus_route_variant"
+    );
+}
+
+function buildPublicSearchCategorySummary(
+    row: UnifiedSearchRow,
+): PublicSearchCategorySummary | null {
+    const code = normalizeName(row.category_code);
+    const name =
+        normalizeName(row.category_name_en) ?? normalizeName(row.category_name_my);
+    if (!code && !name) return null;
+    return { code, name };
+}
+
+function buildPublicSearchTransportSummary(
+    transportFields: ReturnType<typeof serializePublicTransportSearchFields>,
+): PublicSearchTransportSummary | undefined {
+    if (!isTransportSearchEntityType(transportFields.entityType)) return undefined;
+    return {
+        mode: transportFields.mode,
+        stopType: transportFields.stopType,
+        routeCode: transportFields.routeCode,
+        parentRoutePublicId: transportFields.parentRoutePublicId,
+        variantCode: transportFields.variantCode,
+        headsign: transportFields.headsign,
+        directionName: transportFields.directionName,
+        originName: transportFields.originName,
+        destinationName: transportFields.destinationName,
+    };
+}
+
 /**
  * Serialize a unified search row into the public search hit shape the web client
- * consumes: localized names + lightweight geometry (center/bbox) + a camera
- * target + a geometry hint. No heavy geometry. Streets arrive as `street_group`
- * (one logical road); their geometry is fetched on click via the geometry endpoint.
+ * consumes: display metadata + lightweight geo hints + camera target. Full
+ * geometry is fetched on selection via the geometry / map-preview endpoints.
  */
-export function serializePublicSearchHit(row: UnifiedSearchRow) {
+export function serializePublicSearchHit(
+    row: UnifiedSearchRow,
+    lang?: PublicSearchLang | null,
+): PublicSearchHit {
     const lng = row.lng;
     const lat = row.lat;
     const hasCenter =
@@ -688,41 +1081,50 @@ export function serializePublicSearchHit(row: UnifiedSearchRow) {
         return undefined;
     })();
 
-    const mm = normalizeName(row.primary_name_my);
-    const en = normalizeName(row.primary_name_en);
-    const display = normalizeName(row.display_name);
+    const display = normalizeName(
+        resolvePublicSearchDisplayName(lang ?? null, {
+            displayName: row.display_name,
+            primaryNameMy: row.primary_name_my,
+            primaryNameEn: row.primary_name_en,
+            primaryNameUnd: row.primary_name_und,
+        }),
+    );
+    const primaryNameMy = normalizeName(row.primary_name_my);
+    const primaryNameEn = normalizeName(row.primary_name_en);
+
+    const transportFields = serializePublicTransportSearchFields(
+        row.entity_type,
+        row.address_parts,
+        row.category_code,
+    );
+    const transport = buildPublicSearchTransportSummary(transportFields);
 
     return {
-        id: `${row.entity_type}:${row.entity_id}`,
-        entityType: row.entity_type,
-        type: row.entity_type,
+        id: `${transportFields.entityType}:${row.entity_id}`,
+        entityType: transportFields.entityType,
+        type: transportFields.entityType,
         entityId: row.entity_id,
         publicId: row.public_id,
-        myanmar_name: mm,
-        english_name: en,
-        name_mm: mm,
-        name_en: en,
-        display_name: display,
         displayName: display,
-        primary_name: display,
-        canonical_name: display,
         subtitle: normalizeName(row.subtitle),
-        matchedName: normalizeName(row.matched_name),
-        categoryCode: row.category_code,
-        categoryName:
-            normalizeName(row.category_name_en) ?? normalizeName(row.category_name_my),
-        adminAreaNameMy: normalizeName(row.admin_area_name_my),
-        adminAreaNameEn: normalizeName(row.admin_area_name_en),
+        primaryNameMy,
+        primaryNameEn,
         lat: hasCenter ? (lat as number) : null,
         lng: hasCenter ? (lng as number) : null,
         center,
         bbox,
         geometryType: row.geometry_type,
         hasGeometry: row.has_geometry,
-        isVerified: row.is_verified,
-        confidenceScore: row.confidence_score,
-        boundaryConfidenceScore: row.boundary_confidence_score,
         score: Math.round(row.score * 100) / 100,
+        verification: {
+            isVerified: row.is_verified,
+            confidenceScore: row.confidence_score,
+            boundaryConfidenceScore: row.boundary_confidence_score,
+            reviewStatus: transportFields.reviewStatus,
+            verificationStatus: transportFields.verificationStatus,
+        },
+        category: buildPublicSearchCategorySummary(row),
+        ...(transport ? { transport } : {}),
         cameraTarget,
     };
 }
@@ -746,7 +1148,13 @@ export function isWithinServiceArea(lat: number, lng: number): boolean {
 }
 
 /** Entity types whose geometry is point-like and must never be simplified. */
-const POINT_LIKE_GEOMETRY_TYPES = new Set<GeometryEntityType>(["place", "address", "bus_stop"]);
+const POINT_LIKE_GEOMETRY_TYPES = new Set<GeometryEntityType>([
+    "place",
+    "address",
+    "bus_stop",
+    "transport_stop",
+    "transport_terminal",
+]);
 
 /** Light default simplification (~5m in degrees) when no zoom is provided. */
 const DEFAULT_SIMPLIFY_TOLERANCE_DEG = 0.00005;
@@ -800,6 +1208,104 @@ function serializeEntityGeometry(
     };
 }
 
+export type TransportRouteMapPreviewVariant = {
+    entityId: string;
+    publicId: string | null;
+    variantCode: string | null;
+    headsign: string | null;
+    directionName: string | null;
+    isPrimary: boolean;
+};
+
+export type TransportRouteMapPreviewStop = {
+    publicId: string;
+    displayName: string;
+    sequence: number;
+    lat: number;
+    lng: number;
+};
+
+export type TransportRouteMapPreviewResult = {
+    entityType: "transport_route" | "transport_route_variant";
+    entityId: string;
+    bbox: [number, number, number, number];
+    path: {
+        type: "Feature";
+        geometry: { type: string; coordinates: unknown };
+        properties: { entityType: string; entityId: string };
+    };
+    variants: TransportRouteMapPreviewVariant[];
+    importantStops: TransportRouteMapPreviewStop[];
+};
+
+function normalizeMapPreviewEntityType(
+    entityType: SearchMapPreviewEntityType,
+): "transport_route" | "transport_route_variant" {
+    if (entityType === "transport_route_variant" || entityType === "bus_route_variant") {
+        return "transport_route_variant";
+    }
+    return "transport_route";
+}
+
+function readTransportRouteMapPreviewVariants(raw: unknown): TransportRouteMapPreviewVariant[] {
+    if (!Array.isArray(raw)) return [];
+    const variants: TransportRouteMapPreviewVariant[] = [];
+    for (const item of raw) {
+        if (!item || typeof item !== "object") continue;
+        const row = item as Record<string, unknown>;
+        const entityId = typeof row.entityId === "string" ? row.entityId : null;
+        if (!entityId) continue;
+        variants.push({
+            entityId,
+            publicId: typeof row.publicId === "string" ? row.publicId : null,
+            variantCode: typeof row.variantCode === "string" ? row.variantCode : null,
+            headsign: typeof row.headsign === "string" ? row.headsign : null,
+            directionName: typeof row.directionName === "string" ? row.directionName : null,
+            isPrimary: row.isPrimary === true,
+        });
+    }
+    return variants;
+}
+
+function readTransportRouteMapPreviewStops(raw: unknown): TransportRouteMapPreviewStop[] {
+    if (!Array.isArray(raw)) return [];
+    const stops: TransportRouteMapPreviewStop[] = [];
+    for (const item of raw) {
+        if (!item || typeof item !== "object") continue;
+        const row = item as Record<string, unknown>;
+        const publicId = typeof row.publicId === "string" ? row.publicId : null;
+        const displayName = typeof row.displayName === "string" ? row.displayName : null;
+        const sequence = typeof row.sequence === "number" ? row.sequence : null;
+        const lat = typeof row.lat === "number" ? row.lat : null;
+        const lng = typeof row.lng === "number" ? row.lng : null;
+        if (!publicId || !displayName || sequence === null || lat === null || lng === null) {
+            continue;
+        }
+        stops.push({ publicId, displayName, sequence, lat, lng });
+    }
+    return stops;
+}
+
+function serializeTransportRouteMapPreview(
+    entityType: "transport_route" | "transport_route_variant",
+    entityId: string,
+    row: TransportRouteMapPreviewRow,
+): TransportRouteMapPreviewResult {
+    const geometry = row.path_geometry as { type: string; coordinates: unknown };
+    return {
+        entityType,
+        entityId,
+        bbox: [row.min_lng, row.min_lat, row.max_lng, row.max_lat],
+        path: {
+            type: "Feature",
+            geometry,
+            properties: { entityType, entityId },
+        },
+        variants: readTransportRouteMapPreviewVariants(row.variants_json),
+        importantStops: readTransportRouteMapPreviewStops(row.stops_json),
+    };
+}
+
 export type PlusCodeReverse = {
     nearbyName: string | null;
     nearbyType: string | null;
@@ -818,28 +1324,62 @@ export type PlusCodeReverse = {
  */
 export type PlusCodeSearchResult = {
     id: string;
+    entityType: "plus_code";
     type: "plus_code";
-    myanmar_name: null;
-    english_name: null;
-    name_mm: null;
-    name_en: null;
-    display_name: string;
-    primary_name: null;
-    canonical_name: null;
+    displayName: string;
     subtitle: string | null;
-    categoryName: null;
     lat: number | null;
     lng: number | null;
-    cameraTarget?: { type: "point"; center: [number, number]; zoom: number };
-    plus_code: string;
-    geometryType: "Point";
     center: [number, number] | null;
+    bbox: null;
+    geometryType: "Point";
     hasGeometry: boolean;
-    outsideServiceArea: boolean;
-    referenceRequired: boolean;
-    reason?: "REFERENCE_REQUIRED";
+    score: number;
+    verification: PublicSearchVerificationSummary;
+    category: null;
+    cameraTarget?: { type: "point"; center: [number, number]; zoom: number };
+    plusCode: {
+        code: string;
+        referenceRequired: boolean;
+        outsideServiceArea: boolean;
+        reason?: "REFERENCE_REQUIRED";
+    };
     reverse: PlusCodeReverse | null;
 };
+
+function emptySearchVerification(): PublicSearchVerificationSummary {
+    return {
+        isVerified: false,
+        confidenceScore: null,
+        boundaryConfidenceScore: null,
+        reviewStatus: null,
+        verificationStatus: null,
+    };
+}
+
+function plusCodeBase(normalizedCode: string): Omit<
+    PlusCodeSearchResult,
+    | "lat"
+    | "lng"
+    | "center"
+    | "hasGeometry"
+    | "score"
+    | "cameraTarget"
+    | "plusCode"
+    | "reverse"
+> {
+    return {
+        id: normalizedCode,
+        entityType: "plus_code",
+        type: "plus_code",
+        displayName: normalizedCode,
+        subtitle: "Plus Code",
+        bbox: null,
+        geometryType: "Point",
+        verification: emptySearchVerification(),
+        category: null,
+    };
+}
 
 function toPlusCodeReverse(row: {
     nearby_name: string | null;
@@ -863,27 +1403,6 @@ function toPlusCodeReverse(row: {
     };
 }
 
-function plusCodeBase(normalizedCode: string): Omit<
-    PlusCodeSearchResult,
-    "lat" | "lng" | "center" | "hasGeometry" | "outsideServiceArea" | "referenceRequired" | "reverse"
-> {
-    return {
-        id: normalizedCode,
-        type: "plus_code",
-        myanmar_name: null,
-        english_name: null,
-        name_mm: null,
-        name_en: null,
-        display_name: normalizedCode,
-        primary_name: null,
-        canonical_name: null,
-        subtitle: "Plus Code",
-        categoryName: null,
-        plus_code: normalizedCode,
-        geometryType: "Point",
-    };
-}
-
 export function plusCodePinResult(
     normalizedCode: string,
     lat: number,
@@ -896,11 +1415,15 @@ export function plusCodePinResult(
         subtitle: reverse?.nearbyName ?? "Plus Code",
         lat,
         lng,
-        cameraTarget: { type: "point", center: [lng, lat], zoom: 18 },
         center: [lng, lat],
         hasGeometry: true,
-        outsideServiceArea,
-        referenceRequired: false,
+        score: 100,
+        cameraTarget: { type: "point", center: [lng, lat], zoom: 18 },
+        plusCode: {
+            code: normalizedCode,
+            referenceRequired: false,
+            outsideServiceArea,
+        },
         reverse,
     };
 }
@@ -913,41 +1436,40 @@ export function plusCodeReferenceRequiredResult(normalizedCode: string): PlusCod
         lng: null,
         center: null,
         hasGeometry: false,
-        outsideServiceArea: false,
-        referenceRequired: true,
-        reason: "REFERENCE_REQUIRED",
+        score: 100,
+        plusCode: {
+            code: normalizedCode,
+            referenceRequired: true,
+            outsideServiceArea: false,
+            reason: "REFERENCE_REQUIRED",
+        },
         reverse: null,
     };
 }
 
 /**
- * A raw-coordinate search hit. Shares the base search-hit fields (so existing
- * clients keep working) and always resolves to a point pin — it never queries
+ * A raw-coordinate search hit. Always resolves to a point pin — it never queries
  * the search index. Reverse details are best-effort (in-service-area only).
  */
 export type CoordinateSearchResult = {
     id: string;
-    type: "coordinate";
     entityType: "coordinate";
-    myanmar_name: null;
-    english_name: null;
-    name_mm: null;
-    name_en: null;
-    display_name: string;
+    type: "coordinate";
     displayName: string;
-    primary_name: null;
-    canonical_name: null;
     subtitle: string;
-    categoryName: null;
     lat: number;
     lng: number;
     center: [number, number];
-    bbox: [number, number, number, number] | null;
+    bbox: null;
     geometryType: "Point";
     hasGeometry: true;
     score: number;
+    verification: PublicSearchVerificationSummary;
+    category: null;
     cameraTarget: { type: "point"; center: [number, number]; zoom: number };
-    outsideServiceArea: boolean;
+    coordinate: {
+        outsideServiceArea: boolean;
+    };
     reverse: PlusCodeReverse | null;
 };
 
@@ -966,20 +1488,10 @@ export function coordinatePinResult(
     const label = formatCoordinateLabel(lat, lng);
     return {
         id: label,
-        type: "coordinate",
         entityType: "coordinate",
-        myanmar_name: null,
-        english_name: null,
-        name_mm: null,
-        name_en: null,
-        display_name: label,
+        type: "coordinate",
         displayName: label,
-        primary_name: null,
-        canonical_name: null,
-        // Always a clean, stable descriptor. The locality/admin detail (township,
-        // district, region) travels in `reverse` for the client to render.
         subtitle: "Coordinate location",
-        categoryName: null,
         lat,
         lng,
         center: [lng, lat],
@@ -987,10 +1499,50 @@ export function coordinatePinResult(
         geometryType: "Point",
         hasGeometry: true,
         score: 100,
+        verification: emptySearchVerification(),
+        category: null,
         cameraTarget: { type: "point", center: [lng, lat], zoom: 17 },
-        outsideServiceArea,
+        coordinate: { outsideServiceArea },
         reverse,
     };
+}
+
+export type PublicSearchPageItem =
+    | ReturnType<typeof serializePublicSearchHit>
+    | PlusCodeSearchResult
+    | CoordinateSearchResult;
+
+export type PublicSearchAnalytics = {
+    eventId: string;
+};
+
+export type PublicSearchPage = {
+    items: PublicSearchPageItem[];
+    nextCursor: string | null;
+    hasMore: boolean;
+    analytics?: PublicSearchAnalytics;
+};
+
+export function buildPublicSearchPage(
+    rows: UnifiedSearchRow[],
+    limit: number,
+    cursorContext: PublicSearchCursorContext,
+): PublicSearchPage {
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const items = pageRows.map((row) => serializePublicSearchHit(row, cursorContext.lang));
+    const lastRow = pageRows.at(-1);
+
+    const nextCursor =
+        hasMore && lastRow
+            ? encodePublicSearchCursor({
+                  v: PUBLIC_SEARCH_CURSOR_VERSION,
+                  ctx: cursorContext,
+                  after: publicSearchCursorAfterFromRow(lastRow),
+              })
+            : null;
+
+    return { items, nextCursor, hasMore };
 }
 
 export type UnifiedSearchInput = {

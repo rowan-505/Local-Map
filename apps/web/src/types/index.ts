@@ -5,3 +5,9 @@ export type { PoiFilterState } from './filters';
 export type { Poi, PoiDataSource } from './poi';
 export type { PoiCategory, PoiCategoryCode, PoiCategoryId } from './poi-category';
 export type { SelectedPoiState } from './selection';
+export type {
+  NextStopPreview,
+  NextStopPreviewStop,
+  RouteServingStop,
+  TransportStopDetail,
+} from './transport-stop';

@@ -47,6 +47,7 @@ import { useLocationDiagnostics } from '@/features/location/LocationDiagnostics'
 import { detectLocationBrowserEnvironment } from '@/features/location/locationBrowserEnvironment';
 import { isCenterWorthyAccuracy } from '@/features/location/locationAccuracy';
 import {
+  isLocationDebugOverlayEnabled,
   logLocationDebugBanner,
   logLocationEvent,
   roundOrNull,
@@ -55,15 +56,38 @@ import {
   usePublicCategories,
   usePublicMapPlaces,
   usePublicPlace,
-  usePublicSearch,
+  useInfinitePublicSearch,
+  useSearchResultOverlayGeometry,
   type SearchCenter,
 } from '@/features/poi/api/usePublicMapData';
+import {
+  flattenPublicSearchPages,
+  publicSearchReachedSessionCap,
+} from '@/features/poi/api/publicSearchPages';
+import { searchResultOverlayZoomBucket } from '@/features/poi/api/publicMapApi';
+import { isPointLikeHighlight } from '@/features/map/lib/maplibre/searchHighlightOnMap';
+import type {
+  PublicSearchCategory,
+  PublicSearchTransportMode,
+  PublicSearchTransportType,
+} from '@/features/poi/api/publicSearchConstants';
+import { PUBLIC_SEARCH_ADDRESSES_FILTER_ENABLED } from '@/features/poi/api/publicSearchConstants';
+import { publicSearchApiLang } from '@/features/poi/api/publicSearchLang';
+import {
+  computePublicSearchClickedRank,
+  recordPublicSearchResultClick,
+  resolvePublicSearchAnalyticsEventId,
+} from '@/features/poi/api/searchClickAnalytics';
+import { usePublicTransportDetail } from '@/features/transport/api/usePublicTransportDetail';
 import type {
   PublicMapPlacesResult,
   PublicSearchResult,
   SearchCameraTarget,
 } from '@/features/poi/api/publicMapApi';
 import { PlaceDetailPanel } from '@/features/poi/components/PlaceDetailPanel';
+import { TransportStopDetailPanel } from '@/features/transport/components/TransportStopDetailPanel';
+import { transportStopPanelHeaderTitle } from '@/features/transport/transportStopLabels';
+import type { TransportMapSelection } from '@/features/transport/transportMapSelection';
 import { readShareNavState } from '@/features/share/shareNavigation';
 import type { Poi } from '@/types';
 import { MapShell, MapViewport } from './HomePageLayout';
@@ -87,10 +111,16 @@ export default function HomePage() {
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(
     initialShare?.kind === 'place' ? initialShare.placePublicId : null,
   );
+  const [selectedTransportSelection, setSelectedTransportSelection] =
+    useState<TransportMapSelection | null>(null);
+  const [searchCategory, setSearchCategory] = useState<PublicSearchCategory>('all');
+  const [searchTransportType, setSearchTransportType] =
+    useState<PublicSearchTransportType>('all');
+  const [searchTransportMode, setSearchTransportMode] =
+    useState<PublicSearchTransportMode>('all');
+  const [searchGeoBias, setSearchGeoBias] = useState<SearchCenter | null>(null);
   const [selectedSearchResult, setSelectedSearchResult] =
     useState<PublicSearchResult | null>(null);
-  /** Loading flag for the geometry overlay fetch only (line/polygon results). */
-  const [searchHighlightLoading, setSearchHighlightLoading] = useState(false);
   const [cameraTarget, setCameraTarget] = useState<SearchCameraTarget | undefined>(
     initialShare
       ? {
@@ -158,7 +188,72 @@ export default function HomePage() {
     };
   }, [mapViewport]);
   const getSearchCenter = useCallback(() => mapCenterRef.current, []);
-  const searchResultsQuery = usePublicSearch(debouncedSearchQuery, getSearchCenter);
+
+  useEffect(() => {
+    setSearchGeoBias(getSearchCenter() ?? null);
+  }, [
+    debouncedSearchQuery,
+    searchCategory,
+    searchTransportType,
+    searchTransportMode,
+    getSearchCenter,
+  ]);
+
+  useEffect(() => {
+    if (!PUBLIC_SEARCH_ADDRESSES_FILTER_ENABLED && searchCategory === 'addresses') {
+      setSearchCategory('all');
+    }
+  }, [searchCategory]);
+
+  const searchOverlayZoom = searchResultOverlayZoomBucket(mapViewport?.zoom ?? 14);
+  const searchOverlayGeometryQuery = useSearchResultOverlayGeometry(
+    selectedSearchResult,
+    searchOverlayZoom,
+  );
+  const searchHighlightLoading =
+    selectedSearchResult !== null &&
+    !isPointLikeHighlight(selectedSearchResult) &&
+    searchOverlayGeometryQuery.isFetching;
+
+  const searchApiLang = publicSearchApiLang(languageMode);
+
+  const searchResultsQuery = useInfinitePublicSearch({
+    q: debouncedSearchQuery,
+    lang: searchApiLang,
+    category: searchCategory,
+    transportType: searchTransportType,
+    transportMode: searchTransportMode,
+    geoBias: searchGeoBias,
+  });
+
+  const searchResults = useMemo(
+    () => flattenPublicSearchPages(searchResultsQuery.data?.pages),
+    [searchResultsQuery.data?.pages],
+  );
+  const searchAnalyticsEventId = useMemo(
+    () => resolvePublicSearchAnalyticsEventId(searchResultsQuery.data?.pages),
+    [searchResultsQuery.data?.pages],
+  );
+  const searchAnalyticsStartedAtRef = useRef<number | null>(null);
+  const searchAnalyticsSessionKeyRef = useRef('');
+  const searchAnalyticsSessionKey = `${debouncedSearchQuery}::${searchAnalyticsEventId ?? ''}`;
+
+  if (searchAnalyticsEventId && searchAnalyticsSessionKey !== searchAnalyticsSessionKeyRef.current) {
+    searchAnalyticsSessionKeyRef.current = searchAnalyticsSessionKey;
+    searchAnalyticsStartedAtRef.current = Date.now();
+  } else if (!searchAnalyticsEventId) {
+    searchAnalyticsSessionKeyRef.current = '';
+    searchAnalyticsStartedAtRef.current = null;
+  }
+  const searchReachedCap = publicSearchReachedSessionCap(searchResultsQuery.data?.pages);
+  const searchHasMore =
+    !searchReachedCap &&
+    (searchResultsQuery.hasNextPage ?? false) &&
+    !searchResultsQuery.isFetchingNextPage;
+  const searchInitialError =
+    searchResultsQuery.isError && searchResultsQuery.data === undefined;
+  const searchFetchMoreError =
+    searchResultsQuery.isError && searchResultsQuery.data !== undefined;
 
   const places = useMemo(
     () =>
@@ -184,6 +279,53 @@ export default function HomePage() {
   );
   const selectedPlaceQuery = usePublicPlace(effectiveSelectedPoiId);
   const selectedPoi = selectedPlaceQuery.data ?? selectedListPoi;
+  const selectedTransportStopQuery = usePublicTransportDetail(
+    selectedTransportSelection,
+    languageMode,
+  );
+  const transportStopDetailTitle = useMemo(() => {
+    if (!selectedTransportSelection) return undefined;
+    const stop = selectedTransportStopQuery.data ?? selectedTransportSelection.preview;
+    return transportStopPanelHeaderTitle(
+      selectedTransportSelection,
+      stop.stopType,
+      stop.mode,
+    );
+  }, [selectedTransportSelection, selectedTransportStopQuery.data]);
+
+  /** Refresh selected transport pin caption when API detail replaces tile preview. */
+  useEffect(() => {
+    const detail = selectedTransportStopQuery.data;
+    const apiLookupId = selectedTransportSelection?.apiLookupId;
+    if (!detail || !apiLookupId) return;
+
+    setSelectedTransportSelection((previous) => {
+      if (!previous || previous.apiLookupId !== apiLookupId) return previous;
+
+      const nameMm = detail.nameMm ?? detail.myanmarName ?? previous.highlight.nameMm;
+      const nameEn = detail.nameEn ?? detail.englishName ?? previous.highlight.nameEn;
+      const label = detail.displayName ?? detail.name ?? previous.highlight.label;
+
+      if (
+        previous.highlight.nameMm === nameMm &&
+        previous.highlight.nameEn === nameEn &&
+        previous.highlight.label === label
+      ) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        preview: detail,
+        highlight: {
+          ...previous.highlight,
+          nameMm: nameMm ?? undefined,
+          nameEn: nameEn ?? undefined,
+          label: label ?? undefined,
+        },
+      };
+    });
+  }, [selectedTransportStopQuery.data, selectedTransportSelection?.apiLookupId]);
 
   const selectedPoiIdForMap = selectedPoi?.id ?? effectiveSelectedPoiId;
   const mapPlaces = useMemo(
@@ -226,6 +368,7 @@ export default function HomePage() {
   const onSelectPoiId = useCallback((id: string | null) => {
     setSelectedPoiId(id);
     setSelectedSearchResult(null);
+    setSelectedTransportSelection(null);
 
     if (id !== null) {
       setClickedLocation(null);
@@ -250,23 +393,32 @@ export default function HomePage() {
   }, [places]);
 
   const onSelectSearchResult = useCallback((result: PublicSearchResult) => {
+    recordPublicSearchResultClick({
+      eventId: searchAnalyticsEventId,
+      result,
+      clickedRank: computePublicSearchClickedRank(searchResults, result),
+      searchStartedAtMs: searchAnalyticsStartedAtRef.current,
+    });
+
     // Selecting a result ONLY updates the selection + map overlay. It must not
     // touch searchQuery/searchResults, switch the active panel, or refetch the
     // list — so the results stay visible and stable while clicking through.
     setSelectedSearchResult(result);
     setClickedLocation(null);
+    setSelectedTransportSelection(null);
     setSelectedPoiId(result.type === 'place' ? (result.publicId ?? result.id) : null);
 
     // Camera + map highlight are owned by the search-highlight overlay (MapView
     // reads `searchHighlight`), so clear any prior cameraTarget to avoid double moves.
     setCameraTarget(undefined);
     setIsSidebarOpen(true);
-  }, []);
+  }, [searchAnalyticsEventId, searchResults]);
 
   /** Dismiss the selected-result card (and its map highlight) without losing the list. */
   const onClearSelectedSearchResult = useCallback(() => {
     setSelectedSearchResult(null);
     setSelectedPoiId(null);
+    setSelectedTransportSelection(null);
   }, []);
 
   /** Open the full place detail panel on demand (from the mini card). */
@@ -284,6 +436,25 @@ export default function HomePage() {
     [setSearchQuery],
   );
 
+  const onSearchCategoryChange = useCallback((category: PublicSearchCategory) => {
+    setSearchCategory(category);
+    setSelectedSearchResult(null);
+    if (category !== 'transport') {
+      setSearchTransportType('all');
+      setSearchTransportMode('all');
+    }
+  }, []);
+
+  const onSearchTransportTypeChange = useCallback((transportType: PublicSearchTransportType) => {
+    setSearchTransportType(transportType);
+    setSelectedSearchResult(null);
+  }, []);
+
+  const onSearchTransportModeChange = useCallback((mode: PublicSearchTransportMode) => {
+    setSearchTransportMode(mode);
+    setSelectedSearchResult(null);
+  }, []);
+
   const onClearSearch = useCallback(() => {
     setSearchQuery('');
     setSelectedSearchResult(null);
@@ -294,8 +465,24 @@ export default function HomePage() {
 
   const onBackToSearch = useCallback(() => {
     setSelectedSearchResult(null);
+    setSelectedTransportSelection(null);
     setActiveSidebarMode('search');
     setIsSidebarOpen(true);
+  }, []);
+
+  const onSelectTransportStop = useCallback((selection: TransportMapSelection) => {
+    setSelectedTransportSelection(selection);
+    setSelectedPoiId(null);
+    setSelectedSearchResult(null);
+    setClickedLocation(null);
+    setActiveSidebarMode('transportStopDetail');
+    setIsSidebarOpen(true);
+    setCameraTarget({
+      type: 'point',
+      center: selection.coordinates,
+      zoom: 16,
+      duration: 700,
+    });
   }, []);
 
   const openAccountDrawer = useCallback(() => {
@@ -316,6 +503,7 @@ export default function HomePage() {
   const onSelectSavedLocation = useCallback((selection: SavedLocationSelection) => {
     setSelectedPoiId(null);
     setSelectedSearchResult(null);
+    setSelectedTransportSelection(null);
     setClickedLocation(null);
     setCameraTarget({
       type: 'point',
@@ -384,6 +572,7 @@ export default function HomePage() {
 
       setSelectedPoiId(null);
       setSelectedSearchResult(null);
+      setSelectedTransportSelection(null);
       setClickedLocation(location);
       setActiveSidebarMode('address');
       setIsSidebarOpen(true);
@@ -421,7 +610,7 @@ export default function HomePage() {
     isLikelyInAppBrowser: locationBrowserEnv.isLikelyInAppBrowser,
     isLikelyAndroidChrome,
   });
-  // Announce debug mode once at load (local dev or ?debugLocation=1). Console-only.
+  // Announce debug logging once at load when enabled (dev or ?debugLocation=1). Console-only.
   useEffect(() => {
     logLocationDebugBanner();
   }, []);
@@ -659,7 +848,7 @@ export default function HomePage() {
             selectedPoi={selectedPoi}
             cameraTarget={mapCameraTarget}
             searchHighlight={selectedSearchResult}
-            onSearchHighlightLoadingChange={setSearchHighlightLoading}
+            searchHighlightGeometry={searchOverlayGeometryQuery.data ?? null}
             cameraLayout={mapCameraLayout}
             clickedLocation={clickedLocation}
             directionsOverlay={directionsOverlay}
@@ -670,6 +859,8 @@ export default function HomePage() {
             locationCameraCommand={locationCamera}
             onUserLocationFollowDisengage={userLocation.disableFollowing}
             onSelectPoiId={onSelectPoiId}
+            selectedTransportSelection={selectedTransportSelection}
+            onSelectTransportStop={onSelectTransportStop}
             onEmptyMapClick={onEmptyMapClick}
             onViewportChange={setMapViewport}
           />
@@ -679,6 +870,7 @@ export default function HomePage() {
         <MapSidebar
           isOpen={isSidebarOpen}
           activeMode={activeSidebarMode}
+          transportStopDetailTitle={transportStopDetailTitle}
           onCollapse={() => setIsSidebarOpen(false)}
           bottomSheetState={bottomSheetState}
           onBottomSheetStateChange={setBottomSheetState}
@@ -689,7 +881,13 @@ export default function HomePage() {
               onSelectCategory={selectCategory}
               searchQuery={searchQuery}
               onSearchQueryChange={onSearchQueryChange}
-              searchResults={searchResultsQuery.data ?? []}
+              searchCategory={searchCategory}
+              onSearchCategoryChange={onSearchCategoryChange}
+              searchTransportType={searchTransportType}
+              onSearchTransportTypeChange={onSearchTransportTypeChange}
+              searchTransportMode={searchTransportMode}
+              onSearchTransportModeChange={onSearchTransportModeChange}
+              searchResults={searchResults}
               selectedSearchResultId={selectedSearchResult?.id ?? null}
               selectedSearchResult={selectedSearchResult}
               selectedResultLoading={searchHighlightLoading}
@@ -703,7 +901,17 @@ export default function HomePage() {
               selectedPoiId={selectedPoiIdForMap}
               onSelectPoiId={onSelectPoiId}
               searchLoading={searchResultsQuery.isLoading}
-              searchError={searchResultsQuery.isError}
+              searchLoadingMore={searchResultsQuery.isFetchingNextPage}
+              searchError={searchInitialError}
+              searchFetchMoreError={searchFetchMoreError}
+              hasMoreSearch={searchHasMore}
+              searchReachedCap={searchReachedCap}
+              onLoadMoreSearch={() => {
+                void searchResultsQuery.fetchNextPage();
+              }}
+              onRetrySearch={() => {
+                void searchResultsQuery.refetch();
+              }}
               categoriesLoading={categoriesQuery.isLoading}
               categoriesError={categoriesQuery.isError}
               placesLoading={placesQuery.isLoading}
@@ -724,6 +932,26 @@ export default function HomePage() {
               selectedSearchResult={selectedSearchResult}
               onBack={onBackToSearch}
               onRoutePlace={onRoutePlace}
+            />
+          }
+          transportStopDetailPanel={
+            <TransportStopDetailPanel
+              selection={selectedTransportSelection}
+              selectedStop={selectedTransportStopQuery.data}
+              detailLoading={
+                selectedTransportStopQuery.isFetching &&
+                !selectedTransportStopQuery.isError &&
+                selectedTransportStopQuery.data === undefined
+              }
+              detailFetched={
+                selectedTransportStopQuery.isFetched || selectedTransportStopQuery.isError
+              }
+              detailError={selectedTransportStopQuery.error}
+              onBack={onBackToSearch}
+              onRoutePlace={onRoutePlace}
+              onRetry={() => {
+                void selectedTransportStopQuery.refetch();
+              }}
             />
           }
           addressPanel={
@@ -776,11 +1004,13 @@ export default function HomePage() {
             }
           />
           <LocationToast toast={locationToast} />
-          <LocationDebugOverlay
-            status={userLocation.status}
-            accuracyM={userLocation.fix ? Math.round(userLocation.fix.accuracyM) : null}
-            isInsideCoverage={userLocation.isInsideCoverage}
-          />
+          {isLocationDebugOverlayEnabled() ? (
+            <LocationDebugOverlay
+              status={userLocation.status}
+              accuracyM={userLocation.fix ? Math.round(userLocation.fix.accuracyM) : null}
+              isInsideCoverage={userLocation.isInsideCoverage}
+            />
+          ) : null}
         </>
       }
     />

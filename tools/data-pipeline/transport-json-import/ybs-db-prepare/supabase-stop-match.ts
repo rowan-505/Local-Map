@@ -29,7 +29,7 @@ import {
     YBS_STOP_SOURCE_KIND,
     YBS_STOP_SOURCE_NAME,
 } from "./stop-normalize.js";
-import { isProtectedReviewStatus } from "../ybs-supabase-import/supabase-schema-map.js";
+import { isProtectedReviewStatus } from "../ybs-supabase-import/lib/supabase-schema-map.js";
 
 export type StopMatchDecision =
     | "reuse_existing_stop"

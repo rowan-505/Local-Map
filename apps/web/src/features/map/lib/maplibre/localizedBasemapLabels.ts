@@ -8,6 +8,11 @@ import { getMapTextFieldExpression } from '@local-map/localized-name';
 import type { MapEngine } from '../mapEngineTypes';
 import { getOverviewLabelTextField } from './overviewLabelTextFields';
 import { getRoadLabelTextField } from './roadLabelTextFields';
+import {
+  PLACES_SELECTED_LABEL_LAYER_ID,
+  TRANSPORT_SELECTED_LABEL_LAYER_ID,
+} from './publicMapMarkerLayerIds';
+import { selectedMarkerCaptionTextField } from './publicMapLabelPolicy';
 
 const ADMIN_LABEL_LAYER_IDS = new Set([
   'admin-labels-township',
@@ -50,6 +55,9 @@ export function resolveSymbolLayerTextField(
   const roadExpr = getRoadLabelTextField(layerId, mode);
   if (roadExpr) {
     return roadExpr;
+  }
+  if (layerId === PLACES_SELECTED_LABEL_LAYER_ID || layerId === TRANSPORT_SELECTED_LABEL_LAYER_ID) {
+    return selectedMarkerCaptionTextField(mode);
   }
   return getMapTextFieldExpression(mode) as ExpressionSpecification;
 }

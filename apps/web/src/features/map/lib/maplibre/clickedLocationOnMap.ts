@@ -2,9 +2,14 @@ import type { GeoJSONSource } from 'maplibre-gl';
 import type { MapClickedLocation } from '../../types';
 import type { MapEngine } from '../mapEngineTypes';
 
-const CLICKED_LOCATION_SOURCE_ID = 'clicked-location' as const;
-const CLICKED_LOCATION_SHADOW_LAYER_ID = 'clicked-location-shadow' as const;
-const CLICKED_LOCATION_LAYER_ID = 'clicked-location-pin' as const;
+export const CLICKED_LOCATION_SOURCE_ID = 'clicked-location' as const;
+export const CLICKED_LOCATION_SHADOW_LAYER_ID = 'clicked-location-shadow' as const;
+export const CLICKED_LOCATION_LAYER_ID = 'clicked-location-pin' as const;
+
+export const CLICKED_LOCATION_LAYER_IDS = [
+  CLICKED_LOCATION_SHADOW_LAYER_ID,
+  CLICKED_LOCATION_LAYER_ID,
+] as const;
 const CLICKED_LOCATION_PIN_IMAGE_ID = 'clicked-location-pin-image' as const;
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {
@@ -59,8 +64,9 @@ export function setClickedLocation(map: MapEngine, location: MapClickedLocation 
 }
 
 export function moveClickedLocationLayersToTop(map: MapEngine): void {
-  if (map.getLayer(CLICKED_LOCATION_SHADOW_LAYER_ID)) map.moveLayer(CLICKED_LOCATION_SHADOW_LAYER_ID);
-  if (map.getLayer(CLICKED_LOCATION_LAYER_ID)) map.moveLayer(CLICKED_LOCATION_LAYER_ID);
+  for (const layerId of CLICKED_LOCATION_LAYER_IDS) {
+    if (map.getLayer(layerId)) map.moveLayer(layerId);
+  }
 }
 
 function ensureClickedLocationPinImage(map: MapEngine): void {

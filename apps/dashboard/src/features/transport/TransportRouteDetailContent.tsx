@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { isAbortError } from "@/src/lib/api";
 import { transportPath } from "@/src/lib/dashboardNavigation";
@@ -9,6 +9,7 @@ import {
     applyTransportRoutePathReviewAction,
     applyTransportRouteReviewAction,
     applyTransportStopReviewAction,
+    permanentDeleteTransportStop,
     deleteTransportRouteVariant,
     deleteTransportVariantPath,
     getTransportRouteDetail,
@@ -22,32 +23,72 @@ import {
     removeTransportRouteStop,
     replaceTransportRouteStop,
     searchTransportStops,
+    swapTransportRouteDirection,
     updateTransportRouteStop,
     updateTransportStopLocation,
 } from "./api";
+import PermanentDeleteStopDialog from "./PermanentDeleteStopDialog";
 import { transportModeLabel } from "./constants";
 import { getTransportDisplayNameFromNames } from "./naming";
 import InsertRouteStopDialog, {
     type InsertStopContext,
-    type InsertStopLngLat,
 } from "./InsertRouteStopDialog";
 import RemoveRouteStopDialog from "./RemoveRouteStopDialog";
+import SwapRouteDirectionDialog from "./SwapRouteDirectionDialog";
+import { getRouteDirectionSwapPair } from "./routeDirectionSwap";
+import ReviewMapCandidateCompareDialog from "./ReviewMapCandidateCompareDialog";
+import { candidateDisplayName } from "./reviewMapCandidateDisplay";
+import { useReviewMapNearbyCandidates } from "./useReviewMapNearbyCandidates";
+import { useTransportStopRouteUsageDetail } from "./useTransportStopRouteUsageDetail";
+import TransportStopUsageDialog, {
+    type TransportStopUsageDialogMode,
+} from "./TransportStopUsageDialog";
+import {
+    buildInsertAfterContext,
+    buildInsertAtStartContext,
+} from "./routeStopInsertContext";
+import {
+    buildRouteStopMutationUpdate,
+    isValidOrderedStopsMutationResponse,
+    orderedStopLiteToItem,
+    resolveSelectedRouteStopIdAfterMutation,
+    type ApplyRouteStopMutationOptions,
+} from "./routeStopMutationHelpers";
+import {
+    formatReviewMapStopActionError,
+    formatTransportStopMergeErrorOverlay,
+    type ReviewMapActionToastState,
+} from "./reviewMapActionFeedback";
+import type { TransportStopMergeResultOverlayState } from "./stopMergeResultDisplay";
+import TransportStopMergeResultOverlay from "./TransportStopMergeResultOverlay";
+import { useSelectedStopRouteUsage } from "./useSelectedStopRouteUsage";
 import GeneratePathFromStopsDialog from "./GeneratePathFromStopsDialog";
 import TransportPreviewMap from "./TransportPreviewMap";
 import TransportRouteReviewPanel from "./TransportRouteReviewPanel";
-import TransportRouteReviewMapShell, {
-    type ReviewMapSaveOptions,
-} from "./TransportRouteReviewMapShell";
+import TransportRouteReviewMapShell from "./TransportRouteReviewMapShell";
+import TransportRouteMoreMetadataPanel from "./TransportRouteMoreMetadataPanel";
+import { TransportRouteAdvancedDiagnosticsPanel } from "./TransportRouteAdvancedDiagnosticsPanel";
 import {
     buildRouteReviewChecklist,
+    AdvancedToolSection,
     CollapsibleSection,
     RouteDetailHeader,
     RouteReviewChecklistCard,
     RouteSummaryCard,
     RouteVariantsCard,
+    TransportToolbarButton,
 } from "./TransportRouteDetailCards";
 import { evaluateGeneratePathFromStopsReadiness } from "./reviewMapPathGeneration";
-import { routeStopItemsToPreviewStops } from "./transportPreviewStops";
+import {
+    isTransportNetworkError,
+    logTransportReadinessFetchError,
+} from "./transportFetchErrors";
+import { routeStopItemsToPreviewStops, applyStopLocationDetailToRouteStops } from "./transportPreviewStops";
+import {
+    deriveReviewMapActiveDetail,
+    reviewMapPreviewGeomForRouteStop,
+    routeStopSavedGeom,
+} from "./reviewMapSelectionState";
 import {
     coordsToLineStringGeometry,
     deletePathVertex,
@@ -61,12 +102,13 @@ import { DuplicateBadge, GeometryBadge } from "./transportReviewUi";
 import type {
     DuplicateStatus,
     RouteReviewReadiness,
+    TransportNearbyStopCandidate,
+    TransportRouteStopMutationResult,
     StopGeometryStatus,
-    TransportOrderedStopLite,
     TransportRouteDetail,
     TransportRouteStopItem,
-    TransportRouteStopMutationResult,
     TransportRoutePath,
+    TransportStopMergeGlobalResult,
     TransportStopSearchItem,
     TransportVariantStopQualityItem,
     TransportVariantSummary,
@@ -87,6 +129,9 @@ function stopQualityDuplicateStatus(
     quality: TransportVariantStopQualityItem | undefined
 ): DuplicateStatus {
     if (!quality) {
+        return "none";
+    }
+    if (quality.is_loop_closure) {
         return "none";
     }
     if (quality.is_exact_duplicate_in_variant) {
@@ -254,80 +299,6 @@ function ReplaceRouteStopDialog({
 }
 
 
-/**
- * Map a lightweight mutation-response stop into the richer ordered-stop item the
- * panel + map already render, so a mutation can update local state without a
- * heavy refetch. The mutation response intentionally omits distance_from_start_m
- * (not displayed here) and path geometry (unchanged by a membership edit).
- */
-function orderedStopLiteToItem(s: TransportOrderedStopLite): TransportRouteStopItem {
-    const geometry =
-        s.longitude !== null && s.latitude !== null
-            ? { type: "Point" as const, coordinates: [s.longitude, s.latitude] }
-            : null;
-    return {
-        id: s.route_stop_id,
-        stop_sequence: s.stop_sequence,
-        pickup_type: s.pickup_type,
-        drop_off_type: s.drop_off_type,
-        is_timing_point: s.is_timing_point,
-        distance_from_start_m: null,
-        geometry_source: s.geometry_source,
-        stop: {
-            public_id: s.stop_public_id,
-            name: s.display_name,
-            name_mm: s.name_mm,
-            name_en: s.name_en,
-            mode: s.mode,
-            stop_type: s.stop_type,
-            geometry,
-            review_status: s.review_status,
-        },
-    };
-}
-
-function patchRouteStopGeometry(
-    stops: readonly TransportRouteStopItem[],
-    routeStopId: string,
-    lng: number,
-    lat: number,
-): TransportRouteStopItem[] {
-    return stops.map((s) =>
-        s.id !== routeStopId
-            ? s
-            : {
-                  ...s,
-                  geometry_source: "stop_geom",
-                  stop: {
-                      ...s.stop,
-                      geometry: { type: "Point", coordinates: [lng, lat] },
-                  },
-              },
-    );
-}
-
-function pointFromStopDetail(stop: {
-    longitude: number | null;
-    latitude: number | null;
-    geometry: { type: string; coordinates: unknown } | null;
-}): { lng: number; lat: number } | null {
-    if (stop.geometry?.type === "Point" && Array.isArray(stop.geometry.coordinates)) {
-        const lng = Number(stop.geometry.coordinates[0]);
-        const lat = Number(stop.geometry.coordinates[1]);
-        if (Number.isFinite(lng) && Number.isFinite(lat)) {
-            return { lng, lat };
-        }
-    }
-    if (stop.longitude !== null && stop.latitude !== null) {
-        const lng = Number(stop.longitude);
-        const lat = Number(stop.latitude);
-        if (Number.isFinite(lng) && Number.isFinite(lat)) {
-            return { lng, lat };
-        }
-    }
-    return null;
-}
-
 const PICKUP_DROP_OPTIONS = [
     { value: 0, label: "0 · Regular" },
     { value: 1, label: "1 · None" },
@@ -416,11 +387,6 @@ function stopQualitySummary(
     return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-/** Compact stop reference stored in the insert context (no geometry/flags). */
-function stopRef(item: TransportRouteStopItem) {
-    return { id: item.id, name: item.stop.name, stop_sequence: item.stop_sequence };
-}
-
 /** Extracts a [lng, lat] point from a stop's GeoJSON, or null when unavailable. */
 function pointOf(item: TransportRouteStopItem): { lng: number; lat: number } | null {
     const g = item.stop.geometry;
@@ -430,44 +396,6 @@ function pointOf(item: TransportRouteStopItem): { lng: number; lat: number } | n
     const lng = Number(g.coordinates[0]);
     const lat = Number(g.coordinates[1]);
     return Number.isFinite(lng) && Number.isFinite(lat) ? { lng, lat } : null;
-}
-
-/** Midpoint of two points; falls back to whichever single point is available. */
-function midpoint(
-    a: { lng: number; lat: number } | null,
-    b: { lng: number; lat: number } | null
-): { lng: number; lat: number } | null {
-    if (a && b) {
-        return { lng: (a.lng + b.lng) / 2, lat: (a.lat + b.lat) / 2 };
-    }
-    return a ?? b ?? null;
-}
-
-/**
- * Low-noise, full-width dashed button used between/around ordered stops to start
- * an insert. Styling stays muted until hover so the list does not feel cluttered.
- */
-function InsertStopButton({
-    label,
-    onClick,
-    disabled,
-}: {
-    readonly label: string;
-    readonly onClick: () => void;
-    readonly disabled?: boolean;
-}) {
-    return (
-        <div className="px-3 py-1">
-            <button
-                type="button"
-                disabled={disabled}
-                onClick={onClick}
-                className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-400 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-                {label}
-            </button>
-        </div>
-    );
 }
 
 export type TransportRouteDetailContentProps = {
@@ -511,6 +439,11 @@ export default function TransportRouteDetailContent({
     const [variants, setVariants] = useState<readonly TransportVariantSummary[]>([]);
     const variantsRef = useRef(variants);
     variantsRef.current = variants;
+    const stopsLoadedVariantRef = useRef<string | null>(null);
+    const stopsLoadGenerationRef = useRef(0);
+    const reviewMapCenterGetterRef = useRef<(() => { lng: number; lat: number } | null) | null>(
+        null,
+    );
     const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
     const [stops, setStops] = useState<readonly TransportRouteStopItem[]>([]);
@@ -530,6 +463,9 @@ export default function TransportRouteDetailContent({
     const [confirmDeleteVariant, setConfirmDeleteVariant] = useState(false);
     const [variantMutating, setVariantMutating] = useState(false);
     const [variantActionError, setVariantActionError] = useState("");
+    const [swapDirectionOpen, setSwapDirectionOpen] = useState(false);
+    const [swapDirectionError, setSwapDirectionError] = useState("");
+    const [swapDirectionBusy, setSwapDirectionBusy] = useState(false);
 
     const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
     const [stopMutating, setStopMutating] = useState(false);
@@ -541,9 +477,22 @@ export default function TransportRouteDetailContent({
     const [stopReviewBusy, setStopReviewBusy] = useState<string | null>(null);
 
     const [insertContext, setInsertContext] = useState<InsertStopContext | null>(null);
-    // New-stop draft location (create-stop flow), shared with the map for click-to-place.
-    const [newStopPoint, setNewStopPoint] = useState<InsertStopLngLat | null>(null);
-    const [pickingLocation, setPickingLocation] = useState(false);
+    const [usageDialogTarget, setUsageDialogTarget] = useState<{
+        publicId: string;
+        name: string;
+        mode: TransportStopUsageDialogMode;
+    } | null>(null);
+    const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<{
+        publicId: string;
+        name: string;
+    } | null>(null);
+    const [permanentDeleteError, setPermanentDeleteError] = useState("");
+    const [permanentDeleting, setPermanentDeleting] = useState(false);
+    const [candidateCompareTarget, setCandidateCompareTarget] =
+        useState<TransportNearbyStopCandidate | null>(null);
+    const [mergeCompareInitialCanonicalSide, setMergeCompareInitialCanonicalSide] = useState<
+        "current" | "candidate"
+    >("current");
 
     // --- Route path drawing (selected variant). ------------------------------
     // `pathMode` null = idle; "create"/"edit" = drawing. `draftPath` holds the
@@ -555,13 +504,16 @@ export default function TransportRouteDetailContent({
     const [confirmDeletePath, setConfirmDeletePath] = useState(false);
 
     const [reviewMapOpen, setReviewMapOpen] = useState(false);
-    const [reviewMapSelectedStopId, setReviewMapSelectedStopId] = useState<string | null>(null);
-    const [reviewMapStopDrafts, setReviewMapStopDrafts] = useState<
-        Record<string, { lng: number; lat: number }>
+    const [selectedRouteStopId, setSelectedRouteStopId] = useState<string | null>(null);
+    /** Unsaved preview geometry keyed by route-stop occurrence id. */
+    const [previewGeomByRouteStopId, setPreviewGeomByRouteStopId] = useState<
+        Readonly<Record<string, { lng: number; lat: number }>>
     >({});
-    const [reviewMapSaveLoading, setReviewMapSaveLoading] = useState(false);
-    const [reviewMapSaveError, setReviewMapSaveError] = useState("");
-    const [reviewMapSaveSuccess, setReviewMapSaveSuccess] = useState<string | null>(null);
+    const [reviewMapStopPreviewSaveBusy, setReviewMapStopPreviewSaveBusy] = useState(false);
+    const [reviewMapToast, setReviewMapToast] = useState<ReviewMapActionToastState>(null);
+    const reviewMapToastTimerRef = useRef<number | null>(null);
+    const [mergeResultOverlay, setMergeResultOverlay] =
+        useState<TransportStopMergeResultOverlayState>(null);
     const [reviewMapCenterStopRequest, setReviewMapCenterStopRequest] = useState<{
         id: number;
         stopId: string;
@@ -585,11 +537,92 @@ export default function TransportRouteDetailContent({
     const [advancedOpen, setAdvancedOpen] = useState(false);
     const [readiness, setReadiness] = useState<RouteReviewReadiness | null>(null);
     const [readinessLoading, setReadinessLoading] = useState(false);
-    const [readinessError, setReadinessError] = useState("");
+    const [readinessUnavailable, setReadinessUnavailable] = useState(false);
+
+    const showReviewMapToast = useCallback((kind: "success" | "error", message: string) => {
+        if (reviewMapToastTimerRef.current !== null) {
+            window.clearTimeout(reviewMapToastTimerRef.current);
+        }
+        setReviewMapToast({ kind, message });
+        reviewMapToastTimerRef.current = window.setTimeout(() => {
+            setReviewMapToast(null);
+            reviewMapToastTimerRef.current = null;
+        }, 3200);
+    }, []);
+
+    const selectedRouteStop = useMemo(
+        () =>
+            selectedRouteStopId
+                ? (stops.find((stop) => stop.id === selectedRouteStopId) ?? null)
+                : null,
+        [selectedRouteStopId, stops],
+    );
+    const selectedRouteStopPublicId = selectedRouteStop?.stop.public_id ?? null;
+    const selectedStopRouteUsage = useSelectedStopRouteUsage(selectedRouteStopPublicId);
+    const {
+        loading: selectedStopRouteUsageLoading,
+        deleteAllowed: selectedStopDeleteAllowed,
+        blockMessage: selectedStopDeleteBlockMessage,
+        reload: reloadSelectedStopRouteUsage,
+    } = selectedStopRouteUsage;
+
+    const selectedRouteStopName = useMemo(() => {
+        if (!selectedRouteStop) {
+            return null;
+        }
+        return (
+            selectedRouteStop.stop.name_mm?.trim() ||
+            selectedRouteStop.stop.name_en?.trim() ||
+            selectedRouteStop.stop.name?.trim() ||
+            null
+        );
+    }, [selectedRouteStop]);
+
+    const savedGeom = useMemo(
+        () => routeStopSavedGeom(selectedRouteStop),
+        [selectedRouteStop],
+    );
+
+    const {
+        candidates: nearbyCandidates,
+        mapCandidates: nearbyMapCandidates,
+        status: nearbyCandidatesStatus,
+        selectedCandidateId: selectedNearbyCandidateId,
+        setSelectedCandidateId: setSelectedNearbyCandidateId,
+        searchAtMapClick: searchNearbyCandidatesAtMapClick,
+        retrySearch: retryNearbyCandidates,
+        revertToSavedSearch: revertNearbySearchToSaved,
+    } = useReviewMapNearbyCandidates({
+        enabled: reviewMapOpen && selectedRouteStopId !== null,
+        routeStopId: selectedRouteStopId,
+        stopPublicId: selectedRouteStopPublicId,
+        stopMode: route?.mode ?? null,
+        selectedName: selectedRouteStopName,
+        savedCoords: savedGeom,
+    });
+
+    const { activeDetailStopId, activeDetailSource } = useMemo(
+        () =>
+            deriveReviewMapActiveDetail({
+                selectedRouteStopPublicId,
+                selectedNearbyCandidateId,
+            }),
+        [selectedNearbyCandidateId, selectedRouteStopPublicId],
+    );
+
+    const {
+        summary: activeDetailUsageSummary,
+        items: activeDetailUsageItems,
+        loading: activeDetailUsageLoading,
+        error: activeDetailUsageError,
+    } = useTransportStopRouteUsageDetail({
+        stopPublicId: activeDetailStopId,
+        enabled: reviewMapOpen && activeDetailStopId !== null,
+    });
 
     const loadReadiness = useCallback(async (signal?: AbortSignal) => {
         setReadinessLoading(true);
-        setReadinessError("");
+        setReadinessUnavailable(false);
         try {
             const result = await getTransportRouteReviewReadiness(
                 publicId,
@@ -598,9 +631,9 @@ export default function TransportRouteDetailContent({
             setReadiness(result);
         } catch (err) {
             if (isAbortError(err)) return;
-            setReadinessError(
-                err instanceof Error ? err.message : "Failed to load review readiness.",
-            );
+            logTransportReadinessFetchError(err, "Failed to load review readiness.");
+            setReadiness(null);
+            setReadinessUnavailable(true);
         } finally {
             setReadinessLoading(false);
         }
@@ -629,18 +662,19 @@ export default function TransportRouteDetailContent({
         setReplaceTarget(null);
         setStopReviewBusy(null);
         setInsertContext(null);
-        setNewStopPoint(null);
-        setPickingLocation(false);
+        setUsageDialogTarget(null);
+        setPermanentDeleteTarget(null);
+        setPermanentDeleteError("");
+        setPermanentDeleting(false);
         setPathMode(null);
         setDraftPath([]);
         setPathError("");
         setConfirmDeletePath(false);
         setReviewMapOpen(false);
-        setReviewMapSelectedStopId(null);
-        setReviewMapStopDrafts({});
+        setSelectedRouteStopId(null);
         setAdvancedOpen(false);
         setReadiness(null);
-        setReadinessError("");
+        setReadinessUnavailable(false);
 
         void (async () => {
             try {
@@ -653,7 +687,16 @@ export default function TransportRouteDetailContent({
                 setSelectedVariantId(variantList.items[0]?.public_id ?? null);
             } catch (err) {
                 if (isAbortError(err)) return;
-                setRouteError(err instanceof Error ? err.message : "Failed to load route.");
+                if (process.env.NODE_ENV === "development") {
+                    console.warn("[transport] route detail:", err);
+                }
+                setRouteError(
+                    isTransportNetworkError(err)
+                        ? "Could not reach the API. Check that it is running, then retry."
+                        : err instanceof Error && err.message.trim()
+                          ? err.message
+                          : "Failed to load route.",
+                );
             } finally {
                 setRouteLoading(false);
             }
@@ -663,10 +706,14 @@ export default function TransportRouteDetailContent({
     }, [publicId]);
 
     useEffect(() => {
+        if (routeLoading || !route) {
+            return;
+        }
+
         const controller = new AbortController();
         void loadReadiness(controller.signal);
         return () => controller.abort();
-    }, [loadReadiness]);
+    }, [route, routeLoading, loadReadiness]);
 
     // --- Load the saved route path overlay for the selected variant. -----------
     //     to the ordered-stop panel: fetched separately and only when a path
@@ -695,7 +742,12 @@ export default function TransportRouteDetailContent({
     //     mutation so the list does not flash. The verified path overlay is
     //     loaded separately, only when the variant actually has one. ----------
     const loadStops = useCallback(
-        async (variantId: string, signal: AbortSignal | undefined, silent: boolean) => {
+        async (
+            variantId: string,
+            signal: AbortSignal | undefined,
+            silent: boolean,
+        ): Promise<TransportRouteStopItem[] | null> => {
+            const generation = ++stopsLoadGenerationRef.current;
             if (!silent) setStopsLoading(true);
             setStopsError("");
             try {
@@ -703,7 +755,15 @@ export default function TransportRouteDetailContent({
                     variantId,
                     signal ? { signal } : undefined,
                 );
-                setStops(result.ordered_stops.map(orderedStopLiteToItem));
+                if (generation !== stopsLoadGenerationRef.current) {
+                    return null;
+                }
+                if (signal?.aborted) {
+                    return null;
+                }
+                const items = result.ordered_stops.map(orderedStopLiteToItem);
+                setStops(items);
+                stopsLoadedVariantRef.current = variantId;
                 const variantSummary = variantsRef.current.find((v) => v.public_id === variantId);
                 const shouldLoadPath =
                     result.has_verified_path ||
@@ -714,13 +774,20 @@ export default function TransportRouteDetailContent({
                 } else {
                     setPath(null);
                 }
+                return items;
             } catch (err) {
-                if (isAbortError(err)) return;
+                if (isAbortError(err)) return null;
+                if (generation !== stopsLoadGenerationRef.current) {
+                    return null;
+                }
                 setStops([]);
                 setPath(null);
                 setStopsError(err instanceof Error ? err.message : "Failed to load stops.");
+                return null;
             } finally {
-                if (!silent) setStopsLoading(false);
+                if (!silent && generation === stopsLoadGenerationRef.current) {
+                    setStopsLoading(false);
+                }
             }
         },
         [loadVariantPath],
@@ -728,10 +795,20 @@ export default function TransportRouteDetailContent({
 
     useEffect(() => {
         if (!selectedVariantId || !reviewMapOpen) {
+            if (!reviewMapOpen) {
+                setStopsLoading(false);
+            }
             if (!selectedVariantId) {
                 setStops([]);
                 setPath(null);
+                stopsLoadedVariantRef.current = null;
             }
+            return;
+        }
+        if (
+            stopsLoadedVariantRef.current === selectedVariantId &&
+            stops.length > 0
+        ) {
             return;
         }
         const controller = new AbortController();
@@ -797,36 +874,69 @@ export default function TransportRouteDetailContent({
      * Path geometry is left untouched (a membership edit never changes it).
      */
     const applyMutationResult = useCallback(
-        (result: TransportRouteStopMutationResult) => {
-            // Safe fallback: if the backend response is missing the updated ordered
-            // stops, refetch ONLY the selected variant's ordered stops (no detail /
-            // variants / routes-list refetch).
-            if (!Array.isArray(result.ordered_stops)) {
+        (
+            result: TransportRouteStopMutationResult,
+            options?: ApplyRouteStopMutationOptions,
+        ) => {
+            if (
+                Array.isArray(result.ordered_stops) &&
+                !isValidOrderedStopsMutationResponse(
+                    result.ordered_stops,
+                    result.route_stop_count,
+                )
+            ) {
+                if (process.env.NODE_ENV === "development") {
+                    console.warn(
+                        "[transport] invalid ordered_stops mutation response; refetching stops",
+                        result,
+                    );
+                }
                 void refreshStops();
                 return;
             }
 
-            setStops(result.ordered_stops.map(orderedStopLiteToItem));
+            const currentVariant = variants.find((v) => v.public_id === selectedVariantId);
+            const update = buildRouteStopMutationUpdate(
+                result,
+                selectedVariantId,
+                currentVariant?.stop_count,
+            );
+            if (!update) {
+                void refreshStops();
+                return;
+            }
 
-            const variantId = result.variant_public_id ?? selectedVariantId;
-            if (!variantId) return;
-            const current = variants.find((v) => v.public_id === variantId);
-            const delta = current ? result.route_stop_count - current.stop_count : 0;
+            stopsLoadGenerationRef.current += 1;
+            setStops(update.orderedStops);
+            if (update.variantId) {
+                stopsLoadedVariantRef.current = update.variantId;
+            }
+
+            setSelectedRouteStopId((prev) =>
+                resolveSelectedRouteStopIdAfterMutation(
+                    prev,
+                    update.orderedStops,
+                    options,
+                ),
+            );
+            if (!update.variantId) {
+                return;
+            }
             setVariants((prev) =>
                 prev.map((v) =>
-                    v.public_id === variantId
-                        ? { ...v, stop_count: result.route_stop_count }
+                    v.public_id === update.variantId
+                        ? { ...v, stop_count: update.nextRouteStopCount }
                         : v,
                 ),
             );
-            if (delta !== 0) {
+            if (update.stopCountDelta !== 0) {
                 setRoute((r) =>
                     r
                         ? {
                               ...r,
                               counts: {
                                   ...r.counts,
-                                  stops: Math.max(0, r.counts.stops + delta),
+                                  stops: Math.max(0, r.counts.stops + update.stopCountDelta),
                               },
                           }
                         : r,
@@ -839,13 +949,10 @@ export default function TransportRouteDetailContent({
     /** After a successful insert: update ordered stops + map overlay + counts locally. */
     const handleStopInserted = useCallback(
         (result: TransportRouteStopMutationResult) => {
-            // Close the insert dialog/picker first. These are full-screen overlays
-            // stacked above the route drawer, so they must never linger if applying
-            // the result below throws (otherwise the drawer can't be closed).
             setInsertContext(null);
-            setPickingLocation(false);
-            setNewStopPoint(null);
-            applyMutationResult(result);
+            applyMutationResult(result, {
+                selectRouteStopId: result.created_stop?.route_stop_id ?? null,
+            });
         },
         [applyMutationResult],
     );
@@ -857,16 +964,17 @@ export default function TransportRouteDetailContent({
         [stops],
     );
 
-    const reviewMapMovedStopIds = useMemo(
-        () => new Set(Object.keys(reviewMapStopDrafts)),
-        [reviewMapStopDrafts],
+    const previewGeom = useMemo(
+        () => reviewMapPreviewGeomForRouteStop(previewGeomByRouteStopId, selectedRouteStopId),
+        [previewGeomByRouteStopId, selectedRouteStopId],
     );
 
-    const reviewMapSelectedStopHasUnsaved = Boolean(
-        reviewMapSelectedStopId && reviewMapStopDrafts[reviewMapSelectedStopId],
-    );
+    const hasUnsavedMove = previewGeom !== null;
 
-    const reviewMapHasUnsavedMoves = reviewMapMovedStopIds.size > 0;
+    const generatePathReadiness = useMemo(
+        () => evaluateGeneratePathFromStopsReadiness(stops, false),
+        [stops],
+    );
 
     const reviewMapPathDirty = useMemo(() => {
         if (!reviewMapPathDraftCoords || !reviewMapPathBaselineCoords) {
@@ -880,12 +988,8 @@ export default function TransportRouteDetailContent({
         [reviewMapPathDraftCoords],
     );
 
-    const generatePathReadiness = useMemo(
-        () => evaluateGeneratePathFromStopsReadiness(stops, reviewMapHasUnsavedMoves),
-        [stops, reviewMapHasUnsavedMoves],
-    );
-
     const selectedVariant = variants.find((v) => v.public_id === selectedVariantId) ?? null;
+    const directionSwapPair = useMemo(() => getRouteDirectionSwapPair(variants), [variants]);
     const pathIsVerified = path?.review_status === "verified";
     const pathIsReviewPlaceholder = Boolean(
         path?.geometry &&
@@ -917,6 +1021,9 @@ export default function TransportRouteDetailContent({
         }
         const seen = new Set<string>();
         for (const s of stops) {
+            if (s.is_loop_closure) {
+                continue;
+            }
             if (seen.has(s.stop.public_id)) {
                 warnings.push("Duplicate stop appears in this sequence.");
                 break;
@@ -933,6 +1040,13 @@ export default function TransportRouteDetailContent({
 
     const selectVariant = useCallback((variantId: string) => {
         setSelectedVariantId(variantId);
+        stopsLoadedVariantRef.current = null;
+        setStops([]);
+        setPath(null);
+        setStopQuality(new Map());
+        setStopsLoading(true);
+        setStopsError("");
+        setSelectedRouteStopId(null);
         setEditingVariant(false);
         setConfirmDeleteVariant(false);
         setVariantActionError("");
@@ -943,33 +1057,168 @@ export default function TransportRouteDetailContent({
         setReplaceTarget(null);
         setStopReviewBusy(null);
         setInsertContext(null);
-        setNewStopPoint(null);
-        setPickingLocation(false);
+        setUsageDialogTarget(null);
+        setPermanentDeleteTarget(null);
+        setPermanentDeleteError("");
         setPathMode(null);
         setDraftPath([]);
         setPathError("");
         setConfirmDeletePath(false);
-        setReviewMapSelectedStopId(null);
-        setReviewMapStopDrafts({});
+    }, []);
+
+    const getInsertFallbackPlaceholderPoint = useCallback(() => {
+        return reviewMapCenterGetterRef.current?.() ?? null;
     }, []);
 
     const openInsert = useCallback(
         (context: InsertStopContext) => {
             // Stop placement and path drawing both use map clicks — never both.
-            if (pathMode !== null) return;
+            if (pathMode !== null || isReviewMapPathEditMode(reviewMapMode)) return;
             setStopActionError("");
-            setNewStopPoint(null);
-            setPickingLocation(false);
             setInsertContext(context);
         },
-        [pathMode],
+        [pathMode, reviewMapMode],
     );
+
+    const handleReviewMapInsertAtStart = useCallback(() => {
+        openInsert(buildInsertAtStartContext(stops));
+    }, [openInsert, stops]);
+
+    const handleReviewMapInsertAfter = useCallback(
+        (stop: TransportRouteStopItem, stopIndex: number) => {
+            openInsert(buildInsertAfterContext(stop, stops[stopIndex + 1] ?? null));
+        },
+        [openInsert, stops],
+    );
+
+    const handleReviewMapCheckRoutes = useCallback((stop: TransportRouteStopItem) => {
+        setUsageDialogTarget({
+            publicId: stop.stop.public_id,
+            name: stop.stop.name,
+            mode: "usage",
+        });
+    }, []);
+
+    const handleReviewMapDeleteStop = useCallback((stop: TransportRouteStopItem) => {
+        setUsageDialogTarget({
+            publicId: stop.stop.public_id,
+            name: stop.stop.name,
+            mode: "delete",
+        });
+    }, []);
+
+    const handleUsageDialogDisconnected = useCallback(
+        (result: TransportRouteStopMutationResult) => {
+            applyMutationResult(result);
+            reloadSelectedStopRouteUsage();
+            showReviewMapToast("success", "Stop disconnected from route");
+        },
+        [applyMutationResult, reloadSelectedStopRouteUsage, showReviewMapToast],
+    );
+
+    const handleRouteUsageChanged = useCallback(() => {
+        reloadSelectedStopRouteUsage();
+    }, [reloadSelectedStopRouteUsage]);
+
+    const handlePermanentDeleteRequest = useCallback(() => {
+        const target = usageDialogTarget;
+        if (!target) {
+            return;
+        }
+        setUsageDialogTarget(null);
+        setPermanentDeleteError("");
+        setPermanentDeleteTarget({
+            publicId: target.publicId,
+            name: target.name,
+        });
+    }, [usageDialogTarget]);
+
+    const cancelPermanentDeleteStop = useCallback(() => {
+        if (permanentDeleting) {
+            return;
+        }
+        setPermanentDeleteTarget(null);
+        setPermanentDeleteError("");
+    }, [permanentDeleting]);
+
+    const confirmPermanentDeleteStop = useCallback(() => {
+        const target = permanentDeleteTarget;
+        if (!target) {
+            return;
+        }
+        void (async () => {
+            setPermanentDeleting(true);
+            setPermanentDeleteError("");
+            try {
+                await permanentDeleteTransportStop(target.publicId);
+                setPermanentDeleteTarget(null);
+                setSelectedRouteStopId(null);
+                setSelectedStopId((prev) => {
+                    const selected = stops.find((stop) => stop.stop.public_id === target.publicId);
+                    return selected && prev === selected.id ? null : prev;
+                });
+
+                const removedFromVariant = stops.filter(
+                    (stop) => stop.stop.public_id === target.publicId,
+                );
+                if (removedFromVariant.length > 0) {
+                    stopsLoadGenerationRef.current += 1;
+                    const removedCount = removedFromVariant.length;
+                    setStops((prev) =>
+                        prev.filter((stop) => stop.stop.public_id !== target.publicId),
+                    );
+                    if (selectedVariantId) {
+                        setVariants((prev) =>
+                            prev.map((v) =>
+                                v.public_id === selectedVariantId
+                                    ? {
+                                          ...v,
+                                          stop_count: Math.max(0, v.stop_count - removedCount),
+                                      }
+                                    : v,
+                            ),
+                        );
+                    }
+                    setRoute((r) =>
+                        r
+                            ? {
+                                  ...r,
+                                  counts: {
+                                      ...r.counts,
+                                      stops: Math.max(0, r.counts.stops - removedCount),
+                                  },
+                              }
+                            : r,
+                    );
+                } else {
+                    try {
+                        const [detail, variantList] = await Promise.all([
+                            getTransportRouteDetail(publicId),
+                            getTransportRouteVariants(publicId),
+                        ]);
+                        setRoute(detail);
+                        setVariants(variantList.items);
+                    } catch {
+                        // Count refresh is best-effort after permanent delete.
+                    }
+                }
+
+                afterSave?.();
+                showReviewMapToast("success", "Stop deleted successfully.");
+            } catch (err) {
+                if (isAbortError(err)) {
+                    return;
+                }
+                setPermanentDeleteError(formatReviewMapStopActionError(err));
+            } finally {
+                setPermanentDeleting(false);
+            }
+        })();
+    }, [permanentDeleteTarget, afterSave, showReviewMapToast, stops, selectedVariantId, publicId]);
 
     const cancelInsert = useCallback(() => {
         if (stopMutating) return;
         setInsertContext(null);
-        setNewStopPoint(null);
-        setPickingLocation(false);
     }, [stopMutating]);
 
     const requestRemoveStop = useCallback((stop: TransportRouteStopItem) => {
@@ -999,19 +1248,17 @@ export default function TransportRouteDetailContent({
                 setSelectedStopId((prev) => (prev === stop.id ? null : prev));
                 setRemoveTarget(null);
                 setRemoveReason("");
-                // Update ordered stops + map overlay + counts from the response; no
-                // detail/variants/stops refetch.
                 applyMutationResult(result);
+                reloadSelectedStopRouteUsage();
+                showReviewMapToast("success", "Stop removed from route");
             } catch (err) {
                 if (isAbortError(err)) return;
-                setStopActionError(
-                    err instanceof Error ? err.message : "Stop action failed.",
-                );
+                setStopActionError(formatReviewMapStopActionError(err));
             } finally {
                 setStopMutating(false);
             }
         })();
-    }, [removeTarget, removeReason, applyMutationResult]);
+    }, [removeTarget, removeReason, applyMutationResult, showReviewMapToast, reloadSelectedStopRouteUsage]);
 
     /**
      * Update a single route_stop's flags. PATCH returns the updated row, so we
@@ -1062,6 +1309,14 @@ export default function TransportRouteDetailContent({
         [afterSave],
     );
 
+    const handleMetadataSaved = useCallback(
+        (updated: TransportRouteDetail) => {
+            setRoute(updated);
+            afterSave?.();
+        },
+        [afterSave],
+    );
+
     const handleRouteReviewUpdated = useCallback(
         (updated: TransportRouteDetail) => {
             setRoute(updated);
@@ -1073,7 +1328,6 @@ export default function TransportRouteDetailContent({
     const markStopReviewed = useCallback(
         async (stopPublicId: string) => {
             setStopReviewBusy(stopPublicId);
-            setStopActionError("");
             try {
                 const result = await applyTransportStopReviewAction(stopPublicId, "mark_reviewed");
                 setStops((prev) =>
@@ -1088,28 +1342,25 @@ export default function TransportRouteDetailContent({
                 );
             } catch (err) {
                 if (isAbortError(err)) return;
-                setStopActionError(
-                    err instanceof Error ? err.message : "Failed to mark stop reviewed."
-                );
+                showReviewMapToast("error", formatReviewMapStopActionError(err));
                 throw err;
             } finally {
                 setStopReviewBusy(null);
             }
         },
-        []
+        [showReviewMapToast],
     );
 
     const markSelectedStopReviewed = useCallback(async () => {
-        const row = reviewMapSelectedStopId
-            ? stops.find((stop) => stop.id === reviewMapSelectedStopId)
+        const row = selectedRouteStopId
+            ? stops.find((stop) => stop.id === selectedRouteStopId)
             : null;
         if (!row) {
             return;
         }
         await markStopReviewed(row.stop.public_id);
-        setReviewMapSaveSuccess("Stop marked reviewed");
-        window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
-    }, [reviewMapSelectedStopId, stops, markStopReviewed]);
+        showReviewMapToast("success", "Stop marked reviewed");
+    }, [selectedRouteStopId, stops, markStopReviewed, showReviewMapToast]);
 
     const markVariantPathReviewed = useCallback(async () => {
         if (!path?.id) {
@@ -1118,9 +1369,8 @@ export default function TransportRouteDetailContent({
         const result = await applyTransportRoutePathReviewAction(path.id, "mark_reviewed");
         setPath((prev) => (prev ? { ...prev, review_status: result.review_status } : prev));
         void loadReadiness();
-        setReviewMapSaveSuccess("Route path marked reviewed");
-        window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
-    }, [path, loadReadiness]);
+        showReviewMapToast("success", "Route path marked reviewed");
+    }, [path, loadReadiness, showReviewMapToast]);
 
     const markRouteReviewed = useCallback(async () => {
         if (!route) {
@@ -1129,23 +1379,21 @@ export default function TransportRouteDetailContent({
         const result = await applyTransportRouteReviewAction(route.public_id, "mark_reviewed");
         setRoute({ ...route, review_status: result.review_status });
         void loadReadiness();
-        setReviewMapSaveSuccess("Route marked reviewed");
-        window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
-    }, [route, loadReadiness]);
+        showReviewMapToast("success", "Route marked reviewed");
+    }, [route, loadReadiness, showReviewMapToast]);
 
-    const refreshOrderedStops = useCallback(() => {
-        if (!selectedVariantId) return;
-        void loadStops(selectedVariantId, undefined, true);
+    const refreshOrderedStops = useCallback(async (): Promise<TransportRouteStopItem[] | null> => {
+        if (!selectedVariantId) return null;
+        const items = await loadStops(selectedVariantId, undefined, true);
         if (selectedVariantId) {
-            void (async () => {
-                try {
-                    const quality = await getTransportVariantStopQuality(selectedVariantId);
-                    setStopQuality(new Map(quality.items.map((item) => [item.route_stop_id, item])));
-                } catch {
-                    // non-fatal
-                }
-            })();
+            try {
+                const quality = await getTransportVariantStopQuality(selectedVariantId);
+                setStopQuality(new Map(quality.items.map((item) => [item.route_stop_id, item])));
+            } catch {
+                // non-fatal
+            }
         }
+        return items;
     }, [selectedVariantId, loadStops]);
 
     /**
@@ -1217,6 +1465,36 @@ export default function TransportRouteDetailContent({
             }
         })();
     }, [selectedVariantId, reloadRouteAndVariants]);
+
+    const confirmSwapRouteDirection = useCallback(() => {
+        void (async () => {
+            setSwapDirectionBusy(true);
+            setSwapDirectionError("");
+            try {
+                const result = await swapTransportRouteDirection(publicId);
+                setVariants(result.variants);
+                setSwapDirectionOpen(false);
+                setEditingVariant(false);
+                setVariantActionError("");
+                const keepId =
+                    selectedVariantId &&
+                    result.variants.some((variant) => variant.public_id === selectedVariantId)
+                        ? selectedVariantId
+                        : (result.variants[0]?.public_id ?? null);
+                if (keepId) {
+                    setSelectedVariantId(keepId);
+                }
+                afterSave?.();
+            } catch (err) {
+                if (isAbortError(err)) return;
+                setSwapDirectionError(
+                    err instanceof Error ? err.message : "Failed to swap direction.",
+                );
+            } finally {
+                setSwapDirectionBusy(false);
+            }
+        })();
+    }, [publicId, selectedVariantId, afterSave]);
 
     // --- Route path drawing handlers. ----------------------------------------
     const startCreatePath = useCallback(() => {
@@ -1326,20 +1604,21 @@ export default function TransportRouteDetailContent({
                 ? buildRouteReviewChecklist({
                       route,
                       variants,
-                      readiness,
                       stopsWithoutLocation: stops.filter((s) => !s.stop.geometry).length,
+                      stopsNeedingReview: stops.filter(
+                          (s) => s.stop.review_status === "needs_review",
+                      ).length,
                       usesPlaceholderReviewPoints,
                   })
                 : [],
-        [route, variants, readiness, stops, usesPlaceholderReviewPoints],
+        [route, variants, stops, usesPlaceholderReviewPoints],
     );
 
     const toggleReviewMap = useCallback(() => {
         setReviewMapOpen((open) => {
             const next = !open;
             if (!next) {
-                setReviewMapSelectedStopId(null);
-                setReviewMapStopDrafts({});
+                setSelectedRouteStopId(null);
             } else if (!selectedVariantId && variants[0]) {
                 setSelectedVariantId(variants[0].public_id);
             }
@@ -1350,8 +1629,7 @@ export default function TransportRouteDetailContent({
     const openReviewMapForVariant = useCallback(
         (variantId: string) => {
             selectVariant(variantId);
-            setReviewMapSelectedStopId(null);
-            setReviewMapStopDrafts({});
+            setSelectedRouteStopId(null);
             setReviewMapOpen(true);
         },
         [selectVariant],
@@ -1359,8 +1637,8 @@ export default function TransportRouteDetailContent({
 
     const closeReviewMap = useCallback(() => {
         setReviewMapOpen(false);
-        setReviewMapSelectedStopId(null);
-        setReviewMapStopDrafts({});
+        setSelectedRouteStopId(null);
+        setPreviewGeomByRouteStopId({});
         setReviewMapMode(null);
         setReviewMapPathDraftCoords(null);
         setReviewMapPathBaselineCoords(null);
@@ -1383,7 +1661,7 @@ export default function TransportRouteDetailContent({
             return;
         }
         setReviewMapMode("edit_path");
-        setReviewMapSelectedStopId(null);
+        setSelectedRouteStopId(null);
         setReviewMapPathDraftCoords(baseline);
         setReviewMapPathBaselineCoords(baseline);
         setReviewMapSelectedPathVertexIndex(null);
@@ -1449,8 +1727,7 @@ export default function TransportRouteDetailContent({
                     ),
                 );
                 cancelReviewMapEditPath();
-                setReviewMapSaveSuccess("Route path saved");
-                window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
+                showReviewMapToast("success", "Route path saved");
             } catch (err) {
                 if (isAbortError(err)) {
                     return;
@@ -1468,170 +1745,209 @@ export default function TransportRouteDetailContent({
         reviewMapPathDirty,
         reviewMapPathEditLoading,
         cancelReviewMapEditPath,
+        showReviewMapToast,
     ]);
 
-    const revertReviewMapStopMoves = useCallback((routeStopId?: string) => {
-        setReviewMapSaveError("");
-        if (routeStopId) {
-            setReviewMapStopDrafts((prev) => {
-                if (!prev[routeStopId]) {
-                    return prev;
-                }
-                const next = { ...prev };
-                delete next[routeStopId];
-                return next;
-            });
+    const handleStopTimingUpdated = useCallback(
+        (result: TransportRouteStopMutationResult) => {
+            applyMutationResult(result);
+        },
+        [applyMutationResult],
+    );
+
+    const handleVariantDepartureTimeUpdated = useCallback(
+        (result: TransportRouteStopMutationResult, departureTimeText: string | null) => {
+            applyMutationResult(result);
+            const variantPublicId = result.variant_public_id;
+            if (!variantPublicId) {
+                return;
+            }
+            setVariants((prev) =>
+                prev.map((variant) =>
+                    variant.public_id === variantPublicId
+                        ? { ...variant, departure_time_text: departureTimeText }
+                        : variant,
+                ),
+            );
+        },
+        [applyMutationResult],
+    );
+
+    const handleReviewMapCandidateMapClick = useCallback(
+        (
+            coords: { lng: number; lat: number },
+            _options?: { immediate: boolean },
+        ) => {
+            if (!selectedRouteStopId || pathMode !== null || isReviewMapPathEditMode(reviewMapMode)) {
+                return;
+            }
+            setPreviewGeomByRouteStopId((prev) => ({
+                ...prev,
+                [selectedRouteStopId]: coords,
+            }));
+            searchNearbyCandidatesAtMapClick(coords);
+        },
+        [searchNearbyCandidatesAtMapClick, selectedRouteStopId, pathMode, reviewMapMode],
+    );
+
+    useEffect(() => {
+        setPreviewGeomByRouteStopId({});
+    }, [selectedRouteStopId]);
+
+    const handleReviewMapSaveStopPreview = useCallback(() => {
+        if (!selectedRouteStopId || !selectedRouteStop || !previewGeom) {
             return;
         }
-        setReviewMapStopDrafts({});
-    }, []);
-
-    const saveReviewMapStopMoves = useCallback(
-        (options?: ReviewMapSaveOptions) => {
-            const routeStopId = options?.routeStopId ?? reviewMapSelectedStopId;
-            if (!routeStopId || reviewMapSaveLoading) {
-                return;
-            }
-            const coords = reviewMapStopDrafts[routeStopId];
-            if (!coords) {
-                return;
-            }
-
-            void (async () => {
-                setReviewMapSaveLoading(true);
-                setReviewMapSaveError("");
-                setReviewMapSaveSuccess(null);
-
-                const row = stops.find((s) => s.id === routeStopId);
-                if (!row) {
-                    setReviewMapSaveError("No stop to save.");
-                    setReviewMapSaveLoading(false);
+        const { lng, lat } = previewGeom;
+        void (async () => {
+            setReviewMapStopPreviewSaveBusy(true);
+            try {
+                const result = await updateTransportStopLocation(
+                    selectedRouteStop.stop.public_id,
+                    { lng, lat },
+                );
+                setStops((prev) =>
+                    applyStopLocationDetailToRouteStops(
+                        prev,
+                        selectedRouteStopId,
+                        result.stop,
+                    ),
+                );
+                setPreviewGeomByRouteStopId((prev) => {
+                    const next = { ...prev };
+                    delete next[selectedRouteStopId];
+                    return next;
+                });
+                revertNearbySearchToSaved();
+                showReviewMapToast("success", "Stop location saved");
+            } catch (err) {
+                if (isAbortError(err)) {
                     return;
                 }
-
-                try {
-                    const result = await updateTransportStopLocation(row.stop.public_id, {
-                        lng: coords.lng,
-                        lat: coords.lat,
-                    });
-
-                    const savedPoint = pointFromStopDetail(result.stop);
-                    const savedLng = savedPoint?.lng ?? coords.lng;
-                    const savedLat = savedPoint?.lat ?? coords.lat;
-
-                    setStops((prev) =>
-                        patchRouteStopGeometry(prev, routeStopId, savedLng, savedLat),
-                    );
-                    setReviewMapStopDrafts((prev) => {
-                        if (!prev[routeStopId]) {
-                            return prev;
-                        }
-                        const next = { ...prev };
-                        delete next[routeStopId];
-                        return next;
-                    });
-
-                    if (options?.thenSelectStopId !== undefined) {
-                        setReviewMapSelectedStopId(options.thenSelectStopId);
-                        if (options.thenSelectStopId) {
-                            setReviewMapCenterStopRequest({
-                                id: Date.now(),
-                                stopId: options.thenSelectStopId,
-                            });
-                        }
-                    }
-
-                    setReviewMapSaveSuccess("Stop location saved");
-                    window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
-                } catch (err) {
-                    if (isAbortError(err)) {
-                        return;
-                    }
-                    setReviewMapSaveError(
-                        err instanceof Error ? err.message : "Failed to save stop location.",
-                    );
-                } finally {
-                    setReviewMapSaveLoading(false);
-                }
-            })();
-        },
-        [reviewMapStopDrafts, reviewMapSaveLoading, reviewMapSelectedStopId, stops],
-    );
-
-    const saveReviewMapStopAndNext = useCallback(() => {
-        if (!reviewMapSelectedStopHasUnsaved || reviewMapSaveLoading || !reviewMapSelectedStopId) {
-            return;
-        }
-        const idx = stops.findIndex((s) => s.id === reviewMapSelectedStopId);
-        const nextStopId =
-            idx < 0
-                ? (stops[0]?.id ?? null)
-                : idx >= stops.length - 1
-                  ? (stops[idx]?.id ?? null)
-                  : (stops[idx + 1]?.id ?? null);
-        saveReviewMapStopMoves({
-            routeStopId: reviewMapSelectedStopId,
-            thenSelectStopId: nextStopId,
-        });
+                showReviewMapToast(
+                    "error",
+                    err instanceof Error ? err.message : "Failed to save stop location.",
+                );
+            } finally {
+                setReviewMapStopPreviewSaveBusy(false);
+            }
+        })();
     }, [
-        reviewMapSelectedStopHasUnsaved,
-        reviewMapSaveLoading,
-        reviewMapSelectedStopId,
-        stops,
-        saveReviewMapStopMoves,
+        previewGeom,
+        selectedRouteStopId,
+        revertNearbySearchToSaved,
+        selectedRouteStop,
+        showReviewMapToast,
     ]);
 
-    const handleReviewMapStopMovePreview = useCallback(
-        (coords: { lng: number; lat: number }) => {
-            if (!reviewMapSelectedStopId || pathMode !== null || isReviewMapPathEditMode(reviewMapMode)) {
-                return;
-            }
-            const row = stops.find((s) => s.id === reviewMapSelectedStopId);
-            if (!row) {
-                return;
-            }
+    const handleReviewMapRevertStopPreview = useCallback(() => {
+        if (!selectedRouteStopId || !previewGeom) {
+            return;
+        }
+        setPreviewGeomByRouteStopId((prev) => {
+            const next = { ...prev };
+            delete next[selectedRouteStopId];
+            return next;
+        });
+        revertNearbySearchToSaved();
+    }, [previewGeom, selectedRouteStopId, revertNearbySearchToSaved]);
 
-            const geometry = row.stop.geometry;
-            const origLng =
-                geometry?.type === "Point" && Array.isArray(geometry.coordinates)
-                    ? Number(geometry.coordinates[0])
-                    : NaN;
-            const origLat =
-                geometry?.type === "Point" && Array.isArray(geometry.coordinates)
-                    ? Number(geometry.coordinates[1])
-                    : NaN;
+    const handleNearbyCandidateSelect = useCallback((publicId: string | null) => {
+        setSelectedNearbyCandidateId(publicId);
+    }, [setSelectedNearbyCandidateId]);
 
-            const matchesOriginal =
-                Number.isFinite(origLng) &&
-                Number.isFinite(origLat) &&
-                Math.abs(origLng - coords.lng) < 1e-7 &&
-                Math.abs(origLat - coords.lat) < 1e-7;
-
-            setReviewMapStopDrafts((prev) => {
-                if (matchesOriginal) {
-                    if (!prev[reviewMapSelectedStopId]) {
-                        return prev;
-                    }
-                    const next = { ...prev };
-                    delete next[reviewMapSelectedStopId];
-                    return next;
-                }
-                return { ...prev, [reviewMapSelectedStopId]: coords };
+    const handleReviewMapCandidateCheckRoutes = useCallback(
+        (candidate: TransportNearbyStopCandidate) => {
+            setUsageDialogTarget({
+                publicId: candidate.publicId,
+                name: candidateDisplayName(candidate),
+                mode: "usage",
             });
-            setReviewMapSaveError("");
         },
-        [reviewMapSelectedStopId, stops, pathMode, reviewMapMode],
+        [],
     );
 
-    const reviewMapStopMoveHint = useMemo(() => {
+    const refreshReviewMapAfterGlobalMerge = useCallback(
+        async (survivingStopPublicId: string) => {
+            const refreshed = await refreshOrderedStops();
+            const surviving = refreshed?.find(
+                (row) => row.stop.public_id === survivingStopPublicId,
+            );
+            if (surviving) {
+                setSelectedRouteStopId(surviving.id);
+            }
+            reloadSelectedStopRouteUsage();
+        },
+        [refreshOrderedStops, reloadSelectedStopRouteUsage],
+    );
+
+    const handleGlobalMergeError = useCallback((error: unknown) => {
+        if (isAbortError(error)) {
+            return;
+        }
+        const message = formatTransportStopMergeErrorOverlay(error);
+        if (!message) {
+            return;
+        }
+        setMergeResultOverlay({ kind: "error", message });
+    }, []);
+
+    const handleGlobalMergeSuccess = useCallback(
+        async (result: TransportStopMergeGlobalResult, currentStopPublicId: string) => {
+            setMergeResultOverlay({ kind: "success", result, currentStopPublicId });
+            setSelectedNearbyCandidateId(null);
+            setCandidateCompareTarget(null);
+            await refreshReviewMapAfterGlobalMerge(result.canonicalStop.publicId);
+        },
+        [
+            setSelectedNearbyCandidateId,
+            refreshReviewMapAfterGlobalMerge,
+        ],
+    );
+
+    const openMergeCompareDialog = useCallback(
+        (candidate: TransportNearbyStopCandidate, canonicalSide: "current" | "candidate") => {
+            setMergeCompareInitialCanonicalSide(canonicalSide);
+            setCandidateCompareTarget(candidate);
+        },
+        [],
+    );
+
+    const handleReviewMapCandidateKeepCurrent = useCallback(() => {
+        const candidate = nearbyCandidates.find((item) => item.publicId === selectedNearbyCandidateId);
+        if (!candidate) {
+            return;
+        }
+        openMergeCompareDialog(candidate, "current");
+    }, [nearbyCandidates, selectedNearbyCandidateId, openMergeCompareDialog]);
+
+    const handleReviewMapCandidateKeepCandidate = useCallback(
+        (candidate: TransportNearbyStopCandidate) => {
+            openMergeCompareDialog(candidate, "candidate");
+        },
+        [openMergeCompareDialog],
+    );
+
+    const handleReviewMapCandidateCompareMerge = useCallback(
+        (candidate: TransportNearbyStopCandidate) => {
+            openMergeCompareDialog(candidate, "current");
+        },
+        [openMergeCompareDialog],
+    );
+
+    const dismissMergeResultOverlay = useCallback(() => {
+        setMergeResultOverlay(null);
+    }, []);
+
+    const reviewMapCandidateSearchHint = useMemo(() => {
         if (pathMode !== null || isReviewMapPathEditMode(reviewMapMode)) {
             return null;
         }
-        if (reviewMapSelectedStopId) {
-            return "Click the map to move this stop (preview only, not saved)";
+        if (selectedRouteStopId) {
+            return "Click the map to move this stop preview (not saved) and search nearby candidates.";
         }
-        return "Select a stop from the list, then click the map to move it";
-    }, [pathMode, reviewMapMode, reviewMapSelectedStopId]);
+        return "Select a stop from the list to search nearby candidates";
+    }, [pathMode, reviewMapMode, selectedRouteStopId]);
 
     const reviewMapPathEditHint = useMemo(() => {
         if (!isReviewMapPathEditMode(reviewMapMode)) {
@@ -1680,12 +1996,12 @@ export default function TransportRouteDetailContent({
                 });
                 setGeneratePathWarnings(result.warnings ?? []);
                 setGeneratePathOpen(false);
-                setReviewMapSaveSuccess(
+                showReviewMapToast(
+                    "success",
                     result.warnings.length > 0
                         ? "Path generated with warnings"
                         : "Auto-generated path saved",
                 );
-                window.setTimeout(() => setReviewMapSaveSuccess(null), 3200);
             } catch (err) {
                 if (isAbortError(err)) {
                     return;
@@ -1704,7 +2020,7 @@ export default function TransportRouteDetailContent({
                 setGeneratePathLoading(false);
             }
         })();
-    }, [generatePathLoading, generatePathReadiness.eligible, selectedVariantId]);
+    }, [generatePathLoading, generatePathReadiness.eligible, selectedVariantId, showReviewMapToast]);
 
     const toggleEditInfo = useCallback(() => {
         setEditingRoute((prev) => !prev);
@@ -1754,13 +2070,23 @@ export default function TransportRouteDetailContent({
                     />
                 </section>
             ) : (
-                <div className="mt-3 space-y-3">
+                <div className="mt-2 space-y-2.5">
                     <RouteSummaryCard route={route} routeLoading={routeLoading} />
+                    <TransportRouteMoreMetadataPanel
+                        route={route}
+                        routeLoading={routeLoading}
+                        onSaved={handleMetadataSaved}
+                    />
                     <RouteVariantsCard
                         variants={variants}
                         routeLoading={routeLoading}
                         addingVariant={addingVariant}
                         onOpenReviewMap={openReviewMapForVariant}
+                        directionSwapPair={directionSwapPair}
+                        onChangeDirection={() => {
+                            setSwapDirectionError("");
+                            setSwapDirectionOpen(true);
+                        }}
                         onStartAddVariant={() => {
                             setVariantActionError("");
                             setAddingVariant(true);
@@ -1775,101 +2101,23 @@ export default function TransportRouteDetailContent({
                     />
                     <RouteReviewChecklistCard
                         items={checklistItems}
-                        loading={readinessLoading}
+                        loading={routeLoading}
+                        readinessUnavailable={readinessUnavailable}
+                        onRetryReadiness={reloadReadiness}
+                        readinessRetrying={readinessLoading}
                     />
                     <CollapsibleSection
                         title="Advanced / Diagnostics"
-                        description="Source data, review workflow, variant maintenance, and technical warnings."
+                        description="Review workflow, path tools, and raw import diagnostics."
                         open={advancedOpen}
                         onToggle={() => setAdvancedOpen((open) => !open)}
                     >
-                        {readinessError ? (
-                            <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
-                                {readinessError}
-                            </p>
-                        ) : null}
-                        {readiness && readiness.blockers.length > 0 ? (
-                            <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                                <p className="font-medium">Verification blockers</p>
-                                <ul className="mt-1 list-inside list-disc space-y-0.5">
-                                    {readiness.blockers.map((b) => (
-                                        <li key={b}>{b}</li>
-                                    ))}
-                                </ul>
-                            </div>
-                        ) : null}
-                        {readiness && readiness.warnings.length > 0 ? (
-                            <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
-                                <p className="font-medium">Technical warnings</p>
-                                <ul className="mt-1 list-inside list-disc space-y-0.5">
-                                    {readiness.warnings.map((w) => (
-                                        <li key={w}>{w}</li>
-                                    ))}
-                                </ul>
-                            </div>
-                        ) : null}
-                        {route && route.names.length > 0 ? (
-                            <div className="mb-3">
-                                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
-                                    Alternate names
-                                </p>
-                                <ul className="space-y-1 text-sm text-gray-700">
-                                    {route.names.map((n, i) => (
-                                        <li key={`${n.name}-${i}`} className="flex items-center gap-2">
-                                            <span>{n.name}</span>
-                                            <span className="text-xs text-gray-400">
-                                                {n.language_code}
-                                                {n.is_primary ? " · primary" : ""}
-                                            </span>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        ) : null}
-                        {route && route.sources.length > 0 ? (
-                            <div className="mb-3">
-                                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
-                                    Source links
-                                </p>
-                                <ul className="space-y-2 text-sm text-gray-700">
-                                    {route.sources.map((s, i) => (
-                                        <li
-                                            key={`${s.source_name}-${s.external_id ?? i}`}
-                                            className="rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2 text-xs"
-                                        >
-                                            <p className="font-medium text-gray-900">{s.source_name}</p>
-                                            <p className="text-gray-600">
-                                                {s.source_kind}
-                                                {s.external_id ? ` · ${s.external_id}` : ""}
-                                                {s.is_primary ? " · primary" : ""}
-                                            </p>
-                                            {s.source_url ? (
-                                                <p className="truncate text-gray-500">{s.source_url}</p>
-                                            ) : null}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        ) : (
-                            <p className="mb-3 text-sm text-gray-500">No source links on this route.</p>
-                        )}
-                        {path?.normalized_data ? (
-                            <details className="mb-3 text-xs">
-                                <summary className="cursor-pointer font-medium text-gray-700">
-                                    Path normalized_data
-                                </summary>
-                                <pre className="mt-2 max-h-48 overflow-auto rounded-md border border-gray-200 bg-gray-50 p-2 text-[11px] text-gray-800">
-                                    {JSON.stringify(path.normalized_data, null, 2)}
-                                </pre>
-                            </details>
-                        ) : null}
-                        {sequenceWarnings.length > 0 ? (
-                            <ul className="mb-3 list-inside list-disc text-xs text-amber-900">
-                                {sequenceWarnings.map((warning) => (
-                                    <li key={warning}>{warning}</li>
-                                ))}
-                            </ul>
-                        ) : null}
+                        <TransportRouteAdvancedDiagnosticsPanel
+                            routePublicId={publicId}
+                            open={advancedOpen}
+                            clientWarnings={sequenceWarnings}
+                            onRefreshReadiness={reloadReadiness}
+                        />
                         {route ? (
                             <TransportRouteReviewPanel
                                 route={route}
@@ -1877,127 +2125,105 @@ export default function TransportRouteDetailContent({
                                 onRouteUpdated={handleRouteReviewUpdated}
                                 readiness={readiness}
                                 readinessLoading={readinessLoading}
-                                readinessError={readinessError}
+                                readinessUnavailable={readinessUnavailable}
                                 onReadinessReload={reloadReadiness}
                             />
                         ) : null}
 
                         {selectedVariantId ? (
-                            <div className="mb-4 rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
-                                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                                    Route path editor
-                                </h3>
-                                <p className="mt-1 text-xs text-gray-500">
-                                    Create or edit the verified path for the selected variant.
-                                </p>
-                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <AdvancedToolSection
+                                accent="blue"
+                                title="Route path editor"
+                                description="Create or edit the verified path for the selected variant."
+                            >
+                                <div className="flex flex-wrap items-center gap-2">
                                     {hasPathOverlay ? (
                                         <>
-                                            <button
-                                                type="button"
+                                            <TransportToolbarButton
                                                 onClick={startEditPath}
-                                                disabled={pickingLocation}
-                                                className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                                             >
                                                 Edit path
-                                            </button>
-                                            <button
-                                                type="button"
+                                            </TransportToolbarButton>
+                                            <TransportToolbarButton
+                                                variant="danger"
                                                 onClick={() => {
                                                     setPathError("");
                                                     setConfirmDeletePath(true);
                                                 }}
-                                                disabled={pickingLocation}
-                                                className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                                             >
                                                 Delete path
-                                            </button>
+                                            </TransportToolbarButton>
                                         </>
                                     ) : (
-                                        <button
-                                            type="button"
-                                            onClick={startCreatePath}
-                                            disabled={pickingLocation}
-                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
+                                        <TransportToolbarButton onClick={startCreatePath}>
                                             Create path
-                                        </button>
+                                        </TransportToolbarButton>
                                     )}
                                 </div>
                                 {pathError ? (
-                                    <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
+                                    <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
                                         {pathError}
                                     </p>
                                 ) : null}
                                 {pathMode ? (
-                                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
-                                        <span className="text-xs text-gray-500">
+                                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+                                        <span className="text-xs text-slate-500">
                                             {draftPath.length} point
                                             {draftPath.length === 1 ? "" : "s"} — click the Review
                                             Map to place vertices
                                         </span>
                                         <span className="flex-1" />
-                                        <button
-                                            type="button"
+                                        <TransportToolbarButton
                                             onClick={undoDraftPoint}
                                             disabled={pathMutating || draftPath.length === 0}
-                                            className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                                         >
                                             Undo
-                                        </button>
-                                        <button
-                                            type="button"
+                                        </TransportToolbarButton>
+                                        <TransportToolbarButton
                                             onClick={cancelPathEdit}
                                             disabled={pathMutating}
-                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                                         >
                                             Cancel
-                                        </button>
-                                        <button
-                                            type="button"
+                                        </TransportToolbarButton>
+                                        <TransportToolbarButton
+                                            variant="accent"
                                             onClick={savePath}
                                             disabled={pathMutating || draftPath.length < 2}
-                                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                                         >
                                             {pathMutating ? "Saving…" : "Save path"}
-                                        </button>
+                                        </TransportToolbarButton>
                                     </div>
                                 ) : null}
-                            </div>
+                            </AdvancedToolSection>
                         ) : null}
 
                         {selectedVariant ? (
-                            <section className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
-                                <div className="mb-2 flex items-center justify-between">
-                                    <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                                        Variant maintenance · {selectedVariant.variant_code}
-                                    </h3>
-                                    {!editingVariant ? (
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setVariantActionError("");
-                                                    setConfirmDeleteVariant(false);
-                                                    setEditingVariant(true);
-                                                }}
-                                                className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                                            >
-                                                Edit variant
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setVariantActionError("");
-                                                    setConfirmDeleteVariant(true);
-                                                }}
-                                                className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
-                                            >
-                                                Delete variant
-                                            </button>
-                                        </div>
-                                    ) : null}
-                                </div>
+                            <AdvancedToolSection
+                                accent="amber"
+                                title={`Variant maintenance · ${selectedVariant.variant_code}`}
+                            >
+                                {!editingVariant ? (
+                                    <div className="mb-3 flex flex-wrap justify-end gap-2">
+                                        <TransportToolbarButton
+                                            onClick={() => {
+                                                setVariantActionError("");
+                                                setConfirmDeleteVariant(false);
+                                                setEditingVariant(true);
+                                            }}
+                                        >
+                                            Edit variant
+                                        </TransportToolbarButton>
+                                        <TransportToolbarButton
+                                            variant="danger"
+                                            onClick={() => {
+                                                setVariantActionError("");
+                                                setConfirmDeleteVariant(true);
+                                            }}
+                                        >
+                                            Delete variant
+                                        </TransportToolbarButton>
+                                    </div>
+                                ) : null}
                                 {variantActionError ? (
                                     <p className="mb-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
                                         {variantActionError}
@@ -2014,22 +2240,19 @@ export default function TransportRouteDetailContent({
                                             paths are kept.
                                         </p>
                                         <div className="mt-2 flex justify-end gap-2">
-                                            <button
-                                                type="button"
-                                                disabled={variantMutating}
+                                            <TransportToolbarButton
                                                 onClick={() => setConfirmDeleteVariant(false)}
-                                                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                                disabled={variantMutating}
                                             >
                                                 Cancel
-                                            </button>
-                                            <button
-                                                type="button"
-                                                disabled={variantMutating}
+                                            </TransportToolbarButton>
+                                            <TransportToolbarButton
+                                                variant="danger"
                                                 onClick={confirmDeleteSelectedVariant}
-                                                className="rounded-md bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
+                                                disabled={variantMutating}
                                             >
                                                 {variantMutating ? "Deleting…" : "Delete variant"}
-                                            </button>
+                                            </TransportToolbarButton>
                                         </div>
                                     </div>
                                 ) : null}
@@ -2037,6 +2260,7 @@ export default function TransportRouteDetailContent({
                                     <TransportVariantForm
                                         key={selectedVariant.public_id}
                                         variant={selectedVariant}
+                                        lockDirection={directionSwapPair !== null}
                                         onCancel={() => setEditingVariant(false)}
                                         onSaved={handleVariantSaved}
                                     />
@@ -2060,7 +2284,7 @@ export default function TransportRouteDetailContent({
                                         />
                                     </div>
                                 )}
-                            </section>
+                            </AdvancedToolSection>
                         ) : null}
                     </CollapsibleSection>
                 </div>
@@ -2071,6 +2295,7 @@ export default function TransportRouteDetailContent({
                 onExit={closeReviewMap}
                 routeCode={route?.route_code ?? ""}
                 routeDisplayName={routeDisplayName}
+                routeMode={route?.mode ?? null}
                 variants={variants}
                 selectedVariantId={selectedVariantId}
                 onVariantChange={selectVariant}
@@ -2079,28 +2304,38 @@ export default function TransportRouteDetailContent({
                 stopsError={stopsError}
                 routePathInfo={path}
                 routeStops={reviewMapSavedRouteStops}
-                stopMoveDrafts={reviewMapStopDrafts}
                 mapAutoFitKey={selectedVariantId}
-                selectedStopId={reviewMapSelectedStopId}
-                onSelectStop={setReviewMapSelectedStopId}
-                movedStopIds={reviewMapMovedStopIds}
-                hasUnsavedChanges={reviewMapHasUnsavedMoves}
-                selectedStopHasUnsaved={reviewMapSelectedStopHasUnsaved}
-                saveLoading={reviewMapSaveLoading}
-                saveError={reviewMapSaveError}
-                saveSuccessMessage={reviewMapSaveSuccess}
-                onSave={saveReviewMapStopMoves}
-                onSaveAndNext={saveReviewMapStopAndNext}
-                onRevert={revertReviewMapStopMoves}
-                onStopMovePreview={
+                selectedRouteStopId={selectedRouteStopId}
+                previewGeom={previewGeom}
+                hasUnsavedMove={hasUnsavedMove}
+                stopPreviewSaveBusy={reviewMapStopPreviewSaveBusy}
+                onSaveStopPreview={handleReviewMapSaveStopPreview}
+                onRevertStopPreview={handleReviewMapRevertStopPreview}
+                onSelectStop={setSelectedRouteStopId}
+                actionToast={reviewMapToast}
+                candidateSearchHint={reviewMapCandidateSearchHint}
+                nearbyCandidates={nearbyMapCandidates}
+                nearbyCandidateCount={nearbyCandidates.length}
+                nearbyCandidatesStatus={nearbyCandidatesStatus}
+                onRetryNearbyCandidates={retryNearbyCandidates}
+                selectedCandidateId={selectedNearbyCandidateId}
+                onCandidateSelect={handleNearbyCandidateSelect}
+                onCandidateSearchRequest={
                     pathMode === null &&
                     !isReviewMapPathEditMode(reviewMapMode) &&
-                    reviewMapSelectedStopId &&
-                    !reviewMapSaveLoading
-                        ? handleReviewMapStopMovePreview
+                    selectedRouteStopId
+                        ? handleReviewMapCandidateMapClick
                         : undefined
                 }
-                stopMoveHint={reviewMapStopMoveHint}
+                onCandidateCheckRoutes={handleReviewMapCandidateCheckRoutes}
+                onCandidateKeepCurrent={handleReviewMapCandidateKeepCurrent}
+                onCandidateKeepCandidate={handleReviewMapCandidateKeepCandidate}
+                onCandidateCompareMerge={handleReviewMapCandidateCompareMerge}
+                activeDetailSource={activeDetailSource}
+                activeDetailUsageSummary={activeDetailUsageSummary}
+                activeDetailUsageItems={activeDetailUsageItems}
+                activeDetailUsageLoading={activeDetailUsageLoading}
+                activeDetailUsageError={activeDetailUsageError}
                 draftPath={pathMode ? draftPath : null}
                 pathDrawing={pathMode !== null}
                 onDraftPathAddPoint={pathMode ? addDraftPoint : undefined}
@@ -2137,7 +2372,24 @@ export default function TransportRouteDetailContent({
                 onMarkPathReviewed={markVariantPathReviewed}
                 onMarkRouteReviewed={markRouteReviewed}
                 onOpenStopDetail={onOpenStopDetail}
+                onStopTimingUpdated={handleStopTimingUpdated}
+                onVariantDepartureTimeUpdated={handleVariantDepartureTimeUpdated}
                 centerStopRequest={reviewMapCenterStopRequest}
+                insertDisabled={
+                    pathMode !== null ||
+                    isReviewMapPathEditMode(reviewMapMode) ||
+                    stopMutating ||
+                    !selectedVariantId
+                }
+                onInsertAtStart={handleReviewMapInsertAtStart}
+                onInsertAfter={handleReviewMapInsertAfter}
+                onRemoveFromRoute={requestRemoveStop}
+                onCheckRoutes={handleReviewMapCheckRoutes}
+                onDeleteStop={handleReviewMapDeleteStop}
+                routeUsageLoading={selectedStopRouteUsageLoading}
+                deleteStopAllowed={selectedStopDeleteAllowed}
+                deleteBlockMessage={selectedStopDeleteBlockMessage}
+                mapCenterGetterRef={reviewMapCenterGetterRef}
             />
 
             <GeneratePathFromStopsDialog
@@ -2161,44 +2413,53 @@ export default function TransportRouteDetailContent({
                 onCancel={cancelRemoveStop}
             />
 
-            {pickingLocation ? (
-                <div className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
-                    <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm shadow-lg">
-                        <span className="text-slate-700">
-                            {newStopPoint
-                                ? `Location set: ${newStopPoint.lng.toFixed(5)}, ${newStopPoint.lat.toFixed(5)}`
-                                : "Click the route map to set the new stop location"}
-                        </span>
-                        <button
-                            type="button"
-                            onClick={() => setPickingLocation(false)}
-                            disabled={!newStopPoint}
-                            className="rounded-full bg-blue-700 px-3 py-1 text-xs font-medium text-white hover:bg-blue-800 disabled:opacity-60"
-                        >
-                            Done
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setPickingLocation(false)}
-                            className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                            Back to form
-                        </button>
-                    </div>
-                </div>
-            ) : null}
+            <TransportStopUsageDialog
+                open={usageDialogTarget !== null}
+                stopPublicId={usageDialogTarget?.publicId ?? null}
+                stopName={usageDialogTarget?.name ?? ""}
+                mode={usageDialogTarget?.mode ?? "usage"}
+                activeVariantPublicId={selectedVariantId}
+                onDisconnected={handleUsageDialogDisconnected}
+                onRouteUsageChanged={handleRouteUsageChanged}
+                onPermanentDeleteRequest={handlePermanentDeleteRequest}
+                permanentDeleteLoading={permanentDeleting}
+                deleteBlockMessage={selectedStopDeleteBlockMessage}
+                deleteAllowed={selectedStopDeleteAllowed}
+                onClose={() => setUsageDialogTarget(null)}
+            />
+
+            <PermanentDeleteStopDialog
+                open={permanentDeleteTarget !== null}
+                stopName={permanentDeleteTarget?.name ?? ""}
+                isBusy={permanentDeleting}
+                error={permanentDeleteError}
+                onConfirm={confirmPermanentDeleteStop}
+                onCancel={cancelPermanentDeleteStop}
+            />
+
+            <SwapRouteDirectionDialog
+                open={swapDirectionOpen}
+                pair={directionSwapPair}
+                routeCode={route?.route_code ?? ""}
+                isBusy={swapDirectionBusy}
+                error={swapDirectionError}
+                onConfirm={confirmSwapRouteDirection}
+                onCancel={() => {
+                    if (!swapDirectionBusy) {
+                        setSwapDirectionOpen(false);
+                        setSwapDirectionError("");
+                    }
+                }}
+            />
 
             <InsertRouteStopDialog
                 open={insertContext !== null}
                 context={insertContext}
                 variantPublicId={selectedVariantId}
                 routeMode={route?.mode ?? null}
-                draftPoint={newStopPoint}
-                onDraftPointChange={setNewStopPoint}
-                picking={pickingLocation}
-                onStartPick={() => setPickingLocation(true)}
                 onCancel={cancelInsert}
                 onInserted={handleStopInserted}
+                getFallbackPlaceholderPoint={getInsertFallbackPlaceholderPoint}
             />
 
             {replaceTarget && selectedVariantId && route ? (
@@ -2211,6 +2472,23 @@ export default function TransportRouteDetailContent({
                     onReplaced={refreshOrderedStops}
                 />
             ) : null}
+
+            {candidateCompareTarget && selectedRouteStop ? (
+                <ReviewMapCandidateCompareDialog
+                    open
+                    currentStopPublicId={selectedRouteStop.stop.public_id}
+                    candidate={candidateCompareTarget}
+                    initialCanonicalSide={mergeCompareInitialCanonicalSide}
+                    onClose={() => setCandidateCompareTarget(null)}
+                    onMergeSuccess={handleGlobalMergeSuccess}
+                    onMergeError={handleGlobalMergeError}
+                />
+            ) : null}
+
+            <TransportStopMergeResultOverlay
+                state={mergeResultOverlay}
+                onDismiss={dismissMergeResultOverlay}
+            />
         </>
     );
 }

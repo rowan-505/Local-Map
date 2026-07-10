@@ -1,70 +1,21 @@
 /**
- * Pointer handling for the POI circle layer — keeps MapView free of map event API details.
+ * Pointer hover handling for the POI circle layers.
+ * Map clicks are resolved centrally in {@link publicMapClickInteractions.ts}.
  */
-import type { MapEngine, MapMouseEvent } from '../mapEngineTypes';
-import {
-  PLACES_IMPORTANT_LAYER_ID,
-  PLACES_LAYER_ID,
-  PLACES_SELECTED_HALO_LAYER_ID,
-  PLACES_SELECTED_LAYER_ID,
-} from './placesOnMap';
-import { TRANSPORT_LAYER_IDS } from './transportLayers';
-import type { MapClickedLocation } from '../../types';
+import type { MapEngine } from '../mapEngineTypes';
+import { PUBLIC_MAP_POI_CLICK_LAYER_IDS } from './publicMapClickableLayerRegistry';
 
-const POI_HIT_LAYERS = [
-  PLACES_SELECTED_LAYER_ID,
-  PLACES_SELECTED_HALO_LAYER_ID,
-  PLACES_IMPORTANT_LAYER_ID,
-  PLACES_LAYER_ID,
-] as const;
-
-/** Transport overlay features handle their own debug popups; skip empty-map handling for them. */
-function isTransportFeatureUnderPoint(map: MapEngine, point: MapMouseEvent['point']): boolean {
-  const presentLayers = TRANSPORT_LAYER_IDS.filter((id) => map.getLayer(id));
-  if (presentLayers.length === 0) return false;
-  return map.queryRenderedFeatures(point, { layers: presentLayers }).length > 0;
-}
-
-export type RoutePickMode = 'from' | 'to' | null;
-
+/** @deprecated Use {@link bindPublicMapClickInteractions} for map clicks. Hover only. */
 export function bindPoiLayerInteractions(
   map: MapEngine,
-  onSelectPoiId: (id: string | null) => void,
-  onEmptyMapClick?: (location: MapClickedLocation) => void,
-  options?: {
-    readonly getRoutePickMode?: () => RoutePickMode;
-  },
+  _onSelectPoiId?: (id: string | null) => void,
+  _onEmptyMapClick?: unknown,
+  _options?: unknown,
 ): () => void {
-  const onMapClick = (e: MapMouseEvent) => {
-    const pickMode = options?.getRoutePickMode?.() ?? null;
-    if (pickMode) {
-      onEmptyMapClick?.({
-        label: 'Selected map point',
-        coordinates: [e.lngLat.lng, e.lngLat.lat],
-      });
-      return;
-    }
+  return bindPoiLayerHoverInteractions(map);
+}
 
-    // Transport overlay owns its clicks: a transport feature under the cursor must not be
-    // overridden by POI selection or the address panel (transport popup handles it).
-    if (isTransportFeatureUnderPoint(map, e.point)) {
-      return;
-    }
-
-    const hits = map.queryRenderedFeatures(e.point, { layers: [...POI_HIT_LAYERS] });
-    const first = hits[0];
-    const raw = first?.properties?.id;
-    if (typeof raw === 'string') {
-      onSelectPoiId(raw);
-      return;
-    }
-    onSelectPoiId(null);
-    onEmptyMapClick?.({
-      label: 'Clicked location',
-      coordinates: [e.lngLat.lng, e.lngLat.lat],
-    });
-  };
-
+export function bindPoiLayerHoverInteractions(map: MapEngine): () => void {
   const onEnter = () => {
     const canvas = map.getCanvas();
     if (canvas?.style) canvas.style.cursor = 'pointer';
@@ -74,8 +25,7 @@ export function bindPoiLayerInteractions(
     if (canvas?.style) canvas.style.cursor = '';
   };
 
-  map.on('click', onMapClick);
-  for (const layerId of POI_HIT_LAYERS) {
+  for (const layerId of PUBLIC_MAP_POI_CLICK_LAYER_IDS) {
     if (map.getLayer(layerId)) {
       map.on('mouseenter', layerId, onEnter);
       map.on('mouseleave', layerId, onLeave);
@@ -83,8 +33,7 @@ export function bindPoiLayerInteractions(
   }
 
   return () => {
-    map.off('click', onMapClick);
-    for (const layerId of POI_HIT_LAYERS) {
+    for (const layerId of PUBLIC_MAP_POI_CLICK_LAYER_IDS) {
       if (map.getLayer(layerId)) {
         map.off('mouseenter', layerId, onEnter);
         map.off('mouseleave', layerId, onLeave);

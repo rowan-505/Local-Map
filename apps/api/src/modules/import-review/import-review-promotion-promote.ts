@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 
+import { rebuildSearchAfterImportReviewBulkPromotion } from "../search/bulk-promotion-search-rebuild.js";
 import {
     ImportReviewPublishBatchInvalidStatusError,
     ImportReviewPublishBatchNotFoundError,
@@ -975,6 +976,33 @@ export class ImportReviewPromotionPromoteRunner {
                     details: promotionResult as unknown as Record<string, unknown>,
                 };
             });
+
+            if (success > 0 && promotedFamilies.size > 0) {
+                try {
+                    await rebuildSearchAfterImportReviewBulkPromotion(
+                        this.repo.prisma,
+                        {
+                            workflow: "import-review-publish-batch-promotion",
+                            promotedCount: success,
+                            promotedFamilies,
+                            countsByFamily,
+                            batchId,
+                        },
+                        log
+                            ? {
+                                  info: (obj, msg) => log.info(obj, msg),
+                                  warn: (obj, msg) => log.warn(obj, msg),
+                                  error: (obj, msg) => log.error(obj, msg),
+                              }
+                            : undefined,
+                    );
+                } catch (searchRebuildErr) {
+                    log?.error(
+                        { err: searchRebuildErr, batchId: batchId.toString() },
+                        "publish batch promotion search family rebuild failed",
+                    );
+                }
+            }
 
             activeStageKey = PROMOTION_STAGE_FINAL;
             await this.runStage(batchId, stagePlan, PROMOTION_STAGE_FINAL, async () => ({

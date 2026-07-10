@@ -20,3 +20,87 @@ postgres:
       srid: 4326
       geometry_column: geom
       id_column: id
+
+    # Transport overlay — must serve native tiles through street zoom (public map z20).
+    # Without maxzoom 22, Martin defaults to ~14; MapLibre then requests z15+ tiles that
+    # do not exist and dense bus-stop points disappear when zooming in.
+    transport_stops_v:
+      schema: tiles
+      table: transport_stops_v
+      srid: 4326
+      geometry_column: geom
+      id_column: id
+      minzoom: 0
+      maxzoom: 22
+      properties:
+        id: int8
+        public_id: uuid
+        name: text
+        name_mm: text
+        name_en: text
+        mode: text
+        stop_type: text
+        confidence_score: numeric
+        review_status: text
+
+    transport_terminals_v:
+      schema: tiles
+      table: transport_terminals_v
+      srid: 4326
+      geometry_column: geom
+      id_column: id
+      minzoom: 0
+      maxzoom: 22
+      properties:
+        id: int8
+        public_id: uuid
+        name: text
+        name_mm: text
+        name_en: text
+        mode: text
+        terminal_role: text
+        confidence_score: numeric
+        review_status: text
+
+    transport_route_paths_v:
+      schema: tiles
+      table: transport_route_paths_v
+      srid: 4326
+      geometry_column: geom
+      id_column: id
+      minzoom: 0
+      maxzoom: 22
+      properties:
+        id: int8
+        route_variant_id: int8
+        route_id: int8
+        route_code: text
+        public_name: text
+        mode: text
+        route_kind: text
+        variant_code: text
+        direction_name: text
+        headsign: text
+        path_kind: text
+        distance_m: numeric
+        confidence_score: numeric
+        review_status: text
+
+    transport_infrastructure_lines_v:
+      schema: tiles
+      table: transport_infrastructure_lines_v
+      srid: 4326
+      geometry_column: geom
+      id_column: id
+      minzoom: 0
+      maxzoom: 22
+      properties:
+        id: int8
+        public_id: uuid
+        name: text
+        name_mm: text
+        name_en: text
+        mode: text
+        line_type: text
+        confidence_score: numeric
+        review_status: text
