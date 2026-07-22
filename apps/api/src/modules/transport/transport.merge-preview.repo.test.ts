@@ -154,10 +154,44 @@ describe("TransportRepository.getStopMergePreview bigint serialization", () => {
 
         assert.equal(preview.currentStop.adminAreaId, 5801);
         assert.equal(typeof preview.currentStop.adminAreaId, "number");
+        assert.equal(preview.candidateStop.adminAreaId, 5801);
+        assert.equal(typeof preview.candidateStop.adminAreaId, "number");
+        assert.equal(preview.fieldComparison.admin_area_id.current, 5801);
+        assert.equal(preview.fieldComparison.admin_area_id.candidate, 5801);
+        assert.equal(typeof preview.fieldComparison.admin_area_id.current, "number");
         assert.equal(preview.candidateUsage.summary.totalRoutes, 0);
         assert.equal(preview.currentUsage.summary.totalRoutes, 1);
         assert.equal(preview.affectedRoutes.length, 1);
         assert.equal(preview.mergeAllowed, true);
+        const serialized = JSON.stringify(preview);
+        assert.doesNotThrow(() => JSON.parse(serialized));
+        assert.match(serialized, /"adminAreaId":5801/);
+        assert.doesNotMatch(serialized, /5801n/);
+    });
+
+    it("returns JSON-safe null adminAreaId when admin_area_id is null", async () => {
+        const prisma = createMergePreviewPrisma({
+            currentAdminAreaId: null,
+            candidateAdminAreaId: null,
+        });
+        const repo = new TransportRepository(prisma);
+        const preview = await repo.getStopMergePreview(CURRENT_ID, CANDIDATE_ID);
+
+        assert.equal(preview.currentStop.adminAreaId, null);
+        assert.equal(preview.candidateStop.adminAreaId, null);
+        assert.doesNotThrow(() => JSON.stringify(preview));
+    });
+
+    it("coerces non-null number admin_area_id without BigInt leakage", async () => {
+        const prisma = createMergePreviewPrisma({
+            currentAdminAreaId: 9999,
+            candidateAdminAreaId: 8888,
+        });
+        const repo = new TransportRepository(prisma);
+        const preview = await repo.getStopMergePreview(CURRENT_ID, CANDIDATE_ID);
+
+        assert.equal(preview.currentStop.adminAreaId, 9999);
+        assert.equal(preview.candidateStop.adminAreaId, 8888);
         assert.doesNotThrow(() => JSON.stringify(preview));
     });
 

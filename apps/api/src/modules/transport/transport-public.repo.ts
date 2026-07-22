@@ -8,6 +8,7 @@ import {
     sqlCanonicalTransportStopExists,
     sqlCanonicalTransportTerminalExists,
     sqlPublicReleaseVisible,
+    sqlPublicReleaseVisibleWithoutDeletedAt,
 } from "./transport-public-visibility.js";
 import type {
     PublicTransportFare,
@@ -499,7 +500,7 @@ export class TransportPublicRepository {
                 f.note
             FROM transport.fares f
             WHERE f.route_id = ${routeId}
-              AND ${sqlPublicReleaseVisible("f")}
+              AND ${sqlPublicReleaseVisibleWithoutDeletedAt("f")}
             ORDER BY f.id ASC
             LIMIT 1
         `;
@@ -518,7 +519,7 @@ export class TransportPublicRepository {
             JOIN transport.routes r ON r.id = f.route_id
             WHERE r.route_code = ${routeCode}
               AND ${sqlPublicReleaseVisible("r")}
-              AND ${sqlPublicReleaseVisible("f")}
+              AND ${sqlPublicReleaseVisibleWithoutDeletedAt("f")}
             ORDER BY f.id ASC
             LIMIT 1
         `;

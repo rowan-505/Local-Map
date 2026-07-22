@@ -77,6 +77,37 @@ const routeListItemSchema = {
     },
 } as const;
 
+/** Public (unauthenticated) route list item — no admin public_id / counts. */
+const publicRouteListItemSchema = {
+    type: "object",
+    required: ["route_code", "route_name_my", "route_name_en", "operator", "fare"],
+    properties: {
+        route_code: { type: "string" },
+        route_name_my: { type: "string", nullable: true },
+        route_name_en: { type: "string", nullable: true },
+        operator: {
+            type: "object",
+            nullable: true,
+            required: ["name"],
+            properties: {
+                name: { type: "string" },
+            },
+        },
+        fare: {
+            type: "object",
+            nullable: true,
+            required: ["fare_type", "amount_min", "amount_max", "currency_code", "note"],
+            properties: {
+                fare_type: { type: "string" },
+                amount_min: { type: "number", nullable: true },
+                amount_max: { type: "number", nullable: true },
+                currency_code: { type: "string" },
+                note: { type: "string", nullable: true },
+            },
+        },
+    },
+} as const;
+
 const routeSearchStopSchema = {
     type: "object",
     required: ["route_stop_id", "stop_id", "public_id", "stop_sequence", "name_my", "name_en"],
@@ -160,7 +191,8 @@ export const getTransportRoutesSchema = {
     tags: [Tags.Transport],
     summary: "List transport routes (admin)",
     description:
-        "Paginated, filterable routes list with variant/stop/path counts. Never returns geometry.",
+        "Paginated, filterable routes list with variant/stop/path counts. Never returns geometry. " +
+        "Unauthenticated callers receive the public route list shape (route_code / names / fare).",
     security: [...bearerAuth],
     querystring: {
         type: "object",
@@ -182,7 +214,12 @@ export const getTransportRoutesSchema = {
             type: "object",
             required: ["items", "total", "limit", "offset", "page", "hasNextPage"],
             properties: {
-                items: { type: "array", items: routeListItemSchema },
+                items: {
+                    type: "array",
+                    items: {
+                        oneOf: [routeListItemSchema, publicRouteListItemSchema],
+                    },
+                },
                 total: { type: "integer", minimum: 0 },
                 limit: { type: "integer", minimum: 1 },
                 offset: { type: "integer", minimum: 0 },

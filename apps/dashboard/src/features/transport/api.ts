@@ -1010,12 +1010,17 @@ export function removeTransportRouteStop(
     fetchInit?: Pick<RequestInit, "signal">
 ) {
     const trimmedReason = reason?.trim();
+    // Always send a valid JSON body. The request sets Content-Type:
+    // application/json, and Fastify rejects an empty body for that content type
+    // ("Body cannot be empty..."). When there is no reason we send `{}` (the
+    // backend schema treats reason as optional); a reason is sent as `{ reason }`.
+    const body = trimmedReason ? { reason: trimmedReason } : {};
     return apiFetch<TransportRouteStopMutationResult>(
         `/transport/route-stops/${encodeURIComponent(id)}`,
         {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
-            ...(trimmedReason ? { body: JSON.stringify({ reason: trimmedReason }) } : {}),
+            body: JSON.stringify(body),
             ...fetchInit,
         }
     );

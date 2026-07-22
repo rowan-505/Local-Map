@@ -66,13 +66,25 @@ export function isTransportPublicIdParam(value: string): boolean {
     return UUID_RE.test(value);
 }
 
-/** SQL predicate for a table alias (routes, variants, paths, stops, fares). */
+/** SQL predicate for tables with soft-delete (routes, variants, paths, stops). */
 export function sqlPublicReleaseVisible(alias: string): Prisma.Sql {
     const a = Prisma.raw(alias);
     return Prisma.sql`
         ${a}.review_status IN ('reviewed', 'verified')
         AND ${a}.is_active = true
         AND ${a}.deleted_at IS NULL
+    `;
+}
+
+/**
+ * Public release visibility for tables that have review_status + is_active
+ * but no deleted_at column (live transport.fares).
+ */
+export function sqlPublicReleaseVisibleWithoutDeletedAt(alias: string): Prisma.Sql {
+    const a = Prisma.raw(alias);
+    return Prisma.sql`
+        ${a}.review_status IN ('reviewed', 'verified')
+        AND ${a}.is_active = true
     `;
 }
 

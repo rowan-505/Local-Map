@@ -19,6 +19,7 @@ import {
     sqlCanonicalTransportStopExists,
     sqlCanonicalTransportTerminalExists,
     sqlPublicReleaseVisible,
+    sqlPublicReleaseVisibleWithoutDeletedAt,
 } from "./transport-public-visibility.js";
 
 type RawHandler = (arg: unknown, ...rest: unknown[]) => Promise<unknown>;
@@ -31,7 +32,18 @@ function extractSql(arg: unknown): string {
         const obj = arg as Record<string, unknown>;
         if (typeof obj.sql === "string") return obj.sql;
         if (typeof obj.text === "string") return obj.text;
-        if (Array.isArray(obj.strings)) return (obj.strings as string[]).join("?");
+        if (Array.isArray(obj.strings)) {
+            const strings = obj.strings as string[];
+            const values = Array.isArray(obj.values) ? (obj.values as unknown[]) : [];
+            let out = "";
+            for (let i = 0; i < strings.length; i += 1) {
+                out += strings[i] ?? "";
+                if (i < values.length) {
+                    out += extractSql(values[i]);
+                }
+            }
+            return out;
+        }
         if (Array.isArray(obj.values)) {
             const values = obj.values as unknown[];
             return values
@@ -47,6 +59,25 @@ function extractSql(arg: unknown): string {
     return String(arg);
 }
 
+/** Expand Prisma `$queryRaw` tagged-template calls: (strings, ...values). */
+function extractTaggedSql(stringsOrSql: unknown, values: unknown[]): string {
+    if (Array.isArray(stringsOrSql)) {
+        const strings = stringsOrSql as string[];
+        let out = "";
+        for (let i = 0; i < strings.length; i += 1) {
+            out += strings[i] ?? "";
+            if (i < values.length) {
+                out += extractSql(values[i]);
+            }
+        }
+        return out;
+    }
+    if (values.length === 0) {
+        return extractSql(stringsOrSql);
+    }
+    return `${extractSql(stringsOrSql)} ${values.map((value) => extractSql(value)).join(" ")}`;
+}
+
 function createPublicMockPrisma(handlers: {
     listRows?: unknown[];
     listCount?: bigint;
@@ -57,10 +88,11 @@ function createPublicMockPrisma(handlers: {
     terminalDetailRows?: unknown[];
     routeServingRows?: unknown[];
     nextPreviewRows?: unknown[];
+    fareRows?: unknown[];
 }): { prisma: PrismaClient; executed: string[] } {
     const executed: string[] = [];
-    const queryRaw: RawHandler = async (arg) => {
-        executed.push(extractSql(arg));
+    const queryRaw: RawHandler = async (arg, ...rest) => {
+        executed.push(extractTaggedSql(arg, rest));
         const sql = executed[executed.length - 1];
         if (sql.includes("SELECT 1 FROM transport.routes")) {
             return [];
@@ -94,7 +126,7 @@ function createPublicMockPrisma(handlers: {
             return handlers.stopRows ?? [];
         }
         if (sql.includes("FROM transport.fares")) {
-            return [];
+            return handlers.fareRows ?? [];
         }
         if (sql.includes("rn_mm.name AS name_mm")) {
             return [{ name_mm: "မြန်မာ", name_en: "English", operator_name: "YBS" }];
@@ -154,6 +186,15 @@ describe("sqlPublicReleaseVisible", () => {
         assert.match(sql, /review_status IN \('reviewed', 'verified'\)/);
         assert.match(sql, /is_active = true/);
         assert.match(sql, /deleted_at IS NULL/);
+    });
+});
+
+describe("sqlPublicReleaseVisibleWithoutDeletedAt", () => {
+    it("filters review_status and is_active without deleted_at", () => {
+        const sql = extractSql(sqlPublicReleaseVisibleWithoutDeletedAt("f"));
+        assert.match(sql, /f\.review_status IN \('reviewed', 'verified'\)/);
+        assert.match(sql, /f\.is_active = true/);
+        assert.doesNotMatch(sql, /deleted_at/);
     });
 });
 
@@ -217,6 +258,99 @@ describe("TransportPublicRepository.listRoutes", () => {
 
         assert.equal(result.total, 1);
         assert.equal(result.items[0]?.route_code, "YBS-1");
+    });
+
+    it("does not reference fares.deleted_at when loading fares for public routes", async () => {
+        const { prisma, executed } = createPublicMockPrisma({
+            listRows: [
+                {
+                    route_code: "YBS-1",
+                    name_mm: "၁",
+                    name_en: "One",
+                    operator_name: "YBS",
+                },
+            ],
+            listCount: 1n,
+            fareRows: [
+                {
+                    fare_type: "flat",
+                    amount_min: 200,
+                    amount_max: 200,
+                    currency_code: "MMK",
+                    note: null,
+                },
+            ],
+        });
+        const repo = new TransportPublicRepository(prisma);
+        const result = await repo.listRoutes(publicListQuery);
+
+        const fareSql = executed.filter((sql) => sql.includes("FROM transport.fares"));
+        assert.ok(fareSql.length >= 1);
+        for (const sql of fareSql) {
+            assert.doesNotMatch(sql, /f\.deleted_at/);
+            assert.match(sql, /f\.review_status IN \('reviewed', 'verified'\)/);
+            assert.match(sql, /f\.is_active = true/);
+            // Routes still use soft-delete visibility; fares must not.
+            assert.match(sql, /r\.deleted_at IS NULL/);
+        }
+        assert.equal(result.items[0]?.fare?.amount_min, 200);
+        assert.doesNotThrow(() => JSON.stringify(result));
+    });
+
+    it("returns public route list when a fare row exists", async () => {
+        const { prisma } = createPublicMockPrisma({
+            listRows: [
+                {
+                    route_code: "YBS-11",
+                    name_mm: "၁၁",
+                    name_en: "Eleven",
+                    operator_name: "YBS",
+                },
+            ],
+            listCount: 1n,
+            fareRows: [
+                {
+                    fare_type: "flat",
+                    amount_min: 300,
+                    amount_max: 400,
+                    currency_code: "MMK",
+                    note: "approx",
+                },
+            ],
+        });
+        const repo = new TransportPublicRepository(prisma);
+        const result = await repo.listRoutes(publicListQuery);
+
+        assert.equal(result.total, 1);
+        assert.equal(result.items.length, 1);
+        assert.deepEqual(result.items[0]?.fare, {
+            fare_type: "flat",
+            amount_min: 300,
+            amount_max: 400,
+            currency_code: "MMK",
+            note: "approx",
+        });
+    });
+
+    it("returns public route list when no fare exists", async () => {
+        const { prisma } = createPublicMockPrisma({
+            listRows: [
+                {
+                    route_code: "YBS-2",
+                    name_mm: "၂",
+                    name_en: "Two",
+                    operator_name: "YBS",
+                },
+            ],
+            listCount: 1n,
+            fareRows: [],
+        });
+        const repo = new TransportPublicRepository(prisma);
+        const result = await repo.listRoutes(publicListQuery);
+
+        assert.equal(result.total, 1);
+        assert.equal(result.items[0]?.route_code, "YBS-2");
+        assert.equal(result.items[0]?.fare, null);
     });
 });
 
