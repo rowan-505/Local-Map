@@ -27,7 +27,7 @@ import {
 } from "./import-review-history.repo.js";
 import type { ImportReviewFamilySummaryMetrics } from "./import-review-summary-counts.js";
 import type { ImportReviewPublishStageLogRow } from "./import-review-promotion-validation.types.js";
-import { enrichPublishBatchItemsWithCandidatePromotionStatus } from "./import-review-history-publish-batch-candidate-status.js";
+import { extractDurablePublishItemFields } from "./import-review-history-durable-fields.js";
 import { ImportReviewPublishBatchNotFoundError } from "./import-review-promotion.errors.js";
 import {
     ImportReviewPublishBatchSummaryRepository,
@@ -155,6 +155,8 @@ function mapPublishBatchListItem(
         validation_percent: row.validation_percent,
         validation_success_count: validationSuccess,
         validation_fail_count: validationFail,
+        applied_by: bigStr(row.promoted_by),
+        applied_at: toIso(row.promoted_at ?? row.published_at),
         item_validation_counts: {
             ready: validationCounts.ready_count,
             warning: validationCounts.warning_count,
@@ -249,14 +251,20 @@ function mapStageLog(row: ImportReviewPublishStageLogRow) {
 }
 
 function mapPublishItem(
-    row: PublishBatchItemRowDb & { candidate_promotion_status?: string | null }
+    row: PublishBatchItemRowDb,
+    runId: string,
+    batchAppliedBy: string | null
 ): ImportReviewHistoryPublishBatchItem {
+    const durable = extractDurablePublishItemFields(row);
     return {
+        run_id: runId,
         id: row.id.toString(),
         entity_family: row.entity_family,
         entity_id: bigStr(row.entity_id),
         publish_action: row.publish_action,
         publish_status: row.publish_status,
+        review_decision: durable.review_decision,
+        source_snapshot_version: durable.source_snapshot_version,
         review_candidate_table: row.review_candidate_table,
         review_candidate_id: bigStr(row.review_candidate_id),
         external_id: row.external_id,
@@ -264,9 +272,14 @@ function mapPublishItem(
         target_table: row.target_table,
         target_id: bigStr(row.target_id),
         error_message: row.error_message,
-        candidate_promotion_status: row.candidate_promotion_status ?? null,
+        candidate_promotion_status: null,
+        before_data: row.before_data,
         after_data: row.after_data,
+        before_summary: durable.before_summary,
+        after_summary: durable.after_summary,
         validation_result: row.validation_result,
+        applied_by: durable.applied_by ?? batchAppliedBy,
+        applied_at: toIso(row.published_at),
         published_at: toIso(row.published_at),
         created_at: row.created_at.toISOString(),
     };
@@ -343,9 +356,11 @@ export class ImportReviewHistoryService {
             throw new ImportReviewPublishBatchNotFoundError(batchId.toString());
         }
 
-        const [itemCounts, familyCounts, dataState, stageLogs, reviewBatch] = await Promise.all([
+        const [itemCounts, familyCounts, actionCounts, dataState, stageLogs, reviewBatch] =
+            await Promise.all([
             this.repo.fetchPublishItemCounts(batchId),
             this.repo.fetchPublishItemCountsByFamily(batchId),
+            this.repo.fetchPublishItemCountsByAction(batchId),
             this.repo.fetchPublishBatchDataStateSummary(batchId),
             this.repo.listStageLogs(batchId),
             row.source_review_batch_id
@@ -365,6 +380,17 @@ export class ImportReviewHistoryService {
             };
         }
 
+        const itemCountsByAction: ImportReviewHistoryPublishBatchDetail["item_counts_by_action"] = {};
+        for (const ac of actionCounts) {
+            itemCountsByAction[ac.publish_action] = {
+                pending: n(ac.pending),
+                success: n(ac.success),
+                failed: n(ac.failed),
+                skipped: n(ac.skipped),
+                total: n(ac.total),
+            };
+        }
+
         const listItem = mapPublishBatchListItem(row, await this.computePublishSummary(batchId));
 
         return {
@@ -379,6 +405,7 @@ export class ImportReviewHistoryService {
                 total: n(itemCounts.total),
             },
             item_counts_by_entity_family: itemCountsByFamily,
+            item_counts_by_action: itemCountsByAction,
             validation_summary: parseValidationSummary(row.summary),
             promotion_summary: parsePromotionSummary(row.summary),
             validation_logs_summary: parseLogsSummary(row.summary, "validation_logs_summary"),
@@ -408,12 +435,10 @@ export class ImportReviewHistoryService {
         }
 
         const { rows, total } = await this.repo.listPublishBatchItems(batchId, query);
-        const enriched = await enrichPublishBatchItemsWithCandidatePromotionStatus(
-            this.repo.prisma,
-            rows
-        );
+        const runId = batchId.toString();
+        const batchAppliedBy = bigStr(batch.promoted_by);
         return {
-            items: enriched.map(mapPublishItem),
+            items: rows.map((row) => mapPublishItem(row, runId, batchAppliedBy)),
             total: n(total),
             limit: query.limit ?? 50,
             offset: query.offset ?? 0,

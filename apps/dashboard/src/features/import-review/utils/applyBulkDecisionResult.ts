@@ -8,10 +8,26 @@ import type {
 } from "@/src/lib/api";
 
 export function reviewStatusForBulkDecision(decision: ImportReviewDecision): ImportReviewReviewStatus {
-    if (decision === "needs_more_review") {
-        return "needs_review";
+    switch (decision) {
+        case "needs_more_review":
+            return "needs_review";
+        case "keep_existing":
+        case "ignore_import":
+        case "rejected":
+        case "ignored":
+            return "ignored";
+        case "mark_duplicate":
+        case "merged":
+            return "merged";
+        case "replace_existing":
+        case "merge_fields":
+        case "insert_separate":
+        case "confirm_soft_delete":
+        case "approved":
+            return "approved";
+        default:
+            return "needs_review";
     }
-    return decision;
 }
 
 export type BulkDecisionApplyOutcome = "updated" | "no_update" | "preview";

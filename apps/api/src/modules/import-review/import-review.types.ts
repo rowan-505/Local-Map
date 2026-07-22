@@ -105,6 +105,12 @@ export type ImportReviewBuildingListItem = {
     review_status: string | null;
     /** Stored API decision values match `needs_more_review`, etc.; DB column aligns with ingestion. */
     review_decision: string | null;
+    /** Normalized comparison axis (from match_status). */
+    comparison_status?: string | null;
+    /** Normalized decision meaning (pending when review_decision is null). */
+    review_decision_meaning?: string | null;
+    /** Normalized apply axis (from promotion_status). */
+    apply_status?: string | null;
     reviewed_by: string | null;
     reviewed_at: string | null;
     review_note: string | null;

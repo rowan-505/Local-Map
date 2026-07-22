@@ -38,6 +38,13 @@ import {
 } from "./import-review-summary-timing.js";
 import { sanitizeReviewOverridesPatch } from "./import-review-overrides-sanitize.js";
 import {
+    decisionToStorageValue,
+    isApplyReadyDecision,
+    projectCandidateStatuses,
+    reviewStatusForDecisionStorage,
+    type ImportReviewWritableDecision,
+} from "./import-review-status-model.js";
+import {
     assertFinalPatchedPlaceNameState,
     assertPersistableDirectColumnPatch,
     mapOverridePatchToColumnPatch,
@@ -257,6 +264,7 @@ function mapBuildingRow(
         row.is_list_projection === true ||
         row.is_road_list_projection === true ||
         row.is_building_list_projection === true;
+    const status = projectCandidateStatuses(row);
 
     const base: ImportReviewBuildingListItem = {
         id: row.id.toString(),
@@ -291,6 +299,9 @@ function mapBuildingRow(
         auto_action: row.auto_action,
         review_status: row.review_status,
         review_decision: row.review_decision,
+        comparison_status: status.comparison_status,
+        review_decision_meaning: status.review_decision_meaning,
+        apply_status: status.apply_status,
         reviewed_by: row.reviewed_by,
         reviewed_at: toIso(row.reviewed_at),
         review_note: row.review_note,
@@ -363,14 +374,15 @@ async function buildImportReviewCandidateListResponse(args: {
 }
 
 function reviewStatusForDecision(decision: ImportReviewDecisionValue): string {
-    const map: Record<ImportReviewDecisionValue, string> = {
-        approved: "approved",
-        rejected: "rejected",
-        needs_more_review: "needs_review",
-        ignored: "ignored",
-        merged: "merged",
-    };
-    return map[decision];
+    return reviewStatusForDecisionStorage(decision);
+}
+
+function storageDecisionForWrite(decision: ImportReviewDecisionValue): string {
+    return decisionToStorageValue(decision as ImportReviewWritableDecision);
+}
+
+function isApproveLikeDecision(decision: ImportReviewDecisionValue): boolean {
+    return isApplyReadyDecision(decision) || decision === "approved";
 }
 
 function formatReviewer(user: JwtUser): string {
@@ -557,8 +569,8 @@ function assertGenericCandidateDecisionAllowed(args: {
     }
 
     if (
-        matchStatus === "duplicate_candidate" &&
-        args.body.review_decision === "approved" &&
+        (matchStatus === "duplicate_candidate" || matchStatus === "duplicate") &&
+        isApproveLikeDecision(args.body.review_decision) &&
         !args.body.force &&
         !args.body.confirm_duplicate_reviewed
     ) {
@@ -568,7 +580,7 @@ function assertGenericCandidateDecisionAllowed(args: {
     }
 
     if (
-        args.body.review_decision === "approved" &&
+        isApproveLikeDecision(args.body.review_decision) &&
         (matchStatus === "manual_protected" || autoAction === "protect_manual")
     ) {
         const note = args.body.review_note;
@@ -580,7 +592,7 @@ function assertGenericCandidateDecisionAllowed(args: {
         }
     }
 
-    if (args.body.review_decision === "approved" && args.roadContext) {
+    if (isApproveLikeDecision(args.body.review_decision) && args.roadContext) {
         if (
             matchStatus === "matched_auto_update" &&
             !args.body.force &&
@@ -600,7 +612,7 @@ function assertGenericCandidateDecisionAllowed(args: {
 
     }
 
-    if (args.body.review_decision === "approved" && !args.body.force && args.roadContext === undefined) {
+    if (isApproveLikeDecision(args.body.review_decision) && !args.body.force && args.roadContext === undefined) {
         const config = getImportReviewEntityConfig(args.family);
         if (config.validationRequiredBeforePromotion) {
             const ctx = args.existing as CandidateReviewGuardContext & {
@@ -1186,7 +1198,7 @@ export class ImportReviewService {
 
         if (
             matchStatus === "duplicate_candidate" &&
-            body.review_decision === "approved" &&
+            isApproveLikeDecision(body.review_decision) &&
             !body.force &&
             !body.confirm_duplicate_reviewed
         ) {
@@ -1196,7 +1208,7 @@ export class ImportReviewService {
         }
 
         if (
-            body.review_decision === "approved" &&
+            isApproveLikeDecision(body.review_decision) &&
             !body.force &&
             (matchStatus === "manual_protected" || autoAction === "protect_manual")
         ) {
@@ -1205,14 +1217,14 @@ export class ImportReviewService {
             );
         }
 
-        if (body.review_decision === "approved") {
+        if (isApproveLikeDecision(body.review_decision)) {
             await this.persistEssentialDefaultsOnApprove("buildings", scope, buildingId);
         }
 
         const updated = await this.repo.updateBuildingReviewDecision({
             scope,
             id: buildingId,
-            reviewDecision: body.review_decision,
+            reviewDecision: storageDecisionForWrite(body.review_decision),
             reviewStatus: reviewStatusForDecision(body.review_decision),
             actor: buildActor(user),
             reviewNote: body.review_note,
@@ -1237,7 +1249,7 @@ export class ImportReviewService {
             mode,
             ids: body.ids,
             filters: body.filters,
-            reviewDecision: body.review_decision,
+            reviewDecision: storageDecisionForWrite(body.review_decision),
             reviewStatus: reviewStatusForDecision(body.review_decision),
             actor: buildActor(user),
             reviewNote: body.review_note,
@@ -1363,7 +1375,7 @@ export class ImportReviewService {
 
         if (
             matchStatus === "duplicate_candidate" &&
-            body.review_decision === "approved" &&
+            isApproveLikeDecision(body.review_decision) &&
             !body.force &&
             !body.confirm_duplicate_reviewed
         ) {
@@ -1373,7 +1385,7 @@ export class ImportReviewService {
         }
 
         if (
-            body.review_decision === "approved" &&
+            isApproveLikeDecision(body.review_decision) &&
             !body.force &&
             (matchStatus === "manual_protected" || autoAction === "protect_manual")
         ) {
@@ -1382,14 +1394,14 @@ export class ImportReviewService {
             );
         }
 
-        if (body.review_decision === "approved") {
+        if (isApproveLikeDecision(body.review_decision)) {
             await this.persistEssentialDefaultsOnApprove("places", scope, placeId);
         }
 
         const updated = await this.repo.updatePlaceReviewDecision({
             scope,
             id: placeId,
-            reviewDecision: body.review_decision,
+            reviewDecision: storageDecisionForWrite(body.review_decision),
             reviewStatus: reviewStatusForDecision(body.review_decision),
             actor: buildActor(user),
             reviewNote: body.review_note,
@@ -1426,7 +1438,7 @@ export class ImportReviewService {
 
         if (
             matchStatus === "duplicate_candidate" &&
-            body.review_decision === "approved" &&
+            isApproveLikeDecision(body.review_decision) &&
             !body.force &&
             !body.confirm_duplicate_reviewed
         ) {
@@ -1436,7 +1448,7 @@ export class ImportReviewService {
         }
 
         if (
-            body.review_decision === "approved" &&
+            isApproveLikeDecision(body.review_decision) &&
             !body.force &&
             (matchStatus === "manual_protected" || autoAction === "protect_manual")
         ) {
@@ -1447,7 +1459,7 @@ export class ImportReviewService {
 
         if (
             matchStatus === "matched_auto_update" &&
-            body.review_decision === "approved" &&
+            isApproveLikeDecision(body.review_decision) &&
             !body.force &&
             !body.confirm_matched_auto_update
         ) {
@@ -1456,7 +1468,7 @@ export class ImportReviewService {
             );
         }
 
-        if (body.review_decision === "approved") {
+        if (isApproveLikeDecision(body.review_decision)) {
             if (roadStoredValidationHasPromotionBlockers(existing.validation_errors) && !body.force) {
                 const valErr = stringsFromStoredJsonArray(existing.validation_errors);
                 throw new ImportReviewDecisionRuleError(
@@ -1470,7 +1482,7 @@ export class ImportReviewService {
         const updated = await this.repo.updateRoadReviewDecision({
             scope,
             id: roadId,
-            reviewDecision: body.review_decision,
+            reviewDecision: storageDecisionForWrite(body.review_decision),
             reviewStatus: reviewStatusForDecision(body.review_decision),
             actor: buildActor(user),
             reviewNote: body.review_note,
@@ -1495,7 +1507,7 @@ export class ImportReviewService {
             mode,
             ids: body.ids,
             filters: body.filters,
-            reviewDecision: body.review_decision,
+            reviewDecision: storageDecisionForWrite(body.review_decision),
             reviewStatus: reviewStatusForDecision(body.review_decision),
             actor: buildActor(user),
             reviewNote: body.review_note,
@@ -1518,7 +1530,7 @@ export class ImportReviewService {
             mode,
             ids: body.ids,
             filters: body.filters,
-            reviewDecision: body.review_decision,
+            reviewDecision: storageDecisionForWrite(body.review_decision),
             reviewStatus: reviewStatusForDecision(body.review_decision),
             actor: buildActor(user),
             reviewNote: body.review_note,
@@ -1703,7 +1715,7 @@ export class ImportReviewService {
 
         assertGenericCandidateDecisionAllowed({ family, body, existing });
 
-        if (body.review_decision === "approved") {
+        if (isApproveLikeDecision(body.review_decision)) {
             await this.persistEssentialDefaultsOnApprove(family, scope, candidateId);
         }
 
@@ -1711,7 +1723,7 @@ export class ImportReviewService {
             family,
             scope,
             id: candidateId,
-            reviewDecision: body.review_decision,
+            reviewDecision: storageDecisionForWrite(body.review_decision),
             reviewStatus: reviewStatusForDecision(body.review_decision),
             actor: buildActor(user),
             reviewNote: body.review_note,
@@ -1745,7 +1757,7 @@ export class ImportReviewService {
             mode,
             ids: body.ids,
             filters: body.filters,
-            reviewDecision: body.review_decision,
+            reviewDecision: storageDecisionForWrite(body.review_decision),
             reviewStatus: reviewStatusForDecision(body.review_decision),
             actor: buildActor(user),
             reviewNote: body.review_note,

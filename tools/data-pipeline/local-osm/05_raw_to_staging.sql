@@ -5,6 +5,17 @@
 -- This file now includes point-based Stage E extraction. It does not touch core
 -- and does not touch Supabase.
 --
+-- Staging refresh policy (current snapshot only):
+--   1. DELETE enabled-family staging rows for this source_snapshot_id
+--      (see pipeline_stage05_reset.sql; children deleted before parents)
+--   2. INSERT regenerated candidates from raw
+--   3. Write deterministic normalized_hash + fingerprints
+-- Previous-snapshot staging rows are preserved for F1 comparison.
+-- Manual review data lives only in Supabase import_review, not local staging.
+--
+-- Existing UPDATE / ON CONFLICT / NOT EXISTS insert guards remain as safety
+-- nets, but after the snapshot reset they normally insert a full fresh set.
+--
 -- Input psql variables:
 --   snapshot_version
 --   raw_schema     optional, defaults to raw
@@ -16,7 +27,9 @@
 --   Unselected families skip DDL prep, extraction blocks, and final counts.
 --
 -- Reusable extraction patterns for later Stage E insert blocks:
---   external_id = 'osm:' || osm_feature_type || ':' || osm_id
+--   external_id = system.pipeline_osm_external_id(osm_feature_type, osm_id)
+--     → canonical osm:node:<id> | osm:way:<id> | osm:relation:<id>
+--     (see pipeline_source_identity.sql; legacy osm:N|W|R matched in Stage 07)
 --   source_refs = jsonb_build_object(
 --       'source_snapshot_id', source_snapshot_id,
 --       'snapshot_version', snapshot_version,
@@ -84,6 +97,7 @@ VALUES (
 );
 
 \ir pipeline_entity_families.sql
+\ir pipeline_source_identity.sql
 \ir pipeline_tmp_import_mode.sql
 
 CREATE TEMP TABLE IF NOT EXISTS stage05_context (
@@ -163,6 +177,10 @@ SELECT
     ctx.boundary_id,
     ctx.boundary_mode
 FROM stage05_context AS ctx;
+
+-- Delete current-snapshot staging for enabled families, then regenerate below.
+-- Previous snapshots are not touched. Prefer delete+regenerate over upsert.
+\ir pipeline_stage05_reset.sql
 
 DO $stage05_raw_counts$
 DECLARE
@@ -394,14 +412,15 @@ BEGIN
 END
 $stage05_prepare_classification_targets$;
 
-CREATE TEMP TABLE IF NOT EXISTS stage05_source_feature_classification (
+DROP TABLE IF EXISTS stage05_source_feature_classification;
+CREATE TEMP TABLE stage05_source_feature_classification (
     source_snapshot_id bigint NOT NULL,
     snapshot_version text NOT NULL,
     region_code text,
     raw_table text NOT NULL,
     raw_id bigint NOT NULL,
     source_feature_family text NOT NULL,
-    osm_id bigint NOT NULL,
+    osm_id text NOT NULL,
     osm_feature_type text NOT NULL,
     external_id text NOT NULL,
     tags jsonb NOT NULL,
@@ -515,7 +534,7 @@ BEGIN
         extracted AS (
             SELECT
                 rf.*,
-                'osm:' || rf.osm_feature_type::text || ':' || rf.osm_id::text AS external_id,
+                system.pipeline_osm_external_id(rf.osm_feature_type, rf.osm_id) AS external_id,
                 nullif(btrim(coalesce(
                     rf.tags->>'name',
                     rf.tags->>'name:en',
@@ -1023,7 +1042,7 @@ BEGIN
             WITH src AS (
                 SELECT
                     raw.*,
-                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
                     coalesce(
                         nullif(raw.tags->>'name', ''),
                         nullif(raw.tags->>'name:en', ''),
@@ -1032,7 +1051,7 @@ BEGIN
                         nullif(raw.tags->>'name:my-MM', ''),
                         nullif(raw.tags->>'operator', ''),
                         nullif(raw.tags->>'network', ''),
-                        'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text
+                        system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id)
                     ) AS canonical_name
                 FROM %I.raw_osm_points AS raw
                 WHERE raw.source_snapshot_id = $1
@@ -1124,7 +1143,7 @@ BEGIN
                     raw.osm_id,
                     raw.osm_feature_type,
                     raw.tags,
-                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id
                 FROM %I.raw_osm_points AS raw
                 WHERE raw.source_snapshot_id = $1
                   AND raw.geom IS NOT NULL
@@ -1729,7 +1748,7 @@ BEGIN
             WITH src AS (
                 SELECT
                     raw.*,
-                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id
                 FROM %I.raw_osm_points AS raw
                 WHERE raw.source_snapshot_id = $1
                   AND raw.geom IS NOT NULL
@@ -1882,7 +1901,7 @@ BEGIN
                     raw.geom,
                     ST_Length(raw.geom::geography) AS length_m,
                     coalesce(raw.tags, '{}'::jsonb) AS tags,
-                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
                     coalesce(
                         nullif(btrim(raw.tags->>'name:my'), ''),
                         nullif(btrim(raw.tags->>'name'), ''),
@@ -2076,7 +2095,7 @@ BEGIN
                     raw.osm_id,
                     raw.osm_feature_type,
                     raw.tags,
-                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id
                 FROM %I.raw_osm_lines AS raw
                 WHERE raw.source_snapshot_id = $1
                   AND raw.geom IS NOT NULL
@@ -2180,7 +2199,7 @@ BEGIN
             WITH src AS (
                 SELECT
                     raw.*,
-                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
                     raw.tags->>'highway' AS road_class_code,
                     CASE
                         WHEN lower(coalesce(raw.tags->>'oneway', '')) IN ('yes', 'true', '1') OR raw.tags->>'junction' = 'roundabout' THEN true
@@ -2305,7 +2324,7 @@ BEGIN
             WITH src AS (
                 SELECT
                     raw.*,
-                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id
                 FROM %I.raw_osm_lines AS raw
                 WHERE raw.source_snapshot_id = $1
                   AND raw.geom IS NOT NULL
@@ -2486,7 +2505,7 @@ BEGIN
             WITH src AS (
                 SELECT
                     raw.*,
-                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id
                 FROM %I.raw_osm_lines AS raw
                 WHERE raw.source_snapshot_id = $1
                   AND raw.geom IS NOT NULL
@@ -2626,12 +2645,12 @@ BEGIN
             WITH src AS (
                 SELECT
                     raw.*,
-                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
                     coalesce(
                         nullif(raw.tags->>'name', ''),
                         nullif(raw.tags->>'ref', ''),
                         nullif(concat_ws(' - ', nullif(raw.tags->>'from', ''), nullif(raw.tags->>'to', '')), ''),
-                        'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text
+                        system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id)
                     ) AS display_label
                 FROM %I.raw_osm_lines AS raw
                 WHERE raw.source_snapshot_id = $1
@@ -3039,7 +3058,10 @@ BEGIN
                 FROM route_members
                 LEFT JOIN %I.staging_bus_stop_candidates AS stop
                     ON stop.source_snapshot_id = route_members.source_snapshot_id
-                   AND stop.external_id = 'osm:' || coalesce(route_members.member_type, 'node') || ':' || route_members.member_ref
+                   AND stop.external_id = system.pipeline_osm_external_id(
+                        coalesce(route_members.member_type, 'node'),
+                        route_members.member_ref
+                   )
                 WHERE route_members.member_ref IS NOT NULL
             ),
             inserted AS (
@@ -3172,7 +3194,7 @@ BEGIN
             WITH src AS (
                 SELECT
                     raw.*,
-                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
                     coalesce(
                         nullif(raw.tags->>'name', ''),
                         nullif(raw.tags->>'name:en', ''),
@@ -3470,7 +3492,7 @@ BEGIN
         q := format(
             $q$
             WITH src AS (
-                SELECT raw.*, 'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id
+                SELECT raw.*, system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id
                 FROM %I.raw_osm_polygons AS raw
                 WHERE raw.source_snapshot_id = $1
                   AND raw.geom IS NOT NULL
@@ -3590,7 +3612,7 @@ BEGIN
         q := format(
             $q$
             WITH src AS (
-                SELECT raw.*, 'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id,
+                SELECT raw.*, system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
                        coalesce(nullif(raw.tags->>'landuse',''), nullif(raw.tags->>'leisure',''), nullif(raw.tags->>'amenity','')) AS class_code
                 FROM %I.raw_osm_polygons AS raw
                 WHERE raw.source_snapshot_id = $1 AND raw.geom IS NOT NULL
@@ -3675,7 +3697,7 @@ BEGIN
         q := format(
             $q$
             WITH src AS (
-                SELECT raw.*, 'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id,
+                SELECT raw.*, system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
                        coalesce(nullif(raw.tags->>'water',''), nullif(raw.tags->>'natural',''), nullif(raw.tags->>'waterway','')) AS class_code
                 FROM %I.raw_osm_polygons AS raw
                 WHERE raw.source_snapshot_id = $1 AND raw.geom IS NOT NULL
@@ -3732,7 +3754,7 @@ BEGIN
                     raw.osm_feature_type,
                     coalesce(raw.tags, '{}'::jsonb) AS tags,
                     raw.geom,
-                    'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id,
+                    system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id,
                     coalesce(
                         nullif(btrim(raw.tags->>'name:my'), ''),
                         nullif(btrim(raw.tags->>'name'), ''),
@@ -3908,7 +3930,7 @@ BEGIN
             $q$
             WITH src AS (
                 SELECT raw.id raw_id, raw.osm_id, raw.osm_feature_type, raw.tags,
-                       'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id
+                       system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id
                 FROM %I.raw_osm_polygons raw
                 WHERE raw.source_snapshot_id = $1 AND raw.geom IS NOT NULL AND raw.tags->>'boundary' = 'administrative'
             ),
@@ -4099,7 +4121,7 @@ BEGIN
         q := format(
             $q$
             WITH src AS (
-                SELECT raw.*, 'osm:' || raw.osm_feature_type::text || ':' || raw.osm_id::text AS external_id
+                SELECT raw.*, system.pipeline_osm_external_id(raw.osm_feature_type, raw.osm_id) AS external_id
                 FROM %I.raw_osm_polygons raw
                 WHERE raw.source_snapshot_id = $1 AND raw.geom IS NOT NULL
                   AND (raw.tags ?| array['barrier','fence_type','access'] OR raw.tags->>'barrier' IN ('fence', 'wall', 'hedge', 'gate', 'block'))
@@ -4228,6 +4250,9 @@ BEGIN
 END
 $stage05_final_counts$;
 
+\ir pipeline_stage05_hash_metrics.sql
+\ir pipeline_stage05b_validate.sql
+
 SELECT
     'stage05_log' AS output_type,
     section,
@@ -4241,12 +4266,15 @@ FROM stage05_report
 ORDER BY
     CASE section
         WHEN 'raw_counts' THEN 1
-        WHEN 'target_readiness' THEN 2
-        WHEN 'source_classification' THEN 3
-        WHEN 'point_extraction' THEN 4
-        WHEN 'line_extraction' THEN 5
-        WHEN 'bus_route_extraction' THEN 6
-        WHEN 'polygon_extraction' THEN 7
+        WHEN 'staging_reset' THEN 2
+        WHEN 'target_readiness' THEN 3
+        WHEN 'source_classification' THEN 4
+        WHEN 'point_extraction' THEN 5
+        WHEN 'line_extraction' THEN 6
+        WHEN 'bus_route_extraction' THEN 7
+        WHEN 'polygon_extraction' THEN 8
+        WHEN 'staging_hash' THEN 9
+        WHEN 'candidate_validation' THEN 10
         ELSE 99
     END,
     entity_family,

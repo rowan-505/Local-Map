@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import type { ImportReviewPublishFamilyConfig } from "./import-review-promotion-config.js";
 import { jsonbArrayLengthExpr } from "./import-review-promotion-eligibility.js";
+import { IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN } from "./import-review-status-model.js";
 
 function col(alias: string, column: string): Prisma.Sql {
     return Prisma.raw(`${alias}.${column}`);
@@ -36,7 +37,7 @@ function isPromotedStoredSql(alias: string): Prisma.Sql {
 function isApprovedSql(alias: string): Prisma.Sql {
     return Prisma.sql`(
         ${col(alias, "review_status")} = 'approved'
-        AND ${col(alias, "review_decision")} = 'approved'
+        AND ${col(alias, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN)}
     )`;
 }
 

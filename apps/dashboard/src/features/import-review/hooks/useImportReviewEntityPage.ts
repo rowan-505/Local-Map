@@ -528,14 +528,22 @@ export function useImportReviewEntityPage(
         }
         setDrawerNote(drawerRow.review_note ?? "");
         const d = drawerRow.review_decision;
-        if (
-            d === "approved" ||
-            d === "rejected" ||
-            d === "needs_more_review" ||
-            d === "ignored" ||
-            d === "merged"
-        ) {
-            setDrawerDecision(d);
+        const known: ImportReviewDecision[] = [
+            "keep_existing",
+            "replace_existing",
+            "merge_fields",
+            "insert_separate",
+            "ignore_import",
+            "mark_duplicate",
+            "confirm_soft_delete",
+            "needs_more_review",
+            "approved",
+            "rejected",
+            "ignored",
+            "merged",
+        ];
+        if (d && (known as string[]).includes(d)) {
+            setDrawerDecision(d as ImportReviewDecision);
         } else {
             setDrawerDecision("needs_more_review");
         }
@@ -772,7 +780,7 @@ export function useImportReviewEntityPage(
             match_status: "",
             auto_action: "",
             review_status: "",
-            review_decision: "",
+            review_decision: "pending",
             promotion_status: "",
             class_code: "",
         });
@@ -793,6 +801,7 @@ export function useImportReviewEntityPage(
                     "retry_needed",
                     "promotion_state",
                 ].forEach((k) => p.delete(k));
+                p.set("review_decision", "pending");
                 p.set("offset", "0");
             },
             { source: "entity_page:clear_filters" }
@@ -1082,7 +1091,7 @@ export function useImportReviewEntityPage(
         }
     };
 
-    const handleDrawerSave = async () => {
+    const handleDrawerSave = async (noteOverride?: string | null) => {
         if (!drawerRow || !canEditImportReview || !config) {
             return;
         }
@@ -1091,7 +1100,13 @@ export function useImportReviewEntityPage(
             return;
         }
         setDecisionSaveMessage(null);
-        if (isRoadFamily && drawerDecision === "approved") {
+        const isApplyLike =
+            drawerDecision === "approved" ||
+            drawerDecision === "replace_existing" ||
+            drawerDecision === "merge_fields" ||
+            drawerDecision === "insert_separate" ||
+            drawerDecision === "confirm_soft_delete";
+        if (isRoadFamily && isApplyLike) {
             const blocking = roadApprovalBlockingErrors(drawerRow);
             if (blocking.length > 0) {
                 setDecisionSaveMessage(
@@ -1102,8 +1117,9 @@ export function useImportReviewEntityPage(
         }
         setIsSaving(true);
         try {
+            const noteSource = noteOverride !== undefined ? noteOverride ?? "" : drawerNote;
             await patchDecision(drawerRow, drawerDecision, {
-                note: drawerNote.trim() === "" ? null : drawerNote.trim(),
+                note: noteSource.trim() === "" ? null : noteSource.trim(),
             });
             setDecisionSaveMessage("Saved changes.");
         } catch (err) {
@@ -1161,7 +1177,7 @@ export function useImportReviewEntityPage(
         setLimit,
         promotionState,
         setPromotionState,
-        showPromotionStateFilter: config?.filterFields.includes("promotion_status") ?? false,
+        showPromotionStateFilter: false,
         filterOptions,
         isLoadingFilters,
         isApplyingFilters,

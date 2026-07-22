@@ -6,6 +6,7 @@ import {
     isPromotedSql,
     type PublishEligibilityOptions,
 } from "./import-review-promotion-eligibility.js";
+import { IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN } from "./import-review-status-model.js";
 
 export const CREATE_BATCH_NO_ELIGIBLE_CANDIDATES_CODE = "NO_ELIGIBLE_CANDIDATES";
 
@@ -52,7 +53,7 @@ export function buildCreateBatchEligibleWhereSql(
     return Prisma.sql`
         ${col(a, "review_batch_id")} = ${reviewBatchId}
         AND ${col(a, "review_status")} = 'approved'
-        AND ${col(a, "review_decision")} = 'approved'
+        AND ${col(a, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN)}
         AND ${col(a, "promotion_status")} = 'not_ready'
         AND NOT ${isPromotedSql(a)}
         AND NOT ${isBlockedInActiveBatchSql(config, a)}

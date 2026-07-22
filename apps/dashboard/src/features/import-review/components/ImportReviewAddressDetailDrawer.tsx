@@ -9,6 +9,7 @@ import { buildAddressPreviewFeatureCollection } from "../utils/importReviewAddre
 import { reverseComponentsToImportReviewRows } from "@/src/features/addresses/reverseAddressToRows";
 import { useReverseAddressSuggestion } from "@/src/features/addresses/useReverseAddressSuggestion";
 import CandidatePromoteAction from "./detail/CandidatePromoteAction";
+import CandidateFieldCompareSection from "./detail/CandidateFieldCompareSection";
 import CandidateReviewActionsSection from "./detail/CandidateReviewActionsSection";
 import { reviewBatchIdFromApiScopeQuery } from "@/src/lib/importReviewSnapshot";
 import ImportReviewErrorState from "./ImportReviewErrorState";
@@ -17,6 +18,10 @@ import ImportReviewStatusBanner from "./ImportReviewStatusBanner";
 import ImportReviewStatusBadge from "./ImportReviewStatusBadge";
 import type { ImportReviewEntityConfig } from "../config/types";
 import { isGeometryEssentialForEntity } from "../config/essentialFields";
+import {
+    formatFieldChoicesForNote,
+    type ConflictFieldChoice,
+} from "../utils/conflictFieldCompare";
 import { IMPORT_REVIEW_LOADING } from "../utils/loadingMessages";
 import { importReviewMessageTone } from "../utils/importReviewMessageTone";
 import {
@@ -158,6 +163,22 @@ export default function ImportReviewAddressDetailDrawer({
 
     const [componentTypeOptions, setComponentTypeOptions] = useState<ImportReviewReferenceOptionDto[]>([]);
     const [mapPoint, setMapPoint] = useState<Geometry | null>(null);
+    const [fieldChoices, setFieldChoices] = useState<Record<string, ConflictFieldChoice>>({});
+    const mergeEditable = drawerDecision === "merge_fields" && canEdit && !isLoadingDetail;
+
+    const saveWithMergeChoices = useCallback(() => {
+        if (drawerDecision === "merge_fields") {
+            const block = formatFieldChoicesForNote(fieldChoices);
+            if (block) {
+                const base = drawerNote.trim();
+                const note = base.includes("field_choices:")
+                    ? base.replace(/field_choices:\{[\s\S]*\}$/, block)
+                    : `${base}${base ? "\n" : ""}${block}`;
+                onNoteChange(note);
+            }
+        }
+        onSave();
+    }, [drawerDecision, fieldChoices, drawerNote, onNoteChange, onSave]);
     const [locationSaving, setLocationSaving] = useState(false);
     const [manualMatchIds, setManualMatchIds] = useState(false);
     const reverse = useReverseAddressSuggestion(canEdit);
@@ -1366,15 +1387,25 @@ export default function ImportReviewAddressDetailDrawer({
                                 canEdit={canEdit}
                             />
 
+                            <CandidateFieldCompareSection
+                                row={row}
+                                choices={fieldChoices}
+                                editable={mergeEditable}
+                                onChoiceChange={(field, choice) =>
+                                    setFieldChoices((prev) => ({ ...prev, [field]: choice }))
+                                }
+                            />
+
                             <CandidateReviewActionsSection
                                 config={config}
+                                row={row}
                                 drawerDecision={drawerDecision}
                                 drawerNote={drawerNote}
                                 isSaving={isSaving}
                                 canEdit={canEdit && !isLoadingDetail && !validationBlocked}
                                 onDecisionChange={onDecisionChange}
                                 onNoteChange={onNoteChange}
-                                onSave={onSave}
+                                onSave={saveWithMergeChoices}
                             />
                         </>
                     ) : null}

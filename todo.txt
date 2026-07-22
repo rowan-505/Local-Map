@@ -23,561 +23,1665 @@ use that admin areas for auto assigning roads and places
 https://chatgpt.com/g/g-p-69cb95449e4081918f18db18e334b678/c/6a22f0a0-2aa8-83a9-be0e-5fe10532804a
 
 
----------------------------------------
-5. Why your PMTiles are 1GB even with only streets + admin labels
+# CoreMap Current-Data Repair Prompts
+## General rules for every prompt
 
-Most likely reasons:
+Use these rules for all repair tasks:
 
-1. Too many roads kept at too many zoom levels.
-2. Street geometries are not simplified enough per zoom.
-3. Small roads appear too early.
-4. Road labels are duplicated heavily.
-5. Admin boundaries/polygons are included at too many high zooms.
-6. Label points are duplicated across many zoom levels.
-7. Tile attributes are too large.
-8. You may be storing both geometry + label layers separately with similar data.
-9. Clipping/buffer settings may duplicate long lines across many tiles.
-10. Max zoom tile count explodes even if data seems simple.
+* Work only on the current production data.
+* Do not import new OSM data.
+* Do not redesign the import pipeline.
+* Do not rebuild search.
+* Do not work on addresses.
+* Do not clean transport routes unless explicitly requested.
+* Use Supabase MCP to inspect the live database.
+* Treat the live database as the source of truth.
+* Inspect actual table and column names before writing SQL.
+* Do not assume old documentation is accurate.
+* Never run a large update before producing a dry-run count.
+* Never change manually protected rows automatically.
+* Never mark imported records as verified automatically.
+* Preserve existing IDs and foreign-key relationships.
+* Use small transactions.
+* Stop after completing the requested step.
+* Do not automatically continue to the next prompt.
+* Keep implementation simple: SQL scripts, one README, and verification queries.
+* Do not create a generic workflow engine or new dashboard pages.
+* Do not copy the entire database as a backup.
+* Before an update, preserve only the IDs and fields that will actually change.
+* All permanent database changes must be represented in a migration or a clearly named repair SQL file in the repository.
+* Show the exact SQL and affected-row counts before applying production changes.
+* After applying changes, run verification queries and report before/after counts.
 
-The biggest size killer is usually:
 
-small roads + high zoom + unsimplified line geometry + repeated labels
+---
 
-Even without POIs/buildings, road networks can become huge if every residential/service/track path is included deeply and repeatedly.
+# Prompt 1 — Create the repair workspace and current baseline
 
-6. How to reduce size without reducing online visual quality
+You are a senior PostgreSQL/PostGIS data engineer working on CoreMap.
 
-You said: without reducing performance or zoom level.
+## Goal
 
-So don’t reduce max zoom first. Instead reduce unnecessary data per zoom.
+Create a simple repair workspace and produce a precise baseline of the current production data before changing anything.
 
-Keep max zoom, reduce feature density
+This task is inspection and file creation only. Do not update production rows.
 
-Bad:
+## Live Supabase project
 
-Every road appears from z7 to z17.
-Every label appears from z7 to z17.
-Every admin boundary appears at all zooms.
+Inspect the connected CoreMap Supabase project through Supabase MCP.
 
-Good:
+Confirm the project before continuing.
 
-z0–6:
-  country/region labels only
+## Repository work
 
-z7–9:
-  major roads + state/region/township labels
+Create this folder only if an equivalent current-data repair folder does not already exist:
 
-z10–12:
-  main/secondary roads + township labels
-
-z13–14:
-  local roads start
-
-z15–17:
-  residential/service roads + detailed labels
-
-You keep high zoom. You just stop wasting bytes at lower zooms.
-
-7. Biggest size reductions you should do first
-1. Remove useless tile attributes
-
-For roads, tile attributes should be minimal:
-
-id/public_id
-name
-name_my
-name_en
-road_class
-layer_type
-sort_rank
-
-Do not include:
-
-source_refs
-normalized_data
-full OSM tags
-created_at
-updated_at
-verification_note
-all alternate names
-admin metadata
-long JSON
-
-Tiles are rendering only. Your project rules already say tiles are not data storage and API is for business logic/data access.
-
-2. Split road geometry and road labels
-
-Road rendering layer:
-
-roads geometry
-road_class
-sort_rank
-
-Road label layer:
-
-label geometry
-name
-name_my
-name_en
-road_class
-
-But do not create labels for every tiny road at low zoom.
-
-Use label priority:
-
-z7–10:
-  highway/primary/trunk only
-
-z11–13:
-  secondary/tertiary
-
-z14+:
-  residential/local roads
-
-z16+:
-  service/minor lanes if needed
-3. Simplify geometry per zoom
-
-This does not mean destroying high-zoom precision.
-
-It means:
-
-low zoom:
-  simplified geometry
-
-high zoom:
-  detailed geometry
-
-This is exactly how vector tiles should work.
-
-Your project vision already says payload should be minimized using MVT/vector tiles and geometry simplification, with zoom-level filtering and spatial queries.
-
-4. Do not include admin polygons at high zoom if only boundaries/labels are needed
-
-For admin areas:
-
-Low zoom:
-  state/region polygons or boundaries
-
-Medium zoom:
-  district/township boundaries
-
-High zoom:
-  thin boundary lines only, maybe no polygon fill
-
-Admin area labels should be:
-
-one label point per area
-not repeated polygon labels everywhere
-not duplicated at every zoom unnecessarily
-5. Use layer-specific minzoom
-
-Example logic:
-
-motorway/trunk:
-  start z6/z7
-
-primary:
-  start z8
-
-secondary:
-  start z10
-
-tertiary:
-  start z11/z12
-
-residential:
-  start z13/z14
-
-service/track/path:
-  start z15/z16
-
-This usually reduces size massively without reducing max zoom.
-
-8. Online vs offline should not use the same PMTiles
-
-This is the key mistake.
-
-Online package
-
-Can be large:
-
-yangon-online-full.pmtiles ≈ 1GB
-
-Because users do not download all 1GB. The map requests only needed tiles/ranges.
-
-Offline package
-
-Must be intentionally small:
-
-kyauktan-lite.pmtiles ≈ 20–80MB
-yangon-lite.pmtiles ≈ 150–400MB
-
-Because users download the whole file.
-
-So the correct rule:
-
-Online PMTiles can be full-detail.
-Offline PMTiles must be a separate optimized product.
-9. Township offline package design
-
-For each township, create two package profiles.
-
-Township Lite
-
-Purpose:
-
-cheap mobile-data download
-basic offline map
-
-Contains:
-
-township boundary
-main roads
-secondary roads
-important local roads
-admin labels
-water
-major landmarks
-important POIs only
-
-Excludes:
-
-all tiny service roads
-all road labels
-all POIs
-buildings
-dense landuse
-full admin polygons
-large metadata
-Township Detail
-
-Purpose:
-
-high precision local offline map
-Wi-Fi recommended
-
-Contains:
-
-all useful roads
-road labels at high zoom
-important buildings if needed
-local labels
-important POIs
-entry/landmark features if verified
-
-Still excludes:
-
-full POI details
-photos
-phone numbers
-opening hours
-raw source JSON
-admin audit data
-10. Should you generate all 350 township packages now?
-
-No.
-
-Generate metadata for all townships, but generate real packages in priority order.
-
-Recommended order:
-
-1. Kyauktan Lite
-2. Kyauktan Detail
-3. Thanlyin Lite
-4. Yangon East/South/North/West district Lite
-5. Yangon Region Lite
-6. Mandalay Lite
-7. Naypyitaw Lite
-8. Other high-use towns
-9. All remaining township Lite packages
-10. Detail packages only where you have good data
-
-Brutal truth:
-
-350 township packages are manageable technically.
-350 high-quality offline packages are not manageable operationally at your current stage.
-
-Start with the areas users actually need.
-
-11. How to manage 350 packages cleanly
-
-Use a package registry.
-
-Your V2 plan already includes a tiles.tile_packages registry with package code, type, version, PMTiles URL, min/max zoom, bounds, file size, checksum, active/public flags, and endpoints for active/visible packages.
-
-Extend the idea mentally like this:
-
-package_code:
-  township_kyauktan_lite_v1
-
-package_type:
-  township_lite
-
-admin_area_id:
-  Kyauktan township id
-
-parent_package:
-  yangon_lite or myanmar_overview_lite
-
-file_size:
-  shown before download
-
-checksum:
-  verify after download
-
-is_mobile_data_recommended:
-  true/false
-
-The user should see:
-
-Kyauktan Lite — 58 MB — recommended
-Kyauktan Detail — 180 MB — Wi-Fi recommended
-Yangon Lite — 320 MB — Wi-Fi recommended
-Yangon Full — 1.1 GB — Wi-Fi only
-12. Avoid duplicate storage explosion
-
-If you make 350 township packages naively, total size can become larger than your 15 region PMTiles because features near boundaries may be duplicated.
-
-To reduce duplication:
-
-Use overview package as common dependency.
-Do not include national/region overview data inside every township package.
-Do not include neighboring township data except small buffer.
-Use small boundary buffer only for visual continuity.
-Keep township package focused on that township.
-
-Recommended offline download dependency:
-
-Always installed/downloaded:
-  myanmar-overview-lite
-
-Optional:
-  township-lite
-  township-detail
-  district-lite
-
-So a user in Kyauktan might have:
-
-myanmar-overview-lite.pmtiles
-+ kyauktan-lite.pmtiles
-+ optional kyauktan-detail.pmtiles
-
-Not:
-
-one giant standalone package that repeats everything
-13. How to keep fast online loading with 1GB PMTiles
-
-For online, 1GB is not automatically fatal, but you must avoid loading too many sources.
-
-Use:
-
-z0–6:
-  overview only
-
-z7–10:
-  overview + visible region
-
-z11+:
-  visible region only or visible region + selected dynamic layers
-
-near border:
-  current region + adjacent region only if viewport touches border
-
-Do not load:
-
-all 15 regions
-all township packages
-all POIs
-all labels
-
-The project architecture supports this separation: PMTiles for static basemap, Martin/PostGIS for dynamic tiles, and API for search/details/actions.
-
-14. Exact recommendation for your current situation
-Keep your current 16 PMTiles
-
-Use them for:
-
-online regional basemap
-desktop/web
-normal browsing
-R2/CDN delivery
-Create new offline profiles
-
-Do not reuse the 1GB region files as default offline.
+```text
+tools/data-repair/current-production/
+```
 
 Create:
 
-overview-lite
-region-lite
-district-lite
-township-lite
-township-detail
-region-full-wifi
-Reduce size by layer strategy, not max zoom
+```text
+tools/data-repair/current-production/
+├── README.md
+├── 00_baseline.sql
+└── reports/
+```
 
-Do:
+Do not create a repair framework, service, dashboard, or application.
 
-drop unused attributes
-zoom-filter small roads
-zoom-filter labels
-simplify geometry per zoom
-admin labels as points
-avoid repeated admin polygons
-remove raw JSON
-separate online full from offline lite
+## Inspect the live database
 
-Do not first:
+Inspect the actual schemas, columns, constraints, indexes, triggers, and relevant functions for:
 
-reduce max zoom
-delete all local roads
-make 350 full packages
-serve township packages online
-Final clean rule
+```text
+core.core_admin_areas
+core.core_admin_area_names
+ref.ref_admin_levels
+ref.ref_admin_area_types
 
-For CoreMap:
+core.core_streets
+core.core_street_names
+ref.ref_road_classes
 
-Online:
-  1 overview + 15 region full PMTiles
+core.core_places
+core.core_map_buildings
+core.core_map_landuse
+core.core_map_water_lines
+core.core_map_water_polygons
 
-Offline:
-  overview-lite + selected township/district/region lite/detail packages
+transport.stops
+transport.terminals
+transport.infrastructure_lines
 
-Size reduction:
-  reduce attributes, duplication, low-zoom feature density, label repetition, and unsimplified geometry
+import_review.review_batches
+import_review.admin_area_candidates
+import_review.road_candidates
+import_review.place_candidates
+import_review.building_candidates
+import_review.landuse_candidates
+import_review.water_line_candidates
+import_review.water_polygon_candidates
 
-Do not:
-  reduce max zoom first
-  create 350 full-detail 1GB township downloads
-  use township PMTiles as the main online serving model
+system.system_source_registry
+system.system_import_batches
+system.system_source_snapshots
+system.system_publish_batches
+system.system_publish_items
 
-The best long-term architecture is still:
+search.search_documents
+```
 
-PMTiles = stable basemap/offline packages
-Martin = dynamic/large changing overlays
-API = search, detail, saved, reports, user actions
+## Baseline queries
 
-That matches your own architecture and avoids overengineering while still supporting offline downloads for all townships later.
+Add read-only SQL to `00_baseline.sql` that reports:
 
+### Admin areas
 
+* Total
+* Active
+* Verified
+* Counts by hierarchy level
+* Counts by semantic type
+* Missing parents
+* Invalid parent rank
+* Self-parent rows
+* Missing geometry
+* Invalid geometry
+* Missing external ID
+* Missing semantic type
+* Missing primary name
+* Duplicate external IDs
 
+### Streets
 
-----
+* Total
+* Active
+* Verified
+* Manual override
+* Missing admin
+* Missing external ID
+* Invalid geometry
+* Counts by `road_class`
+* Counts by referenced road-class code
+* Road class text/FK mismatches
+* Real name count
+* Generated-label-only count
 
+Do not perform a full heavy JSON scan in one statement.
 
-Phase A — English extraction
-Command 1 — Read the route list (index only)
-npx tsx tools/data-pipeline/train-app-import/extract/extract-route-index.ts --language en
-What it does:
+### Smaller core datasets
 
-Scrolls the All tab route list on your phone
-Reads each card (train number, direction, path, time)
-Saves one file: tmp/train-import/raw/en/route-list.json
-Does not open route detail pages
-Does not use --all (that flag does not exist here)
-Wait until it finishes. Check: Routes found: <number>.
+For places, buildings, landuse and water report:
 
-Command 2 — Open every route and read full schedules
-npx tsx tools/data-pipeline/train-app-import/extract/extract-route-details.ts --language en --all
-What it does:
+* Total
+* Active
+* Verified
+* Missing admin
+* Missing external ID
+* Invalid geometry
 
-Reads route-list.json from step 1
-Opens each route on the phone
-Taps View Full Schedule
-Scrolls until Collapse Schedule
-Saves one JSON per route, e.g. tmp/train-import/raw/en/routes/TRAIN-141-UP.json
-Why --all?
-This script has two modes:
+### Transport admin links
 
-Flag	Meaning
---all
-Process every route in the list (normal workflow)
---current-route TRAIN-141-UP
-Process only the route already open on screen (manual fallback)
-For the first full run, use --all.
+Report missing admin assignments for:
 
-This can take a long time (many routes). Let it finish.
+```text
+transport.stops
+transport.terminals
+transport.infrastructure_lines
+```
 
-Phase B — Myanmar extraction
-Manual step (not a command)
-On the phone:
+### Import and lineage
 
-Switch app language to Myanmar
-Stay on Route → All tab (not Online Ticket)
-Command 3 — Read MY route list
-npx tsx tools/data-pipeline/train-app-import/extract/extract-route-index.ts --language my
-What it does: Same as Command 1, but Myanmar UI → tmp/train-import/raw/my/route-list.json.
+Report row counts and statuses for:
 
-Command 4 — Read MY detail for all routes
-npx tsx tools/data-pipeline/train-app-import/extract/extract-route-details.ts --language my --all
-What it does: Same as Command 2, but Myanmar → tmp/train-import/raw/my/routes/*.json.
+```text
+system source registry
+system import batches
+system source snapshots
+publish batches
+publish items
+review batches
+candidate tables
+```
 
-Phase C — Merge and normalize (files only, no phone, no DB writes)
-Command 5 — Merge EN + MY
-npx tsx tools/data-pipeline/train-app-import/normalize/merge-language-routes.ts
-What it does:
+## Performance rule
 
-Pairs EN and MY files by train number + direction
-Writes tmp/train-import/merged/TRAIN-*.json
-Command 6 — Normalize for DB import
-npx tsx tools/data-pipeline/train-app-import/normalize/normalize-train-routes.ts
-What it does:
+The street table has more than 823,000 rows.
 
-Converts merged data to a clean DB-ready shape
-Computes timing offsets
-Writes tmp/train-import/normalized/TRAIN-*.json
-Phase D — Station matching (read-only DB)
-Command 7 — Match stations in Supabase
-npx tsx tools/data-pipeline/train-app-import/db/match-train-stations.ts
-What it does:
+Avoid unbounded JSON scans and expensive spatial joins.
 
-Reads existing transport.stops where mode = 'train'
-Matches station names to stop IDs
-Writes tmp/train-import/import-ready/TRAIN-*.json only for fully matched routes
-Does not create new stops
-Check tmp/train-import/station-matches/unmatched-stations.json if some routes fail.
+For heavy checks:
 
-Phase E — Import one route first (test)
-Pick one route that exists in import-ready/, e.g. TRAIN-141-UP.
+* Use bounded ID samples first.
+* Use separate queries per field.
+* Use `EXPLAIN` before a potentially expensive query.
+* Do not use `EXPLAIN ANALYZE` on expensive national spatial queries.
 
-Command 8 — Dry-run import (no DB write)
-npx tsx tools/data-pipeline/train-app-import/db/import-train-route.ts --route TRAIN-141-UP
-What it does:
+## README
 
-Shows what would be imported
-Does not change the database
-Command 9 — Real import (writes DB)
-npx tsx tools/data-pipeline/train-app-import/db/import-train-route.ts --route TRAIN-141-UP --execute
-What it does:
+Document:
 
-Writes route + variant + route_stops to the database
-Sets is_active=false, review_status=imported_unreviewed
---execute here means “write to DB”. Without it = dry-run only.
+* Purpose of this repair folder
+* Exact repair order
+* Rule that each repair must inspect, dry-run, apply and verify
+* Rule that new OSM imports remain paused until the baseline is complete
+* Rule that production changes must preserve manual and verified records
 
-Command 10 — Validate that route
-npx tsx tools/data-pipeline/train-app-import/validate/validate-train-route.ts --route TRAIN-141-UP
-What it does:
+## Output
 
-Read-only DB checks (stop count, sequence, generation, etc.)
-Report: tmp/train-import/reports/TRAIN-141-UP-validation.json
-If validation fails, fix the problem before importing more routes.
+Return:
 
-Phase F — Import more routes (after one route is good)
-Repeat Commands 8–9 for each route (change the route code):
+1. Files created
+2. Live baseline findings
+3. Exact data problems found
+4. Queries that were too expensive or intentionally bounded
+5. Confirmation that no production rows were changed
 
-npx tsx tools/data-pipeline/train-app-import/db/import-train-route.ts --route TRAIN-83-UP
-npx tsx tools/data-pipeline/train-app-import/db/import-train-route.ts --route TRAIN-83-UP --execute
-Then validate:
+Stop after this prompt.
 
-npx tsx tools/data-pipeline/train-app-import/validate/validate-train-route.ts --route TRAIN-83-UP
-Phase G — Legacy cleanup (later, not now)
-Only after many new routes are imported and checked.
+---
 
-Command 11 — Mark old train data as legacy (dry-run)
-npx tsx tools/data-pipeline/train-app-import/cleanup/mark-legacy-train-data.ts
-Command 12 — Mark legacy (real write)
-npx tsx tools/data-pipeline/train-app-import/cleanup/mark-legacy-train-data.ts --execute
-Command 13 — Soft-delete legacy routes (dry-run)
-npx tsx tools/data-pipeline/train-app-import/cleanup/cleanup-legacy-train-routes.ts
-Command 14 — Soft-delete legacy (real, needs confirm flag)
-npx tsx tools/data-pipeline/train-app-import/cleanup/cleanup-legacy-train-routes.ts --execute --confirm-legacy-train-cleanup
+# Prompt 2 — Inspect and prepare admin hierarchy repairs
+
+Continue the CoreMap current-production repair.
+
+Read:
+
+```text
+tools/data-repair/current-production/README.md
+tools/data-repair/current-production/00_baseline.sql
+```
+
+Inspect existing admin-related repair scripts and functions before creating new code.
+
+Search at least:
+
+```text
+tools/data-pipeline/
+infrastructure/database/
+apps/api/src/
+```
+
+## Goal
+
+Prepare a precise list of administrative-area corrections.
+
+Do not apply corrections in this prompt.
+
+## Create
+
+```text
+tools/data-repair/current-production/01_admin_inspect.sql
+tools/data-repair/current-production/02_admin_prepare.sql
+```
+
+## Accepted hierarchy
+
+Use this operational hierarchy:
+
+```text
+country
+→ state_region
+→ district
+→ township
+→ town
+→ ward_village_tract
+```
+
+Do not add villages or settlements to administrative boundaries during this repair.
+
+Keep these concepts separate:
+
+```text
+admin_level_id     = hierarchy position
+admin_area_type_id = semantic meaning
+```
+
+Examples:
+
+```text
+state_region + state
+state_region + region
+state_region + union_territory
+ward_village_tract + ward
+ward_village_tract + village_tract
+```
+
+## Inspect exact problems
+
+Find:
+
+* Self-parent rows
+* Parent loops
+* Parent with equal or lower hierarchy
+* Country with a parent
+* State/region not under country
+* District not under a state/region
+* Township not under district or approved state/region fallback
+* Town not under township or approved district
+* Ward/village tract directly under country
+* Ward/village tract directly under state/region
+* Ward/village tract directly under district
+* Islands using inappropriate high hierarchy levels
+* Unexpected top-level records
+* Missing semantic type
+* Semantic type incompatible with hierarchy
+* Duplicate external IDs
+* Duplicate slugs
+* Missing primary name
+* Duplicate primary names
+* Child geometry not intersecting its parent
+* Child centroid outside its parent
+
+## Special attention
+
+The current database has approximately:
+
+```text
+23 state_region-level records
+1,956 ward types
+2 village_tract types
+6 island types
+2 invalid parent-rank relationships
+```
+
+Inspect these exact groups.
+
+Do not assume all 23 top-level records are wrong. Distinguish:
+
+* States
+* Regions
+* Union Territory
+* Self-administered areas
+* Special areas
+* Incorrect islands/localities
+
+## Ward and village-tract classification
+
+Use only clear evidence from:
+
+```text
+canonical_name
+admin names
+normalized_data
+source_refs
+external_id
+OSM tags stored in JSON
+existing semantic type
+parent township
+```
+
+High-confidence examples:
+
+```text
+name clearly contains Ward
+→ propose ward
+
+name clearly contains Village Tract
+→ propose village_tract
+
+explicit source tag identifies village tract
+→ propose village_tract
+```
+
+Do not guess from urban/rural location alone.
+
+## Proposal output
+
+Do not create a permanent workflow table.
+
+Create a normal SQL view, temporary table definition, or report query that produces:
+
+```text
+admin_area_id
+canonical_name
+current_parent_id
+proposed_parent_id
+current_level_code
+proposed_level_code
+current_type_code
+proposed_type_code
+reason
+confidence
+repair_category
+```
+
+Repair categories:
+
+```text
+clear_parent_error
+clear_level_error
+clear_type_error
+possible_parent_error
+possible_type_error
+manual_review
+```
+
+## Safety
+
+* Do not change IDs.
+* Do not change geometry in this phase.
+* Do not alter verified status.
+* Do not automatically fix uncertain records.
+* Do not apply any update.
+
+## Output
+
+Return:
+
+1. Number of clear parent errors
+2. Number of clear level errors
+3. Number of clear type errors
+4. Number requiring manual review
+5. A sample of each category
+6. Exact proposed update rules
+7. Confirmation that production was not changed
+
+Stop after this prompt.
+
+---
+
+# Prompt 3 — Apply clear admin hierarchy repairs
+
+Continue only after reviewing Prompt 2 results.
+
+Read:
+
+```text
+tools/data-repair/current-production/01_admin_inspect.sql
+tools/data-repair/current-production/02_admin_prepare.sql
+```
+
+## Goal
+
+Apply only high-confidence administrative hierarchy and semantic-type corrections.
+
+Do not repair entity admin links yet.
+
+## Create
+
+```text
+tools/data-repair/current-production/03_admin_apply.sql
+tools/data-repair/current-production/04_admin_verify.sql
+```
+
+## Before applying
+
+Run the preparation query again and report exact counts.
+
+Preserve only affected fields for affected records.
+
+Use a small backup table with a clear name such as:
+
+```text
+system.repair_admin_areas_before_202607
+```
+
+Store only:
+
+```text
+id
+parent_id
+admin_level_id
+admin_area_type_id
+updated_at
+verification_status
+```
+
+Do not copy geometry.
+
+Do not create the backup table when no rows will change.
+
+## Apply only
+
+* Clear invalid parent relationships
+* Clear hierarchy-level mistakes
+* Clear semantic-type mistakes
+* Clear island classification mistakes
+* Other corrections with high-confidence evidence
+
+Do not apply:
+
+* Uncertain ward/village-tract guesses
+* Geometry changes
+* Name transliteration
+* Broad verification changes
+* Changes to records marked manually protected unless explicitly reviewed
+* Changes based only on nearest geometry
+
+## Audit
+
+For changed rows, use the existing audit mechanism when one exists.
+
+When no suitable audit mechanism exists, insert a concise record into the existing system audit/review log rather than creating a new audit framework.
+
+Use a repair reason such as:
+
+```text
+current_production_admin_foundation_repair
+```
+
+## Verification
+
+`04_admin_verify.sql` must check:
+
+* No self-parent rows
+* No parent loops
+* No equal/lower-rank parents
+* Country has no parent
+* Valid parent combinations
+* All geometries still valid
+* No IDs changed
+* No verified statuses changed unintentionally
+* Counts before and after
+* Remaining uncertain records
+
+## Transaction size
+
+Admin data is small, but do not update everything blindly.
+
+Apply logical groups in separate transactions:
+
+```text
+invalid parent relationships
+top-level classification
+island corrections
+clear ward/village-tract corrections
+```
+
+## Output
+
+Return:
+
+1. Rows changed by category
+2. Rows skipped
+3. Remaining uncertain admin records
+4. Verification results
+5. Backup table name and row count
+6. Confirmation that geometry and IDs were not changed
+
+Stop after this prompt.
+
+---
+
+# Prompt 4 — Fix missing admin links
+
+Continue only after admin hierarchy verification passes.
+
+## Goal
+
+Assign the repaired township admin area to existing entities where the spatial match is clear.
+
+Do not change admin polygons.
+
+## Create
+
+```text
+tools/data-repair/current-production/05_admin_links_inspect.sql
+tools/data-repair/current-production/06_admin_links_apply.sql
+tools/data-repair/current-production/07_admin_links_verify.sql
+```
+
+## Inspect existing functions
+
+Find and inspect existing functions such as:
+
+```text
+core.find_admin_area_for_point
+core.find_admin_area_for_line
+```
+
+Also inspect API admin-inference logic.
+
+Reuse correct existing functions instead of writing duplicates.
+
+Confirm which hierarchy level they return.
+
+For this repair, the target should normally be:
+
+```text
+township
+```
+
+## Repair order
+
+Process:
+
+```text
+1. core.core_places
+2. core.core_map_buildings
+3. core.core_map_landuse
+4. core.core_streets
+5. transport.stops
+6. transport.terminals
+7. transport.infrastructure_lines
+```
+
+Do not repair transport routes or route sequencing.
+
+## Assignment rules
+
+### Points
+
+For places, stops and terminals:
+
+```text
+point inside one active township
+→ assign that township
+```
+
+When several townships match:
+
+```text
+mark ambiguous
+→ do not update automatically
+```
+
+When none matches:
+
+```text
+leave null
+→ report outside_all_townships
+```
+
+### Polygons
+
+For buildings and landuse:
+
+```text
+point-on-surface inside one active township
+→ assign township
+```
+
+For large cross-boundary polygons:
+
+```text
+township with largest area overlap
+```
+
+Only use overlap when clearly dominant.
+
+### Streets
+
+For street lines:
+
+```text
+township containing the largest length of the line
+```
+
+When the greatest overlap is weak or two townships are close:
+
+```text
+mark cross_township_or_ambiguous
+→ do not force automatic assignment
+```
+
+## Preserve existing valid assignments
+
+Do not recalculate every record.
+
+Update only:
+
+* `admin_area_id IS NULL`
+* Or assignments that point to an invalid/wrong hierarchy level
+* Or assignments proven inconsistent after admin repair
+
+Do not overwrite a valid existing township assignment.
+
+## Batch size
+
+For streets:
+
+```text
+5,000 rows per transaction
+```
+
+For smaller datasets, one small transaction per entity family is acceptable.
+
+## Minimal affected-row preservation
+
+Before each family update, preserve only:
+
+```text
+id
+admin_area_id
+updated_at
+```
+
+for rows that will change.
+
+Do not copy geometry.
+
+## Verification
+
+Report before and after:
+
+* Missing admin
+* Assigned
+* Ambiguous
+* Outside all townships
+* Failed
+* Existing assignment preserved
+* Cross-township streets
+
+Known starting counts include approximately:
+
+```text
+23,114 streets missing admin
+32 places missing admin
+4 buildings missing admin
+38 landuse rows missing admin
+```
+
+Recalculate live counts before applying.
+
+## Output
+
+Return:
+
+1. Before and after counts by family
+2. Number automatically assigned
+3. Number left unresolved
+4. Main reasons for unresolved rows
+5. Confirmation that geometry and non-admin fields were unchanged
+
+Stop after this prompt.
+
+---
+
+# Prompt 5 — Inspect road-class problems
+
+Continue after admin links are stable.
+
+## Goal
+
+Inspect the current road taxonomy and prepare exact road-class corrections.
+
+Do not apply changes in this prompt.
+
+## Create
+
+```text
+tools/data-repair/current-production/08_road_class_inspect.sql
+tools/data-repair/current-production/09_road_class_prepare.sql
+```
+
+## Inspect
+
+Compare:
+
+```text
+core.core_streets.road_class
+core.core_streets.road_class_id
+ref.ref_road_classes.code
+normalized_data->'tags'->>'highway'
+```
+
+Also inspect whether the highway value is stored elsewhere in `normalized_data`.
+
+## Required classes
+
+Inspect whether the reference table properly supports:
+
+```text
+motorway
+motorway_link
+trunk
+trunk_link
+primary
+primary_link
+secondary
+secondary_link
+tertiary
+tertiary_link
+unclassified
+residential
+living_street
+service
+track
+path
+footway
+cycleway
+pedestrian
+steps
+bridleway
+corridor
+construction
+proposed
+raceway
+road
+unknown
+```
+
+Do not add every possible OSM value automatically.
+
+Classify unsupported rare values as review candidates, not silently as `unknown`.
+
+## Detect
+
+* `road_class` text and FK mismatch
+* `unclassified` pointing to `unknown`
+* Valid highway tag mapped to `unknown`
+* Missing `road_class_id`
+* Missing `road_class`
+* Unsupported source highway values
+* Link roads collapsed incorrectly
+* Footway/cycleway/steps collapsed incorrectly
+* Construction/proposed roads shown as normal active roads
+* Manual override rows that differ from OSM
+* Verified rows that differ from OSM
+
+## Proposed mapping
+
+Prepare a mapping table in SQL or a clear CTE.
+
+Do not build a generic taxonomy service.
+
+The proposal must output:
+
+```text
+street_id
+source_highway
+current_road_class
+current_ref_code
+proposed_road_class
+proposed_ref_code
+manual_override
+verification_status
+reason
+safe_to_apply
+```
+
+## Rules
+
+* `unknown` means missing or unsupported source class.
+* `unclassified` is a real OSM class.
+* Preserve manual override rows.
+* Do not automatically overwrite verified road classification.
+* Do not change geometry.
+* Do not change names.
+* Do not change routing attributes yet.
+
+## Performance
+
+Run separate bounded queries.
+
+Do not scan multiple JSON attributes in one large statement.
+
+## Output
+
+Return:
+
+1. Road counts by source highway
+2. Road counts by current class
+3. Number of text/FK mismatches
+4. Number mapped incorrectly to unknown
+5. Missing reference codes that should be added
+6. Number safe to repair
+7. Number requiring review
+8. Confirmation that no production rows changed
+
+Stop after this prompt.
+
+---
+
+# Prompt 6 — Fix road classes
+
+Continue after reviewing the class proposal.
+
+## Goal
+
+Correct the existing road taxonomy without reimporting streets.
+
+## Create
+
+```text
+tools/data-repair/current-production/10_road_class_apply.sql
+tools/data-repair/current-production/11_road_class_verify.sql
+```
+
+## Reference-data changes
+
+When required reference codes are missing, add only the clearly necessary codes to:
+
+```text
+ref.ref_road_classes
+```
+
+Use sensible rank, min zoom and default width values based on the existing project style and current reference patterns.
+
+Do not redesign all styling values.
+
+Do not remove existing reference rows.
+
+## Before updates
+
+Preserve only affected values:
+
+```text
+id
+road_class
+road_class_id
+manual_override
+verification_status
+updated_at
+```
+
+Do not copy geometry or JSON.
+
+## Apply rules
+
+Update only rows where:
+
+```text
+safe_to_apply = true
+manual_override = false
+```
+
+For verified rows:
+
+* Skip automatic changes by default.
+* Report them separately.
+* Only apply when the current value is a proven mechanical mismatch and the verified meaning is not being changed.
+
+Apply logical groups separately:
+
+```text
+unclassified mismatch
+link-class mismatch
+pedestrian-class mismatch
+construction/proposed mismatch
+missing class FK
+other clear mapping
+```
+
+Use batches of:
+
+```text
+10,000–25,000 rows
+```
+
+## Verification
+
+Check:
+
+* `road_class` equals referenced `ref_road_classes.code`
+* Valid source highway values no longer point to `unknown`
+* Manual override rows unchanged
+* Skipped verified rows listed
+* No geometry changes
+* No name changes
+* Class counts before and after
+* Tile views still return rows successfully
+
+Do not rebuild PMTiles.
+
+## Output
+
+Return:
+
+1. Reference rows added
+2. Street rows changed by mapping group
+3. Manual rows skipped
+4. Verified rows skipped
+5. Remaining unsupported highway values
+6. Verification results
+
+Stop after this prompt.
+
+---
+
+# Prompt 7 — Inspect road-attribute mismatches
+
+Continue after road classes are verified.
+
+## Goal
+
+Prepare corrections for the typed road attributes that already exist.
+
+Do not apply changes in this prompt.
+
+## Create
+
+```text
+tools/data-repair/current-production/12_road_attributes_inspect.sql
+tools/data-repair/current-production/13_road_attributes_prepare.sql
+```
+
+## Only inspect these fields
+
+```text
+is_oneway
+bridge
+tunnel
+layer
+surface
+```
+
+Use source values from the actual stored OSM tags, primarily:
+
+```text
+normalized_data->'tags'
+```
+
+Confirm the real JSON path first.
+
+Do not add new typed columns.
+
+Do not repair:
+
+```text
+lanes
+maxspeed
+access
+motor_vehicle
+motorcycle
+foot
+bicycle
+smoothness
+tracktype
+```
+
+These remain for the later import-pipeline redesign.
+
+## Conversion rules
+
+### Oneway
+
+Recognize:
+
+```text
+yes, true, 1 → true
+no, false, 0 → false
+-1 → true with reverse-direction evidence preserved in JSON
+```
+
+Do not treat missing `oneway` as a guaranteed explicit false change.
+
+### Bridge
+
+Recognize positive values such as:
+
+```text
+yes
+viaduct
+movable
+covered
+aqueduct
+```
+
+Recognize `no` as false.
+
+Do not treat every non-null unusual value automatically without reporting it.
+
+### Tunnel
+
+Recognize positive values such as:
+
+```text
+yes
+building_passage
+culvert
+avalanche_protector
+```
+
+Recognize `no` as false.
+
+### Layer
+
+Parse only valid integer values.
+
+Report invalid or unusual values.
+
+### Surface
+
+Normalize obvious whitespace and casing only.
+
+Preserve recognized OSM values without inventing broad categories.
+
+## Proposal output
+
+For every mismatch, produce:
+
+```text
+street_id
+field_name
+source_value
+current_value
+proposed_value
+manual_override
+verification_status
+reason
+safe_to_apply
+```
+
+## Performance
+
+The earlier national combined JSON query timed out.
+
+Therefore:
+
+* Inspect one attribute at a time.
+* Use bounded street ID ranges.
+* Avoid one giant UNION over all attributes before testing.
+* Record counts by batch.
+* Use `EXPLAIN` for heavy queries.
+* Do not run national spatial joins.
+
+## Safety rules
+
+* Skip manual overrides.
+* Report verified rows separately.
+* Do not change geometry.
+* Do not change road class.
+* Do not change names.
+* Do not apply updates.
+
+## Output
+
+Return mismatch counts for each field:
+
+```text
+is_oneway
+bridge
+tunnel
+layer
+surface
+```
+
+Also return:
+
+* Safe-to-apply count
+* Manual rows skipped
+* Verified rows needing review
+* Unrecognized source values
+* Confirmation that production was not changed
+
+Stop after this prompt.
+
+---
+
+# Prompt 8 — Fix road attributes
+
+Continue after reviewing Prompt 7.
+
+## Goal
+
+Repair existing typed road attributes from stored source tags.
+
+## Create
+
+```text
+tools/data-repair/current-production/14_road_attributes_apply.sql
+tools/data-repair/current-production/15_road_attributes_verify.sql
+```
+
+## Before updates
+
+Preserve only affected fields:
+
+```text
+id
+is_oneway
+bridge
+tunnel
+layer
+surface
+manual_override
+verification_status
+updated_at
+```
+
+Do not copy geometry or full JSON.
+
+## Apply order
+
+Apply one field at a time:
+
+```text
+1. is_oneway
+2. bridge
+3. tunnel
+4. layer
+5. surface
+```
+
+Use bounded batches:
+
+```text
+10,000–25,000 candidate changes per transaction
+```
+
+Update only:
+
+```text
+safe_to_apply = true
+manual_override = false
+current_value IS DISTINCT FROM proposed_value
+```
+
+Skip verified rows unless they are separately approved as mechanical corrections.
+
+For `oneway=-1`:
+
+* Set `is_oneway=true`.
+* Do not reverse geometry in this repair.
+* Preserve the original source value.
+* Report that routing direction handling remains dependent on source tags/Valhalla.
+
+## Verification
+
+For each field report:
+
+* Proposed
+* Updated
+* Skipped manual
+* Skipped verified
+* Failed
+* Remaining mismatch
+* Unknown source values
+
+Also confirm:
+
+* Geometry unchanged
+* Street names unchanged
+* Road class unchanged
+* Active/deleted state unchanged
+* Sample tile queries work
+
+Do not rebuild routing or tiles.
+
+## Output
+
+Return complete before/after counts and stop.
+
+---
+
+# Prompt 9 — Fix generated street-name behavior
+
+Continue after road attributes are stable.
+
+## Goal
+
+Separate real street names from generated internal labels.
+
+This task may require database-data cleanup and application/search inspection, but do not rebuild search yet.
+
+## Create
+
+```text
+tools/data-repair/current-production/16_street_names_inspect.sql
+tools/data-repair/current-production/17_street_names_fix.sql
+tools/data-repair/current-production/18_street_names_verify.sql
+```
+
+## Inspect
+
+Determine exactly how generated labels are identified in:
+
+```text
+core.core_streets.canonical_name
+core.core_street_names
+core.core_streets.normalized_data
+core.core_streets.source_refs
+search.search_documents
+tile views
+API responses
+```
+
+Find:
+
+* Roads with a real OSM `name` tag but generated canonical name
+* Roads with only a generated label
+* Generated values stored as official names
+* Duplicate street-name rows
+* Multiple primary names for one language
+* Legacy `mm` language codes
+* Real names missing from `core_street_names`
+* Search documents using generated names
+
+## Public-name rule
+
+Use:
+
+```text
+real source/manual name
+→ public map label and search
+
+route reference only
+→ optional route label, not a fake street name
+
+generated label only
+→ internal identification only
+```
+
+## Scope
+
+Make only the minimum changes necessary so the data clearly distinguishes generated and real names.
+
+Prefer using existing `name_type`, `normalized_data`, or source metadata.
+
+Do not redesign the complete name model.
+
+Do not create English transliterations.
+
+Do not rebuild all search documents yet.
+
+When search currently contains generated names, report the affected documents and adjust source-data behavior or search policy code so the later rebuild will exclude them.
+
+## Safety
+
+* Preserve manual names.
+* Preserve verified names.
+* Do not blank a required `canonical_name` when the database requires one.
+* Keep an internal generated identifier where necessary.
+* Do not change geometry or road attributes.
+
+## Verification
+
+Report:
+
+* Real-name street count
+* Generated-only street count
+* Generated names marked as official before/after
+* Duplicate name rows before/after
+* Search documents currently affected
+* Code or view changes needed for the later search rebuild
+
+Stop after this prompt.
+
+---
+
+# Prompt 10 — Clean places, buildings, landuse and water
+
+Continue after admin and road repairs are complete.
+
+## Goal
+
+Clean only the small datasets already in production.
+
+Do not import new data.
+
+## Create
+
+```text
+tools/data-repair/current-production/19_small_core_inspect.sql
+tools/data-repair/current-production/20_small_core_fix.sql
+tools/data-repair/current-production/21_small_core_verify.sql
+```
+
+## Places
+
+Inspect all current places for:
+
+* Missing admin
+* Missing external ID
+* Manual records without external ID
+* Invalid category FK
+* Missing primary/display name
+* Duplicate external ID
+* Possible duplicate names at nearly identical locations
+* Invalid geometry
+* Language-code inconsistencies
+* Verification flag/status mismatch
+* Deleted/public-state inconsistency
+
+Rules:
+
+* A manually created place may legitimately have no OSM external ID.
+* Mark or preserve its source as manual.
+* Do not invent external IDs.
+* Do not auto-merge duplicates based only on distance.
+* Do not import new POIs.
+
+## Buildings
+
+Inspect:
+
+* Missing admin
+* Missing external ID
+* Manual buildings
+* Invalid building type
+* Missing centroid
+* Missing or unreasonable area
+* Invalid geometry
+* Verification flag/status mismatch
+
+Rules:
+
+* Do not bulk import buildings.
+* Do not auto-verify.
+* Do not invent source IDs.
+
+## Landuse
+
+Inspect:
+
+* Missing admin
+* `class_code` and `landuse_class_id` mismatch
+* Missing centroid
+* Missing area
+* Manual override
+* Invalid geometry
+* Missing external ID
+
+Repair clear mechanical issues only.
+
+## Water
+
+Inspect the current water line and polygons for:
+
+* Source ID
+* Class code
+* Names
+* Valid geometry
+* Active/deleted state
+* Name language codes
+
+Do not invest in complex water repairs because national water will be imported later.
+
+## Transport
+
+Do not clean transport content.
+
+Only verify the admin links changed in Prompt 4.
+
+## Safety
+
+Preserve only affected fields for changed rows.
+
+Do not create full-table backups.
+
+## Output
+
+Return before/after findings for each family and list remaining uncertain records.
+
+Stop after this prompt.
+
+---
+
+# Prompt 11 — Reconcile old import-review candidates
+
+Continue only after production core data is stable.
+
+## Goal
+
+Make the old review backlog understandable without deleting valuable history.
+
+## Create
+
+```text
+tools/data-repair/current-production/22_review_backlog_inspect.sql
+tools/data-repair/current-production/23_review_backlog_reconcile.sql
+tools/data-repair/current-production/24_review_backlog_verify.sql
+```
+
+## Inspect
+
+For every review batch and candidate family, classify candidates as:
+
+```text
+already_promoted
+already_represented_in_core
+still_useful
+obsolete_snapshot
+duplicate_candidate
+broken_candidate
+manually_reviewed
+```
+
+Use:
+
+```text
+promoted_core_id
+matched_core_id
+external_id
+source_snapshot_version
+review_status
+promotion_status
+reviewed_at
+review_decision
+candidate geometry
+core external IDs
+```
+
+## Rules
+
+* Preserve reviewed candidates.
+* Preserve review comments and edits.
+* Preserve promoted history.
+* Do not delete candidate rows automatically.
+* Archive clearly obsolete review batches.
+* Mark candidates already represented in core consistently.
+* Leave genuinely useful new candidates pending.
+* Do not promote any candidate in this task.
+* Do not import anything.
+* Do not create a new status architecture.
+
+Use only statuses already allowed by the live schema.
+
+When the existing status model cannot represent a conclusion cleanly, document it rather than altering schema during this repair.
+
+## Verification
+
+Report:
+
+* Candidate counts by family and classification
+* Batches archived
+* Promoted history preserved
+* Manually reviewed records preserved
+* Useful pending records remaining
+* Broken or contradictory records remaining
+
+Stop after this prompt.
+
+---
+
+# Prompt 12 — Register the repaired baseline and final report
+
+Continue after all previous repair steps pass verification.
+
+## Goal
+
+Record the current foundation honestly and produce the final baseline report.
+
+## Create
+
+```text
+tools/data-repair/current-production/25_register_legacy_lineage.sql
+tools/data-repair/current-production/26_final_baseline.sql
+tools/data-repair/current-production/PRODUCTION_BASELINE_V1.md
+```
+
+## Inspect first
+
+Inspect live schemas and existing rows for:
+
+```text
+system.system_source_registry
+system.system_import_batches
+system.system_source_snapshots
+system.system_publish_batches
+system.system_publish_items
+```
+
+Do not assume the tables are empty.
+
+## Historical lineage
+
+Register the known existing foundation honestly.
+
+Create or reuse source registry records for OSM.
+
+Create historical snapshot/import records for:
+
+```text
+legacy national admin fast-core import
+legacy national road fast-core import
+admin foundation repair
+admin-link repair
+road-class repair
+road-attribute repair
+small-core cleanup
+```
+
+Use known source versions and checksums only when supported by repository files or existing metadata.
+
+When exact details are unknown, record:
+
+```text
+unknown
+historically registered after import
+review pipeline bypassed
+```
+
+Do not fabricate dates, checksums or source versions.
+
+Do not create one lineage record per street.
+
+## Final baseline report
+
+`26_final_baseline.sql` and `PRODUCTION_BASELINE_V1.md` must include:
+
+### Admin
+
+* Counts by level
+* Counts by semantic type
+* Invalid parents
+* Remaining uncertain records
+* Verified count
+* Missing external ID
+* Geometry validity
+
+### Admin links
+
+* Missing admin by entity family
+* Ambiguous records
+* Outside-boundary records
+* Cross-township streets
+
+### Roads
+
+* Counts by final road class
+* Text/FK mismatches
+* Missing class
+* Remaining unknown source values
+* Oneway mismatch
+* Bridge mismatch
+* Tunnel mismatch
+* Layer mismatch
+* Surface mismatch
+* Manual override count
+* Verified count
+* Real-name count
+* Generated-only count
+* Missing external ID
+* Geometry validity
+
+### Small core datasets
+
+* Places
+* Buildings
+* Landuse
+* Water
+* Remaining unresolved issues
+
+### Review backlog
+
+* Active batches
+* Archived batches
+* Useful pending candidates
+* Preserved reviewed candidates
+* Promoted candidates
+
+### Lineage
+
+* Source registry
+* Source snapshots
+* Import/repair batches
+* Known legacy limitations
+
+## Completion declaration
+
+The report must clearly state whether the current production foundation is ready for the next project phase:
+
+```text
+repair and simplify the reusable OSM import pipeline
+```
+
+It must also list blockers that remain.
+
+## Final output
+
+Return:
+
+1. All repair files created
+2. All database changes made
+3. Final before/after metrics
+4. Remaining unresolved issues
+5. Whether Production Baseline v1 is ready
+6. Recommended first task for pipeline cleanup
+
+Do not start pipeline repair.

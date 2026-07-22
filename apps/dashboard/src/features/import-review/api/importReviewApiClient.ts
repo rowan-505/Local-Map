@@ -3,7 +3,6 @@ import { resolveImportReviewApiFamily } from "@/src/features/import-review/utils
 import {
     getImportReviewReferenceOptions,
     getImportReviewFormOptions,
-    patchImportReviewFamilyOverrides,
     patchImportReviewFamilyColumns,
     patchImportReviewBuildingColumns,
     patchImportReviewRoadColumns,
@@ -16,11 +15,9 @@ import {
     getImportReviewSummary,
     getRoadClasses,
     patchImportReviewBuildingDecision,
-    patchImportReviewBuildingOverrides,
     patchImportReviewFamilyDecision,
     patchImportReviewPlaceDecision,
     patchImportReviewRoadDecision,
-    patchImportReviewRoadOverrides,
     postImportReviewBuildingsBulkDecision,
     postImportReviewPlacesBulkDecision,
     postImportReviewRoadsBulkDecision,
@@ -144,18 +141,15 @@ export function patchEntityDecision(
     return patchImportReviewFamilyDecision(normalizeApiFamily(apiFamily), id, body);
 }
 
+/**
+ * @deprecated Prefer {@link patchEntityColumns}. Legacy overrides routes remain as API shims only.
+ */
 export function patchEntityOverrides(
     apiFamily: string,
     id: string,
     body: PatchImportReviewBuildingOverridesBody | PatchImportReviewRoadOverridesBody
 ): Promise<ImportReviewBuildingListItem> {
-    if (isBuildingsFamily(apiFamily)) {
-        return patchImportReviewBuildingOverrides(id, body as PatchImportReviewBuildingOverridesBody);
-    }
-    if (isRoadsFamily(apiFamily)) {
-        return patchImportReviewRoadOverrides(id, body as PatchImportReviewRoadOverridesBody);
-    }
-    return patchImportReviewFamilyOverrides(normalizeApiFamily(apiFamily), id, body as PatchImportReviewBuildingOverridesBody);
+    return patchEntityColumns(apiFamily, id, body as PatchImportReviewCandidateColumnsBody);
 }
 
 export function patchEntityColumns(

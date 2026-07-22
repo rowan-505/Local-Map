@@ -82,11 +82,7 @@ function ReviewBatchesTable({ items }: { items: ImportReviewHistoryReviewBatchLi
                                     Total {row.counts.batch_total_candidates.toLocaleString()}
                                 </div>
                                 <div className="tabular-nums text-gray-500">
-                                    Active {row.counts.active_candidates.toLocaleString()} · Pending{" "}
-                                    {row.counts.pending_review_candidates.toLocaleString()}
-                                </div>
-                                <div className="tabular-nums text-gray-500">
-                                    Publish runs {row.publish_batches.publish_batch_count}
+                                    Apply runs {row.publish_batches.publish_batch_count}
                                 </div>
                             </td>
                             <td className="px-3 py-3 text-gray-700">{formatHistoryDate(row.created_at)}</td>
@@ -113,68 +109,53 @@ function PublishBatchesTable({
             <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
                     <tr>
-                        <th className="px-3 py-3">ID</th>
-                        <th className="px-3 py-3">Batch</th>
-                        <th className="px-3 py-3">Review batch</th>
+                        <th className="px-3 py-3">Apply run</th>
+                        <th className="px-3 py-3">Snapshot</th>
                         <th className="px-3 py-3">Status</th>
-                        <th className="px-3 py-3">Items</th>
-                        <th className="px-3 py-3">Validation</th>
-                        <th className="px-3 py-3">Stage</th>
-                        <th className="px-3 py-3">Progress</th>
-                        <th className="px-3 py-3">Created</th>
-                        <th className="px-3 py-3">Promoted</th>
+                        <th className="px-3 py-3">Success</th>
+                        <th className="px-3 py-3">Failure</th>
+                        <th className="px-3 py-3">Applied by</th>
+                        <th className="px-3 py-3">Applied at</th>
                         <th className="px-3 py-3 text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                    {items.map((row) => {
-                        const iv = row.item_validation_counts;
-                        const progressLabel =
-                            row.promotion_percent != null
-                                ? `Val ${row.validation_percent}% · Promo ${row.promotion_percent}%`
-                                : `Val ${row.validation_percent}%`;
-                        return (
-                            <tr key={row.id} className="hover:bg-gray-50">
-                                <td className="px-3 py-3 font-mono text-xs text-gray-600">{row.id}</td>
-                                <td className="px-3 py-3 font-medium text-gray-900">{row.batch_name}</td>
-                                <td className="px-3 py-3 font-mono text-xs text-gray-700">
-                                    {row.source_review_batch_id ?? "—"}
-                                </td>
-                                <td className="px-3 py-3">
-                                    <HistoryStatusBadge status={row.derived_status ?? row.status} />
-                                </td>
-                                <td className="px-3 py-3 tabular-nums text-xs">
-                                    <div>{row.total_item_count.toLocaleString()} total</div>
-                                    <div className="text-gray-500">
-                                        R {iv.ready} · W {iv.warning} · B {iv.blocked}
-                                    </div>
-                                    <div className="text-gray-500">
-                                        OK {row.publish_status_counts.success} · Fail{" "}
-                                        {row.publish_status_counts.failed} · Pend{" "}
-                                        {row.publish_status_counts.pending}
-                                    </div>
-                                </td>
-                                <td className="px-3 py-3 text-xs text-gray-700">
-                                    {row.validated_at ? formatHistoryDate(row.validated_at) : "—"}
-                                </td>
-                                <td className="px-3 py-3 text-xs text-gray-700">
-                                    {row.current_stage_label ?? row.current_stage ?? "—"}
-                                </td>
-                                <td className="px-3 py-3 text-xs tabular-nums text-gray-700">
-                                    {progressLabel}
-                                </td>
-                                <td className="px-3 py-3 text-gray-700">{formatHistoryDate(row.created_at)}</td>
-                                <td className="px-3 py-3 text-gray-700">{formatHistoryDate(row.promoted_at)}</td>
-                                <td className="px-3 py-3 text-right">
-                                    <ImportReviewHistoryPublishBatchActions
-                                        batchId={row.id}
-                                        resumableActions={row.resumable_actions ?? []}
-                                        onActionComplete={onRefresh}
-                                    />
-                                </td>
-                            </tr>
-                        );
-                    })}
+                    {items.map((row) => (
+                        <tr key={row.id} className="hover:bg-gray-50">
+                            <td className="px-3 py-3">
+                                <div className="font-medium text-gray-900">{row.batch_name}</div>
+                                <div className="font-mono text-xs text-gray-500">#{row.id}</div>
+                            </td>
+                            <td
+                                className="max-w-[12rem] truncate px-3 py-3 text-gray-700"
+                                title={row.source_snapshot_version ?? undefined}
+                            >
+                                {row.source_snapshot_version ?? "—"}
+                            </td>
+                            <td className="px-3 py-3">
+                                <HistoryStatusBadge status={row.derived_status ?? row.status} />
+                            </td>
+                            <td className="px-3 py-3 tabular-nums text-gray-800">
+                                {row.publish_status_counts.success.toLocaleString()}
+                            </td>
+                            <td className="px-3 py-3 tabular-nums text-gray-800">
+                                {row.publish_status_counts.failed.toLocaleString()}
+                            </td>
+                            <td className="px-3 py-3 font-mono text-xs text-gray-700">
+                                {row.applied_by ?? "—"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-700">
+                                {formatHistoryDate(row.applied_at ?? row.promoted_at)}
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                                <ImportReviewHistoryPublishBatchActions
+                                    batchId={row.id}
+                                    resumableActions={row.resumable_actions ?? []}
+                                    onActionComplete={onRefresh}
+                                />
+                            </td>
+                        </tr>
+                    ))}
                 </tbody>
             </table>
         </div>
@@ -182,7 +163,7 @@ function PublishBatchesTable({
 }
 
 export default function ImportReviewHistoryPage() {
-    const [tab, setTab] = useState<Tab>("review");
+    const [tab, setTab] = useState<Tab>("publish");
     const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
     const [reviewItems, setReviewItems] = useState<ImportReviewHistoryReviewBatchListItem[]>([]);
     const [publishItems, setPublishItems] = useState<ImportReviewHistoryPublishBatchListItem[]>([]);
@@ -291,21 +272,12 @@ export default function ImportReviewHistoryPage() {
                 <header className="border-b border-gray-200 pb-4">
                     <h1 className="text-2xl font-bold text-gray-900">Import review history</h1>
                     <p className="mt-1 text-sm text-gray-600">
-                        Audit review uploads and promotion runs. Lists load the latest {limit} rows by default — open
-                        a row for full detail.
+                        Apply-run audit from system publish records. History stays available after temporary
+                        candidates are deleted.
                     </p>
                 </header>
 
                 <div className="flex flex-wrap gap-2">
-                    <button
-                        type="button"
-                        onClick={() => switchTab("review")}
-                        className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                            tab === "review" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-800"
-                        }`}
-                    >
-                        Review batches
-                    </button>
                     <button
                         type="button"
                         onClick={() => switchTab("publish")}
@@ -313,7 +285,16 @@ export default function ImportReviewHistoryPage() {
                             tab === "publish" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-800"
                         }`}
                     >
-                        Promotion runs
+                        Apply runs
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => switchTab("review")}
+                        className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                            tab === "review" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-800"
+                        }`}
+                    >
+                        Review uploads
                     </button>
                 </div>
 

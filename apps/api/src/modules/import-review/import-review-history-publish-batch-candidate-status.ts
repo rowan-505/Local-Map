@@ -4,6 +4,12 @@ import { Prisma } from "@prisma/client";
 import type { ImportReviewEntityFamilySlug } from "./import-review-config.js";
 import { getImportReviewPromotionCandidateTable } from "./import-review-promotion-config.js";
 
+/**
+ * @deprecated Do not use for History after candidate cleanup.
+ * Prefer durable fields on system.system_publish_items (before_data /
+ * validation_result / after_data, and migration 139 columns).
+ */
+
 export type PublishBatchItemCandidateStatusRow = {
     review_candidate_id: bigint;
     entity_family: string;

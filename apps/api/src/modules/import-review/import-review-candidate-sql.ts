@@ -22,6 +22,10 @@ import {
     promotionListExtrasSelect,
     type ImportReviewPromotionStateFilter,
 } from "./import-review-promotion-candidate-list-sql.js";
+import {
+    matchStatusStorageValuesForFilter,
+    promotionStatusStorageValuesForFilter,
+} from "./import-review-status-model.js";
 
 export type { ImportReviewPromotionStateFilter };
 import type { ImportReviewBuildingSort, ImportReviewBulkFilters } from "./import-review.schema.js";
@@ -307,7 +311,16 @@ export function buildCandidateWhereClause(
     }
 
     if (filters.match_status !== undefined) {
-        parts.push(Prisma.sql`${colRef(config, "match_status")} = ${filters.match_status}`);
+        const values = matchStatusStorageValuesForFilter(filters.match_status);
+        if (values.length === 1) {
+            parts.push(Prisma.sql`${colRef(config, "match_status")} = ${values[0]}`);
+        } else {
+            parts.push(
+                Prisma.sql`${colRef(config, "match_status")} IN (${Prisma.join(
+                    values.map((v) => Prisma.sql`${v}`)
+                )})`
+            );
+        }
     }
 
     if (filters.auto_action !== undefined) {
@@ -325,9 +338,12 @@ export function buildCandidateWhereClause(
     }
 
     if (filters.review_decision !== undefined) {
-        if (filters.review_decision === UNREVIEWED) {
+        if (
+            filters.review_decision === UNREVIEWED ||
+            filters.review_decision.trim().toLowerCase() === "pending"
+        ) {
             parts.push(
-                Prisma.sql`(${colRef(config, "review_decision")} IS NULL OR trim(${colRef(config, "review_decision")}) = '')`
+                Prisma.sql`(${colRef(config, "review_decision")} IS NULL OR trim(${colRef(config, "review_decision")}) = '' OR ${colRef(config, "review_decision")} = 'pending')`
             );
         } else {
             parts.push(Prisma.sql`${colRef(config, "review_decision")} = ${filters.review_decision}`);
@@ -344,7 +360,16 @@ export function buildCandidateWhereClause(
                 Prisma.sql`(${colRef(config, "promotion_status")} IS NULL OR trim(${colRef(config, "promotion_status")}) = '')`
             );
         } else {
-            parts.push(Prisma.sql`${colRef(config, "promotion_status")} = ${filters.promotion_status}`);
+            const values = promotionStatusStorageValuesForFilter(filters.promotion_status);
+            if (values.length === 1) {
+                parts.push(Prisma.sql`${colRef(config, "promotion_status")} = ${values[0]}`);
+            } else {
+                parts.push(
+                    Prisma.sql`${colRef(config, "promotion_status")} IN (${Prisma.join(
+                        values.map((v) => Prisma.sql`${v}`)
+                    )})`
+                );
+            }
         }
     }
 
@@ -741,10 +766,11 @@ export function buildBulkUpdateSetClause(args: {
 export function buildBulkClassifyCaseSql(force: boolean, reviewDecision: string): Prisma.Sql {
     return Prisma.sql`
         CASE
-            WHEN promotion_status = 'promoted' AND NOT ${force} THEN 'skipped_promoted'
-            WHEN (match_status = 'manual_protected' OR auto_action = 'protect_manual') AND NOT ${force} THEN 'skipped_manual_protected'
-            WHEN match_status = 'duplicate_candidate' AND NOT ${force} THEN 'skipped_duplicate_candidate'
-            WHEN ${reviewDecision} = 'approved' AND NOT ${force} AND NOT (
+            WHEN promotion_status IN ('promoted', 'applied') AND NOT ${force} THEN 'skipped_promoted'
+            WHEN (match_status IN ('manual_protected') OR auto_action = 'protect_manual') AND NOT ${force} THEN 'skipped_manual_protected'
+            WHEN match_status IN ('duplicate', 'duplicate_candidate') AND NOT ${force} THEN 'skipped_duplicate_candidate'
+            WHEN ${reviewDecision} IN ('approved', 'replace_existing', 'merge_fields', 'insert_separate', 'confirm_soft_delete')
+                 AND NOT ${force} AND NOT (
                 match_status = 'new_auto' AND auto_action = 'insert_candidate'
             ) THEN 'ineligible_bulk_approval'
             ELSE 'eligible'
@@ -760,10 +786,11 @@ export function buildBulkJoinedClassifyCaseSql(
     return Prisma.sql`
         CASE
             WHEN ${Prisma.raw(alias)}.id IS NULL THEN 'not_found'
-            WHEN ${Prisma.raw(alias)}.promotion_status = 'promoted' AND NOT ${force} THEN 'skipped_promoted'
-            WHEN (${Prisma.raw(alias)}.match_status = 'manual_protected' OR ${Prisma.raw(alias)}.auto_action = 'protect_manual') AND NOT ${force} THEN 'skipped_manual_protected'
-            WHEN ${Prisma.raw(alias)}.match_status = 'duplicate_candidate' AND NOT ${force} THEN 'skipped_duplicate_candidate'
-            WHEN ${reviewDecision} = 'approved' AND NOT ${force} AND NOT (
+            WHEN ${Prisma.raw(alias)}.promotion_status IN ('promoted', 'applied') AND NOT ${force} THEN 'skipped_promoted'
+            WHEN (${Prisma.raw(alias)}.match_status IN ('manual_protected') OR ${Prisma.raw(alias)}.auto_action = 'protect_manual') AND NOT ${force} THEN 'skipped_manual_protected'
+            WHEN ${Prisma.raw(alias)}.match_status IN ('duplicate', 'duplicate_candidate') AND NOT ${force} THEN 'skipped_duplicate_candidate'
+            WHEN ${reviewDecision} IN ('approved', 'replace_existing', 'merge_fields', 'insert_separate', 'confirm_soft_delete')
+                 AND NOT ${force} AND NOT (
                 ${Prisma.raw(alias)}.match_status = 'new_auto' AND ${Prisma.raw(alias)}.auto_action = 'insert_candidate'
             ) THEN 'ineligible_bulk_approval'
             ELSE 'eligible'

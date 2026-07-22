@@ -1,0 +1,14 @@
+Pager usage is off.
+ pass_label |        family        | row_count | distinct_external_ids | null_external_ids | duplicate_external_id_groups |           fingerprint            
+------------+----------------------+-----------+-----------------------+-------------------+------------------------------+----------------------------------
+ pass2      | admin_area           |        14 |                    14 |                 0 |                            0 | f0815ff0ccc1a393a6163f1c351c8dee
+ pass2      | building             |      1402 |                  1402 |                 0 |                            0 | 82102195e1c1d1e23e5919279ee555fd
+ pass2      | landuse              |        59 |                    59 |                 0 |                            0 | 960919dd30b052a9e112f367b2bf2c67
+ pass2      | other_snapshot_guard |    825599 |                     0 |                 0 |                            0 | 
+ pass2      | place                |       117 |                   117 |                 0 |                            0 | 11ead1d72936a0d2c0699599eff12348
+ pass2      | road                 |      1400 |                  1400 |                 0 |                            0 | aed8b1354927f4af5bd381bebe30298c
+ pass2      | routing_barrier      |        15 |                    15 |                 0 |                            0 | 4d39bb39e88e911c0e1e98ab5e163790
+ pass2      | water_line           |        26 |                    26 |                 0 |                            0 | 6be6ec85278083347780ca92b0b0f0ef
+ pass2      | water_polygon        |        14 |                    14 |                 0 |                            0 | 84c0c3534493a7c91e040bb60cfc81d5
+(9 rows)
+

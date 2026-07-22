@@ -24,13 +24,33 @@ For **`ENTITY_FAMILIES`**, operating modes (dry-run, resume, overwrite), and the
 | **Coverage report** | + `LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=true` | + **15** after remote-review block |
 | **Resume upload only** | `PIPELINE_FROM_STAGE=12` or `./run_resume_from_stage12.sh` | Skips **J**, runs K → L (+ 14/15) |
 
+### Conflict-only packages (default)
+
+Stage **J** defaults to **`conflict_only=true`** (`REMOTE_REVIEW_CONFLICT_ONLY`, default true).
+
+Upload to Supabase `import_review` only human-decision classes:
+
+| Upload | Skip |
+|--------|------|
+| `duplicate`, `conflict`, `manual_protected`, `verified_conflict`, `possible_delete` | `safe_new`, `safe_update`, `unchanged`, `invalid` |
+
+Stable package name (recommended): `remote_review_conflicts_<SNAPSHOT_VERSION>`.
+
+Same-name + same-snapshot rebuild **auto-replaces** the local package (idempotent Stage J refresh). Payload includes `import_class`, `imported_values`, compact `core_snapshot`, `difference_summary`, `matched_core_id` when available, `review_status=pending`, `review_decision=null`, and `promotion_status=not_ready`.
+
+Before package commit, Stage J asserts:
+
+`valid = direct-core + unchanged + import-review conflicts`
+
+After Stage K, Stage L asserts package item count equals remote `import_review` count for that batch.
+
 ### Package replace (`replace_package`)
 
 | Context | Behavior |
 |---------|----------|
-| **`run_local_osm_pipeline.sh`** | Always `-v replace_package=false`. If `REMOTE_REVIEW_PACKAGE_NAME` already exists locally, Stage **J fails**. |
+| **`run_local_osm_pipeline.sh`** | Always `-v replace_package=false`. For **conflict-only** packages, same name + same snapshot **auto-replaces** locally. Legacy full packages still fail if the name exists. |
 | **Manual rebuild** | Re-run `11_prepare_remote_review_package.sql` with **`-v replace_package=true`** — deletes the existing package row (cascade items) and recreates. |
-| **New name** | Pick a new `REMOTE_REVIEW_PACKAGE_NAME` (recommended for parallel experiments). |
+| **New name** | Pick a new `REMOTE_REVIEW_PACKAGE_NAME` (recommended for parallel experiments / legacy full packages). |
 
 ### Stage K re-upload (overwrite vs preserve)
 

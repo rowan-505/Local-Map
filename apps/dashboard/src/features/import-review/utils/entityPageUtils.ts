@@ -75,11 +75,15 @@ export function buildImportReviewListQueryKey(input: {
 }
 
 export function readImportReviewListFilters(sp: URLSearchParams): ImportReviewListFilters {
+    // Default conflict queue: pending decisions (API maps pending → NULL review_decision).
+    const hasDecision = sp.has("review_decision");
     return {
         match_status: sp.get("match_status")?.trim() ?? "",
         auto_action: sp.get("auto_action")?.trim() ?? "",
         review_status: sp.get("review_status")?.trim() ?? "",
-        review_decision: sp.get("review_decision")?.trim() ?? "",
+        review_decision: hasDecision
+            ? (sp.get("review_decision")?.trim() ?? "")
+            : "pending",
         promotion_status: sp.get("promotion_status")?.trim() ?? "",
         class_code: sp.get("class_code")?.trim() ?? "",
     };
@@ -131,6 +135,42 @@ export function importReviewRowHasOverrides(row: ImportReviewBuildingListItem): 
 }
 
 export function importReviewCellValue(row: ImportReviewBuildingListItem, col: ImportReviewTableColumn): string {
+    if (col.key === "imported_entity") {
+        const r = row as Record<string, unknown>;
+        return dash(
+            (r.display_name as string | null | undefined) ??
+                (r.primary_name as string | null | undefined) ??
+                row.canonical_name ??
+                row.name ??
+                row.external_id
+        );
+    }
+    if (col.key === "matched_core_entity") {
+        const core = row.matched_core_data;
+        if (core && typeof core === "object" && !Array.isArray(core)) {
+            const o = core as Record<string, unknown>;
+            const name = o.primary_name ?? o.display_name ?? o.name ?? o.canonical_name;
+            if (typeof name === "string" && name.trim()) return name.trim();
+        }
+        return dash(row.matched_core_id);
+    }
+    if (col.key === "protection") {
+        const m = (row.match_status ?? "").trim().toLowerCase();
+        const a = (row.auto_action ?? "").trim().toLowerCase();
+        if (m === "manual_protected" || a === "protect_manual") return "manual";
+        if (m === "verified_conflict") return "verified";
+        return "—";
+    }
+    if (col.key === "match_status") {
+        return dash(row.comparison_status ?? row.match_status);
+    }
+    if (col.key === "promotion_status") {
+        return dash(row.apply_status ?? row.promotion_status);
+    }
+    if (col.key === "review_decision") {
+        const d = (row.review_decision_meaning ?? row.review_decision ?? "pending").trim();
+        return d || "pending";
+    }
     // Typed direct-edit columns win over source/legacy names — see docs/import-review/naming-contract.md
     if (isImportReviewNameTableColumn(col.key)) {
         return formatCandidateName(row, col.key);

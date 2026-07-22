@@ -754,7 +754,16 @@ BEGIN
         FROM stage13_ir_counts c
         WHERE c.entity_family = r.entity_family;
 
-        IF ctx.has_local_package AND v_snapshot_id IS NOT NULL
+        IF ctx.has_local_package
+           AND coalesce(
+               (SELECT lp.summary ->> 'package_kind' FROM stage13_local_package lp LIMIT 1),
+               ''
+           ) = 'human_decision_conflicts' THEN
+            SELECT coalesce((lp.summary -> 'staging_eligible_counts' ->> r.entity_family)::bigint, 0)
+            INTO v_staging_cnt
+            FROM stage13_local_package lp
+            LIMIT 1;
+        ELSIF ctx.has_local_package AND v_snapshot_id IS NOT NULL
            AND to_regclass(format('%I.%I', v_staging_schema, r.staging_table)) IS NOT NULL THEN
             v_eligible_sql := format(
                 $el$
@@ -911,6 +920,12 @@ SELECT
         WHEN coalesce(loc.rows_n, 0) = 0 AND coalesce(rem.uploaded_count, 0) = 0 THEN 'SKIP'
         WHEN NOT (SELECT has_import_review FROM stage13_ctx LIMIT 1) THEN 'LOCAL_ONLY'
         WHEN coalesce(loc.rows_n, 0) > 0 AND coalesce(rem.uploaded_count, 0) = 0 THEN 'FAIL'
+        WHEN coalesce(rem.uploaded_count, 0) <> coalesce(loc.rows_n, 0)
+             AND coalesce(
+                 (SELECT lp.summary ->> 'package_kind'
+                  FROM stage13_local_package lp LIMIT 1),
+                 ''
+             ) = 'human_decision_conflicts' THEN 'FAIL'
         WHEN coalesce(rem.uploaded_count, 0) <> coalesce(loc.rows_n, 0) THEN 'WARN'
         ELSE 'PASS'
     END AS upload_status
@@ -946,6 +961,49 @@ BEGIN
             v_fail_n;
     END IF;
 END $upload_fail$;
+
+-- Conflict-only packages: expected package item count must equal remote import_review count.
+DO $conflict_count$
+DECLARE
+    ctx stage13_ctx%ROWTYPE;
+    lp stage13_local_package%ROWTYPE;
+    v_expected bigint;
+    v_actual bigint;
+    v_kind text;
+BEGIN
+    SELECT * INTO ctx FROM stage13_ctx;
+    IF NOT ctx.has_import_review OR NOT ctx.has_local_package THEN
+        RETURN;
+    END IF;
+
+    SELECT * INTO lp FROM stage13_local_package LIMIT 1;
+    IF lp.summary IS NULL THEN
+        RETURN;
+    END IF;
+
+    v_kind := coalesce(lp.summary ->> 'package_kind', '');
+    IF v_kind <> 'human_decision_conflicts'
+       AND coalesce((lp.summary ->> 'conflict_only')::boolean, false) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+
+    SELECT coalesce(sum(rows_n), 0) INTO v_expected
+    FROM stage13_local_items_by_family;
+
+    SELECT coalesce(sum(uploaded_count), 0) INTO v_actual
+    FROM stage13_ir_counts
+    WHERE warning IS NULL;
+
+    IF v_expected <> v_actual THEN
+        RAISE EXCEPTION
+            'stage13 conflict count FAIL: package_items(%) <> import_review count(%) for batch package_name=%',
+            v_expected, v_actual, ctx.package_name;
+    END IF;
+
+    RAISE NOTICE
+        'stage13 conflict count PASS: package_items=% import_review=% package=%',
+        v_expected, v_actual, ctx.package_name;
+END $conflict_count$;
 
 DO $batch_fail$
 DECLARE

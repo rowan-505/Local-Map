@@ -5,6 +5,7 @@ import {
     TransportFeatureNotImplementedError,
     TransportGeneratePathFromStopsError,
     TransportInvalidReferenceError,
+    TransportMergePreviewFailedError,
     TransportNameRequiredError,
     TransportNotFoundError,
     TransportRouteMetadataError,
@@ -15,6 +16,7 @@ import {
     TransportStopInUseError,
     TransportStopDeleteBlockedError,
 } from "./transport.errors.js";
+import { isHttpAuthError } from "./stopMergePreview.js";
 import { RoutingServiceDisabledError } from "../../config/env.js";
 import {
     RoutingEngineTimeoutError,
@@ -232,6 +234,14 @@ function sendTransportError(reply: FastifyReply, error: unknown): FastifyReply |
     }
     if (error instanceof TransportGeneratePathFromStopsError) {
         return reply.code(400).send({ message: error.message });
+    }
+    if (error instanceof TransportMergePreviewFailedError) {
+        return reply.code(500).send({ message: error.message });
+    }
+    if (isHttpAuthError(error)) {
+        return reply.code(error.statusCode).send({
+            message: error instanceof Error ? error.message : "Unauthorized",
+        });
     }
     if (error instanceof RoutingServiceDisabledError) {
         return reply.code(503).send({ message: error.message });
@@ -583,14 +593,43 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         "/stops/merge-preview",
         { schema: postTransportStopMergePreviewSchema },
         async (request, reply) => {
+            let currentStopId: string | undefined;
+            let candidateStopId: string | undefined;
             try {
                 const body = stopMergePreviewBodySchema.parse(request.body);
+                currentStopId = body.currentStopId;
+                candidateStopId = body.candidateStopId;
                 const result = await service.getStopMergePreview(
                     body.currentStopId,
                     body.candidateStopId,
                 );
                 return reply.send(result);
             } catch (error) {
+                if (error instanceof TransportMergePreviewFailedError) {
+                    request.log.error(
+                        {
+                            err: error.cause ?? error,
+                            currentStopId: error.context.currentStopId,
+                            candidateStopId: error.context.candidateStopId,
+                            routeIds: error.context.routeIds,
+                            variantIds: error.context.variantIds,
+                            sqlErrorCode: error.context.sqlErrorCode,
+                        },
+                        "transport stop merge-preview failed",
+                    );
+                } else if (!isHttpAuthError(error)) {
+                    request.log.error(
+                        {
+                            err: error,
+                            currentStopId,
+                            candidateStopId,
+                            routeIds: [],
+                            variantIds: [],
+                            sqlErrorCode: null,
+                        },
+                        "transport stop merge-preview failed",
+                    );
+                }
                 const handled = sendTransportError(reply, error);
                 if (handled) return handled;
                 throw error;

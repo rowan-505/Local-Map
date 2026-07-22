@@ -1,4 +1,8 @@
-import { createImportReviewEntityRoutePage } from "@/src/features/import-review/routes/importReviewEntityRoutePage";
+import { redirect } from "next/navigation";
 
-/** Data-review layout uses shared entity shell with sticky sidebar map. */
-export default createImportReviewEntityRoutePage("buildings", { showMapPreview: true });
+import { importReviewPath } from "@/src/lib/dashboardPaths";
+
+/** @deprecated Use /dashboard/import-review/buildings. */
+export default function DataReviewBuildingsPage() {
+    redirect(importReviewPath("buildings"));
+}

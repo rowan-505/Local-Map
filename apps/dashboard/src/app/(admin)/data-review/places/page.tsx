@@ -1,3 +1,8 @@
-import { createImportReviewEntityRoutePage } from "@/src/features/import-review/routes/importReviewEntityRoutePage";
+import { redirect } from "next/navigation";
 
-export default createImportReviewEntityRoutePage("places", { showMapPreview: true });
+import { importReviewPath } from "@/src/lib/dashboardPaths";
+
+/** @deprecated Use /dashboard/import-review/places. */
+export default function DataReviewPlacesPage() {
+    redirect(importReviewPath("places"));
+}

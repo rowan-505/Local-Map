@@ -1,107 +1,92 @@
 # Local Supabase Production Mirror
 
-This workflow pulls selected Supabase production tables into local PostgreSQL as read-only comparison copies under `prod_mirror`.
+This workflow pulls selected Supabase production tables into local PostgreSQL as **slim, read-only** comparison copies under `prod_mirror`.
 
-It is for Stage F2 comparison only. It does not modify Supabase, does not promote OSM staging data to core, and does not write to local `core`, `raw`, or `staging`.
+It is for Stage F2 comparison only. It does not modify Supabase core, does not promote OSM staging data, and does not write to local `core`, `raw`, or `staging`.
 
 ## What It Creates
 
-- `supabase_fdw`: local foreign tables pointing at selected Supabase tables.
-- `prod_mirror`: real local tables copied from those foreign tables.
+- `supabase_fdw`: local foreign tables pointing at selected Supabase tables (read source).
+- `prod_mirror`: local slim tables with comparison fields only.
+- `prod_mirror.mirror_meta`: refresh timestamp, source project ref/host, row counts.
 
-`prod_mirror` is disposable and refreshable. The refresh drops/recreates only copied tables under `prod_mirror`.
+Each family table includes:
+
+- native core fields needed for identity / protection / soft-delete
+- `core_id` (alias of `id`)
+- `geometry_hash` (local compute)
+- `source_content_hash` (local compute)
+
+Large unused JSON such as `normalized_data` is **not** mirrored.
+
+Deleted rows are included (`deleted_at` preserved) so F2 can detect soft-deletes.
+
+## Environment variables
+
+| Variable | Role |
+|----------|------|
+| `LOCAL_DATABASE_URL` | Local lab DB (mirror target) |
+| `SUPABASE_READ_DATABASE_URL` | Preferred read connection for FDW refresh |
+| `SUPABASE_WRITE_DATABASE_URL` | Write/upload only — **never** used by this refresh |
+| `SUPABASE_PROJECT_REF` | Optional; derived from `db.<ref>.supabase.co` when unset |
+| `MIRROR_MAX_AGE_HOURS` | Validation / pipeline preflight max age (default `168`) |
+| Legacy `SUPABASE_DB_*` | Used only when `SUPABASE_READ_DATABASE_URL` is unset |
+
+Guards:
+
+- Refresh refuses to use `SUPABASE_WRITE_DATABASE_URL` as the FDW source.
+- Refresh refuses when `LOCAL_DATABASE_URL` host matches Supabase (or looks like `*.supabase.co`).
+- Pipeline Stage K refuses to use `SUPABASE_READ_DATABASE_URL` as the write target.
 
 ## Setup
-
-Copy the env template and fill it with credentials:
 
 ```bash
 cp tools/data-pipeline/prod-mirror/00_env.example.sh tools/data-pipeline/prod-mirror/00_env.sh
 ```
 
-Required values:
-
-- `LOCAL_DATABASE_URL`: local PostgreSQL/PostGIS database.
-- `SUPABASE_DB_HOST`: Supabase database host.
-- `SUPABASE_DB_PORT`: usually `5432`.
-- `SUPABASE_DB_NAME`: usually `postgres`.
-- `SUPABASE_DB_USER`: database user. Prefer read-only if available.
-- `SUPABASE_DB_PASSWORD`: database password.
-- `SUPABASE_DB_SSLMODE`: usually `require`.
-- `LOG_DIR`: optional log directory. Defaults to `logs/data-pipeline`.
-
-Do not commit `00_env.sh` or any file containing real credentials.
+Do not commit `00_env.sh`.
 
 ## Refresh
-
-Run:
 
 ```bash
 tools/data-pipeline/prod-mirror/refresh_prod_mirror.sh tools/data-pipeline/prod-mirror/00_env.sh
 ```
 
-This runs:
+Steps:
 
-1. `01_setup_fdw.sql`: creates local `postgres_fdw` setup.
-2. `02_import_foreign_tables.sql`: imports selected foreign table definitions into `supabase_fdw`.
-3. `03_refresh_prod_mirror.sql`: copies foreign tables into local `prod_mirror` tables and adds local indexes.
-4. `04_validate_prod_mirror.sql`: validates required and recommended mirror tables.
+1. `01_setup_fdw.sql` — local `postgres_fdw` server + user mapping  
+2. `02_import_foreign_tables.sql` — import selected foreign tables  
+3. `03_refresh_prod_mirror.sql` — slim explicit-column copy + hashes + `mirror_meta`  
+4. `04_validate_prod_mirror.sql` — counts, reconcile vs FDW, protection columns, duplicate `external_id` report, freshness  
 
-Logs are written to `logs/data-pipeline/prod-mirror-refresh_<timestamp>.log`.
+Refresh is safely repeatable (drops/recreates `prod_mirror.*` copies only).
 
-## Validate Only
-
-After sourcing the env file:
+## Validate only
 
 ```bash
 source tools/data-pipeline/prod-mirror/00_env.sh
 PAGER=cat psql "$LOCAL_DATABASE_URL" \
   -v ON_ERROR_STOP=1 \
+  -v mirror_max_age_hours="${MIRROR_MAX_AGE_HOURS:-168}" \
   -f tools/data-pipeline/prod-mirror/04_validate_prod_mirror.sql
 ```
 
-## Mirrored Tables
+## Pipeline preflight
 
-Core tables:
+Before Stage 07, `run_local_osm_pipeline.sh` runs `00b_preflight_prod_mirror.sql`:
 
-- `core.core_places`
-- `core.core_place_names`
-- `core.core_place_sources`
-- `core.core_streets`
-- `core.core_street_names`
-- `core.core_map_buildings`
-- `core.core_admin_areas`
-- `core.core_admin_area_names`
-- `core.core_map_landuse`
-- `core.core_map_water_lines`
-- `core.core_map_water_polygons`
-- `core.core_addresses`
-- `core.core_address_components`
+- `mirror_meta` present and fresh
+- required tables: `core_places`, `core_streets`, `core_map_buildings`
 
-Reference/system tables:
+Override: `SKIP_PROD_MIRROR_PREFLIGHT=true` (emergency only).
 
-- `ref.ref_source_types`
-- `ref.ref_poi_categories`
-- `ref.ref_road_classes`
-- `ref.ref_admin_levels`
-- `ref.ref_address_component_types`
-- `ref.ref_building_types`
-- `system.system_source_registry`
-- `system.system_source_snapshots`
+## Mirrored families (slim)
 
-## Required For F2
+Core: places (+ names/sources), streets (+ names), buildings, admin (+ names), landuse, water lines/polygons, addresses (+ components)  
+Ref/system: source types, POI categories, road classes, admin levels, address component types, building types, source registry/snapshots
 
-The minimum local mirror tables for Stage F2 are:
+## Required for F2
 
 - `prod_mirror.core_places`
 - `prod_mirror.core_streets`
 - `prod_mirror.core_map_buildings`
-
-If any of these are missing from Supabase or fail to copy, refresh/validation fails. Other missing tables are reported as `WARN` and the workflow continues where safe.
-
-## Safety Notes
-
-- Supabase is accessed through `postgres_fdw` as a remote read source.
-- The workflow only creates local schemas, foreign tables, local copied tables, and local indexes.
-- Refresh drops/recreates only `prod_mirror.*` copied tables.
-- No Supabase writes, no local core promotion, and no OSM staging upload are performed.

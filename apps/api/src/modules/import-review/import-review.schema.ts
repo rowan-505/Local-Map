@@ -5,6 +5,10 @@ import {
     importReviewReviewOverridesPatchSchema,
     type ImportReviewReviewOverridesPatch,
 } from "./import-review-overrides-sanitize.js";
+import {
+    IMPORT_REVIEW_WRITABLE_DECISION_VALUES,
+    reviewStatusForDecisionStorage,
+} from "./import-review-status-model.js";
 
 /**
  * Normalize `snapshot_version` query/body alias into `source_snapshot_version`
@@ -392,13 +396,8 @@ export const importReviewScopedIncludeGeometryQuerySchema = z.preprocess(
 
 export type ImportReviewScopedIncludeGeometryQuery = z.infer<typeof importReviewScopedIncludeGeometryQuerySchema>;
 
-export const importReviewDecisionValues = [
-    "approved",
-    "rejected",
-    "needs_more_review",
-    "ignored",
-    "merged",
-] as const;
+/** Writable decisions (target + legacy aliases). Pending = NULL, not a write value. */
+export const importReviewDecisionValues = IMPORT_REVIEW_WRITABLE_DECISION_VALUES;
 
 export type ImportReviewDecisionValue = (typeof importReviewDecisionValues)[number];
 
@@ -587,14 +586,7 @@ function preprocessBulkDecisionBodyAliases(input: unknown): unknown {
 }
 
 function reviewStatusForBulkDecision(decision: ImportReviewDecisionValue): string {
-    const map: Record<ImportReviewDecisionValue, string> = {
-        approved: "approved",
-        rejected: "rejected",
-        needs_more_review: "needs_review",
-        ignored: "ignored",
-        merged: "merged",
-    };
-    return map[decision];
+    return reviewStatusForDecisionStorage(decision);
 }
 
 const bulkDecisionBodyCoreInner = importReviewScopeObjectSchema

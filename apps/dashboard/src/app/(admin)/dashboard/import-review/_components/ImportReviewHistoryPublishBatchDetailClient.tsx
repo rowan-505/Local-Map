@@ -27,7 +27,6 @@ import { ImportReviewLoadingBannerWithSpinner } from "@/src/features/import-revi
 import ImportReviewSkeletonCards from "@/src/features/import-review/components/ImportReviewSkeletonCards";
 import ImportReviewSkeletonTable from "@/src/features/import-review/components/ImportReviewSkeletonTable";
 import { PUBLISH_BATCH_ITEM_FILTER_OPTIONS } from "@/src/features/import-review/promotion/publishBatchItemsQuery";
-import { validationStatusFromPublishItem } from "@/src/features/import-review/promotion/publishBatchItemDetail";
 import { IMPORT_REVIEW_LOADING } from "@/src/features/import-review/utils/loadingMessages";
 
 export default function ImportReviewHistoryPublishBatchDetailClient() {
@@ -128,7 +127,7 @@ export default function ImportReviewHistoryPublishBatchDetailClient() {
                             <div className="flex flex-wrap items-start justify-between gap-3">
                                 <div>
                                     <h1 className="text-2xl font-bold text-gray-900">{data.batch_name}</h1>
-                                    <p className="mt-1 font-mono text-sm text-gray-600">Publish batch #{data.id}</p>
+                                    <p className="mt-1 font-mono text-sm text-gray-600">Apply run #{data.id}</p>
                                     {data.source_review_batch ? (
                                         <p className="mt-1 text-sm text-gray-600">
                                             Review batch{" "}
@@ -203,9 +202,48 @@ export default function ImportReviewHistoryPublishBatchDetailClient() {
                                         <dd>{formatHistoryDate(data.validated_at)}</dd>
                                     </div>
                                     <div className="flex justify-between gap-4">
-                                        <dt className="text-gray-500">Promoted</dt>
-                                        <dd>{formatHistoryDate(data.promoted_at)}</dd>
+                                        <dt className="text-gray-500">Applied</dt>
+                                        <dd>{formatHistoryDate(data.applied_at ?? data.promoted_at)}</dd>
                                     </div>
+                                    <div className="flex justify-between gap-4">
+                                        <dt className="text-gray-500">Applied by</dt>
+                                        <dd className="font-mono text-xs">{data.applied_by ?? "—"}</dd>
+                                    </div>
+                                </dl>
+                            </div>
+                        </section>
+
+                        <section className="grid gap-4 lg:grid-cols-2">
+                            <div className="rounded-lg border border-gray-200 bg-white p-4">
+                                <h2 className="text-sm font-semibold text-gray-900">Counts by family</h2>
+                                <dl className="mt-2 space-y-1 text-sm">
+                                    {Object.entries(data.item_counts_by_entity_family).map(([family, counts]) => (
+                                        <div key={family} className="flex justify-between gap-4">
+                                            <dt className="text-gray-500">{family}</dt>
+                                            <dd className="tabular-nums text-gray-800">
+                                                ok {counts.success} · fail {counts.failed} · skip {counts.skipped}
+                                            </dd>
+                                        </div>
+                                    ))}
+                                    {Object.keys(data.item_counts_by_entity_family).length === 0 ? (
+                                        <p className="text-gray-500">No family counts.</p>
+                                    ) : null}
+                                </dl>
+                            </div>
+                            <div className="rounded-lg border border-gray-200 bg-white p-4">
+                                <h2 className="text-sm font-semibold text-gray-900">Counts by action</h2>
+                                <dl className="mt-2 space-y-1 text-sm">
+                                    {Object.entries(data.item_counts_by_action ?? {}).map(([action, counts]) => (
+                                        <div key={action} className="flex justify-between gap-4">
+                                            <dt className="text-gray-500">{action}</dt>
+                                            <dd className="tabular-nums text-gray-800">
+                                                ok {counts.success} · fail {counts.failed} · total {counts.total}
+                                            </dd>
+                                        </div>
+                                    ))}
+                                    {Object.keys(data.item_counts_by_action ?? {}).length === 0 ? (
+                                        <p className="text-gray-500">No action counts.</p>
+                                    ) : null}
                                 </dl>
                             </div>
                         </section>
@@ -294,10 +332,10 @@ export default function ImportReviewHistoryPublishBatchDetailClient() {
                                     <thead className="bg-gray-50 text-left text-xs font-semibold uppercase text-gray-500">
                                         <tr>
                                             <th className="px-3 py-2">Family</th>
-                                            <th className="px-3 py-2">Candidate</th>
-                                            <th className="px-3 py-2">Publish status</th>
-                                            <th className="px-3 py-2">Validation</th>
+                                            <th className="px-3 py-2">External ID</th>
+                                            <th className="px-3 py-2">Decision</th>
                                             <th className="px-3 py-2">Action</th>
+                                            <th className="px-3 py-2">Result</th>
                                             <th className="px-3 py-2">Core target</th>
                                             <th className="px-3 py-2">Error</th>
                                             <th className="px-3 py-2">Detail</th>
@@ -305,41 +343,46 @@ export default function ImportReviewHistoryPublishBatchDetailClient() {
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {items.map((item) => (
-                                            <tr key={item.id} className="align-top">
+                                            <tr
+                                                key={item.id}
+                                                className={`align-top ${
+                                                    item.publish_status === "failed" ? "bg-red-50/40" : ""
+                                                }`}
+                                            >
                                                 <td className="px-3 py-2">{item.entity_family}</td>
-                                                <td className="px-3 py-2 font-mono text-xs tabular-nums">
-                                                    {item.review_candidate_id ?? "—"}
+                                                <td className="px-3 py-2 font-mono text-xs">
+                                                    {item.external_id ?? "—"}
                                                 </td>
+                                                <td className="px-3 py-2 font-mono text-xs">
+                                                    {item.review_decision ?? "—"}
+                                                </td>
+                                                <td className="px-3 py-2">{item.publish_action ?? "—"}</td>
                                                 <td className="px-3 py-2">
                                                     <HistoryStatusBadge status={item.publish_status} />
                                                 </td>
                                                 <td className="px-3 py-2 font-mono text-xs">
-                                                    {validationStatusFromPublishItem(item.validation_result) ??
-                                                        "—"}
-                                                </td>
-                                                <td className="px-3 py-2">{item.publish_action ?? "—"}</td>
-                                                <td className="px-3 py-2 font-mono text-xs">
                                                     {item.target_table && item.target_id
                                                         ? `${item.target_table}#${item.target_id}`
-                                                        : "—"}
+                                                        : item.target_id ?? "—"}
                                                 </td>
                                                 <td className="px-3 py-2 max-w-xs whitespace-pre-wrap break-words text-red-800">
                                                     {item.error_message ?? "—"}
                                                 </td>
                                                 <td className="px-3 py-2 min-w-[8rem]">
-                                                    {item.after_data != null ||
-                                                    item.error_message ? (
-                                                        <CollapsibleJson
-                                                            label="Result JSON"
-                                                            value={
-                                                                item.after_data ?? {
-                                                                    message: item.error_message,
-                                                                }
-                                                            }
-                                                        />
-                                                    ) : (
-                                                        "—"
-                                                    )}
+                                                    <CollapsibleJson
+                                                        label="Before"
+                                                        value={item.before_summary ?? item.before_data}
+                                                    />
+                                                    <CollapsibleJson
+                                                        label="After"
+                                                        value={
+                                                            item.after_summary ??
+                                                            item.after_data ??
+                                                            (item.error_message
+                                                                ? { message: item.error_message }
+                                                                : null)
+                                                        }
+                                                    />
                                                 </td>
                                             </tr>
                                         ))}

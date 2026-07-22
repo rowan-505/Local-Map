@@ -363,6 +363,13 @@ require_remote_review_stage_files() {
 
 run_stage_11_prepare_remote_review_j() {
   run_stage "11_prepare_remote_review_package (stage J)"
+  # Conflict-only packages use a stable name and auto-replace same-snapshot locally.
+  if [[ "${REMOTE_REVIEW_CONFLICT_ONLY:-true}" =~ ^(true|t|1|yes)$ ]]; then
+    REMOTE_REVIEW_PACKAGE_NAME="${REMOTE_REVIEW_PACKAGE_NAME:-remote_review_conflicts_${SNAPSHOT_VERSION}}"
+    export REMOTE_REVIEW_PACKAGE_NAME
+  else
+    echo "WARNING: full-candidate remote review upload is deprecated. Prefer REMOTE_REVIEW_CONFLICT_ONLY=true." >&2
+  fi
   run_psql \
     -v ON_ERROR_STOP=1 \
     -v snapshot_version="${SNAPSHOT_VERSION}" \
@@ -372,6 +379,7 @@ run_stage_11_prepare_remote_review_j() {
     -v max_rows_per_family="${REMOTE_REVIEW_MAX_ROWS_PER_FAMILY:-}" \
     -v package_name="${REMOTE_REVIEW_PACKAGE_NAME}" \
     -v replace_package=false \
+    -v conflict_only="${REMOTE_REVIEW_CONFLICT_ONLY:-true}" \
     ${PSQL_EXTRA_ARGS:-} \
     -f "${SCRIPT_DIR}/11_prepare_remote_review_package.sql"
 }
@@ -457,7 +465,8 @@ finalize_remote_review_stages() {
 
   log ""
   log "REMOTE_REVIEW_PACKAGE_NAME=${REMOTE_REVIEW_PACKAGE_NAME}"
-  log "Stage J uses replace_package=false; reuse the same package name only if that row was deleted, or rerun J manually with -v replace_package=true."
+  log "REMOTE_REVIEW_CONFLICT_ONLY=${REMOTE_REVIEW_CONFLICT_ONLY:-true}"
+  log "Stage J conflict-only packages auto-replace same name + same snapshot; legacy full packages still need a new name or replace_package=true."
   if [[ -n "${REMOTE_REVIEW_ENTITY_FAMILY:-}" ]]; then
     log "REMOTE_REVIEW_ENTITY_FAMILY=${REMOTE_REVIEW_ENTITY_FAMILY}"
   fi
@@ -473,9 +482,13 @@ finalize_remote_review_stages() {
 
   if is_remote_review_upload_requested; then
     if pipeline_should_run_stage "12"; then
-      require_var SUPABASE_DATABASE_URL
+      SUPABASE_DATABASE_URL="$(resolve_supabase_write_database_url)"
+      export SUPABASE_DATABASE_URL
       log "REMOTE_REVIEW_UPLOAD_ENABLED=true — running Stage K (Supabase import_review only)."
-      log "SUPABASE_DATABASE_URL=$(mask_database_url "${SUPABASE_DATABASE_URL}")"
+      log "SUPABASE_WRITE_DATABASE_URL/legacy write target=$(mask_database_url "${SUPABASE_DATABASE_URL}")"
+      if [[ -n "${SUPABASE_READ_DATABASE_URL:-}" ]]; then
+        log "SUPABASE_READ_DATABASE_URL=$(mask_database_url "${SUPABASE_READ_DATABASE_URL}") (not used by Stage K)"
+      fi
       run_stage_12_upload_remote_review_k
     else
       pipeline_skip_stage_log "12_upload_remote_review_package (stage K)"
@@ -551,6 +564,66 @@ run_preflight_schema_compatibility() {
     -v entity_families="${ENTITY_FAMILIES}" \
     ${PSQL_EXTRA_ARGS:-} \
     -f "${preflight_sql}"
+}
+
+run_preflight_prod_mirror() {
+  local preflight_sql="${SCRIPT_DIR}/00b_preflight_prod_mirror.sql"
+  if [[ "${SKIP_PROD_MIRROR_PREFLIGHT:-}" == "true" ]]; then
+    log "SKIP_PROD_MIRROR_PREFLIGHT=true — skipping prod_mirror freshness preflight"
+    return 0
+  fi
+  if [[ ! -f "${preflight_sql}" ]]; then
+    echo "error: preflight SQL file not found: ${preflight_sql}" >&2
+    exit 1
+  fi
+  run_stage "00b_preflight_prod_mirror"
+  run_psql \
+    -v ON_ERROR_STOP=1 \
+    -v mirror_max_age_hours="${MIRROR_MAX_AGE_HOURS:-168}" \
+    -v prod_mirror_schema="${PROD_MIRROR_SCHEMA:-prod_mirror}" \
+    ${PSQL_EXTRA_ARGS:-} \
+    -f "${preflight_sql}"
+}
+
+resolve_supabase_write_database_url() {
+  # Stage K / remote write ops only. Never return the read URL.
+  local write_url="${SUPABASE_WRITE_DATABASE_URL:-}"
+  local legacy_url="${SUPABASE_DATABASE_URL:-}"
+  local read_url="${SUPABASE_READ_DATABASE_URL:-}"
+
+  if [[ -z "${write_url}" && -n "${legacy_url}" ]]; then
+    write_url="${legacy_url}"
+  fi
+
+  if [[ -z "${write_url}" ]]; then
+    echo "error: set SUPABASE_WRITE_DATABASE_URL (preferred) or legacy SUPABASE_DATABASE_URL for Stage K" >&2
+    exit 1
+  fi
+
+  if [[ -n "${read_url}" && "${write_url}" == "${read_url}" ]]; then
+    if [[ "${SUPABASE_ALLOW_IDENTICAL_READ_WRITE_URL:-}" == "true" ]]; then
+      echo "warning: write URL equals SUPABASE_READ_DATABASE_URL (SUPABASE_ALLOW_IDENTICAL_READ_WRITE_URL=true)." >&2
+    else
+      echo "error: write URL equals SUPABASE_READ_DATABASE_URL." >&2
+      echo "       Refusing to treat the read connection as the write target." >&2
+      echo "       Set a distinct SUPABASE_WRITE_DATABASE_URL, or export SUPABASE_ALLOW_IDENTICAL_READ_WRITE_URL=true." >&2
+      exit 1
+    fi
+  fi
+
+  # Also refuse if caller tried to export READ into SUPABASE_DATABASE_URL while WRITE is unset
+  # and READ is the only URL available — already handled by equality when write falls back.
+  if [[ -n "${read_url}" && -z "${SUPABASE_WRITE_DATABASE_URL:-}" && "${legacy_url}" == "${read_url}" ]]; then
+    if [[ "${SUPABASE_ALLOW_IDENTICAL_READ_WRITE_URL:-}" == "true" ]]; then
+      echo "warning: SUPABASE_DATABASE_URL matches SUPABASE_READ_DATABASE_URL (allowed by override)." >&2
+    else
+      echo "error: SUPABASE_DATABASE_URL matches SUPABASE_READ_DATABASE_URL." >&2
+      echo "       Set SUPABASE_WRITE_DATABASE_URL for writes, or SUPABASE_ALLOW_IDENTICAL_READ_WRITE_URL=true." >&2
+      exit 1
+    fi
+  fi
+
+  printf '%s' "${write_url}"
 }
 
 log "local-osm pipeline started at ${RUN_TS}"
@@ -661,6 +734,7 @@ else
 fi
 
 if pipeline_should_run_stage "07"; then
+  run_preflight_prod_mirror
   run_stage "07_compare_with_prod_mirror"
   run_sql "${SCRIPT_DIR}/07_compare_with_prod_mirror.sql"
 else
@@ -678,6 +752,31 @@ if pipeline_should_run_stage "08"; then
     -f "${SCRIPT_DIR}/08_assign_statuses.sql"
 else
   pipeline_skip_stage_log "08_assign_statuses"
+fi
+
+if pipeline_should_run_stage "08"; then
+  run_stage "08b_assign_import_class"
+  run_psql \
+    -v ON_ERROR_STOP=1 \
+    -v snapshot_version="${SNAPSHOT_VERSION}" \
+    -v staging_schema="${STAGING_SCHEMA}" \
+    -v entity_families="${ENTITY_FAMILIES}" \
+    -v prod_mirror_schema="${PROD_MIRROR_SCHEMA:-prod_mirror}" \
+    ${PSQL_EXTRA_ARGS:-} \
+    -f "${SCRIPT_DIR}/08b_assign_import_class.sql"
+else
+  pipeline_skip_stage_log "08b_assign_import_class"
+fi
+
+if [[ "${CLASSIFICATION_REPORT_ENABLED:-true}" == "true" ]] && pipeline_should_run_stage "08"; then
+  run_stage "18_classification_bucket_report"
+  run_psql \
+    -v ON_ERROR_STOP=1 \
+    -v snapshot_version="${SNAPSHOT_VERSION}" \
+    -v staging_schema="${STAGING_SCHEMA}" \
+    -v entity_families="${ENTITY_FAMILIES}" \
+    ${PSQL_EXTRA_ARGS:-} \
+    -f "${SCRIPT_DIR}/18_classification_bucket_report.sql"
 fi
 
 if pipeline_should_run_stage "09"; then

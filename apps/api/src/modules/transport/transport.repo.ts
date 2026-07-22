@@ -12,6 +12,7 @@ import {
     TransportStopInUseError,
     TransportReviewGuardError,
     TransportGeneratePathFromStopsError,
+    TransportMergePreviewFailedError,
     type TransportStopDeleteBlocker,
 } from "./transport.errors.js";
 import {
@@ -35,7 +36,13 @@ import {
 } from "./transport-review.js";
 import { calculateVariantTimetableSchedule, variantTimetableScheduleToOffsets } from "./transport-timetable.js";
 import { assembleStopRouteUsageDetail, buildStopRouteUsageSummary } from "./stopRouteUsageDetail.js";
-import { buildStopMergeFieldComparison } from "./stopMergePreview.js";
+import {
+    buildStopMergeConflictAnalysis,
+    buildStopMergeFieldComparison,
+    extractSqlErrorCode,
+    jsonSafeNumber,
+    type MergePreviewUsageMembership,
+} from "./stopMergePreview.js";
 import {
     emptyStopMergeReferenceChanges,
     sumStopMergeReferenceCounts,
@@ -293,12 +300,12 @@ type StopRouteUsageDetailRow = {
     route_stop_id: string;
     route_id: string;
     route_code: string;
-    route_name: string;
+    route_name: string | null;
     variant_id: string;
     variant_code: string;
     direction_name: string | null;
-    direction_id: number | null;
-    stop_sequence: number;
+    direction_id: number | bigint | null;
+    stop_sequence: number | bigint;
 };
 
 type StopRouteUsageDetailByStopRow = StopRouteUsageDetailRow & {
@@ -313,23 +320,14 @@ type MergePreviewStopRow = {
     name_en: string | null;
     mode: string;
     stop_type: string;
-    admin_area_id: number | null;
+    /** SQL casts to float8; still coerce in case a driver returns bigint. */
+    admin_area_id: number | bigint | null;
     admin_area_name: string | null;
     review_status: string;
     confidence_score: number | null;
     is_active: boolean;
     longitude: number | null;
     latitude: number | null;
-};
-
-type MergePreviewVariantConflictRow = {
-    route_code: string;
-    variant_code: string;
-    direction_name: string | null;
-    current_route_stop_id: string;
-    current_sequence: number;
-    candidate_route_stop_id: string;
-    candidate_sequence: number;
 };
 
 type MergePreviewReferenceCountsRow = {
@@ -3153,12 +3151,12 @@ export class TransportRepository {
                 rs.id::text AS route_stop_id,
                 r.public_id::text AS route_id,
                 r.route_code,
-                r.public_name AS route_name,
+                COALESCE(r.public_name, r.route_code) AS route_name,
                 v.public_id::text AS variant_id,
                 v.variant_code,
                 v.direction_name,
-                v.direction_id,
-                rs.stop_sequence
+                v.direction_id::int AS direction_id,
+                rs.stop_sequence::int AS stop_sequence
             FROM transport.route_stops rs
             JOIN transport.route_variants v
                 ON v.id = rs.route_variant_id
@@ -3203,19 +3201,19 @@ export class TransportRepository {
             routeStopId: row.route_stop_id,
             routeId: row.route_id,
             routeCode: row.route_code,
-            routeName: row.route_name,
+            routeName: row.route_name ?? row.route_code,
             variantId: row.variant_id,
             variantCode: row.variant_code,
             directionName: row.direction_name,
-            directionId: row.direction_id,
-            stopSequence: row.stop_sequence,
+            directionId: row.direction_id === null ? null : num(row.direction_id),
+            stopSequence: num(row.stop_sequence),
         }));
 
         const summary = buildStopRouteUsageSummary(
             rows.map((row) => ({
                 variantCode: row.variant_code,
                 directionName: row.direction_name,
-                directionId: row.direction_id,
+                directionId: row.direction_id === null ? null : num(row.direction_id),
             })),
             rows.map((row) => row.route_id),
             rows.map((row) => row.variant_id),
@@ -3249,13 +3247,28 @@ export class TransportRepository {
             nameEn: row.name_en,
             mode: row.mode,
             stopType: row.stop_type,
-            adminAreaId: row.admin_area_id,
+            adminAreaId: jsonSafeNumber(row.admin_area_id),
             adminAreaName: row.admin_area_name,
             reviewStatus: row.review_status,
-            confidenceScore: row.confidence_score,
+            confidenceScore: jsonSafeNumber(row.confidence_score),
             isActive: row.is_active,
-            lat: row.latitude,
-            lng: row.longitude,
+            lat: jsonSafeNumber(row.latitude),
+            lng: jsonSafeNumber(row.longitude),
+        };
+    }
+
+    private toMergePreviewStopFields(row: MergePreviewStopRow) {
+        return {
+            name: row.name,
+            name_mm: row.name_mm,
+            name_en: row.name_en,
+            stop_type: row.stop_type,
+            admin_area_id: jsonSafeNumber(row.admin_area_id),
+            confidence_score: jsonSafeNumber(row.confidence_score),
+            review_status: row.review_status,
+            is_active: row.is_active,
+            longitude: jsonSafeNumber(row.longitude),
+            latitude: jsonSafeNumber(row.latitude),
         };
     }
 
@@ -3400,7 +3413,7 @@ export class TransportRepository {
                 COALESCE(sn_en.name, s.name_en) AS name_en,
                 s.mode,
                 s.stop_type,
-                s.admin_area_id,
+                s.admin_area_id::float8 AS admin_area_id,
                 aa.canonical_name AS admin_area_name,
                 s.review_status,
                 s.confidence_score::float8 AS confidence_score,
@@ -3440,200 +3453,220 @@ export class TransportRepository {
         currentStopPublicId: string,
         candidateStopPublicId: string,
     ): Promise<TransportStopMergePreviewResponse> {
-        await this.assertSchemaAvailable();
+        const routeIdsForLog: string[] = [];
+        const variantIdsForLog: string[] = [];
 
-        const stopRows = await this.prisma.$queryRaw<MergePreviewStopRow[]>`
-            SELECT
-                s.id,
-                s.public_id::text AS public_id,
-                s.name,
-                COALESCE(sn_mm.name, s.name_mm) AS name_mm,
-                COALESCE(sn_en.name, s.name_en) AS name_en,
-                s.mode,
-                s.stop_type,
-                s.admin_area_id,
-                aa.canonical_name AS admin_area_name,
-                s.review_status,
-                s.confidence_score::float8 AS confidence_score,
-                s.is_active,
-                ST_X(s.geom)::float8 AS longitude,
-                ST_Y(s.geom)::float8 AS latitude
-            FROM transport.stops s
-            LEFT JOIN core.core_admin_areas aa ON aa.id = s.admin_area_id
-            LEFT JOIN LATERAL (
-                SELECT n.name
-                FROM transport.stop_names AS n
-                WHERE n.stop_id = s.id
-                  AND lower(btrim(coalesce(n.language_code, ''))) = 'my'
-                ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
-                LIMIT 1
-            ) AS sn_mm ON true
-            LEFT JOIN LATERAL (
-                SELECT n.name
-                FROM transport.stop_names AS n
-                WHERE n.stop_id = s.id
-                  AND lower(btrim(coalesce(n.language_code, ''))) = 'en'
-                ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
-                LIMIT 1
-            ) AS sn_en ON true
-            WHERE s.public_id IN (${currentStopPublicId}::uuid, ${candidateStopPublicId}::uuid)
-              AND s.deleted_at IS NULL
-        `;
+        try {
+            await this.assertSchemaAvailable();
 
-        const currentRow = stopRows.find((row) => row.public_id === currentStopPublicId);
-        const candidateRow = stopRows.find((row) => row.public_id === candidateStopPublicId);
-        if (!currentRow) {
-            throw new TransportNotFoundError("stop", currentStopPublicId);
-        }
-        if (!candidateRow) {
-            throw new TransportNotFoundError("stop", candidateStopPublicId);
-        }
-        if (currentRow.mode !== candidateRow.mode) {
-            throw new TransportReviewGuardError(
-                "MERGE_MODE_MISMATCH",
-                "Both stops must have the same transport mode.",
-            );
-        }
-
-        const [geomRows, referenceCounts, conflictRows, usageRows] = await Promise.all([
-            this.prisma.$queryRaw<{ geom_same: boolean; geom_distance_m: number | null }[]>`
+            const stopRows = await this.prisma.$queryRaw<MergePreviewStopRow[]>`
                 SELECT
-                    CASE
-                        WHEN cur.geom IS NULL AND cand.geom IS NULL THEN true
-                        WHEN cur.geom IS NULL OR cand.geom IS NULL THEN false
-                        ELSE ST_Equals(cur.geom, cand.geom)
-                    END AS geom_same,
-                    CASE
-                        WHEN cur.geom IS NOT NULL AND cand.geom IS NOT NULL
-                        THEN ST_Distance(cur.geom::geography, cand.geom::geography)
-                        ELSE NULL
-                    END::float8 AS geom_distance_m
-                FROM transport.stops cur
-                JOIN transport.stops cand ON cand.id = ${candidateRow.id}
-                WHERE cur.id = ${currentRow.id}
-            `,
-            this.loadMergePreviewReferenceCounts(currentRow.id, candidateRow.id),
-            this.prisma.$queryRaw<MergePreviewVariantConflictRow[]>`
-                SELECT
-                    r.route_code,
-                    v.variant_code,
-                    v.direction_name,
-                    cur_rs.id::text AS current_route_stop_id,
-                    cur_rs.stop_sequence AS current_sequence,
-                    cand_rs.id::text AS candidate_route_stop_id,
-                    cand_rs.stop_sequence AS candidate_sequence
-                FROM transport.route_stops cur_rs
-                JOIN transport.route_stops cand_rs
-                    ON cand_rs.route_variant_id = cur_rs.route_variant_id
-                JOIN transport.route_variants v
-                    ON v.id = cur_rs.route_variant_id
-                    AND v.deleted_at IS NULL
-                JOIN transport.routes r
-                    ON r.id = v.route_id
-                    AND r.deleted_at IS NULL
-                WHERE cur_rs.stop_id = ${currentRow.id}
-                  AND cand_rs.stop_id = ${candidateRow.id}
-                ORDER BY r.route_code ASC, v.variant_code ASC,
-                    cur_rs.stop_sequence ASC, cand_rs.stop_sequence ASC
-            `,
-            this.fetchRouteUsageDetailRowsForStopIds([currentRow.id, candidateRow.id]),
-        ]);
+                    s.id,
+                    s.public_id::text AS public_id,
+                    s.name,
+                    COALESCE(sn_mm.name, s.name_mm) AS name_mm,
+                    COALESCE(sn_en.name, s.name_en) AS name_en,
+                    s.mode,
+                    s.stop_type,
+                    s.admin_area_id::float8 AS admin_area_id,
+                    aa.canonical_name AS admin_area_name,
+                    s.review_status,
+                    s.confidence_score::float8 AS confidence_score,
+                    s.is_active,
+                    ST_X(s.geom)::float8 AS longitude,
+                    ST_Y(s.geom)::float8 AS latitude
+                FROM transport.stops s
+                LEFT JOIN core.core_admin_areas aa ON aa.id = s.admin_area_id
+                LEFT JOIN LATERAL (
+                    SELECT n.name
+                    FROM transport.stop_names AS n
+                    WHERE n.stop_id = s.id
+                      AND lower(btrim(coalesce(n.language_code, ''))) = 'my'
+                    ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+                    LIMIT 1
+                ) AS sn_mm ON true
+                LEFT JOIN LATERAL (
+                    SELECT n.name
+                    FROM transport.stop_names AS n
+                    WHERE n.stop_id = s.id
+                      AND lower(btrim(coalesce(n.language_code, ''))) = 'en'
+                    ORDER BY n.is_primary DESC, n.search_weight DESC, n.id ASC
+                    LIMIT 1
+                ) AS sn_en ON true
+                WHERE s.public_id IN (${currentStopPublicId}::uuid, ${candidateStopPublicId}::uuid)
+                  AND s.deleted_at IS NULL
+            `;
 
-        const geom = geomRows[0];
-        const currentUsageRows = usageRows
-            .filter((row) => row.stop_internal_id === currentRow.id)
-            .map((row) => ({
-                route_stop_id: row.route_stop_id,
-                route_id: row.route_id,
-                route_code: row.route_code,
-                route_name: row.route_name,
-                variant_id: row.variant_id,
-                variant_code: row.variant_code,
-                direction_name: row.direction_name,
-                direction_id: row.direction_id,
-                stop_sequence: row.stop_sequence,
-            }));
-        const candidateUsageRows = usageRows
-            .filter((row) => row.stop_internal_id === candidateRow.id)
-            .map((row) => ({
-                route_stop_id: row.route_stop_id,
-                route_id: row.route_id,
-                route_code: row.route_code,
-                route_name: row.route_name,
-                variant_id: row.variant_id,
-                variant_code: row.variant_code,
-                direction_name: row.direction_name,
-                direction_id: row.direction_id,
-                stop_sequence: row.stop_sequence,
-            }));
+            const currentRow = stopRows.find((row) => row.public_id === currentStopPublicId);
+            const candidateRow = stopRows.find((row) => row.public_id === candidateStopPublicId);
+            if (!currentRow) {
+                throw new TransportNotFoundError("stop", currentStopPublicId);
+            }
+            if (!candidateRow) {
+                throw new TransportNotFoundError("stop", candidateStopPublicId);
+            }
+            if (currentRow.mode !== candidateRow.mode) {
+                throw new TransportReviewGuardError(
+                    "MERGE_MODE_MISMATCH",
+                    "Both stops must have the same transport mode.",
+                );
+            }
 
-        const fieldComparison = buildStopMergeFieldComparison(
-            {
-                name: currentRow.name,
-                name_mm: currentRow.name_mm,
-                name_en: currentRow.name_en,
-                stop_type: currentRow.stop_type,
-                admin_area_id: currentRow.admin_area_id,
-                confidence_score: currentRow.confidence_score,
-                review_status: currentRow.review_status,
-                is_active: currentRow.is_active,
-                longitude: currentRow.longitude,
-                latitude: currentRow.latitude,
-            },
-            {
-                name: candidateRow.name,
-                name_mm: candidateRow.name_mm,
-                name_en: candidateRow.name_en,
-                stop_type: candidateRow.stop_type,
-                admin_area_id: candidateRow.admin_area_id,
-                confidence_score: candidateRow.confidence_score,
-                review_status: candidateRow.review_status,
-                is_active: candidateRow.is_active,
-                longitude: candidateRow.longitude,
-                latitude: candidateRow.latitude,
-            },
-            geom?.geom_same ?? false,
-            geom?.geom_distance_m ?? null,
-        );
+            const [geomRows, referenceCounts, usageRows] = await Promise.all([
+                this.prisma.$queryRaw<{ geom_same: boolean; geom_distance_m: number | null }[]>`
+                    SELECT
+                        CASE
+                            WHEN cur.geom IS NULL AND cand.geom IS NULL THEN true
+                            WHEN cur.geom IS NULL OR cand.geom IS NULL THEN false
+                            ELSE ST_Equals(cur.geom, cand.geom)
+                        END AS geom_same,
+                        CASE
+                            WHEN cur.geom IS NOT NULL AND cand.geom IS NOT NULL
+                            THEN ST_Distance(cur.geom::geography, cand.geom::geography)
+                            ELSE NULL
+                        END::float8 AS geom_distance_m
+                    FROM transport.stops cur
+                    JOIN transport.stops cand ON cand.id = ${candidateRow.id}
+                    WHERE cur.id = ${currentRow.id}
+                `,
+                this.loadMergePreviewReferenceCounts(currentRow.id, candidateRow.id),
+                this.fetchRouteUsageDetailRowsForStopIds([currentRow.id, candidateRow.id]),
+            ]);
 
-        return {
-            currentStop: this.mapMergePreviewStop(currentRow),
-            candidateStop: this.mapMergePreviewStop(candidateRow),
-            currentUsage: this.buildRouteUsageDetailFromRows(
-                currentRow.public_id,
-                currentUsageRows,
-            ),
-            candidateUsage: this.buildRouteUsageDetailFromRows(
-                candidateRow.public_id,
-                candidateUsageRows,
-            ),
-            sameVariantConflicts: conflictRows.map((row) => ({
+            const geom = geomRows[0];
+            const toMembership = (row: StopRouteUsageDetailByStopRow): MergePreviewUsageMembership => ({
+                routeId: row.route_id,
                 routeCode: row.route_code,
+                routeName: row.route_name ?? row.route_code,
+                variantId: row.variant_id,
                 variantCode: row.variant_code,
                 directionName: row.direction_name,
-                currentRouteStopId: row.current_route_stop_id,
-                currentSequence: row.current_sequence,
-                candidateRouteStopId: row.candidate_route_stop_id,
-                candidateSequence: row.candidate_sequence,
-            })),
-            sameVariantWarning: buildSameVariantMergeWarning(conflictRows.length),
-            referenceCounts,
-            fieldComparison,
-        };
+                routeStopId: row.route_stop_id,
+                stopSequence: num(row.stop_sequence),
+            });
+
+            const currentUsageRows = usageRows
+                .filter((row) => row.stop_internal_id === currentRow.id)
+                .map((row) => ({
+                    route_stop_id: row.route_stop_id,
+                    route_id: row.route_id,
+                    route_code: row.route_code,
+                    route_name: row.route_name ?? row.route_code,
+                    variant_id: row.variant_id,
+                    variant_code: row.variant_code,
+                    direction_name: row.direction_name,
+                    direction_id: row.direction_id === null ? null : num(row.direction_id),
+                    stop_sequence: num(row.stop_sequence),
+                }));
+            const candidateUsageRows = usageRows
+                .filter((row) => row.stop_internal_id === candidateRow.id)
+                .map((row) => ({
+                    route_stop_id: row.route_stop_id,
+                    route_id: row.route_id,
+                    route_code: row.route_code,
+                    route_name: row.route_name ?? row.route_code,
+                    variant_id: row.variant_id,
+                    variant_code: row.variant_code,
+                    direction_name: row.direction_name,
+                    direction_id: row.direction_id === null ? null : num(row.direction_id),
+                    stop_sequence: num(row.stop_sequence),
+                }));
+
+            const currentMemberships = usageRows
+                .filter((row) => row.stop_internal_id === currentRow.id)
+                .map(toMembership);
+            const candidateMemberships = usageRows
+                .filter((row) => row.stop_internal_id === candidateRow.id)
+                .map(toMembership);
+
+            const conflictAnalysis = buildStopMergeConflictAnalysis(
+                currentMemberships,
+                candidateMemberships,
+            );
+            routeIdsForLog.push(...conflictAnalysis.affectedRoutes.map((row) => row.routeId));
+            variantIdsForLog.push(...conflictAnalysis.affectedVariants.map((row) => row.variantId));
+
+            const fieldComparison = buildStopMergeFieldComparison(
+                this.toMergePreviewStopFields(currentRow),
+                this.toMergePreviewStopFields(candidateRow),
+                geom?.geom_same ?? false,
+                jsonSafeNumber(geom?.geom_distance_m ?? null),
+            );
+
+            const sameVariantConflicts = conflictAnalysis.duplicateMembershipConflicts.map((row) => ({
+                routeCode: row.routeCode,
+                variantCode: row.variantCode,
+                directionName: row.directionName,
+                currentRouteStopId: row.currentRouteStopId,
+                currentSequence: row.currentSequence,
+                candidateRouteStopId: row.candidateRouteStopId,
+                candidateSequence: row.candidateSequence,
+            }));
+
+            const preview: TransportStopMergePreviewResponse = {
+                currentStop: this.mapMergePreviewStop(currentRow),
+                candidateStop: this.mapMergePreviewStop(candidateRow),
+                currentUsage: this.buildRouteUsageDetailFromRows(
+                    currentRow.public_id,
+                    currentUsageRows,
+                ),
+                candidateUsage: this.buildRouteUsageDetailFromRows(
+                    candidateRow.public_id,
+                    candidateUsageRows,
+                ),
+                sameVariantConflicts,
+                sameVariantWarning: buildSameVariantMergeWarning(sameVariantConflicts.length),
+                affectedRoutes: conflictAnalysis.affectedRoutes,
+                affectedVariants: conflictAnalysis.affectedVariants,
+                duplicateMembershipConflicts: conflictAnalysis.duplicateMembershipConflicts,
+                sequenceConflicts: conflictAnalysis.sequenceConflicts,
+                mergeAllowed: conflictAnalysis.mergeAllowed,
+                mergeBlockers: conflictAnalysis.mergeBlockers,
+                referenceCounts,
+                fieldComparison,
+            };
+
+            // Guard against residual bigint leakage before Fastify JSON serialization.
+            JSON.stringify(preview);
+
+            return preview;
+        } catch (error) {
+            if (
+                error instanceof TransportNotFoundError ||
+                error instanceof TransportReviewGuardError ||
+                error instanceof TransportSchemaUnavailableError ||
+                error instanceof TransportMergePreviewFailedError
+            ) {
+                throw error;
+            }
+
+            throw new TransportMergePreviewFailedError(
+                "Failed to build stop merge preview.",
+                {
+                    currentStopId: currentStopPublicId,
+                    candidateStopId: candidateStopPublicId,
+                    routeIds: routeIdsForLog,
+                    variantIds: variantIdsForLog,
+                    sqlErrorCode: extractSqlErrorCode(error),
+                },
+                { cause: error },
+            );
+        }
     }
 
     private toMergeFieldSnapshot(row: MergePreviewStopRow): StopMergeFieldStopSnapshot {
+        const fields = this.toMergePreviewStopFields(row);
         return {
-            name: row.name,
-            name_mm: row.name_mm,
-            name_en: row.name_en,
-            stop_type: row.stop_type,
-            admin_area_id: row.admin_area_id,
-            confidence_score: row.confidence_score,
-            review_status: row.review_status,
-            is_active: row.is_active,
-            longitude: row.longitude,
-            latitude: row.latitude,
+            name: fields.name,
+            name_mm: fields.name_mm,
+            name_en: fields.name_en,
+            stop_type: fields.stop_type,
+            admin_area_id: fields.admin_area_id,
+            confidence_score: fields.confidence_score,
+            review_status: fields.review_status,
+            is_active: fields.is_active,
+            longitude: fields.longitude,
+            latitude: fields.latitude,
         };
     }
 
@@ -3784,6 +3817,13 @@ export class TransportRepository {
             options.currentStopPublicId,
             options.candidateStopPublicId,
         );
+        if (!preview.mergeAllowed) {
+            throw new TransportReviewGuardError(
+                "MERGE_SEQUENCE_CONFLICT",
+                "Cannot merge stops that share the same stop_sequence in a variant.",
+                preview.mergeBlockers,
+            );
+        }
         assertSameVariantMergeAcknowledged(
             preview.sameVariantConflicts.length,
             options.acknowledgeSameVariantOccurrences,

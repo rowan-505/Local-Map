@@ -5,8 +5,19 @@
 -- Scope:
 --   - Local database only.
 --   - Snapshot-vs-snapshot only: current OSM staging vs previous OSM staging.
---   - Writes only system.system_diff_runs and system.system_diff_items.
---   - Does not touch staging rows, core, or Supabase.
+--   - Writes system.system_diff_runs / system.system_diff_items.
+--   - Writes staging.source_status for current rows (not deleted/missing).
+--   - Does not write core or Supabase.
+--
+-- Compare keys (preferred):
+--   pipeline_osm_identity_key(external_id) + normalized_hash
+--   (geometry is already inside content hash; do not re-diff raw JSON fields)
+--
+-- Diff item types stay legacy for Stage 08:
+--   new | changed | unchanged | deleted_candidate
+-- Staging source_status uses:
+--   source_new | source_changed | source_unchanged
+-- deleted_candidate → report as source_missing (no current row to update)
 --
 -- Input psql variables:
 --   snapshot_version
@@ -22,6 +33,36 @@
 \endif
 
 BEGIN;
+
+\ir pipeline_source_identity.sql
+\ir pipeline_candidate_validation.sql
+
+-- Content-hash helper only (do NOT include pipeline_stage05_reset.sql here —
+-- that file also deletes current-snapshot staging).
+CREATE SCHEMA IF NOT EXISTS system;
+CREATE OR REPLACE FUNCTION system.pipeline_staging_content_hash(
+    p_external_id text,
+    p_normalized_data jsonb,
+    p_geom geometry DEFAULT NULL
+)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT md5(
+        coalesce(nullif(btrim(p_external_id), ''), '')
+        || E'\n'
+        || coalesce(p_normalized_data, '{}'::jsonb)::text
+        || E'\n'
+        || CASE
+            WHEN p_geom IS NULL THEN ''
+            ELSE encode(
+                ST_AsBinary(ST_SnapToGrid(ST_Force2D(p_geom), 0.0000001)),
+                'hex'
+            )
+        END
+    );
+$$;
 
 CREATE TEMP TABLE IF NOT EXISTS stage06_params (
     snapshot_version text,
@@ -253,362 +294,7 @@ BEGIN
 END
 $stage06_validate_targets$;
 
-DO $stage06_create_diffs$
-DECLARE
-    v_staging_schema text;
-    ctx stage06_context%ROWTYPE;
-    cfg record;
-    v_current_count bigint;
-    v_previous_count bigint;
-    v_diff_run_id bigint;
-    v_has_confidence boolean;
-    v_has_point boolean;
-    v_has_centroid boolean;
-    v_has_geom boolean;
-    v_has_geom_multi boolean;
-    v_has_length boolean;
-    v_has_area boolean;
-    v_compare_current_json text;
-    v_compare_previous_json text;
-    v_geom_changed text;
-    v_length_changed text;
-    v_area_changed text;
-    v_change_expr text;
-    v_confidence_expr text;
-    q text;
-BEGIN
-    SELECT p.staging_schema
-    INTO v_staging_schema
-    FROM stage06_params AS p;
-
-    SELECT *
-    INTO STRICT ctx
-    FROM stage06_context;
-
-    FOR cfg IN SELECT * FROM stage06_family_config LOOP
-        IF to_regclass(format('%I.%I', v_staging_schema, cfg.target_table)) IS NULL THEN
-            CONTINUE;
-        END IF;
-
-        q := format('SELECT count(*)::bigint FROM %I.%I WHERE source_snapshot_id = $1', v_staging_schema, cfg.target_table);
-        EXECUTE q INTO v_current_count USING ctx.current_snapshot_id;
-
-        IF ctx.previous_snapshot_id IS NULL THEN
-            v_previous_count := 0;
-        ELSE
-            EXECUTE q INTO v_previous_count USING ctx.previous_snapshot_id;
-        END IF;
-
-        INSERT INTO stage06_report (entity_family, target_table, diff_type, value_n, status, note)
-        VALUES
-            (cfg.entity_family, format('%s.%s', v_staging_schema, cfg.target_table), 'current_rows', v_current_count, 'PASS', NULL),
-            (cfg.entity_family, format('%s.%s', v_staging_schema, cfg.target_table), 'previous_rows', v_previous_count, 'PASS', NULL);
-
-        IF v_current_count = 0 AND v_previous_count = 0 THEN
-            INSERT INTO stage06_report (entity_family, target_table, diff_type, value_n, status, note)
-            VALUES (cfg.entity_family, format('%s.%s', v_staging_schema, cfg.target_table), 'skipped_empty_family', 0, 'PASS', 'No current or previous rows; no diff_run created.');
-            CONTINUE;
-        END IF;
-
-        INSERT INTO system.system_diff_runs (
-            previous_snapshot_id,
-            current_snapshot_id,
-            entity_family,
-            status,
-            started_at,
-            summary
-        )
-        VALUES (
-            ctx.previous_snapshot_id,
-            ctx.current_snapshot_id,
-            cfg.entity_family,
-            'running',
-            now(),
-            jsonb_build_object(
-                'comparison_type', 'snapshot_vs_snapshot',
-                'first_snapshot', ctx.is_first_snapshot,
-                'current_snapshot_id', ctx.current_snapshot_id,
-                'previous_snapshot_id', ctx.previous_snapshot_id,
-                'current_snapshot_version', ctx.current_snapshot_version,
-                'previous_snapshot_version', ctx.previous_snapshot_version,
-                'region_code', ctx.region_code,
-                'target_table', format('%s.%s', v_staging_schema, cfg.target_table)
-            )
-        )
-        RETURNING id INTO v_diff_run_id;
-
-        INSERT INTO stage06_diff_runs (entity_family, target_table, diff_run_id, current_rows, previous_rows)
-        VALUES (cfg.entity_family, format('%s.%s', v_staging_schema, cfg.target_table), v_diff_run_id, v_current_count, v_previous_count);
-
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = v_staging_schema AND table_name = cfg.target_table AND column_name = 'confidence_score'
-        ) INTO v_has_confidence;
-
-        SELECT cfg.point_column IS NOT NULL AND EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = v_staging_schema AND table_name = cfg.target_table AND column_name = cfg.point_column
-        ) INTO v_has_point;
-
-        SELECT cfg.centroid_column IS NOT NULL AND EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = v_staging_schema AND table_name = cfg.target_table AND column_name = cfg.centroid_column
-        ) INTO v_has_centroid;
-
-        SELECT cfg.geom_column IS NOT NULL AND EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = v_staging_schema AND table_name = cfg.target_table AND column_name = cfg.geom_column
-        ) INTO v_has_geom;
-
-        SELECT cfg.geom_multi_column IS NOT NULL AND EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = v_staging_schema AND table_name = cfg.target_table AND column_name = cfg.geom_multi_column
-        ) INTO v_has_geom_multi;
-
-        SELECT cfg.length_column IS NOT NULL AND EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = v_staging_schema AND table_name = cfg.target_table AND column_name = cfg.length_column
-        ) INTO v_has_length;
-
-        SELECT cfg.area_column IS NOT NULL AND EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = v_staging_schema AND table_name = cfg.target_table AND column_name = cfg.area_column
-        ) INTO v_has_area;
-
-        v_compare_current_json := 'to_jsonb(c) - ''id'' - ''source_snapshot_id'' - ''raw_id'' - ''created_at'' - ''updated_at'' - ''match_status'' - ''review_status'' - ''auto_action'' - ''source_refs'' - ''confidence_score'' - ''geom'' - ''geom_multi'' - ''point_geom'' - ''footprint_geom'' - ''centroid'' - ''area_m2'' - ''length_m'' - ''matched_core_place_id'' - ''matched_core_edge_id'' - ''matched_core_admin_area_id'' - ''matched_core_address_id''';
-        v_compare_previous_json := replace(v_compare_current_json, 'to_jsonb(c)', 'to_jsonb(p)');
-
-        v_geom_changed := 'false';
-
-        IF v_has_point THEN
-            v_geom_changed := v_geom_changed || format(
-                ' OR ((c.%1$I IS NULL) <> (p.%1$I IS NULL)) OR (c.%1$I IS NOT NULL AND p.%1$I IS NOT NULL AND NOT ST_DWithin(c.%1$I::geography, p.%1$I::geography, %2$s))',
-                cfg.point_column,
-                coalesce(cfg.point_threshold_m, 10)
-            );
-        END IF;
-
-        IF v_has_centroid THEN
-            v_geom_changed := v_geom_changed || format(
-                ' OR ((c.%1$I IS NULL) <> (p.%1$I IS NULL)) OR (c.%1$I IS NOT NULL AND p.%1$I IS NOT NULL AND NOT ST_DWithin(c.%1$I::geography, p.%1$I::geography, %2$s))',
-                cfg.centroid_column,
-                coalesce(cfg.point_threshold_m, 5)
-            );
-        END IF;
-
-        IF v_has_geom THEN
-            v_geom_changed := v_geom_changed || format(
-                ' OR ((c.%1$I IS NULL) <> (p.%1$I IS NULL)) OR (c.%1$I IS NOT NULL AND p.%1$I IS NOT NULL AND NOT ST_Equals(c.%1$I, p.%1$I) AND NOT ST_DWithin(c.%1$I::geography, p.%1$I::geography, %2$s))',
-                cfg.geom_column,
-                coalesce(cfg.geom_threshold_m, 5)
-            );
-        END IF;
-
-        IF v_has_geom_multi THEN
-            v_geom_changed := v_geom_changed || format(
-                ' OR ((c.%1$I IS NULL) <> (p.%1$I IS NULL)) OR (c.%1$I IS NOT NULL AND p.%1$I IS NOT NULL AND NOT ST_Equals(c.%1$I, p.%1$I) AND NOT ST_DWithin(c.%1$I::geography, p.%1$I::geography, %2$s))',
-                cfg.geom_multi_column,
-                coalesce(cfg.geom_threshold_m, 5)
-            );
-        END IF;
-
-        IF v_has_length THEN
-            v_length_changed := format(
-                '((c.%1$I IS NULL) <> (p.%1$I IS NULL)) OR (c.%1$I IS NOT NULL AND p.%1$I IS NOT NULL AND abs(c.%1$I - p.%1$I) > %2$s AND (abs(c.%1$I - p.%1$I) / greatest(abs(p.%1$I), 1)) > %3$s)',
-                cfg.length_column,
-                coalesce(cfg.length_abs_threshold_m, 5),
-                coalesce(cfg.length_pct_threshold, 0.05)
-            );
-        ELSE
-            v_length_changed := 'false';
-        END IF;
-
-        IF v_has_area THEN
-            v_area_changed := format(
-                '((c.%1$I IS NULL) <> (p.%1$I IS NULL)) OR (c.%1$I IS NOT NULL AND p.%1$I IS NOT NULL AND (abs(c.%1$I - p.%1$I) / greatest(abs(p.%1$I), 1)) > %2$s)',
-                cfg.area_column,
-                coalesce(cfg.area_pct_threshold, 0.10)
-            );
-        ELSE
-            v_area_changed := 'false';
-        END IF;
-
-        v_change_expr := format(
-            '(%s IS DISTINCT FROM %s) OR (%s) OR (%s) OR (%s)',
-            v_compare_current_json,
-            v_compare_previous_json,
-            v_geom_changed,
-            v_length_changed,
-            v_area_changed
-        );
-
-        IF v_has_confidence THEN
-            v_confidence_expr := 'CASE WHEN paired.c_id IS NULL THEN coalesce(paired.p_confidence_score, 50.0000) ELSE coalesce(paired.c_confidence_score, 50.0000) END';
-        ELSE
-            v_confidence_expr := '50.0000';
-        END IF;
-
-        IF ctx.previous_snapshot_id IS NULL THEN
-            q := format(
-                $q$
-                INSERT INTO system.system_diff_items (
-                    diff_run_id,
-                    entity_family,
-                    diff_type,
-                    external_id,
-                    local_entity_id,
-                    before_data,
-                    after_data,
-                    confidence_score,
-                    auto_action,
-                    review_status,
-                    created_at
-                )
-                SELECT
-                    $1,
-                    %L,
-                    'new',
-                    c.external_id,
-                    c.id,
-                    NULL,
-                    to_jsonb(c),
-                    %s,
-                    'insert_candidate',
-                    'pending',
-                    now()
-                FROM %I.%I AS c
-                WHERE c.source_snapshot_id = $2
-                $q$,
-                cfg.entity_family,
-                CASE WHEN v_has_confidence THEN 'coalesce(c.confidence_score, 50.0000)' ELSE '50.0000' END,
-                v_staging_schema,
-                cfg.target_table
-            );
-            EXECUTE q USING v_diff_run_id, ctx.current_snapshot_id;
-        ELSE
-            q := format(
-                $q$
-                WITH current_rows AS (
-                    SELECT DISTINCT ON (external_id) *
-                    FROM %1$I.%2$I
-                    WHERE source_snapshot_id = $2
-                    ORDER BY external_id, id
-                ),
-                previous_rows AS (
-                    SELECT DISTINCT ON (external_id) *
-                    FROM %1$I.%2$I
-                    WHERE source_snapshot_id = $3
-                    ORDER BY external_id, id
-                ),
-                paired AS (
-                    SELECT
-                        c.id AS c_id,
-                        p.id AS p_id,
-                        coalesce(c.external_id, p.external_id) AS external_id,
-                        %3$s AS c_confidence_score,
-                        %4$s AS p_confidence_score,
-                        to_jsonb(c) AS current_data,
-                        to_jsonb(p) AS previous_data,
-                        CASE
-                            WHEN c.id IS NULL THEN 'deleted_candidate'
-                            WHEN p.id IS NULL THEN 'new'
-                            WHEN %5$s THEN 'changed'
-                            ELSE 'unchanged'
-                        END AS diff_type
-                    FROM current_rows AS c
-                    FULL OUTER JOIN previous_rows AS p
-                        ON p.external_id = c.external_id
-                )
-                INSERT INTO system.system_diff_items (
-                    diff_run_id,
-                    entity_family,
-                    diff_type,
-                    external_id,
-                    local_entity_id,
-                    before_data,
-                    after_data,
-                    confidence_score,
-                    auto_action,
-                    review_status,
-                    created_at
-                )
-                SELECT
-                    $1,
-                    %6$L,
-                    paired.diff_type,
-                    paired.external_id,
-                    CASE
-                        WHEN paired.diff_type = 'deleted_candidate' THEN paired.p_id
-                        ELSE paired.c_id
-                    END,
-                    CASE WHEN paired.diff_type = 'new' THEN NULL ELSE paired.previous_data END,
-                    CASE WHEN paired.diff_type = 'deleted_candidate' THEN NULL ELSE paired.current_data END,
-                    %7$s,
-                    CASE
-                        WHEN paired.diff_type = 'new' THEN 'insert_candidate'
-                        WHEN paired.diff_type = 'changed' AND %8$L::boolean THEN 'needs_review'
-                        WHEN paired.diff_type = 'changed' THEN 'update_candidate'
-                        WHEN paired.diff_type = 'deleted_candidate' THEN 'needs_review'
-                        ELSE 'ignore_unchanged'
-                    END,
-                    CASE
-                        WHEN paired.diff_type = 'unchanged' THEN 'ignored'
-                        ELSE 'pending'
-                    END,
-                    now()
-                FROM paired
-                $q$,
-                v_staging_schema,
-                cfg.target_table,
-                CASE WHEN v_has_confidence THEN 'c.confidence_score' ELSE 'NULL::numeric' END,
-                CASE WHEN v_has_confidence THEN 'p.confidence_score' ELSE 'NULL::numeric' END,
-                v_change_expr,
-                cfg.entity_family,
-                v_confidence_expr,
-                cfg.admin_needs_review
-            );
-            EXECUTE q USING v_diff_run_id, ctx.current_snapshot_id, ctx.previous_snapshot_id;
-        END IF;
-
-        UPDATE system.system_diff_runs AS run
-        SET
-            status = 'completed',
-            finished_at = now(),
-            summary = run.summary
-                || jsonb_build_object(
-                    'counts_by_diff_type',
-                    coalesce((
-                        SELECT jsonb_object_agg(counts.diff_type, counts.value_n)
-                        FROM (
-                            SELECT item.diff_type, count(*)::bigint AS value_n
-                            FROM system.system_diff_items AS item
-                            WHERE item.diff_run_id = v_diff_run_id
-                            GROUP BY item.diff_type
-                        ) AS counts
-                    ), '{}'::jsonb),
-                    'total_items',
-                    (
-                        SELECT count(*)::bigint
-                        FROM system.system_diff_items AS item
-                        WHERE item.diff_run_id = v_diff_run_id
-                    )
-                )
-        WHERE run.id = v_diff_run_id;
-
-        INSERT INTO stage06_report (entity_family, target_table, diff_type, value_n, status, note)
-        SELECT
-            cfg.entity_family,
-            format('%s.%s', v_staging_schema, cfg.target_table),
-            item.diff_type,
-            count(*)::bigint,
-            'PASS',
-            'F1 snapshot-vs-snapshot diff items written.'
-        FROM system.system_diff_items AS item
-        WHERE item.diff_run_id = v_diff_run_id
-        GROUP BY item.diff_type;
-    END LOOP;
-END
-$stage06_create_diffs$;
+\ir pipeline_stage06_hash_diff.sql
 
 -- Child/detail tables are intentionally not diffed as separate F1 entity
 -- families yet. Main family payloads retain candidate JSON; future work can

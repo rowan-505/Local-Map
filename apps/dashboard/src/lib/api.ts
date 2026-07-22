@@ -761,6 +761,9 @@ export type ImportReviewBuildingListItem = {
     auto_action: string | null;
     review_status: string | null;
     review_decision: string | null;
+    comparison_status?: string | null;
+    review_decision_meaning?: string | null;
+    apply_status?: string | null;
     reviewed_by: string | null;
     reviewed_at: string | null;
     review_note: string | null;
@@ -892,18 +895,29 @@ export type ImportReviewBuildingsFilterOptionsResponse = ImportReviewEnvelopeFie
 };
 
 export type ImportReviewDecision =
+    | "keep_existing"
+    | "replace_existing"
+    | "merge_fields"
+    | "insert_separate"
+    | "ignore_import"
+    | "mark_duplicate"
+    | "confirm_soft_delete"
+    | "needs_more_review"
+    // legacy aliases still accepted by API
     | "approved"
     | "rejected"
-    | "needs_more_review"
     | "ignored"
     | "merged";
 
 export type ImportReviewReviewStatus =
+    | "pending"
     | "approved"
     | "rejected"
     | "needs_review"
     | "ignored"
-    | "merged";
+    | "merged"
+    | "promoted"
+    | "promotion_failed";
 
 export type ImportReviewBuildingsListParams = ImportReviewEnvelopeQuery & {
     match_status?: string;
@@ -4418,6 +4432,8 @@ export type ImportReviewHistoryPublishBatchListItem = {
     created_at: string;
     published_at: string | null;
     promoted_at: string | null;
+    applied_by: string | null;
+    applied_at: string | null;
     validation_success_count: number;
     validation_fail_count: number;
     item_validation_counts: {
@@ -4454,6 +4470,10 @@ export type ImportReviewHistoryPublishBatchDetail = ImportReviewHistoryPublishBa
         string,
         { pending: number; success: number; failed: number; skipped: number; total: number }
     >;
+    item_counts_by_action: Record<
+        string,
+        { pending: number; success: number; failed: number; skipped: number; total: number }
+    >;
     validation_summary: unknown;
     promotion_summary: unknown;
     validation_logs_summary: string | null;
@@ -4474,11 +4494,14 @@ export type ImportReviewHistoryPublishBatchDetail = ImportReviewHistoryPublishBa
 };
 
 export type ImportReviewHistoryPublishBatchItem = {
+    run_id: string;
     id: string;
     entity_family: string;
     entity_id: string | null;
     publish_action: string | null;
     publish_status: string;
+    review_decision: string | null;
+    source_snapshot_version: string | null;
     review_candidate_table: string | null;
     review_candidate_id: string | null;
     external_id: string | null;
@@ -4487,8 +4510,13 @@ export type ImportReviewHistoryPublishBatchItem = {
     target_id: string | null;
     error_message: string | null;
     candidate_promotion_status?: string | null;
+    before_data?: unknown;
     after_data: unknown;
+    before_summary?: unknown;
+    after_summary?: unknown;
     validation_result: unknown;
+    applied_by: string | null;
+    applied_at: string | null;
     published_at: string | null;
     created_at: string;
 };

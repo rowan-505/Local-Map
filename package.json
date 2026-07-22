@@ -32,7 +32,10 @@
     "tiles:martin:validate-config": "bash infrastructure/tiles/martin/scripts/validate-transport-config.sh",
     "tiles:martin:validate-runtime": "bash infrastructure/tiles/martin/scripts/validate-transport-runtime.sh",
     "tiles:martin:restart-local": "bash infrastructure/tiles/martin/scripts/restart-local.sh",
-    "test:overview-style": "npm test --prefix packages/map-style"
+    "test:overview-style": "npm test --prefix packages/map-style",
+    "test:osm-source-identity": "tsx --test tools/data-pipeline/local-osm/source-identity.test.ts",
+    "test:osm-candidate-validation": "tsx --test tools/data-pipeline/local-osm/candidate-validation.test.ts",
+    "data:repair:remaining": "bash tools/data-repair/current-production/run-remaining-repair.sh"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

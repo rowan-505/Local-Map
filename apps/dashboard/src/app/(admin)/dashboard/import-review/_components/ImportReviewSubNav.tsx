@@ -37,7 +37,7 @@ export default function ImportReviewSubNav() {
                 match: "prefix" as const,
             })),
             {
-                label: "Promotion",
+                label: "Apply",
                 href: importReviewPromotionHref(searchParams),
                 match: "prefix" as const,
             },

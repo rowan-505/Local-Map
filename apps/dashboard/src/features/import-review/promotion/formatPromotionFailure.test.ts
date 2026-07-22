@@ -39,11 +39,14 @@ describe("promotionFailureRowFromSample", () => {
 describe("promotionFailureRowFromHistoryItem", () => {
     it("maps legacy after_data.error to technical_detail.raw_message", () => {
         const row = promotionFailureRowFromHistoryItem({
+            run_id: "30",
             id: "1843",
             entity_family: "places",
             entity_id: null,
             publish_action: "insert",
             publish_status: "failed",
+            review_decision: "replace_existing",
+            source_snapshot_version: "snap-v1",
             review_candidate_table: "import_review.place_candidates",
             review_candidate_id: "100",
             external_id: "osm:node/1",
@@ -56,6 +59,8 @@ describe("promotionFailureRowFromHistoryItem", () => {
                 error: "Place promotion failed: this.prisma.$transaction is not a function",
             },
             validation_result: null,
+            applied_by: null,
+            applied_at: null,
             published_at: null,
             created_at: "2026-06-03T00:00:00.000Z",
         });

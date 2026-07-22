@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo, useState } from "react";
+
 import type { ImportReviewBuildingListItem, ImportReviewDecision, ImportReviewGeoJson } from "@/src/lib/api";
 import type { ImportReviewFormOptionsResponse } from "@/src/lib/api";
 import type { ImportReviewEntityType } from "@/src/components/map/DataReviewCandidateMap";
@@ -7,22 +9,24 @@ import type { DataReviewGeometryKind } from "@/src/components/map/DataReviewCand
 
 import type { ImportReviewEntityConfig } from "../config/types";
 import type { ImportReviewScopeQueryParams } from "@/src/lib/importReviewSnapshot";
-import { jsonishSignalsPresent, resolveDrawerSubtitle, resolveDrawerTitle } from "../utils/detailDrawerUtils";
+import { resolveDrawerSubtitle, resolveDrawerTitle } from "../utils/detailDrawerUtils";
 import { isGeometryEssentialForEntity } from "../config/essentialFields";
+import {
+    formatFieldChoicesForNote,
+    type ConflictFieldChoice,
+} from "../utils/conflictFieldCompare";
 import { IMPORT_REVIEW_LOADING } from "../utils/loadingMessages";
 import { importReviewMessageTone } from "../utils/importReviewMessageTone";
 import ImportReviewErrorState from "./ImportReviewErrorState";
 import ImportReviewInlineSpinner from "./ImportReviewInlineSpinner";
 import ImportReviewStatusBanner from "./ImportReviewStatusBanner";
-import CandidateJsonSection from "./detail/CandidateJsonSection";
+import CandidateFieldCompareSection from "./detail/CandidateFieldCompareSection";
 import CandidateMapSection from "./detail/CandidateMapSection";
 import CandidatePromotionFailureSection from "./detail/CandidatePromotionFailureSection";
 import CandidateOverrideSection from "./detail/CandidateOverrideSection";
-import CandidatePromoteAction from "./detail/CandidatePromoteAction";
 import CandidateReviewActionsSection from "./detail/CandidateReviewActionsSection";
 import CandidateSummarySection from "./detail/CandidateSummarySection";
 import CandidateValidationSection from "./detail/CandidateValidationSection";
-import { reviewBatchIdFromApiScopeQuery } from "@/src/lib/importReviewSnapshot";
 
 export default function ImportReviewDetailDrawer({
     config,
@@ -91,19 +95,37 @@ export default function ImportReviewDetailDrawer({
     onClose: () => void;
     onNoteChange: (value: string) => void;
     onDecisionChange: (value: ImportReviewDecision) => void;
-    onSave: () => void;
+    onSave: (noteOverride?: string | null) => void;
     formOptions?: ImportReviewFormOptionsResponse | null;
     formOptionsLoading?: boolean;
     formOptionsError?: string;
 }) {
     const title = resolveDrawerTitle(row, config);
     const subtitle = resolveDrawerSubtitle(row, config);
-    const showMatchedCore =
-        jsonishSignalsPresent(row.matched_core_data) || Boolean(row.matched_core_id?.trim());
+    const [fieldChoices, setFieldChoices] = useState<Record<string, ConflictFieldChoice>>({});
+    const mergeEditable = drawerDecision === "merge_fields" && canEdit && !isLoadingDetail;
 
     const metadataWarning = Boolean(detailError && !detailNotFound);
     const showBody = !detailNotFound;
-    const reviewBatchId = reviewBatchIdFromApiScopeQuery(apiScope);
+    void apiScope;
+
+    const saveWithMergeChoices = useMemo(
+        () => () => {
+            let note = drawerNote;
+            if (drawerDecision === "merge_fields") {
+                const block = formatFieldChoicesForNote(fieldChoices);
+                if (block) {
+                    const base = drawerNote.trim();
+                    note = base.includes("field_choices:")
+                        ? base.replace(/field_choices:\{[\s\S]*\}$/, block)
+                        : `${base}${base ? "\n" : ""}${block}`;
+                    onNoteChange(note);
+                }
+            }
+            onSave(note);
+        },
+        [drawerDecision, fieldChoices, drawerNote, onNoteChange, onSave]
+    );
 
     return (
         <div
@@ -119,7 +141,10 @@ export default function ImportReviewDetailDrawer({
             >
                 <div className="sticky top-0 z-10 flex items-start justify-between border-b border-gray-200 bg-white px-5 py-4">
                     <div className="min-w-0 pr-4">
-                        <h2 id="import-review-detail-drawer-title" className="truncate text-lg font-semibold text-gray-900">
+                        <h2
+                            id="import-review-detail-drawer-title"
+                            className="truncate text-lg font-semibold text-gray-900"
+                        >
                             {config.label} · {title}
                         </h2>
                         <p className="truncate font-mono text-xs text-gray-500">{row.id}</p>
@@ -164,20 +189,25 @@ export default function ImportReviewDetailDrawer({
                     {showBody ? (
                         <>
                             {metadataWarning ? (
-                                <ImportReviewStatusBanner
-                                    message={detailError}
-                                    tone="warning"
-                                    compact
-                                />
+                                <ImportReviewStatusBanner message={detailError} tone="warning" compact />
                             ) : null}
                             <CandidatePromotionFailureSection row={row} />
                             {detailTechnicalError?.trim() ? (
-                                <pre className="max-h-28 overflow-auto rounded border border-amber-100 bg-amber-50/80 p-2 text-[10px] text-amber-950 whitespace-pre-wrap">
+                                <pre className="max-h-28 overflow-auto whitespace-pre-wrap rounded border border-amber-100 bg-amber-50/80 p-2 text-[10px] text-amber-950">
                                     {detailTechnicalError}
                                 </pre>
                             ) : null}
 
                             <CandidateSummarySection config={config} row={row} />
+
+                            <CandidateFieldCompareSection
+                                row={row}
+                                choices={fieldChoices}
+                                editable={mergeEditable}
+                                onChoiceChange={(field, choice) =>
+                                    setFieldChoices((prev) => ({ ...prev, [field]: choice }))
+                                }
+                            />
 
                             <CandidateMapSection
                                 supportsMapPreview={config.supportsMapPreview}
@@ -218,26 +248,16 @@ export default function ImportReviewDetailDrawer({
                                 showRoadRoutingWarningBanner={config.slug === "roads"}
                             />
 
-                            <CandidatePromoteAction
-                                apiFamily={config.apiFamily}
-                                row={row}
-                                reviewBatchId={reviewBatchId}
-                                canEdit={canEdit}
-                            />
-
-                            {showMatchedCore ? (
-                                <CandidateJsonSection title="matched_core_data" data={row.matched_core_data} />
-                            ) : null}
-
                             <CandidateReviewActionsSection
                                 config={config}
+                                row={row}
                                 drawerDecision={drawerDecision}
                                 drawerNote={drawerNote}
                                 isSaving={isSaving}
                                 canEdit={canEdit && !isLoadingDetail}
                                 onDecisionChange={onDecisionChange}
                                 onNoteChange={onNoteChange}
-                                onSave={onSave}
+                                onSave={saveWithMergeChoices}
                             />
                         </>
                     ) : null}

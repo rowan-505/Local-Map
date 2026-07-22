@@ -1062,6 +1062,78 @@ const stopMergeVariantConflictSchema = {
     },
 } as const;
 
+const stopMergeAffectedRouteSchema = {
+    type: "object",
+    required: ["routeId", "routeCode", "routeName"],
+    properties: {
+        routeId: { type: "string", format: "uuid" },
+        routeCode: { type: "string" },
+        routeName: { type: "string" },
+    },
+} as const;
+
+const stopMergeAffectedVariantSchema = {
+    type: "object",
+    required: ["variantId", "variantCode", "routeId", "routeCode", "directionName"],
+    properties: {
+        variantId: { type: "string", format: "uuid" },
+        variantCode: { type: "string" },
+        routeId: { type: "string", format: "uuid" },
+        routeCode: { type: "string" },
+        directionName: { type: "string", nullable: true },
+    },
+} as const;
+
+const stopMergeDuplicateMembershipConflictSchema = {
+    type: "object",
+    required: [
+        "routeId",
+        "routeCode",
+        "variantId",
+        "variantCode",
+        "directionName",
+        "currentRouteStopId",
+        "currentSequence",
+        "candidateRouteStopId",
+        "candidateSequence",
+    ],
+    properties: {
+        routeId: { type: "string", format: "uuid" },
+        routeCode: { type: "string" },
+        variantId: { type: "string", format: "uuid" },
+        variantCode: { type: "string" },
+        directionName: { type: "string", nullable: true },
+        currentRouteStopId: { type: "string" },
+        currentSequence: { type: "integer" },
+        candidateRouteStopId: { type: "string" },
+        candidateSequence: { type: "integer" },
+    },
+} as const;
+
+const stopMergeSequenceConflictSchema = {
+    type: "object",
+    required: [
+        "routeId",
+        "routeCode",
+        "variantId",
+        "variantCode",
+        "directionName",
+        "stopSequence",
+        "currentRouteStopId",
+        "candidateRouteStopId",
+    ],
+    properties: {
+        routeId: { type: "string", format: "uuid" },
+        routeCode: { type: "string" },
+        variantId: { type: "string", format: "uuid" },
+        variantCode: { type: "string" },
+        directionName: { type: "string", nullable: true },
+        stopSequence: { type: "integer" },
+        currentRouteStopId: { type: "string" },
+        candidateRouteStopId: { type: "string" },
+    },
+} as const;
+
 const stopMergeScalarComparisonSchema = {
     type: "object",
     required: ["current", "candidate", "same"],
@@ -1149,6 +1221,12 @@ export const postTransportStopMergePreviewSchema = {
                 "candidateUsage",
                 "sameVariantConflicts",
                 "sameVariantWarning",
+                "affectedRoutes",
+                "affectedVariants",
+                "duplicateMembershipConflicts",
+                "sequenceConflicts",
+                "mergeAllowed",
+                "mergeBlockers",
                 "referenceCounts",
                 "fieldComparison",
             ],
@@ -1176,6 +1254,24 @@ export const postTransportStopMergePreviewSchema = {
                     items: stopMergeVariantConflictSchema,
                 },
                 sameVariantWarning: { type: "string", nullable: true },
+                affectedRoutes: {
+                    type: "array",
+                    items: stopMergeAffectedRouteSchema,
+                },
+                affectedVariants: {
+                    type: "array",
+                    items: stopMergeAffectedVariantSchema,
+                },
+                duplicateMembershipConflicts: {
+                    type: "array",
+                    items: stopMergeDuplicateMembershipConflictSchema,
+                },
+                sequenceConflicts: {
+                    type: "array",
+                    items: stopMergeSequenceConflictSchema,
+                },
+                mergeAllowed: { type: "boolean" },
+                mergeBlockers: { type: "array", items: { type: "string" } },
                 referenceCounts: {
                     type: "object",
                     required: ["current", "candidate"],
@@ -1197,6 +1293,12 @@ export const postTransportStopMergePreviewSchema = {
                 message: { type: "string" },
                 code: { type: "string" },
                 blockers: { type: "array", items: { type: "string" } },
+            },
+        },
+        500: {
+            type: "object",
+            properties: {
+                message: { type: "string" },
             },
         },
     },

@@ -66,6 +66,8 @@ export type PublishBatchHistoryRowDb = {
     created_at: Date;
     published_at: Date | null;
     promoted_at: Date | null;
+    created_by: bigint | null;
+    promoted_by: bigint | null;
 };
 
 /** Publish batch list row with aggregated publish-item counts (no per-item load). */
@@ -91,6 +93,7 @@ export type PublishBatchItemRowDb = {
     target_table: string | null;
     target_id: bigint | null;
     error_message: string | null;
+    before_data: unknown;
     after_data: unknown;
     validation_result: unknown;
     published_at: Date | null;
@@ -285,7 +288,9 @@ export class ImportReviewHistoryRepository {
                 pb.summary,
                 pb.created_at,
                 pb.published_at,
-                pb.promoted_at
+                pb.promoted_at,
+                pb.created_by,
+                pb.promoted_by
             FROM system.system_publish_batches AS pb
             WHERE pb.source_review_batch_id = ${reviewBatchId}
             ORDER BY pb.created_at DESC, pb.id DESC
@@ -380,6 +385,8 @@ export class ImportReviewHistoryRepository {
                 pb.created_at,
                 pb.published_at,
                 pb.promoted_at,
+                pb.created_by,
+                pb.promoted_by,
                 coalesce(items.item_ready_count, 0)::bigint AS item_ready_count,
                 coalesce(items.item_warning_count, 0)::bigint AS item_warning_count,
                 coalesce(items.item_blocked_count, 0)::bigint AS item_blocked_count,
@@ -435,7 +442,9 @@ export class ImportReviewHistoryRepository {
                 pb.summary,
                 pb.created_at,
                 pb.published_at,
-                pb.promoted_at
+                pb.promoted_at,
+                pb.created_by,
+                pb.promoted_by
             FROM system.system_publish_batches AS pb
             WHERE pb.id = ${batchId}
             LIMIT 1
@@ -505,6 +514,31 @@ export class ImportReviewHistoryRepository {
             WHERE publish_batch_id = ${batchId}
             GROUP BY entity_family
             ORDER BY entity_family ASC
+        `;
+    }
+
+    async fetchPublishItemCountsByAction(batchId: bigint): Promise<
+        {
+            publish_action: string;
+            pending: bigint;
+            success: bigint;
+            failed: bigint;
+            skipped: bigint;
+            total: bigint;
+        }[]
+    > {
+        return this.prisma.$queryRaw`
+            SELECT
+                coalesce(nullif(btrim(publish_action), ''), 'unknown') AS publish_action,
+                count(*) FILTER (WHERE publish_status = 'pending')::bigint AS pending,
+                count(*) FILTER (WHERE publish_status = 'success')::bigint AS success,
+                count(*) FILTER (WHERE publish_status = 'failed')::bigint AS failed,
+                count(*) FILTER (WHERE publish_status = 'skipped')::bigint AS skipped,
+                count(*)::bigint AS total
+            FROM system.system_publish_items
+            WHERE publish_batch_id = ${batchId}
+            GROUP BY 1
+            ORDER BY 1 ASC
         `;
     }
 
@@ -585,6 +619,7 @@ export class ImportReviewHistoryRepository {
                 target_table,
                 target_id,
                 error_message,
+                before_data,
                 after_data,
                 validation_result,
                 published_at,

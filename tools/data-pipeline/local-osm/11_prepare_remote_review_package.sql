@@ -1,32 +1,23 @@
 -- =============================================================================
 -- Stage J: prepare_remote_review_package (local-only)
 -- -----------------------------------------------------------------------------
--- After Stage G, copy staging review-ready candidates plus latest F2 diff slice
--- into system.system_remote_review_packages / *_items for outbound tooling.
--- Classified review packages also emit explicit address_components and
--- place_address_links package rows for Stage K remote upload.
--- Each `_items.payload` echoes `source_snapshot_version`, `snapshot_version`,
--- `source_snapshot_id_local`, and `family` for Stage `14_verify_lineage_alignment.sql`.
+-- Builds one conflict-only remote review package from staging `import_class`
+-- human-decision rows (+ F1 possible_delete). Does not package safe_new,
+-- safe_update, unchanged, or invalid.
 --
--- Not implemented here: HTTPS upload / Supabase import_review insert.
+-- Upload classes:
+--   duplicate | conflict | manual_protected | verified_conflict | possible_delete
 --
 -- psql vars:
 --   snapshot_version        (required)
 --   staging_schema          optional → default staging
---   entity_families        optional → comma list or all (see pipeline_entity_families.sql)
---   entity_family            optional legacy single-slug filter (REMOTE_REVIEW_ENTITY_FAMILY)
+--   entity_families        optional → comma list or all
+--   entity_family            optional legacy single-slug filter
 --   max_rows_per_family     optional integer string; blank = unlimited
---   package_name            optional; blank → auto name from snapshot_version + UTC
---   replace_package         optional literal true|false; default false (delete+recreate same name when true)
---
--- Example (from repo: tools/data-pipeline/local-osm):
---   psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
---        -v snapshot_version="$SNAPSHOT_VERSION" \
---        -v entity_family="" \
---        -v max_rows_per_family="" \
---        -v package_name="" \
---        -v replace_package=false \
---        -f ./11_prepare_remote_review_package.sql
+--   package_name            optional; blank → remote_review_conflicts_<snapshot>
+--   replace_package         optional true|false; default false
+--                           (same-name + same-snapshot auto-replaces when conflict_only)
+--   conflict_only           optional true|false; default true
 -- =============================================================================
 
 \pset pager off
@@ -62,9 +53,19 @@
 \set replace_package false
 \endif
 
+\if :{?conflict_only}
+\else
+\set conflict_only true
+\endif
+
 BEGIN;
 
 create schema if not exists system;
+
+\ir pipeline_remote_review_conflict.sql
+\ir pipeline_source_identity.sql
+\ir pipeline_import_classification.sql
+
 
 create table if not exists system.system_remote_review_packages (
     id bigserial primary key,
@@ -132,7 +133,8 @@ CREATE TEMPORARY TABLE stage11_params (
     entity_family_filter text not null DEFAULT '',
     max_rows_per_family integer,
     package_name_input text,
-    replace_package boolean not null DEFAULT false
+    replace_package boolean not null DEFAULT false,
+    conflict_only boolean not null DEFAULT true
 );
 
 INSERT INTO stage11_params (
@@ -141,7 +143,8 @@ INSERT INTO stage11_params (
     entity_family_filter,
     max_rows_per_family,
     package_name_input,
-    replace_package
+    replace_package,
+    conflict_only
 )
 VALUES (
     NULLIF(trim(:'snapshot_version'), ''),
@@ -152,7 +155,8 @@ VALUES (
         ELSE NULLIF(trim(:'max_rows_per_family'), '')::integer
     END,
     NULLIF(trim(:'package_name'), ''),
-    :replace_package
+    lower(coalesce(nullif(btrim(:'replace_package'), ''), 'false')) IN ('true', 't', '1', 'yes'),
+    lower(coalesce(nullif(btrim(:'conflict_only'), ''), 'true')) IN ('true', 't', '1', 'yes')
 );
 
 DO $v$
@@ -371,12 +375,14 @@ DECLARE
     ctx stage11_context%ROWTYPE;
     v_pkg_name text;
     v_old_id bigint;
+    v_old_snap text;
     v_pkg_id bigint;
     v_schema text;
     j_ms jsonb;
     j_aa jsonb;
     j_ef jsonb;
     j_staging jsonb;
+    j_import_class jsonb;
     v_tot bigint := 0;
     v_staging_cnt bigint;
     v_eligible_sql text;
@@ -387,6 +393,17 @@ DECLARE
     v_child_sr text;
     v_matched_col text;
     v_matched_table_expr text;
+    v_conflict_filter text;
+    v_has_import_class boolean;
+    v_valid bigint;
+    v_direct bigint;
+    v_unchanged bigint;
+    v_ir_conflicts bigint;
+    v_fam_valid bigint;
+    v_fam_direct bigint;
+    v_fam_unchanged bigint;
+    v_fam_ir bigint;
+    v_del_n bigint;
 BEGIN
     SELECT * INTO STRICT prm FROM stage11_params;
     SELECT * INTO STRICT ctx FROM stage11_context;
@@ -421,23 +438,31 @@ BEGIN
     v_pkg_name := coalesce(
         nullif(trim(prm.package_name_input), ''),
         format(
-            'remote_review_pkg_%s_%s',
-            regexp_replace(trim(ctx.snapshot_version), '[^[:alnum:]_]+', '_', 'g'),
-            lower(to_char((clock_timestamp() AT TIME ZONE 'utc'), 'YYYYMMDDHH24MISS'))
+            'remote_review_conflicts_%s',
+            regexp_replace(trim(ctx.snapshot_version), '[^[:alnum:]_]+', '_', 'g')
         )
     );
 
-    SELECT id INTO v_old_id FROM system.system_remote_review_packages WHERE package_name = v_pkg_name;
+    SELECT id, snapshot_version
+    INTO v_old_id, v_old_snap
+    FROM system.system_remote_review_packages
+    WHERE package_name = v_pkg_name;
 
     IF v_old_id IS NOT NULL THEN
-        IF NOT prm.replace_package THEN
+        IF prm.replace_package
+           OR (
+               prm.conflict_only
+               AND v_old_snap IS NOT DISTINCT FROM ctx.snapshot_version
+           )
+        THEN
+            DELETE FROM system.system_remote_review_packages WHERE id = v_old_id;
+            RAISE NOTICE 'stage11_replace: removed existing package id=% name=% (same-snapshot conflict package refresh)',
+                v_old_id, v_pkg_name;
+        ELSE
             RAISE EXCEPTION USING
                 MESSAGE = format('package_name "%s" already exists (id=%s)', v_pkg_name, v_old_id),
-                HINT = 'Re-run with -v replace_package=true to replace items safely.';
+                HINT = 'Re-run with -v replace_package=true, or use the stable conflict package name for the same snapshot.';
         END IF;
-
-        DELETE FROM system.system_remote_review_packages WHERE id = v_old_id;
-        RAISE NOTICE 'stage11_replace: removed existing package id=% name=%', v_old_id, v_pkg_name;
     END IF;
 
     INSERT INTO system.system_remote_review_packages (
@@ -463,7 +488,9 @@ BEGIN
         jsonb_strip_nulls(
             jsonb_build_object(
                 'pipeline_stage', 'J_prepare_remote_review_package',
-                'snapshot_version', ctx.snapshot_version
+                'snapshot_version', ctx.snapshot_version,
+                'conflict_only', prm.conflict_only,
+                'package_kind', CASE WHEN prm.conflict_only THEN 'human_decision_conflicts' ELSE 'legacy_full' END
             )
         )
     )
@@ -483,6 +510,28 @@ BEGIN
             RAISE NOTICE 'stage11_skip family=% missing table %.%',
                 v_fe.entity_family, v_schema, v_fe.staging_table;
             CONTINUE;
+        END IF;
+
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = v_schema
+              AND table_name = v_fe.staging_table
+              AND column_name = 'import_class'
+        ) INTO v_has_import_class;
+
+        IF prm.conflict_only AND NOT v_has_import_class THEN
+            RAISE EXCEPTION
+                'conflict_only package requires %.%.import_class — run Stage 08b first',
+                v_schema, v_fe.staging_table;
+        END IF;
+
+        IF prm.conflict_only THEN
+            v_conflict_filter := $cf$
+              AND system.pipeline_is_ir_conflict_class(to_jsonb(s) ->> 'import_class')
+            $cf$;
+        ELSE
+            v_conflict_filter := '';
         END IF;
 
         v_child_join := '';
@@ -535,6 +584,27 @@ $cj$,
             v_child_sr := 'coalesce(s.source_refs, ''{}''::jsonb)';
         END IF;
 
+        -- Always fold typed place/settlement fields into normalized_data for IR upload.
+        IF v_fe.entity_family = 'places' THEN
+            v_child_nd := format(
+                $nd$
+(%s) || jsonb_strip_nulls(jsonb_build_object(
+    'primary_name', to_jsonb(s) -> 'primary_name',
+    'display_name', to_jsonb(s) -> 'display_name',
+    'category_id', to_jsonb(s) -> 'category_id',
+    'poi_category_id', to_jsonb(s) -> 'poi_category_id',
+    'place_class_id', to_jsonb(s) -> 'place_class_id',
+    'admin_area_id', to_jsonb(s) -> 'admin_area_id',
+    'lat', to_jsonb(s) -> 'lat',
+    'lng', to_jsonb(s) -> 'lng',
+    'import_class', to_jsonb(s) -> 'import_class',
+    'source_hash', coalesce(to_jsonb(s) -> 'normalized_hash', to_jsonb(s) -> 'source_hash')
+))
+$nd$,
+                v_child_nd
+            );
+        END IF;
+
         IF v_fe.matched_core_id_col IS NOT NULL AND btrim(v_fe.matched_core_id_col) <> '' THEN
             v_matched_col := format('coalesce(f.core_id_hint, s.%I)', v_fe.matched_core_id_col);
         ELSE
@@ -577,7 +647,10 @@ WITH latest_slice AS (
     WHERE dr.status = 'completed'
       AND dr.current_snapshot_id = $1::bigint
       AND dr.entity_family = %L
-    ORDER BY di.local_entity_id ASC, dr.finished_at DESC NULLS LAST,
+      AND coalesce(dr.summary->>'comparison_type', '') IN ('staging_vs_prod_mirror', '')
+    ORDER BY di.local_entity_id ASC,
+        CASE WHEN dr.summary->>'comparison_type' = 'staging_vs_prod_mirror' THEN 0 ELSE 1 END,
+        dr.finished_at DESC NULLS LAST,
         dr.started_at DESC NULLS LAST, di.created_at DESC, di.id DESC
 ),
 ranked AS (
@@ -589,19 +662,38 @@ ranked AS (
         %s AS canonical_name,
         %s AS class_code_text,
         s.confidence_score,
-        coalesce(nullif(trim(s.match_status), ''), 'needs_review') AS match_status,
-        coalesce(nullif(trim(s.auto_action), ''), 'needs_review') AS auto_action,
-        coalesce(nullif(trim(s.review_status), ''), 'pending') AS review_status,
-        s.review_decision::text AS review_decision_text,
+        CASE
+            WHEN %s::boolean THEN system.pipeline_import_class_to_match_status(to_jsonb(s) ->> 'import_class')
+            ELSE coalesce(nullif(trim(s.match_status), ''), 'needs_review')
+        END AS match_status,
+        CASE
+            WHEN %s::boolean THEN system.pipeline_import_class_to_auto_action(to_jsonb(s) ->> 'import_class')
+            ELSE coalesce(nullif(trim(s.auto_action), ''), 'needs_review')
+        END AS auto_action,
+        'pending'::text AS review_status,
+        NULL::text AS review_decision_text,
         %s AS normalized_data,
         %s AS source_refs,
         %s AS geometry_geojson,
-        f.core_before AS matched_core_data,
+        system.pipeline_compact_core_snapshot(f.core_before) AS matched_core_data,
         f.f2_cmp AS f2_comparison,
         f.f1_comparison AS f1_comparison,
         %s AS resolved_core_pk,
         %s AS matched_core_table_hint,
-        jsonb_strip_nulls(%s) AS extra_payload,
+        jsonb_strip_nulls(
+            (%s)
+            || jsonb_build_object(
+                'import_class', to_jsonb(s) ->> 'import_class',
+                'apply_status', 'not_ready',
+                'promotion_status', 'not_ready',
+                'imported_values', system.pipeline_compact_imported_place_values(to_jsonb(s)),
+                'core_snapshot', system.pipeline_compact_core_snapshot(f.core_before),
+                'difference_summary', system.pipeline_conflict_difference_summary(
+                    system.pipeline_compact_imported_place_values(to_jsonb(s)),
+                    system.pipeline_compact_core_snapshot(f.core_before)
+                )
+            )
+        ) AS extra_payload,
         row_number() OVER (ORDER BY s.id) AS rn
     FROM %I.%I AS s
     %s
@@ -617,12 +709,16 @@ ranked AS (
           to_jsonb(s) ? 'promotion_status'
           AND to_jsonb(s) ->> 'promotion_status' = 'promoted'
       )
+      AND coalesce(to_jsonb(s) ->> 'validation_status', 'valid') <> 'invalid'
+      AND coalesce(to_jsonb(s) ->> 'import_class', '') IS DISTINCT FROM 'invalid'
+      %s
       AND (
           (s.match_status IS NOT NULL AND s.auto_action IS NOT NULL)
           OR (%s)
           OR coalesce(s.normalized_data, '{}'::jsonb) <> '{}'::jsonb
           OR coalesce(s.source_refs, '{}'::jsonb) <> '{}'::jsonb
           OR nullif(trim(s.external_id::text), '') IS NOT NULL
+          OR system.pipeline_is_ir_conflict_class(to_jsonb(s) ->> 'import_class')
       )
 ),
 lim AS (
@@ -660,7 +756,7 @@ SELECT
             'match_status', match_status,
             'auto_action', auto_action,
             'review_status', review_status,
-            'review_decision', NULLIF(trim(review_decision_text), ''),
+            'review_decision', NULL,
             'confidence_score', confidence_score,
             'canonical_name', canonical_name,
             'class_code', class_code_text,
@@ -682,6 +778,8 @@ $ex$,
             v_fe.staging_table,
             v_fe.canonical_expr,
             v_fe.class_code_expr,
+            prm.conflict_only::text,
+            prm.conflict_only::text,
             v_child_nd,
             v_child_sr,
             v_fe.geom_expr,
@@ -691,6 +789,7 @@ $ex$,
             v_schema,
             v_fe.staging_table,
             v_child_join,
+            v_conflict_filter,
             v_fe.eligibility_geom_expr
         );
 
@@ -710,8 +809,10 @@ $ex$,
     -- Explicit classified child/link exports.
     -- Address components and place-address links need their own package
     -- rows because Stage K uploads them to non-generic import_review tables.
+    -- Conflict-only packages skip these (pilot human-decision path is parent families).
     ------------------------------------------------------------------
-    IF EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'address_components' AND implemented)
+    IF NOT prm.conflict_only
+       AND EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'address_components' AND implemented)
        AND to_regclass(format('%I.staging_address_component_candidates', v_schema)) IS NOT NULL
        AND to_regclass(format('%I.staging_address_candidates', v_schema)) IS NOT NULL THEN
         v_sql := format(
@@ -839,7 +940,8 @@ $ex$,
         RAISE NOTICE 'stage11_export family=address_components table=%.staging_address_component_candidates', v_schema;
     END IF;
 
-    IF EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'place_address_links' AND implemented)
+    IF NOT prm.conflict_only
+       AND EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'place_address_links' AND implemented)
        AND to_regclass(format('%I.staging_place_address_link_candidates', v_schema)) IS NOT NULL THEN
         v_sql := format(
             $pal$
@@ -965,6 +1067,97 @@ $ex$,
         RAISE NOTICE 'stage11_export family=place_address_links table=%.staging_place_address_link_candidates', v_schema;
     END IF;
 
+    ------------------------------------------------------------------
+    -- possible_delete: F1 OSM-derived deleted_candidate rows (no current staging)
+    ------------------------------------------------------------------
+    IF prm.conflict_only THEN
+        FOR v_fe IN
+            SELECT fe.*
+            FROM stage11_family_export AS fe
+            INNER JOIN stage11_manifest AS mf
+                ON mf.entity_family = fe.entity_family AND mf.implemented
+            ORDER BY fe.entity_family
+        LOOP
+            INSERT INTO system.system_remote_review_package_items (
+                package_id, entity_family, source_table, local_staging_id, external_id,
+                match_status, auto_action, review_status, review_decision, confidence_score,
+                canonical_name, class_code, normalized_data, source_refs, review_overrides,
+                matched_core_id, matched_core_table, matched_core_data, f2_comparison,
+                geometry_geojson, payload
+            )
+            SELECT
+                v_pkg_id,
+                v_fe.entity_family,
+                format('f1_deleted:%s', v_fe.staging_table),
+                coalesce(
+                    NULLIF(trim(di.before_data ->> 'id'), '')::bigint,
+                    (-1 * abs(hashtext(coalesce(di.external_id, di.id::text))))::bigint
+                ),
+                di.external_id,
+                'delete_candidate',
+                'delete_candidate',
+                'pending',
+                NULL,
+                NULL,
+                coalesce(di.before_data ->> 'canonical_name', di.before_data ->> 'primary_name', di.external_id),
+                di.before_data ->> 'class_code',
+                coalesce(di.before_data -> 'normalized_data', di.before_data, '{}'::jsonb),
+                coalesce(di.before_data -> 'source_refs', '{}'::jsonb),
+                '{}'::jsonb,
+                CASE
+                    WHEN trim(coalesce(di.before_data ->> 'id', '')) ~ '^[0-9]+$'
+                        THEN (di.before_data ->> 'id')::bigint
+                    ELSE NULL
+                END,
+                v_fe.matched_core_table,
+                system.pipeline_compact_core_snapshot(di.before_data),
+                NULL,
+                NULL,
+                jsonb_strip_nulls(jsonb_build_object(
+                    'package_name', v_pkg_name,
+                    'package_id', v_pkg_id,
+                    'source_snapshot_version', ctx.snapshot_version,
+                    'snapshot_version', ctx.snapshot_version,
+                    'source_snapshot_id_local', ctx.source_snapshot_id,
+                    'region_code', ctx.region_code,
+                    'entity_family', v_fe.entity_family,
+                    'import_class', 'possible_delete',
+                    'apply_status', 'not_ready',
+                    'promotion_status', 'not_ready',
+                    'review_status', 'pending',
+                    'review_decision', NULL,
+                    'match_status', 'delete_candidate',
+                    'auto_action', 'delete_candidate',
+                    'core_snapshot', system.pipeline_compact_core_snapshot(di.before_data),
+                    'difference_summary', jsonb_build_object('kind', 'possible_delete'),
+                    'external_id', di.external_id,
+                    '_lineage_stage', 'J_prepare_remote_review_package'
+                ))
+            FROM system.system_diff_items AS di
+            INNER JOIN LATERAL (
+                SELECT run.id
+                FROM system.system_diff_runs AS run
+                WHERE run.current_snapshot_id = ctx.source_snapshot_id
+                  AND run.entity_family = v_fe.diff_entity_family
+                  AND run.status = 'completed'
+                  AND run.summary->>'comparison_type' = 'snapshot_vs_snapshot'
+                ORDER BY run.finished_at DESC NULLS LAST, run.id DESC
+                LIMIT 1
+            ) AS latest ON latest.id = di.diff_run_id
+            WHERE di.diff_type = 'deleted_candidate'
+              AND system.pipeline_is_osm_derived(
+                  di.external_id,
+                  CASE WHEN di.before_data ? 'source_refs' THEN di.before_data->'source_refs' ELSE NULL END,
+                  di.before_data->>'source_type'
+              );
+
+            GET DIAGNOSTICS v_del_n = ROW_COUNT;
+            IF v_del_n > 0 THEN
+                RAISE NOTICE 'stage11_export possible_delete family=% rows=%', v_fe.entity_family, v_del_n;
+            END IF;
+        END LOOP;
+    END IF;
+
     SELECT count(*) INTO STRICT v_tot
     FROM system.system_remote_review_package_items
     WHERE package_id = v_pkg_id;
@@ -1040,12 +1233,19 @@ $ex$,
                   to_jsonb(s) ? 'promotion_status'
                   AND to_jsonb(s) ->> 'promotion_status' = 'promoted'
               )
+              AND coalesce(to_jsonb(s) ->> 'validation_status', 'valid') <> 'invalid'
+              AND coalesce(to_jsonb(s) ->> 'import_class', '') IS DISTINCT FROM 'invalid'
+              AND (
+                  NOT $2::boolean
+                  OR system.pipeline_is_ir_conflict_class(to_jsonb(s) ->> 'import_class')
+              )
               AND (
                   (s.match_status IS NOT NULL AND s.auto_action IS NOT NULL)
                   OR (%s)
                   OR coalesce(s.normalized_data, '{}'::jsonb) <> '{}'::jsonb
                   OR coalesce(s.source_refs, '{}'::jsonb) <> '{}'::jsonb
                   OR nullif(trim(s.external_id::text), '') IS NOT NULL
+                  OR system.pipeline_is_ir_conflict_class(to_jsonb(s) ->> 'import_class')
               )
             $el$,
             v_schema,
@@ -1053,11 +1253,13 @@ $ex$,
             v_fe.eligibility_geom_expr
         );
 
-        EXECUTE v_eligible_sql INTO v_staging_cnt USING ctx.source_snapshot_id;
+        EXECUTE v_eligible_sql INTO v_staging_cnt
+        USING ctx.source_snapshot_id, prm.conflict_only;
         j_staging := j_staging || jsonb_build_object(v_fe.entity_family, v_staging_cnt);
     END LOOP;
 
-    IF EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'address_components' AND implemented)
+    IF NOT prm.conflict_only
+       AND EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'address_components' AND implemented)
        AND to_regclass(format('%I.staging_address_component_candidates', v_schema)) IS NOT NULL THEN
         EXECUTE format(
             'SELECT count(*)::bigint FROM %I.staging_address_component_candidates WHERE source_snapshot_id = $1',
@@ -1068,7 +1270,8 @@ $ex$,
         j_staging := j_staging || jsonb_build_object('address_components', v_staging_cnt);
     END IF;
 
-    IF EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'place_address_links' AND implemented)
+    IF NOT prm.conflict_only
+       AND EXISTS (SELECT 1 FROM stage11_manifest WHERE entity_family = 'place_address_links' AND implemented)
        AND to_regclass(format('%I.staging_place_address_link_candidates', v_schema)) IS NOT NULL THEN
         EXECUTE format(
             'SELECT count(*)::bigint FROM %I.staging_place_address_link_candidates WHERE source_snapshot_id = $1',
@@ -1077,6 +1280,103 @@ $ex$,
         INTO v_staging_cnt
         USING ctx.source_snapshot_id;
         j_staging := j_staging || jsonb_build_object('place_address_links', v_staging_cnt);
+    END IF;
+
+    -- import_class buckets from package payloads
+    SELECT coalesce(
+        (
+            SELECT coalesce(jsonb_object_agg(x.import_class, x.c_cnt), '{}'::jsonb)
+            FROM (
+                SELECT coalesce(payload->>'import_class', match_status, 'unknown') AS import_class,
+                       count(*)::bigint AS c_cnt
+                FROM system.system_remote_review_package_items
+                WHERE package_id = v_pkg_id
+                GROUP BY 1
+            ) AS x
+        ),
+        '{}'::jsonb
+    )
+    INTO j_import_class;
+
+    -- Pre-upload reconciliation:
+    --   valid = direct-core + unchanged + import-review conflicts (staging)
+    IF prm.conflict_only THEN
+        v_valid := 0;
+        v_direct := 0;
+        v_unchanged := 0;
+        v_ir_conflicts := 0;
+
+        FOR v_fe IN
+            SELECT fe.*
+            FROM stage11_family_export AS fe
+            INNER JOIN stage11_manifest AS mf
+                ON mf.entity_family = fe.entity_family AND mf.implemented
+            ORDER BY fe.entity_family
+        LOOP
+            IF to_regclass(format('%I.%I', v_schema, v_fe.staging_table)) IS NULL THEN
+                CONTINUE;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = v_schema
+                  AND table_name = v_fe.staging_table
+                  AND column_name = 'import_class'
+            ) THEN
+                CONTINUE;
+            END IF;
+
+            EXECUTE format(
+                $a$
+                SELECT
+                    count(*) FILTER (
+                        WHERE coalesce(validation_status, 'valid') NOT IN ('invalid', 'blocked', 'failed')
+                    ),
+                    count(*) FILTER (WHERE import_class = ANY (system.pipeline_direct_core_classes())),
+                    count(*) FILTER (WHERE import_class = 'unchanged'),
+                    count(*) FILTER (
+                        WHERE import_class IN (
+                            'duplicate', 'conflict', 'manual_protected', 'verified_conflict'
+                        )
+                    )
+                FROM %I.%I
+                WHERE source_snapshot_id = $1
+                $a$,
+                v_schema,
+                v_fe.staging_table
+            )
+            INTO v_fam_valid, v_fam_direct, v_fam_unchanged, v_fam_ir
+            USING ctx.source_snapshot_id;
+
+            v_valid := v_valid + v_fam_valid;
+            v_direct := v_direct + v_fam_direct;
+            v_unchanged := v_unchanged + v_fam_unchanged;
+            v_ir_conflicts := v_ir_conflicts + v_fam_ir;
+        END LOOP;
+
+        SELECT count(*) INTO STRICT v_tot
+        FROM system.system_remote_review_package_items
+        WHERE package_id = v_pkg_id;
+
+        IF v_valid <> (v_direct + v_unchanged + v_ir_conflicts) THEN
+            RAISE EXCEPTION
+                'Stage J assertion failed: valid(%) <> direct-core(%) + unchanged(%) + ir_conflicts(%)',
+                v_valid, v_direct, v_unchanged, v_ir_conflicts;
+        END IF;
+
+        IF (
+            SELECT count(*) FROM system.system_remote_review_package_items
+            WHERE package_id = v_pkg_id
+              AND coalesce(payload->>'import_class', '') <> 'possible_delete'
+        ) <> v_ir_conflicts THEN
+            RAISE EXCEPTION
+                'Stage J assertion failed: packaged non-delete conflicts (%) <> staging ir_conflicts (%)',
+                (
+                    SELECT count(*) FROM system.system_remote_review_package_items
+                    WHERE package_id = v_pkg_id
+                      AND coalesce(payload->>'import_class', '') <> 'possible_delete'
+                ),
+                v_ir_conflicts;
+        END IF;
     END IF;
 
     UPDATE system.system_remote_review_packages p
@@ -1088,7 +1388,15 @@ $ex$,
                     'staging_eligible_counts', j_staging,
                     'counts_match_status', j_ms,
                     'counts_auto_action', j_aa,
-                    'total_package_items', v_tot
+                    'counts_import_class', j_import_class,
+                    'total_package_items', v_tot,
+                    'reconciliation', jsonb_build_object(
+                        'valid', v_valid,
+                        'direct_core', v_direct,
+                        'unchanged', v_unchanged,
+                        'import_review_conflicts_staging', v_ir_conflicts,
+                        'package_items', v_tot
+                    )
                 )
     WHERE id = v_pkg_id;
 

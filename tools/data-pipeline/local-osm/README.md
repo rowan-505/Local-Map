@@ -408,10 +408,11 @@ The path is printed at **start** as `log file: …`.
 | **02** | `02_import_to_tmp.sh` | osm2pgsql flex → `tmp_import`. Auto Lua + **osmium** pre-filter for `admin_areas` / `roads` only. |
 | **03** | `03_validate_tmp.sql` | Row counts, SRID, geometry sanity (fails fast on bad import). |
 | **04** | `04_tmp_to_raw.sql` | Copy tmp → raw; **clips to boundary** when `boundary_id` is set, otherwise copies all geometries (`WHOLE_REGION`). |
-| **05** | `05_raw_to_staging.sql` | Build **staging** candidates for enabled **`ENTITY_FAMILIES`**. |
-| **06** | `06_diff_current_vs_previous.sql` | **F1:** diff current vs previous snapshot → `system.system_diff_items`. |
+| **05** | `05_raw_to_staging.sql` | Build **staging** candidates for enabled **`ENTITY_FAMILIES`**. **Delete+regenerate** current snapshot first (`pipeline_stage05_reset.sql`), then insert from raw; write `normalized_hash` fingerprints; **05b** sets `validation_status` (`valid`\|`warning`\|`invalid`). |
+| **06** | `06_diff_current_vs_previous.sql` | F1 previous-snapshot compare via **identity key + `normalized_hash`**; writes `system_diff_items` and staging `source_status` (`source_new`\|`source_changed`\|`source_unchanged`). |
 | **07** | `07_compare_with_prod_mirror.sql` | **F2:** compare staging vs local **`prod_mirror`** → more `system.system_diff_items`. |
 | **08** | `08_assign_statuses.sql` | Merge latest F1+F2 per candidate → update **`staging.match_status`**, **`staging.auto_action`**, **`staging.review_status`**. **Bulk fast path** when all F2 items are `insert_candidate` (skips heavy F1 combine). **`RAISE NOTICE`** progress per step. Classification pass for places/addresses/links. Uses **`work_mem` 512MB** locally; apply migration **`007_system_diff_items_diff_run_local_entity_idx.sql`** once for large diffs. |
+| **08b** | `08b_assign_import_class.sql` | Final local **`import_class`** / **`import_class_reason`** from latest F2 + validation (family thresholds; no core writes). |
 | **09** | `09_create_review_views.sql` | `CREATE OR REPLACE` convenience views (`v_no_conflict_*`, `v_review_*`, …). |
 | **10** | `10_summary_report.sql` | Read-only snapshot summary (counts by entity family / views). |
 | **11 (J)** | `11_prepare_remote_review_package.sql` | Optional: local outbound package → `system.system_remote_review_packages` + `_items`. Runner uses **`replace_package=false`**. |
@@ -419,8 +420,36 @@ The path is printed at **start** as `log file: …`.
 | **13 (L)** | `13_verify_remote_review_upload.sql` | Optional: local `psql` verification for the same `REMOTE_REVIEW_PACKAGE_NAME`. |
 | **`14`** | `14_verify_lineage_alignment.sql` | Optional: lineage QA after **L** when `REMOTE_LINEAGE_ALIGNMENT_VERIFY=true` (local staging ↔ package; **FAIL stops run**). |
 | **`15`** | `15_entity_coverage_report.sql` | Optional: read-only coverage + **promotion-readiness** report when `LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=true`. |
+| **`16`** | `16_source_identity_audit.sql` | Optional read-only identity audit (canonical vs legacy vs null). Uses `ROLLBACK`. |
+| **`18`** | `18_classification_bucket_report.sql` | Dry-run `import_class` counts + hard reconciliation assertion (see `docs/osm-pipeline-import-classification.md`). |
+
+Supporting shared helpers:
+
+- `pipeline_entity_families.sql` / `pipeline_entity_families_functions.sql`
+- `pipeline_source_identity.sql` — canonical `osm:node|way|relation:<id>` formatter + legacy match keys
+- `pipeline_import_classification.sql` — final `import_class` decision helpers + family thresholds
+- `source-identity.ts` / `source-identity.test.ts` — TS mirror of the SQL helpers
 
 Stages **11–15** are orchestrated by `run_local_osm_pipeline.sh` after stage 10 when remote-review or coverage flags are set. Details: [Remote review package](#remote-review-package-stages-j--k--l--optional-1415).
+
+### Source identity
+
+New staging rows use:
+
+```text
+osm:node:<id> | osm:way:<id> | osm:relation:<id>
+```
+
+Production mostly stores legacy `osm:N|W|R:<id>`. Stage **07** matches both via `system.pipeline_osm_identity_key()`. Do not bulk-rewrite production ids.
+
+```bash
+# audit (read-only)
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f tools/data-pipeline/local-osm/16_source_identity_audit.sql
+
+# unit tests
+npm run test:osm-source-identity
+```
 
 Orchestration: `run_local_osm_pipeline.sh`. Helper scripts: `run_resume_from_stage08.sh`, `run_resume_from_stage12.sh`, `scripts/test_stage08_quick.sh`.
 
@@ -492,7 +521,12 @@ Stage **08** never sets `promoted`. Rows already **`promoted`** are left unchang
 
 ### F1 `diff_type` (in `system.system_diff_items`, Stage 06)
 
-Examples: `new`, `changed`, `unchanged`, `deleted_candidate` — snapshot-to-snapshot lineage, not identical to final `match_status`.
+Legacy item types (kept for Stage 08): `new`, `changed`, `unchanged`, `deleted_candidate`.
+
+Staging writeback `source_status`: `source_new`, `source_changed`, `source_unchanged`  
+(`deleted_candidate` → report as `source_missing`).
+
+Compare mode: `pipeline_osm_identity_key(external_id)` + `normalized_hash`.
 
 ---
 

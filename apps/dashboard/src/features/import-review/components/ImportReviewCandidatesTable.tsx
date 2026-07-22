@@ -21,6 +21,7 @@ import {
     importReviewAddressDisplayCell,
     importReviewAddressSourceTypeCell,
 } from "../utils/importReviewAddressListDisplay";
+import { availableConflictReviewActions } from "../utils/conflictReviewActions";
 import { importReviewCellValue, importReviewRowHasOverrides } from "../utils/entityPageUtils";
 import { isCandidateRetryNeeded } from "../utils/importReviewPromotionListState";
 import ImportReviewStatusBadge from "./ImportReviewStatusBadge";
@@ -244,6 +245,9 @@ export default function ImportReviewCandidatesTable({
                                         <ImportReviewReviewActionsMenu
                                             busy={rowActionBusyId === row.id}
                                             disabled={!canEdit}
+                                            allowedDecisions={availableConflictReviewActions(row).map(
+                                                (a) => a.decision
+                                            )}
                                             onDecision={(d) => onRowDecision(row, d)}
                                             onViewDetails={() => onViewDetails(row)}
                                         />

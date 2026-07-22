@@ -101,6 +101,30 @@ export class TransportGeneratePathFromStopsError extends Error {
     }
 }
 
+/** Context for structured merge-preview failure logs (never mutate production data). */
+export type TransportMergePreviewErrorContext = {
+    readonly currentStopId: string;
+    readonly candidateStopId: string;
+    readonly routeIds: string[];
+    readonly variantIds: string[];
+    readonly sqlErrorCode: string | null;
+};
+
+/**
+ * Unexpected failure while building a read-only stop merge preview.
+ * Carries IDs and SQLSTATE for structured logging; does not imply data was changed.
+ */
+export class TransportMergePreviewFailedError extends Error {
+    constructor(
+        message: string,
+        public readonly context: TransportMergePreviewErrorContext,
+        options?: { readonly cause?: unknown },
+    ) {
+        super(message, options?.cause !== undefined ? { cause: options.cause } : undefined);
+        this.name = "TransportMergePreviewFailedError";
+    }
+}
+
 /** Thrown when archiving a stop that is still referenced by one or more routes
  * (counted as distinct routes via non-deleted variants). The stop must be
  * removed from all routes first; archiving never deletes route_stops rows.

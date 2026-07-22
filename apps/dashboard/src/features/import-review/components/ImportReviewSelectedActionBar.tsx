@@ -25,26 +25,12 @@ export default function ImportReviewSelectedActionBar({
     bulkMessage,
     canEdit,
     hasValidScope,
-    approveBlockedReason,
     bulkPreview,
-    dangerForce,
-    overrideManualProtected,
-    overrideDuplicate,
-    showFilterBulkActions,
     onBulkNoteChange,
-    onDangerForceChange,
-    onOverrideManualProtectedChange,
-    onOverrideDuplicateChange,
     onClearSelection,
-    onPreviewApprove,
-    onApproveSelected,
-    onRejectSelected,
+    onKeepExistingSelected,
     onNeedsMoreReviewSelected,
-    onIgnoreSelected,
-    onDryRunSafeBulkApprove,
-    onRealSafeBulkApprove,
-    bulkWarning,
-    disableBulkApprove,
+    onIgnoreImportedSelected,
 }: {
     selectedCount: number;
     analysis: BulkSelectionAnalysis;
@@ -54,26 +40,12 @@ export default function ImportReviewSelectedActionBar({
     bulkMessage: string | null;
     canEdit: boolean;
     hasValidScope: boolean;
-    approveBlockedReason: string | null;
     bulkPreview: ImportReviewBulkDecisionResponse | null;
-    dangerForce: boolean;
-    overrideManualProtected: boolean;
-    overrideDuplicate: boolean;
-    showFilterBulkActions?: boolean;
     onBulkNoteChange: (value: string) => void;
-    onDangerForceChange: (value: boolean) => void;
-    onOverrideManualProtectedChange: (value: boolean) => void;
-    onOverrideDuplicateChange: (value: boolean) => void;
     onClearSelection: () => void;
-    onPreviewApprove: () => void;
-    onApproveSelected: () => void;
-    onRejectSelected: () => void;
+    onKeepExistingSelected: () => void;
     onNeedsMoreReviewSelected: () => void;
-    onIgnoreSelected: () => void;
-    onDryRunSafeBulkApprove?: () => void;
-    onRealSafeBulkApprove?: () => void;
-    bulkWarning?: string | null;
-    disableBulkApprove?: boolean;
+    onIgnoreImportedSelected: () => void;
 }) {
     const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -91,15 +63,7 @@ export default function ImportReviewSelectedActionBar({
     const bulkProcessed = bulkPreview ? bulkPreview.updated_count + bulkPreview.skipped_count : 0;
     const bulkUpdated = bulkPreview?.updated_count ?? 0;
 
-    const approveDisabled =
-        bulkBusy ||
-        !canEdit ||
-        !hasValidScope ||
-        Boolean(approveBlockedReason) ||
-        Boolean(disableBulkApprove);
-
-    const otherDecisionDisabled =
-        bulkBusy || !canEdit || !hasValidScope || analysis.hasPromoted;
+    const decisionDisabled = bulkBusy || !canEdit || !hasValidScope || analysis.hasPromoted;
 
     return (
         <div
@@ -107,11 +71,6 @@ export default function ImportReviewSelectedActionBar({
             role="region"
             aria-label="Bulk actions for selected rows"
         >
-            {bulkWarning ? (
-                <p className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-950">
-                    {bulkWarning}
-                </p>
-            ) : null}
             <div className="flex flex-wrap items-end gap-3 p-4">
                 <div className="min-w-[120px]">
                     <p className="text-sm font-semibold text-gray-900">
@@ -135,32 +94,15 @@ export default function ImportReviewSelectedActionBar({
 
                 <button
                     type="button"
-                    disabled={bulkBusy || !canEdit || !hasValidScope || selectedCount === 0}
-                    onClick={onPreviewApprove}
-                    className={`${btnBase} border border-gray-300 bg-white text-gray-800`}
+                    disabled={decisionDisabled}
+                    onClick={onKeepExistingSelected}
+                    className={`${btnBase} border border-gray-300 bg-white text-gray-900`}
                 >
-                    Preview approve
+                    Keep existing
                 </button>
                 <button
                     type="button"
-                    disabled={approveDisabled}
-                    title={approveBlockedReason ?? undefined}
-                    onClick={onApproveSelected}
-                    className={`${btnBase} bg-emerald-700 text-white hover:bg-emerald-800`}
-                >
-                    Approve selected
-                </button>
-                <button
-                    type="button"
-                    disabled={otherDecisionDisabled}
-                    onClick={onRejectSelected}
-                    className={`${btnBase} border border-red-200 bg-red-50 text-red-950`}
-                >
-                    Reject selected
-                </button>
-                <button
-                    type="button"
-                    disabled={otherDecisionDisabled}
+                    disabled={decisionDisabled}
                     onClick={onNeedsMoreReviewSelected}
                     className={`${btnBase} border border-amber-300 bg-amber-50 text-amber-950`}
                 >
@@ -168,11 +110,11 @@ export default function ImportReviewSelectedActionBar({
                 </button>
                 <button
                     type="button"
-                    disabled={otherDecisionDisabled}
-                    onClick={onIgnoreSelected}
+                    disabled={decisionDisabled}
+                    onClick={onIgnoreImportedSelected}
                     className={`${btnBase} border border-gray-300 bg-gray-100 text-gray-900`}
                 >
-                    Ignore selected
+                    Ignore imported
                 </button>
                 <button
                     type="button"
@@ -187,12 +129,14 @@ export default function ImportReviewSelectedActionBar({
                     onClick={() => setShowAdvanced((v) => !v)}
                     className={`${btnBase} border border-gray-300 bg-white text-xs text-gray-700`}
                 >
-                    {showAdvanced ? "Hide advanced" : "Advanced / danger…"}
+                    {showAdvanced ? "Hide note" : "About bulk…"}
                 </button>
             </div>
 
-            {approveBlockedReason && !bulkBusy ? (
-                <p className="border-t border-blue-100 px-4 pb-2 text-xs text-amber-900">{approveBlockedReason}</p>
+            {analysis.hasPromoted ? (
+                <p className="border-t border-blue-100 px-4 pb-2 text-xs text-amber-900">
+                    Selection includes applied rows. Clear them before bulk decisions.
+                </p>
             ) : null}
 
             {analysis.hasValidationErrors && analysis.validationMessages.length > 0 ? (
@@ -207,75 +151,9 @@ export default function ImportReviewSelectedActionBar({
             ) : null}
 
             {showAdvanced ? (
-                <div className="space-y-3 border-t border-red-100 bg-red-50/40 px-4 py-3">
-                    <p className="text-xs font-semibold text-red-950">Danger actions</p>
-                    <div className="flex flex-col gap-2 text-sm text-red-950">
-                        <label className="flex cursor-pointer items-start gap-2">
-                            <input
-                                type="checkbox"
-                                checked={dangerForce}
-                                disabled={!canEdit || bulkBusy}
-                                onChange={(e) => onDangerForceChange(e.target.checked)}
-                                className="mt-0.5"
-                            />
-                            <span>
-                                <span className="font-semibold">Force approve</span>
-                                <span className="block text-xs font-normal">
-                                    Sends force=true on bulk approve (bypasses safe eligibility).
-                                </span>
-                            </span>
-                        </label>
-                        <label className="flex cursor-pointer items-start gap-2">
-                            <input
-                                type="checkbox"
-                                checked={overrideManualProtected}
-                                disabled={!canEdit || bulkBusy || !analysis.hasManualProtected}
-                                onChange={(e) => onOverrideManualProtectedChange(e.target.checked)}
-                                className="mt-0.5"
-                            />
-                            <span>
-                                <span className="font-semibold">Override manual_protected</span>
-                                <span className="block text-xs font-normal">
-                                    For manual_protected / protect_manual rows. Requires bulk note + confirm.
-                                </span>
-                            </span>
-                        </label>
-                        <label className="flex cursor-pointer items-start gap-2">
-                            <input
-                                type="checkbox"
-                                checked={overrideDuplicate}
-                                disabled={!canEdit || bulkBusy || !analysis.hasDuplicateCandidate}
-                                onChange={(e) => onOverrideDuplicateChange(e.target.checked)}
-                                className="mt-0.5"
-                            />
-                            <span>
-                                <span className="font-semibold">Override duplicate_candidate</span>
-                                <span className="block text-xs font-normal">
-                                    Allows bulk approve on duplicate_candidate rows. Requires bulk note + confirm.
-                                </span>
-                            </span>
-                        </label>
-                    </div>
-                    {showFilterBulkActions ? (
-                        <div className="flex flex-wrap gap-2 border-t border-red-100 pt-2">
-                            <button
-                                type="button"
-                                disabled={bulkBusy || !hasValidScope || !canEdit}
-                                onClick={onDryRunSafeBulkApprove}
-                                className={`${btnBase} border border-emerald-200 bg-emerald-50 text-emerald-900 text-xs`}
-                            >
-                                Preview safe filter approve
-                            </button>
-                            <button
-                                type="button"
-                                disabled={bulkBusy || !hasValidScope || !canEdit}
-                                onClick={onRealSafeBulkApprove}
-                                className={`${btnBase} border border-amber-300 bg-amber-50 text-amber-950 text-xs`}
-                            >
-                                Apply safe filter approve
-                            </button>
-                        </div>
-                    ) : null}
+                <div className="border-t border-blue-100 px-4 py-3 text-xs text-gray-700">
+                    Bulk actions set the same decision on every selected conflict. Use the detail
+                    drawer for replace, merge, insert separately, mark duplicate, or soft delete.
                 </div>
             ) : null}
 

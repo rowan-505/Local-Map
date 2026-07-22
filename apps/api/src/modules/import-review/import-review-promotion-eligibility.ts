@@ -12,6 +12,7 @@ import {
     IMPORT_REVIEW_PUBLISH_ITEM_RETRY_ALLOWED_STATUSES,
     IMPORT_REVIEW_SELECTED_PROMOTION_BLOCKING_BATCH_STATUSES,
 } from "./import-review-promotion.types.js";
+import { IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN } from "./import-review-status-model.js";
 
 export type PublishEligibilityOptions = {
     includeWarnings: boolean;
@@ -185,7 +186,7 @@ export function buildEligibleWhereSql(
         ${col(a, "review_batch_id")} = ${reviewBatchId}
         AND ${col(a, "entity_family")} = ${config.entityFamily}
         AND ${col(a, "review_status")} = 'approved'
-        AND ${col(a, "review_decision")} = 'approved'
+        AND ${col(a, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN)}
         AND NOT ${isPromotedSql(a)}
         AND NOT ${hasPromotionBlockingValidationErrorsSql(config, a)}
         ${roadPromotionEligibilityGuardsSql(config, a)}
@@ -234,7 +235,7 @@ function buildBaseApprovedSql(
     return Prisma.sql`
         ${buildBaseScopeSql(config, reviewBatchId, alias)}
         AND ${col(alias, "review_status")} = 'approved'
-        AND ${col(alias, "review_decision")} = 'approved'
+        AND ${col(alias, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN)}
     `;
 }
 
@@ -326,7 +327,7 @@ export function buildFamilyEligibilityCountSql(
     const baseApproved = Prisma.sql`
         ${baseScope}
         AND ${col(a, "review_status")} = 'approved'
-        AND ${col(a, "review_decision")} = 'approved'
+        AND ${col(a, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN)}
     `;
 
     return Prisma.sql`
@@ -424,6 +425,9 @@ export function buildInsertPublishItemsSql(
             ),
             jsonb_build_object(
                 'eligible', true,
+                'review_decision', ${col(a, "review_decision")},
+                'match_status', ${col(a, "match_status")},
+                'source_snapshot_version', ${col(a, "source_snapshot_version")},
                 'validation_errors_count', ${errorsCount},
                 'validation_warnings_count', ${warningsCount}
             ),
@@ -457,7 +461,7 @@ export function buildRoadsSmallBatchEligibleWhereSql(
         ${col(a, "review_batch_id")} = ${reviewBatchId}
         AND ${col(a, "entity_family")} = ${config.entityFamily}
         AND ${col(a, "review_status")} = 'approved'
-        AND ${col(a, "review_decision")} = 'approved'
+        AND ${col(a, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN)}
         AND ${col(a, "promotion_status")} = 'not_ready'
         AND ${col(a, "promotion_status")} IS DISTINCT FROM 'promoted'
         AND ${col(a, "promotion_status")} IS DISTINCT FROM 'batched'
@@ -538,6 +542,9 @@ function publishItemSelectColumns(
         ),
         jsonb_build_object(
             'eligible', true,
+            'review_decision', ${col(a, "review_decision")},
+            'match_status', ${col(a, "match_status")},
+            'source_snapshot_version', ${col(a, "source_snapshot_version")},
             'validation_errors_count', ${errorsCount},
             'validation_warnings_count', ${warningsCount}
         ),
@@ -595,7 +602,7 @@ export function buildMarkBatchedByIdsSql(
         WHERE ${col(a, "id")} IN (${Prisma.join(candidateIds)})
           AND ${col(a, "review_batch_id")} = ${reviewBatchId}
           AND ${col(a, "review_status")} = 'approved'
-          AND ${col(a, "review_decision")} = 'approved'
+          AND ${col(a, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN)}
           AND ${col(a, "promotion_status")} IS DISTINCT FROM 'promoted'
     `;
 }

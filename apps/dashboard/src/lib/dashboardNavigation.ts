@@ -200,7 +200,7 @@ export function importReviewEntityNavTabs(): readonly FamilyNavTab[] {
 export const importReviewTabs: readonly FamilyNavTab[] = [
     { label: "Overview", segment: "", match: "exact" },
     ...importReviewEntityNavTabs(),
-    { label: "Promotion", segment: "promotion" },
+    { label: "Apply", segment: "promotion" },
     { label: "History", segment: "history" },
 ];
 

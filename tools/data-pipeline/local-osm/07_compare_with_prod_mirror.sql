@@ -20,9 +20,11 @@
 --     all                → every configured family (current behavior)
 --
 -- Matching rules:
---   admin_areas → primary external_id; cautious fallback when prod external_id is
+--   Source identity uses system.pipeline_osm_identity_key() so canonical
+--   osm:node|way|relation:<id> matches legacy production osm:N|W|R:<id>.
+--   admin_areas → primary identity_key; cautious fallback when prod external_id is
 --                 missing: same admin_level_id + similar canonical_name + geom overlap
---   roads       → external_id only (never name-only or spatial-only matching)
+--   roads       → identity_key only (never name-only or spatial-only matching)
 --
 -- Run one family only (debug / isolate slow comparisons):
 --   psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
@@ -41,8 +43,10 @@
 
 \pset pager off
 \set ON_ERROR_STOP on
-SET statement_timeout = '120s';
-SET lock_timeout = '10s';
+-- Building/landuse spatial F2 against a full mirror can exceed 2 minutes.
+-- Override with: psql -c "SET statement_timeout = '0'" before -f, or env PSQL_OPTIONS.
+SET statement_timeout = '30min';
+SET lock_timeout = '30s';
 \if :{?staging_schema}
 \else
 \set staging_schema 'staging'
@@ -179,6 +183,7 @@ SET skip_f2_for_now = true
 WHERE entity_family = 'routing_roads';
 
 \ir pipeline_entity_families.sql
+\ir pipeline_source_identity.sql
 
 DELETE FROM stage07_family_config AS fc
 WHERE NOT pg_temp.pipeline_entity_family_enabled(fc.entity_family);
@@ -862,6 +867,7 @@ BEGIN
                     SELECT
                         s.id AS staging_id,
                         s.external_id,
+                        system.pipeline_osm_identity_key(s.external_id) AS identity_key,
                         s.geom,
                         s.canonical_name,
                         coalesce(s.confidence_score, 50.0000) AS confidence_score,
@@ -879,6 +885,8 @@ BEGIN
                     ON stage07_road_staging (staging_id);
                 CREATE INDEX stage07_road_staging_external_id_idx
                     ON stage07_road_staging (external_id);
+                CREATE INDEX stage07_road_staging_identity_key_idx
+                    ON stage07_road_staging (identity_key);
                 CREATE INDEX stage07_road_staging_geom_gix
                     ON stage07_road_staging USING gist (geom);
                 ANALYZE stage07_road_staging;
@@ -894,6 +902,7 @@ BEGIN
                         to_jsonb(p) AS prod_data,
                         coalesce(to_jsonb(p)->'source_refs', '{}'::jsonb) AS source_refs,
                         nullif(to_jsonb(p)->>'external_id', '') AS external_id,
+                        system.pipeline_osm_identity_key(nullif(to_jsonb(p)->>'external_id', '')) AS identity_key,
                         (
                             CASE
                                 WHEN to_jsonb(p)->>'is_verified' IN ('true', 'false')
@@ -919,6 +928,8 @@ BEGIN
                     ON stage07_road_prod (prod_id);
                 CREATE INDEX stage07_road_prod_external_id_idx
                     ON stage07_road_prod (external_id);
+                CREATE INDEX stage07_road_prod_identity_key_idx
+                    ON stage07_road_prod (identity_key);
                 CREATE INDEX stage07_road_prod_geom_gix
                     ON stage07_road_prod USING gist (geom);
                 ANALYZE stage07_road_prod;
@@ -955,10 +966,11 @@ BEGIN
                     p.manual_protected
                 FROM stage07_road_staging AS s
                 JOIN stage07_road_prod AS p
-                    ON nullif(btrim(s.external_id), '') IS NOT NULL
+                    ON s.identity_key IS NOT NULL
                    AND (
-                       p.external_id = s.external_id
-                       OR p.source_refs->>'external_id' = s.external_id
+                       p.identity_key = s.identity_key
+                       OR system.pipeline_osm_identity_key(p.source_refs->>'external_id') = s.identity_key
+                       OR system.pipeline_osm_identity_key(p.source_refs->>'osm_external_id') = s.identity_key
                    )
                 ORDER BY s.staging_id, p.manual_protected DESC, p.prod_id;
 
@@ -1287,6 +1299,7 @@ BEGIN
                     SELECT
                         s.id AS staging_id,
                         s.external_id,
+                        system.pipeline_osm_identity_key(s.external_id) AS identity_key,
                         s.canonical_name,
                         s.admin_level_id,
                         s.geom,
@@ -1305,6 +1318,8 @@ BEGIN
                     ON stage07_admin_staging (staging_id);
                 CREATE INDEX stage07_admin_staging_external_id_idx
                     ON stage07_admin_staging (external_id);
+                CREATE INDEX stage07_admin_staging_identity_key_idx
+                    ON stage07_admin_staging (identity_key);
                 CREATE INDEX stage07_admin_staging_admin_level_id_idx
                     ON stage07_admin_staging (admin_level_id);
                 CREATE INDEX stage07_admin_staging_geom_gix
@@ -1318,6 +1333,7 @@ BEGIN
                     SELECT
                         p.id AS prod_id,
                         nullif(btrim(p.external_id), '') AS external_id,
+                        system.pipeline_osm_identity_key(nullif(btrim(p.external_id), '')) AS identity_key,
                         p.admin_level_id,
                         p.canonical_name,
                         p.geom,
@@ -1348,6 +1364,8 @@ BEGIN
                     ON stage07_admin_prod (prod_id);
                 CREATE INDEX stage07_admin_prod_external_id_idx
                     ON stage07_admin_prod (external_id);
+                CREATE INDEX stage07_admin_prod_identity_key_idx
+                    ON stage07_admin_prod (identity_key);
                 CREATE INDEX stage07_admin_prod_admin_level_id_idx
                     ON stage07_admin_prod (admin_level_id);
                 CREATE INDEX stage07_admin_prod_geom_gix
@@ -1369,10 +1387,11 @@ BEGIN
                     p.manual_protected
                 FROM stage07_admin_staging AS s
                 JOIN stage07_admin_prod AS p
-                    ON nullif(btrim(s.external_id), '') IS NOT NULL
+                    ON s.identity_key IS NOT NULL
                    AND (
-                       p.external_id = s.external_id
-                       OR p.source_refs->>'external_id' = s.external_id
+                       p.identity_key = s.identity_key
+                       OR system.pipeline_osm_identity_key(p.source_refs->>'external_id') = s.identity_key
+                       OR system.pipeline_osm_identity_key(p.source_refs->>'osm_external_id') = s.identity_key
                    )
                 ORDER BY s.staging_id, p.manual_protected DESC, p.prod_id;
 
@@ -1691,7 +1710,19 @@ BEGIN
         v_staging_name_expr := 'coalesce(nullif(to_jsonb(s)->>''canonical_name'', ''''), nullif(to_jsonb(s)->>''public_name'', ''''), nullif(to_jsonb(s)->>''name'', ''''), nullif(to_jsonb(s)->>''full_address'', ''''), nullif(to_jsonb(s)->>''route_code'', ''''), nullif(to_jsonb(s)->>''external_id'', ''''))';
         v_prod_name_expr := 'coalesce(nullif(to_jsonb(p)->>''canonical_name'', ''''), nullif(to_jsonb(p)->>''public_name'', ''''), nullif(to_jsonb(p)->>''name'', ''''), nullif(to_jsonb(p)->>''full_address'', ''''), nullif(to_jsonb(p)->>''route_code'', ''''), nullif(to_jsonb(p)->>''external_id'', ''''))';
 
-        v_source_match_expr := '(coalesce(to_jsonb(p)->>''external_id'', '''') = s.external_id OR coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)::text LIKE ''%%'' || s.external_id || ''%%'' OR coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)::text LIKE ''%%'' || coalesce(s.normalized_data->>''osm_id'', s.source_refs->>''osm_id'', s.external_id) || ''%%'')';
+        v_source_match_expr := '('
+            || 'nullif(s.external_id, '''') IS NOT NULL AND ('
+            || 'system.pipeline_osm_identity_matches(to_jsonb(p)->>''external_id'', s.external_id)'
+            || ' OR system.pipeline_osm_identity_matches(coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''external_id'', s.external_id)'
+            || ' OR system.pipeline_osm_identity_matches(coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''osm_external_id'', s.external_id)'
+            || ' OR (nullif(coalesce(s.normalized_data->>''osm_id'', s.source_refs->>''osm_id'', ''''), '''') IS NOT NULL'
+            || '     AND coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''osm_id'' = coalesce(s.normalized_data->>''osm_id'', s.source_refs->>''osm_id'')'
+            || '     AND ('
+            || '         nullif(coalesce(s.normalized_data->>''osm_feature_type'', s.source_refs->>''osm_feature_type'', ''''), '''') IS NULL'
+            || '         OR system.pipeline_osm_feature_type_canonical(coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''osm_feature_type'')'
+            || '            IS NOT DISTINCT FROM system.pipeline_osm_feature_type_canonical(coalesce(s.normalized_data->>''osm_feature_type'', s.source_refs->>''osm_feature_type''))'
+            || '     ))'
+            || '))';
 
         v_name_match_expr := format(
             '(%1$s IS NOT NULL AND %2$s IS NOT NULL AND lower(%1$s) = lower(%2$s))',
@@ -1759,15 +1790,16 @@ BEGIN
             -- graph matching will happen later; F2 only detects production conflicts.
             v_source_match_expr := '('
                 || 'nullif(s.external_id, '''') IS NOT NULL AND ('
-                || 'coalesce(to_jsonb(p)->>''external_id'', '''') = s.external_id'
-                || ' OR coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''external_id'' = s.external_id'
-                || ' OR coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''osm_external_id'' = s.external_id'
+                || 'system.pipeline_osm_identity_matches(to_jsonb(p)->>''external_id'', s.external_id)'
+                || ' OR system.pipeline_osm_identity_matches(coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''external_id'', s.external_id)'
+                || ' OR system.pipeline_osm_identity_matches(coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''osm_external_id'', s.external_id)'
                 || ' OR (nullif(coalesce(s.normalized_data->>''osm_id'', s.source_refs->>''osm_id'', ''''), '''') IS NOT NULL'
-                || '     AND coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''osm_id'' = coalesce(s.normalized_data->>''osm_id'', s.source_refs->>''osm_id''))'
-                || ' OR (nullif(coalesce(s.normalized_data->>''osm_feature_type'', s.source_refs->>''osm_feature_type'', ''''), '''') IS NOT NULL'
-                || '     AND nullif(coalesce(s.normalized_data->>''osm_id'', s.source_refs->>''osm_id'', ''''), '''') IS NOT NULL'
-                || '     AND coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''osm_feature_type'' = coalesce(s.normalized_data->>''osm_feature_type'', s.source_refs->>''osm_feature_type'')'
-                || '     AND coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''osm_id'' = coalesce(s.normalized_data->>''osm_id'', s.source_refs->>''osm_id''))'
+                || '     AND coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''osm_id'' = coalesce(s.normalized_data->>''osm_id'', s.source_refs->>''osm_id'')'
+                || '     AND ('
+                || '         nullif(coalesce(s.normalized_data->>''osm_feature_type'', s.source_refs->>''osm_feature_type'', ''''), '''') IS NULL'
+                || '         OR system.pipeline_osm_feature_type_canonical(coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)->>''osm_feature_type'')'
+                || '            IS NOT DISTINCT FROM system.pipeline_osm_feature_type_canonical(coalesce(s.normalized_data->>''osm_feature_type'', s.source_refs->>''osm_feature_type''))'
+                || '     ))'
                 || '))';
 
             v_road_intersection_match_expr := format(

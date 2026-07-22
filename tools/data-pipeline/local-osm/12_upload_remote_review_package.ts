@@ -320,25 +320,25 @@ async function findBestPackageForSnapshot(
   };
 }
 
-/** Prefer the fullest package for the snapshot when the requested name is stale or partial. */
+/** Prefer the requested package when it exists with items (conflict-only packages are intentionally small). */
 async function resolveUploadPackageName(
   local: pg.Pool,
   requestedName: string,
   snapshotVersion: string
 ): Promise<string> {
   const current = await getPackageItemStats(local, requestedName);
-  const best = await findBestPackageForSnapshot(local, snapshotVersion);
-  if (!current || !best || best.package_name === requestedName) {
+  if (current && current.item_total > 0) {
     return requestedName;
   }
-  if (best.item_total > current.item_total) {
-    console.warn(
-      `[stage_k] WARN auto-selected package "${best.package_name}" (${best.item_total} items, ${best.entity_family_count} families) ` +
-        `instead of "${requestedName}" (${current.item_total} items, ${current.entity_family_count} families) for snapshot ${snapshotVersion}`
-    );
-    return best.package_name;
+  const best = await findBestPackageForSnapshot(local, snapshotVersion);
+  if (!best || best.package_name === requestedName) {
+    return requestedName;
   }
-  return requestedName;
+  console.warn(
+    `[stage_k] WARN auto-selected package "${best.package_name}" (${best.item_total} items, ${best.entity_family_count} families) ` +
+      `instead of "${requestedName}" (${current?.item_total ?? 0} items) for snapshot ${snapshotVersion}`
+  );
+  return best.package_name;
 }
 
 function countItemsByFamily(items: LocalPackageItemRow[]): Record<EntityFamilySlug, number> {
@@ -904,6 +904,31 @@ async function main(): Promise<number> {
       progState.total,
       uploadFamilies
     );
+
+    const batchCheck = await remotePool.query<{
+      total_candidate_count: string;
+      uploaded_candidate_count: string;
+    }>(
+      `
+      select total_candidate_count::text, uploaded_candidate_count::text
+        from import_review.review_batches
+       where id = $1::bigint
+      `,
+      [batchId.toString()]
+    );
+    const expected = progState.total;
+    const uploaded = Number(batchCheck.rows[0]?.uploaded_candidate_count ?? -1);
+    const total = Number(batchCheck.rows[0]?.total_candidate_count ?? -1);
+    if (uploaded !== expected || total !== expected) {
+      throw new Error(
+        `stage_k conflict count FAIL: package_items=${expected} ` +
+          `review_batches.total=${total} uploaded=${uploaded} batch_id=${batchId}`
+      );
+    }
+    console.log(
+      `[stage_k] conflict count PASS: package_items=${expected} import_review.uploaded=${uploaded} batch_id=${batchId}`
+    );
+
     await bumpLocalPackageSuccess(localPool, pkgSummary, batchId, uploadFamilies, summaryPatch);
     await stampLocalItemsRowwiseChunked(localPool, stampEntries);
 

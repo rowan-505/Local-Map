@@ -225,25 +225,15 @@ function ImportReviewEntityPageInner({
                                 bulkPreview={page.bulk.bulkPreview}
                                 canEdit={page.canEditImportReview}
                                 hasValidScope={page.hasValidScope}
-                                approveBlockedReason={page.bulk.approveBlockedReason}
-                                dangerForce={page.bulk.dangerForce}
-                                overrideManualProtected={page.bulk.overrideManualProtected}
-                                overrideDuplicate={page.bulk.overrideDuplicate}
                                 onBulkNoteChange={page.bulk.setBulkNote}
-                                onDangerForceChange={page.bulk.setDangerForce}
-                                onOverrideManualProtectedChange={page.bulk.setOverrideManualProtected}
-                                onOverrideDuplicateChange={page.bulk.setOverrideDuplicate}
                                 onClearSelection={page.bulk.clearSelection}
-                                onPreviewApprove={() => void page.bulk.bulkPreviewApprove()}
-                                onApproveSelected={() => void page.bulk.bulkApproveSelected()}
-                                onRejectSelected={() => void page.bulk.bulkRejectSelected()}
+                                onKeepExistingSelected={() =>
+                                    void page.bulk.bulkKeepExistingSelected()
+                                }
                                 onNeedsMoreReviewSelected={() =>
                                     void page.bulk.bulkNeedsMoreReviewSelected()
                                 }
-                                onIgnoreSelected={() => void page.bulk.bulkIgnoreSelected()}
-                                showFilterBulkActions={config.slug === "buildings"}
-                                onDryRunSafeBulkApprove={() => void page.bulk.bulkSafeFilterDryRun()}
-                                onRealSafeBulkApprove={() => void page.bulk.bulkSafeFilterApply()}
+                                onIgnoreImportedSelected={() => void page.bulk.bulkIgnoreSelected()}
                             />
                         ) : null}
 
@@ -416,7 +406,7 @@ function ImportReviewEntityPageInner({
                         onClose={page.closeDrawer}
                         onNoteChange={page.setDrawerNote}
                         onDecisionChange={page.setDrawerDecision}
-                        onSave={() => void page.handleDrawerSave()}
+                        onSave={(note) => void page.handleDrawerSave(note)}
                         formOptions={page.formOptions}
                         formOptionsLoading={page.formOptionsLoading}
                         formOptionsError={page.formOptionsError}

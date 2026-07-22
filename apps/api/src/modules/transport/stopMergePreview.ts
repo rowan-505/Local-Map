@@ -36,6 +36,41 @@ export type TransportStopMergeFieldComparison = {
     readonly is_active: MergePreviewScalarComparison<boolean>;
 };
 
+/** Coerce Prisma/pg bigint or numeric values into JSON-safe numbers. */
+export function jsonSafeNumber(
+    value: bigint | number | string | null | undefined,
+): number | null {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    if (typeof value === "bigint") {
+        return Number(value);
+    }
+    if (typeof value === "number") {
+        return Number.isFinite(value) ? value : null;
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+        return null;
+    }
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Coerce Prisma/pg bigint IDs into JSON-safe decimal strings. */
+export function jsonSafeId(
+    value: bigint | number | string | null | undefined,
+): string | null {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : null;
+    }
+    return String(value);
+}
+
 function compareScalar<T>(current: T, candidate: T): MergePreviewScalarComparison<T> {
     return {
         current,
@@ -75,4 +110,207 @@ export function buildStopMergeFieldComparison(
         review_status: compareScalar(current.review_status, candidate.review_status),
         is_active: compareScalar(current.is_active, candidate.is_active),
     };
+}
+
+export type MergePreviewUsageMembership = {
+    readonly routeId: string;
+    readonly routeCode: string;
+    readonly routeName: string;
+    readonly variantId: string;
+    readonly variantCode: string;
+    readonly directionName: string | null;
+    readonly routeStopId: string;
+    readonly stopSequence: number;
+};
+
+export type MergePreviewSameVariantPair = {
+    readonly routeId: string;
+    readonly routeCode: string;
+    readonly routeName: string;
+    readonly variantId: string;
+    readonly variantCode: string;
+    readonly directionName: string | null;
+    readonly currentRouteStopId: string;
+    readonly currentSequence: number;
+    readonly candidateRouteStopId: string;
+    readonly candidateSequence: number;
+};
+
+export type MergePreviewAffectedRoute = {
+    readonly routeId: string;
+    readonly routeCode: string;
+    readonly routeName: string;
+};
+
+export type MergePreviewAffectedVariant = {
+    readonly variantId: string;
+    readonly variantCode: string;
+    readonly routeId: string;
+    readonly routeCode: string;
+    readonly directionName: string | null;
+};
+
+export type MergePreviewDuplicateMembershipConflict = {
+    readonly routeId: string;
+    readonly routeCode: string;
+    readonly variantId: string;
+    readonly variantCode: string;
+    readonly directionName: string | null;
+    readonly currentRouteStopId: string;
+    readonly currentSequence: number;
+    readonly candidateRouteStopId: string;
+    readonly candidateSequence: number;
+};
+
+export type MergePreviewSequenceConflict = {
+    readonly routeId: string;
+    readonly routeCode: string;
+    readonly variantId: string;
+    readonly variantCode: string;
+    readonly directionName: string | null;
+    readonly stopSequence: number;
+    readonly currentRouteStopId: string;
+    readonly candidateRouteStopId: string;
+};
+
+export type MergePreviewConflictAnalysis = {
+    readonly affectedRoutes: MergePreviewAffectedRoute[];
+    readonly affectedVariants: MergePreviewAffectedVariant[];
+    readonly duplicateMembershipConflicts: MergePreviewDuplicateMembershipConflict[];
+    readonly sequenceConflicts: MergePreviewSequenceConflict[];
+    readonly mergeAllowed: boolean;
+    readonly mergeBlockers: string[];
+};
+
+/**
+ * Build merge-preview conflict analysis from usage memberships.
+ * Duplicate membership (both stops in the same variant at different sequences) is
+ * reported but does not block merge after transport_route_stops_variant_stop_unique
+ * was dropped — callers still require acknowledgment at merge time.
+ * Same-sequence pairs are hard blockers (would violate sequence uniqueness).
+ */
+export function buildStopMergeConflictAnalysis(
+    currentUsage: readonly MergePreviewUsageMembership[],
+    candidateUsage: readonly MergePreviewUsageMembership[],
+): MergePreviewConflictAnalysis {
+    const routeMap = new Map<string, MergePreviewAffectedRoute>();
+    const variantMap = new Map<string, MergePreviewAffectedVariant>();
+
+    const indexUsage = (rows: readonly MergePreviewUsageMembership[]) => {
+        for (const row of rows) {
+            if (!routeMap.has(row.routeId)) {
+                routeMap.set(row.routeId, {
+                    routeId: row.routeId,
+                    routeCode: row.routeCode,
+                    routeName: row.routeName,
+                });
+            }
+            if (!variantMap.has(row.variantId)) {
+                variantMap.set(row.variantId, {
+                    variantId: row.variantId,
+                    variantCode: row.variantCode,
+                    routeId: row.routeId,
+                    routeCode: row.routeCode,
+                    directionName: row.directionName,
+                });
+            }
+        }
+    };
+
+    indexUsage(currentUsage);
+    indexUsage(candidateUsage);
+
+    const candidateByVariant = new Map<string, MergePreviewUsageMembership[]>();
+    for (const row of candidateUsage) {
+        const list = candidateByVariant.get(row.variantId) ?? [];
+        list.push(row);
+        candidateByVariant.set(row.variantId, list);
+    }
+
+    const duplicateMembershipConflicts: MergePreviewDuplicateMembershipConflict[] = [];
+    const sequenceConflicts: MergePreviewSequenceConflict[] = [];
+
+    for (const current of currentUsage) {
+        const candidates = candidateByVariant.get(current.variantId);
+        if (!candidates || candidates.length === 0) {
+            continue;
+        }
+        for (const candidate of candidates) {
+            const pair = {
+                routeId: current.routeId,
+                routeCode: current.routeCode,
+                variantId: current.variantId,
+                variantCode: current.variantCode,
+                directionName: current.directionName,
+                currentRouteStopId: current.routeStopId,
+                currentSequence: current.stopSequence,
+                candidateRouteStopId: candidate.routeStopId,
+                candidateSequence: candidate.stopSequence,
+            };
+            if (current.stopSequence === candidate.stopSequence) {
+                sequenceConflicts.push({
+                    routeId: pair.routeId,
+                    routeCode: pair.routeCode,
+                    variantId: pair.variantId,
+                    variantCode: pair.variantCode,
+                    directionName: pair.directionName,
+                    stopSequence: current.stopSequence,
+                    currentRouteStopId: pair.currentRouteStopId,
+                    candidateRouteStopId: pair.candidateRouteStopId,
+                });
+            } else {
+                duplicateMembershipConflicts.push(pair);
+            }
+        }
+    }
+
+    const mergeBlockers: string[] = [];
+    if (sequenceConflicts.length > 0) {
+        mergeBlockers.push("sequence_conflict");
+    }
+
+    return {
+        affectedRoutes: [...routeMap.values()].sort((a, b) =>
+            a.routeCode.localeCompare(b.routeCode),
+        ),
+        affectedVariants: [...variantMap.values()].sort((a, b) => {
+            const routeCmp = a.routeCode.localeCompare(b.routeCode);
+            return routeCmp !== 0 ? routeCmp : a.variantCode.localeCompare(b.variantCode);
+        }),
+        duplicateMembershipConflicts,
+        sequenceConflicts,
+        mergeAllowed: mergeBlockers.length === 0,
+        mergeBlockers,
+    };
+}
+
+/** Extract Postgres SQLSTATE from Prisma / driver errors when present. */
+export function extractSqlErrorCode(error: unknown): string | null {
+    if (!error || typeof error !== "object") {
+        return null;
+    }
+    const meta = (error as { meta?: { code?: unknown } }).meta;
+    if (typeof meta?.code === "string" && meta.code.length > 0) {
+        return meta.code;
+    }
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && /^\d{5}$/.test(code)) {
+        return code;
+    }
+    if (error instanceof Error) {
+        const match = /\b([0-9A-Z]{5})\b/.exec(error.message);
+        if (match?.[1] && /^\d{5}$/.test(match[1])) {
+            return match[1];
+        }
+    }
+    return null;
+}
+
+/** True when an error already carries an HTTP auth status (do not remap to 500). */
+export function isHttpAuthError(error: unknown): error is { statusCode: 401 | 403 } {
+    if (!error || typeof error !== "object") {
+        return false;
+    }
+    const statusCode = (error as { statusCode?: unknown }).statusCode;
+    return statusCode === 401 || statusCode === 403;
 }

@@ -22,16 +22,20 @@ const ENTITY_SLUGS = [
 ] as const;
 
 describe("import-review entity list promotion visibility", () => {
-    it("all nine entity pages expose include_promoted filter field for compat", () => {
+    it("conflict-only filters expose comparison, decision, and apply status", () => {
         for (const slug of ENTITY_SLUGS) {
             const config = getImportReviewEntityConfigBySlug(slug);
             assert.ok(config, `missing config for ${slug}`);
-            assert.ok(
-                config!.filterFields.includes("include_promoted"),
-                `${slug} must support include_promoted filter`
-            );
+            assert.ok(config!.filterFields.includes("match_status"), `${slug} comparison filter`);
+            assert.ok(config!.filterFields.includes("review_decision"), `${slug} decision filter`);
+            assert.ok(config!.filterFields.includes("promotion_status"), `${slug} apply filter`);
+            assert.equal(config!.filterFields.includes("auto_action"), false);
+            assert.equal(config!.filterFields.includes("review_status"), false);
         }
-        assert.ok(IMPORT_REVIEW_STANDARD_FILTER_FIELDS.includes("include_promoted"));
+        assert.ok(IMPORT_REVIEW_STANDARD_FILTER_FIELDS.includes("match_status"));
+        assert.ok(IMPORT_REVIEW_STANDARD_FILTER_FIELDS.includes("review_decision"));
+        assert.ok(IMPORT_REVIEW_STANDARD_FILTER_FIELDS.includes("promotion_status"));
+        assert.equal(IMPORT_REVIEW_STANDARD_FILTER_FIELDS.includes("include_promoted"), false);
     });
 
     it("nav entity configs include all nine promotion families", () => {

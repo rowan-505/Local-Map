@@ -172,6 +172,8 @@ export function mapPublishBatchHistoryListItemLight(
         created_at: row.created_at.toISOString(),
         published_at: toIso(row.published_at),
         promoted_at: toIso(row.promoted_at),
+        applied_by: bigStr(row.promoted_by),
+        applied_at: toIso(row.promoted_at ?? row.published_at),
         validation_success_count:
             row.validated_at != null && row.status !== "failed" && row.status !== "blocked" ? 1 : 0,
         validation_fail_count:

@@ -24,15 +24,22 @@ const DECISION_ITEMS: {
     decision: ImportReviewDecision;
     menuClass: string;
 }[] = [
-    { label: "Approve", decision: "approved", menuClass: "text-emerald-800 hover:bg-emerald-50" },
-    { label: "Reject", decision: "rejected", menuClass: "text-red-800 hover:bg-red-50" },
+    { label: "Keep existing", decision: "keep_existing", menuClass: "text-gray-800 hover:bg-gray-50" },
+    { label: "Replace existing", decision: "replace_existing", menuClass: "text-emerald-800 hover:bg-emerald-50" },
+    { label: "Merge fields", decision: "merge_fields", menuClass: "text-blue-800 hover:bg-blue-50" },
+    { label: "Insert separately", decision: "insert_separate", menuClass: "text-teal-800 hover:bg-teal-50" },
+    { label: "Ignore imported", decision: "ignore_import", menuClass: "text-gray-700 hover:bg-gray-100" },
+    { label: "Mark duplicate", decision: "mark_duplicate", menuClass: "text-violet-800 hover:bg-violet-50" },
+    {
+        label: "Confirm soft delete",
+        decision: "confirm_soft_delete",
+        menuClass: "text-red-800 hover:bg-red-50",
+    },
     {
         label: "Needs more review",
         decision: "needs_more_review",
         menuClass: "text-amber-900 hover:bg-amber-50",
     },
-    { label: "Ignore", decision: "ignored", menuClass: "text-gray-700 hover:bg-gray-100" },
-    { label: "Mark finalized", decision: "merged", menuClass: "text-violet-800 hover:bg-violet-50" },
 ];
 
 type MenuPosition = {
@@ -44,6 +51,8 @@ type MenuPosition = {
 type Props = {
     busy?: boolean;
     disabled?: boolean;
+    /** When set, only these decisions appear (conflict-conditional actions). */
+    allowedDecisions?: readonly ImportReviewDecision[];
     onDecision: (decision: ImportReviewDecision) => void;
     onEditOverrides?: () => void;
     onViewDetails?: () => void;
@@ -62,6 +71,7 @@ function ReviewActionsMenuPanel({
     menuPos,
     busy,
     disabled,
+    decisionItems,
     onDecision,
     onEditOverrides,
     onViewDetails,
@@ -72,6 +82,7 @@ function ReviewActionsMenuPanel({
     menuPos: MenuPosition;
     busy: boolean;
     disabled: boolean;
+    decisionItems: typeof DECISION_ITEMS;
     onDecision: (decision: ImportReviewDecision) => void;
     onEditOverrides?: () => void;
     onViewDetails?: () => void;
@@ -92,7 +103,7 @@ function ReviewActionsMenuPanel({
             }}
             className="overflow-y-auto overscroll-contain rounded-lg border border-gray-200 bg-white py-1 shadow-xl"
         >
-            {DECISION_ITEMS.map((item) => (
+            {decisionItems.map((item) => (
                 <button
                     key={item.decision}
                     type="button"
@@ -141,6 +152,7 @@ function ReviewActionsMenuPanel({
 export default function ImportReviewReviewActionsMenu({
     busy = false,
     disabled = false,
+    allowedDecisions,
     onDecision,
     onEditOverrides,
     onViewDetails,
@@ -150,6 +162,10 @@ export default function ImportReviewReviewActionsMenu({
     const [menuPos, setMenuPos] = useState<MenuPosition | null>(null);
     const buttonRef = useRef<HTMLButtonElement>(null);
     const menuRef = useRef<HTMLDivElement>(null);
+    const decisionItems =
+        allowedDecisions && allowedDecisions.length > 0
+            ? DECISION_ITEMS.filter((item) => allowedDecisions.includes(item.decision))
+            : DECISION_ITEMS;
 
     const updateMenuPosition = useCallback(() => {
         const btn = buttonRef.current;
@@ -233,6 +249,7 @@ export default function ImportReviewReviewActionsMenu({
                       menuPos={menuPos}
                       busy={busy}
                       disabled={disabled}
+                      decisionItems={decisionItems}
                       onDecision={onDecision}
                       onEditOverrides={onEditOverrides}
                       onViewDetails={onViewDetails}

@@ -435,6 +435,43 @@ export type TransportStopMergeVariantConflict = {
     candidateSequence: number;
 };
 
+export type TransportStopMergeAffectedRoute = {
+    routeId: string;
+    routeCode: string;
+    routeName: string;
+};
+
+export type TransportStopMergeAffectedVariant = {
+    variantId: string;
+    variantCode: string;
+    routeId: string;
+    routeCode: string;
+    directionName: string | null;
+};
+
+export type TransportStopMergeDuplicateMembershipConflict = {
+    routeId: string;
+    routeCode: string;
+    variantId: string;
+    variantCode: string;
+    directionName: string | null;
+    currentRouteStopId: string;
+    currentSequence: number;
+    candidateRouteStopId: string;
+    candidateSequence: number;
+};
+
+export type TransportStopMergeSequenceConflict = {
+    routeId: string;
+    routeCode: string;
+    variantId: string;
+    variantCode: string;
+    directionName: string | null;
+    stopSequence: number;
+    currentRouteStopId: string;
+    candidateRouteStopId: string;
+};
+
 export type TransportStopMergeScalarComparison<T> = {
     current: T;
     candidate: T;
@@ -467,6 +504,12 @@ export type TransportStopMergePreviewResponse = {
     candidateUsage: TransportStopRouteUsageDetailResponse;
     sameVariantConflicts: TransportStopMergeVariantConflict[];
     sameVariantWarning: string | null;
+    affectedRoutes: TransportStopMergeAffectedRoute[];
+    affectedVariants: TransportStopMergeAffectedVariant[];
+    duplicateMembershipConflicts: TransportStopMergeDuplicateMembershipConflict[];
+    sequenceConflicts: TransportStopMergeSequenceConflict[];
+    mergeAllowed: boolean;
+    mergeBlockers: string[];
     referenceCounts: {
         current: TransportStopMergeReferenceCounts;
         candidate: TransportStopMergeReferenceCounts;

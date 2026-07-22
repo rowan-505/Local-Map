@@ -96,6 +96,10 @@ export type ImportReviewHistoryPublishBatchListItem = {
     created_at: string;
     published_at: string | null;
     promoted_at: string | null;
+    /** Apply-run actor (system_publish_batches.promoted_by). */
+    applied_by: string | null;
+    /** Alias for promoted_at — apply-run completion time. */
+    applied_at: string | null;
     validation_success_count: number;
     validation_fail_count: number;
     item_validation_counts: {
@@ -132,6 +136,10 @@ export type ImportReviewHistoryPublishBatchDetail = ImportReviewHistoryPublishBa
         string,
         { pending: number; success: number; failed: number; skipped: number; total: number }
     >;
+    item_counts_by_action: Record<
+        string,
+        { pending: number; success: number; failed: number; skipped: number; total: number }
+    >;
     validation_summary: unknown;
     promotion_summary: unknown;
     validation_logs_summary: string | null;
@@ -152,11 +160,16 @@ export type ImportReviewHistoryPublishBatchDetail = ImportReviewHistoryPublishBa
 };
 
 export type ImportReviewHistoryPublishBatchItem = {
+    /** Apply-run id (publish_batch_id) — set by service from parent batch. */
+    run_id: string;
     id: string;
     entity_family: string;
     entity_id: string | null;
     publish_action: string | null;
     publish_status: string;
+    /** Durable review decision (does not require candidate rows). */
+    review_decision: string | null;
+    source_snapshot_version: string | null;
     review_candidate_table: string | null;
     review_candidate_id: string | null;
     external_id: string | null;
@@ -164,9 +177,15 @@ export type ImportReviewHistoryPublishBatchItem = {
     target_table: string | null;
     target_id: string | null;
     error_message: string | null;
+    /** @deprecated Prefer publish_status — kept null after candidate cleanup. */
     candidate_promotion_status: string | null;
+    before_data: unknown;
     after_data: unknown;
+    before_summary: unknown;
+    after_summary: unknown;
     validation_result: unknown;
+    applied_by: string | null;
+    applied_at: string | null;
     published_at: string | null;
     created_at: string;
 };

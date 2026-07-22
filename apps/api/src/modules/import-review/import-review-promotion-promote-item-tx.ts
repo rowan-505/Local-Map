@@ -56,6 +56,7 @@ export async function applyImportReviewPromotionItemBookkeeping(
             entityFamily: item.entity_family,
             beforeData: result.before_data,
             afterData: result.after_data ?? { id: result.target_id?.toString() ?? null },
+            appliedBy: config.promotedBy,
         });
         await repo.markCandidatePromoted({
             entityFamily: item.entity_family as ImportReviewEntityFamilySlug,
@@ -75,6 +76,7 @@ export async function applyImportReviewPromotionItemBookkeeping(
                 entityFamily: item.entity_family,
                 beforeData: result.before_data,
                 afterData: result.after_data ?? { skipped: true },
+                appliedBy: config.promotedBy,
             });
         }
         return result;

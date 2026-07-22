@@ -4,10 +4,14 @@ import { Card, CardContent } from "@/src/components/ui/card";
 
 import type { ImportReviewFilterField } from "../config/types";
 import {
+    CONFLICT_APPLY_FILTER_OPTIONS,
+    CONFLICT_COMPARISON_FILTER_OPTIONS,
+    CONFLICT_DECISION_FILTER_OPTIONS,
+} from "../utils/conflictReviewActions";
+import {
     IMPORT_REVIEW_LIMIT_CHOICES,
     IMPORT_REVIEW_SELECT_CLASS,
     IMPORT_REVIEW_SORT_OPTIONS,
-    IMPORT_REVIEW_UNREVIEWED_FILTER,
     type ImportReviewListFilters,
 } from "../utils/entityPageUtils";
 import {
@@ -18,12 +22,15 @@ import { IMPORT_REVIEW_LOADING } from "../utils/loadingMessages";
 import ImportReviewInlineSpinner from "./ImportReviewInlineSpinner";
 
 const FILTER_LABELS: Record<string, string> = {
-    match_status: "Match status",
-    auto_action: "Auto action",
-    review_status: "Review status",
+    match_status: "Comparison",
     review_decision: "Decision",
-    promotion_status: "Promotion",
-    class_code: "Class code",
+    promotion_status: "Apply status",
+};
+
+const STATIC_OPTIONS: Record<string, readonly string[]> = {
+    match_status: CONFLICT_COMPARISON_FILTER_OPTIONS,
+    review_decision: CONFLICT_DECISION_FILTER_OPTIONS,
+    promotion_status: CONFLICT_APPLY_FILTER_OPTIONS,
 };
 
 export default function ImportReviewFiltersPanel({
@@ -94,13 +101,12 @@ export default function ImportReviewFiltersPanel({
                                 className={IMPORT_REVIEW_SELECT_CLASS}
                             >
                                 <option value="">All</option>
-                                {(key === "review_status" || key === "review_decision") && (
-                                    <option value={IMPORT_REVIEW_UNREVIEWED_FILTER}>Unreviewed</option>
-                                )}
                                 {(
+                                    STATIC_OPTIONS[key] ??
                                     (Array.isArray(filterOptions?.[key])
-                                        ? filterOptions[key]
-                                        : undefined) ?? []
+                                        ? (filterOptions[key] as string[])
+                                        : undefined) ??
+                                    []
                                 ).map((v) => (
                                     <option key={v} value={v}>
                                         {v}

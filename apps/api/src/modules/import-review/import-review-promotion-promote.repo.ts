@@ -1,5 +1,10 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import {
+    extractDurablePublishItemFields,
+    mergePublishItemAfterData,
+    mergePublishItemBeforeData,
+} from "./import-review-history-durable-fields.js";
 import type { ImportReviewPublishBatchProgressRow } from "./import-review-promotion-validation.types.js";
 import type { PromotionStagePlan, PromotionWorkflowStageDef } from "./import-review-promotion-promote-stages.js";
 import {
@@ -1570,10 +1575,35 @@ export class ImportReviewPromotionPromoteRepository {
         entityFamily?: string;
         beforeData: unknown | null;
         afterData: unknown;
+        appliedBy?: bigint | null;
     }): Promise<void> {
-        const afterJson = stringifyPromotionPayload(args.afterData);
+        const existingRows = await this.prisma.$queryRaw<
+            { before_data: unknown; validation_result: unknown; after_data: unknown }[]
+        >`
+            SELECT before_data, validation_result, after_data
+            FROM system.system_publish_items
+            WHERE id = ${args.publishItemId}
+            LIMIT 1
+        `;
+        const existing = existingRows[0] ?? {
+            before_data: null,
+            validation_result: null,
+            after_data: null,
+        };
+        const durable = extractDurablePublishItemFields(existing);
+        const mergedBefore = mergePublishItemBeforeData({
+            existingBeforeData: existing.before_data,
+            coreBeforeData: args.beforeData,
+        });
+        const mergedAfter = mergePublishItemAfterData({
+            afterData: args.afterData,
+            reviewDecision: durable.review_decision,
+            appliedBy: args.appliedBy ?? null,
+            sourceSnapshotVersion: durable.source_snapshot_version,
+        });
+        const afterJson = stringifyPromotionPayload(mergedAfter);
         const beforeJson =
-            args.beforeData != null ? stringifyPromotionPayload(args.beforeData) : null;
+            mergedBefore != null ? stringifyPromotionPayload(mergedBefore) : null;
         const familyConfig =
             args.entityFamily ? getPromotionFamilyConfig(args.entityFamily) : null;
         const targetSchema =

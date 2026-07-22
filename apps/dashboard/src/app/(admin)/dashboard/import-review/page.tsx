@@ -33,7 +33,6 @@ import {
     logImportReviewUserAction,
     diffImportReviewSearchKeys,
 } from "@/src/features/import-review/utils/importReviewRequestDebug";
-import { aggregateBy, familyBucketRows } from "@/src/lib/importReviewSummaryRollups";
 import type { ImportReviewFamilySummaryMetrics } from "@/src/lib/api";
 import { isDeprecatedCoreBusImportReviewFamily } from "@/src/features/import-review/utils/deprecatedCoreBusPromotion";
 
@@ -64,41 +63,6 @@ function SectionTitle({ title, subtitle, id }: { title: string; subtitle?: strin
                 {title}
             </h2>
             {subtitle ? <p className="mt-1 text-sm text-gray-600">{subtitle}</p> : null}
-        </div>
-    );
-}
-
-function BreakdownBlock({
-    title,
-    counts,
-}: {
-    title: string;
-    counts: Record<string, number>;
-}) {
-    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-
-    if (entries.length === 0) {
-        return (
-            <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{title}</h4>
-                <p className="mt-2 text-sm text-gray-500">No rows in this bucket.</p>
-            </div>
-        );
-    }
-
-    return (
-        <div>
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{title}</h4>
-            <dl className="mt-2 max-h-48 space-y-1 overflow-y-auto pr-1 text-sm">
-                {entries.map(([k, v]) => (
-                    <div key={`${title}-${k}`} className="flex justify-between gap-4">
-                        <dt className="min-w-0 truncate text-gray-600" title={k}>
-                            {k}
-                        </dt>
-                        <dd className="shrink-0 tabular-nums font-medium text-gray-900">{v.toLocaleString()}</dd>
-                    </div>
-                ))}
-            </dl>
         </div>
     );
 }
@@ -269,15 +233,8 @@ function ImportReviewSummaryInner() {
                         <div>
                             <h1 className="text-2xl font-bold text-gray-900">Import review</h1>
                             <p className="mt-1 max-w-2xl text-sm text-gray-600">
-                                Review-package snapshot from Supabase{" "}
-                                <code className="rounded bg-gray-100 px-1 text-xs">import_review</code> via the API (
-                                grouped candidate counts). Promotion to core ships later — this dashboard only edits
-                                review candidates.
-                            </p>
-                            <p className="mt-2 text-xs text-gray-500">
-                                Data source: <strong>Supabase import_review</strong> (dashboard uses{" "}
-                                <code className="rounded bg-gray-50 px-1">NEXT_PUBLIC_API_BASE_URL</code> only — no DB
-                                connection here).
+                                Conflict-only workspace: decide duplicates, conflicts, protected matches, and
+                                possible deletes. Safe inserts/updates load outside this queue.
                             </p>
                         </div>
                         {lastUpdated && lastLoaded ? (
@@ -456,45 +413,62 @@ function ImportReviewSummaryInner() {
                     <>
                         {data.review_batch_id ? (
                             <p className="text-xs text-gray-500">
-                                Counts are scoped to review_batch_id=
-                                <span className="font-mono font-medium text-gray-700">{data.review_batch_id}</span>.
-                                Batch total includes promoted rows. Active review excludes promoted rows.
+                                Showing the active conflict batch
+                                {data.batch_name ? (
+                                    <>
+                                        {" "}
+                                        <span className="font-medium text-gray-700">{data.batch_name}</span>
+                                    </>
+                                ) : null}
+                                .
                             </p>
                         ) : null}
 
                         <section aria-labelledby="import-review-totals">
                             <SectionTitle
                                 id="import-review-totals"
-                                title="Batch rollups"
-                                subtitle="Precise counts from SQL aggregation for the selected review batch."
+                                title="Conflict workspace"
+                                subtitle="Active conflict batch only. Safe/new/unchanged rows are not shown here."
                             />
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                                <StatsCard title="Batch total candidates" value={rollup.batch_total_candidates} />
                                 <StatsCard
-                                    title="Active review candidates"
-                                    value={rollup.active_candidates}
-                                    description="Excludes promoted rows."
+                                    title="Active conflict batch"
+                                    value={data.batch_name ?? data.review_batch_id ?? "—"}
+                                    description={
+                                        data.source_snapshot_version
+                                            ? `Snapshot ${data.source_snapshot_version}`
+                                            : "Select a batch or snapshot above"
+                                    }
                                 />
                                 <StatsCard
-                                    title="Pending review"
+                                    title="Source snapshot"
+                                    value={data.source_snapshot_version ?? "—"}
+                                />
+                                <StatsCard
+                                    title="Pending conflicts"
                                     value={rollup.pending_review_candidates}
                                     statusColor="warning"
                                 />
                                 <StatsCard
-                                    title="Ready for publish"
+                                    title="Needs more review"
+                                    value={rollup.needs_review_candidates}
+                                    statusColor="warning"
+                                />
+                                <StatsCard
+                                    title="Ready to apply"
                                     value={rollup.ready_for_publish_candidates}
                                     statusColor="success"
                                 />
-                                <StatsCard title="Approved" value={rollup.approved_candidates} statusColor="success" />
-                                <StatsCard title="Rejected" value={rollup.rejected_candidates} statusColor="danger" />
-                                <StatsCard title="Needs review" value={rollup.needs_review_candidates} />
-                                <StatsCard title="Ignored" value={rollup.ignored_candidates} />
-                                <StatsCard title="Finalized" value={rollup.merged_candidates} />
-                                <StatsCard title="Promoted" value={rollup.promoted_candidates} />
+                                <StatsCard title="Applied" value={rollup.promoted_candidates} />
                                 <StatsCard
-                                    title="Promotion failed"
+                                    title="Failed"
                                     value={rollup.promotion_failed_candidates}
                                     statusColor="danger"
+                                />
+                                <StatsCard
+                                    title="Active conflicts"
+                                    value={rollup.active_candidates}
+                                    description="Excludes applied rows."
                                 />
                             </div>
                         </section>
@@ -502,8 +476,8 @@ function ImportReviewSummaryInner() {
                         <section aria-labelledby="import-review-family-metrics">
                             <SectionTitle
                                 id="import-review-family-metrics"
-                                title="Per-family review metrics"
-                                subtitle="Each family sums into the batch rollups above."
+                                title="Counts by family"
+                                subtitle="Open a family queue to decide conflicts."
                             />
                             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
                                 {familySummaries.map((f) => (
@@ -513,7 +487,7 @@ function ImportReviewSummaryInner() {
                                                 <div>
                                                     <h3 className="text-base font-semibold text-gray-900">{f.label}</h3>
                                                     <p className="text-sm text-gray-600">
-                                                        Batch total: {f.batch_total.toLocaleString()}
+                                                        Active: {f.active.toLocaleString()}
                                                     </p>
                                                 </div>
                                                 {f.slug ? (
@@ -527,86 +501,30 @@ function ImportReviewSummaryInner() {
                                                 ) : null}
                                             </div>
                                             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                                                <dt className="text-gray-500">Active</dt>
-                                                <dd className="tabular-nums font-medium">{f.active.toLocaleString()}</dd>
-                                                <dt className="text-gray-500">Promoted</dt>
-                                                <dd className="tabular-nums font-medium">{f.promoted.toLocaleString()}</dd>
                                                 <dt className="text-gray-500">Pending</dt>
-                                                <dd className="tabular-nums font-medium">{f.pending_review.toLocaleString()}</dd>
-                                                <dt className="text-gray-500">Ready for publish</dt>
+                                                <dd className="tabular-nums font-medium">
+                                                    {f.pending_review.toLocaleString()}
+                                                </dd>
+                                                <dt className="text-gray-500">Needs more review</dt>
+                                                <dd className="tabular-nums font-medium">
+                                                    {f.needs_review.toLocaleString()}
+                                                </dd>
+                                                <dt className="text-gray-500">Ready to apply</dt>
                                                 <dd className="tabular-nums font-medium">
                                                     {f.ready_for_publish.toLocaleString()}
                                                 </dd>
-                                                <dt className="text-gray-500">Approved</dt>
-                                                <dd className="tabular-nums font-medium">{f.approved.toLocaleString()}</dd>
-                                                <dt className="text-gray-500">Rejected</dt>
-                                                <dd className="tabular-nums font-medium">{f.rejected.toLocaleString()}</dd>
-                                                <dt className="text-gray-500">Needs review</dt>
-                                                <dd className="tabular-nums font-medium">{f.needs_review.toLocaleString()}</dd>
-                                                <dt className="text-gray-500">Promotion failed</dt>
+                                                <dt className="text-gray-500">Applied</dt>
+                                                <dd className="tabular-nums font-medium">
+                                                    {f.promoted.toLocaleString()}
+                                                </dd>
+                                                <dt className="text-gray-500">Failed</dt>
                                                 <dd className="tabular-nums font-medium">
                                                     {f.promotion_failed.toLocaleString()}
                                                 </dd>
-                                                {f.validation_error_count > 0 || f.validation_warning_count > 0 ? (
-                                                    <>
-                                                        <dt className="text-gray-500">Validation errors</dt>
-                                                        <dd className="tabular-nums font-medium">
-                                                            {f.validation_error_count.toLocaleString()}
-                                                        </dd>
-                                                        <dt className="text-gray-500">Validation warnings</dt>
-                                                        <dd className="tabular-nums font-medium">
-                                                            {f.validation_warning_count.toLocaleString()}
-                                                        </dd>
-                                                    </>
-                                                ) : null}
                                             </dl>
                                         </CardContent>
                                     </Card>
                                 ))}
-                            </div>
-                        </section>
-
-                        <section aria-labelledby="import-review-by-family">
-                            <SectionTitle
-                                id="import-review-by-family"
-                                title="By entity — breakdown"
-                                subtitle="Counts grouped across dimensions present in bucket rows."
-                            />
-                            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
-                                {familySummaries.map((f) => {
-                                    const rows = data ? familyBucketRows(data.entity_summaries, f.entity_family) : [];
-                                    return (
-                                        <Card key={`breakdown-${f.entity_family}`}>
-                                            <CardContent className="space-y-4 p-5">
-                                                <div className="border-b border-gray-100 pb-3">
-                                                    <h3 className="text-base font-semibold text-gray-900">{f.label}</h3>
-                                                    <p className="text-sm text-gray-600">
-                                                        Batch total: {f.batch_total.toLocaleString()} · Active:{" "}
-                                                        {f.active.toLocaleString()}
-                                                    </p>
-                                                </div>
-                                                <div className="grid gap-4 sm:grid-cols-1">
-                                                    <BreakdownBlock
-                                                        title="Match status"
-                                                        counts={aggregateBy(rows, "match_status")}
-                                                    />
-                                                    <BreakdownBlock
-                                                        title="Auto action"
-                                                        counts={aggregateBy(rows, "auto_action")}
-                                                    />
-                                                    <BreakdownBlock
-                                                        title="Review decision"
-                                                        counts={aggregateBy(rows, "review_decision")}
-                                                    />
-                                                    <BreakdownBlock
-                                                        title="Promotion status"
-                                                        counts={aggregateBy(rows, "promotion_status")}
-                                                    />
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    );
-                                })}
                             </div>
                         </section>
                     </>
