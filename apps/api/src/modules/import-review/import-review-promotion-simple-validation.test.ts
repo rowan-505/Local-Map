@@ -90,6 +90,59 @@ describe("extractSourceDisplayNamesFromRefs", () => {
     });
 });
 
+describe("validateSimplePromotionCandidateRow review approval", () => {
+    const family: ImportReviewSimplePromotionFamily = "places";
+    const config = IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY[family];
+
+    it("accepts a valid approved review_status and review_decision pair", () => {
+        const row = familyReadyRow(family, {
+            review_status: "approved",
+            review_decision: "approved",
+        });
+        const result = validateSimplePromotionCandidateRow(config, row, {
+            fkExistsByColumn: allFkExist(config),
+        });
+        assert.equal(result.errors.some((e) => e.code === "review_not_approved"), false);
+        assert.equal(result.status, "ready");
+    });
+
+    it("blocks when review_status is null", () => {
+        const row = familyReadyRow(family, { review_status: null });
+        const result = validateSimplePromotionCandidateRow(config, row, {
+            fkExistsByColumn: allFkExist(config),
+        });
+        assert.equal(result.status, "blocked");
+        assert.ok(result.errors.some((e) => e.code === "review_not_approved"));
+    });
+
+    it("blocks when review_decision is null", () => {
+        const row = familyReadyRow(family, { review_decision: null });
+        const result = validateSimplePromotionCandidateRow(config, row, {
+            fkExistsByColumn: allFkExist(config),
+        });
+        assert.equal(result.status, "blocked");
+        assert.ok(result.errors.some((e) => e.code === "review_not_approved"));
+    });
+
+    it("blocks when review_status is blank", () => {
+        const row = familyReadyRow(family, { review_status: "   " });
+        const result = validateSimplePromotionCandidateRow(config, row, {
+            fkExistsByColumn: allFkExist(config),
+        });
+        assert.equal(result.status, "blocked");
+        assert.ok(result.errors.some((e) => e.code === "review_not_approved"));
+    });
+
+    it("blocks when review_decision is blank", () => {
+        const row = familyReadyRow(family, { review_decision: "" });
+        const result = validateSimplePromotionCandidateRow(config, row, {
+            fkExistsByColumn: allFkExist(config),
+        });
+        assert.equal(result.status, "blocked");
+        assert.ok(result.errors.some((e) => e.code === "review_not_approved"));
+    });
+});
+
 describe("validateSimplePromotionCandidateRow per family", () => {
     for (const family of listPromotableFamilies()) {
         const config = IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY[family];
@@ -254,7 +307,11 @@ describe("validateSimplePromotionCandidateRow per family", () => {
 
     it("buildings: blocked when manual_protected", () => {
         const config = IMPORT_REVIEW_SIMPLE_PROMOTION_REGISTRY.buildings;
-        const row = familyReadyRow("buildings", { match_status: "manual_protected" });
+        // Guard only fires when there is no Apply-batch decision yet.
+        const row = familyReadyRow("buildings", {
+            match_status: "manual_protected",
+            review_decision: null,
+        });
         const result = validateSimplePromotionCandidateRow(config, row, {
             fkExistsByColumn: allFkExist(config),
         });

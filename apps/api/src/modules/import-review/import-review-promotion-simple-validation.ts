@@ -306,18 +306,30 @@ function validateReviewApproval(
 ): void {
     const status = trimString(row.review_status);
     const decision = trimString(row.review_decision);
+    if (status === null || decision === null) {
+        pushError(
+            errors,
+            "review_not_approved",
+            "Candidate must have an Apply-batch review_decision with matching review_status.",
+            "review_status"
+        );
+        return;
+    }
+    // Local string bindings so narrowing is explicit for the includes() checks below.
+    const reviewStatus: string = status;
+    const reviewDecision: string = decision;
     const writeOk =
-        status === "approved" &&
+        reviewStatus === "approved" &&
         [
             "approved",
             "replace_existing",
             "merge_fields",
             "insert_separate",
             "confirm_soft_delete",
-        ].includes(decision);
+        ].includes(reviewDecision);
     const skipOk =
-        ["ignored", "merged", "approved"].includes(status) &&
-        ["keep_existing", "ignore_import", "mark_duplicate", "merged"].includes(decision);
+        ["ignored", "merged", "approved"].includes(reviewStatus) &&
+        ["keep_existing", "ignore_import", "mark_duplicate", "merged"].includes(reviewDecision);
     if (!writeOk && !skipOk) {
         pushError(
             errors,
