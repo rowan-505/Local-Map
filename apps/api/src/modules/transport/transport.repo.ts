@@ -3760,7 +3760,12 @@ export class TransportRepository {
         if (params.fieldSources.admin_area_id) {
             const adminAreaId = applyField("admin_area_id") as number | null;
             if (adminAreaId !== null) {
-                await this.assertReferenceExists("admin_area_id", adminAreaId, params.canonicalId);
+                await this.assertReferenceExists(
+                    tx,
+                    "admin_area_id",
+                    adminAreaId,
+                    params.canonicalId,
+                );
             }
             sets.push(Prisma.sql`admin_area_id = ${adminAreaId}`);
         }
@@ -4001,10 +4006,16 @@ export class TransportRepository {
 
             if (options.fieldSources && Object.keys(options.fieldSources).length > 0) {
                 stage = "apply_field_sources";
-                const [currentRow, candidateRow] = await Promise.all([
-                    this.loadMergePreviewStopRow(tx, options.currentStopPublicId),
-                    this.loadMergePreviewStopRow(tx, options.candidateStopPublicId),
-                ]);
+                // Sequential on the same interactive transaction client — parallel
+                // queries can starve a connection_limit=1 pool (Prisma P2024).
+                const currentRow = await this.loadMergePreviewStopRow(
+                    tx,
+                    options.currentStopPublicId,
+                );
+                const candidateRow = await this.loadMergePreviewStopRow(
+                    tx,
+                    options.candidateStopPublicId,
+                );
                 if (!currentRow || !candidateRow) {
                     throw new TransportNotFoundError(
                         "stop",
@@ -4365,14 +4376,19 @@ export class TransportRepository {
         }
     }
 
-    /** Confirms an FK target row exists; throws {@link TransportInvalidReferenceError} otherwise. */
+    /**
+     * Confirms an FK target row exists; throws {@link TransportInvalidReferenceError} otherwise.
+     * Callers inside an interactive transaction MUST pass that transaction client so the
+     * lookup reuses the held connection (avoids Prisma P2024 with connection_limit=1).
+     */
     private async assertReferenceExists(
+        client: Pick<Prisma.TransactionClient, "$queryRaw">,
         field: "admin_area_id" | "parent_stop_id",
         id: number,
         currentStopId: bigint
     ): Promise<void> {
         if (field === "admin_area_id") {
-            const rows = await this.prisma.$queryRaw<{ ok: number }[]>`
+            const rows = await client.$queryRaw<{ ok: number }[]>`
                 SELECT 1 AS ok FROM core.core_admin_areas WHERE id = ${id} LIMIT 1
             `;
             if (!rows[0]) {
@@ -4384,7 +4400,7 @@ export class TransportRepository {
         if (BigInt(id) === currentStopId) {
             throw new TransportInvalidReferenceError(field);
         }
-        const rows = await this.prisma.$queryRaw<{ ok: number }[]>`
+        const rows = await client.$queryRaw<{ ok: number }[]>`
             SELECT 1 AS ok FROM transport.stops WHERE id = ${id} AND deleted_at IS NULL LIMIT 1
         `;
         if (!rows[0]) {
@@ -4407,10 +4423,10 @@ export class TransportRepository {
         const stopId = await this.getStopIdByPublicId(publicId);
 
         if (input.admin_area_id !== undefined && input.admin_area_id !== null) {
-            await this.assertReferenceExists("admin_area_id", input.admin_area_id, stopId);
+            await this.assertReferenceExists(this.prisma, "admin_area_id", input.admin_area_id, stopId);
         }
         if (input.parent_stop_id !== undefined && input.parent_stop_id !== null) {
-            await this.assertReferenceExists("parent_stop_id", input.parent_stop_id, stopId);
+            await this.assertReferenceExists(this.prisma, "parent_stop_id", input.parent_stop_id, stopId);
         }
 
         const sets: Prisma.Sql[] = [];
