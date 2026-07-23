@@ -13,8 +13,13 @@ export SUPABASE_READ_DATABASE_URL="postgresql://readonly_user:PASSWORD@db.<proje
 # Keep it set so scripts can refuse to mix read and write targets.
 export SUPABASE_WRITE_DATABASE_URL="postgresql://postgres:PASSWORD@db.<project-ref>.supabase.co:5432/postgres"
 
+# Do NOT set DATABASE_URL here for pipeline writes.
+# API/Martin may use DATABASE_URL elsewhere; pipeline tools refuse it as a silent write target.
+# See docs/database-target-safety.md
+
 # Optional explicit project reference (otherwise derived from db.<ref>.supabase.co).
 export SUPABASE_PROJECT_REF="<project-ref>"
+export DB_TARGET_PRODUCTION_PROJECT_REF="<project-ref>"
 
 # Legacy FDW parts (used only when SUPABASE_READ_DATABASE_URL is unset).
 # export SUPABASE_DB_HOST="db.<project-ref>.supabase.co"

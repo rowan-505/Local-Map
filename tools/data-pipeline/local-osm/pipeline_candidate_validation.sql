@@ -9,6 +9,8 @@
 
 CREATE SCHEMA IF NOT EXISTS system;
 
+\ir pipeline_settlements.sql
+
 -- Approximate Myanmar mainland + islands bounding box (WGS84).
 CREATE OR REPLACE FUNCTION system.pipeline_geom_in_myanmar_bounds(p_geom geometry)
 RETURNS boolean
@@ -103,6 +105,17 @@ BEGIN
         WHEN 'places' THEN
             v_expect_point := true;
             v_require_class := true;
+            -- Settlements: name is required (missing_required_name → invalid).
+            IF system.pipeline_settlement_requires_name(p_class_code) THEN
+                v_require_name := true;
+                v_allow_missing_name_as_warning := false;
+            END IF;
+            -- Unknown place=* leaf that slipped through mapping.
+            IF nullif(btrim(coalesce(p_normalized_data->>'source_category_hint', '')), '') = 'settlement'
+               AND NOT system.pipeline_is_settlement_place(p_class_code) THEN
+                v_notes := array_append(v_notes, 'unsupported_type');
+                v_invalid := true;
+            END IF;
         WHEN 'routing_barriers' THEN
             -- Barriers may be points or linear obstacles.
             NULL;
@@ -176,13 +189,27 @@ BEGIN
     END IF;
 
     IF v_require_name AND nullif(btrim(p_canonical_name), '') IS NULL THEN
-        v_notes := array_append(v_notes, 'required_name_missing');
+        IF system.pipeline_settlement_requires_name(p_class_code) THEN
+            v_notes := array_append(v_notes, 'missing_required_name');
+        ELSE
+            v_notes := array_append(v_notes, 'required_name_missing');
+        END IF;
         v_invalid := true;
     ELSIF v_allow_missing_name_as_warning
           AND v_family IN ('roads', 'places', 'buildings', 'landuse', 'water_lines', 'water_polygons')
           AND nullif(btrim(p_canonical_name), '') IS NULL THEN
         v_notes := array_append(v_notes, 'optional_name_missing');
         v_warning := true;
+    END IF;
+
+    -- Settlement admin assignment: required types without covering admin → invalid.
+    IF v_family = 'places'
+       AND system.pipeline_settlement_requires_admin(p_class_code)
+       AND coalesce(p_normalized_data->>'admin_area_id', '') = ''
+       AND coalesce(p_normalized_data->>'core_admin_area_id', '') = ''
+       AND coalesce(p_normalized_data->>'admin_area_candidate_id', '') = '' THEN
+        v_notes := array_append(v_notes, 'outside_admin');
+        v_invalid := true;
     END IF;
 
     -- Source fields needed for loading.

@@ -22,6 +22,7 @@ import {
 import type {
     ImportReviewPublishBatchDryRunApiResponse,
     PublishBatchDryRunDuplicateSample,
+    PublishBatchDryRunExactAction,
     PublishBatchDryRunSampleError,
 } from "./import-review-promotion-batch-dry-run.types.js";
 import {
@@ -30,6 +31,10 @@ import {
 } from "./import-review-promotion-batch-failure-cleanup.js";
 import { ImportReviewPublishBatchNotFoundError } from "./import-review-promotion.errors.js";
 import { parsePublishItemValidationResult } from "./import-review-promotion-publish-item-validation.js";
+import {
+    fieldChoicesFromOverridesArchive,
+    parseFieldChoicesFromReviewNote,
+} from "./import-review-decision-publish-action.js";
 
 type DryRunItemRow = {
     publish_item_id: bigint;
@@ -177,10 +182,12 @@ export async function runPublishBatchDryRun(args: {
 
         let would_insert_count = 0;
         let would_update_count = 0;
+        let would_skip_count = 0;
         let blocked_count = 0;
         let failed_count = 0;
         let ready_count = 0;
         const sample_errors: PublishBatchDryRunSampleError[] = [];
+        const exact_actions: PublishBatchDryRunExactAction[] = [];
 
         const readyRoadIds: bigint[] = [];
         const pendingItemRows = itemRows.filter((row) => row.publish_status === "pending");
@@ -201,7 +208,9 @@ export async function runPublishBatchDryRun(args: {
         for (const row of pendingItemRows) {
             const parsed = parsePublishItemValidationResult(row.validation_result);
             if (parsed.status === "ready" || parsed.status === "valid") {
-                if (row.publish_action === "update" || row.publish_action === "merge") {
+                if (row.publish_action === "skip") {
+                    would_skip_count += 1;
+                } else if (row.publish_action === "update" || row.publish_action === "merge") {
                     would_update_count += 1;
                 } else {
                     would_insert_count += 1;
@@ -209,6 +218,86 @@ export async function runPublishBatchDryRun(args: {
                 if (row.entity_family === "roads") {
                     readyRoadIds.push(row.publish_item_id);
                 }
+            }
+        }
+
+        const placeItemIds = pendingItemRows
+            .filter((row) => row.entity_family === "places")
+            .map((row) => row.publish_item_id);
+        if (placeItemIds.length > 0) {
+            const placeRows = await args.prisma.$queryRaw<
+                {
+                    publish_item_id: bigint;
+                    candidate_id: bigint | null;
+                    external_id: string | null;
+                    review_decision: string | null;
+                    matched_core_id: bigint | null;
+                    publish_action: string;
+                    review_note: string | null;
+                    review_overrides_archive: unknown;
+                    validation_result: unknown;
+                }[]
+            >`
+                SELECT
+                    spi.id AS publish_item_id,
+                    p.id AS candidate_id,
+                    spi.external_id,
+                    coalesce(spi.review_decision, p.review_decision) AS review_decision,
+                    p.matched_core_id,
+                    spi.publish_action,
+                    p.review_note,
+                    p.review_overrides_archive,
+                    spi.validation_result
+                FROM system.system_publish_items AS spi
+                LEFT JOIN import_review.place_candidates AS p
+                    ON p.id = spi.review_candidate_id
+                   AND spi.review_candidate_table = 'import_review.place_candidates'
+                WHERE spi.id IN (${Prisma.join(placeItemIds)})
+            `;
+
+            for (const place of placeRows) {
+                const parsed = parsePublishItemValidationResult(place.validation_result);
+                const fromNote = parseFieldChoicesFromReviewNote(place.review_note);
+                const fromArchive = fieldChoicesFromOverridesArchive(place.review_overrides_archive);
+                const selected_fields = Object.keys({ ...fromArchive, ...fromNote });
+                let action: PublishBatchDryRunExactAction["action"] =
+                    place.publish_action === "insert" ||
+                    place.publish_action === "update" ||
+                    place.publish_action === "merge" ||
+                    place.publish_action === "skip"
+                        ? place.publish_action
+                        : "no-op";
+                let blocked_reason: string | null = null;
+                if (parsed.status !== "ready" && parsed.status !== "valid") {
+                    action = "blocked";
+                    blocked_reason =
+                        parsed.errors?.[0]?.message ??
+                        `validation_status=${parsed.status ?? "unknown"}`;
+                } else if (
+                    place.publish_action === "merge" &&
+                    selected_fields.length === 0
+                ) {
+                    action = "blocked";
+                    blocked_reason = "merge_fields requires an explicit field_choices map.";
+                } else if (
+                    (place.publish_action === "update" || place.publish_action === "merge") &&
+                    place.matched_core_id == null
+                ) {
+                    action = "blocked";
+                    blocked_reason = "matched_core_id is required for update/merge.";
+                }
+                exact_actions.push({
+                    publish_item_id: Number(place.publish_item_id),
+                    candidate_id: place.candidate_id != null ? Number(place.candidate_id) : null,
+                    external_id: place.external_id,
+                    review_decision: place.review_decision,
+                    core_target_id:
+                        place.matched_core_id != null ? Number(place.matched_core_id) : null,
+                    action,
+                    selected_fields,
+                    validation_status: parsed.status,
+                    blocked_reason,
+                });
             }
         }
 
@@ -261,7 +350,9 @@ export async function runPublishBatchDryRun(args: {
                 }
                 dryRunFailedIds.add(key);
                 const row = pendingItemRows.find((r) => r.publish_item_id === issue.publish_item_id);
-                if (row?.publish_action === "update" || row?.publish_action === "merge") {
+                if (row?.publish_action === "skip") {
+                    would_skip_count = Math.max(0, would_skip_count - 1);
+                } else if (row?.publish_action === "update" || row?.publish_action === "merge") {
                     would_update_count = Math.max(0, would_update_count - 1);
                 } else {
                     would_insert_count = Math.max(0, would_insert_count - 1);
@@ -279,12 +370,12 @@ export async function runPublishBatchDryRun(args: {
             }
         }
 
-        const promotable = would_insert_count + would_update_count;
+        const promotable = would_insert_count + would_update_count + would_skip_count;
         const dryRunStatus = promotable > 0 ? "passed" : "failed";
         const entityFamilies = [...new Set(itemRows.map((row) => row.entity_family))];
         const message =
             dryRunStatus === "passed"
-                ? `Dry-run passed: ${would_insert_count} insert(s), ${would_update_count} update(s).`
+                ? `Dry-run passed: ${would_insert_count} insert(s), ${would_update_count} update(s), ${would_skip_count} skip(s).`
                 : "Dry-run failed. Fix sample errors and re-validate.";
 
         const response = buildPublishBatchDryRunApiResponse({
@@ -297,10 +388,12 @@ export async function runPublishBatchDryRun(args: {
             failedCount: failed_count,
             wouldInsertCount: would_insert_count,
             wouldUpdateCount: would_update_count,
+            wouldSkipCount: would_skip_count,
             duplicateFixedCount: duplicate_fixed_count,
             duplicateBlockedCount: duplicate_blocked_count,
             duplicateSamples: duplicate_samples,
             sampleErrors: sample_errors,
+            exactActions: exact_actions,
             batchStatus: storedStatus,
             message,
         });

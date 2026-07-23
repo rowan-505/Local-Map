@@ -1,0 +1,107 @@
+=== database target identity ===
+target=production
+target_label=production-write (SUPABASE_WRITE_DATABASE_URL)
+target_role=write
+database_url=postgresql://postgres.locghyuranqaqsnbxflc:***@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+production_project_ref=locghyuranqaqsnbxflc
+production_url_fingerprint=postgres.locghyuranqaqsnbxflc@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+production_url_masked=postgresql://postgres.locghyuranqaqsnbxflc:***@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+database=postgres
+server_addr=2406:da14:271:9922:3e42:d936:1bc4:b722
+server_port=5432
+db_user=postgres
+================================
+batch_id=77
+batch_code=water_polygons_kyauktan_safe_2026_07_23
+entity_family=water_polygons
+source_snapshot_id=4
+source_snapshot_version=osm_myanmar_2026_05_15_kyauktan_v2
+batch_status=loaded
+expected_row_count=3
+loaded_row_count=3
+mode=dry_run (default; no durable write)
+
+=== water_polygons_safe_loader ===
+target=production
+mode=dry_run
+dry_run_sql=true
+sample_limit=0
+batch_id=77
+batch_code=water_polygons_kyauktan_safe_2026_07_23
+source_snapshot_id=4
+source_snapshot_version=osm_myanmar_2026_05_15_kyauktan_v2
+expected_row_count=3
+loaded_row_count=3
+log=/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/reports/water_polygons_loader_production_water_polygons_kyauktan_safe_2026_07_23_dry_run_20260723T020917Z.log
+started_at=2026-07-23T02:09:17Z
+
+SET
+Pager usage is off.
+BEGIN
+DROP TABLE
+[02:09:17] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader.sql:27: NOTICE:  table "water_polygons_loader_params" does not exist, skipping
+CREATE TABLE
+INSERT 0 1
+DO
+DO
+DROP TABLE
+[02:09:17] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:26: NOTICE:  table "water_polygons_loader_batch" does not exist, skipping
+CREATE TABLE
+INSERT 0 1
+DO
+[02:09:18] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:87: NOTICE:  water_polygons_loader [5%] precheck ok batch=water_polygons_kyauktan_safe_2026_07_23 dry_run=t actual=3 safe_new=3 safe_update=0 other_ignored=0 elapsed_ms=0.85
+DROP TABLE
+[02:09:18] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:89: NOTICE:  table "water_polygons_loader_work" does not exist, skipping
+SELECT 3
+CREATE INDEX
+CREATE INDEX
+DO
+[02:09:18] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:120: NOTICE:  water_polygons_loader [15%] work rows ready n=3
+UPDATE 3
+DROP TABLE
+[02:09:18] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:127: NOTICE:  table "water_polygons_loader_core_by_identity" does not exist, skipping
+SELECT 3
+CREATE INDEX
+DROP TABLE
+[02:09:18] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:137: NOTICE:  table "water_polygons_loader_core_by_id" does not exist, skipping
+SELECT 12
+CREATE INDEX
+DO
+[02:09:18] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:144: NOTICE:  water_polygons_loader [30%] building plan (match + classify)...
+DROP TABLE
+[02:09:18] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:146: NOTICE:  table "water_polygons_loader_plan" does not exist, skipping
+CREATE TABLE
+INSERT 0 3
+DO
+[02:09:19] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:256: NOTICE:  water_polygons_loader [45%] plan ready total=3 insert=0 update=0 skip=3 fail=0
+DROP TABLE
+[02:09:19] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:258: NOTICE:  table "water_polygons_loader_result" does not exist, skipping
+CREATE TABLE
+INSERT 0 1
+[02:09:19] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:470: NOTICE:  water_polygons_loader [50%] insert start total=0 chunk=200
+[02:09:19] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:470: NOTICE:  water_polygons_loader [70%] insert skipped (0 rows)
+DO
+[02:09:19] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:470: NOTICE:  water_polygons_loader [75%] updates starting...
+[02:09:19] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:470: NOTICE:  water_polygons_loader [90%] updates complete
+UPDATE 1
+DO
+[02:09:19] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:476: NOTICE:  water_polygons_loader [95%] writing publish batch + batch summary...
+UPDATE 1
+UPDATE 1
+DO
+[02:09:19] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/water_polygons_safe_loader_body.sql:541: NOTICE:  water_polygons_loader [100%] done dry_run=t inserted=0 updated=0 skipped=3 failed=0 names=0 core_before=12 core_after=12 delta=0 duration_ms=4.17
+              section              | dry_run |               batch_code                | inserted | updated | skipped | failed | names_written | publish_batch_id | core_before | core_after | core_delta | duration_ms 
+-----------------------------------+---------+-----------------------------------------+----------+---------+---------+--------+---------------+------------------+-------------+------------+------------+-------------
+ water_polygons_safe_loader_result | t       | water_polygons_kyauktan_safe_2026_07_23 |        0 |       0 |       3 |      0 |             0 |              134 |          12 |         12 |          0 |        4.17
+(1 row)
+
+             section             | action | n |              sample_skip              | sample_fail 
+---------------------------------+--------+---+---------------------------------------+-------------
+ water_polygons_safe_loader_plan | skip   | 3 | identity already in core (rerun skip) | 
+(1 row)
+
+ROLLBACK
+water_polygons_safe_loader: DRY RUN rolled back — no durable core writes
+finished_at=2026-07-23T02:09:19Z
+loader_exit=0
+log=/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/reports/water_polygons_loader_production_water_polygons_kyauktan_safe_2026_07_23_dry_run_20260723T020917Z.log

@@ -37,8 +37,15 @@ function createMergePreviewPrisma(options: {
         direction_id: number | null;
         stop_sequence: number;
     }>;
+    terminalRows?: Array<{
+        id: bigint;
+        public_id: string;
+        linked_stop_id: bigint;
+        name: string;
+    }>;
 }): PrismaClient {
     const usageRows = options.usageRows ?? [];
+    const terminalRows = options.terminalRows ?? [];
 
     const queryRaw: RawHandler = async (arg) => {
         const sql = extractSql(arg);
@@ -91,7 +98,7 @@ function createMergePreviewPrisma(options: {
         if (sql.includes("ST_Equals") || sql.includes("geom_same") || sql.includes("ST_Distance")) {
             return [{ geom_same: false, geom_distance_m: 12.5 }];
         }
-        if (sql.includes("current_route_stops")) {
+        if (sql.includes("AS current_route_stops") || sql.includes("current_route_stops")) {
             return [
                 {
                     current_route_stops: BigInt(usageRows.filter((r) => r.stop_internal_id === 1n).length),
@@ -100,8 +107,12 @@ function createMergePreviewPrisma(options: {
                     candidate_variant_origins: 0n,
                     current_variant_destinations: 0n,
                     candidate_variant_destinations: 0n,
-                    current_terminals: 0n,
-                    candidate_terminals: 0n,
+                    current_terminals: BigInt(
+                        terminalRows.filter((r) => r.linked_stop_id === 1n).length,
+                    ),
+                    candidate_terminals: BigInt(
+                        terminalRows.filter((r) => r.linked_stop_id === 2n).length,
+                    ),
                     current_fares_origin: 0n,
                     candidate_fares_origin: 0n,
                     current_fares_destination: 0n,
@@ -114,6 +125,13 @@ function createMergePreviewPrisma(options: {
                     candidate_source_links: 0n,
                 },
             ];
+        }
+        if (
+            sql.includes("FROM transport.terminals") &&
+            sql.includes("public_id") &&
+            !sql.includes("current_terminals")
+        ) {
+            return terminalRows;
         }
         if (sql.includes("FROM transport.route_stops rs") || sql.includes("stop_internal_id")) {
             return usageRows;
@@ -234,5 +252,35 @@ describe("TransportRepository.getStopMergePreview bigint serialization", () => {
         assert.equal(preview.sequenceConflicts.length, 0);
         assert.equal(preview.mergeAllowed, true);
         assert.ok(preview.sameVariantWarning);
+    });
+
+    it("blocks merge when both stops have active terminals", async () => {
+        const prisma = createMergePreviewPrisma({
+            currentAdminAreaId: 5801n,
+            candidateAdminAreaId: 5801n,
+            terminalRows: [
+                {
+                    id: 101n,
+                    public_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                    linked_stop_id: 1n,
+                    name: "Current terminal",
+                },
+                {
+                    id: 202n,
+                    public_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                    linked_stop_id: 2n,
+                    name: "Candidate terminal",
+                },
+            ],
+        });
+        const repo = new TransportRepository(prisma);
+        const preview = await repo.getStopMergePreview(CURRENT_ID, CANDIDATE_ID);
+
+        assert.equal(preview.terminalConflict.exists, true);
+        assert.equal(preview.mergeAllowed, false);
+        assert.ok(preview.mergeBlockers.includes("MERGE_TERMINAL_CONFLICT"));
+        assert.equal(preview.terminalConflict.canonicalTerminal?.id, "101");
+        assert.equal(preview.terminalConflict.duplicateTerminal?.id, "202");
+        assert.doesNotThrow(() => JSON.stringify(preview));
     });
 });

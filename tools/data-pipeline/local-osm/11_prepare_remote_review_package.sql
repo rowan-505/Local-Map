@@ -18,6 +18,9 @@
 --   replace_package         optional true|false; default false
 --                           (same-name + same-snapshot auto-replaces when conflict_only)
 --   conflict_only           optional true|false; default true
+--   settlements_only        optional true|false; default false
+--   exclude_settlements     optional true|false; default false (places IR: non-settlement only)
+--                           when true, places package includes only settlement place=* rows
 -- =============================================================================
 
 \pset pager off
@@ -56,6 +59,16 @@
 \if :{?conflict_only}
 \else
 \set conflict_only true
+\endif
+
+\if :{?settlements_only}
+\else
+\set settlements_only false
+\endif
+
+\if :{?exclude_settlements}
+\else
+\set exclude_settlements false
 \endif
 
 BEGIN;
@@ -134,7 +147,9 @@ CREATE TEMPORARY TABLE stage11_params (
     max_rows_per_family integer,
     package_name_input text,
     replace_package boolean not null DEFAULT false,
-    conflict_only boolean not null DEFAULT true
+    conflict_only boolean not null DEFAULT true,
+    settlements_only boolean not null DEFAULT false,
+    exclude_settlements boolean not null DEFAULT false
 );
 
 INSERT INTO stage11_params (
@@ -144,7 +159,9 @@ INSERT INTO stage11_params (
     max_rows_per_family,
     package_name_input,
     replace_package,
-    conflict_only
+    conflict_only,
+    settlements_only,
+    exclude_settlements
 )
 VALUES (
     NULLIF(trim(:'snapshot_version'), ''),
@@ -156,7 +173,9 @@ VALUES (
     END,
     NULLIF(trim(:'package_name'), ''),
     lower(coalesce(nullif(btrim(:'replace_package'), ''), 'false')) IN ('true', 't', '1', 'yes'),
-    lower(coalesce(nullif(btrim(:'conflict_only'), ''), 'true')) IN ('true', 't', '1', 'yes')
+    lower(coalesce(nullif(btrim(:'conflict_only'), ''), 'true')) IN ('true', 't', '1', 'yes'),
+    lower(coalesce(nullif(btrim(:'settlements_only'), ''), 'false')) IN ('true', 't', '1', 'yes'),
+    lower(coalesce(nullif(btrim(:'exclude_settlements'), ''), 'false')) IN ('true', 't', '1', 'yes')
 );
 
 DO $v$
@@ -399,10 +418,12 @@ DECLARE
     v_direct bigint;
     v_unchanged bigint;
     v_ir_conflicts bigint;
+    v_pmtiles_only bigint;
     v_fam_valid bigint;
     v_fam_direct bigint;
     v_fam_unchanged bigint;
     v_fam_ir bigint;
+    v_fam_pmtiles bigint;
     v_del_n bigint;
 BEGIN
     SELECT * INTO STRICT prm FROM stage11_params;
@@ -532,6 +553,26 @@ BEGIN
             $cf$;
         ELSE
             v_conflict_filter := '';
+        END IF;
+
+        IF prm.settlements_only AND v_fe.entity_family = 'places' THEN
+            v_conflict_filter := v_conflict_filter || $cf$
+              AND (
+                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                  )
+            $cf$;
+        END IF;
+
+        IF prm.exclude_settlements AND v_fe.entity_family = 'places' THEN
+            v_conflict_filter := v_conflict_filter || $cf$
+              AND NOT (
+                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                  )
+            $cf$;
         END IF;
 
         v_child_join := '';
@@ -1305,6 +1346,7 @@ $ex$,
         v_direct := 0;
         v_unchanged := 0;
         v_ir_conflicts := 0;
+        v_pmtiles_only := 0;
 
         FOR v_fe IN
             SELECT fe.*
@@ -1330,37 +1372,121 @@ $ex$,
                 SELECT
                     count(*) FILTER (
                         WHERE coalesce(validation_status, 'valid') NOT IN ('invalid', 'blocked', 'failed')
+                          AND (
+                            CASE
+                                WHEN $2 AND %3$L = 'places' THEN (
+                                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                                )
+                                WHEN $3 AND %3$L = 'places' THEN NOT (
+                                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                                )
+                                ELSE true
+                            END
+                          )
                     ),
-                    count(*) FILTER (WHERE import_class = ANY (system.pipeline_direct_core_classes())),
-                    count(*) FILTER (WHERE import_class = 'unchanged'),
+                    count(*) FILTER (
+                        WHERE import_class = ANY (system.pipeline_direct_core_classes())
+                          AND (
+                            CASE
+                                WHEN $2 AND %3$L = 'places' THEN (
+                                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                                )
+                                WHEN $3 AND %3$L = 'places' THEN NOT (
+                                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                                )
+                                ELSE true
+                            END
+                          )
+                    ),
+                    count(*) FILTER (
+                        WHERE import_class = 'unchanged'
+                          AND (
+                            CASE
+                                WHEN $2 AND %3$L = 'places' THEN (
+                                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                                )
+                                WHEN $3 AND %3$L = 'places' THEN NOT (
+                                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                                )
+                                ELSE true
+                            END
+                          )
+                    ),
                     count(*) FILTER (
                         WHERE import_class IN (
                             'duplicate', 'conflict', 'manual_protected', 'verified_conflict'
                         )
+                          AND (
+                            CASE
+                                WHEN $2 AND %3$L = 'places' THEN (
+                                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                                )
+                                WHEN $3 AND %3$L = 'places' THEN NOT (
+                                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                                )
+                                ELSE true
+                            END
+                          )
+                    ),
+                    count(*) FILTER (
+                        WHERE import_class = 'pmtiles_only'
+                          AND (
+                            CASE
+                                WHEN $2 AND %3$L = 'places' THEN (
+                                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                                )
+                                WHEN $3 AND %3$L = 'places' THEN NOT (
+                                    system.pipeline_is_settlement_place(to_jsonb(s) ->> 'class_code')
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_classification', ''))) = 'settlement'
+                                    OR lower(btrim(coalesce(to_jsonb(s) ->> 'source_category_hint', ''))) = 'settlement'
+                                )
+                                ELSE true
+                            END
+                          )
                     )
-                FROM %I.%I
-                WHERE source_snapshot_id = $1
+                FROM %1$I.%2$I AS s
+                WHERE s.source_snapshot_id = $1
                 $a$,
                 v_schema,
-                v_fe.staging_table
+                v_fe.staging_table,
+                v_fe.entity_family
             )
-            INTO v_fam_valid, v_fam_direct, v_fam_unchanged, v_fam_ir
-            USING ctx.source_snapshot_id;
+            INTO v_fam_valid, v_fam_direct, v_fam_unchanged, v_fam_ir, v_fam_pmtiles
+            USING ctx.source_snapshot_id, prm.settlements_only, prm.exclude_settlements;
 
             v_valid := v_valid + v_fam_valid;
             v_direct := v_direct + v_fam_direct;
             v_unchanged := v_unchanged + v_fam_unchanged;
             v_ir_conflicts := v_ir_conflicts + v_fam_ir;
+            v_pmtiles_only := v_pmtiles_only + coalesce(v_fam_pmtiles, 0);
         END LOOP;
 
         SELECT count(*) INTO STRICT v_tot
         FROM system.system_remote_review_package_items
         WHERE package_id = v_pkg_id;
 
-        IF v_valid <> (v_direct + v_unchanged + v_ir_conflicts) THEN
+        IF v_valid <> (v_direct + v_unchanged + v_ir_conflicts + v_pmtiles_only) THEN
             RAISE EXCEPTION
-                'Stage J assertion failed: valid(%) <> direct-core(%) + unchanged(%) + ir_conflicts(%)',
-                v_valid, v_direct, v_unchanged, v_ir_conflicts;
+                'Stage J assertion failed: valid(%) <> direct-core(%) + unchanged(%) + ir_conflicts(%) + pmtiles_only(%)',
+                v_valid, v_direct, v_unchanged, v_ir_conflicts, v_pmtiles_only;
         END IF;
 
         IF (

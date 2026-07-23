@@ -63,6 +63,30 @@ DELETE FROM import_work.place_rows AS r
 USING import_work_cleanup_targets AS t
 WHERE r.import_batch_id = t.batch_id;
 
+DELETE FROM import_work.building_rows AS r
+USING import_work_cleanup_targets AS t
+WHERE r.import_batch_id = t.batch_id;
+
+DELETE FROM import_work.landuse_rows AS r
+USING import_work_cleanup_targets AS t
+WHERE r.import_batch_id = t.batch_id;
+
+DELETE FROM import_work.water_line_rows AS r
+USING import_work_cleanup_targets AS t
+WHERE r.import_batch_id = t.batch_id;
+
+DELETE FROM import_work.water_polygon_rows AS r
+USING import_work_cleanup_targets AS t
+WHERE r.import_batch_id = t.batch_id;
+
+DELETE FROM import_work.routing_barrier_rows AS r
+USING import_work_cleanup_targets AS t
+WHERE r.import_batch_id = t.batch_id;
+
+DELETE FROM import_work.road_rows AS r
+USING import_work_cleanup_targets AS t
+WHERE r.import_batch_id = t.batch_id;
+
 UPDATE import_work.import_batches AS b
 SET
     status = 'cleaned',

@@ -44,11 +44,11 @@ else
   CONFIRM_WRITE="${CONFIRM_WRITE:-false}"
 fi
 
-DB_URL="${LOCAL_DATABASE_URL:-${DATABASE_URL:-}}"
-if [[ -z "${DB_URL}" ]]; then
-  echo "error: set DATABASE_URL or LOCAL_DATABASE_URL in env file" >&2
+if [[ -z "${LOCAL_DATABASE_URL:-}" ]]; then
+  echo "error: set LOCAL_DATABASE_URL in env file (DATABASE_URL is not accepted)" >&2
   exit 1
 fi
+DB_URL="${LOCAL_DATABASE_URL}"
 
 DRY_RUN_NORM="$(printf '%s' "${DRY_RUN}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${DRY_RUN_NORM}" != "true" && "${DRY_RUN_NORM}" != "t" && "${DRY_RUN_NORM}" != "1" && "${DRY_RUN_NORM}" != "yes" ]]; then

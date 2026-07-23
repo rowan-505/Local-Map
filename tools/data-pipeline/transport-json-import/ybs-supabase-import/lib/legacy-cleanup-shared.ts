@@ -10,8 +10,14 @@ import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
 import type pg from "pg";
 
+import {
+    requirePipelineDatabaseUrl,
+    type PipelineDbTarget,
+} from "./resolve-pipeline-db-url.js";
 import { isProtectedReviewStatus } from "./supabase-schema-map.js";
 import { YBS_SOURCE_KIND, YBS_SOURCE_NAME } from "./source-link-utils.js";
+
+export type { PipelineDbTarget };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(__dirname, "../../../../");
@@ -136,17 +142,18 @@ export function loadEnv(): void {
     loadDotenv({ path: join(REPO_ROOT, "apps/api/.env") });
 }
 
-export function getDatabaseUrl(): string {
-    const url =
-        process.env.SUPABASE_DB_URL ??
-        process.env.DATABASE_URL ??
-        process.env.DIRECT_URL;
-    if (!url) {
-        throw new Error(
-            "Missing database URL. Set SUPABASE_DB_URL, DATABASE_URL, or DIRECT_URL.",
-        );
-    }
-    return url;
+/**
+ * Resolve DB URL for cleanup scripts.
+ * Prefer --target local|production for writes; bare DATABASE_URL is refused.
+ */
+export function getDatabaseUrl(options?: {
+    explicit?: string;
+    target?: PipelineDbTarget;
+    role?: "read" | "write" | "local";
+    /** Pass true when --execute / --apply (write path). */
+    forWrite?: boolean;
+}): string {
+    return requirePipelineDatabaseUrl(options);
 }
 
 export function resolveReportDir(reportDirArg?: string): string {

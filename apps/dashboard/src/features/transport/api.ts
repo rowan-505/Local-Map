@@ -490,6 +490,10 @@ export function mergeTransportStopsGlobal(
     if (body.fieldSources && Object.keys(body.fieldSources).length > 0) {
         payload.fieldSources = body.fieldSources;
     }
+    if (typeof body.acknowledgeSameVariantOccurrences === "boolean") {
+        payload.acknowledgeSameVariantOccurrences =
+            body.acknowledgeSameVariantOccurrences;
+    }
     const trimmed = body.reason?.trim();
     if (trimmed) {
         payload.reason = trimmed;

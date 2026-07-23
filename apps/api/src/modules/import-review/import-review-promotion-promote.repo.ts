@@ -1108,13 +1108,46 @@ export class ImportReviewPromotionPromoteRepository {
         }
 
         if (item.publish_action === "merge") {
+            if (item.entity_family === "places") {
+                return this.placesRepo.promotePlaceTx(
+                    this.prisma,
+                    args.batchId,
+                    args.publishItemId,
+                    "merge",
+                    args.promotedBy
+                );
+            }
             return {
                 publish_item_id: args.publishItemId,
                 outcome: "failed",
                 target_id: null,
-                error_message: "merge publish_action is not supported in promotion v1.",
+                error_message: "merge publish_action is only supported for places.",
                 before_data: null,
                 after_data: null,
+            };
+        }
+
+        if (item.publish_action === "skip") {
+            if (item.entity_family === "places") {
+                return this.placesRepo.promotePlaceTx(
+                    this.prisma,
+                    args.batchId,
+                    args.publishItemId,
+                    "skip",
+                    args.promotedBy
+                );
+            }
+            return {
+                publish_item_id: args.publishItemId,
+                outcome: "skipped",
+                target_id: item.matched_core_id ?? null,
+                error_message: null,
+                before_data: null,
+                after_data: {
+                    skipped: true,
+                    publish_action: "skip",
+                    entity_family: item.entity_family,
+                },
             };
         }
 
@@ -1621,7 +1654,19 @@ export class ImportReviewPromotionPromoteRepository {
                 before_data = ${beforeJson}::jsonb,
                 after_data = ${afterJson}::jsonb,
                 error_message = NULL,
-                published_at = now()
+                published_at = now(),
+                review_decision = coalesce(
+                    review_decision,
+                    ${durable.review_decision}
+                ),
+                source_snapshot_version = coalesce(
+                    source_snapshot_version,
+                    ${durable.source_snapshot_version}
+                ),
+                applied_by = coalesce(
+                    ${args.appliedBy ?? null}::bigint,
+                    applied_by
+                )
             WHERE id = ${args.publishItemId}
         `;
     }

@@ -4,7 +4,6 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import process from "node:process";
 import pg from "pg";
 
 import {
@@ -17,8 +16,15 @@ import {
     type RouteNameRepairConfidence,
     type VariantLike,
 } from "../../ybs-normalize/route-name-endpoints.js";
+import {
+    requirePipelineDatabaseUrl,
+    resolvePipelineDatabaseUrl,
+    type PipelineDbTarget,
+} from "./resolve-pipeline-db-url.js";
 import { isProtectedReviewStatus } from "./supabase-schema-map.js";
 import { YBS_SOURCE_NAME } from "./source-link-utils.js";
+
+export { resolvePipelineDatabaseUrl, type PipelineDbTarget };
 
 const DEFAULT_MERGED_SOURCE_DIR = "tmp/transport-imports/ybs-all/merged/routes";
 
@@ -62,12 +68,12 @@ export type RouteNameQualityRow = {
     source_json_path: string | null;
 };
 
+/**
+ * @deprecated Prefer resolvePipelineDatabaseUrl({ target }).
+ * Never silently uses bare DATABASE_URL.
+ */
 export function resolveDatabaseUrl(override?: string): string {
-    const url = override ?? process.env.DATABASE_URL ?? process.env.SUPABASE_DATABASE_URL;
-    if (!url) {
-        throw new Error("DATABASE_URL is not configured.");
-    }
-    return url;
+    return requirePipelineDatabaseUrl({ explicit: override });
 }
 
 export function loadMergedRouteJson(

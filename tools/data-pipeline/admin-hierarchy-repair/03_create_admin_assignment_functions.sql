@@ -879,3 +879,8 @@ CREATE INDEX IF NOT EXISTS core_admin_areas_level_idx
 \echo '  - core.entity_admin_assignment_is_protected / repair metadata helpers'
 \echo '  - pipeline / hierarchy helpers'
 \echo 'Indexes: core_admin_areas_geom_gix, core_admin_areas_parent_idx, core_admin_areas_level_idx'
+
+-- Overlay conflict-aware township inference (mechanical; no polygon edits).
+-- Source of truth also used by local-osm staging and migration 145.
+\ir ../local-osm/pipeline_township_assignment.sql
+\echo 'Applied township assignment overlay (conflict-aware; never forces weak matches).'

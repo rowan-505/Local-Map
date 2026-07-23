@@ -1,0 +1,92 @@
+Pager usage is off.
+Timing is on.
+=== Yangon clip + township inventory ===
+  id  | canonical_name |   code   | area_km2 
+------+----------------+----------+----------
+ 2043 | ရန်ကုန်မြို့         | district |   997.70
+(1 row)
+
+Time: 129.546 ms
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/reports/yangon_admin_assignment_report.sql:14: NOTICE:  table "_tw_polys" does not exist, skipping
+DROP TABLE
+Time: 1.626 ms
+SELECT 421
+Time: 416.598 ms
+CREATE INDEX
+Time: 5.587 ms
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/reports/yangon_admin_assignment_report.sql:25: NOTICE:  table "_district_polys" does not exist, skipping
+DROP TABLE
+Time: 0.243 ms
+SELECT 118
+Time: 102.910 ms
+CREATE INDEX
+Time: 1.192 ms
+ official_township_in_clip | township_like_in_clip 
+---------------------------+-----------------------
+                         6 |                    47
+(1 row)
+
+Time: 12.471 ms
+=== Family stats ===
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/reports/yangon_admin_assignment_report.sql:42: NOTICE:  table "_yangon_admin_family_stats" does not exist, skipping
+DROP TABLE
+Time: 0.726 ms
+CREATE TABLE
+Time: 6.501 ms
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/reports/yangon_admin_assignment_report.sql:55: NOTICE:  table "_pts" does not exist, skipping
+DROP TABLE
+Time: 0.338 ms
+SELECT 16590
+Time: 137.324 ms
+CREATE INDEX
+Time: 22.955 ms
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/reports/yangon_admin_assignment_report.sql:62: NOTICE:  table "_pt_tw" does not exist, skipping
+DROP TABLE
+Time: 0.324 ms
+SELECT 16590
+Time: 831.023 ms
+INSERT 0 1
+Time: 4.200 ms
+INSERT 0 1
+Time: 3749.132 ms (00:03.749)
+INSERT 0 1
+Time: 1982.404 ms (00:01.982)
+INSERT 0 1
+Time: 204.608 ms
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/reports/yangon_admin_assignment_report.sql:186: NOTICE:  table "_roads" does not exist, skipping
+DROP TABLE
+Time: 0.304 ms
+SELECT 5000
+Time: 19.423 ms
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/local-osm/reports/yangon_admin_assignment_report.sql:191: NOTICE:  table "_road_tw" does not exist, skipping
+DROP TABLE
+Time: 0.297 ms
+SELECT 5000
+Time: 129428.243 ms (02:09.428)
+INSERT 0 1
+Time: 525.073 ms
+=== Family summary ===
+   family    | snapshot_id | total | valid_township | district_only | ambiguous_township | outside_township | assignment_failure | pct_valid_tw 
+-------------+-------------+-------+----------------+---------------+--------------------+------------------+--------------------+--------------
+ buildings   |          10 |    50 |             50 |             0 |                  0 |                0 |                  0 |        100.0
+ landuse     |          10 |    26 |             26 |             0 |                  0 |                0 |                  0 |        100.0
+ places      |           9 | 16590 |          16550 |             1 |                 39 |                0 |                  0 |         99.8
+ roads       |          12 |  5000 |           4990 |            10 |                  0 |                0 |                  0 |         99.8
+ water_lines |          10 |     1 |              1 |             0 |                  0 |                0 |                  0 |        100.0
+(5 rows)
+
+Time: 1.742 ms
+=== Smoke buildings ===
+   id   | tw_id 
+--------+-------
+ 122172 |  2056
+ 121069 |  2054
+ 121724 |  2059
+ 121955 |  2056
+ 121988 |  2056
+ 122022 |  2056
+ 121125 |  2055
+ 121132 |  2055
+(8 rows)
+
+Time: 145.183 ms

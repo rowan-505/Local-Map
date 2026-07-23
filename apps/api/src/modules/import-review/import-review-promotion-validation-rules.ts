@@ -298,13 +298,24 @@ export class ImportReviewPromotionValidationRules {
                 UNION ALL
 
                 SELECT spi.id, 'review_not_approved',
-                    'Candidate must have review_decision=approved and review_status=approved.', 'error'
+                    'Candidate must have an Apply-batch review_decision with matching review_status.', 'error'
                 ${join}
                 WHERE spi.id IN (${Prisma.join(itemIds)})
                   AND ${col(a, "id")} IS NOT NULL
-                  AND (
-                      ${col(a, "review_decision")} IS DISTINCT FROM 'approved'
-                      OR ${col(a, "review_status")} IS DISTINCT FROM 'approved'
+                  AND NOT (
+                      (
+                          ${col(a, "review_decision")} IN (
+                              'approved', 'replace_existing', 'merge_fields',
+                              'insert_separate', 'confirm_soft_delete'
+                          )
+                          AND ${col(a, "review_status")} = 'approved'
+                      )
+                      OR (
+                          ${col(a, "review_decision")} IN (
+                              'keep_existing', 'ignore_import', 'mark_duplicate', 'merged'
+                          )
+                          AND ${col(a, "review_status")} IN ('ignored', 'merged', 'approved')
+                      )
                   )
 
                 UNION ALL
@@ -328,28 +339,36 @@ export class ImportReviewPromotionValidationRules {
                 UNION ALL
 
                 SELECT spi.id, 'manual_protected',
-                    'manual_protected or protect_manual candidates cannot be published.', 'error'
+                    'manual_protected or protect_manual candidates cannot be published without a saved Apply decision.', 'error'
                 ${join}
                 WHERE spi.id IN (${Prisma.join(itemIds)})
                   AND (
                       coalesce(${col(a, "match_status")}, '') = 'manual_protected'
                       OR coalesce(${col(a, "auto_action")}, '') = 'protect_manual'
                   )
+                  AND ${col(a, "review_decision")} IS NULL
 
                 UNION ALL
 
                 SELECT spi.id, 'unsupported_publish_action',
-                    'publish_action skip or protect_manual is not allowed.', 'error'
+                    'publish_action protect_manual is not allowed.', 'error'
                 FROM system.system_publish_items AS spi
                 WHERE spi.id IN (${Prisma.join(itemIds)})
-                  AND spi.publish_action IN ('skip', 'protect_manual')
+                  AND spi.publish_action = 'protect_manual'
 
                 UNION ALL
 
                 SELECT spi.id, 'unsupported_merge_action',
-                    'merge publish_action is not supported for promotion yet.', 'warning'
+                    'merge publish_action is only supported for places with merge_fields.', 'error'
                 FROM system.system_publish_items AS spi
-                WHERE spi.id IN (${Prisma.join(itemIds)}) AND spi.publish_action = 'merge'
+                ${join}
+                WHERE spi.id IN (${Prisma.join(itemIds)})
+                  AND spi.publish_action = 'merge'
+                  AND (
+                      spi.entity_family IS DISTINCT FROM 'places'
+                      OR lower(btrim(coalesce(${col(a, "review_decision")}, '')))
+                          IS DISTINCT FROM 'merge_fields'
+                  )
             ) AS issues
         `;
     }

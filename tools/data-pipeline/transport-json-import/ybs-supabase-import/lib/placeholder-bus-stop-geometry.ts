@@ -11,10 +11,17 @@ import pg from "pg";
 
 import { PLACEHOLDER_GEOMETRY_MODE } from "../../ybs-db-prepare/geometry-rules.js";
 import {
+    resolveLegacyPipelineDatabaseUrl,
+    resolvePipelineDatabaseUrl,
+    type PipelineDbTarget,
+} from "./resolve-pipeline-db-url.js";
+import {
     PROTECTED_REVIEW_STATUSES,
     TRANSPORT_MODE_BUS,
 } from "./supabase-schema-map.js";
 import { YBS_SOURCE_KIND, YBS_SOURCE_NAME } from "./source-link-utils.js";
+
+export { resolvePipelineDatabaseUrl, type PipelineDbTarget };
 
 export const DEFAULT_BUS_GEOMETRY_RUN_ROOT = "tmp/transport-imports";
 export const REVIEWED_STOP_GEOMETRY_FILENAME = "reviewed-stop-geometry.json";
@@ -82,15 +89,9 @@ export function loadDatabaseEnv(): void {
     }
 }
 
+/** @deprecated Prefer resolvePipelineDatabaseUrl({ target }). Never silent DATABASE_URL. */
 export function resolveDatabaseUrl(explicit?: string): string | undefined {
-    return (
-        explicit ??
-        process.env.SUPABASE_DIRECT_DATABASE_URL ??
-        process.env.SUPABASE_DB_URL ??
-        process.env.DATABASE_URL ??
-        process.env.DIRECT_URL ??
-        process.env.LOCAL_DATABASE_URL
-    );
+    return resolveLegacyPipelineDatabaseUrl({ explicit });
 }
 
 export async function withReadOnlyClient<T>(

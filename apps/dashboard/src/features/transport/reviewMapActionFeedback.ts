@@ -52,6 +52,21 @@ export function formatTransportStopMergeError(error: unknown): string {
     const lowerMessage = message.toLowerCase();
 
     if (
+        lowerMessage.includes("merge_terminal_conflict") ||
+        lowerMessage.includes("both stops are linked to active terminals") ||
+        lowerMessage.includes("resolve the terminal conflict")
+    ) {
+        return "Both stops are linked to terminals. Resolve the terminal relationship first.";
+    }
+
+    if (
+        lowerMessage.includes("merge_parent_conflict") ||
+        lowerMessage.includes("invalid parent-stop cycle")
+    ) {
+        return "These stops cannot be merged because it would create an invalid parent-stop link.";
+    }
+
+    if (
         lowerMessage.includes("merge_variant_ack_required") ||
         lowerMessage.includes("same_variant_occurrences_require_acknowledgment") ||
         lowerMessage.includes(

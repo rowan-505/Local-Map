@@ -1,0 +1,81 @@
+Pager usage is off.
+BEGIN
+CREATE TABLE
+COPY 77
+CREATE TABLE
+INSERT 0 56
+SELECT 77
+    section     | import_class | n  | mapped_cat | unsupported_cat | in_ir | identity_in_core | has_admin 
+----------------+--------------+----+------------+-----------------+-------+------------------+-----------
+ preload_counts | safe_new     | 77 |         77 |               0 |     0 |                0 |        77
+(1 row)
+
+ section | class_code | source_type_hint | n 
+---------+------------+------------------+---
+(0 rows)
+
+     section      | n 
+------------------+---
+ ir_overlap_count | 0
+(1 row)
+
+     section      | with_core | without_core 
+------------------+-----------+--------------
+ safe_update_core |         0 |            0
+(1 row)
+
+        section        | n 
+-----------------------+---
+ safe_new_already_core | 0
+(1 row)
+
+              section              | verified_targets | manual_targets 
+-----------------------------------+------------------+----------------
+ protection_on_safe_update_targets |                0 |              0
+(1 row)
+
+   section    | n 
+--------------+---
+ dup_external | 0
+(1 row)
+
+   section    | n 
+--------------+---
+ dup_identity | 0
+(1 row)
+
+   section   | active_places 
+-------------+---------------
+ core_before |           266
+(1 row)
+
+SELECT 77
+  section   | import_class | n  
+------------+--------------+----
+ load_ready | safe_new     | 77
+(1 row)
+
+     section      | n  
+------------------+----
+ load_ready_total | 77
+(1 row)
+
+ section | reason | n 
+---------+--------+---
+(0 rows)
+
+ id |                 batch_code                  | expected_row_count 
+----+---------------------------------------------+--------------------
+  9 | places_kyauktan_settlements_safe_2026_07_23 |                 77
+(1 row)
+
+INSERT 0 1
+DELETE 0
+INSERT 0 77
+UPDATE 1
+      section       | import_batch_id |                 batch_code                  | status | expected_row_count | loaded_row_count | safe_new | safe_update | bad_geom | null_category | bad_target_core | actual_rows 
+--------------------+-----------------+---------------------------------------------+--------+--------------------+------------------+----------+-------------+----------+---------------+-----------------+-------------
+ import_work_loaded |               9 | places_kyauktan_settlements_safe_2026_07_23 | loaded |                 77 |               77 |       77 |           0 |        0 |             0 |               0 |          77
+(1 row)
+
+COMMIT

@@ -37,6 +37,9 @@ Guards:
 - Refresh refuses to use `SUPABASE_WRITE_DATABASE_URL` as the FDW source.
 - Refresh refuses when `LOCAL_DATABASE_URL` host matches Supabase (or looks like `*.supabase.co`).
 - Pipeline Stage K refuses to use `SUPABASE_READ_DATABASE_URL` as the write target.
+- Pipeline write tools refuse bare `DATABASE_URL` as a silent production write target.
+
+Full rules and examples: [`docs/database-target-safety.md`](../../../docs/database-target-safety.md)
 
 ## Setup
 

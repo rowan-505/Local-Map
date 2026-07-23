@@ -4,10 +4,12 @@ import { describe, it } from "node:test";
 import {
     buildStopMergeConflictAnalysis,
     buildStopMergeFieldComparison,
+    buildStopMergeTerminalConflict,
     extractSqlErrorCode,
     isHttpAuthError,
     jsonSafeId,
     jsonSafeNumber,
+    MERGE_TERMINAL_CONFLICT_BLOCKER,
     type MergePreviewUsageMembership,
 } from "./stopMergePreview.js";
 
@@ -285,5 +287,45 @@ describe("buildStopMergeFieldComparison", () => {
         assert.equal(comparison.name.same, true);
         assert.equal(comparison.geom.same, true);
         assert.equal(comparison.geom.distanceMeters, 0);
+    });
+});
+
+describe("buildStopMergeTerminalConflict", () => {
+    it("reports exists=true when both stops have active terminals", () => {
+        const conflict = buildStopMergeTerminalConflict(1n, 2n, [
+            {
+                id: 10n,
+                public_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                linked_stop_id: 1n,
+                name: "Canonical terminal",
+            },
+            {
+                id: 20n,
+                public_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                linked_stop_id: 2n,
+                name: "Duplicate terminal",
+            },
+        ]);
+
+        assert.equal(conflict.exists, true);
+        assert.equal(conflict.canonicalTerminal?.id, "10");
+        assert.equal(conflict.duplicateTerminal?.id, "20");
+        assert.equal(conflict.canonicalTerminal?.publicId, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        assert.doesNotThrow(() => JSON.stringify(conflict));
+        assert.equal(MERGE_TERMINAL_CONFLICT_BLOCKER, "MERGE_TERMINAL_CONFLICT");
+    });
+
+    it("reports exists=false when only one stop has a terminal", () => {
+        const conflict = buildStopMergeTerminalConflict(1n, 2n, [
+            {
+                id: 20n,
+                public_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                linked_stop_id: 2n,
+                name: "Duplicate terminal",
+            },
+        ]);
+        assert.equal(conflict.exists, false);
+        assert.equal(conflict.canonicalTerminal, null);
+        assert.equal(conflict.duplicateTerminal?.id, "20");
     });
 });

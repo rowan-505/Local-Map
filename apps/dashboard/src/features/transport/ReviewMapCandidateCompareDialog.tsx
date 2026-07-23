@@ -6,6 +6,7 @@ import { isAbortError } from "@/src/lib/api";
 import { mergeTransportStopsGlobal, previewTransportStopMerge } from "./api";
 import { candidateDisplayName } from "./reviewMapCandidateDisplay";
 import {
+    canSubmitTransportStopMerge,
     defaultFieldSourcesForCanonical,
     formatDirectionUsageSummary,
     formatMergeCompareFieldValue,
@@ -233,11 +234,15 @@ export default function ReviewMapCandidateCompareDialog({
 
     const hasSameVariantOccurrences =
         preview !== null && preview.sameVariantConflicts.length > 0;
-    const canMerge =
-        preview !== null &&
-        !previewLoading &&
-        !previewError &&
-        (!hasSameVariantOccurrences || acknowledgedSameVariantOccurrences);
+    const hasTerminalConflict = preview?.terminalConflict?.exists === true;
+    const canMerge = canSubmitTransportStopMerge({
+        previewLoaded: preview !== null && !previewLoading,
+        previewError: Boolean(previewError),
+        mergeAllowed: preview?.mergeAllowed === true,
+        terminalConflictExists: hasTerminalConflict,
+        sameVariantConflictCount: preview?.sameVariantConflicts.length ?? 0,
+        acknowledgedSameVariantOccurrences,
+    });
 
     const handleCanonicalSideChange = (side: "current" | "candidate") => {
         setCanonicalSide(side);
@@ -326,6 +331,13 @@ export default function ReviewMapCandidateCompareDialog({
                             <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
                                 These stops are used in different directions and may represent
                                 opposite-side stops.
+                            </p>
+                        ) : null}
+
+                        {hasTerminalConflict ? (
+                            <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
+                                Both stops are linked to terminals. Resolve the terminal
+                                relationship first.
                             </p>
                         ) : null}
 

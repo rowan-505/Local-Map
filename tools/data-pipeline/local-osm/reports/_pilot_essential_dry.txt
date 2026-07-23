@@ -1,0 +1,111 @@
+=== database target identity ===
+target=production
+target_label=production-write (SUPABASE_WRITE_DATABASE_URL)
+target_role=write
+database_url=postgresql://postgres.locghyuranqaqsnbxflc:***@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+production_project_ref=locghyuranqaqsnbxflc
+production_url_fingerprint=postgres.locghyuranqaqsnbxflc@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+production_url_masked=postgresql://postgres.locghyuranqaqsnbxflc:***@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+database=postgres
+server_addr=2406:da14:271:9922:3e42:d936:1bc4:b722
+server_port=5432
+db_user=postgres
+================================
+batch_id=11
+batch_code=places_yangon_essential_safe_2026_07_23
+entity_family=places
+source_snapshot_id=9
+source_snapshot_version=osm_myanmar_2026_07_21_yangon_city_v1
+batch_status=applied
+expected_row_count=9407
+loaded_row_count=9407
+mode=dry_run (default; no durable write)
+
+=== places_safe_loader ===
+target=production
+mode=dry_run
+dry_run_sql=true
+sample_limit=20
+batch_id=11
+batch_code=places_yangon_essential_safe_2026_07_23
+source_snapshot_id=9
+source_snapshot_version=osm_myanmar_2026_07_21_yangon_city_v1
+expected_row_count=9407
+loaded_row_count=9407
+log=/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/reports/places_loader_production_places_yangon_essential_safe_2026_07_23_dry_run_20260723T020800Z.log
+started_at=2026-07-23T02:08:00Z
+
+[02:08:00] SET
+[02:08:00] Pager usage is off.
+[02:08:00] BEGIN
+[02:08:00] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader.sql:29: NOTICE:  table "places_loader_params" does not exist, skipping
+[02:08:00] DROP TABLE
+[02:08:00] CREATE TABLE
+[02:08:00] INSERT 0 1
+[02:08:00] DO
+[02:08:00] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader.sql:53: NOTICE:  places_loader [0%] SAMPLE MODE limit=20 dry_run=t (fast smoke test)
+[02:08:00] DO
+[02:08:00] DROP TABLE
+[02:08:00] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:26: NOTICE:  table "places_loader_batch" does not exist, skipping
+[02:08:00] CREATE TABLE
+[02:08:00] INSERT 0 1
+[02:08:01] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:109: NOTICE:  places_loader [5%] precheck ok batch=places_yangon_essential_safe_2026_07_23 dry_run=t actual=9407 safe_new=9407 safe_update=0 other_ignored=0
+[02:08:01] DO
+[02:08:01] DROP TABLE
+[02:08:01] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:111: NOTICE:  table "places_loader_work" does not exist, skipping
+[02:08:01] SELECT 20
+[02:08:01] CREATE INDEX
+[02:08:01] CREATE INDEX
+[02:08:01] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:149: NOTICE:  places_loader [15%] work rows ready n=20
+[02:08:01] DO
+[02:08:01] DROP TABLE
+[02:08:01] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:152: NOTICE:  table "places_loader_core_by_identity" does not exist, skipping
+[02:08:01] SELECT 10985
+[02:08:01] CREATE INDEX
+[02:08:01] DO
+[02:08:01] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:178: NOTICE:  places_loader [25%] core identity index ready n=10985
+[02:08:01] DROP TABLE
+[02:08:01] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:180: NOTICE:  table "places_loader_core_by_id" does not exist, skipping
+[02:08:01] SELECT 11213
+[02:08:02] CREATE INDEX
+[02:08:02] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:200: NOTICE:  places_loader [30%] building plan (match + classify)...
+[02:08:02] DO
+[02:08:02] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:202: NOTICE:  table "places_loader_plan" does not exist, skipping
+[02:08:02] DROP TABLE
+[02:08:02] CREATE TABLE
+[02:08:02] INSERT 0 20
+[02:08:02] DO
+[02:08:02] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:354: NOTICE:  places_loader [45%] plan ready total=20 insert=0 update=0 skip=20 fail=0
+[02:08:02] DROP TABLE
+[02:08:02] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:356: NOTICE:  table "places_loader_result" does not exist, skipping
+[02:08:02] CREATE TABLE
+[02:08:02] INSERT 0 1
+[02:08:02] DO
+[02:08:02] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:457: NOTICE:  places_loader [50%] insert start total=0 chunk=500
+[02:08:02] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:457: NOTICE:  places_loader [80%] insert skipped (0 rows)
+[02:08:02] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:494: NOTICE:  places_loader [85%] updates starting...
+[02:08:02] DO
+[02:08:02] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:494: NOTICE:  places_loader [90%] updates complete updated=0
+[02:08:02] UPDATE 1
+[02:08:02] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:502: NOTICE:  places_loader [95%] writing publish batch + batch summary...
+[02:08:02] DO
+[02:08:02] UPDATE 1
+[02:08:02] UPDATE 1
+[02:08:02] DO
+[02:08:02] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:581: NOTICE:  places_loader [100%] done dry_run=t inserted=0 updated=0 skipped=20 failed=0 core_before=11213 core_after=11213 delta=0
+[02:08:02]           section          | dry_run |               batch_code                | inserted | updated | skipped | failed | publish_batch_id | core_places_before | core_places_after | core_places_delta 
+[02:08:02] ---------------------------+---------+-----------------------------------------+----------+---------+---------+--------+------------------+--------------------+-------------------+-------------------
+[02:08:02]  places_safe_loader_result | t       | places_yangon_essential_safe_2026_07_23 |        0 |       0 |      20 |      0 |              129 |              11213 |             11213 |                 0
+[02:08:02] (1 row)
+[02:08:02] 
+[02:08:02]          section         | action | n  |              sample_skip              | sample_fail 
+[02:08:02] -------------------------+--------+----+---------------------------------------+-------------
+[02:08:02]  places_safe_loader_plan | skip   | 20 | identity already in core (rerun skip) | 
+[02:08:02] (1 row)
+[02:08:02] 
+
+[02:08:02] ROLLBACK
+finished_at=2026-07-23T02:08:02Z
+loader_exit=0
+log=/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/reports/places_loader_production_places_yangon_essential_safe_2026_07_23_dry_run_20260723T020800Z.log
+[02:08:02] places_safe_loader: DRY RUN rolled back — no durable core writes

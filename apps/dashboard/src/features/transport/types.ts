@@ -472,6 +472,18 @@ export type TransportStopMergeSequenceConflict = {
     candidateRouteStopId: string;
 };
 
+export type TransportStopMergeTerminalSummary = {
+    id: string;
+    publicId: string;
+    name: string;
+};
+
+export type TransportStopMergeTerminalConflict = {
+    exists: boolean;
+    canonicalTerminal: TransportStopMergeTerminalSummary | null;
+    duplicateTerminal: TransportStopMergeTerminalSummary | null;
+};
+
 export type TransportStopMergeScalarComparison<T> = {
     current: T;
     candidate: T;
@@ -510,6 +522,7 @@ export type TransportStopMergePreviewResponse = {
     sequenceConflicts: TransportStopMergeSequenceConflict[];
     mergeAllowed: boolean;
     mergeBlockers: string[];
+    terminalConflict: TransportStopMergeTerminalConflict;
     referenceCounts: {
         current: TransportStopMergeReferenceCounts;
         candidate: TransportStopMergeReferenceCounts;

@@ -99,6 +99,8 @@ VALUES (
 \ir pipeline_entity_families.sql
 \ir pipeline_source_identity.sql
 \ir pipeline_tmp_import_mode.sql
+\ir pipeline_settlements.sql
+\ir pipeline_township_assignment.sql
 
 CREATE TEMP TABLE IF NOT EXISTS stage05_context (
     source_snapshot_id bigint NOT NULL,
@@ -535,15 +537,24 @@ BEGIN
             SELECT
                 rf.*,
                 system.pipeline_osm_external_id(rf.osm_feature_type, rf.osm_id) AS external_id,
+                CASE
+                    WHEN system.pipeline_is_settlement_place(rf.tags->>'place')
+                        THEN system.pipeline_settlement_canonical_name(rf.tags)
+                    ELSE nullif(btrim(coalesce(
+                        rf.tags->>'name',
+                        rf.tags->>'name:en',
+                        rf.tags->>'name:my',
+                        rf.tags->>'name:mm',
+                        rf.tags->>'name:my-MM',
+                        ''
+                    )), '')
+                END AS source_name,
                 nullif(btrim(coalesce(
-                    rf.tags->>'name',
-                    rf.tags->>'name:en',
-                    rf.tags->>'name:my',
-                    rf.tags->>'name:mm',
-                    rf.tags->>'name:my-MM',
-                    ''
-                )), '') AS source_name,
-                nullif(btrim(coalesce(
+                    CASE
+                        WHEN system.pipeline_is_settlement_place(rf.tags->>'place')
+                            THEN system.pipeline_normalize_settlement_place(rf.tags->>'place')
+                        ELSE NULL
+                    END,
                     rf.tags->>'amenity',
                     rf.tags->>'shop',
                     rf.tags->>'tourism',
@@ -559,6 +570,7 @@ BEGIN
                     ''
                 )), '') AS source_type_hint,
                 CASE
+                    WHEN system.pipeline_is_settlement_place(rf.tags->>'place') THEN 'settlement'
                     WHEN rf.tags->>'amenity' = 'school' OR rf.tags ?| array['education','school'] THEN 'education'
                     WHEN rf.tags ? 'amenity' THEN 'amenity'
                     WHEN rf.tags ? 'shop' THEN 'shop'
@@ -594,16 +606,20 @@ BEGIN
         evidence AS (
             SELECT
                 e.*,
+                system.pipeline_is_settlement_place(e.tags->>'place') AS has_settlement_evidence,
                 (
-                    e.source_name IS NOT NULL
-                    AND e.source_type_hint IS NOT NULL
-                    AND (
-                        e.tags ?| array[
-                            'amenity','shop','tourism','leisure','office','healthcare',
-                            'public_transport','religion','building','social_facility',
-                            'education','school'
-                        ]
-                        OR e.tags->>'amenity' = 'school'
+                    system.pipeline_is_settlement_place(e.tags->>'place')
+                    OR (
+                        e.source_name IS NOT NULL
+                        AND e.source_type_hint IS NOT NULL
+                        AND (
+                            e.tags ?| array[
+                                'amenity','shop','tourism','leisure','office','healthcare',
+                                'public_transport','religion','building','social_facility',
+                                'education','school'
+                            ]
+                            OR e.tags->>'amenity' = 'school'
+                        )
                     )
                 ) AS has_place_evidence,
                 (
@@ -687,6 +703,15 @@ BEGIN
     EXECUTE q USING v_source_snapshot_id, v_snapshot_version, v_region_code;
     GET DIAGNOSTICS v_count = ROW_COUNT;
 
+    -- National runs join this temp table by external_id. Without indexes the
+    -- place-name / address extract paths can take many hours (full scans).
+    CREATE INDEX stage05_sfc_external_id_idx
+        ON stage05_source_feature_classification (source_snapshot_id, external_id);
+    CREATE INDEX stage05_sfc_place_evidence_idx
+        ON stage05_source_feature_classification (source_snapshot_id)
+        WHERE has_place_evidence;
+    ANALYZE stage05_source_feature_classification;
+
     INSERT INTO stage05_report (section, entity_family, target_table, metric, value_n, status, note)
     VALUES (
         'source_classification',
@@ -708,6 +733,7 @@ DECLARE
     v_snapshot_version text;
     v_region_code text;
     v_place_class_id bigint;
+    v_settlement_place_class_id bigint;
     v_available bigint;
     v_inserted bigint;
     q text;
@@ -765,11 +791,22 @@ BEGIN
     END, pc.id
     LIMIT 1;
 
+    -- Prefer explicit settlement class when present; fall back to landmark/poi.
+    SELECT pc.id
+    INTO v_settlement_place_class_id
+    FROM ref.ref_place_classes AS pc
+    ORDER BY CASE pc.code
+        WHEN 'settlement' THEN 1
+        WHEN 'landmark' THEN 2
+        WHEN 'poi' THEN 3
+        ELSE 100
+    END, pc.id
+    LIMIT 1;
+
     -- ---------------------------------------------------------------------
     -- A. Place candidates from classified source features.
-    -- Place evidence requires a real OSM name tag plus a POI/category tag
-    -- (amenity, shop, tourism, leisure, office, healthcare, public_transport,
-    -- religion, social_facility, education/school, or named building).
+    -- Place evidence = POI (named amenity/shop/…) OR settlement (place=*).
+    -- Settlements map to settlement categories and prefer Myanmar names.
     -- ---------------------------------------------------------------------
     SELECT count(*)::bigint
     INTO v_available
@@ -784,14 +821,31 @@ BEGIN
     ELSIF v_place_class_id IS NULL THEN
         INSERT INTO stage05_report VALUES ('point_extraction', 'place', format('%s.staging_place_candidates', v_staging_schema), 'available_rows', v_available, 'WARN', 'ref.ref_place_classes has no rows; skipped place candidate extraction because place_class_id is required.');
     ELSE
+        RAISE NOTICE 'stage05_point_extraction: place candidates — available_rows=% (admin assign settlements only)', v_available;
         q := format(
             $q$
             WITH src AS (
-                SELECT *
+                SELECT
+                    cls.*,
+                    system.pipeline_is_settlement_place(cls.tags->>'place') AS is_settlement,
+                    system.pipeline_normalize_settlement_place(cls.tags->>'place') AS settlement_place,
+                    -- Admin assign is expensive (spatial cover). Only settlements need
+                    -- core_admin_area_id for confidence / settlement import rules.
+                    CASE
+                        WHEN system.pipeline_is_settlement_place(cls.tags->>'place')
+                            THEN system.pipeline_assign_admin_area_for_point(cls.point_geom)
+                        ELSE NULL
+                    END AS admin_area_id,
+                    cat.id AS settlement_category_id
                 FROM stage05_source_feature_classification AS cls
+                LEFT JOIN ref.ref_poi_categories AS cat
+                    ON cat.code = system.pipeline_settlement_category_code(cls.tags->>'place')
                 WHERE cls.source_snapshot_id = $1
                   AND cls.has_place_evidence
                   AND cls.point_geom IS NOT NULL
+                  -- staging_place_candidates.canonical_name is NOT NULL;
+                  -- settlements without names are skipped (required-name policy).
+                  AND nullif(btrim(cls.source_name), '') IS NOT NULL
             ),
             inserted AS (
                 INSERT INTO %I.staging_place_candidates (
@@ -802,6 +856,7 @@ BEGIN
                     canonical_name,
                     class_code,
                     place_class_id,
+                    poi_category_id,
                     point_geom,
                     confidence_score,
                     match_status,
@@ -828,33 +883,69 @@ BEGIN
                     END,
                     src.external_id,
                     src.source_name,
-                    src.source_type_hint,
-                    $2,
+                    CASE
+                        WHEN src.is_settlement THEN src.settlement_place
+                        ELSE src.source_type_hint
+                    END,
+                    CASE
+                        WHEN src.is_settlement THEN coalesce($5, $2)
+                        ELSE $2
+                    END,
+                    CASE WHEN src.is_settlement THEN src.settlement_category_id ELSE NULL END,
                     src.point_geom,
                     CASE
+                        WHEN src.is_settlement AND src.source_name IS NOT NULL AND src.admin_area_id IS NOT NULL THEN 80
+                        WHEN src.is_settlement AND src.source_name IS NOT NULL THEN 65
+                        WHEN src.is_settlement THEN 40
                         WHEN src.source_classification = 'place_with_address' THEN 85
                         ELSE 50
                     END,
                     'new_candidate',
                     NULL,
                     'pending',
-                    src.source_classification,
+                    CASE
+                        WHEN src.is_settlement THEN 'settlement'
+                        ELSE src.source_classification
+                    END,
                     src.has_place_evidence,
                     src.has_address_evidence,
                     src.address_strength,
                     src.source_name,
-                    src.source_type_hint,
-                    src.source_category_hint,
-                    jsonb_build_object(
+                    CASE
+                        WHEN src.is_settlement THEN src.settlement_place
+                        ELSE src.source_type_hint
+                    END,
+                    CASE
+                        WHEN src.is_settlement THEN 'settlement'
+                        ELSE src.source_category_hint
+                    END,
+                    jsonb_strip_nulls(jsonb_build_object(
                         'tags', coalesce(src.tags, '{}'::jsonb),
-                        'source_classification', src.source_classification,
+                        'source_classification', CASE WHEN src.is_settlement THEN 'settlement' ELSE src.source_classification END,
                         'has_place_evidence', src.has_place_evidence,
                         'has_address_evidence', src.has_address_evidence,
                         'address_strength', src.address_strength,
                         'source_name', src.source_name,
-                        'source_type_hint', src.source_type_hint,
-                        'source_category_hint', src.source_category_hint,
+                        'source_type_hint', CASE WHEN src.is_settlement THEN src.settlement_place ELSE src.source_type_hint END,
+                        'source_category_hint', CASE WHEN src.is_settlement THEN 'settlement' ELSE src.source_category_hint END,
+                        'is_settlement', src.is_settlement,
+                        'settlement_place', src.settlement_place,
+                        'myanmar_name', system.pipeline_settlement_myanmar_name(src.tags),
+                        'english_name', system.pipeline_settlement_english_name(src.tags),
+                        'core_admin_area_id', src.admin_area_id,
+                        'duplicate_threshold_m', system.pipeline_places_duplicate_threshold_m(
+                            CASE WHEN src.is_settlement THEN src.settlement_place ELSE src.source_type_hint END
+                        ),
                         'selected_fields', jsonb_strip_nulls(jsonb_build_object(
+                            'place', src.tags->>'place',
+                            'population', src.tags->>'population',
+                            'name', src.tags->>'name',
+                            'name:my', src.tags->>'name:my',
+                            'name:mm', src.tags->>'name:mm',
+                            'name:en', src.tags->>'name:en',
+                            'alt_name', src.tags->>'alt_name',
+                            'old_name', src.tags->>'old_name',
+                            'official_name', src.tags->>'official_name',
                             'amenity', src.tags->>'amenity',
                             'shop', src.tags->>'shop',
                             'tourism', src.tags->>'tourism',
@@ -872,7 +963,7 @@ BEGIN
                             'opening_hours', src.tags->>'opening_hours'
                         )),
                         'generated_fallback_label', NULL
-                    ),
+                    )),
                     jsonb_build_object(
                         'source_snapshot_id', $1,
                         'snapshot_version', $3,
@@ -881,23 +972,25 @@ BEGIN
                         'raw_id', src.raw_id,
                         'osm_id', src.osm_id,
                         'osm_feature_type', src.osm_feature_type,
-                        'source_classification', src.source_classification
+                        'source_classification', CASE WHEN src.is_settlement THEN 'settlement' ELSE src.source_classification END,
+                        'external_id', src.external_id,
+                        'place', src.tags->>'place',
+                        'population', src.tags->>'population'
                     )
                 FROM src
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM %I.staging_place_candidates AS existing
-                    WHERE existing.source_snapshot_id = $1
-                      AND existing.external_id = src.external_id
-                )
+                -- Stage 05 reset already deleted this snapshot's place rows.
                 RETURNING 1
             )
             SELECT count(*)::bigint FROM inserted
             $q$,
-            v_staging_schema,
             v_staging_schema
         );
-        EXECUTE q INTO v_inserted USING v_source_snapshot_id, v_place_class_id, v_snapshot_version, v_region_code;
+        EXECUTE q INTO v_inserted USING
+            v_source_snapshot_id,
+            v_place_class_id,
+            v_snapshot_version,
+            v_region_code,
+            v_settlement_place_class_id;
         INSERT INTO stage05_report VALUES ('point_extraction', 'place', format('%s.staging_place_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', format('available_rows=%s', v_available));
     END IF;
 
@@ -908,108 +1001,102 @@ BEGIN
     IF NOT pg_temp.pipeline_stage05_extraction_enabled('place_name') THEN
         INSERT INTO stage05_report VALUES ('point_extraction', 'place_name', format('%s.staging_place_name_candidates', v_staging_schema), 'inserted_rows', 0, 'SKIP', 'ENTITY_FAMILIES filter excludes places.');
     ELSIF has_place AND has_place_name THEN
+        -- Stage 05 reset already deleted this snapshot's place_name rows, so skip the
+        -- per-row NOT EXISTS anti-join (that was an earlier multi-hour bottleneck).
+        -- Read tags from place.normalized_data (already stored at place insert). Do NOT
+        -- join stage05_source_feature_classification here — that join scanned the full
+        -- national classification temp table and ran for many hours.
+        RAISE NOTICE 'stage05_point_extraction: place name candidates — inserting from staging places';
         q := format(
             $q$
-            WITH src AS (
-                SELECT
-                    cls.raw_table,
-                    cls.raw_id,
-                    cls.osm_id,
-                    cls.osm_feature_type,
-                    cls.tags,
-                    cls.external_id
-                FROM stage05_source_feature_classification AS cls
-                WHERE cls.source_snapshot_id = $1
-                  AND cls.has_place_evidence
-            ),
-            names AS (
-                SELECT
+            INSERT INTO %I.staging_place_name_candidates (
+                source_snapshot_id,
+                place_candidate_id,
+                external_id,
+                name,
+                language_code,
+                script_code,
+                name_type,
+                is_primary,
+                search_weight,
+                source_tag,
+                source_refs,
+                normalized_data
+            )
+            SELECT
+                $1,
+                names.place_candidate_id,
+                names.external_id,
+                names.name,
+                names.language_code,
+                NULL,
+                names.name_type,
+                names.is_primary,
+                names.search_weight,
+                names.source_tag,
+                jsonb_build_object(
+                    'source_snapshot_id', $1,
+                    'snapshot_version', $2,
+                    'raw_table', names.raw_table,
+                    'raw_id', names.raw_id,
+                    'osm_id', names.osm_id,
+                    'osm_feature_type', names.osm_feature_type,
+                    'source_tag', names.source_tag
+                ),
+                jsonb_build_object('source_tag', names.source_tag)
+            FROM (
+                SELECT DISTINCT ON (
+                    place.id,
+                    n.language_code,
+                    n.name_type,
+                    n.name
+                )
                     place.id AS place_candidate_id,
-                    src.external_id,
-                    src.raw_table,
-                    src.raw_id,
-                    src.osm_id,
-                    src.osm_feature_type,
+                    place.external_id,
+                    place.source_refs->>'raw_table' AS raw_table,
+                    nullif(place.source_refs->>'raw_id', '')::bigint AS raw_id,
+                    place.source_refs->>'osm_id' AS osm_id,
+                    place.source_refs->>'osm_feature_type' AS osm_feature_type,
                     n.source_tag,
                     n.name,
                     n.language_code,
                     n.name_type,
                     n.is_primary,
                     n.search_weight
-                FROM src
-                JOIN %I.staging_place_candidates AS place
-                    ON place.source_snapshot_id = $1
-                   AND place.external_id = src.external_id
+                FROM %I.staging_place_candidates AS place
+                CROSS JOIN LATERAL (
+                    SELECT coalesce(place.normalized_data->'tags', '{}'::jsonb) AS tags
+                ) AS t
                 CROSS JOIN LATERAL (
                     VALUES
-                        ('name', src.tags->>'name', 'und', 'official', true, 100),
-                        ('name:en', src.tags->>'name:en', 'en', 'official', true, 100),
-                        ('name:my', src.tags->>'name:my', 'my', 'official', true, 100),
-                        ('name:mm', src.tags->>'name:mm', 'my', 'official', true, 100),
-                        ('name:my-MM', src.tags->>'name:my-MM', 'my', 'official', true, 100),
-                        ('official_name', src.tags->>'official_name', 'und', 'official', false, 90),
-                        ('alt_name', src.tags->>'alt_name', 'und', 'alternate', false, 80),
-                        ('old_name', src.tags->>'old_name', 'und', 'old', false, 60),
-                        ('short_name', src.tags->>'short_name', 'und', 'short', false, 90)
+                        ('name', t.tags->>'name', 'und', 'official', true, 100),
+                        ('name:en', t.tags->>'name:en', 'en', 'official', true, 100),
+                        ('name:my', t.tags->>'name:my', 'my', 'official', true, 100),
+                        ('name:mm', t.tags->>'name:mm', 'my', 'official', true, 100),
+                        ('name:my-MM', t.tags->>'name:my-MM', 'my', 'official', true, 100),
+                        ('official_name', t.tags->>'official_name', 'und', 'official', false, 90),
+                        ('alt_name', t.tags->>'alt_name', 'und', 'alternate', false, 80),
+                        ('old_name', t.tags->>'old_name', 'und', 'old', false, 60),
+                        ('short_name', t.tags->>'short_name', 'und', 'short', false, 90)
                 ) AS n(source_tag, name, language_code, name_type, is_primary, search_weight)
-                WHERE n.name IS NOT NULL
+                WHERE place.source_snapshot_id = $1
+                  AND n.name IS NOT NULL
                   AND btrim(n.name) <> ''
-            ),
-            inserted AS (
-                INSERT INTO %I.staging_place_name_candidates (
-                    source_snapshot_id,
-                    place_candidate_id,
-                    external_id,
-                    name,
-                    language_code,
-                    script_code,
-                    name_type,
-                    is_primary,
-                    search_weight,
-                    source_tag,
-                    source_refs,
-                    normalized_data
-                )
-                SELECT
-                    $1,
-                    names.place_candidate_id,
-                    names.external_id,
-                    names.name,
-                    names.language_code,
-                    NULL,
-                    names.name_type,
-                    names.is_primary,
-                    names.search_weight,
-                    names.source_tag,
-                    jsonb_build_object(
-                        'source_snapshot_id', $1,
-                        'snapshot_version', $2,
-                        'raw_table', names.raw_table,
-                        'raw_id', names.raw_id,
-                        'osm_id', names.osm_id,
-                        'osm_feature_type', names.osm_feature_type,
-                        'source_tag', names.source_tag
-                    ),
-                    jsonb_build_object('source_tag', names.source_tag)
-                FROM names
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM %I.staging_place_name_candidates AS existing
-                    WHERE existing.source_snapshot_id = $1
-                      AND existing.place_candidate_id = names.place_candidate_id
-                      AND existing.language_code IS NOT DISTINCT FROM names.language_code
-                      AND existing.name_type = names.name_type
-                      AND existing.name = names.name
-                )
-                RETURNING 1
-            )
-            SELECT count(*)::bigint FROM inserted
+                ORDER BY
+                    place.id,
+                    n.language_code,
+                    n.name_type,
+                    n.name,
+                    n.search_weight DESC,
+                    n.source_tag
+            ) AS names
             $q$,
-            v_staging_schema,
             v_staging_schema,
             v_staging_schema
         );
-        EXECUTE q INTO v_inserted USING v_source_snapshot_id, v_snapshot_version;
+        EXECUTE q USING v_source_snapshot_id, v_snapshot_version;
+        GET DIAGNOSTICS v_inserted = ROW_COUNT;
+        RAISE NOTICE 'stage05_point_extraction: place name candidates done — inserted=%', coalesce(v_inserted, 0);
         INSERT INTO stage05_report VALUES ('point_extraction', 'place_name', format('%s.staging_place_name_candidates', v_staging_schema), 'inserted_rows', v_inserted, 'PASS', 'Real OSM name tags only; no generated fallback labels inserted.');
     ELSE
         INSERT INTO stage05_report VALUES ('point_extraction', 'place_name', format('%s.staging_place_name_candidates', v_staging_schema), 'inserted_rows', 0, 'WARN', 'Place or place-name target table missing; skipped.');
@@ -4252,6 +4339,7 @@ $stage05_final_counts$;
 
 \ir pipeline_stage05_hash_metrics.sql
 \ir pipeline_stage05b_validate.sql
+\ir pipeline_stage05c_core_pmtiles_selection.sql
 
 SELECT
     'stage05_log' AS output_type,

@@ -306,11 +306,23 @@ function validateReviewApproval(
 ): void {
     const status = trimString(row.review_status);
     const decision = trimString(row.review_decision);
-    if (status !== "approved" || decision !== "approved") {
+    const writeOk =
+        status === "approved" &&
+        [
+            "approved",
+            "replace_existing",
+            "merge_fields",
+            "insert_separate",
+            "confirm_soft_delete",
+        ].includes(decision);
+    const skipOk =
+        ["ignored", "merged", "approved"].includes(status) &&
+        ["keep_existing", "ignore_import", "mark_duplicate", "merged"].includes(decision);
+    if (!writeOk && !skipOk) {
         pushError(
             errors,
             "review_not_approved",
-            "Candidate must have review_status=approved and review_decision=approved.",
+            "Candidate must have an Apply-batch review_decision with matching review_status.",
             "review_status"
         );
     }
@@ -331,7 +343,11 @@ function validateManualProtected(
 ): void {
     const matchStatus = trimString(row.match_status);
     const autoAction = trimString(row.auto_action);
-    if (matchStatus === "manual_protected" || autoAction === "protect_manual") {
+    const decision = trimString(row.review_decision);
+    if (
+        (matchStatus === "manual_protected" || autoAction === "protect_manual") &&
+        !decision
+    ) {
         pushError(
             errors,
             "manual_protected",
@@ -747,6 +763,23 @@ export function validateSimplePromotionCandidateRow(
     validateReviewApproval(row, errors);
     validateAlreadyPromoted(row, errors);
     validateManualProtected(row, errors);
+
+    const decision = trimString(row.review_decision);
+    const isSkipDecision =
+        decision === "keep_existing" ||
+        decision === "ignore_import" ||
+        decision === "mark_duplicate" ||
+        decision === "merged";
+
+    if (isSkipDecision) {
+        // Skip Apply: no core typed-field / geometry write requirements.
+        return {
+            status: resolveSimplePromotionValidationStatus(errors, warnings),
+            errors,
+            warnings,
+        };
+    }
+
     validateInsertTargetConflict(ctx, errors);
     validateConfidenceScore(row, errors, warnings);
     validateLineage(row, errors, warnings);

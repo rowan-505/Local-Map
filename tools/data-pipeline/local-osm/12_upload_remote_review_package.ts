@@ -5,12 +5,18 @@
  * Idempotent on (review_batch_id, local_staging_id) for pending rows.
  *
  * CLI:
+ *   --target=production          (required; Stage K always writes production import_review)
  *   --package-name=remote_review_pkg_...
  *   --entity-family=all|admin_areas|roads|admin_areas,roads|...
  *   --max-rows-per-family=N
+ *   --apply                      (required for remote write; default is dry-run)
+ *   --confirmation='UPLOAD remote_review <package_name>'
  *
- * ENV: LOCAL_DATABASE_URL, SUPABASE_DATABASE_URL, REMOTE_REVIEW_UPLOAD_ENABLED,
- *      REMOTE_REVIEW_PACKAGE_NAME, REMOTE_REVIEW_ENTITY_FAMILY, REMOTE_REVIEW_MAX_ROWS_PER_FAMILY
+ * ENV: LOCAL_DATABASE_URL, SUPABASE_WRITE_DATABASE_URL (legacy SUPABASE_DATABASE_URL ok),
+ *      REMOTE_REVIEW_UPLOAD_ENABLED, REMOTE_REVIEW_PACKAGE_NAME,
+ *      REMOTE_REVIEW_ENTITY_FAMILY, REMOTE_REVIEW_MAX_ROWS_PER_FAMILY
+ *
+ * Never resolves production write from DATABASE_URL.
  */
 
 import fs from 'node:fs';
@@ -20,6 +26,12 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import pg from 'pg';
 
+import {
+  maskDatabaseUrl,
+  printResolvedDbTarget,
+  requireProductionWriteConfirmation,
+  resolveDbTarget,
+} from '../lib/database-target-safety.js';
 import {
   emptyPerFamilyCounts,
   emptyPerFamilyUploadStats,
@@ -79,17 +91,43 @@ function sanitizeSupabaseDatabaseUrl(urlStr: string): string {
 }
 
 function parseCliArgs(): {
+  target?: string;
+  apply: boolean;
+  confirmation?: string;
   packageName?: string;
   entityFamilyRaw?: string;
   maxRowsPerFamily?: number;
 } {
   const args = process.argv.slice(2);
+  let target: string | undefined;
+  let apply = false;
+  let confirmation: string | undefined;
   let packageName: string | undefined;
   let entityFamilyRaw: string | undefined;
   let maxRowsPerFamily: number | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
+    if (a === '--target' && args[i + 1]) {
+      target = args[++i];
+      continue;
+    }
+    if (a.startsWith('--target=')) {
+      target = a.slice('--target='.length);
+      continue;
+    }
+    if (a === '--apply') {
+      apply = true;
+      continue;
+    }
+    if (a === '--confirmation' && args[i + 1]) {
+      confirmation = args[++i];
+      continue;
+    }
+    if (a.startsWith('--confirmation=')) {
+      confirmation = a.slice('--confirmation='.length);
+      continue;
+    }
     if (a === '--package-name' && args[i + 1]) {
       packageName = args[++i];
       continue;
@@ -117,7 +155,7 @@ function parseCliArgs(): {
     }
   }
 
-  return { packageName, entityFamilyRaw, maxRowsPerFamily };
+  return { target, apply, confirmation, packageName, entityFamilyRaw, maxRowsPerFamily };
 }
 
 function safeErrorMessage(err: unknown): string {
@@ -604,14 +642,36 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const localUrl = process.env.LOCAL_DATABASE_URL?.trim();
-  const remoteUrlRaw = process.env.SUPABASE_DATABASE_URL?.trim();
-  const pkgName = cli.packageName?.trim() || process.env.REMOTE_REVIEW_PACKAGE_NAME?.trim();
-
-  if (!localUrl || !remoteUrlRaw) {
-    console.error('LOCAL_DATABASE_URL and SUPABASE_DATABASE_URL are required.');
+  const targetRaw = (cli.target ?? '').trim().toLowerCase();
+  if (targetRaw !== 'production' && targetRaw !== 'prod') {
+    console.error(
+      'Stage K requires explicit --target=production (local-only uploads are not supported).'
+    );
     return 1;
   }
+
+  const apply = cli.apply;
+  const mode = apply ? 'apply' : 'dry_run';
+
+  let remoteResolved;
+  try {
+    remoteResolved = resolveDbTarget({ target: 'production', role: 'write' });
+  } catch (e) {
+    console.error(safeErrorMessage(e));
+    return 1;
+  }
+  printResolvedDbTarget(remoteResolved);
+
+  const localUrl = process.env.LOCAL_DATABASE_URL?.trim();
+  const pkgName = cli.packageName?.trim() || process.env.REMOTE_REVIEW_PACKAGE_NAME?.trim();
+
+  if (!localUrl) {
+    console.error('LOCAL_DATABASE_URL is required for Stage K local package reads.');
+    return 1;
+  }
+  console.log(`[stage_k] local_database_url=${maskDatabaseUrl(localUrl)}`);
+  console.log(`[stage_k] mode=${mode}${apply ? '' : ' (default; pass --apply to upload)'}`);
+
   if (!pkgName) {
     console.error(
       'Package name is required: set REMOTE_REVIEW_PACKAGE_NAME or pass --package-name=remote_review_pkg_...'
@@ -641,12 +701,7 @@ async function main(): Promise<number> {
   console.log(`[stage_k] ssl.rejectUnauthorized=${supabaseSslRejectUnauthorized}`);
 
   const localPool = new pg.Pool({ connectionString: localUrl });
-  const remotePool = new pg.Pool({
-    connectionString: sanitizeSupabaseDatabaseUrl(remoteUrlRaw),
-    max: 4,
-    connectionTimeoutMillis: 30_000,
-    ssl: { rejectUnauthorized: supabaseSslRejectUnauthorized },
-  });
+  let remotePool: pg.Pool | null = null;
 
   let pkgSummary: LocalPackageRow | null = null;
   const startedAt = new Date().toISOString();
@@ -758,7 +813,34 @@ async function main(): Promise<number> {
 
     logPackageItemCounts('selected for upload by entity_family', perFamilyCounts);
 
-    const batchId = await upsertReviewBatch(remotePool, pkgSummary, uploadFamilies);
+    if (!apply) {
+      console.log('[stage_k] dry-run complete — no remote write pool opened, nothing upserted.');
+      console.log(
+        `[stage_k] to apply: --target=production --apply --confirmation='UPLOAD remote_review ${effectivePkgName}'`
+      );
+      return 0;
+    }
+
+    try {
+      requireProductionWriteConfirmation({
+        mode: 'apply',
+        confirmationExpected: `UPLOAD remote_review ${effectivePkgName}`,
+        confirmationGot: cli.confirmation,
+      });
+    } catch (e) {
+      console.error(safeErrorMessage(e));
+      return 1;
+    }
+
+    remotePool = new pg.Pool({
+      connectionString: sanitizeSupabaseDatabaseUrl(remoteResolved.url),
+      max: 4,
+      connectionTimeoutMillis: 30_000,
+      ssl: { rejectUnauthorized: supabaseSslRejectUnauthorized },
+    });
+    const remoteWritePool = remotePool;
+
+    const batchId = await upsertReviewBatch(remoteWritePool, pkgSummary, uploadFamilies);
     const progState = { done: 0, total: filtered.length };
     const agg = emptyPerFamilyUploadStats();
     const stampEntries: Array<{
@@ -784,7 +866,7 @@ async function main(): Promise<number> {
 
       console.log(`[family ${family}] uploading ${famItems.length} rows (chunks of ${CHUNK_SIZE})`);
       agg[family].selected = famItems.length;
-      const remoteClient = await remotePool.connect();
+      const remoteClient = await remoteWritePool.connect();
 
       try {
         for (const slice of chunk(famItems, CHUNK_SIZE)) {
@@ -898,14 +980,14 @@ async function main(): Promise<number> {
     };
 
     await syncBatchTotals(
-      remotePool,
+      remoteWritePool,
       batchId,
       summaryPatch,
       progState.total,
       uploadFamilies
     );
 
-    const batchCheck = await remotePool.query<{
+    const batchCheck = await remoteWritePool.query<{
       total_candidate_count: string;
       uploaded_candidate_count: string;
     }>(
@@ -959,7 +1041,7 @@ async function main(): Promise<number> {
   } finally {
     await Promise.all([
       localPool.end().catch(() => undefined),
-      remotePool.end().catch(() => undefined),
+      remotePool ? remotePool.end().catch(() => undefined) : Promise.resolve(),
     ]);
   }
 }

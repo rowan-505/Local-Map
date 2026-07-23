@@ -12,7 +12,12 @@ import {
     IMPORT_REVIEW_PUBLISH_ITEM_RETRY_ALLOWED_STATUSES,
     IMPORT_REVIEW_SELECTED_PROMOTION_BLOCKING_BATCH_STATUSES,
 } from "./import-review-promotion.types.js";
-import { IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN } from "./import-review-status-model.js";
+import {
+    IMPORT_REVIEW_APPLY_BATCH_DECISION_SQL_IN,
+    IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN,
+    IMPORT_REVIEW_SKIP_APPLY_DECISION_SQL_IN,
+} from "./import-review-status-model.js";
+import { buildDecisionPublishActionExpr } from "./import-review-decision-publish-action.js";
 
 export type PublishEligibilityOptions = {
     includeWarnings: boolean;
@@ -150,24 +155,52 @@ export function isBlockedInActiveBatchSql(config: ImportReviewPublishFamilyConfi
 }
 
 function duplicateGuardSql(alias: string, includeMerged: boolean): Prisma.Sql {
+    const duplicateResolved = Prisma.sql`
+        ${col(alias, "review_decision")} IN ('merged', 'mark_duplicate')
+        OR (
+            ${col(alias, "match_status")} IN ('duplicate_candidate', 'possible_duplicate')
+            AND trim(coalesce(${col(alias, "review_note")}, '')) <> ''
+        )
+    `;
     if (includeMerged) {
         return Prisma.sql`(
             ${col(alias, "match_status")} IS DISTINCT FROM 'duplicate_candidate'
             AND ${col(alias, "match_status")} IS DISTINCT FROM 'possible_duplicate'
-            OR ${col(alias, "review_decision")} = 'merged'
-            OR (
-                ${col(alias, "match_status")} IN ('duplicate_candidate', 'possible_duplicate')
-                AND trim(coalesce(${col(alias, "review_note")}, '')) <> ''
-            )
+            OR ${duplicateResolved}
         )`;
     }
     return Prisma.sql`(
         ${col(alias, "match_status")} IS DISTINCT FROM 'duplicate_candidate'
         AND ${col(alias, "match_status")} IS DISTINCT FROM 'possible_duplicate'
-        OR (
-            ${col(alias, "match_status")} IN ('duplicate_candidate', 'possible_duplicate')
-            AND trim(coalesce(${col(alias, "review_note")}, '')) <> ''
+        OR ${duplicateResolved}
+    )`;
+}
+
+/** review_status must match write vs skip decision storage. */
+export function applyBatchReviewStatusSql(alias: string): Prisma.Sql {
+    return Prisma.sql`(
+        (
+            ${col(alias, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN)}
+            AND ${col(alias, "review_status")} = 'approved'
         )
+        OR (
+            ${col(alias, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_SKIP_APPLY_DECISION_SQL_IN)}
+            AND ${col(alias, "review_status")} IN ('ignored', 'merged', 'approved')
+        )
+    )`;
+}
+
+/**
+ * manual_protected blocks only when no Apply decision was recorded.
+ * Once a reviewer saved keep_existing / replace_existing / etc., eligibility may proceed.
+ */
+export function manualProtectedBlockSql(alias: string): Prisma.Sql {
+    return Prisma.sql`(
+        (
+            ${col(alias, "match_status")} = 'manual_protected'
+            OR ${col(alias, "auto_action")} = 'protect_manual'
+        )
+        AND ${col(alias, "review_decision")} IS NULL
     )`;
 }
 
@@ -185,17 +218,14 @@ export function buildEligibleWhereSql(
     return Prisma.sql`
         ${col(a, "review_batch_id")} = ${reviewBatchId}
         AND ${col(a, "entity_family")} = ${config.entityFamily}
-        AND ${col(a, "review_status")} = 'approved'
-        AND ${col(a, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN)}
+        AND ${applyBatchReviewStatusSql(a)}
+        AND ${col(a, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_BATCH_DECISION_SQL_IN)}
         AND NOT ${isPromotedSql(a)}
         AND NOT ${hasPromotionBlockingValidationErrorsSql(config, a)}
         ${roadPromotionEligibilityGuardsSql(config, a)}
-        AND ${col(a, "review_decision")} IS DISTINCT FROM 'rejected'
-        AND ${col(a, "review_decision")} IS DISTINCT FROM 'ignored'
         AND ${col(a, "review_decision")} IS DISTINCT FROM 'needs_more_review'
         AND ${col(a, "review_status")} IS DISTINCT FROM 'needs_more_review'
-        AND ${col(a, "match_status")} IS DISTINCT FROM 'manual_protected'
-        AND ${col(a, "auto_action")} IS DISTINCT FROM 'protect_manual'
+        AND NOT ${manualProtectedBlockSql(a)}
         AND ${duplicateGuardSql(a, options.includeMerged)}
         AND NOT ${isBlockedInActiveBatchSql(config, a)}
         AND (
@@ -234,8 +264,8 @@ function buildBaseApprovedSql(
 ): Prisma.Sql {
     return Prisma.sql`
         ${buildBaseScopeSql(config, reviewBatchId, alias)}
-        AND ${col(alias, "review_status")} = 'approved'
-        AND ${col(alias, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN)}
+        AND ${applyBatchReviewStatusSql(alias)}
+        AND ${col(alias, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_BATCH_DECISION_SQL_IN)}
     `;
 }
 
@@ -289,13 +319,7 @@ export function buildPromotionEligibilityBucketWhereSql(
 }
 
 export function buildPublishActionExpr(alias: string): Prisma.Sql {
-    return Prisma.sql`
-        CASE
-            WHEN ${col(alias, "match_status")} = 'duplicate_candidate' AND ${col(alias, "review_decision")} = 'merged' THEN 'merge'
-            WHEN ${col(alias, "auto_action")} = 'update_candidate' OR ${col(alias, "matched_core_id")} IS NOT NULL THEN 'update'
-            ELSE 'insert'
-        END
-    `;
+    return buildDecisionPublishActionExpr(alias);
 }
 
 export type FamilyEligibilityCountDb = {
@@ -326,8 +350,8 @@ export function buildFamilyEligibilityCountSql(
     `;
     const baseApproved = Prisma.sql`
         ${baseScope}
-        AND ${col(a, "review_status")} = 'approved'
-        AND ${col(a, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN)}
+        AND ${applyBatchReviewStatusSql(a)}
+        AND ${col(a, "review_decision")} IN ${Prisma.raw(IMPORT_REVIEW_APPLY_BATCH_DECISION_SQL_IN)}
     `;
 
     return Prisma.sql`
@@ -354,15 +378,13 @@ export function buildFamilyEligibilityCountSql(
             )::bigint AS has_validation_errors,
             count(*) FILTER (
                 WHERE ${baseApproved}
-                  AND (
-                      ${col(a, "match_status")} = 'manual_protected'
-                      OR ${col(a, "auto_action")} = 'protect_manual'
-                  )
+                  AND ${manualProtectedBlockSql(a)}
             )::bigint AS manual_protected,
             count(*) FILTER (
                 WHERE ${baseApproved}
                   AND ${col(a, "match_status")} IN ('duplicate_candidate', 'possible_duplicate')
                   AND ${col(a, "review_decision")} IS DISTINCT FROM 'merged'
+                  AND ${col(a, "review_decision")} IS DISTINCT FROM 'mark_duplicate'
                   AND trim(coalesce(${col(a, "review_note")}, '')) = ''
             )::bigint AS duplicate_unconfirmed,
             count(*) FILTER (
@@ -399,6 +421,8 @@ export function buildInsertPublishItemsSql(
             publish_status,
             before_data,
             validation_result,
+            review_decision,
+            source_snapshot_version,
             created_at
         )
         SELECT
@@ -419,6 +443,7 @@ export function buildInsertPublishItemsSql(
                 'review_decision', ${col(a, "review_decision")},
                 'review_status', ${col(a, "review_status")},
                 'promotion_status', ${col(a, "promotion_status")},
+                'matched_core_id', ${col(a, "matched_core_id")},
                 'source_snapshot_version', ${col(a, "source_snapshot_version")},
                 'validation_errors_count', ${errorsCount},
                 'validation_warnings_count', ${warningsCount}
@@ -431,6 +456,8 @@ export function buildInsertPublishItemsSql(
                 'validation_errors_count', ${errorsCount},
                 'validation_warnings_count', ${warningsCount}
             ),
+            ${col(a, "review_decision")},
+            ${col(a, "source_snapshot_version")},
             now()
         FROM ${Prisma.raw(config.candidateTable)} AS ${Prisma.raw(a)}
         WHERE ${eligible}
@@ -536,6 +563,7 @@ function publishItemSelectColumns(
             'review_decision', ${col(a, "review_decision")},
             'review_status', ${col(a, "review_status")},
             'promotion_status', ${col(a, "promotion_status")},
+            'matched_core_id', ${col(a, "matched_core_id")},
             'source_snapshot_version', ${col(a, "source_snapshot_version")},
             'validation_errors_count', ${errorsCount},
             'validation_warnings_count', ${warningsCount}
@@ -548,6 +576,8 @@ function publishItemSelectColumns(
             'validation_errors_count', ${errorsCount},
             'validation_warnings_count', ${warningsCount}
         ),
+        ${col(a, "review_decision")},
+        ${col(a, "source_snapshot_version")},
         now()
     `;
 }
@@ -576,6 +606,8 @@ export function buildInsertPublishItemsByIdsSql(
             publish_status,
             before_data,
             validation_result,
+            review_decision,
+            source_snapshot_version,
             created_at
         )
         SELECT ${publishItemSelectColumns(config, batchId, a)}

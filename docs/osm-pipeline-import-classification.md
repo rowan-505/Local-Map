@@ -16,6 +16,7 @@ No production / Supabase writes.
 | `manual_protected` | Matched core has `manual_override=true` and import differs |
 | `verified_conflict` | Meaningful change would modify a verified core row (`is_verified=true`) |
 | `possible_delete` | OSM-derived entity in previous snapshot missing from current (F1 `deleted_candidate`) |
+| `pmtiles_only` | Buildings / landuse / water: not core-eligible (basemap only; never Import Review) |
 | `invalid` | Technical validation failed (`validation_status=invalid`) |
 
 ## Reconciliation
@@ -25,12 +26,14 @@ For each family (current staging):
 ```text
 valid
   = safe_new + safe_update + unchanged + duplicate + conflict
-    + manual_protected + verified_conflict
+    + manual_protected + verified_conflict + pmtiles_only
 ```
 
 `valid` = staging rows with `validation_status` not in (`invalid`, `blocked`, `failed`).
 
 `possible_delete` and `invalid` are reported separately. Stage 18 **fails** when the equality above fails or any valid row is unclassified.
+
+Core vs PMTiles selection for buildings / landuse / water: see [`docs/osm-core-vs-pmtiles-selection-policy.md`](osm-core-vs-pmtiles-selection-policy.md).
 
 ## Family duplicate thresholds
 
@@ -61,6 +64,18 @@ Not one global spatial threshold.
 | routing_barriers | **none** (identity unchanged → `unchanged`; any change → `conflict`) |
 
 `safe_update` also requires the matched core row to look **OSM-derived** (`external_id` / `source_refs` / source type).
+
+## F2 stable comparison (Stage 07)
+
+Do **not** compare full staging vs mirror `to_jsonb` rows. Use `pipeline_f2_stable_compare.sql`:
+
+- Normalize names; ignore synthetic labels (`osm:way:N`, `road-N`).
+- Prefer `road_class_id` (resolve class text via `ref.ref_road_classes` when needed).
+- Geometry: `LineMerge` MultiLineString → LineString, `SnapToGrid(1e-7°)`, then hash / equals; Hausdorff `< 1e-7°` counts as unchanged.
+- Skip optional attrs (oneway/surface/…) when slim `prod_mirror` lacks those columns.
+- Places: compare meaningful name + geom; category/admin only when staging resolved them.
+
+Tests: `scripts/test_f2_stable_compare.sql`. Diagnose: `scripts/diagnose_f2_false_changes.sql`.
 
 ## Decision priority (current staging row)
 

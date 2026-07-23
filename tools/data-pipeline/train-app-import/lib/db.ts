@@ -11,6 +11,12 @@ import process from "node:process";
 import dotenv from "dotenv";
 import pg from "pg";
 
+import {
+    resolveDbTarget,
+    type DbTarget,
+    type DbTargetRole,
+} from "../../lib/database-target-safety.js";
+
 export type TrainStopPoolRow = {
     stop_id: number;
     public_id: string;
@@ -22,8 +28,15 @@ export type TrainStopPoolRow = {
     has_geom: boolean;
 };
 
+export type PipelineDbTarget = DbTarget;
+
 function repoRoot(): string {
     return process.cwd();
+}
+
+function env(name: string): string | undefined {
+    const v = process.env[name]?.trim();
+    return v || undefined;
 }
 
 /** Load database env from the same locations as YBS import scripts. */
@@ -38,13 +51,57 @@ export function loadDatabaseEnv(): void {
     }
 }
 
+/**
+ * Preferred API: resolve via explicit --target local|production.
+ * Defaults role to local for local target, write for production.
+ */
+export function resolvePipelineDatabaseUrl(options: {
+    target: PipelineDbTarget;
+    role?: "read" | "write" | "local";
+    explicit?: string;
+}): string {
+    if (options.explicit?.trim()) return options.explicit.trim();
+    const role: DbTargetRole =
+        options.role ?? (options.target === "local" ? "local" : "write");
+    return resolveDbTarget({
+        target: options.target,
+        role: role === "local" ? "local" : role,
+    }).url;
+}
+
+/**
+ * @deprecated Use resolvePipelineDatabaseUrl with explicit target.
+ *
+ * Order: explicit → LOCAL_DATABASE_URL → SUPABASE_READ_DATABASE_URL →
+ * SUPABASE_WRITE_DATABASE_URL → SUPABASE_DATABASE_URL → SUPABASE_DIRECT_DATABASE_URL.
+ * Never silently uses bare DATABASE_URL unless PIPELINE_ALLOW_DATABASE_URL=true.
+ */
 export function resolveDatabaseUrl(explicit?: string): string | undefined {
-    return (
-        explicit ??
-        process.env.SUPABASE_DIRECT_DATABASE_URL ??
-        process.env.DATABASE_URL ??
-        process.env.LOCAL_DATABASE_URL
-    );
+    if (explicit?.trim()) return explicit.trim();
+
+    const named =
+        env("LOCAL_DATABASE_URL") ??
+        env("SUPABASE_READ_DATABASE_URL") ??
+        env("SUPABASE_WRITE_DATABASE_URL") ??
+        env("SUPABASE_DATABASE_URL") ??
+        env("SUPABASE_DIRECT_DATABASE_URL");
+    if (named) return named;
+
+    const databaseUrl = env("DATABASE_URL");
+    if (databaseUrl) {
+        if (process.env.PIPELINE_ALLOW_DATABASE_URL === "true") {
+            return databaseUrl;
+        }
+        throw new Error(
+            "DATABASE_URL alone is refused as a pipeline database target. " +
+                "Set LOCAL_DATABASE_URL, SUPABASE_READ_DATABASE_URL, or SUPABASE_WRITE_DATABASE_URL " +
+                "(or legacy SUPABASE_DATABASE_URL / SUPABASE_DIRECT_DATABASE_URL), " +
+                "and prefer resolvePipelineDatabaseUrl({ target: \"local\" | \"production\" }). " +
+                "Set PIPELINE_ALLOW_DATABASE_URL=true only for emergency override.",
+        );
+    }
+
+    return undefined;
 }
 
 export async function withReadOnlyClient<T>(

@@ -1,0 +1,42 @@
+Pager usage is off.
+BEGIN
+psql:places_safe_loader.sql:22: NOTICE:  table "places_loader_params" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 1
+DO
+psql:places_safe_loader_body.sql:24: NOTICE:  table "places_loader_batch" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 1
+psql:places_safe_loader_body.sql:104: NOTICE:  places_loader_precheck batch=places_yangon_settlements_safe_2026_07_23 actual=1463 safe_new=1463 safe_update=0 other_ignored=0
+DO
+psql:places_safe_loader_body.sql:106: NOTICE:  table "places_loader_work" does not exist, skipping
+DROP TABLE
+SELECT 1463
+psql:places_safe_loader_body.sql:123: NOTICE:  table "places_loader_plan" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 1463
+DO
+psql:places_safe_loader_body.sql:273: NOTICE:  table "places_loader_result" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 1
+UPDATE 1
+UPDATE 1
+UPDATE 1
+UPDATE 1
+UPDATE 1
+          section          | dry_run |                batch_code                 | inserted | updated | skipped | failed | publish_batch_id | core_places_before | core_places_after | core_places_delta 
+---------------------------+---------+-------------------------------------------+----------+---------+---------+--------+------------------+--------------------+-------------------+-------------------
+ places_safe_loader_result | t       | places_yangon_settlements_safe_2026_07_23 |     1463 |       0 |       0 |      0 |               48 |                343 |              1806 |              1463
+(1 row)
+
+         section         | action |  n   | sample_skip | sample_fail 
+-------------------------+--------+------+-------------+-------------
+ places_safe_loader_plan | insert | 1463 |             | 
+(1 row)
+
+ROLLBACK
+places_safe_loader: DRY RUN rolled back — no durable core writes

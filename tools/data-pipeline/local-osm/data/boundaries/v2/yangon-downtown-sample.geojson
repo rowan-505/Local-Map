@@ -1,0 +1,1 @@
+{"type": "FeatureCollection", "name": "yangon-downtown-sample", "features": [{"type": "Feature", "properties": {"fid": 1, "name": "Yangon downtown sample"}, "geometry": {"type": "Polygon", "coordinates": [[[96.145, 16.765], [96.175, 16.765], [96.175, 16.79], [96.145, 16.79], [96.145, 16.765]]]}}]}

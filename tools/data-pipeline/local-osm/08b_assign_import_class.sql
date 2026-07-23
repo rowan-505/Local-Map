@@ -157,9 +157,34 @@ BEGIN
 
         v_sql := format(
             $u$
-            WITH decided AS (
+            WITH base AS (
                 SELECT
                     s.id AS staging_id,
+                    to_jsonb(s)->>'class_code' AS class_code,
+                    %2$s AS validation_status,
+                    %5$s AS source_status,
+                    CASE
+                        WHEN to_jsonb(s) ? 'eligible_for_core'
+                            THEN nullif(to_jsonb(s)->>'eligible_for_core', '')::boolean
+                        ELSE NULL
+                    END AS eligible_for_core,
+                    nullif(to_jsonb(s)->>'core_selection_reason', '') AS core_selection_reason,
+                    nullif(to_jsonb(s)->>'pmtiles_only_reason', '') AS pmtiles_only_reason,
+                    coalesce(
+                        nullif(to_jsonb(s)->'normalized_data'->>'admin_area_id', '')::bigint,
+                        nullif(to_jsonb(s)->'normalized_data'->>'core_admin_area_id', '')::bigint,
+                        nullif(to_jsonb(s)->>'admin_area_candidate_id', '')::bigint
+                    ) AS admin_area_id,
+                    CASE WHEN to_jsonb(s) ? 'validation_notes' THEN to_jsonb(s)->'validation_notes' ELSE NULL END AS validation_notes,
+                    f2.f2_result,
+                    f2.f2_auto_action,
+                    f2.source_matched,
+                    f2.spatial_matched,
+                    f2.name_matched,
+                    f2.fallback_matched,
+                    f2.prod_before,
+                    f2.f2_diff_type,
+                    f2.f2_manual_protected,
                     system.pipeline_decide_import_class(
                         %1$L,
                         %2$s,
@@ -202,26 +227,67 @@ BEGIN
                             CASE WHEN f2.prod_before ? 'source_refs' THEN f2.prod_before->'source_refs' ELSE NULL END,
                             f2.prod_before->>'source_type'
                         )
-                    ) AS import_class,
-                    jsonb_strip_nulls(jsonb_build_object(
-                        'validation_status', %4$s,
-                        'source_status', %5$s,
-                        'f2_result', f2.f2_result,
-                        'f2_auto_action', f2.f2_auto_action,
-                        'source_matched', f2.source_matched,
-                        'spatial_matched', f2.spatial_matched,
-                        'name_matched', f2.name_matched,
-                        'fallback_matched', f2.fallback_matched,
-                        'prod_manual_override', f2.prod_before->>'manual_override',
-                        'prod_is_verified', f2.prod_before->>'is_verified',
-                        'duplicate_threshold_m', system.pipeline_duplicate_threshold_m(%1$L),
-                        'auto_update_fields', to_jsonb(system.pipeline_auto_update_fields(%1$L))
-                    )) AS import_class_reason
+                    ) AS base_import_class
                 FROM %6$I.%7$I AS s
                 LEFT JOIN stage08b_f2 AS f2
                     ON f2.entity_family = %1$L
                    AND f2.local_entity_id = s.id
                 WHERE s.source_snapshot_id = $1
+            ),
+            settled AS (
+                SELECT
+                    b.*,
+                    system.pipeline_decide_settlement_import_class(
+                        b.base_import_class,
+                        b.class_code,
+                        b.validation_status,
+                        b.admin_area_id
+                    ) AS settled_import_class
+                FROM base AS b
+            ),
+            decided AS (
+                SELECT
+                    s.staging_id,
+                    CASE
+                        WHEN s.settled_import_class = 'invalid' THEN 'invalid'
+                        WHEN %1$L IN ('buildings', 'landuse', 'water_lines', 'water_polygons')
+                             AND s.eligible_for_core IS FALSE
+                            THEN 'pmtiles_only'
+                        ELSE s.settled_import_class
+                    END AS import_class,
+                    jsonb_strip_nulls(jsonb_build_object(
+                        'validation_status', s.validation_status,
+                        'source_status', s.source_status,
+                        'eligible_for_core', s.eligible_for_core,
+                        'core_selection_reason', s.core_selection_reason,
+                        'pmtiles_only_reason', s.pmtiles_only_reason,
+                        'f2_result', s.f2_result,
+                        'f2_auto_action', s.f2_auto_action,
+                        'source_matched', s.source_matched,
+                        'spatial_matched', s.spatial_matched,
+                        'name_matched', s.name_matched,
+                        'fallback_matched', s.fallback_matched,
+                        'prod_manual_override', s.prod_before->>'manual_override',
+                        'prod_is_verified', s.prod_before->>'is_verified',
+                        'duplicate_threshold_m', CASE
+                            WHEN %1$L = 'places' THEN system.pipeline_places_duplicate_threshold_m(s.class_code)
+                            ELSE system.pipeline_duplicate_threshold_m(%1$L)
+                        END,
+                        'final_action', CASE
+                            WHEN s.settled_import_class = 'invalid' THEN 'invalid'
+                            WHEN %1$L IN ('buildings', 'landuse', 'water_lines', 'water_polygons')
+                                 AND s.eligible_for_core IS FALSE
+                                THEN 'skip'
+                            ELSE system.pipeline_import_class_to_final_action(s.settled_import_class)
+                        END,
+                        'review_reason', system.pipeline_settlement_review_reason(
+                            s.settled_import_class,
+                            s.validation_notes,
+                            s.class_code
+                        ),
+                        'auto_update_fields', to_jsonb(system.pipeline_auto_update_fields(%1$L))
+                    )) AS import_class_reason
+                FROM settled AS s
             )
             UPDATE %6$I.%7$I AS s
             SET

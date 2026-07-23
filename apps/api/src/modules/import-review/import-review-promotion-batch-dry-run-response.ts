@@ -2,6 +2,7 @@ import type { PublishBatchDryRunResult } from "./import-review-publish-batch-dry
 import type {
     ImportReviewPublishBatchDryRunApiResponse,
     PublishBatchDryRunDuplicateSample,
+    PublishBatchDryRunExactAction,
     PublishBatchDryRunSampleError,
     PublishBatchDryRunSummary,
 } from "./import-review-promotion-batch-dry-run.types.js";
@@ -26,10 +27,12 @@ export function buildPublishBatchDryRunSummary(args: {
     failedCount: number;
     wouldInsertCount: number;
     wouldUpdateCount: number;
+    wouldSkipCount?: number;
     duplicateFixedCount?: number;
     duplicateBlockedCount?: number;
     duplicateSamples?: PublishBatchDryRunDuplicateSample[];
     sampleErrors: PublishBatchDryRunSampleError[];
+    exactActions?: PublishBatchDryRunExactAction[];
     batchStatus: string;
     message: string;
 }): PublishBatchDryRunSummary {
@@ -44,10 +47,12 @@ export function buildPublishBatchDryRunSummary(args: {
             failed_count: args.failedCount,
             would_insert_count: args.wouldInsertCount,
             would_update_count: args.wouldUpdateCount,
+            would_skip_count: args.wouldSkipCount ?? 0,
             duplicate_fixed_count: args.duplicateFixedCount ?? 0,
             duplicate_blocked_count: args.duplicateBlockedCount ?? 0,
             duplicate_samples: args.duplicateSamples ?? [],
             sample_errors: args.sampleErrors,
+            exact_actions: args.exactActions ?? [],
             ran_at: args.checkedAt,
         },
         batch_status: args.batchStatus,
@@ -69,10 +74,12 @@ export function buildPublishBatchDryRunApiResponse(args: {
     failedCount: number;
     wouldInsertCount: number;
     wouldUpdateCount: number;
+    wouldSkipCount?: number;
     duplicateFixedCount?: number;
     duplicateBlockedCount?: number;
     duplicateSamples?: PublishBatchDryRunDuplicateSample[];
     sampleErrors: PublishBatchDryRunSampleError[];
+    exactActions?: PublishBatchDryRunExactAction[];
     batchStatus: string;
     message: string;
     checkedAt?: string;
@@ -88,10 +95,12 @@ export function buildPublishBatchDryRunApiResponse(args: {
         failedCount: args.failedCount,
         wouldInsertCount: args.wouldInsertCount,
         wouldUpdateCount: args.wouldUpdateCount,
+        wouldSkipCount: args.wouldSkipCount,
         duplicateFixedCount: args.duplicateFixedCount,
         duplicateBlockedCount: args.duplicateBlockedCount,
         duplicateSamples: args.duplicateSamples,
         sampleErrors: args.sampleErrors,
+        exactActions: args.exactActions,
         batchStatus: args.batchStatus,
         message: args.message,
     });
@@ -106,10 +115,12 @@ export function buildPublishBatchDryRunApiResponse(args: {
         failed_count: args.failedCount,
         would_insert_count: args.wouldInsertCount,
         would_update_count: args.wouldUpdateCount,
+        would_skip_count: args.wouldSkipCount ?? 0,
         duplicate_fixed_count: args.duplicateFixedCount ?? 0,
         duplicate_blocked_count: args.duplicateBlockedCount ?? 0,
         duplicate_samples: args.duplicateSamples ?? [],
         sample_errors: args.sampleErrors,
+        exact_actions: args.exactActions ?? [],
         summary,
     };
 }

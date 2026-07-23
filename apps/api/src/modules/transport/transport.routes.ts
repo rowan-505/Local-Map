@@ -5,7 +5,10 @@ import {
     TransportFeatureNotImplementedError,
     TransportGeneratePathFromStopsError,
     TransportInvalidReferenceError,
+    TransportMergeExecutionFailedError,
+    TransportMergeParentConflictError,
     TransportMergePreviewFailedError,
+    TransportMergeTerminalConflictError,
     TransportNameRequiredError,
     TransportNotFoundError,
     TransportRouteMetadataError,
@@ -235,8 +238,33 @@ function sendTransportError(reply: FastifyReply, error: unknown): FastifyReply |
     if (error instanceof TransportGeneratePathFromStopsError) {
         return reply.code(400).send({ message: error.message });
     }
+    if (error instanceof TransportMergeTerminalConflictError) {
+        return reply.code(error.statusCode).send({
+            message: error.message,
+            code: error.code,
+            canonicalStopId: error.canonicalStopId,
+            duplicateStopId: error.duplicateStopId,
+            canonicalTerminalId: error.canonicalTerminalId,
+            duplicateTerminalId: error.duplicateTerminalId,
+        });
+    }
+    if (error instanceof TransportMergeParentConflictError) {
+        return reply.code(error.statusCode).send({
+            message: error.message,
+            code: error.code,
+            canonicalStopId: error.canonicalStopId,
+            duplicateStopId: error.duplicateStopId,
+        });
+    }
     if (error instanceof TransportMergePreviewFailedError) {
         return reply.code(500).send({ message: error.message });
+    }
+    if (error instanceof TransportMergeExecutionFailedError) {
+        return reply.code(500).send({
+            message: error.message,
+            code: "MERGE_EXECUTION_FAILED",
+            stage: error.context.stage,
+        });
     }
     if (isHttpAuthError(error)) {
         return reply.code(error.statusCode).send({
@@ -641,11 +669,62 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
         "/stops/merge",
         { schema: postTransportStopMergeGlobalSchema },
         async (request, reply) => {
+            let canonicalStopId: string | undefined;
+            let duplicateStopId: string | undefined;
+            let currentStopId: string | undefined;
+            let candidateStopId: string | undefined;
             try {
                 const body = stopMergeGlobalBodySchema.parse(request.body);
+                canonicalStopId = body.canonicalStopId;
+                duplicateStopId = body.duplicateStopId;
+                currentStopId = body.currentStopId;
+                candidateStopId = body.candidateStopId;
                 const result = await service.mergeStopsGlobal(body, auditContextFrom(request));
                 return reply.send(result);
             } catch (error) {
+                if (error instanceof TransportMergeExecutionFailedError) {
+                    request.log.error(
+                        {
+                            err: error.cause ?? error,
+                            requestId: error.context.requestId ?? request.id,
+                            currentStopId: error.context.currentStopId,
+                            candidateStopId: error.context.candidateStopId,
+                            canonicalStopId: error.context.canonicalStopId,
+                            duplicateStopId: error.context.duplicateStopId,
+                            canonicalNumericId: error.context.canonicalNumericId,
+                            duplicateNumericId: error.context.duplicateNumericId,
+                            stage: error.context.stage,
+                            routeIds: error.context.routeIds,
+                            variantIds: error.context.variantIds,
+                            sameVariantConflictCount: error.context.sameVariantConflictCount,
+                            prismaCode: error.context.prismaCode,
+                            sqlErrorCode: error.context.sqlErrorCode,
+                            constraintName: error.context.constraintName,
+                            tableName: error.context.tableName,
+                        },
+                        "transport stop merge execution failed",
+                    );
+                } else if (
+                    !(error instanceof TransportMergeTerminalConflictError) &&
+                    !(error instanceof TransportMergeParentConflictError) &&
+                    !(error instanceof TransportReviewGuardError) &&
+                    !(error instanceof TransportNotFoundError) &&
+                    !(error instanceof ZodError) &&
+                    !isHttpAuthError(error)
+                ) {
+                    request.log.error(
+                        {
+                            err: error,
+                            requestId: request.id,
+                            currentStopId,
+                            candidateStopId,
+                            canonicalStopId,
+                            duplicateStopId,
+                            stage: "pre_transaction_or_unclassified",
+                        },
+                        "transport stop merge execution failed",
+                    );
+                }
                 const handled = sendTransportError(reply, error);
                 if (handled) return handled;
                 throw error;

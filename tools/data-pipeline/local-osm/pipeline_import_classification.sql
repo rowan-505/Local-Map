@@ -73,6 +73,9 @@ AS $$
     END;
 $$;
 
+-- Settlement helpers (type-aware place duplicate radii + final-action map).
+\ir pipeline_settlements.sql
+
 CREATE OR REPLACE FUNCTION system.pipeline_decide_import_class(
     p_family text,
     p_validation_status text,

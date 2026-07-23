@@ -1,0 +1,43 @@
+Pager usage is off.
+BEGIN
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader.sql:22: NOTICE:  table "places_loader_params" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 1
+DO
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:24: NOTICE:  table "places_loader_batch" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 1
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:104: NOTICE:  places_loader_precheck batch=places_kyauktan_safe_2026_07_22 actual=83 safe_new=62 safe_update=21 other_ignored=0
+DO
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:106: NOTICE:  table "places_loader_work" does not exist, skipping
+DROP TABLE
+SELECT 83
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:123: NOTICE:  table "places_loader_plan" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 83
+DO
+psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/places_safe_loader_body.sql:273: NOTICE:  table "places_loader_result" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 1
+UPDATE 1
+UPDATE 1
+UPDATE 1
+UPDATE 1
+UPDATE 1
+          section          | dry_run |           batch_code            | inserted | updated | skipped | failed | publish_batch_id | core_places_before | core_places_after | core_places_delta 
+---------------------------+---------+---------------------------------+----------+---------+---------+--------+------------------+--------------------+-------------------+-------------------
+ places_safe_loader_result | t       | places_kyauktan_safe_2026_07_22 |       62 |      21 |       0 |      0 |               43 |                265 |               327 |                62
+(1 row)
+
+         section         | action | n  | sample_skip | sample_fail 
+-------------------------+--------+----+-------------+-------------
+ places_safe_loader_plan | insert | 62 |             | 
+ places_safe_loader_plan | update | 21 |             | 
+(2 rows)
+
+ROLLBACK
+places_safe_loader: DRY RUN rolled back — no durable core writes

@@ -184,6 +184,8 @@ WHERE entity_family = 'routing_roads';
 
 \ir pipeline_entity_families.sql
 \ir pipeline_source_identity.sql
+\ir pipeline_settlements.sql
+\ir pipeline_f2_stable_compare.sql
 
 DELETE FROM stage07_family_config AS fc
 WHERE NOT pg_temp.pipeline_entity_family_enabled(fc.entity_family);
@@ -892,9 +894,23 @@ BEGIN
                 ANALYZE stage07_road_staging;
 
                 DROP TABLE IF EXISTS stage07_road_prod;
+                -- Do not copy the full national streets mirror (can be 800k+ rows).
+                -- Keep prod candidates that share an OSM identity with staging, or
+                -- that intersect a small pad around the staging extent (sample/local clips).
+                RAISE NOTICE 'stage07_road_prod_extract_start [65%%] at=%', clock_timestamp();
                 EXECUTE format(
                     $q$
                     CREATE TEMP TABLE stage07_road_prod ON COMMIT DROP AS
+                    WITH staging_extent AS (
+                        SELECT ST_Expand(ST_Envelope(ST_Collect(s.geom)), 0.02) AS geom
+                        FROM stage07_road_staging AS s
+                        WHERE s.geom IS NOT NULL
+                    ),
+                    staging_ids AS (
+                        SELECT identity_key
+                        FROM stage07_road_staging
+                        WHERE identity_key IS NOT NULL
+                    )
                     SELECT
                         p.id AS prod_id,
                         p.geom,
@@ -919,6 +935,14 @@ BEGIN
                             OR coalesce(to_jsonb(p)->>'source_type', '') ILIKE '%%dashboard%%'
                         ) AS manual_protected
                     FROM %I.%I AS p
+                    LEFT JOIN staging_extent AS se ON true
+                    WHERE
+                        system.pipeline_osm_identity_key(nullif(to_jsonb(p)->>'external_id', '')) IN (SELECT identity_key FROM staging_ids)
+                        OR (
+                            p.geom IS NOT NULL
+                            AND se.geom IS NOT NULL
+                            AND p.geom && se.geom
+                        )
                     $q$,
                     v_prod_mirror_schema,
                     cfg.prod_table
@@ -960,6 +984,7 @@ BEGIN
                     s.staging_id,
                     p.prod_id,
                     p.prod_data,
+                    p.geom AS prod_geom,
                     1 AS match_rank,
                     true AS source_matched,
                     false AS fallback_matched,
@@ -1026,56 +1051,82 @@ BEGIN
                         coalesce(bm.source_matched, false) AS source_matched,
                         coalesce(bm.fallback_matched, false) AS fallback_matched,
                         coalesce(bm.manual_protected, false) AS manual_protected,
-                        (
-                            jsonb_strip_nulls(jsonb_build_object(
-                                'canonical_name', nullif(lower(btrim(coalesce(s.canonical_name, ''))), ''),
-                                'class_code', nullif(coalesce(
-                                    s.staging_data->>'class_code',
-                                    s.normalized_data->>'class_code',
-                                    s.normalized_data->'tags'->>'highway'
-                                ), ''),
-                                'road_class_id', nullif(s.staging_data->>'road_class_id', ''),
-                                'is_oneway', s.staging_data->'is_oneway',
-                                'routing', nullif(jsonb_strip_nulls(jsonb_build_object(
-                                    'access', s.normalized_data->'routing'->>'access',
-                                    'vehicle', s.normalized_data->'routing'->>'vehicle',
-                                    'motor_vehicle', s.normalized_data->'routing'->>'motor_vehicle',
-                                    'foot', s.normalized_data->'routing'->>'foot',
-                                    'bicycle', s.normalized_data->'routing'->>'bicycle',
-                                    'bus', s.normalized_data->'routing'->>'bus',
-                                    'surface', s.normalized_data->'routing'->>'surface'
-                                )), '{}'::jsonb)
-                            ))
-                            IS DISTINCT FROM
-                            jsonb_strip_nulls(jsonb_build_object(
-                                'canonical_name', nullif(lower(btrim(coalesce(bm.prod_data->>'canonical_name', bm.prod_data->>'name', ''))), ''),
-                                'class_code', nullif(coalesce(
-                                    bm.prod_data->>'class_code',
+                        system.pipeline_f2_roads_staging_payload(
+                            s.canonical_name,
+                            coalesce(
+                                s.staging_data->>'class_code',
+                                s.normalized_data->>'class_code',
+                                s.normalized_data->'tags'->>'highway'
+                            ),
+                            nullif(s.staging_data->>'road_class_id', '')::bigint,
+                            s.geom,
+                            nullif(s.staging_data->>'admin_area_id', '')::bigint,
+                            CASE
+                                WHEN s.staging_data ? 'is_oneway'
+                                    THEN (s.staging_data->>'is_oneway')::boolean
+                                ELSE NULL
+                            END,
+                            coalesce(
+                                s.normalized_data->'routing'->>'surface',
+                                s.normalized_data->'tags'->>'surface'
+                            ),
+                            s.normalized_data->'tags'->>'bridge',
+                            s.normalized_data->'tags'->>'tunnel',
+                            s.normalized_data->'tags'->>'layer',
+                            -- Slim prod_mirror lacks oneway/surface/bridge/tunnel/layer.
+                            false
+                        ) AS staging_payload,
+                        CASE
+                            WHEN bm.prod_data IS NULL THEN NULL
+                            ELSE system.pipeline_f2_roads_prod_payload(
+                                coalesce(bm.prod_data->>'canonical_name', bm.prod_data->>'name'),
+                                coalesce(
                                     bm.prod_data->>'road_class',
-                                    bm.prod_data->>'road_class_code',
-                                    bm.prod_data->'normalized_data'->>'class_code',
-                                    bm.prod_data->'source_tags'->>'highway'
-                                ), ''),
-                                'road_class_id', nullif(bm.prod_data->>'road_class_id', ''),
-                                'is_oneway', bm.prod_data->'is_oneway',
-                                'routing', nullif(jsonb_strip_nulls(jsonb_build_object(
-                                    'access', coalesce(bm.prod_data->'normalized_data'->'routing'->>'access', bm.prod_data->'source_tags'->>'access', bm.prod_data->>'access'),
-                                    'vehicle', coalesce(bm.prod_data->'normalized_data'->'routing'->>'vehicle', bm.prod_data->'source_tags'->>'vehicle', bm.prod_data->>'vehicle'),
-                                    'motor_vehicle', coalesce(bm.prod_data->'normalized_data'->'routing'->>'motor_vehicle', bm.prod_data->'source_tags'->>'motor_vehicle', bm.prod_data->>'motor_vehicle'),
-                                    'foot', coalesce(bm.prod_data->'normalized_data'->'routing'->>'foot', bm.prod_data->'source_tags'->>'foot', bm.prod_data->>'foot'),
-                                    'bicycle', coalesce(bm.prod_data->'normalized_data'->'routing'->>'bicycle', bm.prod_data->'source_tags'->>'bicycle', bm.prod_data->>'bicycle'),
-                                    'bus', coalesce(bm.prod_data->'normalized_data'->'routing'->>'bus', bm.prod_data->'source_tags'->>'bus', bm.prod_data->>'bus'),
-                                    'surface', coalesce(bm.prod_data->'normalized_data'->'routing'->>'surface', bm.prod_data->'source_tags'->>'surface', bm.prod_data->>'surface')
-                                )), '{}'::jsonb)
-                            ))
-                        ) AS changed
+                                    bm.prod_data->>'class_code',
+                                    bm.prod_data->>'road_class_code'
+                                ),
+                                nullif(bm.prod_data->>'road_class_id', '')::bigint,
+                                bm.prod_geom,
+                                nullif(bm.prod_data->>'admin_area_id', '')::bigint,
+                                CASE
+                                    WHEN bm.prod_data ? 'is_oneway'
+                                        THEN (bm.prod_data->>'is_oneway')::boolean
+                                    ELSE NULL
+                                END,
+                                coalesce(bm.prod_data->>'surface', bm.prod_data->'source_tags'->>'surface'),
+                                coalesce(bm.prod_data->>'bridge', bm.prod_data->'source_tags'->>'bridge'),
+                                coalesce(bm.prod_data->>'tunnel', bm.prod_data->'source_tags'->>'tunnel'),
+                                coalesce(bm.prod_data->>'layer', bm.prod_data->'source_tags'->>'layer'),
+                                CASE
+                                    WHEN nullif(bm.prod_data->>'deleted_at', '') IS NOT NULL
+                                        THEN (bm.prod_data->>'deleted_at')::timestamptz
+                                    ELSE NULL
+                                END,
+                                false,
+                                -- Staging road candidates usually have no admin_area_id.
+                                (nullif(s.staging_data->>'admin_area_id', '') IS NOT NULL)
+                            )
+                        END AS prod_payload
                     FROM stage07_road_staging AS s
                     LEFT JOIN stage07_road_best_matches AS bm
                         ON bm.staging_id = s.staging_id
                 ),
+                classified_changed AS (
+                    SELECT
+                        c.*,
+                        CASE
+                            WHEN c.prod_data IS NULL THEN true
+                            ELSE system.pipeline_f2_roads_changed(c.staging_payload, c.prod_payload)
+                        END AS changed,
+                        CASE
+                            WHEN c.prod_data IS NULL THEN '{}'::jsonb
+                            ELSE system.pipeline_f2_payload_field_diffs(c.staging_payload, c.prod_payload)
+                        END AS field_diffs
+                    FROM classified AS c
+                ),
                 road_items AS (
                     SELECT
-                        classified.*,
+                        classified_changed.*,
                         CASE
                             WHEN prod_data IS NULL THEN 'prod_no_match'
                             WHEN manual_protected THEN 'manual_protected'
@@ -1101,7 +1152,7 @@ BEGIN
                             WHEN source_matched AND NOT changed AND NOT manual_protected THEN 'ignored'
                             ELSE 'pending'
                         END AS review_status
-                    FROM classified
+                    FROM classified_changed
                 )
                 INSERT INTO system.system_diff_items (
                     diff_run_id,
@@ -1130,7 +1181,12 @@ BEGIN
                             'prod_match_rank', match_rank,
                             'source_matched', source_matched,
                             'fallback_matched', fallback_matched,
-                            'manual_protected', manual_protected
+                            'manual_protected', manual_protected,
+                            'content_changed', changed,
+                            'stable_compare', true,
+                            'field_diffs', field_diffs,
+                            'staging_payload', staging_payload,
+                            'prod_payload', prod_payload
                         )
                     ),
                     confidence_score,
@@ -1732,26 +1788,51 @@ BEGIN
 
         v_spatial_expand_degrees := greatest(coalesce(cfg.spatial_threshold_m, 30) / 111320.0, 0.000001);
 
+        -- Places: type-aware radius for settlements (city/town larger, neighbourhood denser).
+        IF cfg.entity_family = 'places' THEN
+            v_spatial_expand_degrees := greatest(500.0 / 111320.0, 0.000001);
+        END IF;
+
         v_spatial_match_expr := 'false';
 
         IF v_has_staging_point AND v_has_prod_point THEN
-            v_spatial_match_expr := v_spatial_match_expr || format(
-                ' OR (s.%1$I IS NOT NULL AND p.%2$I IS NOT NULL AND p.%2$I && ST_Expand(s.%1$I, %4$L) AND ST_DWithin(s.%1$I::geography, p.%2$I::geography, %3$s))',
-                cfg.staging_point_column,
-                cfg.prod_point_column,
-                coalesce(cfg.spatial_threshold_m, 30),
-                v_spatial_expand_degrees
-            );
+            IF cfg.entity_family = 'places' THEN
+                v_spatial_match_expr := v_spatial_match_expr || format(
+                    ' OR (s.%1$I IS NOT NULL AND p.%2$I IS NOT NULL AND p.%2$I && ST_Expand(s.%1$I, %4$L) AND ST_DWithin(s.%1$I::geography, p.%2$I::geography, system.pipeline_places_duplicate_threshold_m(s.class_code)))',
+                    cfg.staging_point_column,
+                    cfg.prod_point_column,
+                    coalesce(cfg.spatial_threshold_m, 30),
+                    v_spatial_expand_degrees
+                );
+            ELSE
+                v_spatial_match_expr := v_spatial_match_expr || format(
+                    ' OR (s.%1$I IS NOT NULL AND p.%2$I IS NOT NULL AND p.%2$I && ST_Expand(s.%1$I, %4$L) AND ST_DWithin(s.%1$I::geography, p.%2$I::geography, %3$s))',
+                    cfg.staging_point_column,
+                    cfg.prod_point_column,
+                    coalesce(cfg.spatial_threshold_m, 30),
+                    v_spatial_expand_degrees
+                );
+            END IF;
         END IF;
 
         IF v_has_staging_point AND v_has_prod_geom THEN
-            v_spatial_match_expr := v_spatial_match_expr || format(
-                ' OR (s.%1$I IS NOT NULL AND p.%2$I IS NOT NULL AND p.%2$I && ST_Expand(s.%1$I, %4$L) AND ST_DWithin(s.%1$I::geography, p.%2$I::geography, %3$s))',
-                cfg.staging_point_column,
-                cfg.prod_geom_column,
-                coalesce(cfg.spatial_threshold_m, 30),
-                v_spatial_expand_degrees
-            );
+            IF cfg.entity_family = 'places' THEN
+                v_spatial_match_expr := v_spatial_match_expr || format(
+                    ' OR (s.%1$I IS NOT NULL AND p.%2$I IS NOT NULL AND p.%2$I && ST_Expand(s.%1$I, %4$L) AND ST_DWithin(s.%1$I::geography, p.%2$I::geography, system.pipeline_places_duplicate_threshold_m(s.class_code)))',
+                    cfg.staging_point_column,
+                    cfg.prod_geom_column,
+                    coalesce(cfg.spatial_threshold_m, 30),
+                    v_spatial_expand_degrees
+                );
+            ELSE
+                v_spatial_match_expr := v_spatial_match_expr || format(
+                    ' OR (s.%1$I IS NOT NULL AND p.%2$I IS NOT NULL AND p.%2$I && ST_Expand(s.%1$I, %4$L) AND ST_DWithin(s.%1$I::geography, p.%2$I::geography, %3$s))',
+                    cfg.staging_point_column,
+                    cfg.prod_geom_column,
+                    coalesce(cfg.spatial_threshold_m, 30),
+                    v_spatial_expand_degrees
+                );
+            END IF;
         END IF;
 
         IF v_has_staging_geom AND v_has_prod_point THEN
@@ -1871,6 +1952,23 @@ BEGIN
                 v_building_intersection_match_expr,
                 v_building_centroid_match_expr
             );
+        ELSIF cfg.entity_family = 'places' THEN
+            -- Dense-region performance: prefer identity-key equality (btree-friendly)
+            -- and keep spatial as a separate indexed OR arm. Avoid scanning every
+            -- prod row with multi-branch pipeline_osm_identity_matches() per candidate.
+            v_source_match_expr := '('
+                || 'nullif(s.external_id, '''') IS NOT NULL'
+                || ' AND nullif(p.external_id, '''') IS NOT NULL'
+                || ' AND system.pipeline_osm_identity_key(p.external_id)'
+                || '     = system.pipeline_osm_identity_key(s.external_id)'
+                || ')';
+            v_match_where := format('(%s OR %s)', v_source_match_expr, v_spatial_match_expr);
+            v_match_rank_expr := format(
+                'CASE WHEN %1$s THEN 1 WHEN (%2$s AND (%3$s)) THEN 2 WHEN %2$s THEN 3 ELSE 9 END',
+                v_source_match_expr,
+                v_spatial_match_expr,
+                v_name_match_expr
+            );
         ELSE
             v_match_where := format('(%s OR %s OR (%s AND (%s)))', v_source_match_expr, v_spatial_match_expr, v_name_match_expr, v_spatial_match_expr);
             v_match_rank_expr := format(
@@ -1881,9 +1979,114 @@ BEGIN
             );
         END IF;
 
-        v_changed_expr := format(
-            '(to_jsonb(s) - ''id'' - ''source_snapshot_id'' - ''raw_id'' - ''created_at'' - ''updated_at'' - ''match_status'' - ''review_status'' - ''auto_action'' - ''source_refs'' - ''confidence_score'' - ''geom'' - ''geom_multi'' - ''point_geom'' - ''footprint_geom'' - ''centroid'' IS DISTINCT FROM to_jsonb(p) - ''id'' - ''public_id'' - ''created_at'' - ''updated_at'' - ''deleted_at'' - ''source_refs'' - ''geom'' - ''point_geom'' - ''centroid'')'
-        );
+        -- Stable family comparison (not full-row to_jsonb).
+        -- Roads use a dedicated branch above. Places use typed payloads here.
+        -- Other families: compare allowlisted slim-mirror fields only.
+        IF cfg.entity_family = 'places' THEN
+            v_changed_expr := format(
+                $c$
+                system.pipeline_f2_places_changed(
+                    system.pipeline_f2_places_staging_payload(
+                        coalesce(to_jsonb(s)->>'canonical_name', to_jsonb(s)->>'primary_name'),
+                        nullif(to_jsonb(s)->>'poi_category_id', '')::bigint,
+                        %1$s,
+                        nullif(to_jsonb(s)->>'admin_area_id', '')::bigint
+                    ),
+                    system.pipeline_f2_places_prod_payload(
+                        coalesce(to_jsonb(p)->>'primary_name', to_jsonb(p)->>'canonical_name'),
+                        to_jsonb(p)->>'display_name',
+                        nullif(to_jsonb(p)->>'category_id', '')::bigint,
+                        %2$s,
+                        nullif(to_jsonb(p)->>'admin_area_id', '')::bigint,
+                        CASE
+                            WHEN nullif(to_jsonb(p)->>'deleted_at', '') IS NOT NULL
+                                THEN (to_jsonb(p)->>'deleted_at')::timestamptz
+                            ELSE NULL
+                        END,
+                        -- Only compare category when staging resolved one.
+                        (nullif(to_jsonb(s)->>'poi_category_id', '') IS NOT NULL),
+                        (nullif(to_jsonb(s)->>'admin_area_id', '') IS NOT NULL)
+                    )
+                )
+                $c$,
+                CASE
+                    WHEN v_has_staging_point THEN format('s.%I', cfg.staging_point_column)
+                    WHEN v_has_staging_geom THEN format('s.%I', cfg.staging_geom_column)
+                    ELSE 'NULL::geometry'
+                END,
+                CASE
+                    WHEN v_has_prod_point THEN format('p.%I', cfg.prod_point_column)
+                    WHEN v_has_prod_geom THEN format('p.%I', cfg.prod_geom_column)
+                    ELSE 'NULL::geometry'
+                END
+            );
+        ELSIF cfg.entity_family = 'buildings' THEN
+            v_changed_expr := format(
+                $c$
+                (
+                    system.pipeline_meaningful_name(coalesce(to_jsonb(s)->>'canonical_name', to_jsonb(s)->>'name'))
+                        IS DISTINCT FROM
+                    system.pipeline_meaningful_name(coalesce(to_jsonb(p)->>'name', to_jsonb(p)->>'canonical_name'))
+                    OR nullif(to_jsonb(s)->>'building_type_id', '')
+                        IS DISTINCT FROM nullif(to_jsonb(p)->>'building_type_id', '')
+                    OR (
+                        nullif(to_jsonb(s)->>'admin_area_id', '') IS NOT NULL
+                        AND nullif(to_jsonb(s)->>'admin_area_id', '')
+                            IS DISTINCT FROM nullif(to_jsonb(p)->>'admin_area_id', '')
+                    )
+                    OR system.pipeline_geometry_meaningfully_changed(%1$s, %2$s)
+                )
+                $c$,
+                CASE WHEN v_has_staging_geom THEN format('s.%I', cfg.staging_geom_column) ELSE 'NULL::geometry' END,
+                CASE WHEN v_has_prod_geom THEN format('p.%I', cfg.prod_geom_column) ELSE 'NULL::geometry' END
+            );
+        ELSIF cfg.entity_family IN ('landuse', 'water_polygons', 'water_lines') THEN
+            v_changed_expr := format(
+                $c$
+                (
+                    system.pipeline_meaningful_name(coalesce(to_jsonb(s)->>'canonical_name', to_jsonb(s)->>'name'))
+                        IS DISTINCT FROM
+                    system.pipeline_meaningful_name(coalesce(to_jsonb(p)->>'name', to_jsonb(p)->>'canonical_name'))
+                    OR system.pipeline_norm_text(to_jsonb(s)->>'class_code')
+                        IS DISTINCT FROM system.pipeline_norm_text(to_jsonb(p)->>'class_code')
+                    OR (
+                        nullif(to_jsonb(s)->>'admin_area_id', '') IS NOT NULL
+                        AND nullif(to_jsonb(s)->>'admin_area_id', '')
+                            IS DISTINCT FROM nullif(to_jsonb(p)->>'admin_area_id', '')
+                    )
+                    OR system.pipeline_geometry_meaningfully_changed(%1$s, %2$s)
+                )
+                $c$,
+                CASE WHEN v_has_staging_geom THEN format('s.%I', cfg.staging_geom_column) ELSE 'NULL::geometry' END,
+                CASE WHEN v_has_prod_geom THEN format('p.%I', cfg.prod_geom_column) ELSE 'NULL::geometry' END
+            );
+        ELSE
+            -- Fallback: still avoid full-row to_jsonb; compare name + class + geom only.
+            v_changed_expr := format(
+                $c$
+                (
+                    system.pipeline_meaningful_name(coalesce(
+                        to_jsonb(s)->>'canonical_name', to_jsonb(s)->>'primary_name', to_jsonb(s)->>'name'
+                    ))
+                        IS DISTINCT FROM
+                    system.pipeline_meaningful_name(coalesce(
+                        to_jsonb(p)->>'canonical_name', to_jsonb(p)->>'primary_name', to_jsonb(p)->>'name'
+                    ))
+                    OR system.pipeline_norm_text(coalesce(to_jsonb(s)->>'class_code', to_jsonb(s)->>'road_class'))
+                        IS DISTINCT FROM
+                    system.pipeline_norm_text(coalesce(to_jsonb(p)->>'class_code', to_jsonb(p)->>'road_class'))
+                    OR system.pipeline_geometry_meaningfully_changed(
+                        COALESCE(%1$s, %2$s),
+                        COALESCE(%3$s, %4$s)
+                    )
+                )
+                $c$,
+                CASE WHEN v_has_staging_point THEN format('s.%I', cfg.staging_point_column) ELSE 'NULL::geometry' END,
+                CASE WHEN v_has_staging_geom THEN format('s.%I', cfg.staging_geom_column) ELSE 'NULL::geometry' END,
+                CASE WHEN v_has_prod_point THEN format('p.%I', cfg.prod_point_column) ELSE 'NULL::geometry' END,
+                CASE WHEN v_has_prod_geom THEN format('p.%I', cfg.prod_geom_column) ELSE 'NULL::geometry' END
+            );
+        END IF;
 
         v_manual_expr := '(CASE WHEN to_jsonb(p)->>''is_verified'' IN (''true'', ''false'') THEN (to_jsonb(p)->>''is_verified'')::boolean ELSE false END OR CASE WHEN to_jsonb(p)->>''manual_override'' IN (''true'', ''false'') THEN (to_jsonb(p)->>''manual_override'')::boolean ELSE false END OR coalesce(to_jsonb(p)->''source_refs'', ''{}''::jsonb)::text ILIKE ''%%manual_dashboard%%'' OR coalesce(to_jsonb(p)->>''source_type'', '''') ILIKE ''%%manual%%'' OR coalesce(to_jsonb(p)->>''source_type'', '''') ILIKE ''%%dashboard%%'')';
 

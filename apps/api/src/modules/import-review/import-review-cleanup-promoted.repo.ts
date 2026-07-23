@@ -92,7 +92,8 @@ export class ImportReviewCleanupPromotedRepository {
             return [];
         }
         return this.prisma.$queryRaw<BatchVerificationRow[]>`
-            SELECT id, status, success_count, core_verified_count
+            SELECT id, status, success_count,
+                   NULL::int AS core_verified_count
             FROM system.system_publish_batches
             WHERE id IN (${Prisma.join(batchIds)})
         `;
@@ -145,7 +146,7 @@ export class ImportReviewCleanupPromotedRepository {
         const a = publishCfg.tableAlias;
         const candidateTable = publishCfg.candidateTable;
         const coreTable = publishCfg.coreTargetTable;
-        const geomCount = geometryCountSql(family, a);
+        const geomCount = geometryCountSql(family, "c");
         const coreActive = coreActiveSql(family, "core");
 
         const rows = await this.prisma.$queryRaw<
@@ -171,6 +172,7 @@ export class ImportReviewCleanupPromotedRepository {
                     spi.publish_batch_id,
                     spi.target_id,
                     spi.publish_status,
+                    spi.publish_action,
                     pb.status AS batch_status
                 FROM system.system_publish_items AS spi
                 INNER JOIN system.system_publish_batches AS pb ON pb.id = spi.publish_batch_id
@@ -185,6 +187,7 @@ export class ImportReviewCleanupPromotedRepository {
                     pi.publish_batch_id,
                     pi.target_id,
                     pi.publish_status,
+                    pi.publish_action,
                     pi.batch_status
                 FROM publish_items AS pi
                 WHERE pi.publish_status = 'success'
@@ -209,8 +212,11 @@ export class ImportReviewCleanupPromotedRepository {
                         THEN 'publish_item_not_success'
                     WHEN bs.batch_status IS DISTINCT FROM 'promoted' THEN 'publish_batch_not_promoted'
                     WHEN core.id IS NULL OR NOT (${coreActive}) THEN 'core_row_missing'
-                    WHEN core.source_refs->>'review_candidate_id' IS NULL
-                         OR core.source_refs->>'publish_batch_id' IS NULL
+                    WHEN bs.publish_action IS DISTINCT FROM 'skip'
+                         AND (
+                             core.source_refs->>'review_candidate_id' IS NULL
+                             OR core.source_refs->>'publish_batch_id' IS NULL
+                         )
                         THEN 'lineage_missing'
                     WHEN hf.review_candidate_id IS NOT NULL THEN 'failed_item_exists'
                     ELSE NULL

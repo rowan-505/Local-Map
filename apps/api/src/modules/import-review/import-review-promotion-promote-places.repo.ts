@@ -22,6 +22,11 @@ import {
     normalizedDataMergeExpr,
     sourceRefsMergeExpr,
 } from "./import-review-promotion-promote-sql.js";
+import {
+    fieldChoicesFromOverridesArchive,
+    parseFieldChoicesFromReviewNote,
+} from "./import-review-decision-publish-action.js";
+import { resolvePlaceMergeFieldValues } from "./import-review-place-merge-fields.js";
 
 const PLACE_CANDIDATE_TABLE = "import_review.place_candidates";
 const CORE_PLACES_TABLE = "core.core_places";
@@ -151,13 +156,64 @@ export class ImportReviewPromotionPromotePlacesRepository {
         tx: PromotionDb,
         batchId: bigint,
         publishItemId: bigint,
-        publishAction: "insert" | "update",
+        publishAction: "insert" | "update" | "merge" | "skip",
         promotedBy: bigint | null
     ): Promise<PromoteItemResult> {
+        if (publishAction === "skip") {
+            return this.skipPlaceTx(tx, batchId, publishItemId);
+        }
         if (publishAction === "insert") {
             return this.insertPlaceTx(tx, batchId, publishItemId, promotedBy);
         }
+        if (publishAction === "merge") {
+            return this.mergePlaceTx(tx, batchId, publishItemId, promotedBy);
+        }
         return this.updatePlaceTx(tx, batchId, publishItemId, promotedBy);
+    }
+
+    async skipPlaceTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint
+    ): Promise<PromoteItemResult> {
+        const rows = await tx.$queryRaw<
+            {
+                matched_core_id: bigint | null;
+                review_decision: string | null;
+                external_id: string | null;
+            }[]
+        >`
+            SELECT p.matched_core_id, p.review_decision, p.external_id
+            FROM system.system_publish_items AS spi
+            INNER JOIN import_review.place_candidates AS p
+                ON p.id = spi.review_candidate_id
+               AND spi.review_candidate_table = ${PLACE_CANDIDATE_TABLE}
+            WHERE spi.id = ${publishItemId}
+              AND spi.publish_batch_id = ${batchId}
+            LIMIT 1
+        `;
+        const row = rows[0];
+        if (!row) {
+            return buildPromoteItemFailureResult({
+                publishItemId,
+                message: "Place candidate not found for skip publish item.",
+            });
+        }
+        return {
+            publish_item_id: publishItemId,
+            outcome: "skipped",
+            target_id: row.matched_core_id,
+            error_message: null,
+            before_data: null,
+            after_data: {
+                skipped: true,
+                publish_action: "skip",
+                review_decision: row.review_decision,
+                external_id: row.external_id,
+                matched_core_id: row.matched_core_id?.toString() ?? null,
+                entity_family: "places",
+            },
+        };
     }
 
     async insertPlaceTx(
@@ -193,6 +249,12 @@ export class ImportReviewPromotionPromotePlacesRepository {
                     ready AS (
                         SELECT
                             s.*,
+                            CASE
+                                WHEN lower(btrim(coalesce(s.review_decision, ''))) = 'insert_separate'
+                                     AND nullif(trim(s.external_id), '') IS NOT NULL
+                                    THEN trim(s.external_id) || ':ir-sep:' || s.id::text
+                                ELSE s.external_id
+                            END AS insert_external_id,
                             ${placeCandidateReadyExprs(batchId)}
                         FROM src AS s
                         INNER JOIN import_review.place_candidates AS pc ON pc.id = s.id
@@ -210,9 +272,9 @@ export class ImportReviewPromotionPromotePlacesRepository {
                           AND NOT EXISTS (
                               SELECT 1 FROM core.core_places AS c
                               WHERE c.deleted_at IS NULL
-                                AND r.external_id IS NOT NULL
-                                AND trim(r.external_id) <> ''
-                                AND c.external_id = r.external_id
+                                AND r.insert_external_id IS NOT NULL
+                                AND trim(r.insert_external_id) <> ''
+                                AND c.external_id = r.insert_external_id
                           )
                     )
                     INSERT INTO core.core_places (
@@ -238,7 +300,7 @@ export class ImportReviewPromotionPromotePlacesRepository {
                         least(100, greatest(0, coalesce(g.confidence_score, 80))),
                         ${placeIsPublicExpr("g")}${coreVerificationInsertValuesSql(PLACE_VERIFICATION_COLUMNS)},
                         g.source_type_id_ready,
-                        nullif(trim(g.external_id), ''),
+                        nullif(trim(g.insert_external_id), ''),
                         g.merged_source_refs,
                         g.merged_normalized_data,
                         now(),
@@ -433,6 +495,218 @@ export class ImportReviewPromotionPromotePlacesRepository {
                 message: `Place promotion failed: ${cause.message}`,
                 err: cause,
                 beforeData,
+            });
+        }
+    }
+
+    async mergePlaceTx(
+        tx: PromotionDb,
+        batchId: bigint,
+        publishItemId: bigint,
+        _promotedBy: bigint | null
+    ): Promise<PromoteItemResult> {
+        const metaRows = await tx.$queryRaw<
+            {
+                candidate_id: bigint;
+                matched_core_id: bigint | null;
+                review_note: string | null;
+                review_overrides_archive: unknown;
+                review_decision: string | null;
+                primary_name: string | null;
+                display_name: string | null;
+                category_id: bigint | null;
+                admin_area_id: bigint | null;
+                name_mm: string | null;
+                name_en: string | null;
+                plus_code: string | null;
+                lat: number | null;
+                lng: number | null;
+                importance_score: number | null;
+                popularity_score: number | null;
+                confidence_score: number | null;
+                core_primary_name: string | null;
+                core_display_name: string | null;
+                core_category_id: bigint | null;
+                core_admin_area_id: bigint | null;
+                core_name_mm: string | null;
+                core_name_en: string | null;
+                core_plus_code: string | null;
+                core_lat: number | null;
+                core_lng: number | null;
+                core_importance: number | null;
+                core_popularity: number | null;
+                core_confidence: number | null;
+                core_json: unknown;
+            }[]
+        >`
+            SELECT
+                p.id AS candidate_id,
+                p.matched_core_id,
+                p.review_note,
+                p.review_overrides_archive,
+                p.review_decision,
+                p.primary_name,
+                p.display_name,
+                p.category_id,
+                p.admin_area_id,
+                p.name_mm,
+                p.name_en,
+                p.plus_code,
+                p.lat,
+                p.lng,
+                p.importance_score::float8 AS importance_score,
+                p.popularity_score::float8 AS popularity_score,
+                p.confidence_score::float8 AS confidence_score,
+                c.primary_name AS core_primary_name,
+                c.display_name AS core_display_name,
+                c.category_id AS core_category_id,
+                c.admin_area_id AS core_admin_area_id,
+                NULL::text AS core_name_mm,
+                NULL::text AS core_name_en,
+                c.plus_code AS core_plus_code,
+                c.lat::float8 AS core_lat,
+                c.lng::float8 AS core_lng,
+                c.importance_score::float8 AS core_importance,
+                c.popularity_score::float8 AS core_popularity,
+                c.confidence_score::float8 AS core_confidence,
+                to_jsonb(c) AS core_json
+            FROM system.system_publish_items AS spi
+            INNER JOIN import_review.place_candidates AS p
+                ON p.id = spi.review_candidate_id
+               AND spi.review_candidate_table = ${PLACE_CANDIDATE_TABLE}
+            INNER JOIN core.core_places AS c ON c.id = p.matched_core_id
+            WHERE spi.id = ${publishItemId}
+              AND spi.publish_batch_id = ${batchId}
+              AND p.matched_core_id IS NOT NULL
+              AND p.matched_core_table IN ('core_places', 'core.core_places')
+              AND c.deleted_at IS NULL
+              AND NOT (c.source_refs @> '{"source":"dashboard"}'::jsonb)
+            LIMIT 1
+        `;
+
+        const meta = metaRows[0];
+        if (!meta?.matched_core_id) {
+            return buildPromoteItemFailureResult({
+                publishItemId,
+                message:
+                    "Merge blocked: matched_core_id missing, inactive core, or dashboard-protected target.",
+            });
+        }
+
+        const fromNote = parseFieldChoicesFromReviewNote(meta.review_note);
+        const fromArchive = fieldChoicesFromOverridesArchive(meta.review_overrides_archive);
+        const choices = { ...fromArchive, ...fromNote };
+        if (Object.keys(choices).length === 0) {
+            return buildPromoteItemFailureResult({
+                publishItemId,
+                message: "Merge blocked: merge_fields requires an explicit field_choices map.",
+            });
+        }
+
+        const resolved = resolvePlaceMergeFieldValues({
+            choices,
+            existing: {
+                primary_name: meta.core_primary_name,
+                display_name: meta.core_display_name,
+                category_id: meta.core_category_id,
+                admin_area_id: meta.core_admin_area_id,
+                name_mm: meta.core_name_mm,
+                name_en: meta.core_name_en,
+                plus_code: meta.core_plus_code,
+                lat: meta.core_lat,
+                lng: meta.core_lng,
+                importance_score: meta.core_importance,
+                popularity_score: meta.core_popularity,
+                confidence_score: meta.core_confidence,
+            },
+            imported: {
+                primary_name: meta.primary_name,
+                display_name: meta.display_name,
+                category_id: meta.category_id,
+                admin_area_id: meta.admin_area_id,
+                name_mm: meta.name_mm,
+                name_en: meta.name_en,
+                plus_code: meta.plus_code,
+                lat: meta.lat,
+                lng: meta.lng,
+                importance_score: meta.importance_score,
+                popularity_score: meta.popularity_score,
+                confidence_score: meta.confidence_score,
+            },
+        });
+
+        if (!resolved.primary_name) {
+            return buildPromoteItemFailureResult({
+                publishItemId,
+                message: "Merge blocked: resolved primary_name is empty.",
+                beforeData: meta.core_json,
+            });
+        }
+
+        try {
+            const pointGeom =
+                resolved.lat != null && resolved.lng != null
+                    ? Prisma.sql`ST_SetSRID(ST_MakePoint(${resolved.lng}, ${resolved.lat}), 4326)`
+                    : Prisma.sql`point_geom`;
+
+            const rows = await tx.$queryRaw<{ id: bigint; external_id: string | null; primary_name: string; display_name: string | null }[]>`
+                UPDATE core.core_places
+                SET
+                    primary_name = ${resolved.primary_name},
+                    display_name = coalesce(${resolved.display_name}, primary_name),
+                    category_id = coalesce(${resolved.category_id}, category_id),
+                    admin_area_id = coalesce(${resolved.admin_area_id}, admin_area_id),
+                    plus_code = coalesce(${resolved.plus_code}, plus_code),
+                    lat = coalesce(${resolved.lat}, lat),
+                    lng = coalesce(${resolved.lng}, lng),
+                    point_geom = ${pointGeom},
+                    importance_score = coalesce(${resolved.importance_score}, importance_score),
+                    popularity_score = coalesce(${resolved.popularity_score}, popularity_score),
+                    confidence_score = coalesce(${resolved.confidence_score}, confidence_score),
+                    updated_at = now()
+                WHERE id = ${meta.matched_core_id}
+                  AND deleted_at IS NULL
+                RETURNING id, external_id, primary_name, display_name
+            `;
+
+            const row = rows[0];
+            if (!row) {
+                return buildPromoteItemFailureResult({
+                    publishItemId,
+                    message: "Merge blocked: core place update returned no row.",
+                    beforeData: meta.core_json,
+                });
+            }
+
+            return {
+                publish_item_id: publishItemId,
+                outcome: "updated",
+                target_id: row.id,
+                error_message: null,
+                before_data: meta.core_json,
+                after_data: {
+                    id: row.id.toString(),
+                    external_id: row.external_id,
+                    primary_name: row.primary_name,
+                    display_name: row.display_name,
+                    entity_family: "places",
+                    publish_action: "merge",
+                    selected_fields: resolved.selected_fields,
+                    review_decision: meta.review_decision,
+                },
+                ...buildVerificationMetadataTracking({
+                    outcome: "updated",
+                    beforeData: meta.core_json,
+                    entityKey: "places",
+                }),
+            };
+        } catch (err) {
+            const cause = err instanceof Error ? err : new Error(String(err));
+            return buildPromoteItemFailureResult({
+                publishItemId,
+                message: `Place merge failed: ${cause.message}`,
+                err: cause,
+                beforeData: meta.core_json,
             });
         }
     }

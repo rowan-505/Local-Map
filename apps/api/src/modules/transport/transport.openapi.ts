@@ -1264,6 +1264,7 @@ export const postTransportStopMergePreviewSchema = {
                 "sequenceConflicts",
                 "mergeAllowed",
                 "mergeBlockers",
+                "terminalConflict",
                 "referenceCounts",
                 "fieldComparison",
             ],
@@ -1309,6 +1310,33 @@ export const postTransportStopMergePreviewSchema = {
                 },
                 mergeAllowed: { type: "boolean" },
                 mergeBlockers: { type: "array", items: { type: "string" } },
+                terminalConflict: {
+                    type: "object",
+                    required: ["exists", "canonicalTerminal", "duplicateTerminal"],
+                    properties: {
+                        exists: { type: "boolean" },
+                        canonicalTerminal: {
+                            type: "object",
+                            nullable: true,
+                            required: ["id", "publicId", "name"],
+                            properties: {
+                                id: { type: "string" },
+                                publicId: { type: "string" },
+                                name: { type: "string" },
+                            },
+                        },
+                        duplicateTerminal: {
+                            type: "object",
+                            nullable: true,
+                            required: ["id", "publicId", "name"],
+                            properties: {
+                                id: { type: "string" },
+                                publicId: { type: "string" },
+                                name: { type: "string" },
+                            },
+                        },
+                    },
+                },
                 referenceCounts: {
                     type: "object",
                     required: ["current", "candidate"],

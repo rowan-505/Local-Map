@@ -5,7 +5,7 @@
 -- Assertion (current technically-valid staging rows):
 --   valid
 --     = safe_new + safe_update + unchanged + duplicate + conflict
---       + manual_protected + verified_conflict
+--       + manual_protected + verified_conflict + pmtiles_only
 --
 -- possible_delete is counted from F1 deleted OSM-derived rows (not current
 -- staging). Report includes it, and a second identity:
@@ -88,6 +88,7 @@ CREATE TEMP TABLE report18_rows (
     conflict bigint NOT NULL DEFAULT 0,
     manual_protected bigint NOT NULL DEFAULT 0,
     verified_conflict bigint NOT NULL DEFAULT 0,
+    pmtiles_only bigint NOT NULL DEFAULT 0,
     possible_delete bigint NOT NULL DEFAULT 0,
     invalid bigint NOT NULL DEFAULT 0,
     unclassified_valid bigint NOT NULL DEFAULT 0,
@@ -107,6 +108,7 @@ DECLARE
     v_conflict bigint;
     v_manual bigint;
     v_verified bigint;
+    v_pmtiles bigint;
     v_invalid bigint;
     v_unclassified bigint;
     v_delete bigint;
@@ -149,6 +151,7 @@ BEGIN
                     count(*) FILTER (WHERE import_class = 'conflict')::bigint,
                     count(*) FILTER (WHERE import_class = 'manual_protected')::bigint,
                     count(*) FILTER (WHERE import_class = 'verified_conflict')::bigint,
+                    count(*) FILTER (WHERE import_class = 'pmtiles_only')::bigint,
                     count(*) FILTER (WHERE import_class = 'invalid')::bigint,
                     count(*) FILTER (
                         WHERE coalesce(import_class, '') <> 'invalid'
@@ -156,7 +159,8 @@ BEGIN
                               import_class IS NULL
                               OR import_class NOT IN (
                                   'safe_new', 'safe_update', 'unchanged', 'duplicate',
-                                  'conflict', 'manual_protected', 'verified_conflict'
+                                  'conflict', 'manual_protected', 'verified_conflict',
+                                  'pmtiles_only'
                               )
                           )
                     )::bigint
@@ -180,6 +184,7 @@ BEGIN
                     count(*) FILTER (WHERE import_class = 'conflict')::bigint,
                     count(*) FILTER (WHERE import_class = 'manual_protected')::bigint,
                     count(*) FILTER (WHERE import_class = 'verified_conflict')::bigint,
+                    count(*) FILTER (WHERE import_class = 'pmtiles_only')::bigint,
                     count(*) FILTER (WHERE import_class = 'invalid')::bigint,
                     count(*) FILTER (
                         WHERE coalesce(validation_status, 'valid') NOT IN ('invalid', 'blocked', 'failed')
@@ -187,7 +192,8 @@ BEGIN
                               import_class IS NULL
                               OR import_class NOT IN (
                                   'safe_new', 'safe_update', 'unchanged', 'duplicate',
-                                  'conflict', 'manual_protected', 'verified_conflict'
+                                  'conflict', 'manual_protected', 'verified_conflict',
+                                  'pmtiles_only'
                               )
                           )
                     )::bigint
@@ -201,7 +207,7 @@ BEGIN
 
         EXECUTE v_sql INTO
             v_valid, v_safe_new, v_safe_update, v_unchanged, v_duplicate,
-            v_conflict, v_manual, v_verified, v_invalid, v_unclassified
+            v_conflict, v_manual, v_verified, v_pmtiles, v_invalid, v_unclassified
         USING ctx.source_snapshot_id;
 
         SELECT coalesce(count(*), 0)::bigint
@@ -225,7 +231,7 @@ BEGIN
           );
 
         v_sum := v_safe_new + v_safe_update + v_unchanged + v_duplicate
-              + v_conflict + v_manual + v_verified;
+              + v_conflict + v_manual + v_verified + v_pmtiles;
 
         INSERT INTO report18_rows VALUES (
             f.entity_family,
@@ -237,6 +243,7 @@ BEGIN
             v_conflict,
             v_manual,
             v_verified,
+            v_pmtiles,
             v_delete,
             v_invalid,
             v_unclassified,
@@ -261,6 +268,7 @@ SELECT
     conflict,
     manual_protected,
     verified_conflict,
+    pmtiles_only,
     possible_delete,
     invalid,
     unclassified_valid,
@@ -279,10 +287,11 @@ SELECT
     sum(conflict) AS conflict,
     sum(manual_protected) AS manual_protected,
     sum(verified_conflict) AS verified_conflict,
+    sum(pmtiles_only) AS pmtiles_only,
     sum(possible_delete) AS possible_delete,
     sum(invalid) AS invalid,
     sum(unclassified_valid) AS unclassified_valid,
-    sum(safe_new + safe_update + unchanged + duplicate + conflict + manual_protected + verified_conflict) AS class_sum,
+    sum(safe_new + safe_update + unchanged + duplicate + conflict + manual_protected + verified_conflict + pmtiles_only) AS class_sum,
     CASE
         WHEN bool_or(note LIKE 'FAIL%') THEN 'FAIL'
         ELSE 'PASS'
@@ -302,7 +311,7 @@ BEGIN
         FROM report18_rows
         WHERE valid_rows <> (
             safe_new + safe_update + unchanged + duplicate + conflict
-            + manual_protected + verified_conflict
+            + manual_protected + verified_conflict + pmtiles_only
         )
     ) THEN
         RAISE EXCEPTION 'classification assertion failed: valid <> class sum for one or more families';

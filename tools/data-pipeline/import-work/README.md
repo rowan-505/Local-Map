@@ -150,9 +150,14 @@ Deletes family work rows and marks the batch `cleaned`. Does not modify `core.*`
 
 Files:
 
+- `lib/safe_loader_contract.sh` — shared target / identity / confirmation helper
 - `places_safe_loader.sql` — wrapper (`-v batch_code=... -v dry_run=true|false`)
 - `places_safe_loader_body.sql` — one-family transaction body
 - `places_safe_loader_tests.sql` — fixture + rollback suite
+- `tests/safe_loader_contract_tests.sh` — contract + places compatibility tests
+- Contract doc: [`docs/safe-loader-contract.md`](../../../docs/safe-loader-contract.md)
+- Target safety: [`docs/database-target-safety.md`](../../../docs/database-target-safety.md)
+- Target resolution tests: `../tests/database_target_safety_tests.sh`
 
 Loads only `classification IN ('safe_new','safe_update')`. Conflict rows are ignored.
 
@@ -179,18 +184,29 @@ Writes one `system.system_publish_batches` summary row (counts + allowlist + ski
 ### Commands
 
 ```bash
-# Rollback tests (no durable core writes)
-psql "$SUPABASE_WRITE_DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -f tools/data-pipeline/import-work/places_safe_loader_tests.sql
+# Contract tests (no production apply)
+./tests/safe_loader_contract_tests.sh
 
-# Dry-run a real import_work batch (rolls back)
-psql "$SUPABASE_WRITE_DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -v batch_code='places_kyauktan_pilot_001' -v dry_run=true \
-  -f tools/data-pipeline/import-work/places_safe_loader.sql
+# Local dry-run
+./run_places_safe_loader.sh \
+  --target local \
+  --batch-code places_contract_local_dryrun \
+  --dry-run
 
-# Apply only after dry-run counts reconcile
-psql "$SUPABASE_WRITE_DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -v batch_code='places_kyauktan_pilot_001' -v dry_run=false \
-  -f tools/data-pipeline/import-work/places_safe_loader.sql
+# Production dry-run (allowed)
+./run_places_safe_loader.sh \
+  --target production \
+  --batch-code places_yangon_essential_safe_2026_07_23 \
+  --dry-run \
+  --sample-limit 5
+
+# Production apply (requires confirmation; cleans import_work unless --skip-cleanup)
+./run_places_safe_loader.sh \
+  --target production \
+  --batch-code places_yangon_essential_safe_2026_07_23 \
+  --apply \
+  --confirmation "APPLY places 11"
 ```
+
+Legacy positional `true|false` URL args are **removed** — target must be explicit.
 

@@ -4,7 +4,7 @@
 # Drop/recreate tmp_road_import, load highway ways from PBF via osm2pgsql flex.
 #
 # Requires: PBF_PATH, OSM2PGSQL_FLEX_FILE
-# Connection: LOCAL_DATABASE_URL, else DATABASE_URL, else standard PG* env vars.
+# Connection: LOCAL_DATABASE_URL only (DATABASE_URL is refused).
 # =============================================================================
 set -euo pipefail
 
@@ -53,27 +53,19 @@ if ! command -v psql >/dev/null 2>&1; then
   exit 1
 fi
 
-# Connection: prefer LOCAL_DATABASE_URL, then DATABASE_URL, else libpq PG* env for osm2pgsql/psql.
-DB_CONN_URL=""
-OSM2PGSQL_USE_PGENV=0
-
-if [[ -n "${LOCAL_DATABASE_URL:-}" ]]; then
-  DB_CONN_URL="${LOCAL_DATABASE_URL}"
-elif [[ -n "${DATABASE_URL:-}" ]]; then
-  DB_CONN_URL="${DATABASE_URL}"
-elif [[ -n "${PGDATABASE:-}" ]]; then
-  OSM2PGSQL_USE_PGENV=1
-else
-  echo "error: set LOCAL_DATABASE_URL, DATABASE_URL, or PGDATABASE (with PGHOST/PGUSER as needed)" >&2
+# Connection: LOCAL_DATABASE_URL only — never DATABASE_URL (avoids silent Supabase writes).
+if [[ -z "${LOCAL_DATABASE_URL:-}" ]]; then
+  echo "error: set LOCAL_DATABASE_URL (DATABASE_URL is refused for this local import script)" >&2
   exit 1
 fi
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  echo "note: DATABASE_URL is set but ignored; using LOCAL_DATABASE_URL only." >&2
+fi
+DB_CONN_URL="${LOCAL_DATABASE_URL}"
+OSM2PGSQL_USE_PGENV=0
 
 psql_cmd() {
-  if [[ "${OSM2PGSQL_USE_PGENV}" -eq 1 ]]; then
-    psql -v ON_ERROR_STOP=1 "$@"
-  else
-    psql "${DB_CONN_URL}" -v ON_ERROR_STOP=1 "$@"
-  fi
+  psql "${DB_CONN_URL}" -v ON_ERROR_STOP=1 "$@"
 }
 
 echo "stage01: checking database connection..."

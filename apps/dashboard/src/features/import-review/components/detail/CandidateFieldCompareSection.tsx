@@ -75,6 +75,7 @@ export default function CandidateFieldCompareSection({
                                             <option value="unset">—</option>
                                             <option value="existing">Existing</option>
                                             <option value="imported">Imported</option>
+                                            <option value="custom">Custom</option>
                                         </select>
                                     ) : (
                                         <span className="text-gray-500">
@@ -88,6 +89,14 @@ export default function CandidateFieldCompareSection({
                         ))}
                     </tbody>
                 </table>
+                {editable &&
+                Object.values(choices).some((c) => c === "custom") ? (
+                    <p className="mt-2 text-xs text-amber-700">
+                        Custom values: put the final text in the review note as{" "}
+                        <code className="font-mono">field_choices:{"{"}&quot;field&quot;:&quot;your value&quot;{"}"}</code>{" "}
+                        or keep choice=custom with a custom value object after save.
+                    </p>
+                ) : null}
             </div>
         </section>
     );

@@ -95,7 +95,7 @@ export const IMPORT_REVIEW_LEGACY_PROMOTION_STATUS_VALUES = [
 export type ImportReviewLegacyPromotionStatus =
     (typeof IMPORT_REVIEW_LEGACY_PROMOTION_STATUS_VALUES)[number];
 
-/** Decisions that mean “ready to write core” (batch eligibility). */
+/** Decisions that mean “ready to write core” (core insert/update/merge/soft-delete). */
 export const IMPORT_REVIEW_APPLY_READY_DECISIONS = [
     "replace_existing",
     "merge_fields",
@@ -104,11 +104,38 @@ export const IMPORT_REVIEW_APPLY_READY_DECISIONS = [
     "approved", // legacy
 ] as const;
 
-const APPLY_READY_SET = new Set<string>(IMPORT_REVIEW_APPLY_READY_DECISIONS);
+/** Decisions that close the conflict without a core write (publish_action=skip). */
+export const IMPORT_REVIEW_SKIP_APPLY_DECISIONS = [
+    "keep_existing",
+    "ignore_import",
+    "mark_duplicate",
+    "merged", // legacy alias of mark_duplicate
+] as const;
 
-/** SQL IN-list for apply-ready review_decision (includes legacy approved). */
+/**
+ * Decisions eligible for an Apply publish batch (core-write + skip).
+ * needs_more_review stays out of Apply.
+ */
+export const IMPORT_REVIEW_APPLY_BATCH_DECISIONS = [
+    ...IMPORT_REVIEW_APPLY_READY_DECISIONS,
+    ...IMPORT_REVIEW_SKIP_APPLY_DECISIONS,
+] as const;
+
+const APPLY_READY_SET = new Set<string>(IMPORT_REVIEW_APPLY_READY_DECISIONS);
+const SKIP_APPLY_SET = new Set<string>(IMPORT_REVIEW_SKIP_APPLY_DECISIONS);
+const APPLY_BATCH_SET = new Set<string>(IMPORT_REVIEW_APPLY_BATCH_DECISIONS);
+
+/** SQL IN-list for core-write review_decision (includes legacy approved). */
 export const IMPORT_REVIEW_APPLY_READY_DECISION_SQL_IN =
     "('approved', 'replace_existing', 'merge_fields', 'insert_separate', 'confirm_soft_delete')";
+
+/** SQL IN-list for skip Apply decisions. */
+export const IMPORT_REVIEW_SKIP_APPLY_DECISION_SQL_IN =
+    "('keep_existing', 'ignore_import', 'mark_duplicate', 'merged')";
+
+/** SQL IN-list for any Apply-batch decision (write + skip). */
+export const IMPORT_REVIEW_APPLY_BATCH_DECISION_SQL_IN =
+    "('approved', 'replace_existing', 'merge_fields', 'insert_separate', 'confirm_soft_delete', 'keep_existing', 'ignore_import', 'mark_duplicate', 'merged')";
 
 const COMPARISON_FROM_STORED: Record<string, ImportReviewComparisonStatus> = {
     duplicate: "duplicate",
@@ -257,6 +284,22 @@ export function isApplyReadyDecision(
         d === "insert_separate" ||
         d === "confirm_soft_delete"
     );
+}
+
+export function isSkipApplyDecision(
+    decision: string | null | undefined
+): boolean {
+    const d = (decision ?? "").trim().toLowerCase();
+    return SKIP_APPLY_SET.has(d);
+}
+
+/** True when decision may enter an Apply publish batch (write or skip). */
+export function isApplyBatchDecision(
+    decision: string | null | undefined
+): boolean {
+    const d = (decision ?? "").trim().toLowerCase();
+    if (!d) return false;
+    return APPLY_BATCH_SET.has(d) || isApplyReadyDecision(d) || isSkipApplyDecision(d);
 }
 
 export function toApplyStatus(

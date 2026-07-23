@@ -1,0 +1,107 @@
+=== database target identity ===
+target=production
+target_label=production-write (SUPABASE_WRITE_DATABASE_URL)
+target_role=write
+database_url=postgresql://postgres.locghyuranqaqsnbxflc:***@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+production_project_ref=locghyuranqaqsnbxflc
+production_url_fingerprint=postgres.locghyuranqaqsnbxflc@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+production_url_masked=postgresql://postgres.locghyuranqaqsnbxflc:***@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+database=postgres
+server_addr=2406:da14:271:9922:3e42:d936:1bc4:b722
+server_port=5432
+db_user=postgres
+================================
+batch_id=92
+batch_code=roads_yangon_allowlist_probe_5_2026_07_23
+entity_family=roads
+source_snapshot_id=12
+source_snapshot_version=osm_myanmar_2026_07_21_yangon_city_v1
+batch_status=applied
+expected_row_count=5
+loaded_row_count=5
+mode=dry_run (default; no durable write)
+
+=== roads_safe_loader ===
+target=production
+mode=dry_run
+dry_run_sql=true
+sample_limit=0
+batch_id=92
+batch_code=roads_yangon_allowlist_probe_5_2026_07_23
+source_snapshot_id=12
+source_snapshot_version=osm_myanmar_2026_07_21_yangon_city_v1
+expected_row_count=5
+loaded_row_count=5
+log=/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/reports/roads_loader_production_roads_yangon_allowlist_probe_5_2026_07_23_dry_run_20260723T020803Z.log
+note=National roads NOT authorized from small samples alone
+started_at=2026-07-23T02:08:03Z
+
+SET
+Pager usage is off.
+BEGIN
+DROP TABLE
+[02:08:04] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader.sql:27: NOTICE:  table "roads_loader_params" does not exist, skipping
+CREATE TABLE
+INSERT 0 1
+DO
+DO
+CREATE FUNCTION
+CREATE FUNCTION
+DROP TABLE
+[02:08:04] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:76: NOTICE:  table "roads_loader_batch" does not exist, skipping
+CREATE TABLE
+INSERT 0 1
+DO
+[02:08:04] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:139: NOTICE:  roads_loader [5%] precheck ok batch=roads_yangon_allowlist_probe_5_2026_07_23 dry_run=t actual=5 safe_new=0 safe_update=5 other_ignored=0 elapsed_ms=11.23
+DROP TABLE
+[02:08:04] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:141: NOTICE:  table "roads_loader_work" does not exist, skipping
+SELECT 5
+CREATE INDEX
+CREATE INDEX
+DO
+[02:08:04] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:195: NOTICE:  roads_loader [15%] work rows ready n=5
+UPDATE 5
+DROP TABLE
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:208: NOTICE:  table "roads_loader_ext_candidates" does not exist, skipping
+SELECT 10
+CREATE INDEX
+DROP TABLE
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:232: NOTICE:  table "roads_loader_core" does not exist, skipping
+SELECT 5
+CREATE INDEX
+CREATE INDEX
+DO
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:286: NOTICE:  roads_loader [30%] building plan...
+DROP TABLE
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:288: NOTICE:  table "roads_loader_plan" does not exist, skipping
+CREATE TABLE
+INSERT 0 5
+DO
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:555: NOTICE:  roads_loader [45%] plan ready total=5 insert=0 update=0 skip=5 conflict_ir=0 fail=0
+DROP TABLE
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:557: NOTICE:  table "roads_loader_result" does not exist, skipping
+CREATE TABLE
+INSERT 0 1
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:907: NOTICE:  roads_loader [50%] insert start total=0 chunk=200
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:907: NOTICE:  roads_loader [70%] insert skipped (0 rows)
+DO
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:907: NOTICE:  roads_loader [75%] updates starting...
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:907: NOTICE:  roads_loader [80%] updates=0; conflict IR upload...
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:907: NOTICE:  roads_loader [90%] writes complete conflict_ir=0 ir_batch=<NULL>
+UPDATE 1
+DO
+[02:08:05] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:914: NOTICE:  roads_loader [95%] writing publish batch + batch summary...
+UPDATE 1
+UPDATE 1
+DO
+[02:08:06] psql:/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/roads_safe_loader_body.sql:1003: NOTICE:  roads_loader [100%] done dry_run=t inserted=0 updated=0 skipped=5 conflict_ir=0 failed=0 names=0 core_before=822027 core_after=822027 delta=0 ir_batch=<NULL> duration_ms=16.60
+          section          |                batch_code                 | dry_run | inserted | updated | skipped | conflict_ir | failed | names_written | core_before | core_after | core_delta | ir_review_batch_id | publish_batch_id | duration_ms 
+---------------------------+-------------------------------------------+---------+----------+---------+---------+-------------+--------+---------------+-------------+------------+------------+--------------------+------------------+-------------
+ roads_safe_loader_metrics | roads_yangon_allowlist_probe_5_2026_07_23 | t       |        0 |       0 |       5 |           0 |      0 |             0 |      822027 |     822027 |          0 |                    |              130 |       16.60
+(1 row)
+
+ROLLBACK
+roads_safe_loader: DRY RUN rolled back — no durable core writes
+finished_at=2026-07-23T02:08:06Z
+loader_exit=0
+log=/Users/nyihtet/Documents/Projects/Core-Map/tools/data-pipeline/import-work/reports/roads_loader_production_roads_yangon_allowlist_probe_5_2026_07_23_dry_run_20260723T020803Z.log

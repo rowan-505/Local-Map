@@ -37,6 +37,30 @@ export function listDifferingMergeFields(
     return MERGE_COMPARE_FIELD_KEYS.filter((field) => !comparison[field].same);
 }
 
+/** Whether the merge dialog may submit keep-canonical merge. */
+export function canSubmitTransportStopMerge(options: {
+    readonly previewLoaded: boolean;
+    readonly previewError: boolean;
+    readonly mergeAllowed: boolean;
+    readonly terminalConflictExists: boolean;
+    readonly sameVariantConflictCount: number;
+    readonly acknowledgedSameVariantOccurrences: boolean;
+}): boolean {
+    if (!options.previewLoaded || options.previewError) {
+        return false;
+    }
+    if (!options.mergeAllowed || options.terminalConflictExists) {
+        return false;
+    }
+    if (
+        options.sameVariantConflictCount > 0 &&
+        !options.acknowledgedSameVariantOccurrences
+    ) {
+        return false;
+    }
+    return true;
+}
+
 export function defaultFieldSourcesForCanonical(
     differingFields: readonly MergeCompareFieldKey[],
     canonicalSide: "current" | "candidate",

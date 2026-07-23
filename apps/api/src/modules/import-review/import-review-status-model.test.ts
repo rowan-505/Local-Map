@@ -5,7 +5,9 @@ import {
     applyStatusToLegacyPromotionStatus,
     comparisonStatusToMatchStatus,
     decisionToStorageValue,
+    isApplyBatchDecision,
     isApplyReadyDecision,
+    isSkipApplyDecision,
     matchStatusStorageValuesForFilter,
     projectCandidateStatuses,
     promotionStatusStorageValuesForFilter,
@@ -76,6 +78,11 @@ describe("import-review-status-model", () => {
         assert.equal(isApplyReadyDecision("keep_existing"), false);
         assert.equal(isApplyReadyDecision("ignore_import"), false);
         assert.equal(isApplyReadyDecision(null), false);
+        assert.equal(isSkipApplyDecision("keep_existing"), true);
+        assert.equal(isSkipApplyDecision("mark_duplicate"), true);
+        assert.equal(isApplyBatchDecision("keep_existing"), true);
+        assert.equal(isApplyBatchDecision("replace_existing"), true);
+        assert.equal(isApplyBatchDecision("needs_more_review"), false);
     });
 
     it("maps promotion_status ↔ apply_status without dropping legacy history meanings", () => {

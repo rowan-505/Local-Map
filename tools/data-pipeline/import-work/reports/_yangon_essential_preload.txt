@@ -1,0 +1,64 @@
+Pager usage is off.
+BEGIN
+CREATE TABLE
+COPY 14843
+CREATE TABLE
+INSERT 0 47
+SELECT 14843
+CREATE INDEX
+SELECT 14842
+SELECT 1578
+CREATE INDEX
+SELECT 291
+CREATE INDEX
+SELECT 14843
+    section     | import_class |   n   | mapped_cat | unsupported_cat | in_ir | identity_in_core | has_admin 
+----------------+--------------+-------+------------+-----------------+-------+------------------+-----------
+ preload_counts | safe_new     | 14843 |       9407 |            5436 |     0 |                0 |     14842
+(1 row)
+
+     section     |    class_code    | source_type_hint |  n  
+-----------------+------------------+------------------+-----
+ unsupported_top | platform         | platform         | 645
+ unsupported_top | mobile_phone     | mobile_phone     | 326
+ unsupported_top | clothes          | clothes          | 289
+ unsupported_top | electronics      | electronics      | 224
+ unsupported_top | car_parts        | car_parts        | 196
+ unsupported_top | bus_station      | bus_station      | 190
+ unsupported_top | fast_food        | fast_food        | 176
+ unsupported_top | car_repair       | car_repair       | 163
+ unsupported_top | bar              | bar              | 158
+ unsupported_top | beauty           | beauty           | 117
+ unsupported_top | hostel           | hostel           | 109
+ unsupported_top | community_centre | community_centre |  89
+ unsupported_top | dentist          | dentist          |  88
+ unsupported_top | jewelry          | jewelry          |  81
+ unsupported_top | pub              | pub              |  79
+ unsupported_top | ngo              | ngo              |  79
+ unsupported_top | travel_agency    | travel_agency    |  79
+ unsupported_top | wholesale        | wholesale        |  75
+ unsupported_top | car              | car              |  74
+ unsupported_top | books            | books            |  72
+(20 rows)
+
+SELECT 9407
+  section   | import_class |  n   
+------------+--------------+------
+ load_ready | safe_new     | 9407
+(1 row)
+
+ id |               batch_code                | expected_row_count 
+----+-----------------------------------------+--------------------
+ 11 | places_yangon_essential_safe_2026_07_23 |               9407
+(1 row)
+
+INSERT 0 1
+DELETE 0
+INSERT 0 9407
+UPDATE 1
+      section       | id |               batch_code                | status | expected_row_count | loaded_row_count 
+--------------------+----+-----------------------------------------+--------+--------------------+------------------
+ import_work_loaded | 11 | places_yangon_essential_safe_2026_07_23 | loaded |               9407 |             9407
+(1 row)
+
+COMMIT

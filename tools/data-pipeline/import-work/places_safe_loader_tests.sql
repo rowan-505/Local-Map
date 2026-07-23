@@ -134,9 +134,10 @@ BEGIN
     DROP TABLE IF EXISTS places_loader_params;
     CREATE TEMP TABLE places_loader_params (
         batch_code text,
-        dry_run boolean NOT NULL
+        dry_run boolean NOT NULL,
+        sample_limit integer NOT NULL DEFAULT 0
     );
-    INSERT INTO places_loader_params VALUES ('places_loader_test_batch', false);
+    INSERT INTO places_loader_params VALUES ('places_loader_test_batch', false, 0);
 END $$;
 
 \ir places_safe_loader_body.sql
@@ -204,9 +205,10 @@ WHERE batch_code = 'places_loader_test_batch';
 DROP TABLE IF EXISTS places_loader_params;
 CREATE TEMP TABLE places_loader_params (
     batch_code text,
-    dry_run boolean NOT NULL
+    dry_run boolean NOT NULL,
+    sample_limit integer NOT NULL DEFAULT 0
 );
-INSERT INTO places_loader_params VALUES ('places_loader_test_batch', false);
+INSERT INTO places_loader_params VALUES ('places_loader_test_batch', false, 0);
 
 \ir places_safe_loader_body.sql
 
@@ -269,8 +271,12 @@ BEGIN
     );
 
     DROP TABLE IF EXISTS places_loader_params;
-    CREATE TEMP TABLE places_loader_params (batch_code text, dry_run boolean NOT NULL);
-    INSERT INTO places_loader_params VALUES ('places_loader_dup_batch', false);
+    CREATE TEMP TABLE places_loader_params (
+        batch_code text,
+        dry_run boolean NOT NULL,
+        sample_limit integer NOT NULL DEFAULT 0
+    );
+    INSERT INTO places_loader_params VALUES ('places_loader_dup_batch', false, 0);
 END $$;
 
 SAVEPOINT before_dup_load;
@@ -324,8 +330,12 @@ BEGIN
     );
 
     DROP TABLE IF EXISTS places_loader_params;
-    CREATE TEMP TABLE places_loader_params (batch_code text, dry_run boolean NOT NULL);
-    INSERT INTO places_loader_params VALUES ('places_loader_badcat_batch', false);
+    CREATE TEMP TABLE places_loader_params (
+        batch_code text,
+        dry_run boolean NOT NULL,
+        sample_limit integer NOT NULL DEFAULT 0
+    );
+    INSERT INTO places_loader_params VALUES ('places_loader_badcat_batch', false, 0);
 END $$;
 
 SAVEPOINT before_badcat_load;

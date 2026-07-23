@@ -78,6 +78,18 @@ export async function applyImportReviewPromotionItemBookkeeping(
                 afterData: result.after_data ?? { skipped: true },
                 appliedBy: config.promotedBy,
             });
+            if (
+                result.target_id != null &&
+                item.review_candidate_id != null &&
+                isPromotablePublishFamily(item.entity_family)
+            ) {
+                await repo.markCandidatePromoted({
+                    entityFamily: item.entity_family as ImportReviewEntityFamilySlug,
+                    reviewCandidateId: item.review_candidate_id,
+                    promotedCoreId: result.target_id,
+                    promotedBy: config.promotedBy,
+                });
+            }
         }
         return result;
     }

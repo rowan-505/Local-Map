@@ -1,6 +1,6 @@
 import type { ImportReviewBuildingListItem } from "@/src/lib/api";
 
-export type ConflictFieldChoice = "existing" | "imported" | "unset";
+export type ConflictFieldChoice = "existing" | "imported" | "custom" | "unset";
 
 export type ConflictFieldCompareRow = {
     field: string;

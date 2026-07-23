@@ -15,6 +15,18 @@ export type PublishBatchDryRunDuplicateSample = {
     core_street_id: number | null;
 };
 
+export type PublishBatchDryRunExactAction = {
+    publish_item_id: number;
+    candidate_id: number | null;
+    external_id: string | null;
+    review_decision: string | null;
+    core_target_id: number | null;
+    action: "insert" | "update" | "merge" | "skip" | "no-op" | "blocked";
+    selected_fields: string[];
+    validation_status: string | null;
+    blocked_reason: string | null;
+};
+
 export type PublishBatchDryRunSummary = {
     dry_run_result: {
         status: "passed" | "failed";
@@ -26,10 +38,12 @@ export type PublishBatchDryRunSummary = {
         failed_count: number;
         would_insert_count: number;
         would_update_count: number;
+        would_skip_count?: number;
         duplicate_fixed_count?: number;
         duplicate_blocked_count?: number;
         duplicate_samples?: PublishBatchDryRunDuplicateSample[];
         sample_errors: PublishBatchDryRunSampleError[];
+        exact_actions?: PublishBatchDryRunExactAction[];
         ran_at?: string;
     };
     batch_status?: string;
@@ -46,9 +60,11 @@ export type ImportReviewPublishBatchDryRunApiResponse = {
     failed_count: number;
     would_insert_count: number;
     would_update_count: number;
+    would_skip_count?: number;
     duplicate_fixed_count: number;
     duplicate_blocked_count: number;
     duplicate_samples: PublishBatchDryRunDuplicateSample[];
     sample_errors: PublishBatchDryRunSampleError[];
+    exact_actions?: PublishBatchDryRunExactAction[];
     summary: PublishBatchDryRunSummary;
 };

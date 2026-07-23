@@ -41,7 +41,7 @@ Options:
   --from-stage NN    Start at stage NN (00–07)
 
 Env file (required variables):
-  LOCAL_DATABASE_URL  (or DATABASE_URL)
+  LOCAL_DATABASE_URL
 
 Env file (optional, with defaults):
   DRY_RUN=false
@@ -154,9 +154,6 @@ require_var() {
   fi
 }
 
-if [[ -z "${LOCAL_DATABASE_URL:-}" && -n "${DATABASE_URL:-}" ]]; then
-  LOCAL_DATABASE_URL="${DATABASE_URL}"
-fi
 require_var LOCAL_DATABASE_URL
 
 LOG_DIR="${LOG_DIR:-logs}"

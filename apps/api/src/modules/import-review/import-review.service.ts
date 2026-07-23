@@ -1411,6 +1411,27 @@ export class ImportReviewService {
             throw new ImportReviewPlaceNotFoundError(placeId.toString(), scopeHintFromResolved(scope));
         }
 
+        if (
+            storageDecisionForWrite(body.review_decision) === "merge_fields" &&
+            body.review_note
+        ) {
+            const { parseFieldChoicesFromReviewNote } = await import(
+                "./import-review-decision-publish-action.js"
+            );
+            const choices = parseFieldChoicesFromReviewNote(body.review_note);
+            if (Object.keys(choices).length > 0) {
+                const patch = JSON.stringify({ field_choices: choices });
+                await this.prisma.$executeRaw`
+                    UPDATE import_review.place_candidates
+                    SET review_overrides_archive =
+                            coalesce(review_overrides_archive, '{}'::jsonb) || ${patch}::jsonb,
+                        updated_at = now()
+                    WHERE id = ${placeId}
+                      AND review_batch_id = ${scope.reviewBatchId}
+                `;
+            }
+        }
+
         return mapBuildingRow(updated, "places");
     }
 

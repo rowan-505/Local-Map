@@ -617,6 +617,9 @@ psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
 
 ## Related docs
 
+- **[`docs/myanmar-national-osm-dry-run.md`](../../../docs/myanmar-national-osm-dry-run.md)** — whole-country safety dry-run runbook (batched families, no core/IR write).
+- **[`reports/myanmar_national_admin_assignment_2026-07-23.md`](reports/myanmar_national_admin_assignment_2026-07-23.md)** — national admin covering / assignment precision + recommendations.
+- **[`docs/database-target-safety.md`](../../../docs/database-target-safety.md)** — canonical DB env names, `--target`, dry-run default, production confirmation.
 - **`NAMINGENV.md`** — env filename, `SNAPSHOT_VERSION`, `BATCH_NAME`, `REMOTE_REVIEW_PACKAGE_NAME`, `PIPELINE_FROM_STAGE`, optional flags for stages **14**/**15**.
 - **[`README_REMOTE_REVIEW.md`](README_REMOTE_REVIEW.md)** — lineage field matrix, dry-run/capped upload, `replace_package`, Stage K idempotency, Supabase QA snippets.
 - **`infrastructure/database/docs/system_tracking_workflow.md`** — snapshots, diffs, workflow (local vs Supabase).
@@ -628,7 +631,8 @@ psql "$LOCAL_DATABASE_URL" -v ON_ERROR_STOP=1 \
 ## Safety boundaries
 
 - **Do not** point `LOCAL_DATABASE_URL` at production unless you intend to.
-- When **`REMOTE_REVIEW_UPLOAD_ENABLED=true`**, **`SUPABASE_DATABASE_URL`** drives **Stage K** inserts into **`import_review` only** (not `core`). Still use a credential-scoped DB user if possible.
+- Stage K writes use **`SUPABASE_WRITE_DATABASE_URL`** (legacy `SUPABASE_DATABASE_URL` only as fallback). **`DATABASE_URL` is refused** as the write target.
+- When **`REMOTE_REVIEW_UPLOAD_ENABLED=true`**, also set **`REMOTE_REVIEW_UPLOAD_CONFIRMATION="UPLOAD remote_review <package_name>"`**. Enabling upload alone is not enough.
 - **Do not** INSERT/UPDATE/DELETE **`core`** from these scripts.
 - Default pipeline touches **local** schemas (`tmp_import`, `raw`, `staging`, `system`) through stage 10, then **`system`** remote-review tables in Stage **J**, then optional Supabase **`import_review`** in Stage **K**, then optional local verification **L** / lineage **14** / coverage **15** — **still no core promotion** from `run_local_osm_pipeline.sh`.
 - **`14_verify_lineage_alignment.sql`** is **read-mostly local verification** (`staging` plus `system.*` linkage). Manual Supabase `import_review` parity checks live in **`README_REMOTE_REVIEW.md`** (nothing in **`14`** auto-connects to Supabase).

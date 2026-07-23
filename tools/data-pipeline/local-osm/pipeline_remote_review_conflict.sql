@@ -20,12 +20,22 @@ AS $$
 $$;
 
 -- Classes that go to direct core load (not IR).
+-- pmtiles_only is never a direct-core class.
 CREATE OR REPLACE FUNCTION system.pipeline_direct_core_classes()
 RETURNS text[]
 LANGUAGE sql
 IMMUTABLE
 AS $$
     SELECT ARRAY['safe_new', 'safe_update']::text[];
+$$;
+
+-- Basemap-only class: stays local / tiles; never Import Review.
+CREATE OR REPLACE FUNCTION system.pipeline_is_pmtiles_only_class(p_class text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT lower(btrim(coalesce(p_class, ''))) = 'pmtiles_only';
 $$;
 
 CREATE OR REPLACE FUNCTION system.pipeline_is_ir_conflict_class(p_class text)

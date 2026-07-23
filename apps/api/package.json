@@ -8,6 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/apps/api/src/server.js",
     "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test 'src/modules/transport/**/*.test.ts' 'src/modules/transport/regression/*.test.ts'",
+    "test:transport-review-regression": "node --import tsx --test src/modules/transport/regression/*.test.ts src/modules/transport/transport.merge-preview.repo.test.ts src/modules/transport/transport.merge-execution.repo.test.ts src/modules/transport/transport.merge-execution.diagnostics.test.ts src/modules/transport/stopMergePreview.test.ts src/modules/transport/stopMergeSameVariant.test.ts src/modules/transport/transport.remove-route-stop.repo.test.ts src/modules/transport/transport.archive-stop.repo.test.ts src/modules/transport/transport.permanent-delete-stop.repo.test.ts",
     "test:entity-names": "node --import tsx --test src/lib/entity-names/entity-names.test.ts",
     "test:address-composer": "node --import tsx --test src/modules/addresses/address-composer.test.ts",
     "test:plus-code": "node --import tsx --test src/lib/geo/plus-code.test.ts",

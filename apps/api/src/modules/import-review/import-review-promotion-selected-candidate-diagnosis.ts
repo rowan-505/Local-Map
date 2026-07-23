@@ -55,7 +55,27 @@ function promotionStatusAllowed(row: SelectedCandidateEligibilityRow): boolean {
 
 function reviewStatusEligibleForSelectedRetry(row: SelectedCandidateEligibilityRow): boolean {
     const status = (row.review_status ?? "").trim();
-    return status === "approved" || status === "promotion_failed";
+    return (
+        status === "approved" ||
+        status === "promotion_failed" ||
+        status === "ignored" ||
+        status === "merged"
+    );
+}
+
+function reviewDecisionEligibleForSelectedApply(decision: string): boolean {
+    const d = decision.trim().toLowerCase();
+    return [
+        "approved",
+        "replace_existing",
+        "merge_fields",
+        "insert_separate",
+        "confirm_soft_delete",
+        "keep_existing",
+        "ignore_import",
+        "mark_duplicate",
+        "merged",
+    ].includes(d);
 }
 
 function jsonArrayLength(value: unknown): number {
@@ -178,10 +198,22 @@ export function diagnoseSelectedCandidateFromRow(args: {
     }
 
     const reviewDecision = (row.review_decision ?? "").trim();
-    if (reviewDecision !== filters.review_decision) {
+    if (!reviewDecisionEligibleForSelectedApply(reviewDecision)) {
         return {
             reason: "not_approved",
-            message: `Candidate ${candidateId} has review_decision "${reviewDecision || "(empty)"}"; ${filters.review_decision} is required for promotion.`,
+            message: `Candidate ${candidateId} has review_decision "${reviewDecision || "(empty)"}"; an Apply-batch decision is required for promotion.`,
+            details,
+        };
+    }
+
+    // Legacy filter.review_decision === 'approved' still means "apply-ready", not literal storage.
+    if (
+        filters.review_decision === "approved" &&
+        !reviewDecisionEligibleForSelectedApply(reviewDecision)
+    ) {
+        return {
+            reason: "not_approved",
+            message: `Candidate ${candidateId} has review_decision "${reviewDecision || "(empty)"}"; an Apply-batch decision is required for promotion.`,
             details,
         };
     }

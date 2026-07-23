@@ -125,6 +125,77 @@ export class TransportMergePreviewFailedError extends Error {
     }
 }
 
+/** Context for structured merge-execution failure logs (transaction rolled back). */
+export type TransportMergeExecutionErrorContext = {
+    readonly requestId: string | null;
+    readonly currentStopId: string;
+    readonly candidateStopId: string;
+    readonly canonicalStopId: string;
+    readonly duplicateStopId: string;
+    readonly canonicalNumericId: string | null;
+    readonly duplicateNumericId: string | null;
+    readonly stage: string;
+    readonly routeIds: string[];
+    readonly variantIds: string[];
+    readonly sameVariantConflictCount: number;
+    readonly prismaCode: string | null;
+    readonly sqlErrorCode: string | null;
+    readonly constraintName: string | null;
+    readonly tableName: string | null;
+};
+
+/**
+ * Unexpected failure during keep-canonical stop merge execution.
+ * Carries stage + SQL/Prisma codes for structured logging. Does not imply a commit.
+ */
+export class TransportMergeExecutionFailedError extends Error {
+    constructor(
+        message: string,
+        public readonly context: TransportMergeExecutionErrorContext,
+        options?: { readonly cause?: unknown },
+    ) {
+        super(message, options?.cause !== undefined ? { cause: options.cause } : undefined);
+        this.name = "TransportMergeExecutionFailedError";
+    }
+}
+
+/**
+ * Both stops already have an active linked terminal. Merging would violate
+ * transport_terminals_linked_stop_unique. Surfaced as HTTP 409.
+ */
+export class TransportMergeTerminalConflictError extends Error {
+    readonly code = "MERGE_TERMINAL_CONFLICT" as const;
+    readonly statusCode = 409 as const;
+
+    constructor(
+        public readonly canonicalStopId: string,
+        public readonly duplicateStopId: string,
+        public readonly canonicalTerminalId: string,
+        public readonly duplicateTerminalId: string,
+        message = "Both stops are linked to active terminals. Resolve the terminal conflict before merging the stops.",
+    ) {
+        super(message);
+        this.name = "TransportMergeTerminalConflictError";
+    }
+}
+
+/**
+ * Merging would create an invalid parent_stop_id cycle. Surfaced as HTTP 409.
+ */
+export class TransportMergeParentConflictError extends Error {
+    readonly code = "MERGE_PARENT_CONFLICT" as const;
+    readonly statusCode = 409 as const;
+
+    constructor(
+        public readonly canonicalStopId: string,
+        public readonly duplicateStopId: string,
+        message = "Cannot merge these stops because it would create an invalid parent-stop cycle.",
+    ) {
+        super(message);
+        this.name = "TransportMergeParentConflictError";
+    }
+}
+
 /** Thrown when archiving a stop that is still referenced by one or more routes
  * (counted as distinct routes via non-deleted variants). The stop must be
  * removed from all routes first; archiving never deletes route_stops rows.

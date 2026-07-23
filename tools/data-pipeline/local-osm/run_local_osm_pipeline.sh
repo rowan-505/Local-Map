@@ -13,7 +13,8 @@
 #     when LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=true.
 #
 # Modes:
-#   REMOTE_REVIEW_UPLOAD_ENABLED=true     → runs J → K → L (requires SUPABASE_DATABASE_URL).
+#   REMOTE_REVIEW_UPLOAD_ENABLED=true     → runs J → K → L (requires SUPABASE_WRITE_DATABASE_URL;
+#                                           legacy SUPABASE_DATABASE_URL ok; never DATABASE_URL).
 #   REMOTE_REVIEW_PREPARE_VERIFY_ONLY=true→ runs J → L only (no Supabase).
 #   REMOTE_LINEAGE_ALIGNMENT_VERIFY=true  → optional 14_verify_lineage_alignment.sql after Stage L when J/K/L path runs
 #   LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=true → optional Stage 15 after Stage 14/final verification
@@ -76,6 +77,9 @@ fi
 
 # shellcheck source=/dev/null
 source "${IMPORT_ENV_FILE}"
+
+# shellcheck source=../lib/database_target_safety.sh
+source "${SCRIPT_DIR}/../lib/database_target_safety.sh"
 
 require_var() {
   local name="$1"
@@ -218,7 +222,9 @@ log() {
 }
 
 # Resume from a stage (e.g. 08) after stages 01–07 already completed. Empty = full pipeline.
+# Optional PIPELINE_TO_STAGE stops after that stage (inclusive), for fast sample/smoke runs.
 PIPELINE_FROM_STAGE="${PIPELINE_FROM_STAGE:-}"
+PIPELINE_TO_STAGE="${PIPELINE_TO_STAGE:-}"
 PIPELINE_PSQL_WORK_MEM="${PIPELINE_PSQL_WORK_MEM:-512MB}"
 PIPELINE_PSQL_MAINTENANCE_WORK_MEM="${PIPELINE_PSQL_MAINTENANCE_WORK_MEM:-1GB}"
 
@@ -228,20 +234,33 @@ pipeline_stage_num() {
 
 pipeline_should_run_stage() {
   local stage_id="$1"
-  if [[ -z "${PIPELINE_FROM_STAGE}" ]]; then
-    return 0
-  fi
-  local from_num
   local stage_num
-  from_num="$(pipeline_stage_num "${PIPELINE_FROM_STAGE}")"
   stage_num="$(pipeline_stage_num "${stage_id}")"
-  [[ "${stage_num}" -ge "${from_num}" ]]
+  if [[ -n "${PIPELINE_FROM_STAGE}" ]]; then
+    local from_num
+    from_num="$(pipeline_stage_num "${PIPELINE_FROM_STAGE}")"
+    if [[ "${stage_num}" -lt "${from_num}" ]]; then
+      return 1
+    fi
+  fi
+  if [[ -n "${PIPELINE_TO_STAGE}" ]]; then
+    local to_num
+    to_num="$(pipeline_stage_num "${PIPELINE_TO_STAGE}")"
+    if [[ "${stage_num}" -gt "${to_num}" ]]; then
+      return 1
+    fi
+  fi
+  return 0
 }
 
 pipeline_skip_stage_log() {
   local stage_name="$1"
+  local reason=""
+  if [[ -n "${PIPELINE_FROM_STAGE}" || -n "${PIPELINE_TO_STAGE}" ]]; then
+    reason=" — PIPELINE_FROM_STAGE=${PIPELINE_FROM_STAGE:-<start>} PIPELINE_TO_STAGE=${PIPELINE_TO_STAGE:-<end>}"
+  fi
   log ""
-  log "=== ${stage_name} (skipped — PIPELINE_FROM_STAGE=${PIPELINE_FROM_STAGE}) ==="
+  log "=== ${stage_name} (skipped${reason}) ==="
 }
 
 run_psql() {
@@ -286,6 +305,7 @@ print_resolved_config() {
   log "IMPORT_REVIEW_SCHEMA=${IMPORT_REVIEW_SCHEMA}"
   log "ENTITY_FAMILIES=${ENTITY_FAMILIES}"
   log "PIPELINE_FROM_STAGE=${PIPELINE_FROM_STAGE:-<full run>}"
+  log "PIPELINE_TO_STAGE=${PIPELINE_TO_STAGE:-<end>}"
   log "PIPELINE_PSQL_WORK_MEM=${PIPELINE_PSQL_WORK_MEM}"
   log "PIPELINE_PSQL_MAINTENANCE_WORK_MEM=${PIPELINE_PSQL_MAINTENANCE_WORK_MEM}"
   if [[ -n "${REMOTE_REVIEW_UPLOAD_ENABLED:-}" || -n "${REMOTE_REVIEW_PREPARE_VERIFY_ONLY:-}" || -n "${REMOTE_REVIEW_PACKAGE_NAME:-}" || -n "${REMOTE_LINEAGE_ALIGNMENT_VERIFY:-}" || -n "${LOCAL_ENTITY_COVERAGE_REPORT_ENABLED:-}" ]]; then
@@ -298,7 +318,11 @@ print_resolved_config() {
     log "REMOTE_LINEAGE_ALIGNMENT_VERIFY=${REMOTE_LINEAGE_ALIGNMENT_VERIFY:-}"
     log "LOCAL_ENTITY_COVERAGE_REPORT_ENABLED=${LOCAL_ENTITY_COVERAGE_REPORT_ENABLED:-}"
     if is_remote_review_upload_requested; then
-      log "SUPABASE_DATABASE_URL=$(mask_database_url "${SUPABASE_DATABASE_URL:-}")"
+      if [[ -n "${SUPABASE_WRITE_DATABASE_URL:-}" ]]; then
+        log "SUPABASE_WRITE_DATABASE_URL=$(mask_database_url "${SUPABASE_WRITE_DATABASE_URL}")"
+      elif [[ -n "${SUPABASE_DATABASE_URL:-}" ]]; then
+        log "SUPABASE_DATABASE_URL=$(mask_database_url "${SUPABASE_DATABASE_URL}") (legacy write)"
+      fi
     fi
   fi
 }
@@ -380,6 +404,8 @@ run_stage_11_prepare_remote_review_j() {
     -v package_name="${REMOTE_REVIEW_PACKAGE_NAME}" \
     -v replace_package=false \
     -v conflict_only="${REMOTE_REVIEW_CONFLICT_ONLY:-true}" \
+    -v settlements_only="${REMOTE_REVIEW_SETTLEMENTS_ONLY:-false}" \
+    -v exclude_settlements="${REMOTE_REVIEW_EXCLUDE_SETTLEMENTS:-false}" \
     ${PSQL_EXTRA_ARGS:-} \
     -f "${SCRIPT_DIR}/11_prepare_remote_review_package.sql"
 }
@@ -389,19 +415,40 @@ run_stage_12_upload_remote_review_k() {
   local repo_root
   repo_root="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
   local tsx_bin="${repo_root}/node_modules/.bin/tsx"
+  local confirmation_expected="UPLOAD remote_review ${REMOTE_REVIEW_PACKAGE_NAME}"
+  local confirmation_got="${REMOTE_REVIEW_UPLOAD_CONFIRMATION:-}"
+
+  if [[ "${confirmation_got}" != "${confirmation_expected}" ]]; then
+    echo "error: Stage K production upload refused." >&2
+    echo "       Set REMOTE_REVIEW_UPLOAD_CONFIRMATION exactly to:" >&2
+    echo "       ${confirmation_expected}" >&2
+    echo "       (REMOTE_REVIEW_UPLOAD_ENABLED alone is not enough)." >&2
+    exit 1
+  fi
+
   (
     cd "${repo_root}"
     export REMOTE_REVIEW_UPLOAD_ENABLED="true"
     export LOCAL_DATABASE_URL
-    export SUPABASE_DATABASE_URL
+    export SUPABASE_WRITE_DATABASE_URL
+    # Legacy bridge for older tooling; Stage K TS resolves write via resolveDbTarget.
+    export SUPABASE_DATABASE_URL="${SUPABASE_DATABASE_URL:-${SUPABASE_WRITE_DATABASE_URL}}"
     export REMOTE_REVIEW_PACKAGE_NAME
     export REMOTE_REVIEW_ENTITY_FAMILY="${REMOTE_REVIEW_ENTITY_FAMILY:-}"
     export REMOTE_REVIEW_MAX_ROWS_PER_FAMILY="${REMOTE_REVIEW_MAX_ROWS_PER_FAMILY:-}"
     export SUPABASE_DB_SSL_VERIFY_SERVER_CERT="${SUPABASE_DB_SSL_VERIFY_SERVER_CERT:-}"
     if [[ -x "${tsx_bin}" ]]; then
-      "${tsx_bin}" "${SCRIPT_DIR}/12_upload_remote_review_package.ts"
+      "${tsx_bin}" "${SCRIPT_DIR}/12_upload_remote_review_package.ts" \
+        --target=production \
+        --apply \
+        --confirmation="${confirmation_expected}" \
+        --package-name="${REMOTE_REVIEW_PACKAGE_NAME}"
     else
-      npx tsx "${SCRIPT_DIR}/12_upload_remote_review_package.ts"
+      npx tsx "${SCRIPT_DIR}/12_upload_remote_review_package.ts" \
+        --target=production \
+        --apply \
+        --confirmation="${confirmation_expected}" \
+        --package-name="${REMOTE_REVIEW_PACKAGE_NAME}"
     fi
   ) 2>&1 | tee -a "${LOG_FILE}"
 }
@@ -482,10 +529,16 @@ finalize_remote_review_stages() {
 
   if is_remote_review_upload_requested; then
     if pipeline_should_run_stage "12"; then
-      SUPABASE_DATABASE_URL="$(resolve_supabase_write_database_url)"
+      SUPABASE_WRITE_DATABASE_URL="$(resolve_supabase_write_database_url)"
+      export SUPABASE_WRITE_DATABASE_URL
+      # Back-compat bridge only; Stage K prefers SUPABASE_WRITE_DATABASE_URL.
+      SUPABASE_DATABASE_URL="${SUPABASE_WRITE_DATABASE_URL}"
       export SUPABASE_DATABASE_URL
+      local write_ref
+      write_ref="$(db_target_extract_project_ref "${SUPABASE_WRITE_DATABASE_URL}")"
       log "REMOTE_REVIEW_UPLOAD_ENABLED=true — running Stage K (Supabase import_review only)."
-      log "SUPABASE_WRITE_DATABASE_URL/legacy write target=$(mask_database_url "${SUPABASE_DATABASE_URL}")"
+      log "SUPABASE_WRITE_DATABASE_URL=$(mask_database_url "${SUPABASE_WRITE_DATABASE_URL}")"
+      log "production_project_ref=${write_ref:-<none>}"
       if [[ -n "${SUPABASE_READ_DATABASE_URL:-}" ]]; then
         log "SUPABASE_READ_DATABASE_URL=$(mask_database_url "${SUPABASE_READ_DATABASE_URL}") (not used by Stage K)"
       fi
@@ -518,8 +571,13 @@ finalize_remote_review_stages() {
 
 run_stage() {
   local stage_name="$1"
+  local stage_pct="${2:-}"
   log ""
-  log "=== ${stage_name} ==="
+  if [[ -n "${stage_pct}" ]]; then
+    log "=== ${stage_name} ===  [pipeline ${stage_pct}%]"
+  else
+    log "=== ${stage_name} ==="
+  fi
 }
 
 run_sql() {
@@ -586,44 +644,12 @@ run_preflight_prod_mirror() {
 }
 
 resolve_supabase_write_database_url() {
-  # Stage K / remote write ops only. Never return the read URL.
-  local write_url="${SUPABASE_WRITE_DATABASE_URL:-}"
-  local legacy_url="${SUPABASE_DATABASE_URL:-}"
-  local read_url="${SUPABASE_READ_DATABASE_URL:-}"
-
-  if [[ -z "${write_url}" && -n "${legacy_url}" ]]; then
-    write_url="${legacy_url}"
-  fi
-
-  if [[ -z "${write_url}" ]]; then
-    echo "error: set SUPABASE_WRITE_DATABASE_URL (preferred) or legacy SUPABASE_DATABASE_URL for Stage K" >&2
-    exit 1
-  fi
-
-  if [[ -n "${read_url}" && "${write_url}" == "${read_url}" ]]; then
-    if [[ "${SUPABASE_ALLOW_IDENTICAL_READ_WRITE_URL:-}" == "true" ]]; then
-      echo "warning: write URL equals SUPABASE_READ_DATABASE_URL (SUPABASE_ALLOW_IDENTICAL_READ_WRITE_URL=true)." >&2
-    else
-      echo "error: write URL equals SUPABASE_READ_DATABASE_URL." >&2
-      echo "       Refusing to treat the read connection as the write target." >&2
-      echo "       Set a distinct SUPABASE_WRITE_DATABASE_URL, or export SUPABASE_ALLOW_IDENTICAL_READ_WRITE_URL=true." >&2
-      exit 1
-    fi
-  fi
-
-  # Also refuse if caller tried to export READ into SUPABASE_DATABASE_URL while WRITE is unset
-  # and READ is the only URL available — already handled by equality when write falls back.
-  if [[ -n "${read_url}" && -z "${SUPABASE_WRITE_DATABASE_URL:-}" && "${legacy_url}" == "${read_url}" ]]; then
-    if [[ "${SUPABASE_ALLOW_IDENTICAL_READ_WRITE_URL:-}" == "true" ]]; then
-      echo "warning: SUPABASE_DATABASE_URL matches SUPABASE_READ_DATABASE_URL (allowed by override)." >&2
-    else
-      echo "error: SUPABASE_DATABASE_URL matches SUPABASE_READ_DATABASE_URL." >&2
-      echo "       Set SUPABASE_WRITE_DATABASE_URL for writes, or SUPABASE_ALLOW_IDENTICAL_READ_WRITE_URL=true." >&2
-      exit 1
-    fi
-  fi
-
-  printf '%s' "${write_url}"
+  # Stage K / remote write ops only. Never use DATABASE_URL.
+  # Prefer SUPABASE_WRITE_DATABASE_URL; legacy SUPABASE_DATABASE_URL allowed via shared lib.
+  db_target_refuse_ambiguous_local_vs_production
+  db_target_resolve production write
+  db_target_verify_production_identity "${DB_TARGET_DATABASE_URL}" >/dev/null
+  printf '%s' "${DB_TARGET_DATABASE_URL}"
 }
 
 log "local-osm pipeline started at ${RUN_TS}"
@@ -720,14 +746,14 @@ else
 fi
 
 if pipeline_should_run_stage "05"; then
-  run_stage "05_raw_to_staging"
+  run_stage "05_raw_to_staging" "40"
   run_sql "${SCRIPT_DIR}/05_raw_to_staging.sql"
 else
   pipeline_skip_stage_log "05_raw_to_staging"
 fi
 
 if pipeline_should_run_stage "06"; then
-  run_stage "06_diff_current_vs_previous"
+  run_stage "06_diff_current_vs_previous" "50"
   run_sql "${SCRIPT_DIR}/06_diff_current_vs_previous.sql"
 else
   pipeline_skip_stage_log "06_diff_current_vs_previous"
@@ -735,14 +761,14 @@ fi
 
 if pipeline_should_run_stage "07"; then
   run_preflight_prod_mirror
-  run_stage "07_compare_with_prod_mirror"
+  run_stage "07_compare_with_prod_mirror" "60"
   run_sql "${SCRIPT_DIR}/07_compare_with_prod_mirror.sql"
 else
   pipeline_skip_stage_log "07_compare_with_prod_mirror"
 fi
 
 if pipeline_should_run_stage "08"; then
-  run_stage "08_assign_statuses"
+  run_stage "08_assign_statuses" "70"
   run_psql \
     -v ON_ERROR_STOP=1 \
     -v snapshot_version="${SNAPSHOT_VERSION}" \
@@ -755,7 +781,7 @@ else
 fi
 
 if pipeline_should_run_stage "08"; then
-  run_stage "08b_assign_import_class"
+  run_stage "08b_assign_import_class" "80"
   run_psql \
     -v ON_ERROR_STOP=1 \
     -v snapshot_version="${SNAPSHOT_VERSION}" \
@@ -769,7 +795,7 @@ else
 fi
 
 if [[ "${CLASSIFICATION_REPORT_ENABLED:-true}" == "true" ]] && pipeline_should_run_stage "08"; then
-  run_stage "18_classification_bucket_report"
+  run_stage "18_classification_bucket_report" "85"
   run_psql \
     -v ON_ERROR_STOP=1 \
     -v snapshot_version="${SNAPSHOT_VERSION}" \
@@ -780,7 +806,7 @@ if [[ "${CLASSIFICATION_REPORT_ENABLED:-true}" == "true" ]] && pipeline_should_r
 fi
 
 if pipeline_should_run_stage "09"; then
-  run_stage "09_create_review_views"
+  run_stage "09_create_review_views" "90"
   run_psql \
     -v ON_ERROR_STOP=1 \
     -v staging_schema="${STAGING_SCHEMA}" \
@@ -793,7 +819,7 @@ else
 fi
 
 if pipeline_should_run_stage "10"; then
-  run_stage "10_summary_report"
+  run_stage "10_summary_report" "95"
   run_psql \
     -v ON_ERROR_STOP=1 \
     -v snapshot_version="${SNAPSHOT_VERSION}" \
@@ -828,4 +854,4 @@ elif is_entity_coverage_report_requested; then
 fi
 
 log ""
-log "local-osm pipeline finished (no core promotion)."
+log "local-osm pipeline finished (no core promotion).  [pipeline 100%]"
