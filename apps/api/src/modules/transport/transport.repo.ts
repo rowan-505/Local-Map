@@ -94,6 +94,10 @@ import type {
     UpdateVariantInput,
 } from "./transport.schema.js";
 import { STOPS_LIST_MAX_LIMIT } from "./transport.schema.js";
+import {
+    DUPLICATE_NEARBY_RADIUS_M,
+    approxExpandDegreesFromMeters,
+} from "./transport-spatial.js";
 import type {
     GeoJsonGeometry,
     TransportCountsByKey,
@@ -1248,6 +1252,8 @@ function assertStopDeleteAllowed(eligibility: TransportStopDeleteEligibility): v
 
 export class TransportRepository {
     private faresStopColumns: boolean | null = null;
+    /** Last merge interactive TX wall time (ms); set when TRANSPORT_PERF_LOG or always for route logs. */
+    lastMergeTransactionDurationMs: number | null = null;
 
     constructor(private readonly prisma: PrismaClient) {}
 
@@ -2075,6 +2081,8 @@ export class TransportRepository {
         const adminAreaId = query.adminAreaId ?? null;
         const includeDeleted = query.includeDeleted === true;
         const searchLike = toLikeParam(query.search);
+        const duplicateNearbyRadiusM = DUPLICATE_NEARBY_RADIUS_M;
+        const duplicateNearbyRadiusDeg = approxExpandDegreesFromMeters(duplicateNearbyRadiusM);
 
         // Shared WHERE predicate (kept in one place for list + count parity).
         const where = Prisma.sql`
@@ -2143,7 +2151,12 @@ export class TransportRepository {
                               AND s2.is_active = true
                               AND s.geom IS NOT NULL
                               AND NOT ST_IsEmpty(s.geom)
-                              AND ST_DWithin(s.geom::geography, s2.geom::geography, 50)
+                              AND s2.geom && ST_Expand(s.geom, ${duplicateNearbyRadiusDeg}::float8)
+                              AND ST_DWithin(
+                                  s.geom::geography,
+                                  s2.geom::geography,
+                                  ${duplicateNearbyRadiusM}::float8
+                              )
                         ) THEN 'nearby'
                         ELSE 'none'
                     END
@@ -2238,7 +2251,12 @@ export class TransportRepository {
                       AND s2.is_active = true
                       AND s2.geom IS NOT NULL
                       AND NOT ST_IsEmpty(s2.geom)
-                      AND ST_DWithin(base.geom::geography, s2.geom::geography, 50)
+                      AND s2.geom && ST_Expand(base.geom, ${duplicateNearbyRadiusDeg}::float8)
+                      AND ST_DWithin(
+                          base.geom::geography,
+                          s2.geom::geography,
+                          ${duplicateNearbyRadiusM}::float8
+                      )
                 ) AS has_nearby_duplicate,
                 p.updated_at
             FROM page p
@@ -3894,10 +3912,17 @@ export class TransportRepository {
         let duplicateNumericId: string | null = null;
         const routeIdsForLog = preview.affectedRoutes.map((row) => row.routeId);
         const variantIdsForLog = preview.affectedVariants.map((row) => row.variantId);
+        const mergePerf = startPerf("mergeStopsKeepCanonical");
+        mergePerf.mark("preview_validation");
 
         try {
-            return await this.prisma.$transaction(async (tx) => {
-            stage = "lock_stops";
+            const txStarted = performance.now();
+            const result = await this.prisma.$transaction(async (tx) => {
+            const advanceStage = (name: string) => {
+                stage = name;
+                mergePerf.mark(name);
+            };
+            advanceStage("lock_stops");
             const stopRows = await tx.$queryRaw<
                 {
                     id: bigint;
@@ -3936,7 +3961,7 @@ export class TransportRepository {
                 );
             }
 
-            stage = "lock_terminals";
+            advanceStage("lock_terminals");
             const lockedTerminals = await tx.$queryRaw<
                 {
                     id: bigint;
@@ -3972,13 +3997,13 @@ export class TransportRepository {
                 );
             }
 
-            stage = "validate_same_variant_ack";
+            advanceStage("validate_same_variant_ack");
             assertSameVariantMergeAcknowledged(
                 preview.sameVariantConflicts.length,
                 options.acknowledgeSameVariantOccurrences,
             );
 
-            stage = "resolve_canonical_parent";
+            advanceStage("resolve_canonical_parent");
             let canonicalParentStopId = canonical.parent_stop_id;
             if (canonicalParentStopId === duplicate.id) {
                 await tx.$executeRaw`
@@ -3998,14 +4023,14 @@ export class TransportRepository {
                 duplicateStopPublicId,
             );
 
-            stage = "load_duplicate_snapshot";
+            advanceStage("load_duplicate_snapshot");
             const duplicateSnapshotRow = await this.loadMergePreviewStopRow(tx, duplicateStopPublicId);
             if (!duplicateSnapshotRow) {
                 throw new TransportNotFoundError("stop", duplicateStopPublicId);
             }
 
             if (options.fieldSources && Object.keys(options.fieldSources).length > 0) {
-                stage = "apply_field_sources";
+                advanceStage("apply_field_sources");
                 // Sequential on the same interactive transaction client — parallel
                 // queries can starve a connection_limit=1 pool (Prisma P2024).
                 const currentRow = await this.loadMergePreviewStopRow(
@@ -4032,7 +4057,7 @@ export class TransportRepository {
                 });
             }
 
-            stage = "count_references_before";
+            advanceStage("count_references_before");
             const canonicalBefore = await this.countSingleStopReferences(tx, canonical.id);
             const duplicateBefore = await this.countSingleStopReferences(tx, duplicate.id);
             const referencesChanged = emptyStopMergeReferenceChanges();
@@ -4055,7 +4080,7 @@ export class TransportRepository {
                 }
             };
 
-            stage = "update_route_stops";
+            advanceStage("update_route_stops");
             const routeStopRows = await tx.$queryRaw<{ route_variant_id: bigint }[]>`
                 UPDATE transport.route_stops
                 SET stop_id = ${canonical.id}, updated_at = now()
@@ -4065,7 +4090,7 @@ export class TransportRepository {
             referencesChanged.routeStops = routeStopRows.length;
             await collectAffected(routeStopRows.map((row) => row.route_variant_id));
 
-            stage = "update_variant_origins";
+            advanceStage("update_variant_origins");
             const variantOriginRows = await tx.$queryRaw<{ id: bigint }[]>`
                 UPDATE transport.route_variants
                 SET origin_stop_id = ${canonical.id}, updated_at = now()
@@ -4076,7 +4101,7 @@ export class TransportRepository {
             referencesChanged.variantOrigins = variantOriginRows.length;
             await collectAffected(variantOriginRows.map((row) => row.id));
 
-            stage = "update_variant_destinations";
+            advanceStage("update_variant_destinations");
             const variantDestinationRows = await tx.$queryRaw<{ id: bigint }[]>`
                 UPDATE transport.route_variants
                 SET destination_stop_id = ${canonical.id}, updated_at = now()
@@ -4087,7 +4112,7 @@ export class TransportRepository {
             referencesChanged.variantDestinations = variantDestinationRows.length;
             await collectAffected(variantDestinationRows.map((row) => row.id));
 
-            stage = "update_terminals";
+            advanceStage("update_terminals");
             if (duplicateTerminal && !canonicalTerminal) {
                 const terminalUpdateCount = await tx.$executeRaw`
                     UPDATE transport.terminals
@@ -4110,7 +4135,7 @@ export class TransportRepository {
 
             const hasFares = await this.resolveFaresStopColumns(tx);
             if (hasFares) {
-                stage = "update_fares_origin";
+                advanceStage("update_fares_origin");
                 const fareOriginRows = await tx.$queryRaw<{ count: bigint }[]>`
                     WITH updated AS (
                         UPDATE transport.fares
@@ -4122,7 +4147,7 @@ export class TransportRepository {
                 `;
                 referencesChanged.faresOrigin = num(fareOriginRows[0]?.count);
 
-                stage = "update_fares_destination";
+                advanceStage("update_fares_destination");
                 const fareDestinationRows = await tx.$queryRaw<{ count: bigint }[]>`
                     WITH updated AS (
                         UPDATE transport.fares
@@ -4135,7 +4160,7 @@ export class TransportRepository {
                 referencesChanged.faresDestination = num(fareDestinationRows[0]?.count);
             }
 
-            stage = "update_child_stops";
+            advanceStage("update_child_stops");
             const childStopRows = await tx.$queryRaw<{ count: bigint }[]>`
                 WITH updated AS (
                     UPDATE transport.stops
@@ -4149,7 +4174,7 @@ export class TransportRepository {
             `;
             referencesChanged.childStops = num(childStopRows[0]?.count);
 
-            stage = "update_stop_names";
+            advanceStage("update_stop_names");
             const stopNameRows = await tx.$queryRaw<{ count: bigint }[]>`
                 WITH updated AS (
                     UPDATE transport.stop_names dup
@@ -4167,7 +4192,7 @@ export class TransportRepository {
             `;
             referencesChanged.stopNames = num(stopNameRows[0]?.count);
 
-            stage = "update_source_links";
+            advanceStage("update_source_links");
             const sourceLinkRows = await tx.$queryRaw<{ count: bigint }[]>`
                 WITH updated AS (
                     UPDATE transport.source_links sl
@@ -4192,7 +4217,7 @@ export class TransportRepository {
             `;
             referencesChanged.sourceLinks = num(sourceLinkRows[0]?.count);
 
-            stage = "delete_leftover_names_links";
+            advanceStage("delete_leftover_names_links");
             await tx.$executeRaw`
                 DELETE FROM transport.stop_names
                 WHERE stop_id = ${duplicate.id}
@@ -4202,7 +4227,7 @@ export class TransportRepository {
                 WHERE entity_type = 'stop' AND entity_id = ${duplicate.id}
             `;
 
-            stage = "verify_duplicate_references_cleared";
+            advanceStage("verify_duplicate_references_cleared");
             const duplicateAfter = await this.countSingleStopReferences(tx, duplicate.id);
             if (sumStopMergeReferenceCounts(duplicateAfter) > 0) {
                 throw new TransportReviewGuardError(
@@ -4212,20 +4237,20 @@ export class TransportRepository {
                 );
             }
 
-            stage = "hard_delete_duplicate_stop";
+            advanceStage("hard_delete_duplicate_stop");
             await tx.$executeRaw`
                 DELETE FROM transport.stops
                 WHERE id = ${duplicate.id}
             `;
 
-            stage = "load_canonical_after";
+            advanceStage("load_canonical_after");
             const canonicalAfter = await this.countSingleStopReferences(tx, canonical.id);
             const canonicalRow = await this.loadMergePreviewStopRow(tx, canonicalStopPublicId);
             if (!canonicalRow) {
                 throw new TransportNotFoundError("stop", canonicalStopPublicId);
             }
 
-            stage = "insert_audit_log";
+            advanceStage("insert_audit_log");
             await insertTransportAuditLog(tx, {
                 action: "transport.stop.merge",
                 entityType: "transport_stop",
@@ -4266,7 +4291,7 @@ export class TransportRepository {
                 context: options.audit,
             });
 
-            stage = "build_response";
+            advanceStage("build_response");
             return {
                 canonicalStop: this.mapMergePreviewStop(canonicalRow),
                 deletedStop: this.mapMergePreviewStop(duplicateSnapshotRow),
@@ -4282,6 +4307,12 @@ export class TransportRepository {
                 },
             };
         }, ROUTE_STOP_TX_OPTIONS);
+            this.lastMergeTransactionDurationMs = Number(
+                (performance.now() - txStarted).toFixed(1),
+            );
+            mergePerf.mark("commit");
+            mergePerf.done();
+            return result;
         } catch (error) {
             if (
                 error instanceof TransportReviewGuardError ||

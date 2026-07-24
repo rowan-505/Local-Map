@@ -2353,7 +2353,7 @@ export default function TransportPreviewMap({
             }
 
             const coords = { lng: event.lngLat.lng, lat: event.lngLat.lat };
-            onCandidateSearchRequestRef.current?.(coords, { immediate: true });
+            onCandidateSearchRequestRef.current?.(coords, { immediate: false });
         };
 
         map.on("click", onClick);

@@ -10,12 +10,16 @@ import {
     type ReviewMapNearbyCandidateSearchCenterSource,
     type ReviewMapNearbyCandidatesSearchStatus,
 } from "./reviewMapNearbyCandidatesSearch";
+import {
+    REVIEW_MAP_NEARBY_SEARCH_DEBOUNCE_MS,
+    shouldSearchNearbyImmediately,
+} from "./reviewMapNearbySearchSchedule";
 import type { TransportNearbyStopCandidate } from "./types";
 
 const DEFAULT_RADIUS_METERS = 100 as const;
-const SEARCH_DEBOUNCE_MS = 300;
 
 export { DEFAULT_RADIUS_METERS as REVIEW_MAP_NEARBY_CANDIDATES_RADIUS_METERS };
+export { REVIEW_MAP_NEARBY_SEARCH_DEBOUNCE_MS };
 
 export type { ReviewMapCandidateSearchPoint, ReviewMapNearbyCandidatesSearchStatus };
 
@@ -149,7 +153,7 @@ export function useReviewMapNearbyCandidates({
             timerRef.current = window.setTimeout(() => {
                 timerRef.current = null;
                 void execute();
-            }, SEARCH_DEBOUNCE_MS);
+            }, REVIEW_MAP_NEARBY_SEARCH_DEBOUNCE_MS);
         },
         [beginSearch, enabled, selectedName, stopMode, stopPublicId],
     );
@@ -191,7 +195,9 @@ export function useReviewMapNearbyCandidates({
             return;
         }
 
-        runSearch(searchCenter, searchCenterSource, { immediate: true });
+        runSearch(searchCenter, searchCenterSource, {
+            immediate: shouldSearchNearbyImmediately(searchCenterSource),
+        });
 
         return () => {
             clearSchedule();
@@ -219,10 +225,11 @@ export function useReviewMapNearbyCandidates({
             if (!enabled) {
                 return;
             }
-            beginSearch();
+            // Do not beginSearch here — wait for debounced runSearch so rapid
+            // map clicks collapse to one request without flashing empty results.
             setManualClickCoords(coords);
         },
-        [beginSearch, enabled],
+        [enabled],
     );
 
     const retrySearch = useCallback(() => {

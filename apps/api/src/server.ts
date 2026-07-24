@@ -37,6 +37,13 @@ async function start() {
         loadApiEnv();
         assertAuthBypassNotInProduction();
 
+        const { resolveEffectivePrismaConnectionLimit } = await import("./db/prisma.js");
+        // Numeric limit only — never log DATABASE_URL or credentials.
+        // eslint-disable-next-line no-console
+        console.log(
+            `[api] prisma connection_limit=${resolveEffectivePrismaConnectionLimit()}`,
+        );
+
         const { buildApp } = await import("./app.js");
         // Startup checkpoints. buildApp() must NOT do external DB work, so the gap
         // between "before buildApp" and "before listen" stays tiny and the port binds

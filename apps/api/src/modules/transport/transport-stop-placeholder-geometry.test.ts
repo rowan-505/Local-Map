@@ -36,12 +36,16 @@ describe("resolvePlaceholderStopGeometryFromSequence", () => {
 
     it("uses the midpoint between neighbours for after", () => {
         const result = resolvePlaceholderStopGeometryFromSequence(rows, "after", "2");
-        assert.deepEqual(result, { longitude: 96.3, latitude: 16.3 });
+        assert.ok(result);
+        assert.ok(Math.abs(result.longitude - 96.3) < 1e-9);
+        assert.ok(Math.abs(result.latitude - 16.3) < 1e-9);
     });
 
     it("uses the midpoint between neighbours for before", () => {
         const result = resolvePlaceholderStopGeometryFromSequence(rows, "before", "2");
-        assert.deepEqual(result, { longitude: 96.1, latitude: 16.1 });
+        assert.ok(result);
+        assert.ok(Math.abs(result.longitude - 96.1) < 1e-9);
+        assert.ok(Math.abs(result.latitude - 16.1) < 1e-9);
     });
 
     it("copies the anchor when inserting after the last stop", () => {

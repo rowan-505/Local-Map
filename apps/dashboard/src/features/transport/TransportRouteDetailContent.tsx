@@ -28,6 +28,7 @@ import {
     updateTransportStopLocation,
 } from "./api";
 import PermanentDeleteStopDialog from "./PermanentDeleteStopDialog";
+import { shouldFetchRouteReviewReadiness } from "./routeReviewReadinessFetch";
 import { transportModeLabel } from "./constants";
 import { getTransportDisplayNameFromNames } from "./naming";
 import InsertRouteStopDialog, {
@@ -441,6 +442,8 @@ export default function TransportRouteDetailContent({
     variantsRef.current = variants;
     const stopsLoadedVariantRef = useRef<string | null>(null);
     const stopsLoadGenerationRef = useRef(0);
+    /** Last route public_id for which readiness was successfully fetched (auto-load guard). */
+    const readinessLastRequestedPublicIdRef = useRef<string | null>(null);
     const reviewMapCenterGetterRef = useRef<(() => { lng: number; lat: number } | null) | null>(
         null,
     );
@@ -629,6 +632,7 @@ export default function TransportRouteDetailContent({
                 signal ? { signal } : undefined,
             );
             setReadiness(result);
+            readinessLastRequestedPublicIdRef.current = publicId;
         } catch (err) {
             if (isAbortError(err)) return;
             logTransportReadinessFetchError(err, "Failed to load review readiness.");
@@ -638,6 +642,12 @@ export default function TransportRouteDetailContent({
             setReadinessLoading(false);
         }
     }, [publicId]);
+
+    const reloadReadiness = useCallback(() => {
+        // Explicit mutation/retry paths must always refetch.
+        readinessLastRequestedPublicIdRef.current = null;
+        return loadReadiness();
+    }, [loadReadiness]);
 
     // --- Load route detail + variants when publicId changes. -----------------
     useEffect(() => {
@@ -675,6 +685,7 @@ export default function TransportRouteDetailContent({
         setAdvancedOpen(false);
         setReadiness(null);
         setReadinessUnavailable(false);
+        readinessLastRequestedPublicIdRef.current = null;
 
         void (async () => {
             try {
@@ -706,14 +717,21 @@ export default function TransportRouteDetailContent({
     }, [publicId]);
 
     useEffect(() => {
-        if (routeLoading || !route) {
+        const routePublicId = route?.public_id ?? null;
+        if (
+            !shouldFetchRouteReviewReadiness({
+                routeLoading,
+                routePublicId,
+                lastRequestedPublicId: readinessLastRequestedPublicIdRef.current,
+            })
+        ) {
             return;
         }
 
         const controller = new AbortController();
         void loadReadiness(controller.signal);
         return () => controller.abort();
-    }, [route, routeLoading, loadReadiness]);
+    }, [publicId, route?.public_id, routeLoading, loadReadiness]);
 
     // --- Load the saved route path overlay for the selected variant. -----------
     //     to the ordered-stop panel: fetched separately and only when a path
@@ -1368,9 +1386,9 @@ export default function TransportRouteDetailContent({
         }
         const result = await applyTransportRoutePathReviewAction(path.id, "mark_reviewed");
         setPath((prev) => (prev ? { ...prev, review_status: result.review_status } : prev));
-        void loadReadiness();
+        void reloadReadiness();
         showReviewMapToast("success", "Route path marked reviewed");
-    }, [path, loadReadiness, showReviewMapToast]);
+    }, [path, reloadReadiness, showReviewMapToast]);
 
     const markRouteReviewed = useCallback(async () => {
         if (!route) {
@@ -1378,9 +1396,9 @@ export default function TransportRouteDetailContent({
         }
         const result = await applyTransportRouteReviewAction(route.public_id, "mark_reviewed");
         setRoute({ ...route, review_status: result.review_status });
-        void loadReadiness();
+        void reloadReadiness();
         showReviewMapToast("success", "Route marked reviewed");
-    }, [route, loadReadiness, showReviewMapToast]);
+    }, [route, reloadReadiness, showReviewMapToast]);
 
     const refreshOrderedStops = useCallback(async (): Promise<TransportRouteStopItem[] | null> => {
         if (!selectedVariantId) return null;
@@ -1776,7 +1794,7 @@ export default function TransportRouteDetailContent({
     const handleReviewMapCandidateMapClick = useCallback(
         (
             coords: { lng: number; lat: number },
-            _options?: { immediate: boolean },
+            options?: { immediate: boolean },
         ) => {
             if (!selectedRouteStopId || pathMode !== null || isReviewMapPathEditMode(reviewMapMode)) {
                 return;
@@ -1785,6 +1803,9 @@ export default function TransportRouteDetailContent({
                 ...prev,
                 [selectedRouteStopId]: coords,
             }));
+            // Map preview movement is debounced inside the nearby hook (source=map-click).
+            // Explicit options.immediate is reserved for callers that need bypass later.
+            void options;
             searchNearbyCandidatesAtMapClick(coords);
         },
         [searchNearbyCandidatesAtMapClick, selectedRouteStopId, pathMode, reviewMapMode],
@@ -2025,8 +2046,6 @@ export default function TransportRouteDetailContent({
     const toggleEditInfo = useCallback(() => {
         setEditingRoute((prev) => !prev);
     }, []);
-
-    const reloadReadiness = useCallback(() => loadReadiness(), [loadReadiness]);
 
     return (
         <>

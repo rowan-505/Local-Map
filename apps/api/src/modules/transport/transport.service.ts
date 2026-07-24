@@ -788,6 +788,16 @@ export class TransportService {
         return this.reviewOps.getRouteReviewReadiness(routePublicId);
     }
 
+    /** Last readiness duplicate-check duration (ms); set by getRouteReviewReadiness. */
+    getLastReadinessDuplicateCheckDurationMs(): number | null {
+        return this.reviewOps.lastDuplicateCheckDurationMs;
+    }
+
+    /** Last merge interactive-transaction duration (ms); set by mergeStopsKeepCanonical. */
+    getLastMergeTransactionDurationMs(): number | null {
+        return this.repo.lastMergeTransactionDurationMs;
+    }
+
     async getRouteDiagnostics(routePublicId: string): Promise<TransportRouteDiagnostics> {
         const [data, readiness] = await Promise.all([
             this.repo.getRouteDiagnosticsData(routePublicId),

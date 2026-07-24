@@ -20,6 +20,10 @@ import {
     type RouteReviewReadiness,
     type TransportReviewAction,
 } from "./transport-review.js";
+import {
+    DUPLICATE_NEARBY_RADIUS_M,
+    approxExpandDegreesFromMeters,
+} from "./transport-spatial.js";
 
 function variantDirectionKey(input: {
     variant_code: string;
@@ -38,6 +42,9 @@ function variantDirectionKey(input: {
 }
 
 export class TransportReviewOperations {
+    /** Last readiness duplicate-check wall time (ms); set by getRouteReviewReadiness. */
+    lastDuplicateCheckDurationMs: number | null = null;
+
     constructor(private readonly prisma: PrismaClient) {}
 
     async getRouteReviewReadiness(routePublicId: string): Promise<RouteReviewReadiness> {
@@ -99,6 +106,32 @@ export class TransportReviewOperations {
                 .filter((value): value is "outbound" | "inbound" => value !== null),
         );
 
+        const duplicateRadiusM = DUPLICATE_NEARBY_RADIUS_M;
+        const duplicateRadiusDeg = approxExpandDegreesFromMeters(duplicateRadiusM);
+
+        const duplicateCheckStarted = performance.now();
+        const duplicateWarningsPromise = this.prisma.$queryRaw<{ count: bigint }[]>`
+                SELECT count(*)::bigint AS count
+                FROM transport.route_variants rv
+                JOIN transport.route_stops rs ON rs.route_variant_id = rv.id
+                JOIN transport.stops s ON s.id = rs.stop_id
+                WHERE rv.route_id = ${route.id}
+                  AND rv.deleted_at IS NULL
+                  AND s.deleted_at IS NULL
+                  AND EXISTS (
+                    SELECT 1 FROM transport.stops s2
+                    WHERE s2.id <> s.id
+                      AND s2.deleted_at IS NULL
+                      AND s2.is_active = true
+                      AND s2.geom && ST_Expand(s.geom, ${duplicateRadiusDeg}::float8)
+                      AND ST_DWithin(
+                          s.geom::geography,
+                          s2.geom::geography,
+                          ${duplicateRadiusM}::float8
+                      )
+                  )
+            `;
+
         const [counts, sourceLink, pathReview, stopNames, duplicateWarnings, markReviewed] =
             await Promise.all([
             this.prisma.$queryRaw<
@@ -138,22 +171,12 @@ export class TransportReviewOperations {
                 JOIN transport.route_variants rv ON rv.id = rs.route_variant_id
                 WHERE rv.route_id = ${route.id} AND rv.deleted_at IS NULL AND s.deleted_at IS NULL
             `,
-            this.prisma.$queryRaw<{ count: bigint }[]>`
-                SELECT count(*)::bigint AS count
-                FROM transport.route_variants rv
-                JOIN transport.route_stops rs ON rs.route_variant_id = rv.id
-                JOIN transport.stops s ON s.id = rs.stop_id
-                WHERE rv.route_id = ${route.id}
-                  AND rv.deleted_at IS NULL
-                  AND s.deleted_at IS NULL
-                  AND EXISTS (
-                    SELECT 1 FROM transport.stops s2
-                    WHERE s2.id <> s.id
-                      AND s2.deleted_at IS NULL
-                      AND s2.is_active = true
-                      AND ST_DWithin(s.geom::geography, s2.geom::geography, 50)
-                  )
-            `,
+            duplicateWarningsPromise.then((rows) => {
+                this.lastDuplicateCheckDurationMs = Number(
+                    (performance.now() - duplicateCheckStarted).toFixed(1),
+                );
+                return rows;
+            }),
             this.prisma.$queryRaw<
                 {
                     variant_count: bigint;

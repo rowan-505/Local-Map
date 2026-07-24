@@ -20,6 +20,7 @@ import {
     TransportStopDeleteBlockedError,
 } from "./transport.errors.js";
 import { isHttpAuthError } from "./stopMergePreview.js";
+import { logTransportRequestPerf } from "./transport-perf.js";
 import { RoutingServiceDisabledError } from "../../config/env.js";
 import {
     RoutingEngineTimeoutError,
@@ -673,14 +674,33 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
             let duplicateStopId: string | undefined;
             let currentStopId: string | undefined;
             let candidateStopId: string | undefined;
+            const perfOn = process.env.TRANSPORT_PERF_LOG === "1";
+            const t0 = perfOn ? performance.now() : 0;
             try {
                 const body = stopMergeGlobalBodySchema.parse(request.body);
                 canonicalStopId = body.canonicalStopId;
                 duplicateStopId = body.duplicateStopId;
                 currentStopId = body.currentStopId;
                 candidateStopId = body.candidateStopId;
+                const repoStarted = perfOn ? performance.now() : 0;
                 const result = await service.mergeStopsGlobal(body, auditContextFrom(request));
-                return reply.send(result);
+                const repositoryDurationMs = perfOn
+                    ? Number((performance.now() - repoStarted).toFixed(1))
+                    : undefined;
+                reply.send(result);
+                if (perfOn) {
+                    logTransportRequestPerf(request.log, {
+                        requestId: request.id ?? null,
+                        endpoint: "POST /transport/stops/merge",
+                        totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                        repositoryDurationMs,
+                        transactionDurationMs:
+                            service.getLastMergeTransactionDurationMs() ?? undefined,
+                        resultCount: result.affectedRouteCodes?.length ?? 0,
+                        statusCode: 200,
+                    });
+                }
+                return;
             } catch (error) {
                 if (error instanceof TransportMergeExecutionFailedError) {
                     request.log.error(
@@ -726,6 +746,16 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
                     );
                 }
                 const handled = sendTransportError(reply, error);
+                if (perfOn) {
+                    logTransportRequestPerf(request.log, {
+                        requestId: request.id ?? null,
+                        endpoint: "POST /transport/stops/merge",
+                        totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                        transactionDurationMs:
+                            service.getLastMergeTransactionDurationMs() ?? undefined,
+                        statusCode: reply.statusCode || 500,
+                    });
+                }
                 if (handled) return handled;
                 throw error;
             }
@@ -1436,12 +1466,39 @@ const transportRoutes: FastifyPluginAsync = async (app) => {
     });
 
     app.get("/routes/:publicId/review-readiness", async (request, reply) => {
+        const perfOn = process.env.TRANSPORT_PERF_LOG === "1";
+        const t0 = perfOn ? performance.now() : 0;
         try {
             const { publicId } = transportPublicIdParamSchema.parse(request.params);
+            const repoStarted = perfOn ? performance.now() : 0;
             const result = await service.getRouteReviewReadiness(publicId);
-            return reply.send(result);
+            const repositoryDurationMs = perfOn
+                ? Number((performance.now() - repoStarted).toFixed(1))
+                : undefined;
+            reply.send(result);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "GET /transport/routes/:publicId/review-readiness",
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    repositoryDurationMs,
+                    resultCount: result.warnings?.length ?? 0,
+                    statusCode: 200,
+                    duplicateCheckDurationMs:
+                        service.getLastReadinessDuplicateCheckDurationMs() ?? undefined,
+                });
+            }
+            return;
         } catch (error) {
             const handled = sendTransportError(reply, error);
+            if (perfOn) {
+                logTransportRequestPerf(request.log, {
+                    requestId: request.id ?? null,
+                    endpoint: "GET /transport/routes/:publicId/review-readiness",
+                    totalDurationMs: Number((performance.now() - t0).toFixed(1)),
+                    statusCode: reply.statusCode || 500,
+                });
+            }
             if (handled) return handled;
             throw error;
         }
