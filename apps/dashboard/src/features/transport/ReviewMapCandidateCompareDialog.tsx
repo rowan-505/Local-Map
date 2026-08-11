@@ -302,10 +302,10 @@ export default function ReviewMapCandidateCompareDialog({
                 setPreview(null);
                 setPreviewLoading(true);
                 try {
-                    const refreshed = await previewTransportStopMerge(
-                        currentStopPublicId,
-                        candidate.publicId,
-                    );
+                    const refreshed = await previewTransportStopMerge({
+                        currentStopId: currentStopPublicId,
+                        candidateStopId: candidate.publicId,
+                    });
                     setPreview(refreshed);
                     setError(
                         "Comparison refreshed. Review the fields and try merge again.",
